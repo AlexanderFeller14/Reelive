@@ -1,6 +1,6 @@
 create extension if not exists pgtap with schema extensions;
 begin;
-select plan(9);
+select plan(11);
 
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-00000000000a', 'anna@test.local'),
@@ -62,6 +62,20 @@ select is(count(*)::int, 1, 'Mitglied sieht Profil des Mitreisenden')
   from public.profiles where id = '00000000-0000-0000-0000-00000000000a';
 select is(count(*)::int, 0, 'Kein Zugriff auf Profile Fremder')
   from public.profiles where id = '00000000-0000-0000-0000-00000000000c';
+
+-- Beitreten NUR via Edge Function/Owner-Trigger: kein direkter Insert durch Clients
+select throws_ok(
+  $$insert into public.trip_members (trip_id, user_id)
+    values ('11111111-1111-1111-1111-111111111111', '00000000-0000-0000-0000-00000000000c')$$,
+  '42501', null, 'Client kann nicht direkt in trip_members inserten');
+
+-- Geschützte Trip-Spalten (status/revealed_at/invite_code/plan) sind auch beim
+-- Insert für Clients tabu, nicht nur beim Update.
+select throws_ok(
+  $$insert into public.trips (id, name, start_date, end_date, owner_id, status)
+    values ('33333333-3333-3333-3333-333333333333', 'Verboten',
+            '2026-09-01', '2026-09-10', '00000000-0000-0000-0000-00000000000b', 'revealed')$$,
+  '42501', null, 'Client kann geschützte Trip-Spalten (status) beim Insert nicht setzen');
 
 -- Status-Manipulation durch Client ist verboten (Spec: nur Edge Function)
 select throws_ok(
