@@ -98,7 +98,7 @@ Abgelehnte Alternativen: Flutter + Firebase (zweites Ökosystem, NoSQL-Umwege, K
 ## 7. Fehlerbehandlung & Edge-Cases
 
 - **Offline ist der Normalfall:** Queue-Design wie oben; `captured_at` + Zeitzone vom Gerät sichern die Chronologie auch bei tagelangem Offline-Sein.
-- **Reveal bei ausstehenden Uploads:** Recap bleibt offen für Nachzügler; UI zeigt ausstehende Anzahl.
+- **Reveal bei ausstehenden Uploads:** Recap bleibt offen für Nachzügler; UI zeigt ausstehende Anzahl. Neue Aufnahmen sind nach dem Reveal nicht mehr möglich — angenommen werden nur noch Uploads von Aufnahmen, die vor dem Reveal entstanden sind (`captured_at` vor Reveal-Zeitpunkt).
 - **Beitritt mitten in der Reise:** erlaubt; Mitglied sieht ab Beitritt denselben versiegelten Zustand.
 - **Mitglied verlässt Trip / wird entfernt:** bereits eingesendete Beiträge bleiben im Trip (Hinweis beim Verlassen); entfernte Mitglieder verlieren jeden Zugriff.
 - **Doppelte Accounts (SMS vs. Apple/Google):** Auth-Identitäten werden über Supabase-Identity-Linking demselben Account zugeordnet; Onboarding fragt bei Kollision nach.
