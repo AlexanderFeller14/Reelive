@@ -17,23 +17,35 @@ diszipliniert.
 
 ## 1. Farben
 
-Dunkles Theme only in V1. Kein pures Schwarz, kein pures Weiss — alle Neutralen sind warm.
+Die App hat **Dark und Light Mode** (folgt der System-Einstellung). Kein pures Schwarz,
+kein pures Weiss — alle Neutralen sind warm. Es wird IMMER über Tokens gestylt, nie mit
+festen Hex-Werten im Code.
 
-| Token | Hex | Verwendung |
-|---|---|---|
-| `bg-0` | `#131110` | App-Hintergrund |
-| `bg-1` | `#1C1917` | Karten, Sheets, Tab-Bar |
-| `bg-2` | `#26221F` | Angehobene Flächen: Pills, sekundäre Buttons, Inputs |
-| `line` | `#2E2A26` | Hairlines, Divider (1 px, nie dicker) |
-| `text-1` | `#F2EEE8` | Primärtext, grosse Zahlen |
-| `text-2` | `#A79F96` | Sekundärtext, Labels |
-| `text-3` | `#6E675F` | Deaktiviert, Platzhalter |
-| `accent` | `#ED5B3D` | DER Akzent (Koralle-Ember): Primär-Buttons, aktive Tabs, Links |
-| `glow` | `#E0913F` | NUR für Versiegelungs-Ikonografie (Schloss, Filmstreifen, Funke ✦) |
-| `danger` | `#E5484D` | Nur destruktive Aktionen und Fehler |
+**Ausnahme von der Theme-Umschaltung:** Die Medien-Screens — Kamera, Aufnahme-Preview,
+Versiegelungs-Moment, Recap-Player — sind **immer dark** (Kinosaal-Prinzip: dort tragen
+die Fotos das Licht). Der Theme-Wechsel betrifft Home, Reise-Ansicht, Onboarding,
+Einstellungen und alle Listen/Formulare.
+
+| Token | Dark | Light | Verwendung |
+|---|---|---|---|
+| `bg-0` | `#131110` | `#F6F3EE` | App-Hintergrund |
+| `bg-1` | `#1C1917` | `#FCFAF6` | Karten, Sheets, Tab-Bar |
+| `bg-2` | `#26221F` | `#EFEAE2` | Angehobene Flächen: Pills, sekundäre Buttons, Inputs |
+| `line` | `#2E2A26` | `#E4DED4` | Hairlines, Divider (1 px, nie dicker) |
+| `text-1` | `#F2EEE8` | `#26221E` | Primärtext, grosse Zahlen |
+| `text-2` | `#A79F96` | `#6E675F` | Sekundärtext, Labels |
+| `text-3` | `#6E675F` | `#A79F96` | Deaktiviert, Platzhalter |
+| `accent` | `#ED5B3D` | `#ED5B3D` | DER Akzent (Koralle-Ember): Primär-Buttons, aktive Tabs |
+| `accent-text` | `#ED5B3D` | `#C9432A` | Akzent als Text/Link/Icon in kleiner Grösse (Kontrast) |
+| `glow` | `#E0913F` | `#B8752F` | NUR für Versiegelungs-Ikonografie (Schloss, Filmstreifen, Funke ✦) |
+| `danger` | `#E5484D` | `#D93A3F` | Nur destruktive Aktionen und Fehler |
 
 Regeln:
 - `accent` und `glow` nie mischen: Buttons/Interaktion = `accent`, Versiegelungs-Symbolik = `glow`.
+- Light Mode ist kein invertiertes Dark: gleiche Wärme, gleiche Hierarchie-Logik
+  (`bg-0 → bg-1 → bg-2` wird heller statt dunkler). Beide Themes werden mit gleicher
+  Sorgfalt gepflegt — jede neue Komponente wird in beiden geprüft.
+- Karten im Light Mode: 1 px Rand in `line`, weiterhin KEINE Schatten.
 - Auf Fotos liegt UI ausschliesslich als translucente Pille: `rgba(19,17,16,0.55)` + Blur 10.
 - Fotos bekommen Scrims (oben/unten `rgba(0,0,0,0.35) → transparent`), damit Text lesbar ist —
   das ist der EINZIGE erlaubte Gradient in der App.
@@ -61,9 +73,9 @@ Versalien-Schreien. Zahlen immer `tabular-nums`.
 - **Radius, genau drei Werte:** 12 (Buttons, Inputs), 24 (Karten, Sheets, Tab-Bar),
   999 (Pills, Avatare, Shutter). Nichts dazwischen.
 - **Abstände nur aus dem 4er-Raster:** 4 · 8 · 12 · 16 · 24 · 32 · 48. Screen-Ränder 20 px.
-- **Schatten: keine.** Dunkles UI trennt über Flächenhelligkeit (`bg-0 → bg-1 → bg-2`),
-  nicht über Schatten. Einzige Ausnahme: weicher `glow`-Schein hinter
-  Versiegelungs-Icons (Blur 24, Opacity ≤ 25 %).
+- **Schatten: keine.** Das UI trennt über Flächenhelligkeit (`bg-0 → bg-1 → bg-2`) und
+  im Light Mode über 1-px-Ränder, nicht über Schatten. Einzige Ausnahme: weicher
+  `glow`-Schein hinter Versiegelungs-Icons (Blur 24, Opacity ≤ 25 %).
 - **Fotos immer randlos** (edge-to-edge), nie in Rahmen oder mit Rand — Ausnahme:
   Thumbnails in Karten (Radius 12).
 
@@ -130,17 +142,22 @@ gelten die Regeln ohne weiteres Zutun.
 
 **ChatGPT/andere Tools (z.B. für Mockups)** — diesen Block an den Prompt anhängen:
 
-> Halte dich strikt an folgenden Styleguide: Dunkles warmes UI (#131110 Hintergrund,
-> #1C1917 Karten), Textfarben #F2EEE8/#A79F96, EIN Akzent #ED5B3D (Koralle) für Buttons
-> und aktive Zustände, #E0913F nur für Schloss-/Filmstreifen-Icons. Font: Manrope,
-> grosse Zähler in Weight 200. Radius nur 12/24/999. Keine Schatten, keine Gradients
-> (ausser dunkle Scrims auf Fotos), keine anderen Farben. Icons: Lucide Outline.
-> Fotos immer randlos, UI darauf nur als translucente dunkle Pillen. Deutsch, Du-Form,
-> Vokabular: Moment, Reise, Filmrolle, versiegelt, Recap, einsenden.
+> Halte dich strikt an folgenden Styleguide: Warmes UI mit Dark Mode (#131110
+> Hintergrund, #1C1917 Karten, Text #F2EEE8/#A79F96) und Light Mode (#F6F3EE
+> Hintergrund, #FCFAF6 Karten mit 1px Rand #E4DED4, Text #26221E/#6E675F). EIN Akzent
+> #ED5B3D (Koralle) für Buttons und aktive Zustände, #E0913F (dark) / #B8752F (light)
+> nur für Schloss-/Filmstreifen-Icons. Kamera-, Preview- und Recap-Player-Screens sind
+> IMMER dark. Font: Manrope, grosse Zähler in Weight 200. Radius nur 12/24/999. Keine
+> Schatten, keine Gradients (ausser dunkle Scrims auf Fotos), keine anderen Farben.
+> Icons: Lucide Outline. Fotos immer randlos, UI darauf nur als translucente dunkle
+> Pillen. Deutsch, Du-Form, Vokabular: Moment, Reise, Filmrolle, versiegelt, Recap,
+> einsenden.
 
 ## 9. Review-Checkliste (vor jedem Merge mit UI-Änderungen)
 
 - [ ] Farben gezählt: nur Tokens aus §1? Kein neues Blau/Violett eingeschlichen?
+- [ ] In BEIDEN Themes angeschaut (Dark und Light)? Medien-Screens weiterhin immer dark?
+- [ ] Nirgends feste Hex-Werte im Code — alles über Tokens?
 - [ ] Alle Radius-Werte ∈ {12, 24, 999}?
 - [ ] Alle Abstände auf dem 4er-Raster, Screen-Rand 20?
 - [ ] Genau ein Primär-Button pro Screen?
