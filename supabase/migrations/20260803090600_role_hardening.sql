@@ -146,11 +146,13 @@ create index comments_post_idx on public.comments (post_id);
 --
 -- (b) Hinweis für App-/Edge-Function-Code: `.insert()` auf posts NIE mit
 --     `.select()` bzw. RETURNING verketten, solange der Trip noch nicht
---     revealed ist. Der Insert selbst gelingt (posts_insert_member erlaubt
---     ihn), aber das implizite RETURNING liest die soeben eingefügte Zeile
---     über die Select-Policy zurück — und posts_select_revealed_members
---     verlangt "status = 'revealed'". Vor dem Reveal schlägt das RETURNING
---     also mit 42501 fehl, obwohl der Insert an sich korrekt war. Clients
---     müssen die eingefügten Werte lokal vorhalten statt sie zurücklesen zu
---     lassen.
+--     revealed ist. Bei `.insert().select()` wird das GESAMTE Statement
+--     zurückgerollt (Postgres-Atomarität pro Statement): INSERT gelingt
+--     zwar initial (posts_insert_member erlaubt ihn), aber das implizite
+--     RETURNING liest die soeben eingefügte Zeile über die Select-Policy
+--     zurück — posts_select_revealed_members verlangt "status = 'revealed'",
+--     und der Policy-Check schlägt mit 42501 fehl. Daraufhin wird die
+--     GESAMTE Transaktion zurückgerollt — der Post ist NICHT gespeichert.
+--     Clients müssen `.insert()` OHNE .select()/RETURNING ausführen und die
+--     Werte lokal vorhalten, sonst geht der Moment des Users verloren.
 -- ============================================================================
