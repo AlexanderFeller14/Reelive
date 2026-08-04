@@ -1,10 +1,11 @@
 create extension if not exists pgtap with schema extensions;
 begin;
-select plan(10);
+select plan(12);
 
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-00000000000a', 'anna@test.local'),
-  ('00000000-0000-0000-0000-00000000000b', 'ben@test.local');
+  ('00000000-0000-0000-0000-00000000000b', 'ben@test.local'),
+  ('00000000-0000-0000-0000-00000000000c', 'carla@test.local');
 
 create or replace function pg_temp.login_as(p_user uuid) returns void
 language plpgsql as $$
@@ -40,7 +41,8 @@ end $$;
 
 insert into public.profiles (id, username, display_name) values
   ('00000000-0000-0000-0000-00000000000a', 'anna', 'Anna'),
-  ('00000000-0000-0000-0000-00000000000b', 'ben', 'Ben');
+  ('00000000-0000-0000-0000-00000000000b', 'ben', 'Ben'),
+  ('00000000-0000-0000-0000-00000000000c', 'carla', 'Carla');
 
 -- Trip mit Anna (Owner) + Ben
 select pg_temp.login_as('00000000-0000-0000-0000-00000000000a');
@@ -100,6 +102,19 @@ insert into public.posts (trip_id, author_id, type, storage_key, duration_s, cap
           'video', 'k', 20, '2026-08-05 09:00+00', 'Europe/Lisbon');
 select pass('Video mit 20s Dauer wird angenommen');
 
+-- === Positiv-Insert mit ALLEN 13 gegrantsen posts-Spalten (gekoppelte
+-- Ergänzung, finaler Whole-Branch-Review — fängt versehentliche
+-- Grant-Verengungen auf den Insert-Spalten aus 090600_role_hardening.sql)
+insert into public.posts (
+  id, trip_id, author_id, type, storage_key, thumb_key, duration_s,
+  caption, captured_at, captured_tz, lat, lng, place_name
+) values (
+  '55555555-5555-5555-5555-555555555555', '11111111-1111-1111-1111-111111111111',
+  '00000000-0000-0000-0000-00000000000a', 'video', 'trips/x/full.mp4', 'trips/x/full-thumb.jpg', 15,
+  'Alle Spalten befüllt', '2026-08-05 09:00+00', 'Europe/Lisbon', 38.7223, -9.1393, 'Lissabon'
+);
+select pass('Insert mit allen 13 gegrantsen posts-Spalten wird angenommen');
+
 -- === Mitgliedschafts-Orakel geschlossen: anon darf is_trip_member nicht rufen ===
 select pg_temp.as_anon();
 select throws_ok(
@@ -127,6 +142,26 @@ select isnt(
   (select invite_code from public.trips where id = '11111111-1111-1111-1111-111111111111'),
   current_setting('test.invite_code_before'),
   'invite_code rotiert nach Mitglieds-Entfernung');
+
+-- === invite_code-Rotation auch beim Entfernen durch den Owner (gekoppelte
+-- Ergänzung, finaler Whole-Branch-Review — analog zum Selbst-Austritt oben,
+-- aber der Owner entfernt ein anderes Mitglied statt Selbst-Austritt).
+select pg_temp.logout();
+insert into public.trip_members (trip_id, user_id) values
+  ('11111111-1111-1111-1111-111111111111', '00000000-0000-0000-0000-00000000000c');
+
+select set_config('test.invite_code_before_owner_removal',
+  (select invite_code from public.trips where id = '11111111-1111-1111-1111-111111111111'), true);
+
+select pg_temp.login_as('00000000-0000-0000-0000-00000000000a');
+delete from public.trip_members
+  where trip_id = '11111111-1111-1111-1111-111111111111'
+    and user_id = '00000000-0000-0000-0000-00000000000c';
+
+select isnt(
+  (select invite_code from public.trips where id = '11111111-1111-1111-1111-111111111111'),
+  current_setting('test.invite_code_before_owner_removal'),
+  'invite_code rotiert auch, wenn der Owner ein Mitglied entfernt');
 
 select * from finish();
 rollback;

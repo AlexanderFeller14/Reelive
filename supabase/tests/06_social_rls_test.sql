@@ -1,6 +1,6 @@
 create extension if not exists pgtap with schema extensions;
 begin;
-select plan(12);
+select plan(19);
 
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-00000000000a', 'anna@test.local'),
@@ -73,6 +73,41 @@ select is(count(*)::int, 1, 'Reaktionen sind für Mitglieder sichtbar')
 select is(count(*)::int, 1, 'Kommentare sind für Mitglieder sichtbar')
   from public.comments where post_id = '22222222-2222-2222-2222-222222222222';
 
+-- === reactions_delete_own: nur der Verfasser löscht, keine Fremdrechte
+-- (Finding 2, finaler Whole-Branch-Review — bisher 0 Assertions). Anna ist
+-- Owner, aber nicht Verfasserin der Reaktion.
+delete from public.reactions
+  where post_id = '22222222-2222-2222-2222-222222222222'
+    and user_id = '00000000-0000-0000-0000-00000000000b';
+select is(count(*)::int, 1, 'reactions_delete_own: Owner kann fremde Reaktion nicht löschen')
+  from public.reactions where post_id = '22222222-2222-2222-2222-222222222222';
+
+select pg_temp.login_as('00000000-0000-0000-0000-00000000000b');
+delete from public.reactions
+  where post_id = '22222222-2222-2222-2222-222222222222'
+    and user_id = '00000000-0000-0000-0000-00000000000b';
+select is(count(*)::int, 0, 'reactions_delete_own: eigene Reaktion löschen erlaubt')
+  from public.reactions where post_id = '22222222-2222-2222-2222-222222222222';
+
+select pg_temp.login_as('00000000-0000-0000-0000-00000000000a');
+
+-- === comments_delete_own: nur der Verfasser löscht, keine Fremdrechte
+-- (bisher 0 Assertions)
+delete from public.comments
+  where post_id = '22222222-2222-2222-2222-222222222222'
+    and user_id = '00000000-0000-0000-0000-00000000000b';
+select is(count(*)::int, 1, 'comments_delete_own: Owner kann fremden Kommentar nicht löschen')
+  from public.comments where post_id = '22222222-2222-2222-2222-222222222222';
+
+select pg_temp.login_as('00000000-0000-0000-0000-00000000000b');
+delete from public.comments
+  where post_id = '22222222-2222-2222-2222-222222222222'
+    and user_id = '00000000-0000-0000-0000-00000000000b';
+select is(count(*)::int, 0, 'comments_delete_own: eigenen Kommentar löschen erlaubt')
+  from public.comments where post_id = '22222222-2222-2222-2222-222222222222';
+
+select pg_temp.login_as('00000000-0000-0000-0000-00000000000a');
+
 select throws_ok(
   $$insert into public.comments (post_id, user_id, text)
     values ('22222222-2222-2222-2222-222222222222', '00000000-0000-0000-0000-00000000000b', 'Fälschung')$$,
@@ -82,6 +117,15 @@ insert into public.reports (post_id, reporter_id, reason)
   values ('22222222-2222-2222-2222-222222222222', '00000000-0000-0000-0000-00000000000a', 'Unangebracht');
 select pass('Mitglied kann Post melden');
 
+-- === reports_select_owner: nur der Trip-Owner liest Meldungen (Moderation),
+-- Finding 2, finaler Whole-Branch-Review — bisher 0 Assertions.
+select is(count(*)::int, 1, 'reports_select_owner: Owner sieht die Meldung')
+  from public.reports where post_id = '22222222-2222-2222-2222-222222222222';
+
+select pg_temp.login_as('00000000-0000-0000-0000-00000000000b');
+select is(count(*)::int, 0, 'reports_select_owner: Nicht-Owner sieht die Meldung nicht')
+  from public.reports where post_id = '22222222-2222-2222-2222-222222222222';
+
 -- share_links: nur der Owner verwaltet sie
 select pg_temp.login_as('00000000-0000-0000-0000-00000000000b');
 select throws_ok(
@@ -89,12 +133,19 @@ select throws_ok(
     values ('11111111-1111-1111-1111-111111111111')$$,
   '42501', null, 'Nur der Owner erstellt Share-Links');
 
+-- Positivpfad (Finding 2 — bisher nur Bens Ablehnung getestet): der Owner
+-- erstellt einen Share-Link auf dem revealed Trip.
+select pg_temp.login_as('00000000-0000-0000-0000-00000000000a');
+insert into public.share_links (trip_id) values ('11111111-1111-1111-1111-111111111111');
+select pass('share_links_all_owner: Owner erstellt Share-Link auf revealed Trip');
+
 -- Autorisierte Erweiterung (Task-5-Review): Testabdeckung für
 -- posts_delete_after_reveal NACH dem Reveal — Fremde löschen nicht,
 -- der Owner darf moderierend löschen, die Autorin ihren eigenen Post.
 -- Reihenfolge ist wichtig: Das Löschen von Annas Post kaskadiert auch die
 -- Reaktionen/Kommentare aus den Tests oben, darum steht dieser Block ganz
 -- am Ende der Datei.
+select pg_temp.login_as('00000000-0000-0000-0000-00000000000b');
 insert into public.posts (id, trip_id, author_id, type, storage_key, captured_at, captured_tz)
   values ('33333333-3333-3333-3333-333333333333', '11111111-1111-1111-1111-111111111111',
           '00000000-0000-0000-0000-00000000000b', 'photo', 'k2',

@@ -1,6 +1,6 @@
 create extension if not exists pgtap with schema extensions;
 begin;
-select plan(14);
+select plan(20);
 
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-00000000000a', 'anna@test.local'),
@@ -82,6 +82,55 @@ select throws_ok(
   $$update public.trips set status = 'revealed'
     where id = '11111111-1111-1111-1111-111111111111'$$,
   '42501', null, 'Client kann trips.status nicht direkt setzen');
+
+-- === profiles_insert_own: eigenes Profil anlegen erlaubt, fremde ID
+-- verboten (Finding 2, finaler Whole-Branch-Review — bisher 0 Assertions:
+-- alle Profile-Inserts liefen bislang als Superuser).
+select pg_temp.logout();
+insert into auth.users (id, email) values
+  ('00000000-0000-0000-0000-00000000000d', 'dora@test.local'),
+  ('00000000-0000-0000-0000-00000000000e', 'erik@test.local');
+
+select pg_temp.login_as('00000000-0000-0000-0000-00000000000d');
+insert into public.profiles (id, username, display_name)
+  values ('00000000-0000-0000-0000-00000000000d', 'dora', 'Dora');
+select pass('profiles_insert_own: eigenes Profil anlegen erlaubt');
+
+select throws_ok(
+  $$insert into public.profiles (id, username, display_name)
+    values ('00000000-0000-0000-0000-00000000000e', 'erik', 'Erik')$$,
+  '42501', null, 'profiles_insert_own: fremde ID beim Insert verboten');
+
+-- === profiles_update_own: eigenes Profil änderbar, fremdes bleibt unberührt
+update public.profiles set display_name = 'Dora K.'
+  where id = '00000000-0000-0000-0000-00000000000d';
+select is(display_name, 'Dora K.', 'profiles_update_own: eigenes Profil aktualisierbar')
+  from public.profiles where id = '00000000-0000-0000-0000-00000000000d';
+
+update public.profiles set display_name = 'Gehackt'
+  where id = '00000000-0000-0000-0000-00000000000a';
+
+select pg_temp.login_as('00000000-0000-0000-0000-00000000000a');
+select is(display_name, 'Anna', 'profiles_update_own: fremdes Profil bleibt unverändert')
+  from public.profiles where id = '00000000-0000-0000-0000-00000000000a';
+
+-- === trips_delete_owner: Owner löscht, Nicht-Owner scheitert (bisher 0
+-- Assertions)
+select pg_temp.login_as('00000000-0000-0000-0000-00000000000d');
+insert into public.trips (id, name, start_date, end_date, owner_id)
+  values ('44444444-4444-4444-4444-444444444444', 'Porto',
+          '2026-09-01', '2026-09-05', '00000000-0000-0000-0000-00000000000d');
+
+select pg_temp.login_as('00000000-0000-0000-0000-00000000000c');
+delete from public.trips where id = '44444444-4444-4444-4444-444444444444';
+
+select pg_temp.login_as('00000000-0000-0000-0000-00000000000d');
+select is(count(*)::int, 1, 'trips_delete_owner: Nicht-Owner kann fremden Trip nicht löschen')
+  from public.trips where id = '44444444-4444-4444-4444-444444444444';
+
+delete from public.trips where id = '44444444-4444-4444-4444-444444444444';
+select is(count(*)::int, 0, 'trips_delete_owner: Owner kann eigenen Trip löschen')
+  from public.trips where id = '44444444-4444-4444-4444-444444444444';
 
 -- === Mitgliedschafts-Orakel geschlossen (Finding 1, finaler Whole-Branch-
 -- Review): ein authenticated Nicht-Mitglied darf über is_trip_member() keine
