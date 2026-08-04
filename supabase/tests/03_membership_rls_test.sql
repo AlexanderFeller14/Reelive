@@ -1,6 +1,6 @@
 create extension if not exists pgtap with schema extensions;
 begin;
-select plan(11);
+select plan(14);
 
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-00000000000a', 'anna@test.local'),
@@ -82,6 +82,31 @@ select throws_ok(
   $$update public.trips set status = 'revealed'
     where id = '11111111-1111-1111-1111-111111111111'$$,
   '42501', null, 'Client kann trips.status nicht direkt setzen');
+
+-- === Mitgliedschafts-Orakel geschlossen (Finding 1, finaler Whole-Branch-
+-- Review): ein authenticated Nicht-Mitglied darf über is_trip_member() keine
+-- fremden Mitgliedschaften erfragen — auch wenn die Zielperson tatsächlich
+-- Mitglied ist. Carla ist Mitglied von nichts.
+select pg_temp.login_as('00000000-0000-0000-0000-00000000000c');
+select is(
+  public.is_trip_member('11111111-1111-1111-1111-111111111111'::uuid,
+                         '00000000-0000-0000-0000-00000000000a'::uuid),
+  false,
+  'Orakel geschlossen: Fremde(r) erfährt nicht, ob Anna Mitglied ist');
+select is(
+  public.is_trip_member('11111111-1111-1111-1111-111111111111'::uuid,
+                         '00000000-0000-0000-0000-00000000000c'::uuid),
+  false,
+  'Fremde(r) bekommt auch für die eigene Nicht-Mitgliedschaft nur false');
+
+-- Guard bricht die legitime Selbstauskunft nicht: ein tatsächliches Mitglied
+-- bekommt für die eigene UUID weiterhin das korrekte Ergebnis.
+select pg_temp.login_as('00000000-0000-0000-0000-00000000000b');
+select is(
+  public.is_trip_member('11111111-1111-1111-1111-111111111111'::uuid,
+                         '00000000-0000-0000-0000-00000000000b'::uuid),
+  true,
+  'Guard bricht die legitime Selbstauskunft nicht: Mitglied bekommt weiterhin true');
 
 select * from finish();
 rollback;
