@@ -31,3 +31,6 @@ npm install
 npx expo start         # QR-Code für Expo Go; i = iOS-Simulator, a = Android-Emulator
 npm test               # Jest
 ```
+
+Login lokal: Testnummern `+41 79 000 00 01` / `…02`, Code jeweils `123456`
+(supabase/config.toml → [auth.sms.test_otp]).
