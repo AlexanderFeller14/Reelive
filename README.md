@@ -19,3 +19,15 @@ supabase test db      # pgTAP-Tests (RLS-Policies!) ausführen
 
 Regel: Schema-Änderungen NUR über Migrationen in `supabase/migrations/`.
 Jede RLS-Policy braucht Tests in `supabase/tests/`.
+
+## Entwicklung (App)
+
+Voraussetzungen: Node ≥ 20, Expo Go auf dem Gerät (App Store / Play Store)
+
+```bash
+cd mobile
+cp .env.example .env   # URL + Anon-Key eintragen (siehe supabase status)
+npm install
+npx expo start         # QR-Code für Expo Go; i = iOS-Simulator, a = Android-Emulator
+npm test               # Jest
+```
