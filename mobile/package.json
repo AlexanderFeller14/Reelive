@@ -3,6 +3,7 @@
   "main": "expo-router/entry",
   "version": "1.0.0",
   "dependencies": {
+    "@expo-google-fonts/manrope": "^0.4.2",
     "@expo/ui": "~57.0.9",
     "@types/jest": "29.5.14",
     "expo": "~57.0.10",
