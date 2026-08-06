@@ -1,0 +1,50 @@
+import { useEffect, useState } from 'react';
+import { Share, Text, View, StyleSheet } from 'react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import QRCode from 'react-native-qrcode-svg';
+import { Button } from '@/components/Button';
+import { useTheme } from '@/theme/ThemeProvider';
+import { palette, spacing, type } from '@/theme/tokens';
+import { fetchInviteCode } from '@/features/trips/tripsApi';
+import { createInviteUrl } from '@/features/trips/inviteLink';
+
+export default function Einladen() {
+  const { colors } = useTheme();
+  const router = useRouter();
+  const { id } = useLocalSearchParams<{ id: string }>();
+  const [url, setUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    void fetchInviteCode(id).then((code) => setUrl(code ? createInviteUrl(code) : null));
+  }, [id]);
+
+  const teilen = async () => {
+    if (!url) return;
+    await Share.share({ message: `Komm mit auf die Reise: ${url}` });
+  };
+
+  return (
+    <View style={[styles.screen, { backgroundColor: colors['bg-0'] }]}>
+      <Text style={[type.h1, { color: colors['text-1'] }]}>Freunde einladen</Text>
+      <Text style={[type.body, { color: colors['text-2'] }]}>
+        Scannen oder Link schicken. Deine Freunde können jederzeit dazukommen, auch mitten in der Reise.
+      </Text>
+
+      <View style={styles.qr}>
+        {url && (
+          // QRCode nimmt feste Farbwerte statt Style-Props — bewusst die
+          // Token-Werte durchgereicht, keine neuen Hex-Werte.
+          <QRCode value={url} size={220} color={palette['text-1']} backgroundColor={palette['bg-0']} />
+        )}
+      </View>
+
+      <Button variant="primary" label="Link teilen" onPress={() => void teilen()} />
+      <Button variant="text" label="Später" onPress={() => router.replace(`/reise/${id}`)} />
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  screen: { flex: 1, padding: spacing.screen, paddingTop: spacing.xxl, gap: spacing.l },
+  qr: { alignItems: 'center', paddingVertical: spacing.xl },
+});
