@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
+import { StatusBar } from 'expo-status-bar';
 import {
   useFonts,
   Figtree_300Light,
@@ -35,7 +36,10 @@ function Guarded() {
   }, [status, segments, router]);
 
   return (
-    <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors['bg-0'] } }} />
+    <>
+      <StatusBar style="dark" />
+      <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors['bg-0'] } }} />
+    </>
   );
 }
 
