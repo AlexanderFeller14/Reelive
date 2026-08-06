@@ -25,3 +25,14 @@ test('loading zeigt Spinner statt Label-Interaktion', async () => {
   fireEvent.press(screen.getByTestId('button-loading'));
   expect(onPress).not.toHaveBeenCalled();
 });
+
+test('text-Variante rendert Label unterstrichen und feuert', async () => {
+  const onPress = jest.fn();
+  await wrap(<Button variant="text" label="Code erneut senden" onPress={onPress} />);
+  const label = screen.getByText('Code erneut senden');
+  expect(label.props.style).toEqual(
+    expect.arrayContaining([expect.objectContaining({ textDecorationLine: 'underline' })])
+  );
+  fireEvent.press(label);
+  expect(onPress).toHaveBeenCalledTimes(1);
+});

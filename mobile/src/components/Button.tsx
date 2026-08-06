@@ -1,4 +1,5 @@
-import { ActivityIndicator, Pressable, Text, StyleSheet } from 'react-native';
+import { ActivityIndicator, Text, View, StyleSheet } from 'react-native';
+import { PressScale } from '@/components/PressScale';
 import { useTheme } from '@/theme/ThemeProvider';
 import { radius, spacing, type } from '@/theme/tokens';
 
@@ -10,36 +11,60 @@ type Props = {
   loading?: boolean;
 };
 
+// DESIGN-LANGUAGE v2 §4: primär = accent-Fläche, sekundär = Outline auf Weiss,
+// text = unterstrichener Link in text-1. Genau ein Primär-Button pro Screen.
 export function Button({ variant, label, onPress, disabled, loading }: Props) {
   const { colors } = useTheme();
   const blocked = disabled || loading;
-  const bg =
-    variant === 'primary' ? colors.accent : variant === 'secondary' ? colors['bg-1'] : 'transparent';
-  const fg =
-    variant === 'primary' ? colors['on-accent'] : variant === 'secondary' ? colors['text-1'] : colors['accent-text'];
-
-  const handlePress = () => {
-    if (!blocked) {
-      onPress();
-    }
-  };
 
   return (
-    <Pressable
+    <PressScale
       accessibilityRole="button"
-      onPress={handlePress}
-      style={({ pressed }) => [
-        styles.base,
-        variant !== 'text' && { backgroundColor: bg, height: 52 },
-        { opacity: blocked ? 0.5 : pressed ? 0.85 : 1 },
-      ]}
+      accessibilityState={{ disabled: !!blocked }}
+      onPress={() => {
+        if (!blocked) onPress();
+      }}
     >
-      {loading ? (
-        <ActivityIndicator testID="button-loading" color={fg} />
-      ) : (
-        <Text style={[type.body, { fontFamily: 'Figtree_600SemiBold', color: fg }]}>{label}</Text>
-      )}
-    </Pressable>
+      {({ pressed }) => {
+        const bg =
+          variant === 'primary'
+            ? blocked
+              ? colors['bg-1']
+              : pressed
+                ? colors['accent-pressed']
+                : colors.accent
+            : variant === 'secondary'
+              ? pressed
+                ? colors['bg-1']
+                : colors['bg-0']
+              : 'transparent';
+        const fg =
+          variant === 'primary'
+            ? blocked
+              ? colors['text-3']
+              : colors['on-accent']
+            : blocked
+              ? colors['text-3']
+              : colors['text-1'];
+        return (
+          <View
+            style={[
+              styles.base,
+              variant !== 'text' && { backgroundColor: bg, height: 52 },
+              variant === 'secondary' && { borderWidth: 1, borderColor: fg },
+            ]}
+          >
+            {loading ? (
+              <ActivityIndicator testID="button-loading" color={fg} />
+            ) : (
+              <Text style={[type.bodyMedium, { color: fg }, variant === 'text' && styles.underline]}>
+                {label}
+              </Text>
+            )}
+          </View>
+        );
+      }}
+    </PressScale>
   );
 }
 
@@ -50,4 +75,5 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: spacing.l,
   },
+  underline: { textDecorationLine: 'underline' },
 });
