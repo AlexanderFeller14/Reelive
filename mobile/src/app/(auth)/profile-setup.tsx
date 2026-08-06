@@ -32,6 +32,9 @@ export default function ProfileSetupScreen() {
   return (
     <View style={[styles.screen, { backgroundColor: colors['bg-0'] }]}>
       <Text style={[type.h1, { color: colors['text-1'] }]}>Fast geschafft</Text>
+      <Text style={[type.secondary, { color: colors['text-2'] }]}>
+        So sehen dich deine Freunde im Recap.
+      </Text>
       <Input
         label="Username"
         value={username}
@@ -54,5 +57,5 @@ export default function ProfileSetupScreen() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, justifyContent: 'center', padding: spacing.screen, gap: spacing.l },
+  screen: { flex: 1, padding: spacing.screen, paddingTop: spacing.xxl, gap: spacing.l },
 });

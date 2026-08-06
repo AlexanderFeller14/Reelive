@@ -1,10 +1,10 @@
 import { useState } from 'react';
-import { View, StyleSheet } from 'react-native';
+import { Text, View, StyleSheet } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import { Button } from '@/components/Button';
 import { Input } from '@/components/Input';
 import { useTheme } from '@/theme/ThemeProvider';
-import { spacing } from '@/theme/tokens';
+import { spacing, type } from '@/theme/tokens';
 import { requestOtp, verifyOtp } from '@/features/auth/authApi';
 
 export default function OtpScreen() {
@@ -24,22 +24,29 @@ export default function OtpScreen() {
 
   return (
     <View style={[styles.screen, { backgroundColor: colors['bg-0'] }]}>
-      <Input
-        label="Code"
-        value={code}
-        onChangeText={setCode}
-        error={error}
-        keyboardType="number-pad"
-        maxLength={6}
-        autoFocus
-        placeholder="123456"
-      />
-      <Button variant="primary" label="Bestätigen" onPress={submit} loading={loading} disabled={code.length !== 6} />
-      <Button variant="text" label="Code erneut senden" onPress={() => void requestOtp(phone)} />
+      <Text style={[type.label, { color: colors['text-2'] }]}>Schritt 2 von 2</Text>
+      <Text style={[type.h1, { color: colors['text-1'] }]}>Dein Code</Text>
+      <Text style={[type.secondary, { color: colors['text-2'] }]}>
+        {`Wir haben dir einen Code an ${phone} geschickt.`}
+      </Text>
+      <View style={{ gap: spacing.l, marginTop: spacing.base }}>
+        <Input
+          label="Code"
+          value={code}
+          onChangeText={setCode}
+          error={error}
+          keyboardType="number-pad"
+          maxLength={6}
+          autoFocus
+          placeholder="123456"
+        />
+        <Button variant="primary" label="Bestätigen" onPress={submit} loading={loading} disabled={code.length !== 6} />
+        <Button variant="text" label="Code erneut senden" onPress={() => void requestOtp(phone)} />
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, justifyContent: 'center', padding: spacing.screen, gap: spacing.l },
+  screen: { flex: 1, padding: spacing.screen, paddingTop: spacing.xxl, gap: spacing.s },
 });
