@@ -1,6 +1,7 @@
 import { render, screen, fireEvent } from '@testing-library/react-native';
-import { Animated } from 'react-native';
+import { Animated, StyleSheet } from 'react-native';
 import { ThemeProvider } from '@/theme/ThemeProvider';
+import { palette } from '@/theme/tokens';
 import { Button } from '../Button';
 
 const wrap = (ui: React.ReactElement) => render(<ThemeProvider>{ui}</ThemeProvider>);
@@ -31,6 +32,34 @@ test('disabled Button spielt Press-Scale-Animation nicht ab', async () => {
   await fireEvent(label, 'pressIn');
   await fireEvent(label, 'pressOut');
   await fireEvent.press(label);
+
+  expect(springSpy).not.toHaveBeenCalled();
+  expect(onPress).not.toHaveBeenCalled();
+
+  springSpy.mockRestore();
+});
+
+test('secondary Variante zeigt Outline mit bg-0 im Ruhezustand', async () => {
+  await wrap(<Button variant="secondary" label="Abbrechen" onPress={() => {}} />);
+  const label = screen.getByText('Abbrechen');
+  // `.parent` ist die innere View mit den Ruhezustand-Styles (Outline, bg-0).
+  const flattened = StyleSheet.flatten(label.parent?.props.style);
+
+  expect(flattened.borderWidth).toBe(1);
+  expect(flattened.backgroundColor).toBe(palette['bg-0']);
+});
+
+test('loading Button spielt Press-Scale-Animation nicht ab', async () => {
+  const springSpy = jest.spyOn(Animated, 'spring');
+  const onPress = jest.fn();
+  await wrap(<Button variant="primary" label="Weiter" onPress={onPress} loading />);
+  const spinner = screen.getByTestId('button-loading');
+
+  // Wie bei disabled: reales Pressable-`disabled` unterdrückt den
+  // Responder-Zyklus, RNTL simuliert das über `onStartShouldSetResponder`.
+  await fireEvent(spinner, 'pressIn');
+  await fireEvent(spinner, 'pressOut');
+  await fireEvent.press(spinner);
 
   expect(springSpy).not.toHaveBeenCalled();
   expect(onPress).not.toHaveBeenCalled();

@@ -20,6 +20,8 @@ export type ColorTokens = typeof palette;
 
 export const radius = { control: 12, card: 24, pill: 999 } as const;
 
+// `screen` (Screen-Rand) und `l` (Layout-Abstand) sind semantisch getrennte
+// Keys, deren Werte in v2 zufällig beide 24 sind — nicht deduplizieren.
 export const spacing = { xs: 4, s: 8, m: 12, base: 16, screen: 24, l: 24, xl: 32, xxl: 48 } as const;
 
 export const type = {

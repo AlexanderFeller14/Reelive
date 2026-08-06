@@ -2,33 +2,43 @@ import { useRef, useState } from 'react';
 import { Animated, Easing, Text, TextInput, View, type TextInputProps } from 'react-native';
 import { useTheme } from '@/theme/ThemeProvider';
 import { motion, radius, spacing, type } from '@/theme/tokens';
+import { useReducedMotion } from '@/theme/useReducedMotion';
 
 type Props = TextInputProps & { label: string; error?: string };
 
 // Floating-Label-Input (DESIGN-LANGUAGE v2 §4): Label liegt mittig und
 // schrumpft bei Fokus/Inhalt nach oben (150 ms ease-smooth). Fokus-Rand
 // 2 px text-1 (bewusst nicht accent), Fehler in danger.
-// Abweichung zur Spec: das Label bleibt konstant in Figtree_400Regular,
+// Abweichung zur Spec: das Label bleibt konstant in type.body.fontFamily,
 // weil fontFamily nicht animierbar ist. Die Grösse wird ebenfalls nicht
 // direkt animiert (fontSize ist wie fontFamily kein Transform-Property) —
 // §5 verlangt strikt nur transform/opacity auf dem UI-Thread. Statt top/
 // fontSize zu interpolieren, bleibt das Label auf top 17 / fontSize 16
 // fixiert und wird per translateY (0 → −9, ergibt visuell top 8) und
 // scale (1 → 0.75, ergibt visuell 12 px) verschoben/verkleinert;
-// transformOrigin 'left center' hält die linke Kante beim Schrumpfen fest.
+// transformOrigin 'left top' hält die linke obere Ecke fest, sodass die
+// Skalierung die Oberkante nicht verschiebt — translateY −9 ergibt damit
+// exakt top 17 → 8, ohne weitere Kompensation.
 export function Input({ label, error, value, placeholder, style, onFocus, onBlur, ...rest }: Props) {
   const { colors } = useTheme();
   const [focused, setFocused] = useState(false);
   const lifted = focused || !!value;
   const anim = useRef(new Animated.Value(lifted ? 1 : 0)).current;
+  const reducedMotion = useReducedMotion();
 
-  const animate = (to: number) =>
+  const animate = (to: number) => {
+    // Reduced Motion (§5): Wert direkt setzen statt zu animieren.
+    if (reducedMotion) {
+      anim.setValue(to);
+      return;
+    }
     Animated.timing(anim, {
       toValue: to,
       duration: motion.duration.fast,
       easing: Easing.bezier(...motion.easeSmooth),
       useNativeDriver: true, // nur transform/scale — UI-Thread (DESIGN-LANGUAGE v2 §5)
     }).start();
+  };
 
   const borderColor = error ? colors.danger : focused ? colors['text-1'] : colors['line-strong'];
   // Fokus-Rand wird 2 px — Padding kompensiert, damit nichts springt.
@@ -53,9 +63,9 @@ export function Input({ label, error, value, placeholder, style, onFocus, onBlur
             left: pad,
             top: 17,
             fontSize: type.body.fontSize,
-            fontFamily: 'Figtree_400Regular',
+            fontFamily: type.body.fontFamily,
             color: focused ? colors['text-2'] : colors['text-3'],
-            transformOrigin: 'left center',
+            transformOrigin: 'left top',
             transform: [
               { translateY: anim.interpolate({ inputRange: [0, 1], outputRange: [0, -9] }) },
               { scale: anim.interpolate({ inputRange: [0, 1], outputRange: [1, 0.75] }) },
