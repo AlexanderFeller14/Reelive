@@ -1,30 +1,81 @@
-import { Text, TextInput, View, type TextInputProps } from 'react-native';
+import { useRef, useState } from 'react';
+import { Animated, Easing, Text, TextInput, View, type TextInputProps } from 'react-native';
 import { useTheme } from '@/theme/ThemeProvider';
-import { radius, spacing, type } from '@/theme/tokens';
+import { motion, radius, spacing, type } from '@/theme/tokens';
 
 type Props = TextInputProps & { label: string; error?: string };
 
-export function Input({ label, error, style, ...rest }: Props) {
+// Floating-Label-Input (DESIGN-LANGUAGE v2 §4): Label liegt mittig und
+// schrumpft bei Fokus/Inhalt nach oben (150 ms ease-smooth). Fokus-Rand
+// 2 px text-1 (bewusst nicht accent), Fehler in danger.
+// Abweichung zur Spec: das Label bleibt konstant in Figtree_400Regular,
+// weil fontFamily nicht animierbar ist.
+export function Input({ label, error, value, placeholder, style, onFocus, onBlur, ...rest }: Props) {
   const { colors } = useTheme();
+  const [focused, setFocused] = useState(false);
+  const lifted = focused || !!value;
+  const anim = useRef(new Animated.Value(lifted ? 1 : 0)).current;
+
+  const animate = (to: number) =>
+    Animated.timing(anim, {
+      toValue: to,
+      duration: motion.duration.fast,
+      easing: Easing.bezier(...motion.easeSmooth),
+      useNativeDriver: false, // top/fontSize sind keine Transform-Properties
+    }).start();
+
+  const borderColor = error ? colors.danger : focused ? colors['text-1'] : colors['line-strong'];
+  // Fokus-Rand wird 2 px — Padding kompensiert, damit nichts springt.
+  const pad = focused ? spacing.base - 1 : spacing.base;
+
   return (
     <View style={{ gap: spacing.xs }}>
-      <Text style={[type.label, { color: colors['text-2'] }]}>{label}</Text>
-      <TextInput
-        accessibilityLabel={label}
-        placeholderTextColor={colors['text-3']}
-        style={[
-          type.body,
-          {
-            backgroundColor: colors['bg-1'],
-            color: colors['text-1'],
-            borderRadius: radius.control,
-            paddingHorizontal: spacing.base,
-            height: 52,
-          },
-          style,
-        ]}
-        {...rest}
-      />
+      <View
+        style={{
+          height: 56,
+          borderWidth: focused ? 2 : 1,
+          borderColor,
+          borderRadius: radius.control,
+          backgroundColor: colors['bg-0'],
+          justifyContent: 'flex-end',
+          paddingHorizontal: pad,
+        }}
+      >
+        <Animated.Text
+          style={{
+            position: 'absolute',
+            left: pad,
+            top: anim.interpolate({ inputRange: [0, 1], outputRange: [17, 8] }),
+            fontSize: anim.interpolate({ inputRange: [0, 1], outputRange: [16, 12] }),
+            fontFamily: 'Figtree_400Regular',
+            color: focused ? colors['text-2'] : colors['text-3'],
+          }}
+        >
+          {label}
+        </Animated.Text>
+        <TextInput
+          accessibilityLabel={label}
+          value={value}
+          placeholder={lifted ? placeholder : undefined}
+          placeholderTextColor={colors['text-3']}
+          onFocus={(e) => {
+            setFocused(true);
+            animate(1);
+            onFocus?.(e);
+          }}
+          onBlur={(e) => {
+            setFocused(false);
+            if (!value) animate(0);
+            onBlur?.(e);
+          }}
+          style={[
+            type.body,
+            { color: colors['text-1'], paddingTop: 0, paddingBottom: 8, paddingHorizontal: 0 },
+            style,
+          ]}
+          {...rest}
+        />
+      </View>
       {error ? <Text style={[type.secondary, { color: colors.danger }]}>{error}</Text> : null}
     </View>
   );
