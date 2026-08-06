@@ -1,6 +1,6 @@
 create extension if not exists pgtap with schema extensions;
 begin;
-select plan(13);
+select plan(15);
 
 -- Testdaten: zwei Profile, drei Reisen (active, revealed, archived)
 insert into auth.users (instance_id, id, aud, role, phone, phone_confirmed_at,
@@ -17,7 +17,17 @@ insert into public.profiles (id, username, display_name) values
 
 insert into public.trips (id, name, start_date, end_date, status, revealed_at, invite_code, owner_id) values
   ('bbbb0000-0000-4000-8000-000000000001','Aktive Reise','2026-08-01','2026-08-14','active',   null,        'code-active',   'aaaa0000-0000-4000-8000-000000000001'),
-  ('bbbb0000-0000-4000-8000-000000000002','Fertige Reise','2026-05-08','2026-05-12','revealed','2026-05-13','code-revealed', 'aaaa0000-0000-4000-8000-000000000001');
+  ('bbbb0000-0000-4000-8000-000000000002','Fertige Reise','2026-05-08','2026-05-12','revealed','2026-05-13','code-revealed', 'aaaa0000-0000-4000-8000-000000000001'),
+  ('bbbb0000-0000-4000-8000-000000000003','Dritte aktive Reise','2026-09-01','2026-09-10','active', null,      'code-active-2', 'aaaa0000-0000-4000-8000-000000000001');
+
+-- Race-Verlierer-Szenario für redeem_invite: die Mitgliedschaft besteht schon,
+-- BEVOR redeem_invite überhaupt aufgerufen wird (so wie beim Verlierer eines
+-- echten Doppeltipp-Rennens, dessen Gegenstück den Insert bereits committet
+-- hat). Echte Nebenläufigkeit lässt sich in pgTAP nicht herstellen — Insert
+-- direkt als Superuser, weil trip_members bewusst keine Insert-Policy/-Grant
+-- für authenticated hat.
+insert into public.trip_members (trip_id, user_id, role) values
+  ('bbbb0000-0000-4000-8000-000000000003','aaaa0000-0000-4000-8000-000000000002','member');
 
 -- peek_invite
 select is(
@@ -62,6 +72,18 @@ select is(
    where trip_id = 'bbbb0000-0000-4000-8000-000000000001'
      and user_id = 'aaaa0000-0000-4000-8000-000000000002'), 1,
   'Beitritt legt genau eine Mitgliedschaft an');
+
+-- Race-Verlierer: die Mitgliedschaft (siehe Insert oben) besteht bereits, der
+-- Aufruf darf trotzdem nie mit unique_violation durchschlagen, sondern muss
+-- denselben vertraglich zugesagten Status liefern wie ein regulärer Re-Beitritt.
+select is(
+  (select status from public.redeem_invite('code-active-2')), 'already_member',
+  'redeem_invite liefert already_member statt Exception, wenn die Mitgliedschaft schon vor dem Aufruf bestand');
+select is(
+  (select count(*)::int from public.trip_members
+   where trip_id = 'bbbb0000-0000-4000-8000-000000000003'
+     and user_id = 'aaaa0000-0000-4000-8000-000000000002'), 1,
+  'on conflict do nothing legt bei bereits bestehender Mitgliedschaft keine zweite Zeile an');
 
 reset role;
 select ok(

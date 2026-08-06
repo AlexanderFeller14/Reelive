@@ -55,8 +55,23 @@ begin
     return;
   end if;
 
+  -- Lücke zwischen der is_trip_member-Prüfung oben und diesem Insert: bei
+  -- Doppeltipp oder Mobilfunk-Retry können zwei Aufrufe derselben Person
+  -- gleichzeitig hier ankommen. "on conflict do nothing" macht den Insert
+  -- selbst zur Beitritts-Prüfung (atomar, kein Savepoint wie bei einem
+  -- exception-Handler nötig) — wer den Primary-Key-Konflikt verliert, bekommt
+  -- über FOUND denselben 'already_member'-Status wie beim expliziten Re-Beitritt,
+  -- nie den rohen unique_violation-Fehler. Ziel ist der Constraint-Name (statt
+  -- der Spaltenliste "(trip_id, user_id)"), weil "trip_id" sonst mit dem
+  -- gleichnamigen OUT-Parameter dieser Funktion kollidiert.
   insert into public.trip_members (trip_id, user_id, role)
-  values (v_trip.id, v_uid, 'member');
+  values (v_trip.id, v_uid, 'member')
+  on conflict on constraint trip_members_pkey do nothing;
+
+  if not found then
+    return query select 'already_member'::text, v_trip.id;
+    return;
+  end if;
 
   return query select 'joined'::text, v_trip.id;
 end $$;
