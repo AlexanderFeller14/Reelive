@@ -1,4 +1,5 @@
 import { render, screen, fireEvent } from '@testing-library/react-native';
+import { Animated } from 'react-native';
 import { ThemeProvider } from '@/theme/ThemeProvider';
 import { Button } from '../Button';
 
@@ -16,6 +17,25 @@ test('disabled feuert nicht', async () => {
   await wrap(<Button variant="primary" label="Weiter" onPress={onPress} disabled />);
   fireEvent.press(screen.getByText('Weiter'));
   expect(onPress).not.toHaveBeenCalled();
+});
+
+test('disabled Button spielt Press-Scale-Animation nicht ab', async () => {
+  const springSpy = jest.spyOn(Animated, 'spring');
+  const onPress = jest.fn();
+  await wrap(<Button variant="primary" label="Weiter" onPress={onPress} disabled />);
+  const label = screen.getByText('Weiter');
+
+  // Reales Pressable-`disabled` unterdrückt den Responder-Zyklus nativ — RNTL
+  // simuliert das über `onStartShouldSetResponder`, deshalb kommt pressIn/pressOut
+  // hier gar nicht erst beim internen Handler an (echtes Verhalten, kein Mock).
+  await fireEvent(label, 'pressIn');
+  await fireEvent(label, 'pressOut');
+  await fireEvent.press(label);
+
+  expect(springSpy).not.toHaveBeenCalled();
+  expect(onPress).not.toHaveBeenCalled();
+
+  springSpy.mockRestore();
 });
 
 test('loading zeigt Spinner statt Label-Interaktion', async () => {

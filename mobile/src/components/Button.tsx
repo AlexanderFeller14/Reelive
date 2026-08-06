@@ -21,6 +21,7 @@ export function Button({ variant, label, onPress, disabled, loading }: Props) {
     <PressScale
       accessibilityRole="button"
       accessibilityState={{ disabled: !!blocked }}
+      disabled={!!blocked}
       onPress={() => {
         if (!blocked) onPress();
       }}
