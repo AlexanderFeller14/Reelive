@@ -1,6 +1,6 @@
 import { Text, View } from 'react-native';
 import { useTheme } from '@/theme/ThemeProvider';
-import { radius, type } from '@/theme/tokens';
+import { radius, spacing, type } from '@/theme/tokens';
 
 // DESIGN-LANGUAGE v2 §4: rund, 32–44 px, 2 px weisser Ring, Gruppen −8 px
 // überlappend. Bis zum Avatar-Upload (Phase 4) trägt der Kreis die Initiale.
@@ -33,12 +33,12 @@ export function AvatarGroup({ names, max = 4 }: { names: string[]; max?: number 
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center' }}>
       {sichtbar.map((name, i) => (
-        <View key={`${name}-${i}`} style={{ marginLeft: i === 0 ? 0 : -8 }}>
+        <View key={`${name}-${i}`} style={{ marginLeft: i === 0 ? 0 : -spacing.s }}>
           <Avatar name={name} />
         </View>
       ))}
       {rest > 0 && (
-        <Text style={[type.secondary, { color: colors['text-2'], marginLeft: 8 }]}>{`+${rest}`}</Text>
+        <Text style={[type.secondary, { color: colors['text-2'], marginLeft: spacing.s }]}>{`+${rest}`}</Text>
       )}
     </View>
   );
