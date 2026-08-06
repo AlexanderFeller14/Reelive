@@ -9,7 +9,13 @@ type Props = TextInputProps & { label: string; error?: string };
 // schrumpft bei Fokus/Inhalt nach oben (150 ms ease-smooth). Fokus-Rand
 // 2 px text-1 (bewusst nicht accent), Fehler in danger.
 // Abweichung zur Spec: das Label bleibt konstant in Figtree_400Regular,
-// weil fontFamily nicht animierbar ist.
+// weil fontFamily nicht animierbar ist. Die Grösse wird ebenfalls nicht
+// direkt animiert (fontSize ist wie fontFamily kein Transform-Property) —
+// §5 verlangt strikt nur transform/opacity auf dem UI-Thread. Statt top/
+// fontSize zu interpolieren, bleibt das Label auf top 17 / fontSize 16
+// fixiert und wird per translateY (0 → −9, ergibt visuell top 8) und
+// scale (1 → 0.75, ergibt visuell 12 px) verschoben/verkleinert;
+// transformOrigin 'left center' hält die linke Kante beim Schrumpfen fest.
 export function Input({ label, error, value, placeholder, style, onFocus, onBlur, ...rest }: Props) {
   const { colors } = useTheme();
   const [focused, setFocused] = useState(false);
@@ -21,7 +27,7 @@ export function Input({ label, error, value, placeholder, style, onFocus, onBlur
       toValue: to,
       duration: motion.duration.fast,
       easing: Easing.bezier(...motion.easeSmooth),
-      useNativeDriver: false, // top/fontSize sind keine Transform-Properties
+      useNativeDriver: true, // nur transform/scale — UI-Thread (DESIGN-LANGUAGE v2 §5)
     }).start();
 
   const borderColor = error ? colors.danger : focused ? colors['text-1'] : colors['line-strong'];
@@ -45,10 +51,15 @@ export function Input({ label, error, value, placeholder, style, onFocus, onBlur
           style={{
             position: 'absolute',
             left: pad,
-            top: anim.interpolate({ inputRange: [0, 1], outputRange: [17, 8] }),
-            fontSize: anim.interpolate({ inputRange: [0, 1], outputRange: [16, 12] }),
+            top: 17,
+            fontSize: type.body.fontSize,
             fontFamily: 'Figtree_400Regular',
             color: focused ? colors['text-2'] : colors['text-3'],
+            transformOrigin: 'left center',
+            transform: [
+              { translateY: anim.interpolate({ inputRange: [0, 1], outputRange: [0, -9] }) },
+              { scale: anim.interpolate({ inputRange: [0, 1], outputRange: [1, 0.75] }) },
+            ],
           }}
         >
           {label}
