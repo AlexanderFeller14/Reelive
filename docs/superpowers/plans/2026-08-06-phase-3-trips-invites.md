@@ -759,9 +759,19 @@ git commit -m "feat(trips): Invite-Link erzeugen, lesen und über den Login hinw
 Create `mobile/src/features/trips/__tests__/tripsApi.test.ts`:
 
 ```ts
+// Jest-Hoisting: jest.mock wandert über die Importe, die Factory läuft also
+// VOR den const-Zuweisungen. Die Mocks dürfen deshalb nicht als direkte Werte
+// im Objektliteral stehen (sie wären dort für immer undefined) — der Zugriff
+// muss erst zur Aufrufzeit passieren. Gleiches Prinzip wie in
+// mobile/src/lib/__tests__/secureSessionStorage.test.ts.
 const mockRpc = jest.fn();
 const mockFrom = jest.fn();
-jest.mock('@/lib/supabase', () => ({ supabase: { rpc: mockRpc, from: mockFrom } }));
+jest.mock('@/lib/supabase', () => ({
+  supabase: {
+    rpc: (...args: unknown[]) => mockRpc(...args),
+    from: (...args: unknown[]) => mockFrom(...args),
+  },
+}));
 
 import { fetchTrips, createTrip, redeemInvite, peekInvite, removeMember } from '../tripsApi';
 
