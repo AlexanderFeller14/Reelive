@@ -70,6 +70,11 @@ export default function ReiseListe() {
   );
 }
 
+// Der FAB schwebt mit spacing.screen Abstand vom unteren Rand und ist 56 hoch
+// (siehe Fab.tsx, Design-Language §4) — plus spacing.xl Luft darüber, damit die
+// unterste Reise-Karte nicht dahinter verschwindet.
+const FAB_AUSWEICHRAUM = spacing.screen + 56 + spacing.xl;
+
 const styles = StyleSheet.create({
-  inhalt: { padding: spacing.screen, paddingTop: spacing.xl, paddingBottom: 120, gap: spacing.xl },
+  inhalt: { padding: spacing.screen, paddingTop: spacing.xl, paddingBottom: FAB_AUSWEICHRAUM, gap: spacing.xl },
 });
