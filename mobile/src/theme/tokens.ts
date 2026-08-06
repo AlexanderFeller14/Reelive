@@ -1,3 +1,5 @@
+import type { FontVariant } from 'react-native';
+
 // Design Language v2 — Werte siehe DESIGN-LANGUAGE.md §1–§5.
 // Licht-Palette für alle Alltags-Screens (light-only).
 export const palette = {
@@ -25,7 +27,13 @@ export const radius = { control: 12, card: 24, pill: 999 } as const;
 export const spacing = { xs: 4, s: 8, m: 12, base: 16, screen: 24, l: 24, xl: 32, xxl: 48 } as const;
 
 export const type = {
-  display: { fontFamily: 'Figtree_300Light', fontSize: 84, letterSpacing: -1.7, fontVariant: ['tabular-nums'] },
+  // `fontVariant` explizit als FontVariant[] typisiert: die äussere `as const`
+  // würde das Array sonst zu einem readonly-Tupel machen, das RNs TextStyle
+  // (erwartet ein mutable FontVariant[]) ablehnt (TS2769).
+  display: {
+    fontFamily: 'Figtree_300Light', fontSize: 84, letterSpacing: -1.7,
+    fontVariant: ['tabular-nums'] as FontVariant[],
+  },
   h1: { fontFamily: 'Figtree_700Bold', fontSize: 30, lineHeight: 36 },
   h2: { fontFamily: 'Figtree_600SemiBold', fontSize: 22, lineHeight: 28 },
   h3: { fontFamily: 'Figtree_600SemiBold', fontSize: 18, lineHeight: 23 },
