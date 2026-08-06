@@ -11,6 +11,7 @@ jest.mock('@/features/trips/inviteLink', () => ({ createInviteUrl: (c: string) =
 jest.mock('react-native-qrcode-svg', () => 'QRCode');
 
 import Einladen from '../[id]/einladen';
+import { fetchInviteCode } from '@/features/trips/tripsApi';
 
 const wrap = () => render(<ThemeProvider><Einladen /></ThemeProvider>);
 
@@ -30,4 +31,13 @@ test('teilt den Link über das System-Share-Sheet', async () => {
       message: expect.stringContaining('reelive://join/abc123'),
     })
   );
+});
+
+test('meldet, wenn kein Einladungscode kommt, und blockiert das Teilen', async () => {
+  (fetchInviteCode as jest.Mock).mockResolvedValueOnce(null);
+  const share = jest.spyOn(Share, 'share').mockResolvedValue({ action: 'sharedAction' });
+  await wrap();
+  expect(await screen.findByText(/Einladungslink konnte nicht geladen werden/)).toBeTruthy();
+  await fireEvent.press(screen.getByText('Link teilen'));
+  expect(share).not.toHaveBeenCalled();
 });

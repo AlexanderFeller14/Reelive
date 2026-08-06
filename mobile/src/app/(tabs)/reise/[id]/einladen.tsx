@@ -4,7 +4,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import QRCode from 'react-native-qrcode-svg';
 import { Button } from '@/components/Button';
 import { useTheme } from '@/theme/ThemeProvider';
-import { palette, spacing, type } from '@/theme/tokens';
+import { palette, radius, spacing, type } from '@/theme/tokens';
 import { fetchInviteCode } from '@/features/trips/tripsApi';
 import { createInviteUrl } from '@/features/trips/inviteLink';
 
@@ -13,9 +13,18 @@ export default function Einladen() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
   const [url, setUrl] = useState<string | null>(null);
+  // Getrennt von `url`: `null` ist zwei verschiedene Zustände — „lädt noch"
+  // (geladen=false) und „kein Code bekommen" (geladen=true, url=null).
+  // fetchInviteCode liefert Letzteres regulär bei Fehler oder fehlenden
+  // Daten zurück, kein Sonderfall — der Screen muss ihn sichtbar machen statt
+  // still eine leere Fläche zu zeigen (DESIGN-LANGUAGE §6: Ursache + Lösung).
+  const [geladen, setGeladen] = useState(false);
 
   useEffect(() => {
-    void fetchInviteCode(id).then((code) => setUrl(code ? createInviteUrl(code) : null));
+    void fetchInviteCode(id).then((code) => {
+      setUrl(code ? createInviteUrl(code) : null);
+      setGeladen(true);
+    });
   }, [id]);
 
   const teilen = async () => {
@@ -31,14 +40,28 @@ export default function Einladen() {
       </Text>
 
       <View style={styles.qr}>
-        {url && (
+        {url ? (
           // QRCode nimmt feste Farbwerte statt Style-Props — bewusst die
           // Token-Werte durchgereicht, keine neuen Hex-Werte.
           <QRCode value={url} size={220} color={palette['text-1']} backgroundColor={palette['bg-0']} />
+        ) : geladen ? (
+          <Text style={[type.body, { color: colors.danger }]}>
+            Der Einladungslink konnte nicht geladen werden. Probier es gleich nochmal.
+          </Text>
+        ) : (
+          // Skeleton (DESIGN-LANGUAGE §4): ruhige bg-1-Fläche statt leerem
+          // Weiss, solange der Code noch lädt.
+          <View style={[styles.skeleton, { backgroundColor: colors['bg-1'] }]} />
         )}
       </View>
 
-      <Button variant="primary" label="Link teilen" onPress={() => void teilen()} />
+      <Button
+        variant="primary"
+        label="Link teilen"
+        onPress={() => void teilen()}
+        loading={!geladen}
+        disabled={geladen && !url}
+      />
       <Button variant="text" label="Später" onPress={() => router.replace(`/reise/${id}`)} />
     </View>
   );
@@ -47,4 +70,5 @@ export default function Einladen() {
 const styles = StyleSheet.create({
   screen: { flex: 1, padding: spacing.screen, paddingTop: spacing.xxl, gap: spacing.l },
   qr: { alignItems: 'center', paddingVertical: spacing.xl },
+  skeleton: { width: 220, height: 220, borderRadius: radius.card },
 });
