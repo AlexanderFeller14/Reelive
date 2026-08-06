@@ -27,7 +27,7 @@ jest.mock('@/features/trips/tripsApi', () => ({
 }));
 
 import ReiseDetail from '../[id]/index';
-import { fetchTrip, fetchMembers, removeMember } from '@/features/trips/tripsApi';
+import { fetchTrip, fetchMembers, removeMember, deleteTrip } from '@/features/trips/tripsApi';
 
 const trip = {
   id: 't1', name: 'Norwegen mit dem Camper', start_date: '2026-08-01', end_date: '2026-08-14',
@@ -96,4 +96,35 @@ test('aufgedeckte Reise zeigt keinen Einladen-Knopf', async () => {
   await wrap();
   await screen.findByText('Norwegen mit dem Camper');
   expect(screen.queryByText('Freunde einladen')).toBeNull();
+});
+
+test('Owner löscht die Reise', async () => {
+  await wrap();
+  await fireEvent.press(await screen.findByText('Reise löschen'));
+  await waitFor(() => expect(deleteTrip).toHaveBeenCalledWith('t1'));
+  await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/reise'));
+});
+
+test('Mitglied verlässt die Reise', async () => {
+  mockAuth.userId = 'u2';
+  await wrap();
+  await fireEvent.press(await screen.findByText('Reise verlassen'));
+  await waitFor(() => expect(removeMember).toHaveBeenCalledWith('t1', 'u2'));
+  await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/reise'));
+});
+
+test('Löschen schlägt fehl: keine Navigation, Fehler wird gezeigt', async () => {
+  (deleteTrip as jest.Mock).mockResolvedValueOnce({
+    error: 'Die Reise konnte nicht gelöscht werden. Probier es gleich nochmal.',
+  });
+  await wrap();
+  await fireEvent.press(await screen.findByText('Reise löschen'));
+  await waitFor(() => expect(deleteTrip).toHaveBeenCalledWith('t1'));
+  await waitFor(() =>
+    expect(Alert.alert).toHaveBeenCalledWith(
+      'Nicht gelöscht',
+      'Die Reise konnte nicht gelöscht werden. Probier es gleich nochmal.'
+    )
+  );
+  expect(mockReplace).not.toHaveBeenCalled();
 });

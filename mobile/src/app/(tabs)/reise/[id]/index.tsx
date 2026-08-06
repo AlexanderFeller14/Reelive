@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { Alert, ScrollView, Text, View, StyleSheet } from 'react-native';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { Lock, X } from 'lucide-react-native';
@@ -20,16 +20,27 @@ export default function ReiseDetail() {
   const { userId } = useAuth();
   const [trip, setTrip] = useState<Trip | null>(null);
   const [mitglieder, setMitglieder] = useState<TripMember[]>([]);
+  // Schirmt setState nach Blur/Unmount ab — gleiches Muster wie in der
+  // Listen-Schwesterdatei (reise/index.tsx): jeder Fokus-Zyklus bekommt seinen
+  // eigenen Wächter, der beim Verlassen des Screens auf false gesetzt wird, damit
+  // eine spät auflösende Ladeoperation keinen State mehr auf einen weggeklickten
+  // Screen schreibt.
+  const aktiv = useRef(true);
 
   const laden = useCallback(async () => {
     const [t, m] = await Promise.all([fetchTrip(id), fetchMembers(id)]);
+    if (!aktiv.current) return;
     setTrip(t);
     setMitglieder(m);
   }, [id]);
 
   useFocusEffect(
     useCallback(() => {
+      aktiv.current = true;
       void laden();
+      return () => {
+        aktiv.current = false;
+      };
     }, [laden])
   );
 
@@ -48,7 +59,10 @@ export default function ReiseDetail() {
         text: 'Entfernen',
         style: 'destructive',
         onPress: () => {
-          void removeMember(id, m.user_id).then(laden);
+          void removeMember(id, m.user_id).then(({ error }) => {
+            if (error) return Alert.alert('Nicht entfernt', error);
+            void laden();
+          });
         },
       },
     ]);
@@ -62,7 +76,10 @@ export default function ReiseDetail() {
         style: 'destructive',
         onPress: () => {
           if (!userId) return;
-          void removeMember(id, userId).then(() => router.replace('/reise'));
+          void removeMember(id, userId).then(({ error }) => {
+            if (error) return Alert.alert('Nicht verlassen', error);
+            router.replace('/reise');
+          });
         },
       },
     ]);
@@ -75,7 +92,10 @@ export default function ReiseDetail() {
         text: 'Löschen',
         style: 'destructive',
         onPress: () => {
-          void deleteTrip(id).then(() => router.replace('/reise'));
+          void deleteTrip(id).then(({ error }) => {
+            if (error) return Alert.alert('Nicht gelöscht', error);
+            router.replace('/reise');
+          });
         },
       },
     ]);
