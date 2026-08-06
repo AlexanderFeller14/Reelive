@@ -1,112 +1,140 @@
-# Reelive — Design Language
+# Reelive — Design Language v2
 
 **Diese Datei ist verbindlich.** Jede AI-Session und jeder Mensch, der Frontend-Code oder
 Mockups für Reelive erstellt, liest sie vorher und hält sich strikt daran. Bei Konflikt
 gilt: diese Datei > persönlicher Geschmack > Framework-Defaults.
 
-**Referenz:** `docs/design/referenz-mockup.png` — vier Screens (Kamera, Preview,
-Versiegelt-Bestätigung, Trip-Home). Richtung verbindlich, Details nicht final.
+**Ausführliches Konzept mit Begründungen:**
+`docs/superpowers/specs/2026-08-06-design-language-v2-airbnb-design.md`
+**Hinweis:** `docs/design/referenz-mockup.png` zeigt noch v1 (dunkel) — für die
+Medien-Screens weiterhin Referenz, für alle anderen Screens überholt.
 
 ## Leitidee
 
-Warmes, dunkles Kino für Erinnerungen. Die **Fotos und Videos sind die Farbe** der App —
-das UI ist eine ruhige, fast schwarze Bühne mit einem einzigen warmen Akzent. Die
-Filmrollen-Mechanik zeigt sich leise (Filmstreifen-Icon, Schloss, Wortwahl), nie als
-Retro-Kostüm. Emotionale Momente (Versiegeln, Reveal) dürfen glühen — alles andere ist
-diszipliniert.
+**«Helles Reisejournal, dunkles Kino.»** Im Alltag ist Reelive hell, luftig und
+freundlich wie Airbnb: viel Weiss, weiche Schatten, grosse Headlines, grosszügige
+Abstände. Die Medien-Screens — Kamera, Aufnahme-Preview, Versiegeln, Recap-Player —
+sind ein dunkler Kinosaal, in dem die Fotos das Licht tragen. Der Wechsel wird
+inszeniert («das Licht geht aus»), nicht versteckt. Die Filmrollen-Mechanik zeigt sich
+leise (Siegel, Filmstreifen, Gold-Funke ✦), nie als Retro-Kostüm.
 
 ## 1. Farben
 
-Die App hat **Dark und Light Mode** (folgt der System-Einstellung). Kein pures Schwarz,
-kein pures Weiss — alle Neutralen sind warm. Es wird IMMER über Tokens gestylt, nie mit
-festen Hex-Werten im Code.
+**Die App ist light-only.** Kein Dark Mode, keine System-Theme-Folge. Einzige Ausnahme:
+die Medien-Screens nutzen die feste Kino-Palette. Es wird IMMER über Tokens gestylt,
+nie mit festen Hex-Werten im Code.
 
-**Ausnahme von der Theme-Umschaltung:** Die Medien-Screens — Kamera, Aufnahme-Preview,
-Versiegelungs-Moment, Recap-Player — sind **immer dark** (Kinosaal-Prinzip: dort tragen
-die Fotos das Licht). Der Theme-Wechsel betrifft Home, Reise-Ansicht, Onboarding,
-Einstellungen und alle Listen/Formulare.
+**Licht (Standard):**
 
-| Token | Dark | Light | Verwendung |
-|---|---|---|---|
-| `bg-0` | `#131110` | `#F6F3EE` | App-Hintergrund |
-| `bg-1` | `#1C1917` | `#FCFAF6` | Karten, Sheets, Tab-Bar |
-| `bg-2` | `#26221F` | `#EFEAE2` | Angehobene Flächen: Pills, sekundäre Buttons, Inputs |
-| `line` | `#2E2A26` | `#E4DED4` | Hairlines, Divider (1 px, nie dicker) |
-| `text-1` | `#F2EEE8` | `#26221E` | Primärtext, grosse Zahlen |
-| `text-2` | `#A79F96` | `#6E675F` | Sekundärtext, Labels |
-| `text-3` | `#6E675F` | `#A79F96` | Deaktiviert, Platzhalter |
-| `accent` | `#ED5B3D` | `#ED5B3D` | DER Akzent (Koralle-Ember): Primär-Buttons, aktive Tabs |
-| `accent-text` | `#ED5B3D` | `#C9432A` | Akzent als Text/Link/Icon in kleiner Grösse (Kontrast) |
-| `glow` | `#E0913F` | `#B8752F` | NUR für Versiegelungs-Ikonografie (Schloss, Filmstreifen, Funke ✦) |
-| `danger` | `#E5484D` | `#D93A3F` | Nur destruktive Aktionen und Fehler |
+| Token | Wert | Verwendung |
+|---|---|---|
+| `bg-0` | `#FFFFFF` | App-Hintergrund |
+| `bg-1` | `#F7F7F7` | Chips, Skeletons, abgesetzte Flächen |
+| `line` | `#EBEBEB` | Hairlines, Divider (1 px, nie dicker) |
+| `line-strong` | `#B0B0B0` | Input-Rahmen, Grabber |
+| `text-1` | `#222222` | Primärtext, Zähler |
+| `text-2` | `#6A6A6A` | Sekundärtext, Labels |
+| `text-3` | `#B0B0B0` | Platzhalter, deaktiviert |
+| `accent` | `#FF385C` | DER Akzent (Rausch): Primär-Buttons, aktive Tabs |
+| `accent-pressed` | `#E31C5F` | Pressed-State |
+| `accent-text` | `#C4103C` | Akzent als kleiner Text/Link (Kontrast ≥ 4.5:1) |
+| `seal` | `#B8752F` | NUR Versiegelungs-Symbolik auf hellem Grund |
+| `danger` | `#C13515` | Nur Fehler und destruktive Aktionen |
+
+**Kino (Medien-Screens, fix):** `cinema-0` `#131110` · `cinema-1` `#1C1917` ·
+Text `#F2EEE8` / `#A79F96` · `seal-glow` `#E8A13C` (Gold darf hier glühen).
 
 Regeln:
-- `accent` und `glow` nie mischen: Buttons/Interaktion = `accent`, Versiegelungs-Symbolik = `glow`.
-- Light Mode ist kein invertiertes Dark: gleiche Wärme, gleiche Hierarchie-Logik
-  (`bg-0 → bg-1 → bg-2` wird heller statt dunkler). Beide Themes werden mit gleicher
-  Sorgfalt gepflegt — jede neue Komponente wird in beiden geprüft.
-- Karten im Light Mode: 1 px Rand in `line`, weiterhin KEINE Schatten.
+- `accent` = Interaktion, `seal` = Versiegelungs-Symbolik. Nie mischen.
+- Kein Blau, Violett, Türkis; kein Grün als Erfolgsfarbe.
 - Auf Fotos liegt UI ausschliesslich als translucente Pille: `rgba(19,17,16,0.55)` + Blur 10.
-- Fotos bekommen Scrims (oben/unten `rgba(0,0,0,0.35) → transparent`), damit Text lesbar ist —
-  das ist der EINZIGE erlaubte Gradient in der App.
+- Foto-Scrims (oben/unten `rgba(0,0,0,0.35) → transparent`) sind der EINZIGE erlaubte
+  Gradient der App.
 
 ## 2. Typografie
 
-**Eine Familie: Manrope** (variable, Google Fonts) — sonst nichts. Der Reelive-Wortzug ist
-ein eigenes Asset (SVG), nie als Text gesetzt.
+**Eine Familie: Figtree** (variable, Google Fonts) — sonst nichts. Der Reelive-Wortzug
+ist ein eigenes Asset (SVG), nie als Text gesetzt.
 
 | Rolle | Grösse/Weight | Details |
 |---|---|---|
-| Zähler-Display | 88 px / 200 | Die Signature der App: riesige, federleichte Ziffern. `tabular-nums` |
-| H1 (Trip-Titel) | 28 px / 600 | |
-| H2 (Sektionstitel) | 22 px / 600 | |
-| Body | 16 px / 400 | line-height 1.45 |
+| Zähler-Display | 84 px / 300 | Signature der App. `tabular-nums`, letter-spacing −2 % |
+| H1 | 30 px / 700 | Screen-Titel — gross und selbstbewusst |
+| H2 | 22 px / 600 | Sektionstitel |
+| H3 | 18 px / 600 | Karten-Header, Dialog-Titel |
+| Body | 16 px / 400 | line-height 1.5 |
+| Body-Medium | 16 px / 500 | Kartentitel, Button-Labels |
 | Sekundär | 14 px / 400 | `text-2` |
-| Label/Caption | 12 px / 500 | letter-spacing 0.02 em |
+| Caption | 12 px / 500 | letter-spacing 0.02 em |
 | Tab-Label | 11 px / 500 | |
 
-Regeln: keine weiteren Grössen erfinden. Sentence case («Momente eingefangen»), NIE
-Versalien-Schreien. Zahlen immer `tabular-nums`.
+Regeln: keine weiteren Grössen erfinden. Sentence case, NIE Versalien-Schreien. Zahlen
+immer `tabular-nums`. Headlines dürfen zweizeilig umbrechen.
 
-## 3. Form & Raum
+## 3. Form, Raum & Elevation
 
-- **Radius, genau drei Werte:** 12 (Buttons, Inputs), 24 (Karten, Sheets, Tab-Bar),
-  999 (Pills, Avatare, Shutter). Nichts dazwischen.
-- **Abstände nur aus dem 4er-Raster:** 4 · 8 · 12 · 16 · 24 · 32 · 48. Screen-Ränder 20 px.
-- **Schatten: keine.** Das UI trennt über Flächenhelligkeit (`bg-0 → bg-1 → bg-2`) und
-  im Light Mode über 1-px-Ränder, nicht über Schatten. Einzige Ausnahme: weicher
-  `glow`-Schein hinter Versiegelungs-Icons (Blur 24, Opacity ≤ 25 %).
-- **Fotos immer randlos** (edge-to-edge), nie in Rahmen oder mit Rand — Ausnahme:
-  Thumbnails in Karten (Radius 12).
+- **Radius, genau drei Werte:** 12 (Buttons, Inputs, Thumbnails), 24 (Cover-Bilder,
+  Sheets), 999 (Pills, Avatare, Shutter, FAB). Nichts dazwischen.
+- **Abstände nur aus dem 4er-Raster:** 4 · 8 · 12 · 16 · 24 · 32 · 48. **Screen-Ränder 24 px.**
+- **Schatten nur aus dieser Skala** (immer neutral-schwarz, nie farbig):
+  - `shadow-1` `0 1 2 rgba(0,0,0,0.08)` + `0 4 12 rgba(0,0,0,0.05)` — ruhende Karten mit Chrome
+  - `shadow-2` `0 6 16 rgba(0,0,0,0.12)` — Schwebendes (FAB, Sticky-CTA)
+  - `shadow-3` `0 8 28 rgba(0,0,0,0.28)` — Sheets, Modals
+- Flächentrennung primär über Weissraum und Hairlines. Ein Schatten heisst «schwebt» —
+  nie Dekoration. Randlose Reise-Karten haben KEINEN Schatten.
+- **Fotos randlos** in Medien-Screens; im hellen UI Radius 24 (Cover) / 12 (Thumbnails).
 
 ## 4. Komponenten
 
 Maximal 2–3 Komponentenarten pro Screen. Bestand:
 
-- **Button primär:** `accent`-Fläche, Text `#FFF6F2`, Radius 12, Höhe 52. Genau EINER pro Screen.
-- **Button sekundär:** `bg-2`-Fläche, Text `text-1`, Radius 12. («Verwerfen» neben «Einsenden»)
-- **Text-Button:** nur Text in `accent`, kein Rahmen.
-- **Karte:** `bg-1`, Radius 24, Padding 16–24, kein Rand, kein Schatten.
-- **Pill-Control** (auf Fotos): translucent + Blur, Radius 999. (Zoom «0,5 · 1x · 2», Trip-Label)
-- **Tab-Bar:** `bg-1`, Radius 24, frei schwebend mit 20 px Rand. Aktiver Tab: Icon + Label
-  in `accent`; inaktiv `text-2`. Tabs: **Aufnehmen · Reise · Recap · Profil**.
-- **Avatare:** rund, 32–44 px, in Gruppen um −8 px überlappend.
+- **Button primär:** `accent`, Text `#FFFFFF`, Radius 12, Höhe 52. Press: Scale 0.97 +
+  `accent-pressed`. Genau EINER pro Screen.
+- **Button sekundär (Outline):** `bg-0`, 1 px Rand `#222222`, Text `text-1`, Radius 12.
+- **Text-Link:** `text-1` unterstrichen; `accent-text` nur für hervorgehobene Aktionen.
+- **Reise-Karte (randlos):** Cover 3:2 Radius 24, darunter ohne Rahmen: Titel
+  Body-Medium, Zeitraum Sekundär, Avatare (−8 px Overlap) + Momente-Chip. Versiegelt-
+  Badge als Pille auf dem Cover (Icon in `seal-glow`).
+- **Input:** Höhe 56, Radius 12, Rand 1 px `line-strong`, Floating Label. Fokus: Rand
+  2 px `#222222` (nicht Akzent). Fehler: Rand + Text `danger`.
+- **Tab-Bar:** volle Breite, `bg-0`, Hairline oben, keine Rundung. Aktiv `accent`,
+  inaktiv `text-2`. Tabs: **Aufnehmen · Reise · Recap · Profil**.
+- **Sheet:** von unten, Radius 24 oben, Grabber, `shadow-3`, öffnet per `spring-ui`.
+- **FAB «Neue Reise»:** `accent`, 56 px, Radius 999, `shadow-2`, unten rechts.
+- **Pill-Control (auf Fotos):** translucent + Blur, Radius 999.
+- **Avatare:** rund, 32–44 px, 2 px weisser Ring, Gruppen −8 px überlappend.
+- **Skeleton:** `bg-1`-Blöcke, Opacity-Puls 0.6 ↔ 1.0 (kein Gradient-Shimmer).
 
-**Icons:** Lucide, Outline, Strokes 1.75, runde Kappen. NIE gefüllte Icons, NIE Emoji als
-UI-Icon. (Emoji existieren nur als Inhalt: Reaktionen, Captions.)
+**Icons:** Lucide, Outline, Stroke 1.75, runde Kappen. NIE gefüllt, NIE Emoji als UI-Icon.
 
 ## 5. Motion
 
-- Standard: 150–250 ms, ease-out. Zurückhaltend — die App fühlt sich ruhig an.
-- **Zwei inszenierte Ausnahmen** (dürfen 600–900 ms und `glow` benutzen):
-  1. **Versiegeln:** Moment schrumpft in die Filmrolle, Zähler tickt hoch.
-  2. **Reveal/Recap-Start:** Siegel bricht auf.
-- `prefers-reduced-motion` wird respektiert: Inszenierungen werden zu einfachen Fades.
+Nur `transform` und `opacity` animieren (Reanimated, UI-Thread). Tokens:
+
+- `duration-fast` 150 ms · `duration-base` 250 ms · `duration-gentle` 400 ms ·
+  `duration-feature` 700–900 ms (NUR Inszenierungen)
+- `ease-smooth` `cubic-bezier(0.22, 1, 0.36, 1)` — Standard für alles Zeitbasierte
+- `spring-ui` damping 18 · stiffness 180 · mass 1 — für Interaktives (Press, Sheets)
+- `linear` ist verboten (Ausnahme: Fortschritt, der reale Zeit abbildet)
+
+Micro-Interactions: Press = Scale 0.97 per Spring (nie Opacity-Dimmen) · Zähler =
+Digit-Roll · Listen = Stagger 40 ms · Tab-Icon-Pop 1 → 1.15 → 1.
+Übergänge: Stack = Parallax-Slide 400 ms · Sheets = Spring · hell → Kino =
+Fade durch Dunkel 350 ms («Licht geht aus») · Reise-Karte → Trip = Shared-Element 450 ms.
+
+**Zwei inszenierte Ausnahmen** (700–900 ms, `seal-glow` erlaubt):
+1. **Versiegeln:** Moment schrumpft in die Filmrolle, Siegel schliesst mit Gold-Glow,
+   Zähler rollt hoch. Haptik: success.
+2. **Reveal:** Siegel bricht auf, Gold-Funken ✦ steigen (kein Konfetti).
+
+Haptik: selection (Tabs, Zoom) · light (Auslöser, Zähler) · success (Versiegeln,
+Reveal) · warning (destruktiver Dialog). Sparsam — nie beim Scrollen.
+`prefers-reduced-motion`: alles wird zu 200-ms-Fades.
 
 ## 6. Sprache (Copy)
 
-Deutsch, Du-Form, warm und kurz. Sätze wie im Mockup: «Bis zum Recap versiegelt.»,
-«Deine Filmrolle wartet auf dich.»
+Deutsch, Du-Form, warm und kurz. «Bis zum Recap versiegelt.», «Deine Filmrolle wartet
+auf dich.»
 
 **Vokabular — immer dieselben Wörter:**
 
@@ -119,21 +147,21 @@ Deutsch, Du-Form, warm und kurz. Sätze wie im Mockup: «Bis zum Recap versiegel
 | Recap | Rückblick, Zusammenfassung |
 | einsenden | posten, hochladen, teilen |
 
-Buttons sagen, was passiert («Einsenden», «Reise abschliessen»). Fehler erklären Ursache
-und Lösung, ohne Entschuldigung. Leere Screens laden zum Handeln ein («Erstelle deine
-erste Reise oder tritt per Link bei.»).
+Buttons sagen, was passiert («Einsenden», «Reise abschliessen»). Fehler erklären
+Ursache und Lösung, ohne Entschuldigung. Leere Screens laden zum Handeln ein.
 
 ## 7. Verbote (Anti-AI-Look)
 
 - ❌ Gradients auf Flächen, Buttons oder Text (einzige Ausnahme: Foto-Scrims, §1)
-- ❌ Pures `#000` oder `#FFF`
-- ❌ Violett, Blau, Türkis — es gibt genau `accent` + `glow`
-- ❌ Schatten auf Karten, Glassmorphism ausserhalb der Foto-Pills
-- ❌ Andere Fonts als Manrope; Inter/Space Grotesk/Serifen sind tabu
+- ❌ Blau, Violett, Türkis; Grün als Erfolgsfarbe
+- ❌ Andere Fonts als Figtree
 - ❌ Radius-Werte ausser 12 / 24 / 999
-- ❌ Emoji als Icons, Icons als Deko
+- ❌ Schatten ausserhalb der 3-Stufen-Skala, farbige Schatten, Schatten als Deko
+- ❌ Emoji als Icons, gefüllte Icons, Icons als Deko
+- ❌ Mehr als ein Primär-Button pro Screen
 - ❌ Vier gleiche KPI-Karten nebeneinander, Zahlen-Grids ohne Hierarchie
 - ❌ Zentrierte Textwüsten; Text ist linksbündig, nur inszenierte Momente zentrieren
+- ❌ `linear` als Easing, Opacity-Dimmen als Press-Feedback
 
 ## 8. So nutzt du diese Datei mit AI
 
@@ -142,25 +170,27 @@ gelten die Regeln ohne weiteres Zutun.
 
 **ChatGPT/andere Tools (z.B. für Mockups)** — diesen Block an den Prompt anhängen:
 
-> Halte dich strikt an folgenden Styleguide: Warmes UI mit Dark Mode (#131110
-> Hintergrund, #1C1917 Karten, Text #F2EEE8/#A79F96) und Light Mode (#F6F3EE
-> Hintergrund, #FCFAF6 Karten mit 1px Rand #E4DED4, Text #26221E/#6E675F). EIN Akzent
-> #ED5B3D (Koralle) für Buttons und aktive Zustände, #E0913F (dark) / #B8752F (light)
-> nur für Schloss-/Filmstreifen-Icons. Kamera-, Preview- und Recap-Player-Screens sind
-> IMMER dark. Font: Manrope, grosse Zähler in Weight 200. Radius nur 12/24/999. Keine
-> Schatten, keine Gradients (ausser dunkle Scrims auf Fotos), keine anderen Farben.
-> Icons: Lucide Outline. Fotos immer randlos, UI darauf nur als translucente dunkle
-> Pillen. Deutsch, Du-Form, Vokabular: Moment, Reise, Filmrolle, versiegelt, Recap,
-> einsenden.
+> Halte dich strikt an folgenden Styleguide: Helles, luftiges UI wie Airbnb —
+> Hintergrund #FFFFFF, abgesetzte Flächen #F7F7F7, Hairlines #EBEBEB, Text
+> #222222/#6A6A6A. EIN Akzent #FF385C (Rausch-Pink-Rot) für Primär-Buttons und aktive
+> Tabs; #B8752F (Gold) nur für Siegel-/Filmstreifen-Symbolik. Sekundär-Buttons als
+> Outline (1px #222222 auf Weiss), Links schwarz unterstrichen. Weiche neutrale
+> Schatten nur für Schwebendes (FAB, Sheets). Kamera-, Preview- und Recap-Player-
+> Screens sind IMMER dunkel (#131110, Gold-Glow #E8A13C für das Siegel). Font: Figtree,
+> grosse Zähler in Weight 300, Headlines 700. Radius nur 12/24/999, Screen-Ränder 24px.
+> Keine Gradients (ausser dunkle Scrims auf Fotos), kein Blau/Violett/Türkis. Icons:
+> Lucide Outline. Fotos randlos bzw. mit Radius 24, UI darauf nur als translucente
+> dunkle Pillen. Deutsch, Du-Form, Vokabular: Moment, Reise, Filmrolle, versiegelt,
+> Recap, einsenden.
 
 ## 9. Review-Checkliste (vor jedem Merge mit UI-Änderungen)
 
-- [ ] Farben gezählt: nur Tokens aus §1? Kein neues Blau/Violett eingeschlichen?
-- [ ] In BEIDEN Themes angeschaut (Dark und Light)? Medien-Screens weiterhin immer dark?
+- [ ] Farben gezählt: nur Tokens aus §1? Kein Blau/Violett/Grün eingeschlichen?
+- [ ] Medien-Screens in Kino-Palette, alle anderen hell? Kinosaal-Fade beim Übergang?
 - [ ] Nirgends feste Hex-Werte im Code — alles über Tokens?
-- [ ] Alle Radius-Werte ∈ {12, 24, 999}?
-- [ ] Alle Abstände auf dem 4er-Raster, Screen-Rand 20?
+- [ ] Alle Radius-Werte ∈ {12, 24, 999}? Screen-Ränder 24?
+- [ ] Schatten nur aus der 3-Stufen-Skala und nur für Schwebendes?
 - [ ] Genau ein Primär-Button pro Screen?
-- [ ] Keine neuen Schatten/Gradients?
+- [ ] Press-Feedback als Scale per Spring, Zähler mit Digit-Roll, `tabular-nums`?
+- [ ] `prefers-reduced-motion` respektiert?
 - [ ] Copy: Vokabular-Tabelle eingehalten, Du-Form, sentence case?
-- [ ] Grosse Zahlen in Weight 200 + `tabular-nums`?
