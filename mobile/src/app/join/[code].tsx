@@ -7,6 +7,7 @@ import { spacing, type } from '@/theme/tokens';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { peekInvite, redeemInvite } from '@/features/trips/tripsApi';
 import { rememberInvite } from '@/features/trips/inviteLink';
+import { ermittleZielPfad } from '@/features/trips/joinFlow';
 import { formatRange } from '@/features/trips/tripDay';
 import type { InvitePreview } from '@/features/trips/types';
 
@@ -38,8 +39,9 @@ export default function JoinScreen() {
     setLaedt(true);
     const ergebnis = await redeemInvite(code);
     setLaedt(false);
-    if (ergebnis.trip_id && (ergebnis.status === 'joined' || ergebnis.status === 'already_member')) {
-      router.replace(`/reise/${ergebnis.trip_id}`);
+    const zielPfad = ermittleZielPfad(ergebnis);
+    if (zielPfad) {
+      router.replace(zielPfad);
       return;
     }
     setFehler(

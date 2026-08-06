@@ -13,8 +13,9 @@ import {
 import { ThemeProvider, useTheme } from '@/theme/ThemeProvider';
 import { AuthProvider, useAuth } from '@/features/auth/AuthProvider';
 import { resolveRoute, isPublicArea } from '@/features/auth/guard';
-import { takeRememberedInvite } from '@/features/trips/inviteLink';
+import { peekRememberedInvite, discardRememberedInvite } from '@/features/trips/inviteLink';
 import { redeemInvite } from '@/features/trips/tripsApi';
+import { redeemPendingInvite } from '@/features/trips/joinFlow';
 
 void SplashScreen.preventAutoHideAsync();
 
@@ -41,16 +42,18 @@ function Guarded() {
 
   // Ein vor dem Login angetippter Einladungslink wird eingelöst, sobald Session
   // UND Profil stehen — vorher gäbe es keine profiles-Zeile für trip_members.
+  // Die eigentliche Logik steckt in redeemPendingInvite() (joinFlow.ts): dort
+  // getestet, hier nur noch mit den echten IO-Abhängigkeiten aufgerufen.
   useEffect(() => {
     if (status !== 'signedIn') return;
     let aktiv = true;
-    void takeRememberedInvite().then(async (code) => {
-      if (!code || !aktiv) return;
-      const ergebnis = await redeemInvite(code);
-      if (!aktiv) return;
-      if (ergebnis.trip_id && (ergebnis.status === 'joined' || ergebnis.status === 'already_member')) {
-        router.replace(`/reise/${ergebnis.trip_id}`);
-      }
+    void redeemPendingInvite({
+      peekRememberedInvite,
+      redeemInvite,
+      discardRememberedInvite,
+      istAktiv: () => aktiv,
+    }).then((zielPfad) => {
+      if (zielPfad) router.replace(zielPfad);
     });
     return () => {
       aktiv = false;

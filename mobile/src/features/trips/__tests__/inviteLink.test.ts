@@ -12,7 +12,7 @@ jest.mock('expo-linking', () => ({
   createURL: (path: string) => `reelive://${path.replace(/^\//, '')}`,
 }));
 
-import { createInviteUrl, extractInviteCode, rememberInvite, takeRememberedInvite } from '../inviteLink';
+import { createInviteUrl, extractInviteCode, rememberInvite, peekRememberedInvite, discardRememberedInvite } from '../inviteLink';
 
 beforeEach(() => jest.clearAllMocks());
 
@@ -36,19 +36,28 @@ test('rememberInvite legt den Code ab', async () => {
   expect(mockSetItem).toHaveBeenCalledWith('reelive.pendingInvite', 'abc123');
 });
 
-test('takeRememberedInvite liefert den Code und löscht ihn', async () => {
+test('peekRememberedInvite liefert den Code, ohne ihn zu löschen', async () => {
   mockGetItem.mockResolvedValueOnce('abc123');
-  await expect(takeRememberedInvite()).resolves.toBe('abc123');
-  expect(mockRemoveItem).toHaveBeenCalledWith('reelive.pendingInvite');
-});
-
-test('takeRememberedInvite ohne gemerkten Code liefert null und löscht nichts', async () => {
-  mockGetItem.mockResolvedValueOnce(null);
-  await expect(takeRememberedInvite()).resolves.toBeNull();
+  await expect(peekRememberedInvite()).resolves.toBe('abc123');
   expect(mockRemoveItem).not.toHaveBeenCalled();
 });
 
-test('takeRememberedInvite verschluckt Storage-Fehler', async () => {
+test('peekRememberedInvite ohne gemerkten Code liefert null', async () => {
+  mockGetItem.mockResolvedValueOnce(null);
+  await expect(peekRememberedInvite()).resolves.toBeNull();
+});
+
+test('peekRememberedInvite verschluckt Storage-Fehler', async () => {
   mockGetItem.mockRejectedValueOnce(new Error('kaputt'));
-  await expect(takeRememberedInvite()).resolves.toBeNull();
+  await expect(peekRememberedInvite()).resolves.toBeNull();
+});
+
+test('discardRememberedInvite löscht den Code', async () => {
+  await discardRememberedInvite();
+  expect(mockRemoveItem).toHaveBeenCalledWith('reelive.pendingInvite');
+});
+
+test('discardRememberedInvite verschluckt Storage-Fehler', async () => {
+  mockRemoveItem.mockRejectedValueOnce(new Error('kaputt'));
+  await expect(discardRememberedInvite()).resolves.toBeUndefined();
 });

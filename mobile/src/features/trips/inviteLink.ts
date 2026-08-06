@@ -26,13 +26,23 @@ export async function rememberInvite(code: string): Promise<void> {
   }
 }
 
-export async function takeRememberedInvite(): Promise<string | null> {
+// Lesen und Verwerfen sind bewusst getrennt (statt ein atomares "lies und
+// lösche"): der Aufrufer verwirft erst, wenn ein Einlöseversuch tatsächlich
+// stattgefunden hat — sonst geht ein gemerkter Code verloren, ohne dass je
+// beigetreten wurde (siehe joinFlow.ts).
+export async function peekRememberedInvite(): Promise<string | null> {
   try {
-    const code = await AsyncStorage.getItem(KEY);
-    if (!code) return null;
-    await AsyncStorage.removeItem(KEY);
-    return code;
+    return await AsyncStorage.getItem(KEY);
   } catch {
     return null;
+  }
+}
+
+export async function discardRememberedInvite(): Promise<void> {
+  try {
+    await AsyncStorage.removeItem(KEY);
+  } catch {
+    // Ein hängender Eintrag verhindert höchstens einen erneuten Versuch beim
+    // nächsten signedIn — kein Grund, das aufrufende Flow abzubrechen.
   }
 }
