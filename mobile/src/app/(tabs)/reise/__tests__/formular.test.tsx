@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react-native';
 import { ThemeProvider } from '@/theme/ThemeProvider';
 
 const mockReplace = jest.fn();
@@ -23,6 +23,14 @@ import { createTrip, updateTrip } from '@/features/trips/tripsApi';
 
 const wrap = (ui: React.ReactElement) => render(<ThemeProvider>{ui}</ThemeProvider>);
 
+// Scoped auf die Zeile eines Felds (Label + Input + eigener Fehlertext), damit
+// Tests prüfen können, an welchem Feld ein Fehler tatsächlich landet — nicht
+// nur, dass sein Text irgendwo auf dem Screen steht.
+const feldZeile = (labelText: string) => {
+  const feld = screen.getByLabelText(labelText);
+  return within(feld.parent!.parent!);
+};
+
 beforeEach(() => jest.clearAllMocks());
 
 test('leerer Name wird abgefangen', async () => {
@@ -34,23 +42,28 @@ test('leerer Name wird abgefangen', async () => {
   expect(createTrip).not.toHaveBeenCalled();
 });
 
-test('Ende vor Beginn wird abgefangen', async () => {
+test('Ende vor Beginn wird abgefangen — Fehler landet am Ende-Feld', async () => {
   await wrap(<NeueReise />);
   await fireEvent.changeText(screen.getByLabelText('Name der Reise'), 'Norwegen');
   await fireEvent.changeText(screen.getByLabelText('Beginn'), '14.08.2026');
   await fireEvent.changeText(screen.getByLabelText('Ende'), '01.08.2026');
   await fireEvent.press(screen.getByText('Reise anlegen'));
-  expect(await screen.findByText('Das Ende darf nicht vor dem Beginn liegen.')).toBeTruthy();
+  const meldung = 'Das Ende darf nicht vor dem Beginn liegen.';
+  expect(await feldZeile('Ende').findByText(meldung)).toBeTruthy();
+  expect(feldZeile('Beginn').queryByText(meldung)).toBeNull();
   expect(createTrip).not.toHaveBeenCalled();
 });
 
-test('unlesbares Datum wird abgefangen', async () => {
+test('unlesbares Datum wird dem betroffenen Feld zugeordnet', async () => {
   await wrap(<NeueReise />);
   await fireEvent.changeText(screen.getByLabelText('Name der Reise'), 'Norwegen');
   await fireEvent.changeText(screen.getByLabelText('Beginn'), '32.13.2026');
   await fireEvent.changeText(screen.getByLabelText('Ende'), '14.08.2026');
   await fireEvent.press(screen.getByText('Reise anlegen'));
-  expect(await screen.findByText('Trag Beginn und Ende ein, z.B. 01.08.2026.')).toBeTruthy();
+  const meldung = 'Trag den Beginn ein, z.B. 01.08.2026.';
+  expect(await feldZeile('Beginn').findByText(meldung)).toBeTruthy();
+  expect(feldZeile('Ende').queryByText(meldung)).toBeNull();
+  expect(createTrip).not.toHaveBeenCalled();
 });
 
 test('gültige Eingabe legt an und führt zum Einladen', async () => {

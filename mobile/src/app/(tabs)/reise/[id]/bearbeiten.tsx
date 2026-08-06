@@ -16,7 +16,8 @@ export default function ReiseBearbeiten() {
   const [beginn, setBeginn] = useState('');
   const [ende, setEnde] = useState('');
   const [nameFehler, setNameFehler] = useState<string | undefined>();
-  const [datumFehler, setDatumFehler] = useState<string | undefined>();
+  const [beginnFehler, setBeginnFehler] = useState<string | undefined>();
+  const [endeFehler, setEndeFehler] = useState<string | undefined>();
   const [laedt, setLaedt] = useState(false);
 
   useEffect(() => {
@@ -32,10 +33,13 @@ export default function ReiseBearbeiten() {
     const nFehler = name.trim().length === 0 ? 'Gib deiner Reise einen Namen.' : null;
     const start = parseGermanDate(beginn);
     const end = parseGermanDate(ende);
-    const dFehler = validateDateRange(start, end);
+    // Feldgenaue Zuordnung wie im Anlege-Screen (DESIGN-LANGUAGE §4).
+    const bFehler = start ? null : 'Trag den Beginn ein, z.B. 01.08.2026.';
+    const eFehler = end ? (start ? validateDateRange(start, end) : null) : 'Trag das Ende ein, z.B. 14.08.2026.';
     setNameFehler(nFehler ?? undefined);
-    setDatumFehler(dFehler ?? undefined);
-    if (nFehler || dFehler || !start || !end) return;
+    setBeginnFehler(bFehler ?? undefined);
+    setEndeFehler(eFehler ?? undefined);
+    if (nFehler || bFehler || eFehler || !start || !end) return;
 
     setLaedt(true);
     const { error } = await updateTrip(id, { name, startDate: start, endDate: end });
@@ -48,8 +52,8 @@ export default function ReiseBearbeiten() {
     <View style={[styles.screen, { backgroundColor: colors['bg-0'] }]}>
       <Text style={[type.h1, { color: colors['text-1'] }]}>Reise bearbeiten</Text>
       <Input label="Name der Reise" value={name} onChangeText={setName} error={nameFehler} />
-      <Input label="Beginn" value={beginn} onChangeText={setBeginn} keyboardType="numbers-and-punctuation" />
-      <Input label="Ende" value={ende} onChangeText={setEnde} error={datumFehler} keyboardType="numbers-and-punctuation" />
+      <Input label="Beginn" value={beginn} onChangeText={setBeginn} error={beginnFehler} keyboardType="numbers-and-punctuation" />
+      <Input label="Ende" value={ende} onChangeText={setEnde} error={endeFehler} keyboardType="numbers-and-punctuation" />
       <Button variant="primary" label="Speichern" onPress={speichern} loading={laedt} />
     </View>
   );

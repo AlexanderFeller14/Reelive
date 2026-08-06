@@ -17,17 +17,24 @@ export default function NeueReise() {
   const [beginn, setBeginn] = useState('');
   const [ende, setEnde] = useState('');
   const [nameFehler, setNameFehler] = useState<string | undefined>();
-  const [datumFehler, setDatumFehler] = useState<string | undefined>();
+  const [beginnFehler, setBeginnFehler] = useState<string | undefined>();
+  const [endeFehler, setEndeFehler] = useState<string | undefined>();
   const [laedt, setLaedt] = useState(false);
 
   const absenden = async () => {
     const nFehler = name.trim().length === 0 ? 'Gib deiner Reise einen Namen.' : null;
     const start = parseGermanDate(beginn);
     const end = parseGermanDate(ende);
-    const dFehler = validateDateRange(start, end);
+    // Fehler feldgenau zuordnen (DESIGN-LANGUAGE §4: Rand + Text am betroffenen
+    // Feld): eine unlesbare Eingabe zeigt sich am eigenen Feld. Sind beide Felder
+    // für sich lesbar, aber das Ende liegt vor dem Beginn, landet der Fehler am
+    // Ende — dort liegt die Ursache aus Nutzersicht.
+    const bFehler = start ? null : 'Trag den Beginn ein, z.B. 01.08.2026.';
+    const eFehler = end ? (start ? validateDateRange(start, end) : null) : 'Trag das Ende ein, z.B. 14.08.2026.';
     setNameFehler(nFehler ?? undefined);
-    setDatumFehler(dFehler ?? undefined);
-    if (nFehler || dFehler || !start || !end || !userId) return;
+    setBeginnFehler(bFehler ?? undefined);
+    setEndeFehler(eFehler ?? undefined);
+    if (nFehler || bFehler || eFehler || !start || !end || !userId) return;
 
     setLaedt(true);
     const { id, error } = await createTrip({ name, startDate: start, endDate: end, ownerId: userId });
@@ -45,8 +52,8 @@ export default function NeueReise() {
         Name und Zeitraum reichen — Freunde lädst du gleich danach ein.
       </Text>
       <Input label="Name der Reise" value={name} onChangeText={setName} error={nameFehler} placeholder="Norwegen mit dem Camper" autoFocus />
-      <Input label="Beginn" value={beginn} onChangeText={setBeginn} keyboardType="numbers-and-punctuation" placeholder="01.08.2026" />
-      <Input label="Ende" value={ende} onChangeText={setEnde} error={datumFehler} keyboardType="numbers-and-punctuation" placeholder="14.08.2026" />
+      <Input label="Beginn" value={beginn} onChangeText={setBeginn} error={beginnFehler} keyboardType="numbers-and-punctuation" placeholder="01.08.2026" />
+      <Input label="Ende" value={ende} onChangeText={setEnde} error={endeFehler} keyboardType="numbers-and-punctuation" placeholder="14.08.2026" />
       <Button variant="primary" label="Reise anlegen" onPress={absenden} loading={laedt} />
     </View>
   );
