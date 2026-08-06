@@ -1,30 +1,49 @@
-export const colors = {
-  dark: {
-    'bg-0': '#131110', 'bg-1': '#1C1917', 'bg-2': '#26221F', line: '#2E2A26',
-    'text-1': '#F2EEE8', 'text-2': '#A79F96', 'text-3': '#6E675F',
-    accent: '#ED5B3D', 'accent-text': '#ED5B3D', glow: '#E0913F',
-    danger: '#E5484D', 'on-accent': '#FFF6F2',
-  },
-  light: {
-    'bg-0': '#F6F3EE', 'bg-1': '#FCFAF6', 'bg-2': '#EFEAE2', line: '#E4DED4',
-    'text-1': '#26221E', 'text-2': '#6E675F', 'text-3': '#A79F96',
-    accent: '#ED5B3D', 'accent-text': '#C9432A', glow: '#B8752F',
-    danger: '#D93A3F', 'on-accent': '#FFF6F2',
-  },
+// Design Language v2 — Werte siehe DESIGN-LANGUAGE.md §1–§5.
+// Licht-Palette für alle Alltags-Screens (light-only).
+export const palette = {
+  'bg-0': '#FFFFFF', 'bg-1': '#F7F7F7',
+  line: '#EBEBEB', 'line-strong': '#B0B0B0',
+  'text-1': '#222222', 'text-2': '#6A6A6A', 'text-3': '#B0B0B0',
+  accent: '#FF385C', 'accent-pressed': '#E31C5F', 'accent-text': '#C4103C',
+  seal: '#B8752F', danger: '#C13515', 'on-accent': '#FFFFFF',
 } as const;
 
-export type ColorTokens = typeof colors[keyof typeof colors];
+// Kino-Palette: NUR Medien-Screens (Kamera, Preview, Versiegeln, Recap-Player).
+// Fix, kein Theme — wird direkt importiert, nicht über useTheme().
+export const cinema = {
+  'bg-0': '#131110', 'bg-1': '#1C1917',
+  'text-1': '#F2EEE8', 'text-2': '#A79F96',
+  'seal-glow': '#E8A13C', 'overlay-pill': 'rgba(19,17,16,0.55)',
+} as const;
+
+export type ColorTokens = typeof palette;
 
 export const radius = { control: 12, card: 24, pill: 999 } as const;
 
-export const spacing = { xs: 4, s: 8, m: 12, base: 16, screen: 20, l: 24, xl: 32, xxl: 48 } as const;
+export const spacing = { xs: 4, s: 8, m: 12, base: 16, screen: 24, l: 24, xl: 32, xxl: 48 } as const;
 
 export const type = {
-  display: { fontFamily: 'Manrope_200ExtraLight', fontSize: 88, fontVariant: ['tabular-nums'] },
-  h1: { fontFamily: 'Manrope_600SemiBold', fontSize: 28 },
-  h2: { fontFamily: 'Manrope_600SemiBold', fontSize: 22 },
-  body: { fontFamily: 'Manrope_400Regular', fontSize: 16, lineHeight: 23 },
-  secondary: { fontFamily: 'Manrope_400Regular', fontSize: 14 },
-  label: { fontFamily: 'Manrope_500Medium', fontSize: 12, letterSpacing: 0.24 },
-  tab: { fontFamily: 'Manrope_500Medium', fontSize: 11 },
+  display: { fontFamily: 'Figtree_300Light', fontSize: 84, letterSpacing: -1.7, fontVariant: ['tabular-nums'] },
+  h1: { fontFamily: 'Figtree_700Bold', fontSize: 30, lineHeight: 36 },
+  h2: { fontFamily: 'Figtree_600SemiBold', fontSize: 22, lineHeight: 28 },
+  h3: { fontFamily: 'Figtree_600SemiBold', fontSize: 18, lineHeight: 23 },
+  body: { fontFamily: 'Figtree_400Regular', fontSize: 16, lineHeight: 24 },
+  bodyMedium: { fontFamily: 'Figtree_500Medium', fontSize: 16, lineHeight: 24 },
+  secondary: { fontFamily: 'Figtree_400Regular', fontSize: 14, lineHeight: 20 },
+  label: { fontFamily: 'Figtree_500Medium', fontSize: 12, letterSpacing: 0.24 },
+  tab: { fontFamily: 'Figtree_500Medium', fontSize: 11 },
+} as const;
+
+// Drei Schatten-Stufen (DESIGN-LANGUAGE v2 §3) — iOS shadow* + Android elevation.
+export const shadow = {
+  s1: { shadowColor: '#000000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.08, shadowRadius: 12, elevation: 2 },
+  s2: { shadowColor: '#000000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.12, shadowRadius: 16, elevation: 6 },
+  s3: { shadowColor: '#000000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.28, shadowRadius: 28, elevation: 12 },
+} as const;
+
+// Motion-Tokens (DESIGN-LANGUAGE v2 §5).
+export const motion = {
+  duration: { fast: 150, base: 250, gentle: 400, feature: 800 },
+  easeSmooth: [0.22, 1, 0.36, 1] as [number, number, number, number],
+  spring: { damping: 18, stiffness: 180, mass: 1 },
 } as const;

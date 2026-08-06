@@ -14,7 +14,7 @@ export default function WelcomeScreen() {
   return (
     <View style={[styles.screen, { backgroundColor: colors['bg-0'] }]}>
       {/* Platzhalter: Der Reelive-Wortzug wird ein SVG-Asset (DESIGN-LANGUAGE §2).
-          Bis es existiert: schlichter Manrope-Schriftzug. */}
+          Bis es existiert: schlichter Figtree-Schriftzug. */}
       <Text style={[type.h1, { color: colors['text-1'] }]}>Reelive</Text>
       <Text style={[type.body, { color: colors['text-2'] }]}>
         Eure Reise. Alle Perspektiven. Ein Recap.

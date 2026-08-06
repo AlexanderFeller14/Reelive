@@ -14,7 +14,7 @@ export function Button({ variant, label, onPress, disabled, loading }: Props) {
   const { colors } = useTheme();
   const blocked = disabled || loading;
   const bg =
-    variant === 'primary' ? colors.accent : variant === 'secondary' ? colors['bg-2'] : 'transparent';
+    variant === 'primary' ? colors.accent : variant === 'secondary' ? colors['bg-1'] : 'transparent';
   const fg =
     variant === 'primary' ? colors['on-accent'] : variant === 'secondary' ? colors['text-1'] : colors['accent-text'];
 
@@ -37,7 +37,7 @@ export function Button({ variant, label, onPress, disabled, loading }: Props) {
       {loading ? (
         <ActivityIndicator testID="button-loading" color={fg} />
       ) : (
-        <Text style={[type.body, { fontFamily: 'Manrope_600SemiBold', color: fg }]}>{label}</Text>
+        <Text style={[type.body, { fontFamily: 'Figtree_600SemiBold', color: fg }]}>{label}</Text>
       )}
     </Pressable>
   );

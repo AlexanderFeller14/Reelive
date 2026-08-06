@@ -15,7 +15,7 @@ export function Input({ label, error, style, ...rest }: Props) {
         style={[
           type.body,
           {
-            backgroundColor: colors['bg-2'],
+            backgroundColor: colors['bg-1'],
             color: colors['text-1'],
             borderRadius: radius.control,
             paddingHorizontal: spacing.base,
