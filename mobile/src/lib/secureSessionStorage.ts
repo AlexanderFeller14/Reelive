@@ -27,7 +27,15 @@ export const secureSessionStorage = {
   async getItem(key: string): Promise<string | null> {
     const stored = await AsyncStorage.getItem(key);
     if (!stored) return null;
-    return decrypt(key, stored);
+    try {
+      return await decrypt(key, stored);
+    } catch {
+      // Ciphertext und SecureStore-Key können auseinanderlaufen (z.B. abgebrochener
+      // Schreibvorgang) — utf8.fromBytes wirft dann auf Byte-Ebene. Als "kein
+      // Eintrag" behandeln statt die App abstürzen zu lassen: Supabase sieht keine
+      // Session und der Nutzer meldet sich sauber neu an.
+      return null;
+    }
   },
   async setItem(key: string, value: string): Promise<void> {
     const encrypted = await encrypt(key, value);

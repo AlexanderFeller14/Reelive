@@ -632,6 +632,9 @@ test('removeItem und fehlender Key → null', async () => {
 
 Run: `npm test -- secureSessionStorage` — Expected: FAIL (Modul fehlt).
 
+> **Amendment (2026-08-06):** `getItem` fängt Entschlüsselungsfehler ab und liefert
+> `null` statt zu werfen — Details siehe Amendment-Hinweis bei Task 7.
+
 - [ ] **Step 3: Storage implementieren** — `mobile/src/lib/secureSessionStorage.ts` (Supabase-offizielles Muster: AES-Key in SecureStore, Ciphertext in AsyncStorage):
 
 ```ts
@@ -836,6 +839,12 @@ git commit -m "feat(app): Telefon-Normalisierung, Auth-API und lokale Test-OTP-C
 ---
 
 ### Task 7: AuthProvider, Session-Guard & Root-Layout
+
+> **Amendment (2026-08-06, nach Final-Review):** Der AuthProvider-Code unten wurde
+> bewusst gehärtet umgesetzt: hasProfile unterscheidet Query-Fehler von "kein Profil"
+> (Fehler ⇒ nie needsProfile, Fallback signedIn), evaluate fängt Rejections (nie
+> dauerhaft loading), secureSessionStorage.getItem liefert bei Entschlüsselungsfehlern
+> null. Freigegeben vom Auftraggeber.
 
 **Files:**
 - Create: `mobile/src/features/auth/guard.ts`, `mobile/src/features/auth/AuthProvider.tsx`, `mobile/app/index.tsx`
