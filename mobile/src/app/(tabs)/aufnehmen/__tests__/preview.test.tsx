@@ -63,8 +63,11 @@ jest.mock('@/features/moments/medien', () => ({
   dauerhaftSichern: (postId: string, dateien: unknown) => mockDauerhaftSichern(postId, dateien),
   momentDateienEntfernen: (postId: string) => mockMomentDateienEntfernen(postId),
   rohaufnahmeVerwerfen: (uri: string) => mockRohaufnahmeVerwerfen(uri),
-  storageKey: (tripId: string, postId: string, typ: string) =>
-    `trips/${tripId}/${postId}.${typ === 'video' ? 'mp4' : 'jpg'}`,
+  storageKey: (tripId: string, postId: string, endung: string) =>
+    `trips/${tripId}/${postId}.${endung}`,
+  // Important 5: die Endung kommt aus der tatsächlichen Aufnahme.
+  medienEndung: (typ: string, uri: string) =>
+    typ === 'video' ? (uri.endsWith('.mov') ? 'mov' : 'mp4') : 'jpg',
   thumbKey: (tripId: string, postId: string) => `trips/${tripId}/${postId}_t.jpg`,
 }));
 
@@ -281,6 +284,27 @@ test('ein Video trägt seine Dauer in duration_s ein und ruft videoAufbereiten a
     typ: 'video',
     duration_s: 12,
     storage_key: 'trips/t1/post-1.mp4',
+  });
+});
+
+// Final-Review, Important 5: expo-camera nimmt auf iOS QuickTime auf. Bis zur
+// Fix-Welle landete das unter ….mp4 mit Content-Type video/mp4 — dauerhaft
+// falsch etikettiert, und weil der Schlüssel pro Moment unveränderlich ist,
+// nachträglich nicht mehr zu heilen.
+test('eine iOS-Aufnahme (.mov) bekommt einen Schlüssel mit der tatsächlichen Endung', async () => {
+  mockParams = { uri: 'file://video.mov', typ: 'video', dauer: '12', tripId: 't1' };
+  mockVideoAufbereiten.mockResolvedValue({ medium: 'file://video.mov', thumb: 'file://thumb.jpg' });
+  mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
+  await render(<PreviewScreen />);
+
+  await act(async () => {
+    await fireEvent.press(screen.getByText('Einsenden'));
+  });
+
+  expect(mockJobEinreihen.mock.calls[0][0]).toMatchObject({
+    storage_key: 'trips/t1/post-1.mov',
+    // Das Thumbnail bleibt JPEG, unabhängig vom Container des Mediums.
+    thumb_key: 'trips/t1/post-1_t.jpg',
   });
 });
 

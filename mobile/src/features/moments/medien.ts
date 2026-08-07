@@ -10,17 +10,63 @@ const JPEG_QUALITAET = 0.8;
 // Unterhalb des Dokumentenverzeichnisses, ein Ordner je Moment.
 const MOMENTE_ORDNER = 'momente';
 
+// Dateiendung aus einem lokalen Pfad oder Speicherschlüssel, klein
+// geschrieben und ohne Punkt. Leer, wenn keine erkennbar ist.
+export function endungAus(uri: string): string {
+  const ohneAnhang = uri.split(/[?#]/)[0];
+  const name = ohneAnhang.slice(ohneAnhang.lastIndexOf('/') + 1);
+  const punkt = name.lastIndexOf('.');
+  return punkt > 0 ? name.slice(punkt + 1).toLowerCase() : '';
+}
+
+// Welche Endungen es je Aufnahmeart überhaupt geben darf, und was gilt, wenn
+// sich aus der Aufnahme nichts Brauchbares ablesen lässt.
+//
+// Final-Review, Important 5: expo-camera erzeugt auf iOS eine QuickTime-Datei
+// (.mov), auf Android .mp4. Die Vorfassung lud die iOS-Bytes trotzdem unter
+// ….mp4 mit Content-Type video/mp4 hoch — der Bucket nahm es an, weil er den
+// DEKLARIERTEN Typ prüft. Das Ergebnis waren dauerhaft falsch etikettierte
+// Objekte, und weil der Schlüssel pro Moment unveränderlich ist, nachträglich
+// nicht zu heilen. Fotos gehen unverändert immer als JPEG raus: sie werden von
+// fotoAufbereiten neu als JPEG kodiert, egal was die Kamera lieferte.
+const ERLAUBTE_ENDUNGEN: Record<'photo' | 'video', readonly string[]> = {
+  photo: ['jpg'],
+  video: ['mp4', 'mov'],
+};
+const STANDARD_ENDUNG: Record<'photo' | 'video', string> = { photo: 'jpg', video: 'mp4' };
+
+const CONTENT_TYPEN: Record<string, string> = {
+  jpg: 'image/jpeg',
+  mp4: 'video/mp4',
+  mov: 'video/quicktime',
+};
+
+// Die tatsächliche Endung der Aufnahme, auf die erlaubte Liste eingeschränkt.
+// Etwas Unbekanntes fällt auf den Standard zurück, statt in den Schlüssel und
+// damit in den signierten Pfad durchzuschlagen.
+export function medienEndung(typ: 'photo' | 'video', uri: string): string {
+  const kandidat = endungAus(uri);
+  return ERLAUBTE_ENDUNGEN[typ].includes(kandidat) ? kandidat : STANDARD_ENDUNG[typ];
+}
+
 // Schlüssel-Logik existiert bewusst zweimal: hier und in der Edge Function
 // supabase/functions/media-urls/keys.ts (erwarteteSchluessel). Der Client
 // braucht die Schlüssel schon vor dem Insert; die Function traut dem Client
-// nicht und leitet sie serverseitig aus der posts-Zeile neu ab (Spec §6).
-export function storageKey(tripId: string, postId: string, typ: 'photo' | 'video'): string {
-  const endung = typ === 'video' ? 'mp4' : 'jpg';
+// nicht und leitet sie serverseitig aus der posts-Zeile neu ab (Spec §6) —
+// inklusive der Endung, die dafür als posts.media_ext mitgeschrieben wird.
+export function storageKey(tripId: string, postId: string, endung: string): string {
   return `trips/${tripId}/${postId}.${endung}`;
 }
 
 export function thumbKey(tripId: string, postId: string): string {
   return `trips/${tripId}/${postId}_t.jpg`;
+}
+
+// Die Endung steckt bereits im Speicherschlüssel — sie muss deshalb weder ein
+// zweites Mal im Queue-Job stehen noch mit ihm auseinanderlaufen. Genutzt vom
+// Worker für den Content-Type des PUT und von postsApi für posts.media_ext.
+export function contentTypeFuerSchluessel(key: string): string {
+  return CONTENT_TYPEN[endungAus(key)] ?? 'application/octet-stream';
 }
 
 export function neuePostId(): string {
@@ -94,15 +140,6 @@ export async function fotoAufbereiten(uri: string): Promise<{ medium: string; th
 export async function videoAufbereiten(uri: string): Promise<{ medium: string; thumb: string }> {
   const standbild = await getThumbnailAsync(uri, { time: 0 });
   return { medium: uri, thumb: standbild.uri };
-}
-
-// Dateiendung aus einem lokalen Pfad, klein geschrieben und ohne Punkt.
-// Leer, wenn keine erkennbar ist.
-export function endungAus(uri: string): string {
-  const ohneAnhang = uri.split(/[?#]/)[0];
-  const name = ohneAnhang.slice(ohneAnhang.lastIndexOf('/') + 1);
-  const punkt = name.lastIndexOf('.');
-  return punkt > 0 ? name.slice(punkt + 1).toLowerCase() : '';
 }
 
 // === Dauerhafte Ablage (Final-Review, Critical 2) ===

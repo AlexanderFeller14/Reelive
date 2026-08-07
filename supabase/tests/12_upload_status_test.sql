@@ -17,10 +17,13 @@
 --      (04 testet nur strikt davor/danach).
 --   3. Insert in eine archivierte Reise scheitert (weder "active" noch
 --      "revealed mit captured_at <= revealed_at" trifft zu).
+--   4. posts.media_ext (Final-Review, Important 5): Default, Spalten-Grant für
+--      authenticated und die Check-Constraint, die die Endung auf eine
+--      geschlossene, zur Aufnahmeart passende Liste festnagelt.
 
 create extension if not exists pgtap with schema extensions;
 begin;
-select plan(4);
+select plan(8);
 
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-00000000000a', 'anna@test.local'),
@@ -59,7 +62,43 @@ insert into public.posts (id, trip_id, author_id, type, storage_key, captured_at
           '00000000-0000-0000-0000-00000000000a', 'photo', 'trips/x/1.jpg',
           '2026-08-02 10:00+00', 'Europe/Lisbon');
 
+-- === 4. media_ext (Final-Review, Important 5) ===
+-- Die Edge Function leitet den Speicherschlüssel aus der posts-Zeile ab und
+-- traut dem Client keinen Pfad. Damit sie die richtige Container-Endung
+-- ableiten kann (iOS nimmt QuickTime auf, Android mp4), steht sie als Spalte
+-- in der Zeile — beschränkt auf eine geschlossene Liste, die zur Aufnahmeart
+-- passen muss. Diese Grenze ist der ganze Grund, warum der Client die Endung
+-- überhaupt bestimmen darf.
+insert into public.posts (id, trip_id, author_id, type, media_ext, storage_key, duration_s, captured_at, captured_tz)
+  values ('44444444-4444-4444-4444-444444444444', '11111111-1111-1111-1111-111111111111',
+          '00000000-0000-0000-0000-00000000000a', 'video', 'mov', 'trips/x/4.mov', 12,
+          '2026-08-02 11:00+00', 'Europe/Lisbon');
+
+-- Ein Video ohne ausdrückliche Endung liefe in den Default 'jpg' — das muss
+-- LAUT scheitern statt still falsch etikettiert im Speicher zu landen.
+select throws_ok(
+  $$insert into public.posts (trip_id, author_id, type, storage_key, duration_s, captured_at, captured_tz)
+    values ('11111111-1111-1111-1111-111111111111', '00000000-0000-0000-0000-00000000000a',
+            'video', 'trips/x/5.mp4', 8, '2026-08-02 12:00+00', 'Europe/Lisbon')$$,
+  '23514', null, 'ein Video ohne ausdrückliche media_ext scheitert an der Check-Constraint statt still als jpg durchzugehen');
+
+select throws_ok(
+  $$insert into public.posts (trip_id, author_id, type, media_ext, storage_key, captured_at, captured_tz)
+    values ('11111111-1111-1111-1111-111111111111', '00000000-0000-0000-0000-00000000000a',
+            'photo', 'exe', 'trips/x/6.exe', '2026-08-02 13:00+00', 'Europe/Lisbon')$$,
+  '23514', null, 'eine Endung ausserhalb der erlaubten Liste wird abgelehnt (kein frei wählbarer Pfadbestandteil)');
+
 select pg_temp.as_service();
+
+-- Gelesen wird als service_role: die Reise ist noch versiegelt, authenticated
+-- sähe seine eigenen Momente vor dem Reveal gar nicht (Phase 1) und die
+-- Prüfung liefe ins Leere statt zu greifen.
+select is(media_ext, 'jpg',
+    'ein Foto ohne ausdrückliche Endung bekommt jpg (Default)')
+  from public.posts where id = '22222222-2222-2222-2222-222222222222';
+select is(media_ext, 'mov',
+    'authenticated darf media_ext beim Insert setzen (Spalten-Grant vorhanden) — sonst scheiterte JEDER Client-Insert')
+  from public.posts where id = '44444444-4444-4444-4444-444444444444';
 insert into public.trip_members (trip_id, user_id) values
   ('11111111-1111-1111-1111-111111111111', '00000000-0000-0000-0000-00000000000b');
 

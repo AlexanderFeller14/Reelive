@@ -222,6 +222,12 @@ export default function PreviewScreen() {
       // Pfade — nicht die flüchtigen.
       const { medium, thumb } = await medien.dauerhaftSichern(postId, aufbereitet);
 
+      // Final-Review, Important 5: die Endung kommt aus der TATSÄCHLICHEN
+      // Aufnahme, nicht aus der Aufnahmeart — expo-camera liefert auf iOS
+      // QuickTime (.mov), auf Android .mp4. Fotos gehen immer als JPEG raus,
+      // weil fotoAufbereiten sie ohnehin neu kodiert.
+      const endung = medien.medienEndung(typ, aufbereitet.medium);
+
       const getrimmteCaption = caption.trim();
       const job: QueueJob = {
         id: postId,
@@ -231,7 +237,7 @@ export default function PreviewScreen() {
         typ,
         medium_uri: medium,
         thumb_uri: thumb,
-        storage_key: medien.storageKey(tripId, postId, typ),
+        storage_key: medien.storageKey(tripId, postId, endung),
         thumb_key: medien.thumbKey(tripId, postId),
         caption: getrimmteCaption.length > 0 ? getrimmteCaption : null,
         captured_at: zeit.captured_at,

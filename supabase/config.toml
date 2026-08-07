@@ -125,7 +125,11 @@ file_size_limit = "50MiB"
 [storage.buckets.media]
 public = false
 file_size_limit = "50MiB"
-allowed_mime_types = ["image/jpeg", "video/mp4"]
+# video/quicktime gehört dazu, weil expo-camera auf iOS eine QuickTime-Datei
+# aufnimmt (.mov) und Android eine .mp4 — beides landet unverändert hier, ohne
+# Transkodierung (Spec §2). Ohne diesen Eintrag lehnt Storage den iOS-Upload ab
+# oder erzwingt eine falsche Etikettierung (Phase-4-Final-Review, Important 5).
+allowed_mime_types = ["image/jpeg", "video/mp4", "video/quicktime"]
 
 # Allow connections via S3 compatible clients
 [storage.s3_protocol]

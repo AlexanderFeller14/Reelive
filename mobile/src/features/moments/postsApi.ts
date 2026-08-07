@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { OFFLINE_HINT, istOffline } from '@/lib/netzfehler';
+import * as medien from './medien';
 import type { QueueJob } from './types';
 
 // Übersetzt einen postgrest-Fehler in eine deutsche Klartextmeldung (DESIGN-LANGUAGE
@@ -85,6 +86,14 @@ export async function momentAnlegen(
     author_id: job.author_id,
     // Einziges Feld, dessen Name abweicht: QueueJob.typ → posts.type.
     type: job.typ,
+    // Important 5: die tatsächliche Endung der Aufnahme (iOS liefert .mov,
+    // Android .mp4). Sie steht schon im Speicherschlüssel und wird von dort
+    // gelesen, statt ein zweites Mal im Job zu stehen und mit ihm
+    // auseinanderlaufen zu können. Die Edge Function leitet ihren Schlüssel
+    // aus GENAU DIESER Spalte ab — der Client bestimmt damit die Endung, aber
+    // nur innerhalb der Check-Constraint aus der Migration, und nur beim
+    // Insert (ein Update auf posts hat authenticated seit Phase 1 nicht).
+    media_ext: medien.endungAus(job.storage_key),
     storage_key: job.storage_key,
     thumb_key: job.thumb_key,
     duration_s: job.duration_s,
@@ -120,7 +129,15 @@ export async function signierteUrls(
   return data as { medium_url: string; thumb_url: string };
 }
 
-export async function uploadBestaetigen(postId: string): Promise<{ error: string | null }> {
+// Antwortet die Function mit 409, liegt im Speicher kein vollständiges Objekt
+// (0 Byte oder abgeschnitten, siehe objektGroesse in der Function). Das ist
+// der einzige Fehlschlag, bei dem ERNEUT HOCHLADEN hilft statt nur erneut zu
+// bestätigen — der Worker muss ihn deshalb unterscheiden können (Important 4).
+const UNVOLLSTAENDIG_STATUS = 409;
+
+export async function uploadBestaetigen(
+  postId: string
+): Promise<{ error: string | null; unvollstaendig?: boolean }> {
   const { data, error } = await supabase.functions.invoke('media-urls', {
     body: { aktion: 'confirm', post_id: postId },
   });
@@ -129,11 +146,15 @@ export async function uploadBestaetigen(postId: string): Promise<{ error: string
     // Response-Body mit — der landet über FunctionsHttpError im `context`.
     const httpFehler = error as { name?: string; context?: unknown };
     if (httpFehler?.name === 'FunctionsHttpError' && httpFehler.context instanceof Response) {
+      const unvollstaendig = httpFehler.context.status === UNVOLLSTAENDIG_STATUS;
       try {
         const body = (await httpFehler.context.clone().json()) as { fehler?: string };
-        if (typeof body.fehler === 'string') return { error: body.fehler };
+        if (typeof body.fehler === 'string') return { error: body.fehler, unvollstaendig };
       } catch {
-        // Antwort war kein JSON — unten die generische Meldung.
+        // Antwort war kein JSON — generische Meldung, der Status zählt trotzdem.
+      }
+      if (unvollstaendig) {
+        return { error: 'Der Upload ist noch nicht vollständig. Er wird gleich erneut versucht.', unvollstaendig };
       }
     }
     return { error: funktionMeldung(error, 'Der Upload konnte nicht bestätigt werden. Probier es gleich nochmal.') };

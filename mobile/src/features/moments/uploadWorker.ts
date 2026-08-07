@@ -107,7 +107,16 @@ async function verarbeiteJob(job: QueueJob, jetzt: number, meineGeneration: numb
 
     if (!aktuell.medium_geladen) {
       if (!gehoertZurLaufendenGeneration(meineGeneration)) return;
-      await teilHochladen(urls.medium_url, aktuell.medium_uri, aktuell.typ === 'video' ? 'video/mp4' : 'image/jpeg');
+      // Content-Type aus dem Speicherschlüssel statt aus der Aufnahmeart
+      // (Important 5): auf iOS ist ein Video QuickTime, kein MP4. Der Bucket
+      // prüft den DEKLARIERTEN Typ und hätte die falsche Angabe klaglos
+      // angenommen — dauerhaft falsch etikettierte Objekte, nach dem Upload
+      // nicht mehr zu heilen.
+      await teilHochladen(
+        urls.medium_url,
+        aktuell.medium_uri,
+        medien.contentTypeFuerSchluessel(aktuell.storage_key)
+      );
       aktuell = { ...aktuell, medium_geladen: true };
       if (!gehoertZurLaufendenGeneration(meineGeneration)) return;
       await queueDb.jobAktualisieren(aktuell);
@@ -123,7 +132,21 @@ async function verarbeiteJob(job: QueueJob, jetzt: number, meineGeneration: numb
 
     if (!gehoertZurLaufendenGeneration(meineGeneration)) return;
     const bestaetigt = await postsApi.uploadBestaetigen(aktuell.post_id);
-    if (bestaetigt.error) throw new Error(bestaetigt.error);
+    if (bestaetigt.error) {
+      // Final-Review, Important 4: ein unvollständiges Objekt war eine
+      // Sackgasse. medium_geladen/thumb_geladen wurden gesetzt, sobald der PUT
+      // 2xx lieferte, und nie zurückgenommen. Liegt im Speicher ein 0-Byte-
+      // oder abgeschnittenes Objekt, antwortet confirm korrekt mit "Upload ist
+      // noch nicht vollständig" — aber der nächste Durchlauf übersprang beide
+      // Uploads und rief nur wieder confirm. Für immer, alle fünf Sekunden.
+      // Die Flags werden deshalb zurückgesetzt, BEVOR der Fehlschlag
+      // gespeichert wird (das übernimmt der catch-Zweig mit `aktuell`), damit
+      // der nächste Anlauf wirklich neu hochlädt.
+      if (bestaetigt.unvollstaendig) {
+        aktuell = { ...aktuell, medium_geladen: false, thumb_geladen: false };
+      }
+      throw new Error(bestaetigt.error);
+    }
 
     // fertig ⇒ sofort entfernen statt erst noch den Zustand zu persistieren:
     // ein zusätzliches update() vor dem delete() wäre ein überflüssiger Schreibvorgang.

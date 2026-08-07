@@ -180,7 +180,7 @@ Deno.test({
       const [post] = (await erwarteJson(postRes, 201)) as Array<{ id: string }>;
       const postId: string = post.id;
 
-      const erwartet = erwarteteSchluessel(tripId, postId, 'photo');
+      const erwartet = erwarteteSchluessel(tripId, postId, 'photo', 'jpg');
       const jwt = await mintJwt(JWT_SECRET, LEA_ID);
       const authHeaders = {
         apikey: ANON_KEY,

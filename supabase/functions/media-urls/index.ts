@@ -10,7 +10,10 @@ import '@supabase/functions-js/edge-runtime.d.ts';
 //      und kommt frühestens mit Phase 5, mit ganz anderen Bedingungen.
 //   2. Schlüssel werden aus der `posts`-Zeile abgeleitet (erwarteteSchluessel
 //      in ./keys.ts), nie aus dem Client-Body übernommen — sonst könnte
-//      jemand eine Signatur für einen fremden Pfad erschleichen. Das gilt
+//      jemand eine Signatur für einen fremden Pfad erschleichen. Auch die
+//      Container-Endung (iOS nimmt .mov auf, Android .mp4) kommt aus der
+//      Zeile — Spalte `media_ext`, per Check-Constraint auf eine geschlossene
+//      Liste beschränkt und nach dem Insert unveränderlich. Das gilt
 //      auch rückwirkend: `confirm` schreibt dieselben abgeleiteten Schlüssel
 //      in `posts.storage_key`/`thumb_key`, statt den ungeprüften Client-Wert
 //      (aus dem Insert) stehen zu lassen — sonst würde eine künftige
@@ -40,6 +43,9 @@ type PostZeile = {
   trip_id: string;
   author_id: string;
   type: 'photo' | 'video';
+  // Die tatsächliche Container-Endung der Aufnahme (iOS: mov, Android: mp4).
+  // Kommt aus der Zeile, nie aus dem Anfrage-Body — siehe keys.ts.
+  media_ext: string | null;
 };
 
 type AnfrageBody = { aktion?: unknown; post_id?: unknown };
@@ -148,7 +154,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
   // selbst und leitet den erwarteten Schlüssel daraus ab (siehe keys.ts).
   const { data: post, error: postError } = await supabaseAdmin
     .from('posts')
-    .select('id, trip_id, author_id, type')
+    .select('id, trip_id, author_id, type, media_ext')
     .eq('id', postId)
     .maybeSingle();
 
@@ -183,6 +189,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     postZeile.trip_id,
     postZeile.id,
     postZeile.type,
+    postZeile.media_ext,
   );
 
   if (!s3KonfigVollstaendig()) {

@@ -92,28 +92,31 @@ select throws_ok(
 
 -- === Video-Dauer-Pflicht ===
 select throws_ok(
-  $$insert into public.posts (trip_id, author_id, type, storage_key, captured_at, captured_tz)
+  $$insert into public.posts (trip_id, author_id, type, media_ext, storage_key, captured_at, captured_tz)
     values ('11111111-1111-1111-1111-111111111111', '00000000-0000-0000-0000-00000000000a',
-            'video', 'k', '2026-08-05 09:00+00', 'Europe/Lisbon')$$,
+            'video', 'mp4', 'k', '2026-08-05 09:00+00', 'Europe/Lisbon')$$,
   '23514', null, 'Video ohne duration_s wird abgelehnt');
 
-insert into public.posts (trip_id, author_id, type, storage_key, duration_s, captured_at, captured_tz)
+insert into public.posts (trip_id, author_id, type, media_ext, storage_key, duration_s, captured_at, captured_tz)
   values ('11111111-1111-1111-1111-111111111111', '00000000-0000-0000-0000-00000000000a',
-          'video', 'k', 20, '2026-08-05 09:00+00', 'Europe/Lisbon');
+          'video', 'mp4', 'k', 20, '2026-08-05 09:00+00', 'Europe/Lisbon');
 select pass('Video mit 20s Dauer wird angenommen');
 
--- === Positiv-Insert mit ALLEN 13 gegrantsen posts-Spalten (gekoppelte
+-- === Positiv-Insert mit ALLEN 14 gegrantsen posts-Spalten (gekoppelte
 -- Ergänzung, finaler Whole-Branch-Review — fängt versehentliche
 -- Grant-Verengungen auf den Insert-Spalten aus 090600_role_hardening.sql)
+-- media_ext kam mit 20260807100000_post_media_ext.sql dazu und braucht einen
+-- eigenen Spalten-Grant: eine neue Spalte wandert in einer solchen Liste NICHT
+-- automatisch mit, und ohne sie scheiterte jeder Client-Insert.
 insert into public.posts (
-  id, trip_id, author_id, type, storage_key, thumb_key, duration_s,
+  id, trip_id, author_id, type, media_ext, storage_key, thumb_key, duration_s,
   caption, captured_at, captured_tz, lat, lng, place_name
 ) values (
   '55555555-5555-5555-5555-555555555555', '11111111-1111-1111-1111-111111111111',
-  '00000000-0000-0000-0000-00000000000a', 'video', 'trips/x/full.mp4', 'trips/x/full-thumb.jpg', 15,
+  '00000000-0000-0000-0000-00000000000a', 'video', 'mov', 'trips/x/full.mov', 'trips/x/full-thumb.jpg', 15,
   'Alle Spalten befüllt', '2026-08-05 09:00+00', 'Europe/Lisbon', 38.7223, -9.1393, 'Lissabon'
 );
-select pass('Insert mit allen 13 gegrantsen posts-Spalten wird angenommen');
+select pass('Insert mit allen 14 gegrantsen posts-Spalten wird angenommen');
 
 -- === Mitgliedschafts-Orakel geschlossen: anon darf is_trip_member nicht rufen ===
 select pg_temp.as_anon();

@@ -3,14 +3,22 @@
 // tripsApi.test.ts).
 const mockGetSession = jest.fn();
 const mockInsert = jest.fn();
+const mockInvoke = jest.fn();
 jest.mock('@/lib/supabase', () => ({
   supabase: {
     auth: { getSession: () => mockGetSession() },
     from: () => ({ insert: (...args: unknown[]) => mockInsert(...args) }),
+    functions: { invoke: (...args: unknown[]) => mockInvoke(...args) },
   },
 }));
 
-import { momentAnlegen, aktuelleAutorId } from '../postsApi';
+// medien zieht expo-file-system und expo-image-manipulator nach — hier wird
+// davon nur die Endungs-Ableitung gebraucht (Important 5: posts.media_ext).
+jest.mock('../medien', () => ({
+  endungAus: (uri: string) => uri.slice(uri.lastIndexOf('.') + 1).toLowerCase(),
+}));
+
+import { momentAnlegen, aktuelleAutorId, uploadBestaetigen } from '../postsApi';
 import type { QueueJob } from '../types';
 
 const job: QueueJob = {
@@ -86,6 +94,77 @@ test('jeder andere Fehler wird wiederholt, nicht verworfen', async () => {
   const ergebnis = await momentAnlegen(job);
   expect(ergebnis.dauerhaftAbgelehnt).toBeUndefined();
   expect(ergebnis.error).not.toBeNull();
+});
+
+// Final-Review, Important 5: die Edge Function leitet den Speicherschlüssel aus
+// GENAU DIESER Spalte ab. Sie steht schon im Schlüssel und wird von dort
+// gelesen, statt ein zweites Mal im Job zu stehen und auseinanderlaufen zu
+// können.
+test('media_ext kommt aus dem Speicherschlüssel (iOS liefert mov, Android mp4)', async () => {
+  mockInsert.mockResolvedValueOnce({ error: null });
+  await momentAnlegen({ ...job, typ: 'video', storage_key: 'trips/t1/p1.mov', duration_s: 8 });
+  expect(mockInsert).toHaveBeenCalledWith(expect.objectContaining({ media_ext: 'mov' }));
+
+  mockInsert.mockResolvedValueOnce({ error: null });
+  await momentAnlegen(job);
+  expect(mockInsert).toHaveBeenLastCalledWith(expect.objectContaining({ media_ext: 'jpg' }));
+});
+
+// === Final-Review, Important 4 ===
+// Antwortet confirm mit 409, liegt im Speicher kein vollständiges Objekt. Das
+// ist der einzige Fehlschlag, bei dem ERNEUT HOCHLADEN hilft statt nur erneut
+// zu bestätigen — ohne diese Unterscheidung übersprang der Worker die Uploads
+// und rief für immer nur wieder confirm.
+describe('uploadBestaetigen', () => {
+  const httpFehler = (status: number, body: unknown) => ({
+    data: null,
+    error: Object.assign(new Error('http'), {
+      name: 'FunctionsHttpError',
+      context: new Response(JSON.stringify(body), { status }),
+    }),
+  });
+
+  test('Erfolg', async () => {
+    mockInvoke.mockResolvedValueOnce({ data: { ok: true }, error: null });
+    await expect(uploadBestaetigen('p1')).resolves.toEqual({ error: null });
+  });
+
+  test('409 wird als unvollständig gemeldet, mit dem Klartext der Function', async () => {
+    mockInvoke.mockResolvedValueOnce(httpFehler(409, { fehler: 'Upload ist noch nicht vollständig.' }));
+    const ergebnis = await uploadBestaetigen('p1');
+    expect(ergebnis.unvollstaendig).toBe(true);
+    expect(ergebnis.error).toBe('Upload ist noch nicht vollständig.');
+  });
+
+  test('409 ohne verwertbaren Body gilt trotzdem als unvollständig', async () => {
+    mockInvoke.mockResolvedValueOnce({
+      data: null,
+      error: Object.assign(new Error('http'), {
+        name: 'FunctionsHttpError',
+        context: new Response('kein json', { status: 409 }),
+      }),
+    });
+    const ergebnis = await uploadBestaetigen('p1');
+    expect(ergebnis.unvollstaendig).toBe(true);
+    expect(ergebnis.error).not.toBeNull();
+  });
+
+  test('jeder andere HTTP-Fehler ist NICHT unvollständig — die Uploads bleiben erledigt', async () => {
+    mockInvoke.mockResolvedValueOnce(httpFehler(500, { fehler: 'Bestätigen fehlgeschlagen.' }));
+    const ergebnis = await uploadBestaetigen('p1');
+    expect(ergebnis.unvollstaendig).toBe(false);
+    expect(ergebnis.error).toBe('Bestätigen fehlgeschlagen.');
+  });
+
+  test('ein Netzwerkfehler benennt Offline als Ursache und ist nicht unvollständig', async () => {
+    mockInvoke.mockResolvedValueOnce({
+      data: null,
+      error: { name: 'FunctionsFetchError', message: 'Failed to send a request to the Edge Function', context: { message: 'Network request failed' } },
+    });
+    const ergebnis = await uploadBestaetigen('p1');
+    expect(ergebnis.unvollstaendig).toBeUndefined();
+    expect(ergebnis.error).toBe('Du bist offline. Verbinde dich und probier es nochmal.');
+  });
 });
 
 // aktuelleAutorId(): genutzt vom Worker VOR der Job-Auswahl (Task-13-Fix-Runde-2).

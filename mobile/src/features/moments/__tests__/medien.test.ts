@@ -155,6 +155,8 @@ import {
   fotoAufbereiten,
   videoAufbereiten,
   endungAus,
+  medienEndung,
+  contentTypeFuerSchluessel,
   momentOrdner,
   dauerhaftSichern,
   momentDateienEntfernen,
@@ -168,8 +170,34 @@ beforeEach(() => {
 });
 
 test('storageKey folgt dem vereinbarten Muster', () => {
-  expect(storageKey('t1', 'p1', 'photo')).toBe('trips/t1/p1.jpg');
-  expect(storageKey('t1', 'p1', 'video')).toBe('trips/t1/p1.mp4');
+  expect(storageKey('t1', 'p1', 'jpg')).toBe('trips/t1/p1.jpg');
+  expect(storageKey('t1', 'p1', 'mp4')).toBe('trips/t1/p1.mp4');
+});
+
+// === Final-Review, Important 5: iOS nimmt .mov auf, der Schlüssel sagte .mp4 ===
+// expo-camera erzeugt auf iOS eine QuickTime-Datei. Die Vorfassung lud diese
+// Bytes unter ….mp4 mit Content-Type video/mp4 hoch; der Bucket nahm es an,
+// weil er den DEKLARIERTEN Typ prüft. Weil der Schlüssel pro Moment
+// unveränderlich ist, war das nachträglich nicht mehr zu heilen.
+test('medienEndung liest die tatsächliche Endung der Aufnahme', () => {
+  expect(medienEndung('video', 'file:///Caches/aufnahme.mov')).toBe('mov');
+  expect(medienEndung('video', 'file:///Caches/aufnahme.MOV')).toBe('mov');
+  expect(medienEndung('video', 'file:///Caches/aufnahme.mp4')).toBe('mp4');
+});
+
+test('medienEndung fällt auf den Standard zurück, statt Unbekanntes durchzureichen', () => {
+  expect(medienEndung('video', 'file:///Caches/aufnahme.avi')).toBe('mp4');
+  expect(medienEndung('video', 'file:///Caches/ohne-endung')).toBe('mp4');
+  // Fotos werden von fotoAufbereiten ohnehin als JPEG neu kodiert.
+  expect(medienEndung('photo', 'file:///Caches/bild.heic')).toBe('jpg');
+  expect(medienEndung('photo', 'file:///Caches/bild.png')).toBe('jpg');
+});
+
+test('der Content-Type kommt aus dem Speicherschlüssel, nicht aus der Aufnahmeart', () => {
+  expect(contentTypeFuerSchluessel('trips/t1/p1.mov')).toBe('video/quicktime');
+  expect(contentTypeFuerSchluessel('trips/t1/p1.mp4')).toBe('video/mp4');
+  expect(contentTypeFuerSchluessel('trips/t1/p1.jpg')).toBe('image/jpeg');
+  expect(contentTypeFuerSchluessel('trips/t1/p1')).toBe('application/octet-stream');
 });
 
 test('thumbKey ist immer ein JPEG', () => {

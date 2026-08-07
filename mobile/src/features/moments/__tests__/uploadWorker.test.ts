@@ -23,7 +23,14 @@ jest.mock('../postsApi', () => ({
 jest.mock('../einstellungen', () => ({ nurUeberWlan: jest.fn(async () => false) }));
 // Final-Review, Critical 2: der Worker ist die einzige Stelle, an der ein Job
 // die Warteschlange regulär verlässt — auf beiden Wegen müssen die Dateien mit.
-jest.mock('../medien', () => ({ momentDateienEntfernen: jest.fn() }));
+jest.mock('../medien', () => ({
+  momentDateienEntfernen: jest.fn(),
+  // Important 5: der Content-Type des PUT kommt aus dem Speicherschlüssel,
+  // nicht aus der Aufnahmeart (iOS-Videos sind QuickTime, keine MP4).
+  contentTypeFuerSchluessel: jest.fn((key: string) =>
+    key.endsWith('.mov') ? 'video/quicktime' : key.endsWith('.mp4') ? 'video/mp4' : 'image/jpeg'
+  ),
+}));
 jest.mock('expo-network', () => ({
   getNetworkStateAsync: jest.fn(async () => ({ isConnected: true, type: 'WIFI' })),
   addNetworkStateListener: jest.fn(() => ({ remove: jest.fn() })),
@@ -76,6 +83,63 @@ test('ein Fehlschlag lässt die Dateien liegen — der nächste Versuch braucht 
   jobs.push({ ...basis });
   await einenJobAbarbeiten();
   expect(medien.momentDateienEntfernen).not.toHaveBeenCalled();
+});
+
+// Important 5: der Bucket prüft den DEKLARIERTEN Typ. Eine iOS-Aufnahme unter
+// video/mp4 hochzuladen ergibt ein dauerhaft falsch etikettiertes Objekt.
+test('der Content-Type des Mediums folgt dem Speicherschlüssel', async () => {
+  jobs.push({ ...basis, typ: 'video', storage_key: 'trips/t1/p1.mov', duration_s: 8 });
+  await einenJobAbarbeiten();
+  const [mediumAufruf, thumbAufruf] = globalFetch.mock.calls as unknown as [
+    [string, { headers: Record<string, string> }],
+    [string, { headers: Record<string, string> }],
+  ];
+  expect(mediumAufruf[1].headers['Content-Type']).toBe('video/quicktime');
+  // Das Thumbnail ist immer ein JPEG.
+  expect(thumbAufruf[1].headers['Content-Type']).toBe('image/jpeg');
+});
+
+// === Final-Review, Important 4: ein unvollständiges Objekt war eine Sackgasse ===
+// medium_geladen/thumb_geladen wurden gesetzt, sobald der PUT 2xx lieferte, und
+// nie zurückgenommen. Liegt im Speicher ein 0-Byte- oder abgeschnittenes
+// Objekt, antwortet confirm korrekt mit "Upload ist noch nicht vollständig" —
+// aber der nächste Durchlauf übersprang beide Uploads und rief nur wieder
+// confirm. Für immer, alle fünf Sekunden.
+test('meldet die Bestätigung Unvollständigkeit, wird beim nächsten Anlauf wirklich neu hochgeladen', async () => {
+  (postsApi.uploadBestaetigen as jest.Mock).mockResolvedValueOnce({
+    error: 'Upload ist noch nicht vollständig.',
+    unvollstaendig: true,
+  });
+  jobs.push({ ...basis });
+
+  await einenJobAbarbeiten();
+
+  const [gespeichert] = jobs as unknown as QueueJob[];
+  expect(gespeichert.versuche).toBe(1);
+  expect(gespeichert.medium_geladen).toBe(false);
+  expect(gespeichert.thumb_geladen).toBe(false);
+  // Die posts-Zeile bleibt bestehen — nur die Uploads müssen erneut laufen.
+  expect(gespeichert.zeile_angelegt).toBe(true);
+  expect(queueDb.jobEntfernen).not.toHaveBeenCalled();
+
+  // Zweiter Durchlauf: beide Objekte gehen tatsächlich erneut raus.
+  globalFetch.mockClear();
+  gespeichert.naechster_versuch = 0;
+  await einenJobAbarbeiten();
+  expect(globalFetch).toHaveBeenCalledTimes(2);
+});
+
+// Jeder ANDERE Fehlschlag der Bestätigung (Netz weg, Function nicht
+// erreichbar) darf die Uploads nicht wegwerfen — sie sind ja durch.
+test('ein gewöhnlicher Fehlschlag der Bestätigung behält die erledigten Uploads', async () => {
+  (postsApi.uploadBestaetigen as jest.Mock).mockResolvedValueOnce({ error: 'Netz weg' });
+  jobs.push({ ...basis });
+
+  await einenJobAbarbeiten();
+
+  const [gespeichert] = jobs as unknown as QueueJob[];
+  expect(gespeichert.medium_geladen).toBe(true);
+  expect(gespeichert.thumb_geladen).toBe(true);
 });
 
 test('ein Wiederanlauf legt die Zeile nicht zweimal an', async () => {
