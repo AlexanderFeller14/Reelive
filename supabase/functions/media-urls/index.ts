@@ -10,7 +10,11 @@ import '@supabase/functions-js/edge-runtime.d.ts';
 //      und kommt frühestens mit Phase 5, mit ganz anderen Bedingungen.
 //   2. Schlüssel werden aus der `posts`-Zeile abgeleitet (erwarteteSchluessel
 //      in ./keys.ts), nie aus dem Client-Body übernommen — sonst könnte
-//      jemand eine Signatur für einen fremden Pfad erschleichen.
+//      jemand eine Signatur für einen fremden Pfad erschleichen. Das gilt
+//      auch rückwirkend: `confirm` schreibt dieselben abgeleiteten Schlüssel
+//      in `posts.storage_key`/`thumb_key`, statt den ungeprüften Client-Wert
+//      (aus dem Insert) stehen zu lassen — sonst würde eine künftige
+//      Lese-URL-Function (Phase 5) genau diesen Client-Pfad signieren.
 //   3. Identität kommt ausschliesslich aus dem JWT im Authorization-Header
 //      (supabaseAdmin.auth.getUser(token)), nie aus dem Body. Signiert wird
 //      nur, wenn die aufrufende Person Autor des Posts UND Mitglied der
@@ -76,13 +80,22 @@ async function presignedPutUrl(aws: AwsClient, key: string): Promise<string> {
   return signed.url;
 }
 
-async function objektExistiert(aws: AwsClient, key: string): Promise<boolean> {
+// Liefert die Objektgrösse in Bytes, oder null, wenn das Objekt (noch) nicht
+// existiert oder keine verwertbare Content-Length trägt. Ein blosses "HEAD
+// war ok" reicht nicht: ein 0-Byte- oder abgebrochener Upload würde sonst
+// als vollständig durchgehen — und danach gibt es keinen Weg zurück, der
+// Queue-Job ist weg. Darum zählt erst eine Grösse > 0 als Nachweis.
+async function objektGroesse(aws: AwsClient, key: string): Promise<number | null> {
   const signed = await aws.sign(s3ObjektUrl(key).toString(), {
     method: 'HEAD',
     aws: { signQuery: true },
   });
   const antwort = await fetch(signed);
-  return antwort.ok;
+  if (!antwort.ok) return null;
+  const contentLength = antwort.headers.get('content-length');
+  if (contentLength === null) return null;
+  const groesse = Number(contentLength);
+  return Number.isFinite(groesse) ? groesse : null;
 }
 
 function s3KonfigVollstaendig(): boolean {
@@ -191,29 +204,38 @@ Deno.serve(async (req: Request): Promise<Response> => {
     }
   }
 
-  // aktion === 'confirm': erst per HEAD nachweisen, dann upload_status setzen.
-  let mediumDa: boolean;
-  let thumbDa: boolean;
+  // aktion === 'confirm': erst per HEAD nachweisen (inkl. Grösse > 0), dann
+  // upload_status setzen.
+  let mediumGroesse: number | null;
+  let thumbGroesse: number | null;
   try {
     const aws = s3Client();
-    [mediumDa, thumbDa] = await Promise.all([
-      objektExistiert(aws, storage_key),
-      objektExistiert(aws, thumb_key),
+    [mediumGroesse, thumbGroesse] = await Promise.all([
+      objektGroesse(aws, storage_key),
+      objektGroesse(aws, thumb_key),
     ]);
   } catch (err) {
     console.error('media-urls: Prüfung fehlgeschlagen', err);
     return fehler('Prüfung fehlgeschlagen.', 502);
   }
 
-  if (!mediumDa || !thumbDa) {
+  if (mediumGroesse === null || mediumGroesse <= 0 || thumbGroesse === null || thumbGroesse <= 0) {
     return fehler('Upload ist noch nicht vollständig.', 409);
   }
 
   // Nur die Service-Role darf upload_status setzen — authenticated hat seit
   // Phase 1 kein Update-Recht auf posts (supabase/migrations/20260803090300_sealing_rls.sql).
+  // storage_key/thumb_key werden hier bewusst MIT gesetzt, nicht nur der
+  // Status: die Spalten stammen ursprünglich vom Client (er braucht die
+  // Schlüssel vor dem Insert, siehe medien.ts) und sind ungeprüft. Erst mit
+  // diesem Schreibvorgang benennt die Zeile garantiert das Objekt, das
+  // tatsächlich unter dem server-abgeleiteten Pfad liegt — sonst würde eine
+  // spätere Lese-URL-Function (Phase 5) den ungeprüften Client-Pfad aus
+  // storage_key signieren und genau die Lücke wiedereröffnen, die diese
+  // Function beim Signieren schliesst.
   const { error: updateError } = await supabaseAdmin
     .from('posts')
-    .update({ upload_status: 'uploaded' })
+    .update({ upload_status: 'uploaded', storage_key, thumb_key })
     .eq('id', postZeile.id);
 
   if (updateError) {

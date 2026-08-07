@@ -117,12 +117,15 @@ enabled = true
 # The maximum file size allowed (e.g. "5MB", "500KB").
 file_size_limit = "50MiB"
 
-# Uncomment to configure local storage buckets
-# [storage.buckets.images]
-# public = false
-# file_size_limit = "50MiB"
-# allowed_mime_types = ["image/png", "image/jpeg"]
-# objects_path = "./images"
+# Momente aus der Kamera (supabase/functions/media-urls). Nicht öffentlich —
+# jeder Zugriff läuft über kurzlebige presigned URLs aus der Edge Function,
+# nie über einen öffentlichen Bucket-Pfad. Ohne diese Deklaration existiert
+# der Bucket nur als Laufzeitzustand in storage.buckets und überlebt weder
+# `supabase db reset` noch einen frischen Checkout auf einer zweiten Maschine.
+[storage.buckets.media]
+public = false
+file_size_limit = "50MiB"
+allowed_mime_types = ["image/jpeg", "video/mp4"]
 
 # Allow connections via S3 compatible clients
 [storage.s3_protocol]
