@@ -3,6 +3,10 @@ import * as React from 'react';
 
 const mockReplace = jest.fn();
 const mockBack = jest.fn();
+// Final-Review, Important 3: die Vorschau wird vom Stapel GENOMMEN statt durch
+// einen neuen Kamera-Screen ersetzt. Nur ohne Rückweg (Deep Link) bleibt
+// replace übrig — deshalb steuerbar.
+let mockKannZurueck = true;
 let mockParams: Record<string, string | undefined> = {
   uri: 'file://foto.jpg',
   typ: 'photo',
@@ -10,7 +14,12 @@ let mockParams: Record<string, string | undefined> = {
   tripId: 't1',
 };
 jest.mock('expo-router', () => ({
-  useRouter: () => ({ replace: mockReplace, back: mockBack, push: jest.fn() }),
+  useRouter: () => ({
+    replace: mockReplace,
+    back: mockBack,
+    push: jest.fn(),
+    canGoBack: () => mockKannZurueck,
+  }),
   useLocalSearchParams: () => mockParams,
 }));
 
@@ -123,6 +132,7 @@ beforeEach(() => {
   }));
   mockJobEinreihen.mockResolvedValue(undefined);
   mockJetzt.mockReturnValue({ captured_at: CAPTURED_AT, captured_tz: 'Europe/Zurich' });
+  mockKannZurueck = true;
   // Standardmässig hängend (nie auflösend): jeder Test, der eine bestimmte
   // Antwort braucht, überschreibt das explizit. So bleibt sichtbar, dass die
   // Anzeige nicht auf den Ort wartet, bevor sie den Screen zeigt.
@@ -202,7 +212,25 @@ test('Einsenden reiht genau einen Job ein und navigiert zur Kamera zurück', asy
     medium_geladen: false,
     thumb_geladen: false,
   });
+  // Important 3: die Vorschau wird vom Stapel genommen, nicht durch einen
+  // zweiten Kamera-Screen ersetzt.
+  expect(mockBack).toHaveBeenCalledTimes(1);
+  expect(mockReplace).not.toHaveBeenCalled();
+});
+
+// Ohne Rückweg (per Deep Link direkt in die Vorschau) gibt es nichts vom
+// Stapel zu nehmen — nur dort bleibt replace richtig.
+test('ohne Rückweg im Stapel führt der Weg zurück per replace zur Kamera', async () => {
+  mockKannZurueck = false;
+  mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
+  await render(<PreviewScreen />);
+
+  await act(async () => {
+    await fireEvent.press(screen.getByText('Einsenden'));
+  });
+
   expect(mockReplace).toHaveBeenCalledWith('/aufnehmen');
+  expect(mockBack).not.toHaveBeenCalled();
 });
 
 test('die Versiegelung wird erst sichtbar, nachdem der Job eingereiht ist, und navigiert erst über ihr onFertig', async () => {
@@ -215,7 +243,7 @@ test('die Versiegelung wird erst sichtbar, nachdem der Job eingereiht ist, und n
   mockJobEinreihen.mockImplementation(async () => {
     reihenfolge.push('eingereiht');
   });
-  mockReplace.mockImplementation(() => {
+  mockBack.mockImplementation(() => {
     reihenfolge.push('navigiert');
   });
 
@@ -335,7 +363,7 @@ test('ein Fehler beim Aufbereiten reiht keinen Job ein, zeigt eine Meldung und d
   });
 
   expect(mockJobEinreihen).not.toHaveBeenCalled();
-  expect(mockReplace).not.toHaveBeenCalled();
+  expect(mockBack).not.toHaveBeenCalled();
   expect(await screen.findByText(/Speicherplatz/)).toBeTruthy();
   // Der Screen bleibt stehen — Einsenden ist weiterhin da und lässt sich
   // erneut versuchen.
@@ -351,7 +379,7 @@ test('ein Fehler beim Einreihen reiht keinen zweiten Versuch fälschlich als Erf
     await fireEvent.press(screen.getByText('Einsenden'));
   });
 
-  expect(mockReplace).not.toHaveBeenCalled();
+  expect(mockBack).not.toHaveBeenCalled();
   expect(await screen.findByText(/Speicherplatz/)).toBeTruthy();
 });
 
@@ -366,7 +394,7 @@ test('ohne trip_id (Navigationslücke aus dem Kamera-Screen) wird das Einsenden 
 
   expect(mockFotoAufbereiten).not.toHaveBeenCalled();
   expect(mockJobEinreihen).not.toHaveBeenCalled();
-  expect(mockReplace).not.toHaveBeenCalled();
+  expect(mockBack).not.toHaveBeenCalled();
   expect(await screen.findByText(/keiner Reise zuordnen/)).toBeTruthy();
 });
 
@@ -385,7 +413,7 @@ test('ohne Sitzung (userId fehlt) wird das Einsenden abgelehnt, statt einen Job 
 
   expect(mockFotoAufbereiten).not.toHaveBeenCalled();
   expect(mockJobEinreihen).not.toHaveBeenCalled();
-  expect(mockReplace).not.toHaveBeenCalled();
+  expect(mockBack).not.toHaveBeenCalled();
   expect(await screen.findByText(/nicht angemeldet/)).toBeTruthy();
 });
 
@@ -415,7 +443,7 @@ test('ein zweiter Tipp auf Einsenden während des Sendens reiht keinen zweiten J
   await act(async () => {
     aufloesen({ medium: 'file://medium.jpg', thumb: 'file://thumb.jpg' });
   });
-  await waitFor(() => expect(mockReplace).toHaveBeenCalled());
+  await waitFor(() => expect(mockBack).toHaveBeenCalled());
 
   expect(mockFotoAufbereiten).toHaveBeenCalledTimes(1);
   expect(mockJobEinreihen).toHaveBeenCalledTimes(1);

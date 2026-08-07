@@ -116,6 +116,9 @@ export default function AufnehmenScreen() {
   // den zuletzt bekannten Serverstand statt kurz „0 Momente" aufblitzen zu
   // lassen (siehe Fallback beim Rendern unten).
   const [zaehler, setZaehler] = useState<number | null>(null);
+  // Wird bei jedem Fokussieren hochgezählt und hängt am Zähler-Effekt unten
+  // (siehe dort und useFocusEffect).
+  const [fokusStand, setFokusStand] = useState(0);
   const cameraRef = useRef<CameraView>(null);
   const videoStartZeit = useRef(0);
   const videoPromise = useRef<Promise<{ uri: string } | undefined> | null>(null);
@@ -171,6 +174,14 @@ export default function AufnehmenScreen() {
   useFocusEffect(
     useCallback(() => {
       aktiv.current = true;
+      // Zählt jedes Fokussieren hoch. Der Zähler-Effekt weiter unten hängt
+      // daran (Important 3): bis zur Fix-Welle wirkte er nur deshalb richtig,
+      // weil preview.tsx per replace bei JEDER Aufnahme einen neuen
+      // Kamera-Screen erzeugte — sein Effekt lief also zwangsläufig neu.
+      // Nimmt man diesen Stapel-Fehler weg, ohne den Abruf ans Fokussieren zu
+      // hängen, friert der Zähler für die ganze Sitzung ein: genau die
+      // Regression, für die es Task 10 gab. Beides gehört zusammen.
+      setFokusStand((n) => n + 1);
       void laden();
       return () => {
         aktiv.current = false;
@@ -210,12 +221,14 @@ export default function AufnehmenScreen() {
       cameraRef.current?.recordAsync({ maxDuration: MAX_VIDEO_SEKUNDEN }) ?? null;
   }, [modus]);
 
-  // Zieht den Zähler bei jedem Reise-Wechsel nach (Auswahl aus mehreren
-  // laufenden Reisen, Rückkehr auf den Screen) — ohne `reise` gibt es nichts
-  // zu zählen. eigenerZaehler kann ablehnen (kaputte lokale Warteschlange,
-  // siehe queueDb.ts) — ohne .catch() bliebe das eine unbehandelte
-  // Ablehnung; der Fallback auf reise.my_post_count beim Rendern unten
-  // greift dann einfach weiter (Fix-Runde 1).
+  // Zieht den Zähler bei jedem Reise-Wechsel UND bei jedem Fokussieren nach
+  // (`fokusStand`, Important 3) — ohne `reise` gibt es nichts zu zählen.
+  // Genau hier landet die Rückkehr aus der Vorschau: der Moment steckt dann
+  // frisch in der Warteschlange, die Pille muss ihn mitzählen.
+  // eigenerZaehler kann ablehnen (kaputte lokale Warteschlange, siehe
+  // queueDb.ts) — ohne .catch() bliebe das eine unbehandelte Ablehnung; der
+  // Fallback auf reise.my_post_count beim Rendern unten greift dann einfach
+  // weiter (Fix-Runde 1).
   useEffect(() => {
     if (!reise) return;
     void eigenerZaehler(reise.id)
@@ -223,7 +236,7 @@ export default function AufnehmenScreen() {
         if (aktiv.current) setZaehler(n);
       })
       .catch(() => {});
-  }, [reise?.id]);
+  }, [reise?.id, fokusStand]);
 
   if (trips === null) return <LeererKinoScreen />;
   if (fehler) {

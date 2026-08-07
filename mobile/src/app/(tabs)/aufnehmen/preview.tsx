@@ -156,6 +156,22 @@ export default function PreviewScreen() {
     })
   ).current;
 
+  // Final-Review, Important 3: die Vorfassung navigierte mit
+  // router.replace('/aufnehmen') zurück. replace ersetzt aber nur den
+  // fokussierten Eintrag durch einen NEUEN — aus [kamera, preview] wurde
+  // [kamera, kamera]. Jede Aufnahme stapelte damit einen weiteren
+  // Kamera-Screen, jeder mit eigener Kamera-Instanz, und die Zurück-Geste lief
+  // rückwärts durch alte Kameras statt aus dem Tab heraus. Diese Vorschau
+  // schliessen heisst: sie vom Stapel nehmen. Das erfüllt zugleich «kein
+  // Zurück zum Moment» (Spec §4) — der Screen ist dann weg, nicht überdeckt.
+  //
+  // canGoBack(): der Screen ist auch per Deep Link erreichbar, dann gibt es
+  // nichts zurückzunehmen — nur DORT ist replace richtig.
+  const zurueckZurKamera = () => {
+    if (router.canGoBack()) router.back();
+    else router.replace('/aufnehmen');
+  };
+
   const verwerfen = () => {
     if (sendet) return;
     // Final-Review, Critical 2: auch der Verwerfen-Weg hinterliess bisher eine
@@ -163,7 +179,7 @@ export default function PreviewScreen() {
     // an von niemandem mehr gebraucht und darf nicht zum Speicherdruck
     // beitragen, der die Warteschlange gefährdet.
     medien.rohaufnahmeVerwerfen(uri);
-    router.back();
+    zurueckZurKamera();
   };
 
   const absenden = async () => {
@@ -333,7 +349,7 @@ export default function PreviewScreen() {
         </View>
       </View>
 
-      <Versiegelung sichtbar={versiegelt} onFertig={() => router.replace('/aufnehmen')} />
+      <Versiegelung sichtbar={versiegelt} onFertig={zurueckZurKamera} />
     </KeyboardAvoidingView>
   );
 }

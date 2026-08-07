@@ -264,6 +264,26 @@ test('nach einer Offline-Aufnahme bewegt sich der Zähler nach vorn statt stehen
   expect(mockEigenerZaehler).toHaveBeenCalledWith('t1');
 });
 
+// Final-Review, Important 3: bis zur Fix-Welle wirkte der Zähler nur deshalb
+// richtig, weil preview.tsx per replace bei JEDER Aufnahme einen neuen
+// Kamera-Screen erzeugte — der Effekt lief also zwangsläufig neu. Sobald die
+// Vorschau sauber vom Stapel genommen wird, bleibt derselbe Screen stehen und
+// der Abruf MUSS am Fokussieren hängen, sonst friert die Zahl für die ganze
+// Sitzung ein (die Regression, für die es Task 10 gab).
+test('nach der Rückkehr aus der Vorschau zieht der Zähler nach, ohne dass der Screen neu entsteht', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise({ my_post_count: 4 })]));
+  mockEigenerZaehler.mockResolvedValueOnce(4);
+  await render(<AufnehmenScreen />);
+  expect(await screen.findByText('4 Momente')).toBeTruthy();
+
+  // Ein Moment ist eingesendet und liegt jetzt in der Warteschlange.
+  mockEigenerZaehler.mockResolvedValueOnce(5);
+  await erneutFokussieren();
+
+  expect(await screen.findByText('5 Momente')).toBeTruthy();
+  expect(mockEigenerZaehler).toHaveBeenCalledTimes(2);
+});
+
 // Fix-Runde 1: eigenerZaehler kann ablehnen (kaputte lokale Warteschlange).
 // Ohne .catch() an dieser Stelle bliebe eine unbehandelte Ablehnung stehen —
 // der Screen soll stattdessen einfach beim my_post_count-Fallback bleiben.
