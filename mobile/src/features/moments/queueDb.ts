@@ -19,34 +19,46 @@ function holeDatenbank(): Promise<SQLiteDatabase> {
   return datenbank;
 }
 
-// Spaltenreihenfolge ist die einzige Quelle der Wahrheit für insert/update —
-// sql-Text und Werte-Array werden beide daraus gebaut, damit sie nie auseinanderlaufen.
-const SPALTEN = [
-  'id',
-  'post_id',
-  'trip_id',
-  'typ',
-  'medium_uri',
-  'thumb_uri',
-  'storage_key',
-  'thumb_key',
-  'caption',
-  'captured_at',
-  'captured_tz',
-  'lat',
-  'lng',
-  'place_name',
-  'duration_s',
-  'zustand',
-  'versuche',
-  'naechster_versuch',
-  'zeile_angelegt',
-  'medium_geladen',
-  'thumb_geladen',
+// Einzige Quelle der Wahrheit für das Spaltenschema: Name, SQLite-Typ und ob die
+// Spalte Pflicht ist (not null). `create table`, die Spaltenreihenfolge für
+// insert/update UND die Pflichtfeld-Prüfung beim Lesen (siehe zuJob) werden alle
+// aus diesem einen Array abgeleitet — sie können dadurch nicht mehr auseinanderlaufen.
+const SPALTEN_SCHEMA = [
+  { name: 'id', typ: 'text', pflicht: true },
+  { name: 'post_id', typ: 'text', pflicht: true },
+  { name: 'trip_id', typ: 'text', pflicht: true },
+  { name: 'typ', typ: 'text', pflicht: true },
+  { name: 'medium_uri', typ: 'text', pflicht: true },
+  { name: 'thumb_uri', typ: 'text', pflicht: true },
+  { name: 'storage_key', typ: 'text', pflicht: true },
+  { name: 'thumb_key', typ: 'text', pflicht: true },
+  { name: 'caption', typ: 'text', pflicht: false },
+  { name: 'captured_at', typ: 'text', pflicht: true },
+  { name: 'captured_tz', typ: 'text', pflicht: true },
+  { name: 'lat', typ: 'real', pflicht: false },
+  { name: 'lng', typ: 'real', pflicht: false },
+  { name: 'place_name', typ: 'text', pflicht: false },
+  { name: 'duration_s', typ: 'real', pflicht: false },
+  { name: 'zustand', typ: 'text', pflicht: true },
+  { name: 'versuche', typ: 'integer', pflicht: true },
+  { name: 'naechster_versuch', typ: 'integer', pflicht: true },
+  { name: 'zeile_angelegt', typ: 'integer', pflicht: true },
+  { name: 'medium_geladen', typ: 'integer', pflicht: true },
+  { name: 'thumb_geladen', typ: 'integer', pflicht: true },
 ] as const;
 
-type Spalte = (typeof SPALTEN)[number];
+type Spalte = (typeof SPALTEN_SCHEMA)[number]['name'];
 type Zeile = Record<Spalte, string | number | null>;
+
+const SPALTEN: readonly Spalte[] = SPALTEN_SCHEMA.map((s) => s.name);
+
+const ERLAUBTE_ZUSTAENDE: readonly JobZustand[] = ['wartet', 'laeuft', 'fertig'];
+const ERLAUBTE_TYPEN: readonly QueueJob['typ'][] = ['photo', 'video'];
+
+function spaltenDefinitionSql(def: (typeof SPALTEN_SCHEMA)[number]): string {
+  if (def.name === 'id') return `${def.name} ${def.typ} primary key`;
+  return `${def.name} ${def.typ}${def.pflicht ? ' not null' : ''}`;
+}
 
 function zuZeile(job: QueueJob): Zeile {
   return {
@@ -74,7 +86,26 @@ function zuZeile(job: QueueJob): Zeile {
   };
 }
 
-function zuJob(zeile: Record<string, unknown>): QueueJob {
+// Schutz gegen stillen Datenverlust: eine Zeile mit fehlendem Pflichtfeld oder
+// ungültigem zustand (z. B. nach einem Absturz mitten im Schreiben oder einer
+// `create table if not exists`, die nicht mitgewachsen ist) darf nicht als gültiger
+// QueueJob durchgehen — sonst wandert der Schaden stillschweigend in queueLogic
+// und Task 6 weiter.
+function istVollstaendig(zeile: Record<string, unknown>): boolean {
+  for (const def of SPALTEN_SCHEMA) {
+    if (def.pflicht && (zeile[def.name] === null || zeile[def.name] === undefined)) {
+      return false;
+    }
+  }
+  if (!ERLAUBTE_ZUSTAENDE.includes(zeile.zustand as JobZustand)) return false;
+  if (!ERLAUBTE_TYPEN.includes(zeile.typ as QueueJob['typ'])) return false;
+  return true;
+}
+
+// Gibt null zurück statt zu werfen: eine einzelne kaputte Zeile darf die übrige
+// Warteschlange nicht mitreissen (siehe alleJobs).
+function zuJob(zeile: Record<string, unknown>): QueueJob | null {
+  if (!istVollstaendig(zeile)) return null;
   return {
     id: zeile.id as string,
     post_id: zeile.post_id as string,
@@ -106,30 +137,11 @@ function werteFuer(zeile: Zeile, spalten: readonly Spalte[]): (string | number |
 
 export async function initQueue(): Promise<void> {
   const db = await holeDatenbank();
+  const spalten = SPALTEN_SCHEMA.map(spaltenDefinitionSql).join(',\n        ');
   try {
     await db.execAsync(`
       create table if not exists upload_queue (
-        id text primary key,
-        post_id text not null,
-        trip_id text not null,
-        typ text not null,
-        medium_uri text not null,
-        thumb_uri text not null,
-        storage_key text not null,
-        thumb_key text not null,
-        caption text,
-        captured_at text not null,
-        captured_tz text not null,
-        lat real,
-        lng real,
-        place_name text,
-        duration_s real,
-        zustand text not null,
-        versuche integer not null,
-        naechster_versuch integer not null,
-        zeile_angelegt integer not null,
-        medium_geladen integer not null,
-        thumb_geladen integer not null
+        ${spalten}
       );
     `);
   } catch (fehler) {
@@ -157,7 +169,16 @@ export async function alleJobs(): Promise<QueueJob[]> {
   const db = await holeDatenbank();
   try {
     const zeilen = await db.getAllAsync<Record<string, unknown>>('select * from upload_queue', []);
-    return zeilen.map(zuJob);
+    const jobs: QueueJob[] = [];
+    for (const zeile of zeilen) {
+      const job = zuJob(zeile);
+      if (job) {
+        jobs.push(job);
+      } else {
+        console.error('[queueDb] beschädigte Zeile übersprungen', zeile);
+      }
+    }
+    return jobs;
   } catch (fehler) {
     console.error('[queueDb] alleJobs fehlgeschlagen', fehler);
     throw fehler;
