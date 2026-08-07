@@ -20,6 +20,29 @@ supabase test db      # pgTAP-Tests (RLS-Policies!) ausführen
 Regel: Schema-Änderungen NUR über Migrationen in `supabase/migrations/`.
 Jede RLS-Policy braucht Tests in `supabase/tests/`.
 
+## Entwicklung (Upload-Pfad)
+
+Die Edge Function `media-urls` (`supabase/functions/media-urls`) stellt kurzlebige
+signierte S3-URLs aus — der einzige Ort im System, der die S3-Zugangsdaten kennt. Sie
+läuft nicht automatisch mit `supabase start` und braucht eine eigene Umgebung:
+
+```bash
+cp supabase/functions/.env.example supabase/functions/.env
+# Werte eintragen — siehe die Kommentare in der Datei:
+#   S3_REGION/S3_ACCESS_KEY/S3_SECRET_KEY direkt aus `supabase status`
+#   (Felder S3_PROTOCOL_REGION / S3_PROTOCOL_ACCESS_KEY_ID / S3_PROTOCOL_ACCESS_KEY_SECRET)
+#   S3_ENDPOINT mit der LAN-IP des Rechners statt 127.0.0.1 (ifconfig | grep "inet ")
+supabase functions serve media-urls --env-file supabase/functions/.env
+```
+
+Ohne gültige Umgebung antwortet jeder `sign`-Aufruf mit „Server nicht konfiguriert.“
+**`S3_ENDPOINT` mit `127.0.0.1` ist der gefährlichere Fehler:** `sign` und der `PUT`-Upload
+sehen dann trotzdem normal aus (die Function selbst braucht dafür kein Netzwerk), aber
+`confirm`s HEAD-Check läuft im Docker-Container der Function — dort zeigt `127.0.0.1` auf
+den Container selbst, nicht auf Kong/Storage. Der Post bleibt für immer `pending`, der
+Queue-Job wiederholt endlos, ohne dass ein Test das bemerkt. Details dazu stehen in
+`supabase/functions/.env.example`.
+
 ## Entwicklung (App)
 
 Voraussetzungen: Node ≥ 20, Expo Go auf dem Gerät (App Store / Play Store)

@@ -41,10 +41,14 @@ function toTrip(row: TripRow, counts: Map<string, number>): Trip {
   };
 }
 
-// Bewusst ohne Fehler-Weitergabe: der eigene Momente-Zähler ist Beiwerk auf der
-// Karte. Fällt nur er aus, steht dort eine 0 statt gar keiner Reise — fällt das
-// Netz aus, meldet ohnehin die Reise-Abfrage daneben den Fehler.
-async function loadCounts(): Promise<Map<string, number>> {
+// Liest die rpc EINMAL und liefert Stand UND Fehler getrennt — wie jede andere
+// Lesefunktion hier oben. Das war bis zum Final-Review nicht so: der Fehler
+// wurde verschluckt und ein Fehlschlag als leere Zuordnung ausgegeben. Für die
+// Reise-Karte ist das harmlos (siehe loadCounts), für den Momente-Zähler war es
+// der Bug aus Important 6: wer 40 versiegelte Momente hat und im Flugmodus
+// einen aufnimmt, sah 0 + 1 = 1 — genau der Rückwärtssprung, den Spec §7
+// ausschliesst, und ausgerechnet im Offline-Fall, für den diese Phase existiert.
+async function zaehlerLesen(): Promise<{ counts: Map<string, number>; error: string | null }> {
   // Absichtlich kein direktes `const { data, error } = await supabase.rpc(...)`:
   // in den Fehlertests bleibt der rpc-Mock unkonfiguriert und liefert
   // `undefined` zurück. Im echten Betrieb löst supabase.rpc() immer zu
@@ -53,26 +57,65 @@ async function loadCounts(): Promise<Map<string, number>> {
   const result = await supabase.rpc('my_post_counts');
   const data = result?.data;
   const error = result?.error;
-  if (error || !data) return new Map();
-  return new Map((data as { trip_id: string; count: number }[]).map((r) => [r.trip_id, r.count]));
+  if (error || !data) {
+    return {
+      counts: new Map(),
+      error: meldung(error ?? null, 'Dein Momente-Zähler konnte nicht geladen werden. Probier es gleich nochmal.'),
+    };
+  }
+  return {
+    counts: new Map((data as { trip_id: string; count: number }[]).map((r) => [r.trip_id, r.count])),
+    error: null,
+  };
 }
 
-export async function fetchTrips(): Promise<Gelesen<Trip[]>> {
-  const [{ data, error }, counts] = await Promise.all([
+// Bewusst ohne Fehler-Weitergabe: der eigene Momente-Zähler ist Beiwerk auf der
+// Karte. Fällt nur er aus, steht dort eine 0 statt gar keiner Reise — fällt das
+// Netz aus, meldet ohnehin die Reise-Abfrage daneben den Fehler.
+async function loadCounts(): Promise<Map<string, number>> {
+  return (await zaehlerLesen()).counts;
+}
+
+// Öffentliche Fassung für Aufrufer ausserhalb dieser Datei (Task 9: der
+// Momente-Zähler zieht den Serverstand als Zuordnung Reise-id -> Zahl aus
+// derselben rpc, ergänzt um noch nicht hochgeladene Momente aus der
+// Warteschlange). Baut auf derselben zaehlerLesen() auf wie loadCounts —
+// eine Zuordnung, eine Quelle — gibt den Fehler aber weiter, weil der
+// Zähler ihn NICHT als «null» werten darf (siehe zaehler.ts).
+export async function eigeneZaehler(): Promise<Gelesen<Record<string, number>>> {
+  const { counts, error } = await zaehlerLesen();
+  return { data: Object.fromEntries(counts), error };
+}
+
+// `zaehlerFehler` getrennt vom `error` der Reisen (Re-Review, Minor 2): die
+// beiden Abfragen können unabhängig scheitern. Gelingen die Reisen und nur die
+// Zähler-rpc nicht, stünde sonst überall `my_post_count: 0` — für die Karte
+// Beiwerk (siehe loadCounts), für alles, was diesen Stand weiterreicht oder
+// vorhält, aber dieselbe Klasse von Fehler wie Important 6, eine Ebene weiter.
+// Wer den Stand braucht, muss unterscheiden können, ob die 0 gemessen oder
+// bloss ausgefallen ist.
+export async function fetchTrips(): Promise<Gelesen<Trip[]> & { zaehlerFehler: string | null }> {
+  const [{ data, error }, zaehler] = await Promise.all([
     supabase.from('trips').select(MIT_MITGLIEDERN).order('start_date', { ascending: false }),
-    loadCounts(),
+    zaehlerLesen(),
   ]);
+  const counts = zaehler.counts;
   if (error || !data) {
     return {
       data: [],
       error: meldung(error, 'Deine Reisen konnten nicht geladen werden. Probier es gleich nochmal.'),
+      zaehlerFehler: zaehler.error,
     };
   }
   // `unknown` als Zwischenschritt: Ohne generischen Database-Typ am Client
   // parst postgrest-js MIT_MITGLIEDERN selbst auf Typ-Ebene und nimmt für
   // trip_members(profiles(...)) Array-Kardinalität an, obwohl profiles hier
   // ein Einzelobjekt ist (siehe TripRow oben). Laufzeit unverändert.
-  return { data: (data as unknown as TripRow[]).map((row) => toTrip(row, counts)), error: null };
+  return {
+    data: (data as unknown as TripRow[]).map((row) => toTrip(row, counts)),
+    error: null,
+    zaehlerFehler: zaehler.error,
+  };
 }
 
 // data === null bei error === null heisst «gibt es (für dich) nicht mehr» —

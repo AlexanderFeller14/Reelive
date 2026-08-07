@@ -15,7 +15,7 @@ jest.mock('@/lib/supabase', () => ({
 import {
   fetchTrips, fetchTrip, fetchMembers, fetchInviteCode,
   createTrip, updateTrip, deleteTrip, removeMember,
-  redeemInvite, peekInvite,
+  redeemInvite, peekInvite, eigeneZaehler,
 } from '../tripsApi';
 
 beforeEach(() => jest.clearAllMocks());
@@ -109,6 +109,73 @@ test('fetchTrips benennt den Offline-Fall statt nur «probier es nochmal»', asy
     }),
   });
   const { error } = await fetchTrips();
+  expect(error).toBe('Du bist offline. Verbinde dich und probier es nochmal.');
+});
+
+// Re-Review, Minor 2: die beiden Abfragen in fetchTrips können unabhängig
+// scheitern. Gelingen die Reisen und nur die Zähler-rpc nicht, trägt jede Reise
+// `my_post_count: 0` — der Aufrufer muss unterscheiden können, ob diese 0
+// gemessen oder bloss ausgefallen ist.
+test('fetchTrips meldet einen ausgefallenen Zähler getrennt vom Reise-Fehler', async () => {
+  mockFrom.mockReturnValue({
+    select: () => ({
+      order: async () => ({
+        data: [
+          {
+            id: 't1', name: 'Norwegen', start_date: '2026-08-01', end_date: '2026-08-14',
+            status: 'active', owner_id: 'u1', trip_members: [],
+          },
+        ],
+        error: null,
+      }),
+    }),
+  });
+  mockRpc.mockResolvedValueOnce({ data: null, error: { message: 'Network request failed' } });
+
+  const { data, error, zaehlerFehler } = await fetchTrips();
+  expect(error).toBeNull();
+  expect(data[0].my_post_count).toBe(0);
+  expect(zaehlerFehler).toBe('Du bist offline. Verbinde dich und probier es nochmal.');
+});
+
+test('fetchTrips meldet keinen Zähler-Fehler, wenn die rpc durchkommt', async () => {
+  mockFrom.mockReturnValue({
+    select: () => ({ order: async () => ({ data: [], error: null }) }),
+  });
+  mockRpc.mockResolvedValueOnce({ data: [], error: null });
+  await expect(fetchTrips()).resolves.toEqual({ data: [], error: null, zaehlerFehler: null });
+});
+
+// Fix-Runde 1 (Task 9): eigeneZaehler() hatte bisher keinen eigenen Test —
+// nur tsc prüfte die Object.fromEntries(...)-Umwandlung. Der Momente-Zähler
+// (zaehler.ts) braucht bracket-Zugriff (zaehler[tripId]), darum die
+// Zuordnung Reise-id -> Zahl als reines Objekt statt als Map.
+test('eigeneZaehler liefert die rpc-Zuordnung als reines Objekt (bracket-lesbar)', async () => {
+  mockRpc.mockResolvedValueOnce({
+    data: [
+      { trip_id: 't1', count: 7 },
+      { trip_id: 't2', count: 0 },
+    ],
+    error: null,
+  });
+  await expect(eigeneZaehler()).resolves.toEqual({ data: { t1: 7, t2: 0 }, error: null });
+  expect(mockRpc).toHaveBeenCalledWith('my_post_counts');
+});
+
+// Final-Review, Important 6: der Fehler MUSS mitkommen. Vorher lieferte
+// eigeneZaehler bei einem Fehlschlag ein leeres Objekt, ununterscheidbar von
+// «du hast wirklich noch keinen Moment» — der Momente-Zähler rechnete daraufhin
+// offline mit 0 statt mit dem letzten bekannten Stand (siehe zaehler.ts).
+test('eigeneZaehler meldet einen rpc-Fehlschlag, statt ihn als leeren Stand auszugeben', async () => {
+  mockRpc.mockResolvedValueOnce({ data: null, error: { message: 'kaputt' } });
+  const { data, error } = await eigeneZaehler();
+  expect(data).toEqual({});
+  expect(error).toBe('Dein Momente-Zähler konnte nicht geladen werden. Probier es gleich nochmal.');
+});
+
+test('eigeneZaehler benennt Offline als Ursache', async () => {
+  mockRpc.mockResolvedValueOnce({ data: null, error: { message: 'Network request failed' } });
+  const { error } = await eigeneZaehler();
   expect(error).toBe('Du bist offline. Verbinde dich und probier es nochmal.');
 });
 

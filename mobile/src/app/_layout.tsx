@@ -16,6 +16,7 @@ import { resolveRoute, isPublicArea } from '@/features/auth/guard';
 import { peekRememberedInvite, discardRememberedInvite } from '@/features/trips/inviteLink';
 import { redeemInvite } from '@/features/trips/tripsApi';
 import { redeemPendingInvite } from '@/features/trips/joinFlow';
+import * as uploadWorker from '@/features/moments/uploadWorker';
 
 void SplashScreen.preventAutoHideAsync();
 
@@ -59,6 +60,21 @@ function Guarded() {
       aktiv = false;
     };
   }, [status, router]);
+
+  // Der Worker legt posts-Zeilen an — dafür braucht er Sitzung UND Profil,
+  // also dieselbe Bedingung wie beim Einlösen der Einladung oben: vor
+  // signedIn gibt es nichts zu tun. Verlässt der Status signedIn (Abmelden,
+  // Sitzungsverlust), MUSS er sofort stehen — ein weiterlaufender Worker
+  // würde sonst versuchen, mit fremder oder fehlender Sitzung Zeilen
+  // anzulegen. starte()/stoppe() sind idempotent (siehe uploadWorker.test.ts),
+  // ein Effect mit [status] als einziger Abhängigkeit reicht deshalb aus,
+  // ganz ohne eigene Zähler — die Cleanup-Funktion übernimmt sowohl den
+  // Wechsel weg von signedIn als auch das Unmounten (App-Beenden).
+  useEffect(() => {
+    if (status !== 'signedIn') return;
+    uploadWorker.starte();
+    return () => uploadWorker.stoppe();
+  }, [status]);
 
   return (
     <>

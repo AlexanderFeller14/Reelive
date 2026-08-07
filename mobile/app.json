@@ -33,7 +33,22 @@
           "imageWidth": 76
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      "expo-sqlite",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Reelive braucht die Kamera, um deine Momente einzufangen.",
+          "microphonePermission": "Reelive braucht das Mikrofon für Videos mit Ton."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Reelive hängt Ort und Zeit an deine Momente, damit der Recap sie einordnen kann."
+        }
+      ],
+      "expo-video"
     ],
     "experiments": {
       "typedRoutes": true,

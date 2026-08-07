@@ -2,4 +2,8 @@
 node_modules/
 .env
 .env.*
+# Vorlagen bleiben trackbar, egal wo sie liegen — sonst blockt die Regel
+# oben jedes neue .env.example (traf gerade supabase/functions/.env.example;
+# mobile/.env.example ist nur getrackt, weil es früher mit -f erzwungen wurde).
+!**/.env.example
 .DS_Store
