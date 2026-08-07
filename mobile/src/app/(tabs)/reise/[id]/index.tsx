@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from 'react';
 import { Alert, ScrollView, Text, View, StyleSheet } from 'react-native';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import * as Haptics from 'expo-haptics';
 import { Lock, X } from 'lucide-react-native';
 import { PressScale } from '@/components/PressScale';
 import { Avatar } from '@/components/Avatar';
@@ -12,6 +13,14 @@ import { useAuth } from '@/features/auth/AuthProvider';
 import { deleteTrip, fetchMembers, fetchTrip, removeMember } from '@/features/trips/tripsApi';
 import { formatRange, tripDay, tripLength } from '@/features/trips/tripDay';
 import type { Trip, TripMember } from '@/features/trips/types';
+
+// DESIGN-LANGUAGE §5: destruktive Dialoge kündigen sich haptisch an (warning).
+// Sparsam eingesetzt — nur die drei Dialoge dieses Screens. Ein fehlender
+// Vibrationsmotor (Simulator, Web) darf den Dialog nie aufhalten, deshalb wird
+// das Versprechen bewusst verworfen statt abgewartet.
+function warnhaptik() {
+  void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
+}
 
 export default function ReiseDetail() {
   const { colors } = useTheme();
@@ -88,6 +97,7 @@ export default function ReiseDetail() {
   const laenge = tripLength(trip.start_date, trip.end_date);
 
   const entfernen = (m: TripMember) => {
+    warnhaptik();
     Alert.alert(`${m.display_name} entfernen?`, 'Bereits eingesendete Momente bleiben in der Reise.', [
       { text: 'Abbrechen', style: 'cancel' },
       {
@@ -104,6 +114,7 @@ export default function ReiseDetail() {
   };
 
   const verlassen = () => {
+    warnhaptik();
     Alert.alert('Reise verlassen?', 'Deine bereits eingesendeten Momente bleiben in der Reise.', [
       { text: 'Abbrechen', style: 'cancel' },
       {
@@ -121,6 +132,7 @@ export default function ReiseDetail() {
   };
 
   const loeschen = () => {
+    warnhaptik();
     Alert.alert('Reise löschen?', 'Die Reise und alle Momente darin verschwinden für alle.', [
       { text: 'Abbrechen', style: 'cancel' },
       {

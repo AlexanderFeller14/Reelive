@@ -25,7 +25,14 @@ jest.mock('@/features/trips/tripsApi', () => ({
   removeMember: jest.fn(async () => ({ error: null })),
   deleteTrip: jest.fn(async () => ({ error: null })),
 }));
+// DESIGN-LANGUAGE §5: destruktive Dialoge lösen warning-Haptik aus.
+jest.mock('expo-haptics', () => ({
+  notificationAsync: jest.fn(async () => {}),
+  NotificationFeedbackType: { Warning: 'warning' },
+}));
+
 import ReiseDetail from '../[id]/index';
+import * as Haptics from 'expo-haptics';
 import { fetchTrip, fetchMembers, removeMember, deleteTrip } from '@/features/trips/tripsApi';
 
 const trip = {
@@ -167,4 +174,27 @@ test('ein Fehler beim Mitgliederladen bleibt in der Sektion sichtbar', async () 
   expect(await screen.findByText(meldung)).toBeTruthy();
   // Die Reise selbst kam durch und bleibt bedienbar.
   expect(screen.getByText('Norwegen mit dem Camper')).toBeTruthy();
+});
+
+test.each([
+  ['Jonas entfernen', 'label'],
+  ['Reise löschen', 'text'],
+] as const)('destruktiver Dialog «%s» löst warning-Haptik aus', async (name, art) => {
+  await wrap();
+  const knopf = art === 'label' ? screen.getByLabelText(name) : await screen.findByText(name);
+  await fireEvent.press(knopf);
+  expect(Haptics.notificationAsync).toHaveBeenCalledWith('warning');
+});
+
+test('«Reise verlassen» löst warning-Haptik aus', async () => {
+  mockAuth.userId = 'u2';
+  await wrap();
+  await fireEvent.press(await screen.findByText('Reise verlassen'));
+  expect(Haptics.notificationAsync).toHaveBeenCalledWith('warning');
+});
+
+test('Haptik bleibt sparsam: kein Auslösen ohne destruktiven Dialog', async () => {
+  await wrap();
+  await fireEvent.press(await screen.findByText('Freunde einladen'));
+  expect(Haptics.notificationAsync).not.toHaveBeenCalled();
 });
