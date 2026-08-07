@@ -1,10 +1,14 @@
 import * as Crypto from 'expo-crypto';
+import { Directory, File, Paths } from 'expo-file-system';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import { getThumbnailAsync } from 'expo-video-thumbnails';
 
 const FOTO_MAX_KANTE = 1080;
 const THUMB_MAX_KANTE = 320;
 const JPEG_QUALITAET = 0.8;
+
+// Unterhalb des Dokumentenverzeichnisses, ein Ordner je Moment.
+const MOMENTE_ORDNER = 'momente';
 
 // Schlüssel-Logik existiert bewusst zweimal: hier und in der Edge Function
 // supabase/functions/media-urls/keys.ts (erwarteteSchluessel). Der Client
@@ -90,4 +94,78 @@ export async function fotoAufbereiten(uri: string): Promise<{ medium: string; th
 export async function videoAufbereiten(uri: string): Promise<{ medium: string; thumb: string }> {
   const standbild = await getThumbnailAsync(uri, { time: 0 });
   return { medium: uri, thumb: standbild.uri };
+}
+
+// Dateiendung aus einem lokalen Pfad, klein geschrieben und ohne Punkt.
+// Leer, wenn keine erkennbar ist.
+export function endungAus(uri: string): string {
+  const ohneAnhang = uri.split(/[?#]/)[0];
+  const name = ohneAnhang.slice(ohneAnhang.lastIndexOf('/') + 1);
+  const punkt = name.lastIndexOf('.');
+  return punkt > 0 ? name.slice(punkt + 1).toLowerCase() : '';
+}
+
+// === Dauerhafte Ablage (Final-Review, Critical 2) ===
+//
+// takePictureAsync, recordAsync, ImageManipulator.saveAsync und
+// getThumbnailAsync schreiben alle nach Library/Caches — ein Verzeichnis, das
+// iOS unter Speicherdruck leeren darf und das nicht gesichert wird. Die
+// Warteschlange soll Momente aber tagelang halten; sie hielt bisher nur Zeiger
+// in ein Verzeichnis, das jederzeit verschwinden kann. Deshalb wandern Medium
+// und Thumbnail beim Einreihen in einen eigenen Ordner je Moment unterhalb des
+// Dokumentenverzeichnisses, und der Job merkt sich DIESE Pfade.
+export function momentOrdner(postId: string): Directory {
+  return new Directory(Paths.document, MOMENTE_ORDNER, postId);
+}
+
+// Verschiebt (nicht kopiert) Medium und Thumbnail in den Moment-Ordner und
+// liefert die neuen Pfade. Verschieben statt Kopieren räumt die flüchtige
+// Cache-Fassung gleich mit weg — sonst erzeugte die App genau den
+// Speicherdruck, der ihre eigene Warteschlange zerstört.
+export async function dauerhaftSichern(
+  postId: string,
+  dateien: { medium: string; thumb: string }
+): Promise<{ medium: string; thumb: string }> {
+  const ordner = momentOrdner(postId);
+  ordner.create({ intermediates: true, idempotent: true });
+
+  const endung = endungAus(dateien.medium) || 'jpg';
+  // overwrite: ein Wiederanlauf nach abgebrochenem Einsenden trifft sonst auf
+  // eine halbfertige Datei aus dem vorigen Versuch und scheitert daran.
+  const zielMedium = new File(ordner, `medium.${endung}`);
+  await new File(dateien.medium).move(zielMedium, { overwrite: true });
+
+  const zielThumb = new File(ordner, 'thumb.jpg');
+  await new File(dateien.thumb).move(zielThumb, { overwrite: true });
+
+  return { medium: zielMedium.uri, thumb: zielThumb.uri };
+}
+
+// Aufgerufen, wo ein Job die Warteschlange verlässt — auf dem Erfolgspfad UND
+// bei dauerhafter Ablehnung (siehe uploadWorker). Ohne das blieben Medium und
+// Thumbnail jedes hochgeladenen Moments für immer liegen, bei Video die vollen
+// 30 Sekunden in 1080p.
+//
+// Wirft nie: ein misslungenes Aufräumen kostet Speicherplatz, ein daran
+// scheiternder Worker-Durchlauf würde den Job endlos wiederholen lassen.
+export function momentDateienEntfernen(postId: string): void {
+  try {
+    const ordner = momentOrdner(postId);
+    if (ordner.exists) ordner.delete();
+  } catch (fehler) {
+    console.error('[medien] Moment-Ordner konnte nicht entfernt werden', postId, fehler);
+  }
+}
+
+// Die Rohaufnahme aus der Kamera (Library/Caches). Wird verworfen, sobald sie
+// niemand mehr braucht: nach dem Einreihen oder wenn jemand die Aufnahme in
+// der Vorschau verwirft. Wirft ebenfalls nie — eine liegen gebliebene Datei
+// darf weder das Einsenden noch das Verwerfen aufhalten.
+export function rohaufnahmeVerwerfen(uri: string): void {
+  try {
+    const datei = new File(uri);
+    if (datei.exists) datei.delete();
+  } catch (fehler) {
+    console.error('[medien] Rohaufnahme konnte nicht entfernt werden', uri, fehler);
+  }
 }

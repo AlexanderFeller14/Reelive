@@ -158,6 +158,11 @@ export default function PreviewScreen() {
 
   const verwerfen = () => {
     if (sendet) return;
+    // Final-Review, Critical 2: auch der Verwerfen-Weg hinterliess bisher eine
+    // Datei — die Rohaufnahme aus der Kamera. Sie liegt im Cache, wird von hier
+    // an von niemandem mehr gebraucht und darf nicht zum Speicherdruck
+    // beitragen, der die Warteschlange gefährdet.
+    medien.rohaufnahmeVerwerfen(uri);
     router.back();
   };
 
@@ -188,10 +193,18 @@ export default function PreviewScreen() {
 
     setSendeFehler(null);
     setSendet(true);
+    const postId = medien.neuePostId();
     try {
-      const postId = medien.neuePostId();
-      const { medium, thumb } =
+      const aufbereitet =
         typ === 'video' ? await medien.videoAufbereiten(uri) : await medien.fotoAufbereiten(uri);
+
+      // Final-Review, Critical 2: Kamera, Bildbearbeitung und Video-Standbild
+      // schreiben alle nach Library/Caches — ein Verzeichnis, das iOS unter
+      // Speicherdruck leeren darf. Die Warteschlange soll Momente aber
+      // tagelang halten. Deshalb wandern Medium und Thumbnail HIER, vor dem
+      // Einreihen, an einen dauerhaften Ort, und der Job merkt sich diese
+      // Pfade — nicht die flüchtigen.
+      const { medium, thumb } = await medien.dauerhaftSichern(postId, aufbereitet);
 
       const getrimmteCaption = caption.trim();
       const job: QueueJob = {
@@ -224,6 +237,12 @@ export default function PreviewScreen() {
       // nie darüber entscheiden, ob ein Moment gesichert ist.
       await uploadWorker.jobEinreihen(job);
 
+      // Ab hier gehört die Aufnahme der Warteschlange; die Rohfassung im Cache
+      // wird von niemandem mehr gebraucht. Bei einem Video ist sie schon
+      // verschoben (dort IST die Rohaufnahme das Medium) — dann tut das hier
+      // nichts.
+      medien.rohaufnahmeVerwerfen(uri);
+
       // Der Moment ist ab hier bereits sicher in der Warteschlange — die
       // Versiegelungs-Inszenierung (Gold-Glow, 700–900 ms, Haptik success,
       // DESIGN-LANGUAGE §5) kommentiert das nur noch, sie entscheidet über
@@ -235,6 +254,12 @@ export default function PreviewScreen() {
       // Ein Fehler beim Aufbereiten oder Einreihen (z.B. voller Gerätespeicher,
       // Spec §7/§8) wird sichtbar gemacht statt den Moment stillschweigend
       // verschwinden zu lassen — der Screen bleibt stehen.
+      //
+      // Was schon im dauerhaften Ordner liegt, muss dabei weg: ohne Job in der
+      // Warteschlange käme nie wieder jemand daran vorbei, der ihn aufräumt.
+      // Die Rohaufnahme bleibt dagegen liegen — der Screen bleibt stehen und
+      // ein zweiter Versuch braucht sie noch.
+      medien.momentDateienEntfernen(postId);
       console.error('[preview] Einsenden fehlgeschlagen', fehler);
       setSendeFehler(SENDEN_FEHLGESCHLAGEN_MELDUNG);
       setSendet(false);

@@ -21,6 +21,9 @@ jest.mock('../postsApi', () => ({
   aktuelleAutorId: jest.fn(async () => 'u1'),
 }));
 jest.mock('../einstellungen', () => ({ nurUeberWlan: jest.fn(async () => false) }));
+// Final-Review, Critical 2: der Worker ist die einzige Stelle, an der ein Job
+// die Warteschlange regulär verlässt — auf beiden Wegen müssen die Dateien mit.
+jest.mock('../medien', () => ({ momentDateienEntfernen: jest.fn() }));
 jest.mock('expo-network', () => ({
   getNetworkStateAsync: jest.fn(async () => ({ isConnected: true, type: 'WIFI' })),
   addNetworkStateListener: jest.fn(() => ({ remove: jest.fn() })),
@@ -29,6 +32,7 @@ jest.mock('expo-network', () => ({
 import { einenJobAbarbeiten, jobEinreihen, starte, stoppe, wartende } from '../uploadWorker';
 import * as postsApi from '../postsApi';
 import * as queueDb from '../queueDb';
+import * as medien from '../medien';
 import * as Network from 'expo-network';
 import type { QueueJob } from '../types';
 
@@ -62,6 +66,16 @@ test('ein vollständiger Durchlauf legt an, lädt beides hoch, bestätigt und r�
   expect(globalFetch).toHaveBeenCalledTimes(2);
   expect(postsApi.uploadBestaetigen).toHaveBeenCalledWith('p1');
   expect(queueDb.jobEntfernen).toHaveBeenCalledWith('j1');
+  // Critical 2: sonst blieben Medium und Thumbnail jedes hochgeladenen
+  // Moments für immer liegen — bei Video die vollen 30 Sekunden in 1080p.
+  expect(medien.momentDateienEntfernen).toHaveBeenCalledWith('p1');
+});
+
+test('ein Fehlschlag lässt die Dateien liegen — der nächste Versuch braucht sie', async () => {
+  globalFetch.mockResolvedValueOnce({ ok: false } as unknown as Response);
+  jobs.push({ ...basis });
+  await einenJobAbarbeiten();
+  expect(medien.momentDateienEntfernen).not.toHaveBeenCalled();
 });
 
 test('ein Wiederanlauf legt die Zeile nicht zweimal an', async () => {
@@ -102,6 +116,9 @@ test('eine dauerhafte Ablehnung durch die Policy wird nicht wiederholt, sondern 
   expect(postsApi.signierteUrls).not.toHaveBeenCalled();
   expect(globalFetch).not.toHaveBeenCalled();
   expect(queueDb.jobAktualisieren).not.toHaveBeenCalled();
+  // Zweiter Weg aus der Warteschlange — auch hier müssen die Dateien mit
+  // (Critical 2).
+  expect(medien.momentDateienEntfernen).toHaveBeenCalledWith('p1');
 });
 
 test('jobEinreihen legt den Job in der Warteschlange ab', async () => {

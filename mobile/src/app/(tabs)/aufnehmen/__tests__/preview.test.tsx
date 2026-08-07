@@ -41,10 +41,19 @@ jest.mock('expo-video', () => ({
 const mockNeuePostId = jest.fn();
 const mockFotoAufbereiten = jest.fn();
 const mockVideoAufbereiten = jest.fn();
+// Final-Review, Critical 2: Aufnahmen wandern beim Einreihen aus dem
+// flüchtigen Cache an einen dauerhaften Ort, und beide Verlassenswege
+// (Verwerfen, gescheitertes Einsenden) räumen auf.
+const mockDauerhaftSichern = jest.fn();
+const mockMomentDateienEntfernen = jest.fn();
+const mockRohaufnahmeVerwerfen = jest.fn();
 jest.mock('@/features/moments/medien', () => ({
   neuePostId: () => mockNeuePostId(),
   fotoAufbereiten: (uri: string) => mockFotoAufbereiten(uri),
   videoAufbereiten: (uri: string) => mockVideoAufbereiten(uri),
+  dauerhaftSichern: (postId: string, dateien: unknown) => mockDauerhaftSichern(postId, dateien),
+  momentDateienEntfernen: (postId: string) => mockMomentDateienEntfernen(postId),
+  rohaufnahmeVerwerfen: (uri: string) => mockRohaufnahmeVerwerfen(uri),
   storageKey: (tripId: string, postId: string, typ: string) =>
     `trips/${tripId}/${postId}.${typ === 'video' ? 'mp4' : 'jpg'}`,
   thumbKey: (tripId: string, postId: string) => `trips/${tripId}/${postId}_t.jpg`,
@@ -106,6 +115,12 @@ beforeEach(() => {
   mockNeuePostId.mockReturnValue('post-1');
   mockFotoAufbereiten.mockResolvedValue({ medium: 'file://medium.jpg', thumb: 'file://thumb.jpg' });
   mockVideoAufbereiten.mockResolvedValue({ medium: 'file://video.mp4', thumb: 'file://thumb.jpg' });
+  // Gibt zurück, was die echte Fassung zurückgibt: die Pfade im dauerhaften
+  // Ordner. Genau diese müssen im Job landen, nicht die Cache-Pfade.
+  mockDauerhaftSichern.mockImplementation(async (postId: string) => ({
+    medium: `file://dokumente/momente/${postId}/medium.jpg`,
+    thumb: `file://dokumente/momente/${postId}/thumb.jpg`,
+  }));
   mockJobEinreihen.mockResolvedValue(undefined);
   mockJetzt.mockReturnValue({ captured_at: CAPTURED_AT, captured_tz: 'Europe/Zurich' });
   // Standardmässig hängend (nie auflösend): jeder Test, der eine bestimmte
@@ -169,8 +184,9 @@ test('Einsenden reiht genau einen Job ein und navigiert zur Kamera zurück', asy
     trip_id: 't1',
     author_id: 'u1',
     typ: 'photo',
-    medium_uri: 'file://medium.jpg',
-    thumb_uri: 'file://thumb.jpg',
+    // Die dauerhaften Pfade, nicht die aus dem Cache (Critical 2).
+    medium_uri: 'file://dokumente/momente/post-1/medium.jpg',
+    thumb_uri: 'file://dokumente/momente/post-1/thumb.jpg',
     storage_key: 'trips/t1/post-1.jpg',
     thumb_key: 'trips/t1/post-1_t.jpg',
     caption: 'Was für ein Abend',
@@ -263,7 +279,7 @@ test('bei einem Foto wird kein Video-Player angelegt', async () => {
   expect(screen.queryByTestId('video-vorschau')).toBeNull();
 });
 
-test('Verwerfen reiht nichts ein und geht zurück zur Kamera', async () => {
+test('Verwerfen reiht nichts ein, räumt die Rohaufnahme weg und geht zurück zur Kamera', async () => {
   mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
   await render(<PreviewScreen />);
 
@@ -271,7 +287,42 @@ test('Verwerfen reiht nichts ein und geht zurück zur Kamera', async () => {
 
   expect(mockJobEinreihen).not.toHaveBeenCalled();
   expect(mockFotoAufbereiten).not.toHaveBeenCalled();
+  // Critical 2: auch dieser Weg hinterliess bisher eine Datei im Cache.
+  expect(mockRohaufnahmeVerwerfen).toHaveBeenCalledWith('file://foto.jpg');
   expect(mockBack).toHaveBeenCalledTimes(1);
+});
+
+test('nach dem Einreihen wird die Rohaufnahme aus dem Cache entfernt', async () => {
+  mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
+  await render(<PreviewScreen />);
+
+  await act(async () => {
+    await fireEvent.press(screen.getByText('Einsenden'));
+  });
+
+  expect(mockDauerhaftSichern).toHaveBeenCalledWith('post-1', {
+    medium: 'file://medium.jpg',
+    thumb: 'file://thumb.jpg',
+  });
+  expect(mockRohaufnahmeVerwerfen).toHaveBeenCalledWith('file://foto.jpg');
+  expect(mockMomentDateienEntfernen).not.toHaveBeenCalled();
+});
+
+// Ohne Job in der Warteschlange käme nie wieder jemand an diesen Dateien
+// vorbei, der sie aufräumt — sie lägen für immer im Dokumentenverzeichnis.
+test('scheitert das Einreihen, wird der dauerhafte Ordner wieder abgeräumt', async () => {
+  mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
+  mockJobEinreihen.mockRejectedValue(new Error('SQLITE_FULL'));
+  await render(<PreviewScreen />);
+
+  await act(async () => {
+    await fireEvent.press(screen.getByText('Einsenden'));
+  });
+
+  expect(mockMomentDateienEntfernen).toHaveBeenCalledWith('post-1');
+  // Die Rohaufnahme bleibt: der Screen bleibt stehen, ein zweiter Versuch
+  // braucht sie noch.
+  expect(mockRohaufnahmeVerwerfen).not.toHaveBeenCalled();
 });
 
 test('ein Fehler beim Aufbereiten reiht keinen Job ein, zeigt eine Meldung und der Screen bleibt stehen', async () => {

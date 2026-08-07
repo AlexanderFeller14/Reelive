@@ -86,11 +86,85 @@ jest.mock('expo-video-thumbnails', () => ({
   getThumbnailAsync: jest.fn(async () => ({ uri: 'file:///videobild.jpg' })),
 }));
 
-import { storageKey, thumbKey, neuePostId, fotoAufbereiten, videoAufbereiten } from '../medien';
+// Ein winziges Dateisystem im Speicher statt des nativen Moduls: es hält fest,
+// WAS existiert, damit die Tests das Verschieben und Aufräumen aus Critical 2
+// wirklich prüfen können — nicht bloss, dass eine Methode aufgerufen wurde.
+const mockVorhanden = new Set<string>();
+const mockOrdnerAngelegt = jest.fn();
+
+jest.mock('expo-file-system', () => {
+  // Fügt die Teile wie die echte API zu einem Pfad zusammen, ohne das
+  // führende `file:///` anzutasten.
+  const verbinden = (teile: unknown[]): string =>
+    teile
+      .map((t) => (typeof t === 'string' ? t : (t as { uri: string }).uri))
+      .map((t, i) => (i === 0 ? t.replace(/\/+$/, '') : t.replace(/^\/+|\/+$/g, '')))
+      .join('/');
+
+  class MockDirectory {
+    uri: string;
+    constructor(...teile: unknown[]) {
+      this.uri = verbinden(teile);
+    }
+    get exists(): boolean {
+      return mockVorhanden.has(this.uri);
+    }
+    create(optionen?: unknown) {
+      mockOrdnerAngelegt(this.uri, optionen);
+      mockVorhanden.add(this.uri);
+    }
+    delete() {
+      if (!mockVorhanden.has(this.uri)) throw new Error('gibt es nicht');
+      for (const pfad of [...mockVorhanden]) {
+        if (pfad === this.uri || pfad.startsWith(`${this.uri}/`)) mockVorhanden.delete(pfad);
+      }
+    }
+  }
+
+  class MockFile {
+    uri: string;
+    constructor(...teile: unknown[]) {
+      this.uri = verbinden(teile);
+    }
+    get exists(): boolean {
+      return mockVorhanden.has(this.uri);
+    }
+    async move(ziel: { uri: string }) {
+      if (!mockVorhanden.has(this.uri)) throw new Error(`gibt es nicht: ${this.uri}`);
+      mockVorhanden.delete(this.uri);
+      mockVorhanden.add(ziel.uri);
+      this.uri = ziel.uri;
+    }
+    delete() {
+      if (!mockVorhanden.has(this.uri)) throw new Error('gibt es nicht');
+      mockVorhanden.delete(this.uri);
+    }
+  }
+
+  return {
+    Directory: MockDirectory,
+    File: MockFile,
+    Paths: { document: { uri: 'file:///dokumente' } },
+  };
+});
+
+import {
+  storageKey,
+  thumbKey,
+  neuePostId,
+  fotoAufbereiten,
+  videoAufbereiten,
+  endungAus,
+  momentOrdner,
+  dauerhaftSichern,
+  momentDateienEntfernen,
+  rohaufnahmeVerwerfen,
+} from '../medien';
 
 beforeEach(() => {
   jest.clearAllMocks();
   mockWirftBeimSpeichern = false;
+  mockVorhanden.clear();
 });
 
 test('storageKey folgt dem vereinbarten Muster', () => {
@@ -161,4 +235,82 @@ test('videoAufbereiten lässt das Video unangetastet und zieht ein Standbild', a
   const { medium, thumb } = await videoAufbereiten('file:///roh.mp4');
   expect(medium).toBe('file:///roh.mp4');
   expect(thumb).toBe('file:///videobild.jpg');
+});
+
+// === Final-Review, Critical 2: dauerhafte Ablage statt flüchtiger Cache ===
+// Alle vier Erzeuger (takePictureAsync, recordAsync, saveAsync,
+// getThumbnailAsync) schreiben nach Library/Caches — ein Verzeichnis, das iOS
+// unter Speicherdruck leeren darf. Die Warteschlange soll Momente tagelang
+// halten, hielt aber nur Zeiger dorthin.
+
+test.each([
+  ['file:///Caches/aufnahme.MOV', 'mov'],
+  ['file:///Caches/aufnahme.mp4', 'mp4'],
+  ['file:///Caches/bild.jpg?x=1', 'jpg'],
+  ['file:///Caches/ohne-endung', ''],
+  ['file:///Caches/.versteckt', ''],
+])('endungAus(%s) → "%s"', (uri, erwartet) => {
+  expect(endungAus(uri)).toBe(erwartet);
+});
+
+test('dauerhaftSichern verschiebt Medium und Thumbnail unter das Dokumentenverzeichnis', async () => {
+  mockVorhanden.add('file:///Caches/medium.jpg');
+  mockVorhanden.add('file:///Caches/thumb.jpg');
+
+  const { medium, thumb } = await dauerhaftSichern('p1', {
+    medium: 'file:///Caches/medium.jpg',
+    thumb: 'file:///Caches/thumb.jpg',
+  });
+
+  expect(momentOrdner('p1').uri).toBe('file:///dokumente/momente/p1');
+  expect(medium).toBe('file:///dokumente/momente/p1/medium.jpg');
+  expect(thumb).toBe('file:///dokumente/momente/p1/thumb.jpg');
+  expect(mockOrdnerAngelegt).toHaveBeenCalledWith('file:///dokumente/momente/p1', {
+    intermediates: true,
+    idempotent: true,
+  });
+
+  // Verschoben, nicht kopiert: die flüchtige Fassung ist weg. Sonst erzeugte
+  // die App genau den Speicherdruck, der ihre eigene Warteschlange zerstört.
+  expect(mockVorhanden.has('file:///Caches/medium.jpg')).toBe(false);
+  expect(mockVorhanden.has('file:///Caches/thumb.jpg')).toBe(false);
+  expect(mockVorhanden.has('file:///dokumente/momente/p1/medium.jpg')).toBe(true);
+});
+
+test('dauerhaftSichern behält die Endung der Aufnahme (iOS liefert .mov)', async () => {
+  mockVorhanden.add('file:///Caches/aufnahme.mov');
+  mockVorhanden.add('file:///Caches/standbild.jpg');
+
+  const { medium } = await dauerhaftSichern('p2', {
+    medium: 'file:///Caches/aufnahme.mov',
+    thumb: 'file:///Caches/standbild.jpg',
+  });
+
+  expect(medium).toBe('file:///dokumente/momente/p2/medium.mov');
+});
+
+test('momentDateienEntfernen räumt den ganzen Moment-Ordner ab', async () => {
+  mockVorhanden.add('file:///Caches/m.jpg');
+  mockVorhanden.add('file:///Caches/t.jpg');
+  await dauerhaftSichern('p1', { medium: 'file:///Caches/m.jpg', thumb: 'file:///Caches/t.jpg' });
+
+  momentDateienEntfernen('p1');
+
+  expect(mockVorhanden.has('file:///dokumente/momente/p1/medium.jpg')).toBe(false);
+  expect(mockVorhanden.has('file:///dokumente/momente/p1/thumb.jpg')).toBe(false);
+  expect(mockVorhanden.has('file:///dokumente/momente/p1')).toBe(false);
+});
+
+// Aufräumen darf nie werfen: es läuft im Worker direkt nach dem Entfernen des
+// Jobs. Ein daran scheiternder Durchlauf würde den Job endlos wiederholen
+// lassen — teurer als eine liegen gebliebene Datei.
+test('Aufräumen wirft nie, auch wenn es nichts (mehr) zu löschen gibt', () => {
+  expect(() => momentDateienEntfernen('gibt-es-nicht')).not.toThrow();
+  expect(() => rohaufnahmeVerwerfen('file:///Caches/weg.jpg')).not.toThrow();
+});
+
+test('rohaufnahmeVerwerfen löscht die Kamera-Datei', () => {
+  mockVorhanden.add('file:///Caches/roh.jpg');
+  rohaufnahmeVerwerfen('file:///Caches/roh.jpg');
+  expect(mockVorhanden.has('file:///Caches/roh.jpg')).toBe(false);
 });

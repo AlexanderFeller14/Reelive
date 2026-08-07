@@ -3,6 +3,7 @@ import * as Network from 'expo-network';
 import * as queueDb from './queueDb';
 import * as queueLogic from './queueLogic';
 import * as postsApi from './postsApi';
+import * as medien from './medien';
 import * as einstellungen from './einstellungen';
 import type { QueueJob } from './types';
 
@@ -83,6 +84,10 @@ async function verarbeiteJob(job: QueueJob, jetzt: number, meineGeneration: numb
           // festhalten, statt ihn endlos zu wiederholen (Task-6-Brief §Step 4).
           if (!gehoertZurLaufendenGeneration(meineGeneration)) return;
           await queueDb.jobEntfernen(aktuell.id);
+          // Zweiter Ort, an dem ein Job die Warteschlange verlässt (Critical 2):
+          // ohne Aufräumen blieben Medium und Thumbnail für immer liegen, und
+          // niemand käme je wieder daran vorbei.
+          medien.momentDateienEntfernen(aktuell.post_id);
           console.error(
             '[uploadWorker] Moment dauerhaft von der Policy abgelehnt, Job verworfen',
             aktuell.id,
@@ -124,6 +129,11 @@ async function verarbeiteJob(job: QueueJob, jetzt: number, meineGeneration: numb
     // ein zusätzliches update() vor dem delete() wäre ein überflüssiger Schreibvorgang.
     if (!gehoertZurLaufendenGeneration(meineGeneration)) return;
     await queueDb.jobEntfernen(aktuell.id);
+    // Erfolgspfad (Critical 2): erst die Zeile, dann die Dateien — in dieser
+    // Reihenfolge, weil ein Absturz dazwischen höchstens einen verwaisten
+    // Ordner hinterlässt. Umgekehrt bliebe ein Job zurück, dessen Dateien
+    // fehlen, und der PUT scheiterte danach für immer.
+    medien.momentDateienEntfernen(aktuell.post_id);
   } catch (fehler) {
     // Auch der Fehlschlag-Zähler ist ein Schreibvorgang: eine beendete
     // Generation darf ihn nicht mehr hinterlassen (siehe Kommentar oben).
