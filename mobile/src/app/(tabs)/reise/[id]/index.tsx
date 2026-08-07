@@ -56,11 +56,13 @@ export default function ReiseDetail() {
   }, [id]);
 
   // `laedt` hängt am Knopf, nicht am Fokus-Lauf: sichtbares Warten gehört nur
-  // dorthin, wo jemand getippt hat.
+  // dorthin, wo jemand getippt hat. Zurückgesetzt wird es IMMER, auch wenn der
+  // Screen zwischendurch den Fokus verliert — sonst käme der Knopf mit einem
+  // toten Spinner und deaktiviert zurück. Ein `aktiv`-Guard ist dafür anders als
+  // in `laden` nicht nötig: setState nach Unmount ist seit React 18 folgenlos.
   const nochmal = useCallback(async () => {
     setLaedt(true);
     await laden();
-    if (!aktiv.current) return;
     setLaedt(false);
   }, [laden]);
 

@@ -1,6 +1,6 @@
 create extension if not exists pgtap with schema extensions;
 begin;
-select plan(4);
+select plan(5);
 
 -- Belegt den Vertrag aus 20260807090000_invite_rotation_on_removal.sql:
 -- Rauswurf rotiert den invite_code, freiwilliges Verlassen nicht.
@@ -65,6 +65,15 @@ delete from public.trip_members
   where trip_id = 'ffff0000-0000-4000-8000-000000000001'
     and user_id = 'eeee0000-0000-4000-8000-000000000002';
 select pg_temp.logout();
+
+-- Zuerst belegen, dass der Austritt ueberhaupt stattgefunden hat: waere das
+-- Delete an der Policy gescheitert, bliebe der Code ebenfalls stehen und die
+-- Assertion darunter waere vakuum-passierbar.
+select is(
+  (select count(*)::int from public.trip_members
+   where trip_id = 'ffff0000-0000-4000-8000-000000000001'
+     and user_id = 'eeee0000-0000-4000-8000-000000000002'), 0,
+  'das Mitglied hat die Reise tatsaechlich verlassen');
 
 select is(
   (select invite_code from public.trips where id = 'ffff0000-0000-4000-8000-000000000001'),

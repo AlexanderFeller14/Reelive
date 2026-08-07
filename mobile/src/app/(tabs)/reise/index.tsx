@@ -36,10 +36,14 @@ export default function ReiseListe() {
   // `laedt` hängt bewusst am Knopf, nicht an `laden`: Der Fokus-Lauf soll die
   // bereits stehende Liste nicht bei jeder Rückkehr mit einem Ladezustand
   // überschreiben — sichtbares Warten gehört nur dorthin, wo jemand getippt hat.
+  // Der Ladezustand wird IMMER zurückgesetzt, auch wenn der Screen zwischendurch
+  // den Fokus verliert: sonst bliebe `laedt` true und der Knopf käme mit einem
+  // toten Spinner und deaktiviert zurück. Ein `aktiv`-Guard ist hier anders als
+  // in `laden` nicht nötig — setState nach Unmount ist seit React 18 folgenlos,
+  // und `laden` schützt die Daten-States ohnehin selbst.
   const nochmal = useCallback(async () => {
     setLaedt(true);
     await laden();
-    if (!aktiv.current) return;
     setLaedt(false);
   }, [laden]);
 

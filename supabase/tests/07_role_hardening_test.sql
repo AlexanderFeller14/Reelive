@@ -1,6 +1,6 @@
 create extension if not exists pgtap with schema extensions;
 begin;
-select plan(12);
+select plan(13);
 
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-00000000000a', 'anna@test.local'),
@@ -142,6 +142,15 @@ delete from public.trip_members
     and user_id = '00000000-0000-0000-0000-00000000000b';
 
 select pg_temp.login_as('00000000-0000-0000-0000-00000000000a');
+-- Zuerst belegen, dass der Austritt ueberhaupt stattgefunden hat: ohne
+-- geloeschte Zeile feuert kein Trigger, und die Assertion darunter waere
+-- vakuum-passierbar. Zugleich der einzige Beleg im Testbestand dafuer, dass
+-- trip_members_delete den Selbst-Austritt erlaubt.
+select is(
+  (select count(*)::int from public.trip_members
+   where trip_id = '11111111-1111-1111-1111-111111111111'
+     and user_id = '00000000-0000-0000-0000-00000000000b'), 0,
+  'ein Mitglied kann die eigene Mitgliedschaft loeschen');
 select is(
   (select invite_code from public.trips where id = '11111111-1111-1111-1111-111111111111'),
   current_setting('test.invite_code_before'),
