@@ -1,5 +1,7 @@
 import * as tripsApi from '@/features/trips/tripsApi';
+import * as tripsCache from '@/features/trips/tripsCache';
 import { wartendeAnzahl } from './queueLogic';
+import * as postsApi from './postsApi';
 import * as queueDb from './queueDb';
 
 // Der Zähler ist vor dem Reveal die einzige Information über versiegelte
@@ -19,9 +21,30 @@ import * as queueDb from './queueDb';
 // zurück, sobald der Job schliesslich aus der Warteschlange verschwindet
 // (N → N+1 → N+2 → N+1). Nur Jobs OHNE angelegte Zeile sind für den Server
 // unsichtbar und dürfen lokal dazugezählt werden.
+//
+// Final-Review, Important 6: Ein FEHLGESCHLAGENER Abruf ist nicht «null».
+// Vorher verschluckte tripsApi den rpc-Fehler und lieferte eine leere
+// Zuordnung — wer 40 versiegelte Momente hatte und im Flugmodus einen
+// aufnahm, sah die Zahl auf 1 fallen. Jetzt liefert eigeneZaehler() den
+// Fehler mit, und der zuletzt bekannte Serverstand aus tripsCache springt
+// ein. Umgekehrt schreibt jeder erfolgreiche Abruf diesen Stand fort — das
+// ist die einzige Stelle, die ihn pflegt.
 export async function eigenerZaehler(tripId: string): Promise<number> {
-  const [zaehler, jobs] = await Promise.all([tripsApi.eigeneZaehler(), queueDb.alleJobs()]);
-  const serverstand = zaehler[tripId] ?? 0;
+  const [gelesen, jobs, benutzerId] = await Promise.all([
+    tripsApi.eigeneZaehler(),
+    queueDb.alleJobs(),
+    postsApi.aktuelleAutorId(),
+  ]);
+
+  let staende: Record<string, number>;
+  if (gelesen.error) {
+    staende = await tripsCache.gemerkteZaehler(benutzerId);
+  } else {
+    staende = gelesen.data;
+    await tripsCache.zaehlerMerken(benutzerId, staende);
+  }
+
+  const serverstand = staende[tripId] ?? 0;
   const nochNichtAufDemServer = jobs.filter((job) => job.trip_id === tripId && !job.zeile_angelegt);
   return serverstand + wartendeAnzahl(nochNichtAufDemServer);
 }

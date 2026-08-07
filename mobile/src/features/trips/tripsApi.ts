@@ -41,10 +41,14 @@ function toTrip(row: TripRow, counts: Map<string, number>): Trip {
   };
 }
 
-// Bewusst ohne Fehler-Weitergabe: der eigene Momente-Zähler ist Beiwerk auf der
-// Karte. Fällt nur er aus, steht dort eine 0 statt gar keiner Reise — fällt das
-// Netz aus, meldet ohnehin die Reise-Abfrage daneben den Fehler.
-async function loadCounts(): Promise<Map<string, number>> {
+// Liest die rpc EINMAL und liefert Stand UND Fehler getrennt — wie jede andere
+// Lesefunktion hier oben. Das war bis zum Final-Review nicht so: der Fehler
+// wurde verschluckt und ein Fehlschlag als leere Zuordnung ausgegeben. Für die
+// Reise-Karte ist das harmlos (siehe loadCounts), für den Momente-Zähler war es
+// der Bug aus Important 6: wer 40 versiegelte Momente hat und im Flugmodus
+// einen aufnimmt, sah 0 + 1 = 1 — genau der Rückwärtssprung, den Spec §7
+// ausschliesst, und ausgerechnet im Offline-Fall, für den diese Phase existiert.
+async function zaehlerLesen(): Promise<{ counts: Map<string, number>; error: string | null }> {
   // Absichtlich kein direktes `const { data, error } = await supabase.rpc(...)`:
   // in den Fehlertests bleibt der rpc-Mock unkonfiguriert und liefert
   // `undefined` zurück. Im echten Betrieb löst supabase.rpc() immer zu
@@ -53,17 +57,34 @@ async function loadCounts(): Promise<Map<string, number>> {
   const result = await supabase.rpc('my_post_counts');
   const data = result?.data;
   const error = result?.error;
-  if (error || !data) return new Map();
-  return new Map((data as { trip_id: string; count: number }[]).map((r) => [r.trip_id, r.count]));
+  if (error || !data) {
+    return {
+      counts: new Map(),
+      error: meldung(error ?? null, 'Dein Momente-Zähler konnte nicht geladen werden. Probier es gleich nochmal.'),
+    };
+  }
+  return {
+    counts: new Map((data as { trip_id: string; count: number }[]).map((r) => [r.trip_id, r.count])),
+    error: null,
+  };
 }
 
-// Öffentliche Fassung von loadCounts() für Aufrufer ausserhalb dieser Datei
-// (Task 9: der Momente-Zähler zieht den Serverstand als Zuordnung Reise-id ->
-// Zahl aus derselben rpc, ergänzt um noch nicht hochgeladene Momente aus der
-// Warteschlange). Baut bewusst auf loadCounts() auf, statt die rpc erneut
-// abzufragen — eine Zuordnung, eine Quelle.
-export async function eigeneZaehler(): Promise<Record<string, number>> {
-  return Object.fromEntries(await loadCounts());
+// Bewusst ohne Fehler-Weitergabe: der eigene Momente-Zähler ist Beiwerk auf der
+// Karte. Fällt nur er aus, steht dort eine 0 statt gar keiner Reise — fällt das
+// Netz aus, meldet ohnehin die Reise-Abfrage daneben den Fehler.
+async function loadCounts(): Promise<Map<string, number>> {
+  return (await zaehlerLesen()).counts;
+}
+
+// Öffentliche Fassung für Aufrufer ausserhalb dieser Datei (Task 9: der
+// Momente-Zähler zieht den Serverstand als Zuordnung Reise-id -> Zahl aus
+// derselben rpc, ergänzt um noch nicht hochgeladene Momente aus der
+// Warteschlange). Baut auf derselben zaehlerLesen() auf wie loadCounts —
+// eine Zuordnung, eine Quelle — gibt den Fehler aber weiter, weil der
+// Zähler ihn NICHT als «null» werten darf (siehe zaehler.ts).
+export async function eigeneZaehler(): Promise<Gelesen<Record<string, number>>> {
+  const { counts, error } = await zaehlerLesen();
+  return { data: Object.fromEntries(counts), error };
 }
 
 export async function fetchTrips(): Promise<Gelesen<Trip[]>> {

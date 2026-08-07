@@ -3,14 +3,28 @@
 // Aufnahme nie rückwärts springen. Deshalb zählt er den Serverstand PLUS die
 // eigenen, noch nicht hochgeladenen Momente derselben Reise aus der
 // Warteschlange. Genau das prüfen die drei Fälle unten.
-jest.mock('@/features/trips/tripsApi', () => ({ eigeneZaehler: jest.fn(async () => ({ t1: 5 })) }));
+jest.mock('@/features/trips/tripsApi', () => ({
+  eigeneZaehler: jest.fn(async () => ({ data: { t1: 5 }, error: null })),
+}));
 jest.mock('../queueDb', () => ({ alleJobs: jest.fn(async () => []) }));
+jest.mock('../postsApi', () => ({ aktuelleAutorId: jest.fn(async () => 'u1') }));
+jest.mock('@/features/trips/tripsCache', () => ({
+  gemerkteZaehler: jest.fn(async () => ({})),
+  zaehlerMerken: jest.fn(async () => {}),
+}));
 
 import { eigenerZaehler } from '../zaehler';
 import * as queueDb from '../queueDb';
 import * as tripsApi from '@/features/trips/tripsApi';
+import * as tripsCache from '@/features/trips/tripsCache';
 
-beforeEach(() => jest.clearAllMocks());
+beforeEach(() => {
+  jest.clearAllMocks();
+  // clearAllMocks räumt nur die Historie ab, nicht die per mockResolvedValue
+  // gesetzte Implementierung — die Standardwerte hier wiederherstellen.
+  (tripsApi.eigeneZaehler as jest.Mock).mockResolvedValue({ data: { t1: 5 }, error: null });
+  (tripsCache.gemerkteZaehler as jest.Mock).mockResolvedValue({});
+});
 
 test('ohne wartende Momente zählt nur der Serverstand', async () => {
   await expect(eigenerZaehler('t1')).resolves.toBe(5);
@@ -72,24 +86,59 @@ test('die Zahl bleibt über den ganzen Ablauf monoton: eingereiht, Zeile angeleg
   const mockAlleJobs = queueDb.alleJobs as jest.Mock;
 
   // Vor dem Einsenden: Server kennt 5, Warteschlange ist für diese Reise leer.
-  mockEigeneZaehler.mockResolvedValueOnce({ t1: 5 });
+  mockEigeneZaehler.mockResolvedValueOnce({ data: { t1: 5 }, error: null });
   mockAlleJobs.mockResolvedValueOnce([]);
   await expect(eigenerZaehler('t1')).resolves.toBe(5);
 
   // Eingereiht: Job wartet, Zeile noch nicht angelegt — zählt lokal dazu.
-  mockEigeneZaehler.mockResolvedValueOnce({ t1: 5 });
+  mockEigeneZaehler.mockResolvedValueOnce({ data: { t1: 5 }, error: null });
   mockAlleJobs.mockResolvedValueOnce([{ trip_id: 't1', zustand: 'wartet', zeile_angelegt: false }]);
   await expect(eigenerZaehler('t1')).resolves.toBe(6);
 
   // Zeile angelegt, Medien-Upload noch nicht bestätigt (z.B. wiederholt
   // gescheitert): der Server zählt die Zeile jetzt schon selbst mit, lokal
   // fällt der Job darum aus der Zählung — die Summe bleibt gleich.
-  mockEigeneZaehler.mockResolvedValueOnce({ t1: 6 });
+  mockEigeneZaehler.mockResolvedValueOnce({ data: { t1: 6 }, error: null });
   mockAlleJobs.mockResolvedValueOnce([{ trip_id: 't1', zustand: 'wartet', zeile_angelegt: true }]);
   await expect(eigenerZaehler('t1')).resolves.toBe(6);
 
   // Upload bestätigt, Job aus der Warteschlange entfernt.
-  mockEigeneZaehler.mockResolvedValueOnce({ t1: 6 });
+  mockEigeneZaehler.mockResolvedValueOnce({ data: { t1: 6 }, error: null });
   mockAlleJobs.mockResolvedValueOnce([]);
   await expect(eigenerZaehler('t1')).resolves.toBe(6);
+});
+
+// === Final-Review, Important 6: ein Fehlschlag ist nicht «null» ===
+// Vorher verschluckte tripsApi den rpc-Fehler und lieferte eine leere
+// Zuordnung. Wer 40 versiegelte Momente hatte und im Flugmodus einen aufnahm,
+// sah 0 + 1 = 1 — der Rückwärtssprung, den Spec §7 ausschliesst, und
+// ausgerechnet im Offline-Fall, für den diese Phase existiert.
+
+test('ein erfolgreicher Abruf schreibt den Serverstand fort', async () => {
+  (tripsApi.eigeneZaehler as jest.Mock).mockResolvedValueOnce({ data: { t1: 40 }, error: null });
+  await expect(eigenerZaehler('t1')).resolves.toBe(40);
+  expect(tripsCache.zaehlerMerken).toHaveBeenCalledWith('u1', { t1: 40 });
+});
+
+test('ein gescheiterter Abruf greift auf den zuletzt bekannten Stand zurück statt auf 0', async () => {
+  (tripsApi.eigeneZaehler as jest.Mock).mockResolvedValueOnce({ data: {}, error: 'Offline' });
+  (tripsCache.gemerkteZaehler as jest.Mock).mockResolvedValueOnce({ t1: 40 });
+  (queueDb.alleJobs as jest.Mock).mockResolvedValueOnce([
+    { trip_id: 't1', zustand: 'wartet', zeile_angelegt: false },
+  ]);
+
+  // 40 versiegelte Momente, einer davon frisch im Flugmodus aufgenommen: 41.
+  // Vor dem Fix stand hier 1.
+  await expect(eigenerZaehler('t1')).resolves.toBe(41);
+  // Ein Fehlschlag darf den vorgehaltenen Stand nie überschreiben.
+  expect(tripsCache.zaehlerMerken).not.toHaveBeenCalled();
+});
+
+test('ohne vorgehaltenen Stand bleibt es beim reinen Warteschlangen-Anteil', async () => {
+  (tripsApi.eigeneZaehler as jest.Mock).mockResolvedValueOnce({ data: {}, error: 'Offline' });
+  (tripsCache.gemerkteZaehler as jest.Mock).mockResolvedValueOnce({});
+  (queueDb.alleJobs as jest.Mock).mockResolvedValueOnce([
+    { trip_id: 't1', zustand: 'wartet', zeile_angelegt: false },
+  ]);
+  await expect(eigenerZaehler('t1')).resolves.toBe(1);
 });

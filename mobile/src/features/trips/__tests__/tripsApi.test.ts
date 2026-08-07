@@ -124,13 +124,25 @@ test('eigeneZaehler liefert die rpc-Zuordnung als reines Objekt (bracket-lesbar)
     ],
     error: null,
   });
-  await expect(eigeneZaehler()).resolves.toEqual({ t1: 7, t2: 0 });
+  await expect(eigeneZaehler()).resolves.toEqual({ data: { t1: 7, t2: 0 }, error: null });
   expect(mockRpc).toHaveBeenCalledWith('my_post_counts');
 });
 
-test('eigeneZaehler liefert ein leeres Objekt statt zu werfen, wenn die rpc fehlschlägt', async () => {
+// Final-Review, Important 6: der Fehler MUSS mitkommen. Vorher lieferte
+// eigeneZaehler bei einem Fehlschlag ein leeres Objekt, ununterscheidbar von
+// «du hast wirklich noch keinen Moment» — der Momente-Zähler rechnete daraufhin
+// offline mit 0 statt mit dem letzten bekannten Stand (siehe zaehler.ts).
+test('eigeneZaehler meldet einen rpc-Fehlschlag, statt ihn als leeren Stand auszugeben', async () => {
   mockRpc.mockResolvedValueOnce({ data: null, error: { message: 'kaputt' } });
-  await expect(eigeneZaehler()).resolves.toEqual({});
+  const { data, error } = await eigeneZaehler();
+  expect(data).toEqual({});
+  expect(error).toBe('Dein Momente-Zähler konnte nicht geladen werden. Probier es gleich nochmal.');
+});
+
+test('eigeneZaehler benennt Offline als Ursache', async () => {
+  mockRpc.mockResolvedValueOnce({ data: null, error: { message: 'Network request failed' } });
+  const { error } = await eigeneZaehler();
+  expect(error).toBe('Du bist offline. Verbinde dich und probier es nochmal.');
 });
 
 test('fetchTrip trennt «gibt es nicht» von «konnte nicht geladen werden»', async () => {

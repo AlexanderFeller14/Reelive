@@ -8,8 +8,10 @@ import { Ausloeser } from '@/components/Ausloeser';
 import { PressScale } from '@/components/PressScale';
 import { cinema, palette, radius, spacing, type } from '@/theme/tokens';
 import { fetchTrips } from '@/features/trips/tripsApi';
+import * as tripsCache from '@/features/trips/tripsCache';
+import type { GemerkteReise } from '@/features/trips/tripsCache';
 import { eigenerZaehler } from '@/features/moments/zaehler';
-import type { Trip } from '@/features/trips/types';
+import { useAuth } from '@/features/auth/AuthProvider';
 
 // Höchstdauer eines Videos (Produktkonzept: Snapchat-Muster, Ring stoppt hier
 // von selbst) — dieselbe Zahl geht an den Auslöser UND an CameraView.recordAsync.
@@ -79,7 +81,7 @@ function BerechtigungScreen() {
   );
 }
 
-function ReiseWahlScreen({ reisen, onWahl }: { reisen: Trip[]; onWahl: (id: string) => void }) {
+function ReiseWahlScreen({ reisen, onWahl }: { reisen: GemerkteReise[]; onWahl: (id: string) => void }) {
   return (
     <View style={styles.screen}>
       <ScrollView contentContainerStyle={styles.wahlInhalt}>
@@ -99,9 +101,10 @@ function ReiseWahlScreen({ reisen, onWahl }: { reisen: Trip[]; onWahl: (id: stri
 
 export default function AufnehmenScreen() {
   const router = useRouter();
+  const { userId } = useAuth();
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [micPermission, requestMicPermission] = useMicrophonePermissions();
-  const [trips, setTrips] = useState<Trip[] | null>(null);
+  const [trips, setTrips] = useState<GemerkteReise[] | null>(null);
   const [fehler, setFehler] = useState<string | null>(null);
   const [ausgewaehlteReiseId, setAusgewaehlteReiseId] = useState<string | null>(null);
   const [modus, setModus] = useState<'picture' | 'video'>('picture');
@@ -130,12 +133,40 @@ export default function AufnehmenScreen() {
       ? aktiveReisen[0]
       : (aktiveReisen.find((t) => t.id === ausgewaehlteReiseId) ?? null);
 
+  // Der Kern des Offline-Versprechens dieser Phase (Final-Review, Critical 1):
+  // «Aufnehmen funktioniert vollständig offline» — aber der Sucher erscheint
+  // erst, wenn eine laufende Reise bekannt ist. Ohne lokalen Bestand lieferte
+  // fetchTrips() im Flugmodus `{ data: [], error: OFFLINE_HINT }`, und statt
+  // Sucher und Auslöser stand hier eine Fehlerseite: Queue, Kompression,
+  // Worker und Versiegelung alle korrekt — und alle unerreichbar.
+  //
+  // Deshalb: jeder erfolgreiche Abruf schreibt den Bestand fort, ein
+  // gescheiterter greift darauf zurück. Die Fehlerseite bleibt nur für den
+  // Fall, dass es auch nichts Vorgehaltenes gibt (`null`, also noch nie
+  // erfolgreich geladen). Ein vorgehaltener LEERER Bestand ist dagegen eine
+  // Aussage — «du hattest zuletzt keine Reise» — und führt bewusst auf
+  // KeineReiseScreen statt auf die Fehlerseite.
   const laden = useCallback(async () => {
     const { data, error } = await fetchTrips();
+    if (!error) {
+      // Fortschreiben passiert vor dem aktiv-Guard: der Bestand soll auch
+      // dann aktuell werden, wenn der Screen inzwischen verlassen wurde.
+      await tripsCache.reisenMerken(userId, data);
+      if (!aktiv.current) return;
+      setTrips(data);
+      setFehler(null);
+      return;
+    }
+    const gemerkt = await tripsCache.gemerkteReisen(userId);
     if (!aktiv.current) return;
-    setTrips(data);
+    if (gemerkt !== null) {
+      setTrips(gemerkt);
+      setFehler(null);
+      return;
+    }
+    setTrips([]);
     setFehler(error);
-  }, []);
+  }, [userId]);
 
   useFocusEffect(
     useCallback(() => {
