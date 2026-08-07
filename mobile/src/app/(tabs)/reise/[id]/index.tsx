@@ -13,6 +13,9 @@ import { useAuth } from '@/features/auth/AuthProvider';
 import { deleteTrip, fetchMembers, fetchTrip, removeMember } from '@/features/trips/tripsApi';
 import { formatRange, tripDay, tripLength } from '@/features/trips/tripDay';
 import type { Trip, TripMember } from '@/features/trips/types';
+import { eigenerZaehler } from '@/features/moments/zaehler';
+import * as queueDb from '@/features/moments/queueDb';
+import { wartendeAnzahl } from '@/features/moments/queueLogic';
 
 // DESIGN-LANGUAGE §5: destruktive Dialoge kündigen sich haptisch an (warning).
 // Sparsam eingesetzt — nur die drei Dialoge dieses Screens. Ein fehlender
@@ -20,6 +23,12 @@ import type { Trip, TripMember } from '@/features/trips/types';
 // das Versprechen bewusst verworfen statt abgewartet.
 function warnhaptik() {
   void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
+}
+
+// Task 10: die dezente Zeile unter dem Zähler — nur sichtbar, solange die
+// Warteschlange für diese Reise nicht leer ist (siehe Render-Guard unten).
+function wartendText(anzahl: number): string {
+  return `${anzahl} ${anzahl === 1 ? 'Moment ist' : 'Momente sind'} noch unterwegs.`;
 }
 
 export default function ReiseDetail() {
@@ -38,6 +47,12 @@ export default function ReiseDetail() {
   const [fehler, setFehler] = useState<string | null>(null);
   const [mitgliederFehler, setMitgliederFehler] = useState<string | null>(null);
   const [laedt, setLaedt] = useState(false);
+  // Task 10: der grosse Zähler zählt künftig den Serverstand PLUS wartende
+  // Momente derselben Reise (eigenerZaehler statt trip.my_post_count) — sonst
+  // bliebe er nach einer Offline-Aufnahme stehen. `wartend` zählt separat nur
+  // die Warteschlange dieser Reise, für die dezente Zeile darunter.
+  const [zaehler, setZaehler] = useState(0);
+  const [wartend, setWartend] = useState(0);
   // Schirmt setState nach Blur/Unmount ab — gleiches Muster wie in der
   // Listen-Schwesterdatei (reise/index.tsx): jeder Fokus-Zyklus bekommt seinen
   // eigenen Wächter, der beim Verlassen des Screens auf false gesetzt wird, damit
@@ -46,12 +61,19 @@ export default function ReiseDetail() {
   const aktiv = useRef(true);
 
   const laden = useCallback(async () => {
-    const [t, m] = await Promise.all([fetchTrip(id), fetchMembers(id)]);
+    const [t, m, z, jobs] = await Promise.all([
+      fetchTrip(id),
+      fetchMembers(id),
+      eigenerZaehler(id),
+      queueDb.alleJobs(),
+    ]);
     if (!aktiv.current) return;
     setTrip(t.data);
     setFehler(t.error);
     setMitglieder(m.data);
     setMitgliederFehler(m.error);
+    setZaehler(z);
+    setWartend(wartendeAnzahl(jobs.filter((job) => job.trip_id === id)));
     setGeladen(true);
   }, [id]);
 
@@ -169,10 +191,13 @@ export default function ReiseDetail() {
       </View>
 
       <View style={{ gap: spacing.xs }}>
-        <Text style={[type.display, { color: colors['text-1'] }]}>{String(trip.my_post_count)}</Text>
+        <Text style={[type.display, { color: colors['text-1'] }]}>{String(zaehler)}</Text>
         <Text style={[type.body, { color: colors['text-2'] }]}>
           Momente eingefangen — bis zum Recap versiegelt.
         </Text>
+        {wartend > 0 && (
+          <Text style={[type.secondary, { color: colors['text-2'] }]}>{wartendText(wartend)}</Text>
+        )}
       </View>
 
       <View style={{ gap: spacing.m }}>
