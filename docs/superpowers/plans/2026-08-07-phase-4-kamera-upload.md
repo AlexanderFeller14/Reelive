@@ -4,9 +4,9 @@
 
 **Goal:** Momente einfangen — vollständig offline, versiegelt, und hochgeladen sobald wieder Netz da ist.
 
-**Architecture:** Die Aufnahme läuft über `react-native-vision-camera` (Dev-Build ab hier zwingend); Videoauflösung kommt aus dem Kamera-Format statt aus einer Transkodierung. Jeder eingesendete Moment wird ein Job in einer SQLite-Queue, die Neustarts überlebt. Ein Worker legt die `posts`-Zeile an, holt presigned S3-PUT-URLs von einer Edge Function, lädt hoch und lässt die Function den Upload bestätigen — `upload_status` kann der Client nicht selbst setzen, das hat Phase 1 bewusst gesperrt.
+**Architecture:** Die Aufnahme läuft über `expo-camera` — Expo Go trägt damit weiter, ein Dev-Build ist nicht nötig; die Videoauflösung kommt aus der Aufnahmequalität statt aus einer Transkodierung. Die Kamera-Anbindung bleibt bewusst auf den Sucher-Screen begrenzt, damit ein späterer Wechsel auf `vision-camera` eine Datei trifft. Jeder eingesendete Moment wird ein Job in einer SQLite-Queue, die Neustarts überlebt. Ein Worker legt die `posts`-Zeile an, holt presigned S3-PUT-URLs von einer Edge Function, lädt hoch und lässt die Function den Upload bestätigen — `upload_status` kann der Client nicht selbst setzen, das hat Phase 1 bewusst gesperrt.
 
-**Tech Stack:** Expo SDK 57 / React Native 0.86 / TypeScript strict, expo-router, `react-native-vision-camera`, `expo-sqlite`, `expo-image-manipulator`, `expo-video-thumbnails`, `expo-location`, `expo-network`, `expo-crypto`, `expo-haptics`, Supabase Edge Functions (Deno) mit `aws4fetch`, pgTAP, Jest + `@testing-library/react-native`.
+**Tech Stack:** Expo SDK 57 / React Native 0.86 / TypeScript strict, expo-router, `expo-camera`, `expo-sqlite`, `expo-image-manipulator`, `expo-video-thumbnails`, `expo-location`, `expo-network`, `expo-crypto`, `expo-haptics`, Supabase Edge Functions (Deno) mit `aws4fetch`, pgTAP, Jest + `@testing-library/react-native`.
 
 ## Hinweis an alle Implementer
 
@@ -43,7 +43,7 @@ Aus Phase 1 gilt weiterhin und wird **nicht** geändert:
 
 | Datei | Verantwortung |
 |---|---|
-| `mobile/app.json` | Kamera-, Mikrofon-, Ortungs-Berechtigungen; vision-camera-Plugin |
+| `mobile/app.json` | Kamera-, Mikrofon-, Ortungs-Berechtigungen |
 | `supabase/functions/media-urls/index.ts` | Edge Function: `sign` und `confirm` |
 | `supabase/functions/media-urls/keys.ts` | Schlüssel-Ableitung, netzfrei testbar |
 | `supabase/tests/12_upload_status_test.sql` | pgTAP: `upload_status` nur per Service-Role, Nachzügler-Regel |
@@ -59,88 +59,73 @@ Aus Phase 1 gilt weiterhin und wird **nicht** geändert:
 | `mobile/src/components/Ausloeser.tsx` | Auslöser mit Fortschrittsring |
 | `mobile/src/components/Versiegelung.tsx` | Einsende-Inszenierung |
 
-**Reihenfolge:** Task 1 zuerst (ohne Dev-Build läuft nichts Natives). Tasks 2–5 sind untereinander unabhängig. Task 6 braucht 5, Tasks 7–9 brauchen 6. Task 10 zum Schluss.
+**Reihenfolge:** Task 1 zuerst (ohne die Pakete läuft nichts). Tasks 2–5 sind untereinander unabhängig. Task 6 braucht 5, Tasks 7–9 brauchen 6. Task 10 zum Schluss.
 
 ---
 
-### Task 1: Dev-Build und Berechtigungen
+### Task 1: Abhängigkeiten und Berechtigungen
 
 **Files:**
 - Modify: `mobile/app.json`
-- Modify: `mobile/package.json` (Abhängigkeiten)
-- Modify: `README.md`
+- Modify: `mobile/package.json`
 
 **Interfaces:**
 - Consumes: nichts.
-- Produces: eine lauffähige Dev-Build-App im Simulator, in der `react-native-vision-camera` importierbar ist.
+- Produces: alle Pakete dieser Phase installiert und in Expo Go lauffähig; Berechtigungstexte deklariert.
 
-- [ ] **Step 1: Abhängigkeiten installieren**
+**Wichtig zur Vorgeschichte:** Ein erster Anlauf setzte auf `react-native-vision-camera`. Das Paket ist in Version 5.2.2 nicht installierbar (kein Config-Plugin, Einstiegspunkt unter Node 24 nicht ladbar — offenes Upstream-Problem), und für den Dev-Build fehlte auf dem Rechner der Platz. Die Entscheidung ist deshalb auf `expo-camera` gefallen; Expo Go bleibt. Falls im Arbeitsbaum noch Reste des ersten Versuchs liegen (vision-camera in `package.json`, ein Mock unter `mobile/__mocks__/`, Plugin-Einträge in `app.json`), entferne sie vollständig.
+
+- [ ] **Step 1: Reste des ersten Versuchs entfernen**
+
+Prüfe `git status` und `mobile/package.json`. `react-native-vision-camera` und alles, was nur dafür da war, muss weg — auch aus `package-lock.json` (`npm uninstall react-native-vision-camera`).
+
+- [ ] **Step 2: Abhängigkeiten installieren**
 
 Run (aus `mobile/`):
 ```bash
-npx expo install react-native-vision-camera expo-sqlite expo-image-manipulator expo-video-thumbnails expo-location expo-network
+npx expo install expo-camera expo-sqlite expo-image-manipulator expo-video-thumbnails expo-location expo-network
 ```
-Expected: Alle sechs Pakete landen in `package.json`, keine Peer-Warnungen.
+Expected: Alle sechs landen in `package.json` in Fassungen, die zu SDK 57 passen.
 
-- [ ] **Step 2: Berechtigungen und Plugin in `app.json` eintragen**
+- [ ] **Step 3: Berechtigungen in `app.json` eintragen**
 
 Ergänze im `plugins`-Array:
 
 ```json
 [
-  "react-native-vision-camera",
+  "expo-camera",
   {
-    "cameraPermissionText": "Reelive braucht die Kamera, um deine Momente einzufangen.",
-    "enableMicrophonePermission": true,
-    "microphonePermissionText": "Reelive braucht das Mikrofon für Videos mit Ton."
+    "cameraPermission": "Reelive braucht die Kamera, um deine Momente einzufangen.",
+    "microphonePermission": "Reelive braucht das Mikrofon für Videos mit Ton."
   }
 ],
 [
   "expo-location",
   {
-    "locationAlwaysAndWhenInUsePermission": "Reelive hängt Ort und Zeit an deine Momente, damit der Recap sie einordnen kann."
+    "locationWhenInUsePermission": "Reelive hängt Ort und Zeit an deine Momente, damit der Recap sie einordnen kann."
   }
 ]
 ```
 
-Die Texte sind Nutzertexte und folgen §6: sie sagen, wofür die Berechtigung gebraucht wird.
+Die Texte sind Nutzertexte und folgen §6: sie sagen, wofür die Berechtigung gebraucht wird. Prüfe die genauen Optionsnamen gegen die installierte Fassung der Pakete — sie haben sich zwischen SDK-Versionen geändert; nimm die, die deine Fassung dokumentiert, und halte im Bericht fest, welche das waren.
 
-- [ ] **Step 3: Dev-Build erzeugen**
+- [ ] **Step 4: Lauffähigkeit in Expo Go belegen**
 
-Run (aus `mobile/`): `npx expo run:ios`
-Expected: Der erste Build dauert mehrere Minuten und endet damit, dass die App im Simulator startet. `mobile/ios/` entsteht und bleibt ungetrackt (`.gitignore` enthält bereits `/ios`).
+Run (aus `mobile/`): `npx expo start --ios`
+Expected: Metro bündelt ohne Fehler, die App startet im Simulator und der bestehende Login-Fluss funktioniert weiter. Ein Bundling-Fehler wegen eines der neuen Pakete ist ein echtes Signal — melde ihn.
 
-Schlägt der Build fehl, ist das ein echtes Signal — melde die Fehlermeldung, statt an nativen Dateien zu editieren.
+Beende den Dev-Server danach wieder.
 
-- [ ] **Step 4: Importierbarkeit belegen**
-
-Erzeuge vorübergehend eine Datei `mobile/src/features/moments/__tests__/nativeModule.test.ts`:
-
-```ts
-// Belegt, dass das native Modul aufgelöst wird. Läuft unter jest-expo gegen den
-// Mock, ist also kein Beweis für den Dev-Build — den erbringt Step 3.
-test('vision-camera ist auflösbar', () => {
-  expect(() => require('react-native-vision-camera')).not.toThrow();
-});
-```
-
-Run: `cd mobile && npx jest src/features/moments/__tests__/nativeModule.test.ts`
-Expected: PASS. Falls `jest-expo` das native Modul nicht auflöst, ergänze einen Mock in `package.json` nach dem dort etablierten `moduleNameMapper`-Muster und dokumentiere das.
-
-- [ ] **Step 5: README ergänzen**
-
-Ergänze im Abschnitt «Entwicklung (App)», dass ab Phase 4 ein Dev-Build nötig ist (`npx expo run:ios`), Expo Go nicht mehr trägt, und dass Metro danach weiterhin für das Neuladen zuständig ist.
-
-- [ ] **Step 6: Gesamte Suite prüfen**
+- [ ] **Step 5: Suite und Typen prüfen**
 
 Run: `cd mobile && npm test && npx tsc --noEmit`
-Expected: Alles grün (177 Tests + der neue).
+Expected: 177 Tests grün, keine Typfehler. Falls eines der neuen Pakete unter Jest stolpert, halte dich an das etablierte `moduleNameMapper`-Muster in `mobile/package.json` und dokumentiere die Ergänzung.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add mobile/app.json mobile/package.json mobile/package-lock.json README.md mobile/src/features/moments/__tests__/nativeModule.test.ts
-git commit -m "build(phase-4): Dev-Build mit vision-camera und Berechtigungen"
+git add mobile/app.json mobile/package.json mobile/package-lock.json
+git commit -m "build(phase-4): Kamera-, Speicher- und Ortungspakete fuer Expo Go"
 ```
 
 ---
@@ -800,7 +785,7 @@ git commit -m "feat(moments): Upload-Worker mit wiederanlauffestem Ablauf"
 - Test: `mobile/src/app/(tabs)/aufnehmen/__tests__/kamera.test.tsx`
 
 **Interfaces:**
-- Consumes: `react-native-vision-camera`, `fetchTrips` aus `tripsApi`, `cinema`-Tokens, `PressScale`.
+- Consumes: `expo-camera`, `fetchTrips` aus `tripsApi`, `cinema`-Tokens, `PressScale`.
 - Produces:
   - `<Ausloeser onFoto={() => void} onVideoStart={() => void} onVideoStop={() => void} maxSekunden={number} />` — Tippen löst `onFoto`, Halten startet und stoppt Video, ein Ring zeigt den Fortschritt und stoppt bei `maxSekunden` selbsttätig
   - Route `/aufnehmen` — Vollbild-Sucher
@@ -861,7 +846,7 @@ Leitlinien: Ein Timer entscheidet nach ~500 ms, dass aus dem Druck ein Video wir
 
 - [ ] **Step 4: Kamera-Screen implementieren**
 
-Leitlinien: Berechtigungen über `useCameraPermission`/`useMicrophonePermission`. Format über `useCameraFormat` mit einer Vorgabe von max. 1080p für Video. Aufnahme über `useRef<Camera>`. Nach der Aufnahme mit den Dateipfaden zu `/aufnehmen/preview` navigieren (`router.push` mit Parametern).
+Leitlinien: Berechtigungen über die Hooks von `expo-camera` (`useCameraPermissions`, `useMicrophonePermissions`). Video über `maxDuration` auf 30 s begrenzen und die Qualitätsstufe auf max. 1080p setzen — prüfe die genauen Namen gegen die installierte Fassung. Aufnahme über eine Ref auf die Kamera-Komponente. Nach der Aufnahme mit den Dateipfaden zu `/aufnehmen/preview` navigieren (`router.push` mit Parametern).
 
 Der Screen stellt die Statusleiste beim Fokussieren auf hell und beim Verlassen zurück — das Muster steht bereits im alten Platzhalter `aufnehmen.tsx`, übernimm es.
 

@@ -18,21 +18,26 @@ auch nach Offline-Phasen.
 | Entscheid | Wahl | Begründung |
 |---|---|---|
 | Medien-Storage | **S3-kompatibel programmieren, lokal gegen Supabase Storage** | R2 bleibt Eckpfeiler (CLAUDE.md), aber es liegen keine Credentials vor. Beide sprechen S3 — produktiv wechseln nur Endpoint und Zugangsdaten, der Code bleibt identisch |
-| Kamera | **react-native-vision-camera** + lokaler Dev-Build | Spec §3 nennt sie wegen des schnellen Kaltstarts; bei einer Kamera-first-App ist das spürbar. Xcode 26.4 liegt vor, `npx expo run:ios` genügt — EAS bleibt Phase 6 |
-| Video-Kompression | **Über das Kamera-Format, nicht nachträglich** | vision-camera nimmt direkt in der Zielauflösung auf. Spart eine Transkodierung und damit eine grosse native Abhängigkeit (ffmpeg) |
+| Kamera | **expo-camera**, Expo Go bleibt | Ursprünglich war `react-native-vision-camera` gesetzt (Produkt-Spec §3, schnellerer Kaltstart). Beim Bauen zeigte sich: Version 5.2.2 bringt kein Config-Plugin mit und lässt sich unter Node 24 nicht laden (offenes Upstream-Problem), und für einen Dev-Build fehlte auf dem Rechner der Platz. `expo-camera` löst beides, weil es in Expo Go steckt. Die Kamera bleibt hinter dem Screen gekapselt — ein späterer Wechsel trifft eine Datei |
+| Video-Kompression | **Über die Aufnahmequalität, nicht nachträglich** | `expo-camera` nimmt in der gewählten Qualitätsstufe auf. Spart eine Transkodierung und damit eine grosse native Abhängigkeit (ffmpeg) |
 | Queue-Speicher | **expo-sqlite** statt AsyncStorage | Jobs müssen einzeln und transaktional aktualisierbar sein; ein Absturz mitten im Schreiben darf die Warteschlange nicht zerstören |
 | Signierte URLs | **Edge Function mit `aws4fetch`** | Die erste Edge Function der App — hier mit echtem Bedarf: der Client darf die S3-Zugangsdaten nie sehen |
 | Mehrere aktive Reisen | **Auswahl-Schritt statt Umschalter im Sucher** | Das Konzept sieht einen Trip-Umschalter in der Kamera vor; der lohnt sich erst, wenn Nutzer wirklich mehrere Reisen parallel haben. Bis dahin: bei genau einer laufenden Reise direkt in die Kamera, sonst vorher auswählen |
 
-## 3. Dev-Build
+## 3. Laufzeit: Expo Go bleibt
 
-`react-native-vision-camera` ist ein natives Modul — Expo Go trägt ab hier nicht mehr.
-Der Build läuft lokal über `npx expo run:ios`; das erzeugt `mobile/ios/` (bleibt
-gitignored, es gilt weiter der Managed-Workflow via Config-Plugins). Berechtigungen
-(Kamera, Mikrofon, Ortung) werden über `app.json` deklariert, nicht durch Editieren
-nativer Dateien.
+Alle Pakete dieser Phase — `expo-camera`, `expo-sqlite`, `expo-image-manipulator`,
+`expo-video-thumbnails`, `expo-location`, `expo-network` — sind in Expo Go enthalten.
+Es braucht keinen Dev-Build, was zwei Probleme auf einmal erledigt: das nicht
+installierbare `vision-camera` und den fehlenden Platz auf dem Entwicklungsrechner.
 
-README und `docs/` halten fest, dass ab Phase 4 ein Dev-Build nötig ist.
+Berechtigungen (Kamera, Mikrofon, Ortung) werden trotzdem sauber über `app.json`
+deklariert — sie werden gebraucht, sobald in Phase 6 ein echter Build entsteht.
+
+**Der Wechsel auf `vision-camera` bleibt möglich.** Die gesamte Kamera-Anbindung lebt
+im Sucher-Screen; Aufnahme-Ergebnisse verlassen ihn ausschliesslich als Dateipfad plus
+Typ. Wer später wechselt, tauscht eine Datei — Queue, Upload und Preview merken nichts
+davon. Das ist eine bewusste Grenze, keine zufällige.
 
 ## 4. Aufnahme
 
@@ -40,7 +45,8 @@ README und `docs/` halten fest, dass ab Phase 4 ein Dev-Build nötig ist.
 DESIGN-LANGUAGE §1):
 
 - Vollbild-Sucher. Auslöser unten: Tippen = Foto, Halten = Video, ein Ring zeigt den
-  Fortschritt bis 30 s und stoppt dort selbsttätig.
+  Fortschritt bis 30 s und stoppt dort selbsttätig (`expo-camera` kennt dafür
+  `maxDuration`).
 - Kamera wechseln und Blitz als translucente Pillen (§1: die einzige erlaubte UI auf
   Bildinhalt).
 - Oben dezent: Name der laufenden Reise und der eigene Zähler.
@@ -62,7 +68,7 @@ fehl oder fehlt die Berechtigung, bleiben `lat`/`lng`/`place_name` leer — das 
 Grund, die Aufnahme zu verwerfen.
 
 **Kompression:** Fotos auf max. 1080 px lange Kante, JPEG-Qualität 0.8, über
-`expo-image-manipulator`. Video über das Kamera-Format auf max. 1080p, H.264. Thumbnails
+`expo-image-manipulator`. Video über die Aufnahmequalität auf max. 1080p. Thumbnails
 entstehen lokal: beim Foto durch weiteres Skalieren, beim Video aus dem ersten Bild
 (`expo-video-thumbnails`).
 
