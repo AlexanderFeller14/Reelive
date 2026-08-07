@@ -55,14 +55,17 @@ const mockVideoAufbereiten = jest.fn();
 // (Verwerfen, gescheitertes Einsenden) räumen auf.
 const mockDauerhaftSichern = jest.fn();
 const mockMomentDateienEntfernen = jest.fn();
-const mockRohaufnahmeVerwerfen = jest.fn();
+const mockDateiVerwerfen = jest.fn();
+const mockZwischenfassungenVerwerfen = jest.fn();
 jest.mock('@/features/moments/medien', () => ({
   neuePostId: () => mockNeuePostId(),
   fotoAufbereiten: (uri: string) => mockFotoAufbereiten(uri),
   videoAufbereiten: (uri: string) => mockVideoAufbereiten(uri),
   dauerhaftSichern: (postId: string, dateien: unknown) => mockDauerhaftSichern(postId, dateien),
   momentDateienEntfernen: (postId: string) => mockMomentDateienEntfernen(postId),
-  rohaufnahmeVerwerfen: (uri: string) => mockRohaufnahmeVerwerfen(uri),
+  dateiVerwerfen: (uri: string) => mockDateiVerwerfen(uri),
+  zwischenfassungenVerwerfen: (roh: string, aufbereitet: unknown) =>
+    mockZwischenfassungenVerwerfen(roh, aufbereitet),
   storageKey: (tripId: string, postId: string, endung: string) =>
     `trips/${tripId}/${postId}.${endung}`,
   // Important 5: die Endung kommt aus der tatsächlichen Aufnahme.
@@ -340,11 +343,11 @@ test('Verwerfen reiht nichts ein, räumt die Rohaufnahme weg und geht zurück zu
   expect(mockJobEinreihen).not.toHaveBeenCalled();
   expect(mockFotoAufbereiten).not.toHaveBeenCalled();
   // Critical 2: auch dieser Weg hinterliess bisher eine Datei im Cache.
-  expect(mockRohaufnahmeVerwerfen).toHaveBeenCalledWith('file://foto.jpg');
+  expect(mockDateiVerwerfen).toHaveBeenCalledWith('file://foto.jpg');
   expect(mockBack).toHaveBeenCalledTimes(1);
 });
 
-test('nach dem Einreihen wird die Rohaufnahme aus dem Cache entfernt', async () => {
+test('erst nach dem Einreihen werden Rohaufnahme und Zwischenfassungen freigegeben', async () => {
   mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
   await render(<PreviewScreen />);
 
@@ -356,7 +359,11 @@ test('nach dem Einreihen wird die Rohaufnahme aus dem Cache entfernt', async () 
     medium: 'file://medium.jpg',
     thumb: 'file://thumb.jpg',
   });
-  expect(mockRohaufnahmeVerwerfen).toHaveBeenCalledWith('file://foto.jpg');
+  expect(mockDateiVerwerfen).toHaveBeenCalledWith('file://foto.jpg');
+  expect(mockZwischenfassungenVerwerfen).toHaveBeenCalledWith('file://foto.jpg', {
+    medium: 'file://medium.jpg',
+    thumb: 'file://thumb.jpg',
+  });
   expect(mockMomentDateienEntfernen).not.toHaveBeenCalled();
 });
 
@@ -374,7 +381,77 @@ test('scheitert das Einreihen, wird der dauerhafte Ordner wieder abgeräumt', as
   expect(mockMomentDateienEntfernen).toHaveBeenCalledWith('post-1');
   // Die Rohaufnahme bleibt: der Screen bleibt stehen, ein zweiter Versuch
   // braucht sie noch.
-  expect(mockRohaufnahmeVerwerfen).not.toHaveBeenCalled();
+  expect(mockDateiVerwerfen).not.toHaveBeenCalled();
+});
+
+// === Re-Review: der Aufräumpfad vernichtete bei Videos die Aufnahme ===
+// videoAufbereiten gibt die Rohaufnahme SELBST als Medium zurück. Solange
+// dauerhaftSichern verschob, nahm der Fehlerpfad (momentDateienEntfernen) die
+// einzige Kopie mit: ein zweiter Druck auf «Einsenden» scheiterte schon beim
+// Standbild, der Moment war weg. Der Foto-Test darüber hat die Lücke
+// durchgelassen, weil fotoAufbereiten ohnehin neue Dateien erzeugt.
+test('bei einem Video überlebt die Rohaufnahme ein gescheitertes Einreihen', async () => {
+  mockParams = { uri: 'file://video.mov', typ: 'video', dauer: '12', tripId: 't1' };
+  // Genau der Fall: medium IST die Rohaufnahme.
+  mockVideoAufbereiten.mockResolvedValue({ medium: 'file://video.mov', thumb: 'file://thumb.jpg' });
+  mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
+  mockJobEinreihen.mockRejectedValue(new Error('SQLITE_FULL'));
+  await render(<PreviewScreen />);
+
+  await act(async () => {
+    await fireEvent.press(screen.getByText('Einsenden'));
+  });
+
+  // Die dauerhafte KOPIE wird abgeräumt — sie ist ohne Job herrenlos.
+  expect(mockMomentDateienEntfernen).toHaveBeenCalledWith('post-1');
+  // Die Rohaufnahme aber unter keinen Umständen: sie ist die einzige Kopie.
+  expect(mockDateiVerwerfen).not.toHaveBeenCalledWith('file://video.mov');
+  expect(mockDateiVerwerfen).not.toHaveBeenCalled();
+  // Und auch nicht über den Umweg „Zwischenfassungen": die Funktion bekommt
+  // die Rohaufnahme mit, damit sie genau diese auslassen kann.
+  expect(mockZwischenfassungenVerwerfen).toHaveBeenCalledWith('file://video.mov', {
+    medium: 'file://video.mov',
+    thumb: 'file://thumb.jpg',
+  });
+});
+
+// Die Probe aufs Exempel: der zweite Versuch läuft wirklich durch.
+test('nach einem gescheiterten Einsenden gelingt der zweite Versuch bei einem Video', async () => {
+  mockParams = { uri: 'file://video.mov', typ: 'video', dauer: '12', tripId: 't1' };
+  mockVideoAufbereiten.mockResolvedValue({ medium: 'file://video.mov', thumb: 'file://thumb.jpg' });
+  mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
+  mockJobEinreihen.mockRejectedValueOnce(new Error('SQLITE_FULL'));
+  await render(<PreviewScreen />);
+
+  await act(async () => {
+    await fireEvent.press(screen.getByText('Einsenden'));
+  });
+  expect(await screen.findByText(/Speicherplatz/)).toBeTruthy();
+
+  await act(async () => {
+    await fireEvent.press(screen.getByText('Einsenden'));
+  });
+
+  expect(mockVideoAufbereiten).toHaveBeenCalledTimes(2);
+  expect(mockJobEinreihen).toHaveBeenCalledTimes(2);
+  expect(mockBack).toHaveBeenCalledTimes(1);
+});
+
+// Der Kopiervorgang selbst scheitert (kein Platz): auch dann muss die Aufnahme
+// überleben — genau dafür wird kopiert statt verschoben.
+test('scheitert schon das dauerhafte Sichern, bleibt die Rohaufnahme liegen', async () => {
+  mockParams = { uri: 'file://video.mov', typ: 'video', dauer: '12', tripId: 't1' };
+  mockVideoAufbereiten.mockResolvedValue({ medium: 'file://video.mov', thumb: 'file://thumb.jpg' });
+  mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
+  mockDauerhaftSichern.mockRejectedValue(new Error('ENOSPC'));
+  await render(<PreviewScreen />);
+
+  await act(async () => {
+    await fireEvent.press(screen.getByText('Einsenden'));
+  });
+
+  expect(mockDateiVerwerfen).not.toHaveBeenCalled();
+  expect(await screen.findByText(/Speicherplatz/)).toBeTruthy();
 });
 
 test('ein Fehler beim Aufbereiten reiht keinen Job ein, zeigt eine Meldung und der Screen bleibt stehen', async () => {

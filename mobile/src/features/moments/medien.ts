@@ -155,10 +155,24 @@ export function momentOrdner(postId: string): Directory {
   return new Directory(Paths.document, MOMENTE_ORDNER, postId);
 }
 
-// Verschiebt (nicht kopiert) Medium und Thumbnail in den Moment-Ordner und
-// liefert die neuen Pfade. Verschieben statt Kopieren räumt die flüchtige
-// Cache-Fassung gleich mit weg — sonst erzeugte die App genau den
-// Speicherdruck, der ihre eigene Warteschlange zerstört.
+// KOPIERT Medium und Thumbnail in den Moment-Ordner und liefert die neuen
+// Pfade. Die Quellen bleiben dabei unangetastet — sie werden erst freigegeben,
+// wenn der Job sie tatsächlich besitzt (siehe zwischenfassungenVerwerfen und
+// preview.tsx).
+//
+// Re-Review: hier stand vorher `move`. Das war für Fotos harmlos
+// (fotoAufbereiten erzeugt ohnehin neue Dateien), für Videos aber fatal:
+// videoAufbereiten gibt die Rohaufnahme SELBST als Medium zurück. Verschob man
+// sie und scheiterte danach irgendetwas — der Thumb, vor allem aber
+// jobEinreihen —, räumte der Fehlerpfad den Moment-Ordner ab und nahm die
+// einzige Kopie mit. Ein zweiter Druck auf «Einsenden» scheiterte dann schon
+// beim Standbild, und die Aufnahme war unwiederbringlich weg. Ausgerechnet im
+// Fehlerpfad des Fixes, der Datenverlust verhindern sollte.
+//
+// Der Preis ist kurzzeitig doppelter Platzbedarf (bei 30 s in 1080p bis ~50 MB,
+// die Bucket-Grenze). Das ist die richtige Seite, auf der man irrt: geht der
+// Kopiervorgang mangels Platz schief, liegt die Aufnahme noch da und der
+// zweite Versuch ist möglich — beim Verschieben war sie weg.
 export async function dauerhaftSichern(
   postId: string,
   dateien: { medium: string; thumb: string }
@@ -170,10 +184,10 @@ export async function dauerhaftSichern(
   // overwrite: ein Wiederanlauf nach abgebrochenem Einsenden trifft sonst auf
   // eine halbfertige Datei aus dem vorigen Versuch und scheitert daran.
   const zielMedium = new File(ordner, `medium.${endung}`);
-  await new File(dateien.medium).move(zielMedium, { overwrite: true });
+  await new File(dateien.medium).copy(zielMedium, { overwrite: true });
 
   const zielThumb = new File(ordner, 'thumb.jpg');
-  await new File(dateien.thumb).move(zielThumb, { overwrite: true });
+  await new File(dateien.thumb).copy(zielThumb, { overwrite: true });
 
   return { medium: zielMedium.uri, thumb: zielThumb.uri };
 }
@@ -194,15 +208,33 @@ export function momentDateienEntfernen(postId: string): void {
   }
 }
 
-// Die Rohaufnahme aus der Kamera (Library/Caches). Wird verworfen, sobald sie
-// niemand mehr braucht: nach dem Einreihen oder wenn jemand die Aufnahme in
-// der Vorschau verwirft. Wirft ebenfalls nie — eine liegen gebliebene Datei
-// darf weder das Einsenden noch das Verwerfen aufhalten.
-export function rohaufnahmeVerwerfen(uri: string): void {
+// Löscht eine einzelne lokale Datei, falls es sie (noch) gibt. Wirft nie —
+// eine liegen gebliebene Datei darf weder das Einsenden noch das Verwerfen
+// aufhalten.
+//
+// Re-Review: hiess vorher `rohaufnahmeVerwerfen`. Der Name log ab dem Moment,
+// in dem auch Zwischenfassungen darüber freigegeben werden — und genau diese
+// Unschärfe («welche Datei ist eigentlich die einzige Kopie?») steckte hinter
+// dem Video-Datenverlust. Wer aufräumt, benennt jetzt ausdrücklich, WAS.
+export function dateiVerwerfen(uri: string): void {
   try {
     const datei = new File(uri);
     if (datei.exists) datei.delete();
   } catch (fehler) {
-    console.error('[medien] Rohaufnahme konnte nicht entfernt werden', uri, fehler);
+    console.error('[medien] Datei konnte nicht entfernt werden', uri, fehler);
+  }
+}
+
+// Gibt frei, was aus der Rohaufnahme ABGELEITET wurde: das komprimierte Medium
+// und das Thumbnail im Cache. Die Rohaufnahme selbst bleibt garantiert liegen —
+// bei einem Video IST sie das Medium (videoAufbereiten gibt `uri` unverändert
+// zurück), und sie ist dann die einzige Kopie. Genau diese Unterscheidung
+// fehlte und kostete im Fehlerpfad die Aufnahme.
+export function zwischenfassungenVerwerfen(
+  rohaufnahme: string,
+  aufbereitet: { medium: string; thumb: string }
+): void {
+  for (const pfad of new Set([aufbereitet.medium, aufbereitet.thumb])) {
+    if (pfad !== rohaufnahme) dateiVerwerfen(pfad);
   }
 }

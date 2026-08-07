@@ -135,6 +135,10 @@ jest.mock('expo-file-system', () => {
       mockVorhanden.add(ziel.uri);
       this.uri = ziel.uri;
     }
+    async copy(ziel: { uri: string }) {
+      if (!mockVorhanden.has(this.uri)) throw new Error(`gibt es nicht: ${this.uri}`);
+      mockVorhanden.add(ziel.uri);
+    }
     delete() {
       if (!mockVorhanden.has(this.uri)) throw new Error('gibt es nicht');
       mockVorhanden.delete(this.uri);
@@ -160,7 +164,8 @@ import {
   momentOrdner,
   dauerhaftSichern,
   momentDateienEntfernen,
-  rohaufnahmeVerwerfen,
+  dateiVerwerfen,
+  zwischenfassungenVerwerfen,
 } from '../medien';
 
 beforeEach(() => {
@@ -281,7 +286,7 @@ test.each([
   expect(endungAus(uri)).toBe(erwartet);
 });
 
-test('dauerhaftSichern verschiebt Medium und Thumbnail unter das Dokumentenverzeichnis', async () => {
+test('dauerhaftSichern legt Medium und Thumbnail unter dem Dokumentenverzeichnis ab', async () => {
   mockVorhanden.add('file:///Caches/medium.jpg');
   mockVorhanden.add('file:///Caches/thumb.jpg');
 
@@ -298,11 +303,31 @@ test('dauerhaftSichern verschiebt Medium und Thumbnail unter das Dokumentenverze
     idempotent: true,
   });
 
-  // Verschoben, nicht kopiert: die flüchtige Fassung ist weg. Sonst erzeugte
-  // die App genau den Speicherdruck, der ihre eigene Warteschlange zerstört.
-  expect(mockVorhanden.has('file:///Caches/medium.jpg')).toBe(false);
-  expect(mockVorhanden.has('file:///Caches/thumb.jpg')).toBe(false);
+  // Re-Review: KOPIERT, nicht verschoben. Die Quellen bleiben unangetastet,
+  // bis der Job den Moment besitzt — bei einem Video ist die Quelle die
+  // einzige Kopie, und der Fehlerpfad räumt den Zielordner ab.
+  expect(mockVorhanden.has('file:///Caches/medium.jpg')).toBe(true);
+  expect(mockVorhanden.has('file:///Caches/thumb.jpg')).toBe(true);
   expect(mockVorhanden.has('file:///dokumente/momente/p1/medium.jpg')).toBe(true);
+  expect(mockVorhanden.has('file:///dokumente/momente/p1/thumb.jpg')).toBe(true);
+});
+
+// Der Kern des Re-Review-Befunds, auf der Ebene, auf der er entstand:
+// videoAufbereiten gibt die Rohaufnahme SELBST als Medium zurück. Räumt danach
+// der Fehlerpfad den Moment-Ordner ab, darf die Aufnahme davon nicht betroffen
+// sein.
+test('die Quelle überlebt es, wenn der Moment-Ordner danach wieder abgeräumt wird', async () => {
+  mockVorhanden.add('file:///Caches/aufnahme.mov');
+  mockVorhanden.add('file:///Caches/standbild.jpg');
+
+  await dauerhaftSichern('p3', {
+    medium: 'file:///Caches/aufnahme.mov',
+    thumb: 'file:///Caches/standbild.jpg',
+  });
+  momentDateienEntfernen('p3');
+
+  expect(mockVorhanden.has('file:///dokumente/momente/p3/medium.mov')).toBe(false);
+  expect(mockVorhanden.has('file:///Caches/aufnahme.mov')).toBe(true);
 });
 
 test('dauerhaftSichern behält die Endung der Aufnahme (iOS liefert .mov)', async () => {
@@ -334,11 +359,42 @@ test('momentDateienEntfernen räumt den ganzen Moment-Ordner ab', async () => {
 // lassen — teurer als eine liegen gebliebene Datei.
 test('Aufräumen wirft nie, auch wenn es nichts (mehr) zu löschen gibt', () => {
   expect(() => momentDateienEntfernen('gibt-es-nicht')).not.toThrow();
-  expect(() => rohaufnahmeVerwerfen('file:///Caches/weg.jpg')).not.toThrow();
+  expect(() => dateiVerwerfen('file:///Caches/weg.jpg')).not.toThrow();
 });
 
-test('rohaufnahmeVerwerfen löscht die Kamera-Datei', () => {
+test('dateiVerwerfen löscht die Kamera-Datei', () => {
   mockVorhanden.add('file:///Caches/roh.jpg');
-  rohaufnahmeVerwerfen('file:///Caches/roh.jpg');
+  dateiVerwerfen('file:///Caches/roh.jpg');
   expect(mockVorhanden.has('file:///Caches/roh.jpg')).toBe(false);
+});
+
+// Die Unterscheidung, die im Fehlerpfad den Unterschied macht: alles
+// Abgeleitete darf weg, die Rohaufnahme nie — auch dann nicht, wenn sie
+// zufällig zugleich das Medium ist (Video).
+test('zwischenfassungenVerwerfen lässt die Rohaufnahme in Ruhe', () => {
+  mockVorhanden.add('file:///Caches/roh.mov');
+  mockVorhanden.add('file:///Caches/standbild.jpg');
+
+  zwischenfassungenVerwerfen('file:///Caches/roh.mov', {
+    medium: 'file:///Caches/roh.mov',
+    thumb: 'file:///Caches/standbild.jpg',
+  });
+
+  expect(mockVorhanden.has('file:///Caches/roh.mov')).toBe(true);
+  expect(mockVorhanden.has('file:///Caches/standbild.jpg')).toBe(false);
+});
+
+test('zwischenfassungenVerwerfen räumt beim Foto beide Zwischenfassungen ab', () => {
+  mockVorhanden.add('file:///Caches/roh.jpg');
+  mockVorhanden.add('file:///Caches/medium.jpg');
+  mockVorhanden.add('file:///Caches/thumb.jpg');
+
+  zwischenfassungenVerwerfen('file:///Caches/roh.jpg', {
+    medium: 'file:///Caches/medium.jpg',
+    thumb: 'file:///Caches/thumb.jpg',
+  });
+
+  expect(mockVorhanden.has('file:///Caches/roh.jpg')).toBe(true);
+  expect(mockVorhanden.has('file:///Caches/medium.jpg')).toBe(false);
+  expect(mockVorhanden.has('file:///Caches/thumb.jpg')).toBe(false);
 });

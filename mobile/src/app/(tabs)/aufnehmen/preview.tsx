@@ -178,7 +178,7 @@ export default function PreviewScreen() {
     // Datei — die Rohaufnahme aus der Kamera. Sie liegt im Cache, wird von hier
     // an von niemandem mehr gebraucht und darf nicht zum Speicherdruck
     // beitragen, der die Warteschlange gefährdet.
-    medien.rohaufnahmeVerwerfen(uri);
+    medien.dateiVerwerfen(uri);
     zurueckZurKamera();
   };
 
@@ -210,16 +210,19 @@ export default function PreviewScreen() {
     setSendeFehler(null);
     setSendet(true);
     const postId = medien.neuePostId();
+    // Ausserhalb des try: der catch-Zweig muss wissen, was schon entstanden
+    // ist, um genau das Abgeleitete freizugeben — und nichts sonst.
+    let aufbereitet: { medium: string; thumb: string } | null = null;
     try {
-      const aufbereitet =
+      aufbereitet =
         typ === 'video' ? await medien.videoAufbereiten(uri) : await medien.fotoAufbereiten(uri);
 
       // Final-Review, Critical 2: Kamera, Bildbearbeitung und Video-Standbild
       // schreiben alle nach Library/Caches — ein Verzeichnis, das iOS unter
       // Speicherdruck leeren darf. Die Warteschlange soll Momente aber
-      // tagelang halten. Deshalb wandern Medium und Thumbnail HIER, vor dem
-      // Einreihen, an einen dauerhaften Ort, und der Job merkt sich diese
-      // Pfade — nicht die flüchtigen.
+      // tagelang halten. Deshalb entsteht HIER, vor dem Einreihen, eine
+      // dauerhafte Kopie, und der Job merkt sich diese Pfade — nicht die
+      // flüchtigen.
       const { medium, thumb } = await medien.dauerhaftSichern(postId, aufbereitet);
 
       // Final-Review, Important 5: die Endung kommt aus der TATSÄCHLICHEN
@@ -259,11 +262,12 @@ export default function PreviewScreen() {
       // nie darüber entscheiden, ob ein Moment gesichert ist.
       await uploadWorker.jobEinreihen(job);
 
-      // Ab hier gehört die Aufnahme der Warteschlange; die Rohfassung im Cache
-      // wird von niemandem mehr gebraucht. Bei einem Video ist sie schon
-      // verschoben (dort IST die Rohaufnahme das Medium) — dann tut das hier
-      // nichts.
-      medien.rohaufnahmeVerwerfen(uri);
+      // ERST HIER gehört der Moment der Warteschlange — und erst jetzt dürfen
+      // die Quellen weg: die Rohaufnahme aus der Kamera und alles daraus
+      // Abgeleitete im Cache. Vorher wäre bei einem Video die einzige Kopie
+      // dran (Re-Review).
+      medien.dateiVerwerfen(uri);
+      medien.zwischenfassungenVerwerfen(uri, aufbereitet);
 
       // Der Moment ist ab hier bereits sicher in der Warteschlange — die
       // Versiegelungs-Inszenierung (Gold-Glow, 700–900 ms, Haptik success,
@@ -279,9 +283,14 @@ export default function PreviewScreen() {
       //
       // Was schon im dauerhaften Ordner liegt, muss dabei weg: ohne Job in der
       // Warteschlange käme nie wieder jemand daran vorbei, der ihn aufräumt.
-      // Die Rohaufnahme bleibt dagegen liegen — der Screen bleibt stehen und
-      // ein zweiter Versuch braucht sie noch.
+      // Es ist nur eine KOPIE — das Original bleibt unangetastet (Re-Review).
       medien.momentDateienEntfernen(postId);
+      // Die abgeleiteten Zwischenfassungen im Cache dazu; ein zweiter Versuch
+      // erzeugt sie neu. Die Rohaufnahme bleibt garantiert liegen — der Screen
+      // bleibt stehen und ein zweiter Versuch braucht sie noch. Bei einem Video
+      // IST sie das Medium, und zwischenfassungenVerwerfen lässt genau sie in
+      // Ruhe.
+      if (aufbereitet) medien.zwischenfassungenVerwerfen(uri, aufbereitet);
       console.error('[preview] Einsenden fehlgeschlagen', fehler);
       setSendeFehler(SENDEN_FEHLGESCHLAGEN_MELDUNG);
       setSendet(false);
