@@ -165,7 +165,14 @@ export async function jobHinzufuegen(job: QueueJob): Promise<void> {
   }
 }
 
+// Ein frisch installiertes Gerät (oder eines, auf dem der Worker noch nie
+// gestartet ist, weil Sitzung/Profil fehlen — siehe uploadWorker/_layout.tsx)
+// hat die Tabelle noch nicht angelegt. Lesen darf davon nie einen Screen mit
+// einem SQLite-Fehler ("no such table") blockieren — deshalb stellt alleJobs
+// die Tabelle selbst sicher (`create table if not exists` ist billig genug),
+// statt jeden Aufrufer (Reise-Detail, Zähler, ...) einzeln defensiv zu machen.
 export async function alleJobs(): Promise<QueueJob[]> {
+  await initQueue();
   const db = await holeDatenbank();
   try {
     const zeilen = await db.getAllAsync<Record<string, unknown>>('select * from upload_queue', []);

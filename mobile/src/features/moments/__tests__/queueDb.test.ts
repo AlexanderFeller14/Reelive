@@ -2,9 +2,20 @@
 // Zeilen sauber in QueueJob zurückwandelt. Die Datenbank selbst ist nicht unser
 // Testgegenstand, die Übersetzung schon.
 const zeilen: Record<string, unknown>[] = [];
+// Bildet nach, dass eine "select" auf einer noch nie angelegten SQLite-Tabelle
+// wirft ("no such table") statt eine leere Liste zu liefern — genau der
+// Zustand eines frisch installierten Geräts, bevor initQueue() je gelaufen
+// ist (Task 13). mockExecAsync steht für "create table if not exists" und
+// schaltet die Tabelle frei.
+let tabelleAngelegt = false;
 const mockRunAsync = jest.fn(async (..._args: unknown[]) => {});
-const mockGetAllAsync = jest.fn(async (..._args: unknown[]) => zeilen);
-const mockExecAsync = jest.fn(async (..._args: unknown[]) => {});
+const mockGetAllAsync = jest.fn(async (..._args: unknown[]) => {
+  if (!tabelleAngelegt) throw new Error('no such table: upload_queue');
+  return zeilen;
+});
+const mockExecAsync = jest.fn(async (..._args: unknown[]) => {
+  tabelleAngelegt = true;
+});
 // Greifbar statt inline, damit ein Öffnen (oder Nicht-Öffnen) beim Import
 // nachweisbar bleibt — siehe Test weiter unten.
 const mockOpenDatabaseAsync = jest.fn(async (..._args: unknown[]) => ({
@@ -44,6 +55,7 @@ function spaltenAusInsertSql(sql: string): string[] {
 
 beforeEach(() => {
   zeilen.length = 0;
+  tabelleAngelegt = false;
   jest.clearAllMocks();
 });
 
@@ -105,6 +117,16 @@ test('Job übersteht eine Rundreise durch jobHinzufuegen und alleJobs unversehrt
 
   const [wiederhergestellt] = await alleJobs();
   expect(wiederhergestellt).toEqual(original);
+});
+
+// Task 13: der Worker (und mit ihm initQueue()) läuft erst ab signedIn — ein
+// frisch installiertes Gerät oder eines ohne Session/Profil hat die Tabelle
+// also noch nicht. alleJobs() wird trotzdem direkt von aussen gerufen (Reise-
+// Detail, Zähler) und darf diese Aufrufer nie mit einem SQLite-Fehler
+// blockieren, sondern muss die Tabelle selbst sicherstellen.
+test('alleJobs liefert auf einer noch nie angelegten Tabelle eine leere Liste statt zu werfen', async () => {
+  await expect(alleJobs()).resolves.toEqual([]);
+  expect(mockExecAsync).toHaveBeenCalledWith(expect.stringContaining('create table if not exists'));
 });
 
 test('alleJobs wandelt 0/1 zurück in Booleans', async () => {
