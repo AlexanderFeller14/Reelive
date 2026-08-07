@@ -8,6 +8,7 @@ import { Ausloeser } from '@/components/Ausloeser';
 import { PressScale } from '@/components/PressScale';
 import { cinema, palette, radius, spacing, type } from '@/theme/tokens';
 import { fetchTrips } from '@/features/trips/tripsApi';
+import { eigenerZaehler } from '@/features/moments/zaehler';
 import type { Trip } from '@/features/trips/types';
 
 // Höchstdauer eines Videos (Produktkonzept: Snapchat-Muster, Ring stoppt hier
@@ -104,11 +105,30 @@ export default function AufnehmenScreen() {
   const [fehler, setFehler] = useState<string | null>(null);
   const [ausgewaehlteReiseId, setAusgewaehlteReiseId] = useState<string | null>(null);
   const [modus, setModus] = useState<'picture' | 'video'>('picture');
+  // Zähler-Nachzug aus Task 9 (Task-10-Auftrag): Serverstand PLUS wartende
+  // Momente derselben Reise (eigenerZaehler), statt beim reinen
+  // reise.my_post_count einzufrieren — sonst bewegt sich die Pille nach
+  // einer Offline-Aufnahme nicht (Spec §7, „darf nie rückwärts wirken").
+  // Bleibt `null`, bis die erste Antwort da ist — bis dahin zeigt die Pille
+  // den zuletzt bekannten Serverstand statt kurz „0 Momente" aufblitzen zu
+  // lassen (siehe Fallback beim Rendern unten).
+  const [zaehler, setZaehler] = useState<number | null>(null);
   const cameraRef = useRef<CameraView>(null);
   const videoStartZeit = useRef(0);
   const videoPromise = useRef<Promise<{ uri: string } | undefined> | null>(null);
   // Schirmt setState nach Blur/Unmount ab (gleiches Muster wie reise/index.tsx).
   const aktiv = useRef(true);
+
+  // Vor den frühen Returns berechnet (Rules of Hooks: der Effekt weiter unten
+  // braucht `reise?.id` als Abhängigkeit, und Hooks dürfen nicht hinter einem
+  // bedingten Return stehen). `trips` kann hier noch `null` sein (noch nicht
+  // geladen) — dann bleibt `aktiveReisen` leer und `reise` `null`, was der
+  // Effekt unten und die späteren Returns bereits abfangen.
+  const aktiveReisen = (trips ?? []).filter((t) => t.status === 'active');
+  const reise =
+    aktiveReisen.length === 1
+      ? aktiveReisen[0]
+      : (aktiveReisen.find((t) => t.id === ausgewaehlteReiseId) ?? null);
 
   const laden = useCallback(async () => {
     const { data, error } = await fetchTrips();
@@ -159,6 +179,16 @@ export default function AufnehmenScreen() {
       cameraRef.current?.recordAsync({ maxDuration: MAX_VIDEO_SEKUNDEN }) ?? null;
   }, [modus]);
 
+  // Zieht den Zähler bei jedem Reise-Wechsel nach (Auswahl aus mehreren
+  // laufenden Reisen, Rückkehr auf den Screen) — ohne `reise` gibt es nichts
+  // zu zählen.
+  useEffect(() => {
+    if (!reise) return;
+    void eigenerZaehler(reise.id).then((n) => {
+      if (aktiv.current) setZaehler(n);
+    });
+  }, [reise?.id]);
+
   if (trips === null) return <LeererKinoScreen />;
   if (fehler) {
     return (
@@ -172,15 +202,10 @@ export default function AufnehmenScreen() {
     );
   }
 
-  const aktiveReisen = trips.filter((t) => t.status === 'active');
   if (aktiveReisen.length === 0) {
     return <KeineReiseScreen onAnlegen={() => router.push('/reise/neu')} />;
   }
 
-  const reise =
-    aktiveReisen.length === 1
-      ? aktiveReisen[0]
-      : (aktiveReisen.find((t) => t.id === ausgewaehlteReiseId) ?? null);
   if (!reise) {
     return <ReiseWahlScreen reisen={aktiveReisen} onWahl={setAusgewaehlteReiseId} />;
   }
@@ -250,7 +275,7 @@ export default function AufnehmenScreen() {
       <View style={styles.kopfPille}>
         <Text style={[type.bodyMedium, { color: cinema['text-1'] }]}>{reise.name}</Text>
         <Text style={[type.secondary, { color: cinema['text-2'] }]}>
-          {momenteText(reise.my_post_count)}
+          {momenteText(zaehler ?? reise.my_post_count)}
         </Text>
       </View>
       <View style={styles.ausloeserWrap}>

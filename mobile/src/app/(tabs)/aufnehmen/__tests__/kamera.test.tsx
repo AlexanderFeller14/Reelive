@@ -12,6 +12,16 @@ jest.mock('expo-router', () => ({
 
 jest.mock('@/features/trips/tripsApi', () => ({ fetchTrips: jest.fn() }));
 
+// Task 10 (Nachzug aus Task 9): der Zähler in der Kopf-Pille kommt aus
+// eigenerZaehler (Serverstand + wartende Momente derselben Reise), nicht
+// mehr aus reise.my_post_count — sonst bewegt er sich nach einer Offline-
+// Aufnahme nicht (Spec §7). Default 0, einzelne Tests überschreiben mit
+// mockResolvedValueOnce passend zum jeweiligen Trip-Fixture.
+const mockEigenerZaehler = jest.fn(async (_tripId: string) => 0);
+jest.mock('@/features/moments/zaehler', () => ({
+  eigenerZaehler: (tripId: string) => mockEigenerZaehler(tripId),
+}));
+
 const mockSetStatusBarStyle = jest.fn();
 jest.mock('expo-status-bar', () => ({
   setStatusBarStyle: (...args: unknown[]) => mockSetStatusBarStyle(...args),
@@ -104,6 +114,9 @@ test('bei mehreren laufenden Reisen wählt man zuerst eine aus', async () => {
   const a = reise({ id: 'a', name: 'Norwegen' });
   const b = reise({ id: 'b', name: 'Lissabon', my_post_count: 2 });
   (fetchTrips as jest.Mock).mockResolvedValue(geladen([a, b]));
+  // Deckungsgleich mit b.my_post_count, damit die Anzeige unabhängig davon
+  // stimmt, ob der Zähler-Fetch schon aufgelöst ist, wenn die Assertion läuft.
+  mockEigenerZaehler.mockResolvedValueOnce(2);
   await render(<AufnehmenScreen />);
   expect(await screen.findByText('Für welche Reise?')).toBeTruthy();
   await fireEvent.press(screen.getByText('Lissabon'));
@@ -122,10 +135,23 @@ test('ohne Kamera- oder Mikrofon-Berechtigung zeigt der Screen den Weg in die Ei
 
 test('bei genau einer laufenden Reise erscheint direkt die Kamera mit Reisename und Zähler', async () => {
   (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise({ name: 'Norwegen mit dem Camper', my_post_count: 4 })]));
+  mockEigenerZaehler.mockResolvedValueOnce(4);
   await render(<AufnehmenScreen />);
   expect(await screen.findByText('Norwegen mit dem Camper')).toBeTruthy();
   expect(screen.getByText('4 Momente')).toBeTruthy();
   expect(screen.getByLabelText('Auslöser')).toBeTruthy();
+});
+
+// Task 10: der Zähler ist Task 9s eigenerZaehler — er zählt wartende Momente
+// derselben Reise mit, statt beim reinen Serverstand (my_post_count) stehen
+// zu bleiben. Genau das unterscheidet diesen Test vom vorigen.
+test('nach einer Offline-Aufnahme bewegt sich der Zähler nach vorn statt stehen zu bleiben', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise({ my_post_count: 4 })]));
+  mockEigenerZaehler.mockResolvedValueOnce(5);
+  await render(<AufnehmenScreen />);
+  expect(await screen.findByText('5 Momente')).toBeTruthy();
+  expect(screen.queryByText('4 Momente')).toBeNull();
+  expect(mockEigenerZaehler).toHaveBeenCalledWith('t1');
 });
 
 test('ein Tipp auf den Auslöser nimmt ein Foto auf und navigiert zur Vorschau', async () => {
