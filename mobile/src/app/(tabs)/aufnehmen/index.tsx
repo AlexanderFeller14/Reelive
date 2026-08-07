@@ -4,6 +4,7 @@ import { useFocusEffect, useRouter, type Href } from 'expo-router';
 import { setStatusBarStyle } from 'expo-status-bar';
 import * as Linking from 'expo-linking';
 import { CameraView, useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
+import { SwitchCamera, Zap, ZapOff } from 'lucide-react-native';
 import { Ausloeser } from '@/components/Ausloeser';
 import { PressScale } from '@/components/PressScale';
 import { cinema, palette, radius, spacing, type } from '@/theme/tokens';
@@ -37,6 +38,31 @@ function KinoButton({ label, onPress }: { label: string; onPress: () => void }) 
 
 function LeererKinoScreen() {
   return <View style={styles.screen} />;
+}
+
+// Spec §4 verlangt beides wörtlich: «Kamera wechseln und Blitz als translucente
+// Pillen». §10 nimmt nur den Trip-Umschalter aus — im Plan kam «Blitz»
+// nirgends vor (Final-Review, Important 7). Für ein gemeinsames Reisetagebuch
+// heisst keine Frontkamera: keine Gruppenbilder.
+//
+// Translucente Pille nach DESIGN-LANGUAGE §1/§4: `overlay-pill`, Radius 999.
+// Ohne echten Blur (expo-blur ist nicht installiert) — dieselbe bewusste
+// Einschränkung wie bei der Kopf-Pille, siehe dort. Icons: Lucide, Outline,
+// Stroke 1.75 (§4).
+function PillenKnopf({
+  label,
+  onPress,
+  children,
+}: {
+  label: string;
+  onPress: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <PressScale accessibilityRole="button" accessibilityLabel={label} onPress={onPress}>
+      <View style={styles.steuerPille}>{children}</View>
+    </PressScale>
+  );
 }
 
 function FehlerScreen({ fehler, onRetry }: { fehler: string; onRetry: () => void }) {
@@ -108,6 +134,8 @@ export default function AufnehmenScreen() {
   const [fehler, setFehler] = useState<string | null>(null);
   const [ausgewaehlteReiseId, setAusgewaehlteReiseId] = useState<string | null>(null);
   const [modus, setModus] = useState<'picture' | 'video'>('picture');
+  const [richtung, setRichtung] = useState<'back' | 'front'>('back');
+  const [blitz, setBlitz] = useState<'off' | 'on'>('off');
   // Zähler-Nachzug aus Task 9 (Task-10-Auftrag): Serverstand PLUS wartende
   // Momente derselben Reise (eigenerZaehler), statt beim reinen
   // reise.my_post_count einzufrieren — sonst bewegt sich die Pille nach
@@ -317,8 +345,12 @@ export default function AufnehmenScreen() {
       <CameraView
         ref={cameraRef}
         style={StyleSheet.absoluteFill}
-        facing="back"
+        facing={richtung}
         mode={modus}
+        // `flash` gilt für Fotos; beim Video braucht es stattdessen das
+        // Dauerlicht — derselbe Schalter, zwei Prop-Namen.
+        flash={blitz}
+        enableTorch={blitz === 'on' && modus === 'video'}
         videoQuality="1080p"
       />
       <View style={styles.kopfPille}>
@@ -326,6 +358,24 @@ export default function AufnehmenScreen() {
         <Text style={[type.secondary, { color: cinema['text-2'] }]}>
           {momenteText(zaehler ?? reise.my_post_count)}
         </Text>
+      </View>
+      <View style={styles.steuerung}>
+        <PillenKnopf
+          label="Kamera wechseln"
+          onPress={() => setRichtung((r) => (r === 'back' ? 'front' : 'back'))}
+        >
+          <SwitchCamera size={22} color={cinema['text-1']} strokeWidth={1.75} />
+        </PillenKnopf>
+        <PillenKnopf
+          label={blitz === 'on' ? 'Blitz ausschalten' : 'Blitz einschalten'}
+          onPress={() => setBlitz((b) => (b === 'on' ? 'off' : 'on'))}
+        >
+          {blitz === 'on' ? (
+            <Zap size={22} color={cinema['text-1']} strokeWidth={1.75} />
+          ) : (
+            <ZapOff size={22} color={cinema['text-2']} strokeWidth={1.75} />
+          )}
+        </PillenKnopf>
       </View>
       <View style={styles.ausloeserWrap}>
         <Ausloeser
@@ -373,6 +423,22 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.s,
     borderRadius: radius.pill,
     backgroundColor: cinema['overlay-pill'],
+  },
+  // Kamera wechseln und Blitz (Spec §4): rechts oben, auf Höhe der Kopf-Pille,
+  // untereinander im 4er-Raster (§3).
+  steuerung: {
+    position: 'absolute',
+    top: spacing.xl,
+    right: spacing.screen,
+    gap: spacing.m,
+  },
+  steuerPille: {
+    width: 44,
+    height: 44,
+    borderRadius: radius.pill,
+    backgroundColor: cinema['overlay-pill'],
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   ausloeserWrap: {
     position: 'absolute',

@@ -91,10 +91,14 @@ let mockMicPermission: PermissionMock = GEWAEHRT;
 const mockRequestCameraPermission = jest.fn();
 const mockRequestMicPermission = jest.fn();
 
+// Merkt sich die zuletzt gerenderten Props, damit sich prüfen lässt, was die
+// Kamera tatsächlich bekommt (Richtung, Blitz) — Important 7.
+const mockCameraProps = jest.fn();
 jest.mock('expo-camera', () => {
   const ReactActual = require('react');
   return {
-    CameraView: ReactActual.forwardRef((_props: unknown, ref: unknown) => {
+    CameraView: ReactActual.forwardRef((props: Record<string, unknown>, ref: unknown) => {
+      mockCameraProps(props);
       ReactActual.useImperativeHandle(ref, () => ({
         takePictureAsync: mockTakePictureAsync,
         recordAsync: mockRecordAsync,
@@ -375,4 +379,62 @@ test('vor der ersten Antwort behauptet der Screen keine fehlende Berechtigung', 
   mockMicPermission = GEWAEHRT;
   await rerender(<AufnehmenScreen />);
   expect(await screen.findByLabelText('Auslöser')).toBeTruthy();
+});
+
+// === Final-Review, Important 7 ===
+// Spec §4 verlangt beides wörtlich: «Kamera wechseln und Blitz als translucente
+// Pillen». §10 nimmt nur den Trip-Umschalter aus; im Plan kam «Blitz» nirgends
+// vor. Für ein gemeinsames Reisetagebuch heisst keine Frontkamera: keine
+// Gruppenbilder.
+const letzteKameraProps = () =>
+  mockCameraProps.mock.calls.at(-1)![0] as Record<string, unknown>;
+
+test('Kamera wechseln schaltet zwischen Rück- und Frontkamera', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  await render(<AufnehmenScreen />);
+  await screen.findByLabelText('Auslöser');
+
+  expect(letzteKameraProps().facing).toBe('back');
+
+  await fireEvent.press(screen.getByLabelText('Kamera wechseln'));
+  expect(letzteKameraProps().facing).toBe('front');
+
+  await fireEvent.press(screen.getByLabelText('Kamera wechseln'));
+  expect(letzteKameraProps().facing).toBe('back');
+});
+
+test('der Blitz lässt sich ein- und ausschalten und benennt beim Namen, was passiert', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  await render(<AufnehmenScreen />);
+  await screen.findByLabelText('Auslöser');
+
+  expect(letzteKameraProps().flash).toBe('off');
+
+  await fireEvent.press(screen.getByLabelText('Blitz einschalten'));
+  expect(letzteKameraProps().flash).toBe('on');
+
+  // Der Knopf sagt jetzt, was der nächste Druck tut (DESIGN-LANGUAGE §6).
+  await fireEvent.press(screen.getByLabelText('Blitz ausschalten'));
+  expect(letzteKameraProps().flash).toBe('off');
+});
+
+// Beim Video greift `flash` nicht — dort braucht es das Dauerlicht. Derselbe
+// Schalter, zwei Prop-Namen.
+test('bei eingeschaltetem Blitz läuft im Video-Modus das Dauerlicht', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  mockRecordAsync.mockImplementation(() => new Promise(() => {}));
+  await render(<AufnehmenScreen />);
+  await screen.findByLabelText('Auslöser');
+
+  await fireEvent.press(screen.getByLabelText('Blitz einschalten'));
+  expect(letzteKameraProps().enableTorch).toBe(false);
+
+  jest.useFakeTimers();
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressIn');
+  await act(async () => {
+    jest.advanceTimersByTime(600);
+  });
+  jest.useRealTimers();
+
+  expect(letzteKameraProps().enableTorch).toBe(true);
 });
