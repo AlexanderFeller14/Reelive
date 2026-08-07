@@ -1,5 +1,20 @@
 export type JobZustand = 'wartet' | 'laeuft' | 'fertig';
 
+// Ein Moment, den der Worker dauerhaft verwerfen musste (Spec §8: «mit
+// Erklärung verworfen»). Bis zum Final-Review verschwand so einer wortlos —
+// der Job wurde gelöscht und eine Konsolenzeile geschrieben, die niemand
+// sieht. Der Eintrag überlebt Neustarts (SQLite, neben der Warteschlange) und
+// bleibt liegen, bis die betroffene Person ihn im Reise-Detail zur Kenntnis
+// nimmt. Er trägt bewusst keine Medien mehr: die Dateien sind zu diesem
+// Zeitpunkt aufgeräumt (Critical 2), es geht allein um die Erklärung.
+export type VerworfenerMoment = {
+  id: string;
+  trip_id: string;
+  author_id: string;
+  grund: string;
+  verworfen_am: number; // ms seit Epoch
+};
+
 // Ein Job trägt alles, was die posts-Zeile braucht, plus den Fortschritt.
 // post_id und die Schlüssel stehen schon beim Aufnehmen fest (Spec §5) —
 // nur so legt ein Wiederanlauf nach Absturz keine zweite Zeile an.

@@ -1,7 +1,7 @@
 import * as SQLite from 'expo-sqlite';
 import type { SQLiteDatabase } from 'expo-sqlite';
 
-import type { JobZustand, QueueJob } from './types';
+import type { JobZustand, QueueJob, VerworfenerMoment } from './types';
 
 // Einzige Stelle im Projekt, die zwischen SQLite-Zeile und QueueJob übersetzt.
 // Booleans liegen als 0/1, Zeiten als Zahl — siehe Task-3-Brief.
@@ -189,6 +189,21 @@ export async function initQueue(): Promise<void> {
         ${spalten}
       );
     `);
+    // Zweite Tabelle, gleiche Datenbank (Final-Review, Important 9): ein
+    // dauerhaft verworfener Moment ist die einzige Nachricht, die die App über
+    // ihn je senden wird — sie muss denselben Neustart überleben wie die
+    // Warteschlange selbst. `id` ist die post_id des verworfenen Moments,
+    // damit ein zweiter Anlauf (Wiederanlauf nach Absturz) keinen doppelten
+    // Eintrag erzeugt.
+    await db.execAsync(`
+      create table if not exists verworfene_momente (
+        id text primary key,
+        trip_id text not null,
+        author_id text not null,
+        grund text not null,
+        verworfen_am integer not null
+      );
+    `);
     await spaltenNachziehen(db);
   } catch (fehler) {
     console.error('[queueDb] initQueue fehlgeschlagen', fehler);
@@ -262,6 +277,61 @@ export async function jobEntfernen(id: string): Promise<void> {
     await db.runAsync('delete from upload_queue where id = ?', [id]);
   } catch (fehler) {
     console.error('[queueDb] jobEntfernen fehlgeschlagen', fehler);
+    throw fehler;
+  }
+}
+
+// === Verworfene Momente (Final-Review, Important 9) ===
+// Spec §8 verspricht, ein nach dem Reveal aufgenommener Moment werde «mit
+// Erklärung verworfen». Tatsächlich löschte der Worker den Job und schrieb
+// eine Konsolenzeile — die betroffene Person erfuhr nie, dass ihre Aufnahme
+// weg ist. Derselbe Pfad greift auch, wenn jemandem mitten im Upload die
+// Mitgliedschaft entzogen wird.
+
+// `insert or replace`: ein Wiederanlauf nach Absturz darf denselben Moment
+// nicht zweimal melden.
+export async function verworfenenMerken(eintrag: VerworfenerMoment): Promise<void> {
+  await sicherstellenTabelle();
+  const db = await holeDatenbank();
+  try {
+    await db.runAsync(
+      'insert or replace into verworfene_momente (id, trip_id, author_id, grund, verworfen_am) values (?, ?, ?, ?, ?)',
+      [eintrag.id, eintrag.trip_id, eintrag.author_id, eintrag.grund, eintrag.verworfen_am]
+    );
+  } catch (fehler) {
+    console.error('[queueDb] verworfenenMerken fehlgeschlagen', fehler);
+    throw fehler;
+  }
+}
+
+// Nur die eigenen: auf einem geteilten Gerät geht ein verworfener Moment
+// niemanden ausser die Person an, die ihn aufgenommen hat.
+export async function verworfene(tripId: string, autorId: string): Promise<VerworfenerMoment[]> {
+  await sicherstellenTabelle();
+  const db = await holeDatenbank();
+  try {
+    const zeilen = await db.getAllAsync<VerworfenerMoment>(
+      'select id, trip_id, author_id, grund, verworfen_am from verworfene_momente where trip_id = ? and author_id = ? order by verworfen_am',
+      [tripId, autorId]
+    );
+    return zeilen;
+  } catch (fehler) {
+    console.error('[queueDb] verworfene fehlgeschlagen', fehler);
+    throw fehler;
+  }
+}
+
+// Erst wenn jemand die Erklärung tatsächlich gesehen und bestätigt hat.
+export async function verworfeneQuittieren(tripId: string, autorId: string): Promise<void> {
+  await sicherstellenTabelle();
+  const db = await holeDatenbank();
+  try {
+    await db.runAsync('delete from verworfene_momente where trip_id = ? and author_id = ?', [
+      tripId,
+      autorId,
+    ]);
+  } catch (fehler) {
+    console.error('[queueDb] verworfeneQuittieren fehlgeschlagen', fehler);
     throw fehler;
   }
 }

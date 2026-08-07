@@ -83,6 +83,20 @@ async function verarbeiteJob(job: QueueJob, jetzt: number, meineGeneration: numb
           // Nachzügler von vorher). Wiederholen hilft nie — Job verwerfen, Grund
           // festhalten, statt ihn endlos zu wiederholen (Task-6-Brief §Step 4).
           if (!gehoertZurLaufendenGeneration(meineGeneration)) return;
+          // Final-Review, Important 9: ZUERST festhalten, dann verwerfen.
+          // Spec §8 verspricht «mit Erklärung verworfen» — bis hierher war es
+          // eine Konsolenzeile, die niemand sieht. Reihenfolge nicht beliebig:
+          // bricht es zwischen den beiden Schritten ab, bleibt der Job liegen
+          // und läuft erneut hier durch (insert or replace macht das
+          // folgenlos). Umgekehrt wäre der Moment wortlos weg.
+          await queueDb.verworfenenMerken({
+            id: aktuell.post_id,
+            trip_id: aktuell.trip_id,
+            author_id: aktuell.author_id,
+            grund: angelegt.error,
+            verworfen_am: Date.now(),
+          });
+          if (!gehoertZurLaufendenGeneration(meineGeneration)) return;
           await queueDb.jobEntfernen(aktuell.id);
           // Zweiter Ort, an dem ein Job die Warteschlange verlässt (Critical 2):
           // ohne Aufräumen blieben Medium und Thumbnail für immer liegen, und

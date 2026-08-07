@@ -16,7 +16,7 @@ import type { Trip, TripMember } from '@/features/trips/types';
 import { eigenerZaehler } from '@/features/moments/zaehler';
 import * as queueDb from '@/features/moments/queueDb';
 import { wartendeAnzahl } from '@/features/moments/queueLogic';
-import type { QueueJob } from '@/features/moments/types';
+import type { QueueJob, VerworfenerMoment } from '@/features/moments/types';
 
 // DESIGN-LANGUAGE §5: destruktive Dialoge kündigen sich haptisch an (warning).
 // Sparsam eingesetzt — nur die drei Dialoge dieses Screens. Ein fehlender
@@ -30,6 +30,22 @@ function warnhaptik() {
 // Warteschlange für diese Reise nicht leer ist (siehe Render-Guard unten).
 function wartendText(anzahl: number): string {
   return `${anzahl} ${anzahl === 1 ? 'Moment ist' : 'Momente sind'} noch unterwegs.`;
+}
+
+// Final-Review, Important 9: Spec §8 verspricht, ein nach dem Reveal
+// aufgenommener Moment werde «mit Erklärung verworfen». Bis zur Fix-Welle
+// löschte der Worker den Job und schrieb eine Konsolenzeile — die betroffene
+// Person erfuhr nie, dass ihre Aufnahme weg ist. Hier ist die Erklärung: neben
+// dem Zähler und der Warten-Zeile, also dort, wo der Upload-Zustand dieser
+// Reise ohnehin steht (Spec §7). Sie bleibt stehen, bis sie quittiert wird —
+// eine Meldung, die von selbst verschwindet, ist keine Erklärung.
+// Feste Referenz statt eines jedes Mal neuen Literals: `laden()` läuft bei
+// jedem Fokussieren, und ein neues Array würde setVerworfen() jedes Mal einen
+// Rerender auslösen, obwohl sich nichts geändert hat.
+const KEINE_VERWORFENEN: VerworfenerMoment[] = [];
+
+function verworfenTitel(anzahl: number): string {
+  return anzahl === 1 ? 'Ein Moment konnte nicht mehr eingesendet werden' : `${anzahl} Momente konnten nicht mehr eingesendet werden`;
 }
 
 export default function ReiseDetail() {
@@ -54,6 +70,7 @@ export default function ReiseDetail() {
   // die Warteschlange dieser Reise, für die dezente Zeile darunter.
   const [zaehler, setZaehler] = useState(0);
   const [wartend, setWartend] = useState(0);
+  const [verworfen, setVerworfen] = useState<VerworfenerMoment[]>([]);
   // Schirmt setState nach Blur/Unmount ab — gleiches Muster wie in der
   // Listen-Schwesterdatei (reise/index.tsx): jeder Fokus-Zyklus bekommt seinen
   // eigenen Wächter, der beim Verlassen des Screens auf false gesetzt wird, damit
@@ -62,7 +79,7 @@ export default function ReiseDetail() {
   const aktiv = useRef(true);
 
   const laden = useCallback(async () => {
-    const [t, m, z, jobs] = await Promise.all([
+    const [t, m, z, jobs, abgelehnt] = await Promise.all([
       fetchTrip(id),
       fetchMembers(id),
       // Anders als fetchTrip/fetchMembers sind eigenerZaehler und
@@ -76,6 +93,12 @@ export default function ReiseDetail() {
       // statt gar nichts.
       eigenerZaehler(id).catch(() => null),
       queueDb.alleJobs().catch((): QueueJob[] => []),
+      // Gleicher Grund für das .catch() wie oben: eine beschädigte lokale
+      // Datenbank darf den Screen nicht leer stehen lassen. Ohne userId gibt
+      // es nichts abzufragen — verworfene Momente gehören immer einer Person.
+      userId
+        ? queueDb.verworfene(id, userId).catch(() => KEINE_VERWORFENEN)
+        : Promise.resolve(KEINE_VERWORFENEN),
     ]);
     if (!aktiv.current) return;
     setTrip(t.data);
@@ -84,8 +107,18 @@ export default function ReiseDetail() {
     setMitgliederFehler(m.error);
     setZaehler(z ?? t.data?.my_post_count ?? 0);
     setWartend(wartendeAnzahl(jobs.filter((job) => job.trip_id === id)));
+    setVerworfen(abgelehnt);
     setGeladen(true);
-  }, [id]);
+  }, [id, userId]);
+
+  // Erst wenn die Erklärung tatsächlich gesehen und bestätigt wurde. Der
+  // lokale Zustand geht sofort mit, damit die Meldung nicht bis zum nächsten
+  // Laden stehen bleibt.
+  const verworfeneQuittieren = useCallback(() => {
+    if (!userId) return;
+    setVerworfen(KEINE_VERWORFENEN);
+    void queueDb.verworfeneQuittieren(id, userId).catch(() => {});
+  }, [id, userId]);
 
   // `laedt` hängt am Knopf, nicht am Fokus-Lauf: sichtbares Warten gehört nur
   // dorthin, wo jemand getippt hat. Zurückgesetzt wird es IMMER, auch wenn der
@@ -210,6 +243,22 @@ export default function ReiseDetail() {
         )}
       </View>
 
+      {verworfen.length > 0 && (
+        <View style={[styles.verworfenBox, { backgroundColor: colors['bg-1'] }]}>
+          <Text style={[type.bodyMedium, { color: colors['text-1'] }]}>
+            {verworfenTitel(verworfen.length)}
+          </Text>
+          {/* Der Grund kommt aus der Policy-Ablehnung (postsApi) und ist schon
+              deutscher Klartext nach DESIGN-LANGUAGE §6 — Ursache statt Code. */}
+          {verworfen.map((v) => (
+            <Text key={v.id} style={[type.secondary, { color: colors['text-2'] }]}>
+              {v.grund}
+            </Text>
+          ))}
+          <Button variant="secondary" label="Verstanden" onPress={verworfeneQuittieren} />
+        </View>
+      )}
+
       <View style={{ gap: spacing.m }}>
         <Text style={[type.h2, { color: colors['text-1'] }]}>Wer dabei ist</Text>
         {mitgliederFehler && (
@@ -256,4 +305,7 @@ const styles = StyleSheet.create({
   inhalt: { padding: spacing.screen, paddingBottom: spacing.xxl, gap: spacing.xl },
   leer: { flex: 1, justifyContent: 'center', padding: spacing.screen, gap: spacing.l },
   zeile: { flexDirection: 'row', alignItems: 'center', gap: spacing.m },
+  // Abgesetzte Fläche statt Schatten (DESIGN-LANGUAGE §3: ein Schatten heisst
+  // «schwebt»). Radius 12 wie jede andere Fläche dieser Grösse.
+  verworfenBox: { borderRadius: radius.control, padding: spacing.base, gap: spacing.m },
 });

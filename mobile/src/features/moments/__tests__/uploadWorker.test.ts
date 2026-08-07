@@ -11,6 +11,9 @@ jest.mock('../queueDb', () => ({
     const i = jobs.findIndex((x) => x.id === id);
     if (i >= 0) jobs.splice(i, 1);
   }),
+  // Final-Review, Important 9: ein dauerhaft verworfener Moment wird
+  // festgehalten, damit die App ihn erklären kann.
+  verworfenenMerken: jest.fn(async () => {}),
 }));
 jest.mock('../postsApi', () => ({
   momentAnlegen: jest.fn(async () => ({ error: null })),
@@ -183,6 +186,44 @@ test('eine dauerhafte Ablehnung durch die Policy wird nicht wiederholt, sondern 
   // Zweiter Weg aus der Warteschlange — auch hier müssen die Dateien mit
   // (Critical 2).
   expect(medien.momentDateienEntfernen).toHaveBeenCalledWith('p1');
+});
+
+// Spec §8: «mit Erklärung verworfen». Bis zur Fix-Welle löschte der Worker den
+// Job und schrieb eine Konsolenzeile — die betroffene Person erfuhr nie, dass
+// ihre Aufnahme weg ist (Important 9).
+test('ein dauerhaft verworfener Moment wird mit Grund festgehalten, bevor der Job verschwindet', async () => {
+  (postsApi.momentAnlegen as jest.Mock).mockResolvedValueOnce({
+    error: 'Dieser Moment wurde nach der Aufdeckung der Reise aufgenommen und kann nicht mehr eingesendet werden.',
+    dauerhaftAbgelehnt: true,
+  });
+  jobs.push({ ...basis });
+
+  await einenJobAbarbeiten();
+
+  expect(queueDb.verworfenenMerken).toHaveBeenCalledWith({
+    id: 'p1',
+    trip_id: 't1',
+    author_id: 'u1',
+    grund:
+      'Dieser Moment wurde nach der Aufdeckung der Reise aufgenommen und kann nicht mehr eingesendet werden.',
+    verworfen_am: expect.any(Number),
+  });
+  // Reihenfolge: erst festhalten, dann verwerfen. Bricht es dazwischen ab,
+  // bleibt der Job liegen und läuft erneut hier durch — umgekehrt wäre der
+  // Moment wortlos weg.
+  const merkAufruf = (queueDb.verworfenenMerken as jest.Mock).mock.invocationCallOrder[0];
+  const entfernAufruf = (queueDb.jobEntfernen as jest.Mock).mock.invocationCallOrder[0];
+  expect(merkAufruf).toBeLessThan(entfernAufruf);
+});
+
+// Ein gewöhnlicher Fehlschlag ist keine Ablehnung — er wird wiederholt und
+// darf niemandem gemeldet werden (Spec §8: Upload-Fehler bleiben unsichtbar,
+// solange die Queue sie wiederholt).
+test('ein wiederholbarer Fehlschlag wird NICHT als verworfen gemeldet', async () => {
+  globalFetch.mockResolvedValueOnce({ ok: false } as unknown as Response);
+  jobs.push({ ...basis });
+  await einenJobAbarbeiten();
+  expect(queueDb.verworfenenMerken).not.toHaveBeenCalled();
 });
 
 test('jobEinreihen legt den Job in der Warteschlange ab', async () => {

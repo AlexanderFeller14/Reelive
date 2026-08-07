@@ -36,7 +36,13 @@ jest.mock('expo-haptics', () => ({
 // bereits bestehenden Tests ohne eigene Erwartung an den Zähler unverändert
 // grün bleiben.
 jest.mock('@/features/moments/zaehler', () => ({ eigenerZaehler: jest.fn(async () => 0) }));
-jest.mock('@/features/moments/queueDb', () => ({ alleJobs: jest.fn(async () => []) }));
+jest.mock('@/features/moments/queueDb', () => ({
+  alleJobs: jest.fn(async () => []),
+  // Final-Review, Important 9: dauerhaft verworfene Momente werden festgehalten
+  // und hier erklärt, statt wortlos zu verschwinden.
+  verworfene: jest.fn(async () => []),
+  verworfeneQuittieren: jest.fn(async () => {}),
+}));
 
 import ReiseDetail from '../[id]/index';
 import * as Haptics from 'expo-haptics';
@@ -57,6 +63,12 @@ const mitglieder = [
 // jedes Mal neues Objekt würde die Screens endlos neu rendern lassen.
 const tripOk = { data: trip, error: null };
 const mitgliederOk = { data: mitglieder, error: null };
+const keineVerworfenen: never[] = [];
+const VERWORFEN_GRUND =
+  'Dieser Moment wurde nach der Aufdeckung der Reise aufgenommen und kann nicht mehr eingesendet werden.';
+const einVerworfener = [
+  { id: 'p9', trip_id: 't1', author_id: 'u1', grund: VERWORFEN_GRUND, verworfen_am: 1 },
+];
 
 const wrap = () => render(<ThemeProvider><ReiseDetail /></ThemeProvider>);
 
@@ -67,6 +79,7 @@ beforeEach(() => {
   (fetchMembers as jest.Mock).mockResolvedValue(mitgliederOk);
   (eigenerZaehler as jest.Mock).mockResolvedValue(0);
   (queueDb.alleJobs as jest.Mock).mockResolvedValue([]);
+  (queueDb.verworfene as jest.Mock).mockResolvedValue(keineVerworfenen);
 });
 
 test('zeigt Name, Zeitraum und Mitglieder', async () => {
@@ -264,4 +277,50 @@ test('queueDb.alleJobs schlägt fehl: die Reise erscheint trotzdem, nur ohne War
   await wrap();
   expect(await screen.findByText('Norwegen mit dem Camper')).toBeTruthy();
   expect(screen.queryByText(/unterwegs/)).toBeNull();
+});
+
+// === Final-Review, Important 9 ===
+// Spec §8 verspricht, ein nach dem Reveal aufgenommener Moment werde «mit
+// Erklärung verworfen». Tatsächlich löschte der Worker den Job und schrieb eine
+// Konsolenzeile — die betroffene Person erfuhr nie, dass ihre Aufnahme weg ist.
+test('ein dauerhaft verworfener Moment wird mit seiner Ursache erklärt', async () => {
+  (queueDb.verworfene as jest.Mock).mockResolvedValue(einVerworfener);
+  await wrap();
+
+  expect(await screen.findByText('Ein Moment konnte nicht mehr eingesendet werden')).toBeTruthy();
+  expect(screen.getByText(VERWORFEN_GRUND)).toBeTruthy();
+  expect(queueDb.verworfene).toHaveBeenCalledWith('t1', 'u1');
+});
+
+test('die Erklärung verschwindet erst, wenn sie quittiert wurde', async () => {
+  (queueDb.verworfene as jest.Mock).mockResolvedValue(einVerworfener);
+  // Der echte Speicher löscht beim Quittieren — der Doppelgänger zieht nach,
+  // sonst brächte der nächste Fokus-Lauf die Meldung sofort zurück.
+  (queueDb.verworfeneQuittieren as jest.Mock).mockImplementation(() => {
+    (queueDb.verworfene as jest.Mock).mockResolvedValue(keineVerworfenen);
+    return Promise.resolve();
+  });
+  await wrap();
+  await screen.findByText('Ein Moment konnte nicht mehr eingesendet werden');
+
+  await fireEvent.press(screen.getByText('Verstanden'));
+
+  await waitFor(() =>
+    expect(screen.queryByText('Ein Moment konnte nicht mehr eingesendet werden')).toBeNull()
+  );
+  expect(queueDb.verworfeneQuittieren).toHaveBeenCalledWith('t1', 'u1');
+});
+
+test('ohne verworfene Momente steht dort nichts', async () => {
+  await wrap();
+  await screen.findByText('Norwegen mit dem Camper');
+  expect(screen.queryByText(/konnte nicht mehr eingesendet werden/)).toBeNull();
+});
+
+// Gleicher Grund wie bei alleJobs: eine beschädigte lokale Datenbank darf den
+// Screen nicht leer stehen lassen.
+test('queueDb.verworfene schlägt fehl: die Reise erscheint trotzdem', async () => {
+  (queueDb.verworfene as jest.Mock).mockRejectedValue(new Error('SQLite kaputt'));
+  await wrap();
+  expect(await screen.findByText('Norwegen mit dem Camper')).toBeTruthy();
 });

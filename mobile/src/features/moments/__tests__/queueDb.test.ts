@@ -20,6 +20,10 @@ const ALLE_SPALTEN = [
   'zeile_angelegt', 'medium_geladen', 'thumb_geladen',
 ];
 let vorhandeneSpalten: string[] = [...ALLE_SPALTEN];
+// Zweite Tabelle derselben Datenbank (Final-Review, Important 9): dauerhaft
+// verworfene Momente, damit die App sie erklären kann statt sie wortlos
+// verschwinden zu lassen.
+const verworfenZeilen: Record<string, unknown>[] = [];
 const mockRunAsync = jest.fn(async (..._args: unknown[]) => {});
 const mockGetAllAsync = jest.fn(async (..._args: unknown[]) => {
   const sql = _args[0];
@@ -27,6 +31,7 @@ const mockGetAllAsync = jest.fn(async (..._args: unknown[]) => {
     return vorhandeneSpalten.map((name) => ({ name }));
   }
   if (!tabelleAngelegt) throw new Error('no such table: upload_queue');
+  if (typeof sql === 'string' && sql.includes('verworfene_momente')) return verworfenZeilen;
   return zeilen;
 });
 const mockExecAsync = jest.fn(async (..._args: unknown[]) => {
@@ -47,7 +52,16 @@ jest.mock('expo-sqlite', () => ({
   openDatabaseAsync: (...a: unknown[]) => mockOpenDatabaseAsync(...a),
 }));
 
-import { initQueue, jobHinzufuegen, alleJobs, jobAktualisieren, jobEntfernen } from '../queueDb';
+import {
+  initQueue,
+  jobHinzufuegen,
+  alleJobs,
+  jobAktualisieren,
+  jobEntfernen,
+  verworfenenMerken,
+  verworfene,
+  verworfeneQuittieren,
+} from '../queueDb';
 import type { QueueJob } from '../types';
 
 const job: QueueJob = {
@@ -71,6 +85,7 @@ function spaltenAusInsertSql(sql: string): string[] {
 
 beforeEach(() => {
   zeilen.length = 0;
+  verworfenZeilen.length = 0;
   vorhandeneSpalten = [...ALLE_SPALTEN];
   jest.clearAllMocks();
 });
@@ -252,4 +267,50 @@ test('alleJobs liefert auf einer noch nie angelegten Tabelle eine leere Liste st
 
   await expect(frischesModul.alleJobs()).resolves.toEqual([]);
   expect(mockExecAsync).toHaveBeenCalledWith(expect.stringContaining('create table if not exists'));
+});
+
+// === Final-Review, Important 9: verworfene Momente ===
+// Spec §8 verspricht «mit Erklärung verworfen». Der Eintrag muss denselben
+// Neustart überleben wie die Warteschlange — deshalb dieselbe SQLite-Datei,
+// eigene Tabelle.
+
+test('initQueue legt auch die Tabelle für verworfene Momente an', async () => {
+  await initQueue();
+  expect(mockExecAsync).toHaveBeenCalledWith(
+    expect.stringContaining('create table if not exists verworfene_momente')
+  );
+});
+
+// insert or replace: ein Wiederanlauf nach Absturz darf denselben Moment nicht
+// zweimal melden.
+test('verworfenenMerken schreibt idempotent', async () => {
+  await verworfenenMerken({
+    id: 'p9',
+    trip_id: 't1',
+    author_id: 'u1',
+    grund: 'Nach dem Reveal aufgenommen.',
+    verworfen_am: 1234,
+  });
+  const [sql, werte] = mockRunAsync.mock.calls[0] as unknown as [string, unknown[]];
+  expect(sql).toContain('insert or replace into verworfene_momente');
+  expect(werte).toEqual(['p9', 't1', 'u1', 'Nach dem Reveal aufgenommen.', 1234]);
+});
+
+// Auf einem geteilten Gerät geht ein verworfener Moment niemanden ausser die
+// Person an, die ihn aufgenommen hat.
+test('verworfene liest nur die eigenen Einträge dieser Reise', async () => {
+  verworfenZeilen.push({ id: 'p9', trip_id: 't1', author_id: 'u1', grund: 'Grund', verworfen_am: 1 });
+  await expect(verworfene('t1', 'u1')).resolves.toEqual([
+    { id: 'p9', trip_id: 't1', author_id: 'u1', grund: 'Grund', verworfen_am: 1 },
+  ]);
+  const [sql, werte] = mockGetAllAsync.mock.calls.at(-1) as unknown as [string, unknown[]];
+  expect(sql).toContain('where trip_id = ? and author_id = ?');
+  expect(werte).toEqual(['t1', 'u1']);
+});
+
+test('verworfeneQuittieren löscht nur die eigenen Einträge dieser Reise', async () => {
+  await verworfeneQuittieren('t1', 'u1');
+  const [sql, werte] = mockRunAsync.mock.calls[0] as unknown as [string, unknown[]];
+  expect(sql).toContain('delete from verworfene_momente');
+  expect(werte).toEqual(['t1', 'u1']);
 });
