@@ -1,6 +1,6 @@
 create extension if not exists pgtap with schema extensions;
 begin;
-select plan(6);
+select plan(7);
 
 insert into auth.users (instance_id, id, aud, role, phone, phone_confirmed_at,
   confirmation_token, recovery_token, email_change_token_new, email_change,
@@ -17,7 +17,12 @@ insert into public.profiles (id, username, display_name) values
 insert into public.trips (id, name, start_date, end_date, status, revealed_at, invite_code, owner_id) values
   ('dddd0000-0000-4000-8000-000000000001','Archiviert','2025-09-06','2025-09-20','archived','2025-09-21','code-arch','cccc0000-0000-4000-8000-000000000001'),
   ('dddd0000-0000-4000-8000-000000000002','Laeuft','2026-08-01','2026-08-14','active',null,'code-act','cccc0000-0000-4000-8000-000000000001'),
-  ('dddd0000-0000-4000-8000-000000000003','Laeuft mit Moment','2026-08-01','2026-08-14','active',null,'code-mom','cccc0000-0000-4000-8000-000000000001');
+  ('dddd0000-0000-4000-8000-000000000003','Laeuft mit Moment','2026-08-01','2026-08-14','active',null,'code-mom','cccc0000-0000-4000-8000-000000000001'),
+  -- Reise, in der die aufrufende Person KEIN Mitglied ist. Ohne sie waeren die
+  -- „nur eigene Reisen"-Assertionen unten wirkungslos: alle uebrigen Fixture-
+  -- Reisen gehoeren ohnehin dem Aufrufer, eine Funktion, die schlicht ALLE
+  -- Reisen zurueckgibt, wuerde denselben Wert liefern.
+  ('dddd0000-0000-4000-8000-000000000004','Fremde Reise','2026-07-01','2026-07-10','active',null,'code-fremd','cccc0000-0000-4000-8000-000000000002');
 
 -- je ein eigener und ein fremder Moment in der archivierten Reise
 insert into public.trip_members (trip_id, user_id, role) values
@@ -31,6 +36,12 @@ insert into public.posts (trip_id, author_id, type, storage_key, captured_at, ca
 -- unten nicht-vakuous — es gibt eine sichtbare Zeile, die verborgen bleiben muss
 insert into public.posts (trip_id, author_id, type, storage_key, captured_at, captured_tz) values
   ('dddd0000-0000-4000-8000-000000000003','cccc0000-0000-4000-8000-000000000001','photo','c.jpg','2026-08-02 10:00+02','Europe/Rome');
+
+-- Moment in der fremden Reise: gaebe es eine Zeile zu leaken, wenn
+-- my_post_counts je ueber alle Reisen statt ueber die eigenen Mitgliedschaften
+-- laufen wuerde.
+insert into public.posts (trip_id, author_id, type, storage_key, captured_at, captured_tz) values
+  ('dddd0000-0000-4000-8000-000000000004','cccc0000-0000-4000-8000-000000000002','photo','d.jpg','2026-07-02 10:00+02','Europe/Rome');
 
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"cccc0000-0000-4000-8000-000000000001","role":"authenticated"}';
@@ -53,7 +64,11 @@ select is(
   'my_post_counts liefert auch fuer leere Reisen eine Zeile');
 select is(
   (select count(*)::int from public.my_post_counts()), 3,
-  'my_post_counts liefert nur Reisen der aufrufenden Person');
+  'my_post_counts liefert genau die drei eigenen Reisen, nicht alle vier');
+select is(
+  (select count(*)::int from public.my_post_counts()
+   where trip_id = 'dddd0000-0000-4000-8000-000000000004'), 0,
+  'eine Reise ohne eigene Mitgliedschaft taucht in my_post_counts nicht auf');
 
 reset role;
 select ok(
