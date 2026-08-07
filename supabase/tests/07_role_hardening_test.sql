@@ -1,6 +1,6 @@
 create extension if not exists pgtap with schema extensions;
 begin;
-select plan(12);
+select plan(13);
 
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-00000000000a', 'anna@test.local'),
@@ -128,7 +128,11 @@ select throws_ok(
   $$truncate public.posts$$,
   '42501', null, 'authenticated kann posts nicht truncaten');
 
--- === invite_code-Rotation nach Mitglieds-Entfernung ===
+-- === invite_code-Rotation: freiwilliger Austritt rotiert NICHT ===
+-- Nachgezogen zu 20260807090000_invite_rotation_on_removal.sql: Bis dahin
+-- rotierte jedes Delete auf trip_members den Code und riss damit allen
+-- übrigen Eingeladenen den geteilten Link weg. Der ausführliche Vertrag
+-- (beide Richtungen plus service_role) steht in 11_invite_rotation_test.sql.
 select set_config('test.invite_code_before',
   (select invite_code from public.trips where id = '11111111-1111-1111-1111-111111111111'), true);
 
@@ -138,10 +142,19 @@ delete from public.trip_members
     and user_id = '00000000-0000-0000-0000-00000000000b';
 
 select pg_temp.login_as('00000000-0000-0000-0000-00000000000a');
-select isnt(
+-- Zuerst belegen, dass der Austritt ueberhaupt stattgefunden hat: ohne
+-- geloeschte Zeile feuert kein Trigger, und die Assertion darunter waere
+-- vakuum-passierbar. Zugleich der einzige Beleg im Testbestand dafuer, dass
+-- trip_members_delete den Selbst-Austritt erlaubt.
+select is(
+  (select count(*)::int from public.trip_members
+   where trip_id = '11111111-1111-1111-1111-111111111111'
+     and user_id = '00000000-0000-0000-0000-00000000000b'), 0,
+  'ein Mitglied kann die eigene Mitgliedschaft loeschen');
+select is(
   (select invite_code from public.trips where id = '11111111-1111-1111-1111-111111111111'),
   current_setting('test.invite_code_before'),
-  'invite_code rotiert nach Mitglieds-Entfernung');
+  'invite_code bleibt stehen, wenn jemand die Reise selbst verlaesst');
 
 -- === invite_code-Rotation auch beim Entfernen durch den Owner (gekoppelte
 -- Ergänzung, finaler Whole-Branch-Review — analog zum Selbst-Austritt oben,

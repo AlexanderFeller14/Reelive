@@ -10,3 +10,10 @@ export function resolveRoute(status: AuthStatus): '/welcome' | '/profile-setup' 
     case 'signedIn': return '/aufnehmen';
   }
 }
+
+// Der Beitritts-Screen muss auch ohne Session stehenbleiben dürfen: er zeigt die
+// Vorschau und schickt erst beim Antippen in den Login. Ohne diese Ausnahme
+// würde der Guard einen frisch angetippten Einladungslink sofort wegleiten.
+export function isPublicArea(area: string | undefined): boolean {
+  return area === 'join';
+}
