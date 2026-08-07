@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { useFocusEffect, useRouter, type Href } from 'expo-router';
 import { setStatusBarStyle } from 'expo-status-bar';
 import * as Linking from 'expo-linking';
 import { CameraView, useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
@@ -159,36 +159,6 @@ export default function AufnehmenScreen() {
       cameraRef.current?.recordAsync({ maxDuration: MAX_VIDEO_SEKUNDEN }) ?? null;
   }, [modus]);
 
-  // Die Aufnahme verlässt diesen Screen nur als Dateipfad plus Typ (bewusste
-  // Grenze, siehe Auftrag) — `/aufnehmen/preview` selbst entsteht erst in
-  // Task 8 und fehlt darum noch in der generierten (gitignorten) Routen-Liste
-  // `.expo/types/router.d.ts`. Der `as any`-Cast ist bewusst temporär: sobald
-  // Task 8 die Route anlegt, entfällt er ersatzlos.
-  const zurPreview = (params: { uri: string; typ: 'photo' | 'video'; dauer: string }) => {
-    router.push({ pathname: '/aufnehmen/preview' as any, params });
-  };
-
-  const handleFoto = async () => {
-    const foto = await cameraRef.current?.takePictureAsync();
-    if (!foto?.uri) return;
-    zurPreview({ uri: foto.uri, typ: 'photo', dauer: '0' });
-  };
-
-  const handleVideoStart = () => {
-    videoStartZeit.current = Date.now();
-    setModus('video');
-  };
-
-  const handleVideoStop = async () => {
-    cameraRef.current?.stopRecording();
-    const ergebnis = await videoPromise.current;
-    videoPromise.current = null;
-    setModus('picture');
-    if (!ergebnis?.uri) return;
-    const dauer = Math.round((Date.now() - videoStartZeit.current) / 1000);
-    zurPreview({ uri: ergebnis.uri, typ: 'video', dauer: String(dauer) });
-  };
-
   if (trips === null) return <LeererKinoScreen />;
   if (fehler) {
     return (
@@ -215,10 +185,58 @@ export default function AufnehmenScreen() {
     return <ReiseWahlScreen reisen={aktiveReisen} onWahl={setAusgewaehlteReiseId} />;
   }
 
-  // Erst wenn beide Antworten da sind, lässt sich granted/denied unterscheiden
-  // — vorher (null) ist es nur „noch nicht bekannt", keine Ablehnung.
+  // Die Aufnahme verlässt diesen Screen nur als Dateipfad plus Typ (bewusste
+  // Grenze, siehe Auftrag) — dazu kommt `tripId`, weil Task 8 daraus den
+  // Speicherschlüssel und den Queue-Job baut; eine Kennung ist nichts
+  // Bibliotheksspezifisches, verletzt die Grenze also nicht. `/aufnehmen/
+  // preview` selbst entsteht erst in Task 8 und fehlt darum noch in der
+  // generierten (gitignorten) Routen-Liste `.expo/types/router.d.ts`. Der
+  // Cast über `unknown` (statt `any`, siehe Präzedenz in joinFlow.ts) ist
+  // bewusst temporär: sobald Task 8 die Route anlegt, entfällt er ersatzlos.
+  const zurPreview = (params: { uri: string; typ: 'photo' | 'video'; dauer: string; tripId: string }) => {
+    router.push({ pathname: '/aufnehmen/preview', params } as unknown as Href);
+  };
+
+  const handleFoto = async () => {
+    const foto = await cameraRef.current?.takePictureAsync();
+    if (!foto?.uri) return;
+    zurPreview({ uri: foto.uri, typ: 'photo', dauer: '0', tripId: reise.id });
+  };
+
+  const handleVideoStart = () => {
+    videoStartZeit.current = Date.now();
+    setModus('video');
+  };
+
+  const handleVideoStop = async () => {
+    cameraRef.current?.stopRecording();
+    const ergebnis = await videoPromise.current;
+    videoPromise.current = null;
+    setModus('picture');
+    if (!ergebnis?.uri) return;
+    const dauer = Math.round((Date.now() - videoStartZeit.current) / 1000);
+    zurPreview({ uri: ergebnis.uri, typ: 'video', dauer: String(dauer), tripId: reise.id });
+  };
+
+  // Drei Zustände statt zwei (Fix-Runde 1: die vorherige Fassung behandelte
+  // "noch nicht gefragt"/"gerade am Fragen" fälschlich wie "abgelehnt", weil
+  // `status: 'undetermined'` ebenfalls `granted: false` trägt):
+  //   - null            -> Antwort noch unbekannt, nichts behaupten (warten)
+  //   - 'undetermined'   -> weder gefragt noch beantwortet (die Anfrage läuft
+  //                         evtl. gerade, der Systemdialog kann offen sein) ->
+  //                         ebenfalls warten, NIE den Settings-Screen zeigen
+  //   - 'denied'         -> tatsächlich abgelehnt -> erst hier der Weg in die
+  //                         Systemeinstellungen
   if (cameraPermission === null || micPermission === null) return <LeererKinoScreen />;
-  if (!cameraPermission.granted || !micPermission.granted) return <BerechtigungScreen />;
+  if (cameraPermission.status === 'denied' || micPermission.status === 'denied') {
+    return <BerechtigungScreen />;
+  }
+  if (!cameraPermission.granted || !micPermission.granted) {
+    // 'undetermined': weder gefragt noch beantwortet — die Anfrage kann
+    // gerade laufen, der Systemdialog kann offen sein. Warten, nichts
+    // behaupten, NIE den Settings-Screen zeigen.
+    return <LeererKinoScreen />;
+  }
 
   return (
     <View style={styles.screen}>

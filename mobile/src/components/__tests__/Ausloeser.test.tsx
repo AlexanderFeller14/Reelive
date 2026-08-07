@@ -78,3 +78,27 @@ test('ein Unmount während der Aufnahme räumt auch den Höchstdauer-Timer auf',
   });
   expect(onVideoStop).not.toHaveBeenCalled();
 });
+
+// Aus dem Fix-Runde-1-Review: ohne diesen Test liess sich der
+// "phase === 'ruhe'"-Schutz in onPressOut (verspätetes Loslassen NACH dem
+// automatischen Stopp löst nichts mehr aus) wegmutieren, ohne dass ein Test
+// bricht — der Finger liegt real oft noch einen Moment auf dem Auslöser,
+// nachdem der Ring bei maxSekunden bereits selbst gestoppt hat.
+test('ein Loslassen nach dem automatischen Stopp löst kein zweites onVideoStop und kein onFoto aus', async () => {
+  const onFoto = jest.fn();
+  const onVideoStop = jest.fn();
+  await render(
+    <Ausloeser onFoto={onFoto} onVideoStart={jest.fn()} onVideoStop={onVideoStop} maxSekunden={30} />
+  );
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressIn');
+  await act(() => {
+    jest.advanceTimersByTime(31_000);
+  });
+  expect(onVideoStop).toHaveBeenCalledTimes(1);
+
+  // Der Finger liegt real noch auf dem Knopf und wird erst jetzt gehoben.
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressOut');
+
+  expect(onVideoStop).toHaveBeenCalledTimes(1);
+  expect(onFoto).not.toHaveBeenCalled();
+});

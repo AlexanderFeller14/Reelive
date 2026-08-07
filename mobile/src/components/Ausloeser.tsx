@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Animated, StyleSheet, View } from 'react-native';
+import { Animated, Easing, StyleSheet, View } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 import * as Haptics from 'expo-haptics';
 import { PressScale } from '@/components/PressScale';
@@ -17,13 +17,32 @@ const GROESSE = 76; // Aussendurchmesser des Auslösers (Radius 999, DESIGN-LANG
 const STROKE = 4;
 const RING_RADIUS = (GROESSE - STROKE) / 2;
 const UMFANG = 2 * Math.PI * RING_RADIUS;
-// Taktrate des Fortschrittsrings. Bewusst per `setInterval` + `setValue()`
-// statt `Animated.timing`: Letzteres hängt seinen eigenen Zeitgeber (RAF/
-// Looper) an dieselbe Uhr, die die Timer-Logik ohnehin schon über
-// setTimeout/setInterval steuert — ein zweiter, unabhängiger Zeitgeber für
-// dieselbe Sache. So läuft der Ring exakt im selben Takt wie Schwelle und
-// Höchstdauer und hängt an denselben, bereits vorhandenen Cleanup-Pfaden.
-const RING_TAKT_MS = 100;
+
+// DESIGN-LANGUAGE §5, bewusste und eng begrenzte Ausnahme (im Review vom
+// 2026-08-07 bestätigt als vertretbarer Weg, siehe Fix-Runde-1-Anhang in
+// task-7-report.md): Der Fortschrittsring animiert `strokeDashoffset`, weder
+// `transform` noch `opacity`, und läuft JS-getrieben (`useNativeDriver:
+// false`), nicht auf dem UI-Thread.
+//
+// Wichtig — Klarstellung zur ursprünglich falschen Begründung: Die
+// „linear ist verboten, ausser bei Fortschritt, der reale Zeit abbildet"-
+// Ausnahme in §5 betrifft NUR die Beschleunigungskurve (linear vs.
+// ease-smooth), nicht die animierte Eigenschaft. Sie deckt diesen Fall also
+// NICHT automatisch ab — das war ein Fehlschluss im ersten Anlauf.
+//
+// Eigenständige Begründung für die Ausnahme: Ein füllender Kreisring lässt
+// sich mit reinem `transform`/`opacity` nur über zwei unabhängig rotierende
+// Halbkreis-Masken nachbilden (das Standardmuster hinter z.B.
+// react-native-circular-progress). Diese Geometrie ist in diesem Sandbox-
+// Environment ohne Simulator/Screenshot nicht visuell verifizierbar — ein
+// unbemerkter Rotations-/Pivot-Fehler wäre an genau der einen Stelle der App
+// sichtbar, die das Produktkonzept als „Herzstück" bezeichnet. Die
+// SVG-Stroke-Technik ist demgegenüber Industriestandard für Kreis-Fortschritt,
+// bleibt auf dieses eine Bauteil beschränkt (kein anderer Ort der App
+// animiert eine Nicht-Transform-Eigenschaft) und wird über `Animated.timing`
+// (statt eines rohen `setInterval`) umgesetzt, damit sie sich wenigstens in
+// die Animated-Systematik des Projekts einfügt.
+const RING_DAUER_EASING = Easing.linear; // §5: linear ist hier die erlaubte Ausnahme für Echtzeit-Fortschritt.
 
 type Props = {
   onFoto: () => void;
@@ -53,8 +72,6 @@ export function Ausloeser({ onFoto, onVideoStart, onVideoStop, maxSekunden }: Pr
   const phase = useRef<Phase>('ruhe');
   const schwellenTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hoechstdauerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const ringTakt = useRef<ReturnType<typeof setInterval> | null>(null);
-  const aufnahmeStart = useRef(0);
   const fortschritt = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -64,19 +81,16 @@ export function Ausloeser({ onFoto, onVideoStart, onVideoStop, maxSekunden }: Pr
     return () => {
       if (schwellenTimer.current) clearTimeout(schwellenTimer.current);
       if (hoechstdauerTimer.current) clearTimeout(hoechstdauerTimer.current);
-      if (ringTakt.current) clearInterval(ringTakt.current);
+      fortschritt.stopAnimation();
     };
-  }, []);
+  }, [fortschritt]);
 
   const videoStoppen = () => {
     if (hoechstdauerTimer.current) {
       clearTimeout(hoechstdauerTimer.current);
       hoechstdauerTimer.current = null;
     }
-    if (ringTakt.current) {
-      clearInterval(ringTakt.current);
-      ringTakt.current = null;
-    }
+    fortschritt.stopAnimation();
     fortschritt.setValue(0);
     phase.current = 'ruhe';
     setNimmtAuf(false);
@@ -92,13 +106,15 @@ export function Ausloeser({ onFoto, onVideoStart, onVideoStop, maxSekunden }: Pr
       leichtesFeedback();
       onVideoStart();
       // Realer Zeitverlauf bis maxSekunden — DESIGN-LANGUAGE §5 erlaubt
-      // `linear` ausdrücklich als Ausnahme für Fortschritt, der reale Zeit
-      // abbildet.
-      aufnahmeStart.current = Date.now();
-      ringTakt.current = setInterval(() => {
-        const anteil = Math.min(1, (Date.now() - aufnahmeStart.current) / (maxSekunden * 1000));
-        fortschritt.setValue(anteil);
-      }, RING_TAKT_MS);
+      // `linear` ausdrücklich als Ausnahme für die Beschleunigungskurve bei
+      // Fortschritt, der reale Zeit abbildet (zur animierten Eigenschaft
+      // selbst siehe die Erklärung bei RING_DAUER_EASING oben).
+      Animated.timing(fortschritt, {
+        toValue: 1,
+        duration: maxSekunden * 1000,
+        easing: RING_DAUER_EASING,
+        useNativeDriver: false, // strokeDashoffset ist kein Transform/Opacity — kann nicht nativ laufen.
+      }).start();
       hoechstdauerTimer.current = setTimeout(videoStoppen, maxSekunden * 1000);
     }, HALTE_SCHWELLE_MS);
   };

@@ -139,7 +139,7 @@ test('ein Tipp auf den Auslöser nimmt ein Foto auf und navigiert zur Vorschau',
   expect(mockTakePictureAsync).toHaveBeenCalledTimes(1);
   expect(mockPush).toHaveBeenCalledWith({
     pathname: '/aufnehmen/preview',
-    params: { uri: 'file://foto.jpg', typ: 'photo', dauer: '0' },
+    params: { uri: 'file://foto.jpg', typ: 'photo', dauer: '0', tripId: 't1' },
   });
 });
 
@@ -177,6 +177,35 @@ test('ein Halten auf dem Auslöser nimmt ein Video auf und navigiert nach dem Lo
 
   expect(mockPush).toHaveBeenCalledWith({
     pathname: '/aufnehmen/preview',
-    params: { uri: 'file://video.mp4', typ: 'video', dauer: expect.any(String) },
+    params: { uri: 'file://video.mp4', typ: 'video', dauer: expect.any(String), tripId: 't1' },
   });
+});
+
+// Fix-Runde 1: die Vorfassung behandelte 'undetermined' (weder gefragt noch
+// beantwortet — die Systemabfrage kann gerade laufen) fälschlich wie eine
+// Ablehnung, weil `granted: false` bei beiden Zuständen gleich aussieht.
+test('vor der ersten Antwort behauptet der Screen keine fehlende Berechtigung', async () => {
+  mockCameraPermission = { status: 'undetermined', granted: false, canAskAgain: true, expires: 'never' };
+  mockMicPermission = { status: 'undetermined', granted: false, canAskAgain: true, expires: 'never' };
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  const { rerender } = await render(<AufnehmenScreen />);
+  // Erneutes Rendern (statt eines blossen `findByText`, das hier ins Leere
+  // liefe — der Screen bleibt in diesem Zustand bewusst blank) treibt über
+  // dasselbe `act()` alle bis dahin ausstehenden Mikrotasks durch, u.a. das
+  // aufgelöste `fetchTrips()`. Damit ist sichergestellt, dass die Reise
+  // wirklich geladen ist und wir den Berechtigungs-Zweig prüfen, nicht bloss
+  // noch im (visuell identischen) Trips-Ladezustand stecken.
+  await rerender(<AufnehmenScreen />);
+
+  expect(screen.queryByText('Kamera-Zugriff fehlt')).toBeNull();
+  expect(screen.queryByLabelText('Auslöser')).toBeNull();
+  expect(mockRequestCameraPermission).toHaveBeenCalled();
+  expect(mockRequestMicPermission).toHaveBeenCalled();
+
+  // Gegenprobe: sobald die Antwort da ist (granted), erscheint der Sucher —
+  // der Screen blockiert nicht dauerhaft, er wartet nur wirklich.
+  mockCameraPermission = GEWAEHRT;
+  mockMicPermission = GEWAEHRT;
+  await rerender(<AufnehmenScreen />);
+  expect(await screen.findByLabelText('Auslöser')).toBeTruthy();
 });
