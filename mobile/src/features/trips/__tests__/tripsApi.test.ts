@@ -112,6 +112,40 @@ test('fetchTrips benennt den Offline-Fall statt nur «probier es nochmal»', asy
   expect(error).toBe('Du bist offline. Verbinde dich und probier es nochmal.');
 });
 
+// Re-Review, Minor 2: die beiden Abfragen in fetchTrips können unabhängig
+// scheitern. Gelingen die Reisen und nur die Zähler-rpc nicht, trägt jede Reise
+// `my_post_count: 0` — der Aufrufer muss unterscheiden können, ob diese 0
+// gemessen oder bloss ausgefallen ist.
+test('fetchTrips meldet einen ausgefallenen Zähler getrennt vom Reise-Fehler', async () => {
+  mockFrom.mockReturnValue({
+    select: () => ({
+      order: async () => ({
+        data: [
+          {
+            id: 't1', name: 'Norwegen', start_date: '2026-08-01', end_date: '2026-08-14',
+            status: 'active', owner_id: 'u1', trip_members: [],
+          },
+        ],
+        error: null,
+      }),
+    }),
+  });
+  mockRpc.mockResolvedValueOnce({ data: null, error: { message: 'Network request failed' } });
+
+  const { data, error, zaehlerFehler } = await fetchTrips();
+  expect(error).toBeNull();
+  expect(data[0].my_post_count).toBe(0);
+  expect(zaehlerFehler).toBe('Du bist offline. Verbinde dich und probier es nochmal.');
+});
+
+test('fetchTrips meldet keinen Zähler-Fehler, wenn die rpc durchkommt', async () => {
+  mockFrom.mockReturnValue({
+    select: () => ({ order: async () => ({ data: [], error: null }) }),
+  });
+  mockRpc.mockResolvedValueOnce({ data: [], error: null });
+  await expect(fetchTrips()).resolves.toEqual({ data: [], error: null, zaehlerFehler: null });
+});
+
 // Fix-Runde 1 (Task 9): eigeneZaehler() hatte bisher keinen eigenen Test —
 // nur tsc prüfte die Object.fromEntries(...)-Umwandlung. Der Momente-Zähler
 // (zaehler.ts) braucht bracket-Zugriff (zaehler[tripId]), darum die

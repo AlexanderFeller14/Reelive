@@ -127,7 +127,7 @@ const reise = (over: Partial<Trip> = {}): Trip => ({
   ...over,
 });
 
-const geladen = (data: Trip[]) => ({ data, error: null });
+const geladen = (data: Trip[]) => ({ data, error: null, zaehlerFehler: null });
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -166,7 +166,7 @@ test('sind alle Reisen bereits versiegelt, gilt das ebenfalls als „keine laufe
 // offline» (Spec §1) an seinem allerersten Screen bricht. Die Fehlerseite
 // gehört nur noch dorthin, wo es auch nichts Vorgehaltenes gibt.
 test('ohne je geladenen Bestand zeigt ein Ladefehler die Ursache mit einer Wiederholen-Möglichkeit', async () => {
-  (fetchTrips as jest.Mock).mockResolvedValue({ data: [], error: 'Offline — ohne Netz keine aktuellen Daten.' });
+  (fetchTrips as jest.Mock).mockResolvedValue({ data: [], error: 'Offline — ohne Netz keine aktuellen Daten.', zaehlerFehler: 'Offline' });
   await render(<AufnehmenScreen />);
   expect(await screen.findByText('Offline — ohne Netz keine aktuellen Daten.')).toBeTruthy();
 
@@ -183,7 +183,7 @@ test('im Flugmodus erscheint der Sucher aus dem vorgehaltenen Bestand statt eine
   await ersteSitzung.unmount();
 
   // Zweiter Lauf ohne Netz: fetchTrips liefert nur noch den Fehler.
-  (fetchTrips as jest.Mock).mockResolvedValue({ data: [], error: 'Offline — ohne Netz keine aktuellen Daten.' });
+  (fetchTrips as jest.Mock).mockResolvedValue({ data: [], error: 'Offline — ohne Netz keine aktuellen Daten.', zaehlerFehler: 'Offline' });
   await render(<AufnehmenScreen />);
 
   expect(await screen.findByLabelText('Auslöser')).toBeTruthy();
@@ -201,7 +201,7 @@ test('der vorgehaltene Bestand einer anderen Person wird nicht angezeigt', async
   await ersteSitzung.unmount();
 
   mockAuth.userId = 'person-b';
-  (fetchTrips as jest.Mock).mockResolvedValue({ data: [], error: 'Offline — ohne Netz keine aktuellen Daten.' });
+  (fetchTrips as jest.Mock).mockResolvedValue({ data: [], error: 'Offline — ohne Netz keine aktuellen Daten.', zaehlerFehler: 'Offline' });
   await render(<AufnehmenScreen />);
 
   expect(await screen.findByText('Offline — ohne Netz keine aktuellen Daten.')).toBeTruthy();
@@ -217,7 +217,7 @@ test('ein vorgehaltener leerer Bestand führt offline auf «Keine laufende Reise
   await screen.findByText('Keine laufende Reise');
   await ersteSitzung.unmount();
 
-  (fetchTrips as jest.Mock).mockResolvedValue({ data: [], error: 'Offline — ohne Netz keine aktuellen Daten.' });
+  (fetchTrips as jest.Mock).mockResolvedValue({ data: [], error: 'Offline — ohne Netz keine aktuellen Daten.', zaehlerFehler: 'Offline' });
   await render(<AufnehmenScreen />);
 
   expect(await screen.findByText('Keine laufende Reise')).toBeTruthy();
@@ -451,4 +451,35 @@ test('ein langer Reisename wird gekürzt, statt unter die Bedienelemente zu lauf
 
   const name = await screen.findByText('Sommerreise quer durch Skandinavien mit dem alten Camper');
   expect(name.props.numberOfLines).toBe(1);
+});
+
+// Re-Review, Minor 2: die Reisen laden, nur die my_post_counts-rpc scheitert.
+// Dann trägt jede Reise `my_post_count: 0` — und diese Nullen wanderten sowohl
+// in den Auswahl-Screen als auch in den vorgehaltenen Bestand. Dieselbe Klasse
+// wie Important 6, eine Ebene weiter.
+test('scheitert nur der Zähler-Abruf, greift der zuletzt bekannte Stand statt einer 0', async () => {
+  // Erster Lauf mit vollständiger Antwort: 40 Momente werden vorgehalten.
+  const a = reise({ id: 'a', name: 'Norwegen', my_post_count: 40 });
+  const b = reise({ id: 'b', name: 'Lissabon', my_post_count: 7 });
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([a, b]));
+  const ersteSitzung = await render(<AufnehmenScreen />);
+  await screen.findByText('Für welche Reise?');
+  expect(screen.getByText('40 Momente')).toBeTruthy();
+  await ersteSitzung.unmount();
+
+  // Zweiter Lauf: Reisen kommen an, der Zähler nicht.
+  (fetchTrips as jest.Mock).mockResolvedValue({
+    data: [
+      { ...a, my_post_count: 0 },
+      { ...b, my_post_count: 0 },
+    ],
+    error: null,
+    zaehlerFehler: 'Du bist offline. Verbinde dich und probier es nochmal.',
+  });
+  await render(<AufnehmenScreen />);
+
+  expect(await screen.findByText('Für welche Reise?')).toBeTruthy();
+  expect(screen.getByText('40 Momente')).toBeTruthy();
+  expect(screen.getByText('7 Momente')).toBeTruthy();
+  expect(screen.queryByText('0 Momente')).toBeNull();
 });

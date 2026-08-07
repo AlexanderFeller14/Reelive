@@ -177,14 +177,39 @@ export default function AufnehmenScreen() {
   // erfolgreich geladen). Ein vorgehaltener LEERER Bestand ist dagegen eine
   // Aussage — «du hattest zuletzt keine Reise» — und führt bewusst auf
   // KeineReiseScreen statt auf die Fehlerseite.
+  // Setzt für jede Reise den zuletzt bekannten Zähler ein. Die Quelle dafür ist
+  // der vorgehaltene Bestand selbst — er trägt den Zähler ohnehin mit sich, und
+  // anders als der separate Zählerspeicher (den nur eigenerZaehler pflegt, also
+  // nur für die GEWÄHLTE Reise) deckt er auch den Auswahl-Schritt ab, bei dem
+  // noch gar keine Reise gewählt ist. Wo es keinen gemerkten Stand gibt, bleibt
+  // es beim gelieferten Wert — eine 0, die dann wirklich nur «noch nichts
+  // eingesendet» heissen kann.
+  const mitGemerktenZaehlern = useCallback(
+    async (reisen: GemerkteReise[]): Promise<GemerkteReise[]> => {
+      const gemerkt = await tripsCache.gemerkteReisen(userId);
+      if (gemerkt === null) return reisen;
+      const stand = new Map(gemerkt.map((r) => [r.id, r.my_post_count]));
+      return reisen.map((r) => ({ ...r, my_post_count: stand.get(r.id) ?? r.my_post_count }));
+    },
+    [userId]
+  );
+
   const laden = useCallback(async () => {
-    const { data, error } = await fetchTrips();
+    const { data, error, zaehlerFehler } = await fetchTrips();
     if (!error) {
+      // Re-Review, Minor 2: gelingen die Reisen und scheitert nur die
+      // Zähler-rpc, trägt jede Reise `my_post_count: 0`. Die Kopf-Pille fängt
+      // das über eigenerZaehler ab — der Auswahl-Screen bei mehreren
+      // laufenden Reisen aber nicht, und in den vorgehaltenen Bestand
+      // wanderten die Nullen ebenfalls. Also: ein ausgefallener Zähler-Abruf
+      // greift auf den zuletzt bekannten Stand zurück, genau wie in
+      // zaehler.ts. Dieselbe Klasse wie Important 6, eine Ebene weiter.
+      const reisen = zaehlerFehler ? await mitGemerktenZaehlern(data) : data;
       // Fortschreiben passiert vor dem aktiv-Guard: der Bestand soll auch
       // dann aktuell werden, wenn der Screen inzwischen verlassen wurde.
-      await tripsCache.reisenMerken(userId, data);
+      await tripsCache.reisenMerken(userId, reisen);
       if (!aktiv.current) return;
-      setTrips(data);
+      setTrips(reisen);
       setFehler(null);
       return;
     }
@@ -197,7 +222,7 @@ export default function AufnehmenScreen() {
     }
     setTrips([]);
     setFehler(error);
-  }, [userId]);
+  }, [userId, mitGemerktenZaehlern]);
 
   useFocusEffect(
     useCallback(() => {

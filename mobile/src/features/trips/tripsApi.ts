@@ -87,22 +87,35 @@ export async function eigeneZaehler(): Promise<Gelesen<Record<string, number>>> 
   return { data: Object.fromEntries(counts), error };
 }
 
-export async function fetchTrips(): Promise<Gelesen<Trip[]>> {
-  const [{ data, error }, counts] = await Promise.all([
+// `zaehlerFehler` getrennt vom `error` der Reisen (Re-Review, Minor 2): die
+// beiden Abfragen können unabhängig scheitern. Gelingen die Reisen und nur die
+// Zähler-rpc nicht, stünde sonst überall `my_post_count: 0` — für die Karte
+// Beiwerk (siehe loadCounts), für alles, was diesen Stand weiterreicht oder
+// vorhält, aber dieselbe Klasse von Fehler wie Important 6, eine Ebene weiter.
+// Wer den Stand braucht, muss unterscheiden können, ob die 0 gemessen oder
+// bloss ausgefallen ist.
+export async function fetchTrips(): Promise<Gelesen<Trip[]> & { zaehlerFehler: string | null }> {
+  const [{ data, error }, zaehler] = await Promise.all([
     supabase.from('trips').select(MIT_MITGLIEDERN).order('start_date', { ascending: false }),
-    loadCounts(),
+    zaehlerLesen(),
   ]);
+  const counts = zaehler.counts;
   if (error || !data) {
     return {
       data: [],
       error: meldung(error, 'Deine Reisen konnten nicht geladen werden. Probier es gleich nochmal.'),
+      zaehlerFehler: zaehler.error,
     };
   }
   // `unknown` als Zwischenschritt: Ohne generischen Database-Typ am Client
   // parst postgrest-js MIT_MITGLIEDERN selbst auf Typ-Ebene und nimmt für
   // trip_members(profiles(...)) Array-Kardinalität an, obwohl profiles hier
   // ein Einzelobjekt ist (siehe TripRow oben). Laufzeit unverändert.
-  return { data: (data as unknown as TripRow[]).map((row) => toTrip(row, counts)), error: null };
+  return {
+    data: (data as unknown as TripRow[]).map((row) => toTrip(row, counts)),
+    error: null,
+    zaehlerFehler: zaehler.error,
+  };
 }
 
 // data === null bei error === null heisst «gibt es (für dich) nicht mehr» —
