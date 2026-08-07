@@ -12,9 +12,35 @@ jest.mock('@/lib/supabase', () => ({
   },
 }));
 
-import { fetchTrips, createTrip, redeemInvite, peekInvite, removeMember } from '../tripsApi';
+import {
+  fetchTrips, fetchTrip, fetchMembers, fetchInviteCode,
+  createTrip, updateTrip, deleteTrip, removeMember,
+  redeemInvite, peekInvite,
+} from '../tripsApi';
 
 beforeEach(() => jest.clearAllMocks());
+
+// Schreib-Ketten enden seit dem Zeilen-Nachweis auf .select(...): PostgREST
+// meldet einen von der Policy verworfenen Schreibvorgang nicht als Fehler,
+// sondern als leeres Ergebnis.
+type Antwort = { data: unknown; error: unknown };
+
+// trips: .update(...)/.delete().eq('id', …).select('id')
+const tripKette = (verb: 'update' | 'delete', ergebnis: Antwort) => {
+  const select = jest.fn(async () => ergebnis);
+  const eq = jest.fn(() => ({ select }));
+  mockFrom.mockReturnValue({ [verb]: () => ({ eq }) });
+  return { eq, select };
+};
+
+// trip_members: .delete().eq('trip_id', …).eq('user_id', …).select('user_id')
+const mitgliedKette = (ergebnis: Antwort) => {
+  const select = jest.fn(async () => ergebnis);
+  const eqUser = jest.fn(() => ({ select }));
+  const eqTrip = jest.fn(() => ({ eq: eqUser }));
+  mockFrom.mockReturnValue({ delete: () => ({ eq: eqTrip }) });
+  return { eqTrip, eqUser, select };
+};
 
 test('fetchTrips führt Mitglieder und eigenen Zähler zusammen', async () => {
   mockFrom.mockReturnValue({
@@ -36,8 +62,9 @@ test('fetchTrips führt Mitglieder und eigenen Zähler zusammen', async () => {
   });
   mockRpc.mockResolvedValueOnce({ data: [{ trip_id: 't1', count: 7 }], error: null });
 
-  const trips = await fetchTrips();
-  expect(trips).toEqual([
+  const { data, error } = await fetchTrips();
+  expect(error).toBeNull();
+  expect(data).toEqual([
     {
       id: 't1', name: 'Norwegen', start_date: '2026-08-01', end_date: '2026-08-14',
       status: 'active', owner_id: 'u1',
@@ -60,15 +87,64 @@ test('fetchTrips setzt den Zähler auf 0, wenn die Reise nicht in my_post_counts
   });
   mockRpc.mockResolvedValueOnce({ data: [], error: null });
 
-  const trips = await fetchTrips();
-  expect(trips[0].my_post_count).toBe(0);
+  const { data } = await fetchTrips();
+  expect(data[0].my_post_count).toBe(0);
 });
 
-test('fetchTrips liefert bei einem Fehler eine leere Liste', async () => {
+test('fetchTrips unterscheidet einen Ladefehler von einer leeren Liste', async () => {
   mockFrom.mockReturnValue({
     select: () => ({ order: async () => ({ data: null, error: { message: 'kaputt' } }) }),
   });
-  await expect(fetchTrips()).resolves.toEqual([]);
+  const { data, error } = await fetchTrips();
+  expect(data).toEqual([]);
+  // Ohne diese Meldung behauptet die Liste «Noch keine Reise» — eine falsche
+  // Aussage über die Daten des Nutzers.
+  expect(error).toBe('Deine Reisen konnten nicht geladen werden. Probier es gleich nochmal.');
+});
+
+test('fetchTrips benennt den Offline-Fall statt nur «probier es nochmal»', async () => {
+  mockFrom.mockReturnValue({
+    select: () => ({
+      order: async () => ({ data: null, error: { message: 'TypeError: Network request failed' } }),
+    }),
+  });
+  const { error } = await fetchTrips();
+  expect(error).toBe('Du bist offline. Verbinde dich und probier es nochmal.');
+});
+
+test('fetchTrip trennt «gibt es nicht» von «konnte nicht geladen werden»', async () => {
+  mockFrom.mockReturnValue({
+    select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }) }),
+  });
+  await expect(fetchTrip('t1')).resolves.toEqual({ data: null, error: null });
+
+  mockFrom.mockReturnValue({
+    select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: { message: 'kaputt' } }) }) }),
+  });
+  const { error } = await fetchTrip('t1');
+  expect(error).toBe('Diese Reise konnte nicht geladen werden. Probier es gleich nochmal.');
+});
+
+test('fetchMembers meldet einen Lesefehler statt einer leeren Liste', async () => {
+  mockFrom.mockReturnValue({
+    select: () => ({ eq: () => ({ order: async () => ({ data: null, error: { message: 'kaputt' } }) }) }),
+  });
+  const { data, error } = await fetchMembers('t1');
+  expect(data).toEqual([]);
+  expect(error).toBe('Die Mitglieder konnten nicht geladen werden. Probier es gleich nochmal.');
+});
+
+test('fetchInviteCode meldet einen Lesefehler und liefert sonst den Code', async () => {
+  mockFrom.mockReturnValue({
+    select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { invite_code: 'abc' }, error: null }) }) }),
+  });
+  await expect(fetchInviteCode('t1')).resolves.toEqual({ data: 'abc', error: null });
+
+  mockFrom.mockReturnValue({
+    select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: { message: 'kaputt' } }) }) }),
+  });
+  const { error } = await fetchInviteCode('t1');
+  expect(error).toBe('Der Einladungslink konnte nicht geladen werden. Probier es gleich nochmal.');
 });
 
 test('createTrip gibt die neue id zurück', async () => {
@@ -121,13 +197,61 @@ test('redeemInvite wertet einen Netzwerkfehler als not_found', async () => {
   await expect(redeemInvite('abc')).resolves.toEqual({ status: 'not_found', trip_id: null });
 });
 
+// === Vertrag «0 betroffene Zeilen = Fehlschlag» ===
+// Verwirft eine RLS-Policy den Schreibvorgang, liefert Postgres keinen Fehler,
+// sondern UPDATE 0 / DELETE 0. Ohne diesen Vertrag meldeten die Funktionen
+// Erfolg und der Detailscreen navigierte weg, als wäre die Reise gelöscht.
+
+test('updateTrip meldet Erfolg, wenn eine Zeile betroffen war', async () => {
+  const { eq, select } = tripKette('update', { data: [{ id: 't1' }], error: null });
+  await expect(
+    updateTrip('t1', { name: 'Norwegen', startDate: '2026-08-01', endDate: '2026-08-14' })
+  ).resolves.toEqual({ error: null });
+  expect(eq).toHaveBeenCalledWith('id', 't1');
+  expect(select).toHaveBeenCalledWith('id');
+});
+
+test('updateTrip wertet null betroffene Zeilen als Fehlschlag', async () => {
+  tripKette('update', { data: [], error: null });
+  const { error } = await updateTrip('t1', {
+    name: 'Norwegen', startDate: '2026-08-01', endDate: '2026-08-14',
+  });
+  expect(error).toBe('Die Änderung wurde nicht gespeichert. Die Reise gibt es nicht mehr, oder sie gehört dir nicht.');
+});
+
+test('updateTrip benennt den Offline-Fall', async () => {
+  tripKette('update', { data: null, error: { message: 'TypeError: Network request failed' } });
+  const { error } = await updateTrip('t1', {
+    name: 'Norwegen', startDate: '2026-08-01', endDate: '2026-08-14',
+  });
+  expect(error).toBe('Du bist offline. Verbinde dich und probier es nochmal.');
+});
+
+test('deleteTrip meldet Erfolg, wenn eine Zeile betroffen war', async () => {
+  const { eq, select } = tripKette('delete', { data: [{ id: 't1' }], error: null });
+  await expect(deleteTrip('t1')).resolves.toEqual({ error: null });
+  expect(eq).toHaveBeenCalledWith('id', 't1');
+  expect(select).toHaveBeenCalledWith('id');
+});
+
+test('deleteTrip wertet null betroffene Zeilen als Fehlschlag', async () => {
+  tripKette('delete', { data: [], error: null });
+  const { error } = await deleteTrip('t1');
+  expect(error).toBe('Die Reise wurde nicht gelöscht. Es gibt sie nicht mehr, oder sie gehört dir nicht.');
+});
+
 test('removeMember löscht genau eine Mitgliedschaft', async () => {
-  const eqUser = jest.fn(async () => ({ error: null }));
-  const eqTrip = jest.fn(() => ({ eq: eqUser }));
-  mockFrom.mockReturnValue({ delete: () => ({ eq: eqTrip }) });
+  const { eqTrip, eqUser, select } = mitgliedKette({ data: [{ user_id: 'u2' }], error: null });
 
   const { error } = await removeMember('t1', 'u2');
   expect(error).toBeNull();
   expect(eqTrip).toHaveBeenCalledWith('trip_id', 't1');
   expect(eqUser).toHaveBeenCalledWith('user_id', 'u2');
+  expect(select).toHaveBeenCalledWith('user_id');
+});
+
+test('removeMember wertet null betroffene Zeilen als Fehlschlag', async () => {
+  mitgliedKette({ data: [], error: null });
+  const { error } = await removeMember('t1', 'u2');
+  expect(error).toBe('Das hat nicht geklappt. Die Mitgliedschaft gibt es nicht mehr, oder du darfst sie nicht beenden.');
 });

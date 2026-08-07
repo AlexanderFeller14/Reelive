@@ -11,9 +11,12 @@ jest.mock('@/features/trips/tripsApi', () => ({
   createTrip: jest.fn(async () => ({ id: 'neu-1', error: null })),
   updateTrip: jest.fn(async () => ({ error: null })),
   fetchTrip: jest.fn(async () => ({
-    id: 't1', name: 'Norwegen', start_date: '2026-08-01', end_date: '2026-08-14',
-    status: 'active', owner_id: 'u1',
-    member_names: ['Lea'], member_count: 1, my_post_count: 0,
+    data: {
+      id: 't1', name: 'Norwegen', start_date: '2026-08-01', end_date: '2026-08-14',
+      status: 'active', owner_id: 'u1',
+      member_names: ['Lea'], member_count: 1, my_post_count: 0,
+    },
+    error: null,
   })),
 }));
 

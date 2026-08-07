@@ -25,7 +25,6 @@ jest.mock('@/features/trips/tripsApi', () => ({
   removeMember: jest.fn(async () => ({ error: null })),
   deleteTrip: jest.fn(async () => ({ error: null })),
 }));
-
 import ReiseDetail from '../[id]/index';
 import { fetchTrip, fetchMembers, removeMember, deleteTrip } from '@/features/trips/tripsApi';
 
@@ -38,14 +37,18 @@ const mitglieder = [
   { user_id: 'u1', role: 'owner' as const, username: 'lea', display_name: 'Lea' },
   { user_id: 'u2', role: 'member' as const, username: 'jonas', display_name: 'Jonas' },
 ];
+// Stabile Referenzen: der useFocusEffect-Mock ruft bei jedem Render nach, ein
+// jedes Mal neues Objekt würde die Screens endlos neu rendern lassen.
+const tripOk = { data: trip, error: null };
+const mitgliederOk = { data: mitglieder, error: null };
 
 const wrap = () => render(<ThemeProvider><ReiseDetail /></ThemeProvider>);
 
 beforeEach(() => {
   jest.clearAllMocks();
   mockAuth.userId = 'u1';
-  (fetchTrip as jest.Mock).mockResolvedValue(trip);
-  (fetchMembers as jest.Mock).mockResolvedValue(mitglieder);
+  (fetchTrip as jest.Mock).mockResolvedValue(tripOk);
+  (fetchMembers as jest.Mock).mockResolvedValue(mitgliederOk);
 });
 
 test('zeigt Name, Zeitraum und Mitglieder', async () => {
@@ -92,7 +95,7 @@ test('Owner sieht Löschen statt Verlassen', async () => {
 });
 
 test('aufgedeckte Reise zeigt keinen Einladen-Knopf', async () => {
-  (fetchTrip as jest.Mock).mockResolvedValue({ ...trip, status: 'revealed' });
+  (fetchTrip as jest.Mock).mockResolvedValue({ data: { ...trip, status: 'revealed' }, error: null });
   await wrap();
   await screen.findByText('Norwegen mit dem Camper');
   expect(screen.queryByText('Freunde einladen')).toBeNull();
@@ -115,7 +118,7 @@ test('Mitglied verlässt die Reise', async () => {
 
 test('Löschen schlägt fehl: keine Navigation, Fehler wird gezeigt', async () => {
   (deleteTrip as jest.Mock).mockResolvedValueOnce({
-    error: 'Die Reise konnte nicht gelöscht werden. Probier es gleich nochmal.',
+    error: 'Die Reise wurde nicht gelöscht. Es gibt sie nicht mehr, oder sie gehört dir nicht.',
   });
   await wrap();
   await fireEvent.press(await screen.findByText('Reise löschen'));
@@ -123,8 +126,45 @@ test('Löschen schlägt fehl: keine Navigation, Fehler wird gezeigt', async () =
   await waitFor(() =>
     expect(Alert.alert).toHaveBeenCalledWith(
       'Nicht gelöscht',
-      'Die Reise konnte nicht gelöscht werden. Probier es gleich nochmal.'
+      'Die Reise wurde nicht gelöscht. Es gibt sie nicht mehr, oder sie gehört dir nicht.'
     )
   );
   expect(mockReplace).not.toHaveBeenCalled();
+});
+
+const LADEFEHLER = 'Diese Reise konnte nicht geladen werden. Probier es gleich nochmal.';
+
+test('ein Lesefehler erklärt sich und lässt zurück statt weiss zu bleiben', async () => {
+  (fetchTrip as jest.Mock).mockResolvedValue({ data: null, error: LADEFEHLER });
+  await wrap();
+  expect(await screen.findByText(LADEFEHLER)).toBeTruthy();
+  // Der Stack hat keinen Header — ohne diesen Knopf gäbe es keinen Rückweg.
+  await fireEvent.press(screen.getByText('Zu meinen Reisen'));
+  expect(mockReplace).toHaveBeenCalledWith('/reise');
+});
+
+test('nach einem Lesefehler lädt der Knopf erneut', async () => {
+  (fetchTrip as jest.Mock).mockResolvedValue({ data: null, error: LADEFEHLER });
+  await wrap();
+  await screen.findByText(LADEFEHLER);
+
+  (fetchTrip as jest.Mock).mockResolvedValue(tripOk);
+  await fireEvent.press(screen.getByText('Nochmal versuchen'));
+  expect(await screen.findByText('Norwegen mit dem Camper')).toBeTruthy();
+});
+
+test('eine verschwundene Reise sagt das, statt einen Ladefehler zu behaupten', async () => {
+  (fetchTrip as jest.Mock).mockResolvedValue({ data: null, error: null });
+  await wrap();
+  expect(await screen.findByText('Diese Reise gibt es nicht mehr.')).toBeTruthy();
+  expect(screen.queryByText('Nochmal versuchen')).toBeNull();
+});
+
+test('ein Fehler beim Mitgliederladen bleibt in der Sektion sichtbar', async () => {
+  const meldung = 'Die Mitglieder konnten nicht geladen werden. Probier es gleich nochmal.';
+  (fetchMembers as jest.Mock).mockResolvedValue({ data: [], error: meldung });
+  await wrap();
+  expect(await screen.findByText(meldung)).toBeTruthy();
+  // Die Reise selbst kam durch und bleibt bedienbar.
+  expect(screen.getByText('Norwegen mit dem Camper')).toBeTruthy();
 });

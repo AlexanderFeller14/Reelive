@@ -1,7 +1,8 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { ScrollView, Text, View, StyleSheet } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { TripCard } from '@/components/TripCard';
+import { Button } from '@/components/Button';
 import { Fab } from '@/components/Fab';
 import { useTheme } from '@/theme/ThemeProvider';
 import { spacing, type } from '@/theme/tokens';
@@ -14,29 +15,64 @@ export default function ReiseListe() {
   const router = useRouter();
   const [trips, setTrips] = useState<Trip[]>([]);
   const [geladen, setGeladen] = useState(false);
+  // Drei Zustände statt zwei — dasselbe Muster wie in [id]/einladen.tsx und
+  // join/[code].tsx: `geladen` trennt «lädt noch» von «fertig», `fehler` trennt
+  // «fertig, aber nichts bekommen» von «fertig und wirklich leer». Ohne diese
+  // Trennung behauptete ein Ladefehler «Noch keine Reise» — eine falsche
+  // Aussage über die Daten des Nutzers (DESIGN-LANGUAGE §6).
+  const [fehler, setFehler] = useState<string | null>(null);
+  const [laedt, setLaedt] = useState(false);
+  // Schirmt setState nach Blur/Unmount ab; jeder Fokus-Zyklus setzt ihn neu.
+  const aktiv = useRef(true);
+
+  const laden = useCallback(async () => {
+    const { data, error } = await fetchTrips();
+    if (!aktiv.current) return;
+    setTrips(data);
+    setFehler(error);
+    setGeladen(true);
+  }, []);
+
+  // `laedt` hängt bewusst am Knopf, nicht an `laden`: Der Fokus-Lauf soll die
+  // bereits stehende Liste nicht bei jeder Rückkehr mit einem Ladezustand
+  // überschreiben — sichtbares Warten gehört nur dorthin, wo jemand getippt hat.
+  const nochmal = useCallback(async () => {
+    setLaedt(true);
+    await laden();
+    if (!aktiv.current) return;
+    setLaedt(false);
+  }, [laden]);
 
   // Beim Zurückkehren neu laden — eine gerade angelegte Reise soll sofort dastehen.
   useFocusEffect(
     useCallback(() => {
-      let aktiv = true;
-      void fetchTrips().then((t) => {
-        if (!aktiv) return;
-        setTrips(t);
-        setGeladen(true);
-      });
+      aktiv.current = true;
+      void laden();
       return () => {
-        aktiv = false;
+        aktiv.current = false;
       };
-    }, [])
+    }, [laden])
   );
 
   const { laufend, recaps } = groupTrips(trips);
-  const leer = geladen && trips.length === 0;
+  const leer = geladen && !fehler && trips.length === 0;
 
   return (
     <View style={{ flex: 1, backgroundColor: colors['bg-0'] }}>
       <ScrollView contentContainerStyle={styles.inhalt}>
         <Text style={[type.h1, { color: colors['text-1'] }]}>Meine Reisen</Text>
+
+        {fehler && (
+          <View style={{ gap: spacing.l, marginTop: spacing.xl }}>
+            <Text style={[type.body, { color: colors.danger }]}>{fehler}</Text>
+            <Button
+              variant="secondary"
+              label="Nochmal versuchen"
+              onPress={() => void nochmal()}
+              loading={laedt}
+            />
+          </View>
+        )}
 
         {leer && (
           <View style={{ gap: spacing.s, marginTop: spacing.xl }}>

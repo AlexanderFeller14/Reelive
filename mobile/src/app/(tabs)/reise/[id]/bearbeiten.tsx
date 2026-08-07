@@ -21,11 +21,13 @@ export default function ReiseBearbeiten() {
   const [laedt, setLaedt] = useState(false);
 
   useEffect(() => {
-    void fetchTrip(id).then((t) => {
-      if (!t) return;
-      setName(t.name);
-      setBeginn(formatGermanDate(t.start_date));
-      setEnde(formatGermanDate(t.end_date));
+    void fetchTrip(id).then(({ data }) => {
+      // Kommt nichts (Lesefehler oder Reise weg), bleibt das Formular leer —
+      // die Pflichtfeld-Prüfung in `speichern` lässt es dann nicht durch.
+      if (!data) return;
+      setName(data.name);
+      setBeginn(formatGermanDate(data.start_date));
+      setEnde(formatGermanDate(data.end_date));
     });
   }, [id]);
 

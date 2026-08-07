@@ -15,14 +15,15 @@ export default function Einladen() {
   const [url, setUrl] = useState<string | null>(null);
   // Getrennt von `url`: `null` ist zwei verschiedene Zustände — „lädt noch"
   // (geladen=false) und „kein Code bekommen" (geladen=true, url=null).
-  // fetchInviteCode liefert Letzteres regulär bei Fehler oder fehlenden
-  // Daten zurück, kein Sonderfall — der Screen muss ihn sichtbar machen statt
-  // still eine leere Fläche zu zeigen (DESIGN-LANGUAGE §6: Ursache + Lösung).
+  // Letzteres muss der Screen sichtbar machen statt still eine leere Fläche
+  // zu zeigen (DESIGN-LANGUAGE §6: Ursache + Lösung).
   const [geladen, setGeladen] = useState(false);
+  const [fehler, setFehler] = useState<string | null>(null);
 
   useEffect(() => {
-    void fetchInviteCode(id).then((code) => {
-      setUrl(code ? createInviteUrl(code) : null);
+    void fetchInviteCode(id).then(({ data, error }) => {
+      setUrl(data ? createInviteUrl(data) : null);
+      setFehler(error);
       setGeladen(true);
     });
   }, [id]);
@@ -46,7 +47,7 @@ export default function Einladen() {
           <QRCode value={url} size={220} color={palette['text-1']} backgroundColor={palette['bg-0']} />
         ) : geladen ? (
           <Text style={[type.body, { color: colors.danger }]}>
-            Der Einladungslink konnte nicht geladen werden. Probier es gleich nochmal.
+            {fehler ?? 'Der Einladungslink konnte nicht geladen werden. Probier es gleich nochmal.'}
           </Text>
         ) : (
           // Skeleton (DESIGN-LANGUAGE §4): ruhige bg-1-Fläche statt leerem

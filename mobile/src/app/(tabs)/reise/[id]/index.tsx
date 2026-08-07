@@ -20,6 +20,15 @@ export default function ReiseDetail() {
   const { userId } = useAuth();
   const [trip, setTrip] = useState<Trip | null>(null);
   const [mitglieder, setMitglieder] = useState<TripMember[]>([]);
+  // Gleiche Dreiteilung wie in der Liste, [id]/einladen.tsx und join/[code].tsx:
+  // `geladen` trennt «lädt noch» von «fertig», `fehler` trennt «nicht geladen»
+  // von «gibt es nicht mehr». Ohne diese Trennung blieb bei einem Lesefehler
+  // ein leerer weisser Screen ohne Erklärung und ohne Rückweg stehen — der
+  // Stack hat keinen Header.
+  const [geladen, setGeladen] = useState(false);
+  const [fehler, setFehler] = useState<string | null>(null);
+  const [mitgliederFehler, setMitgliederFehler] = useState<string | null>(null);
+  const [laedt, setLaedt] = useState(false);
   // Schirmt setState nach Blur/Unmount ab — gleiches Muster wie in der
   // Listen-Schwesterdatei (reise/index.tsx): jeder Fokus-Zyklus bekommt seinen
   // eigenen Wächter, der beim Verlassen des Screens auf false gesetzt wird, damit
@@ -30,9 +39,21 @@ export default function ReiseDetail() {
   const laden = useCallback(async () => {
     const [t, m] = await Promise.all([fetchTrip(id), fetchMembers(id)]);
     if (!aktiv.current) return;
-    setTrip(t);
-    setMitglieder(m);
+    setTrip(t.data);
+    setFehler(t.error);
+    setMitglieder(m.data);
+    setMitgliederFehler(m.error);
+    setGeladen(true);
   }, [id]);
+
+  // `laedt` hängt am Knopf, nicht am Fokus-Lauf: sichtbares Warten gehört nur
+  // dorthin, wo jemand getippt hat.
+  const nochmal = useCallback(async () => {
+    setLaedt(true);
+    await laden();
+    if (!aktiv.current) return;
+    setLaedt(false);
+  }, [laden]);
 
   useFocusEffect(
     useCallback(() => {
@@ -44,7 +65,21 @@ export default function ReiseDetail() {
     }, [laden])
   );
 
-  if (!trip) return <View style={{ flex: 1, backgroundColor: colors['bg-0'] }} />;
+  if (!geladen) return <View style={{ flex: 1, backgroundColor: colors['bg-0'] }} />;
+
+  if (!trip) {
+    return (
+      <View style={[styles.leer, { backgroundColor: colors['bg-0'] }]}>
+        <Text style={[type.body, { color: colors.danger }]}>
+          {fehler ?? 'Diese Reise gibt es nicht mehr.'}
+        </Text>
+        {fehler && (
+          <Button variant="secondary" label="Nochmal versuchen" onPress={() => void nochmal()} loading={laedt} />
+        )}
+        <Button variant="text" label="Zu meinen Reisen" onPress={() => router.replace('/reise')} />
+      </View>
+    );
+  }
 
   const istOwner = trip.owner_id === userId;
   const laeuft = trip.status === 'active';
@@ -128,6 +163,9 @@ export default function ReiseDetail() {
 
       <View style={{ gap: spacing.m }}>
         <Text style={[type.h2, { color: colors['text-1'] }]}>Wer dabei ist</Text>
+        {mitgliederFehler && (
+          <Text style={[type.body, { color: colors.danger }]}>{mitgliederFehler}</Text>
+        )}
         {mitglieder.map((m) => (
           <View key={m.user_id} style={styles.zeile}>
             <Avatar name={m.display_name} />
@@ -167,5 +205,6 @@ export default function ReiseDetail() {
 
 const styles = StyleSheet.create({
   inhalt: { padding: spacing.screen, paddingBottom: spacing.xxl, gap: spacing.xl },
+  leer: { flex: 1, justifyContent: 'center', padding: spacing.screen, gap: spacing.l },
   zeile: { flexDirection: 'row', alignItems: 'center', gap: spacing.m },
 });
