@@ -16,6 +16,7 @@ import type { Trip, TripMember } from '@/features/trips/types';
 import { eigenerZaehler } from '@/features/moments/zaehler';
 import * as queueDb from '@/features/moments/queueDb';
 import { wartendeAnzahl } from '@/features/moments/queueLogic';
+import type { QueueJob } from '@/features/moments/types';
 
 // DESIGN-LANGUAGE §5: destruktive Dialoge kündigen sich haptisch an (warning).
 // Sparsam eingesetzt — nur die drei Dialoge dieses Screens. Ein fehlender
@@ -64,15 +65,24 @@ export default function ReiseDetail() {
     const [t, m, z, jobs] = await Promise.all([
       fetchTrip(id),
       fetchMembers(id),
-      eigenerZaehler(id),
-      queueDb.alleJobs(),
+      // Anders als fetchTrip/fetchMembers sind eigenerZaehler und
+      // queueDb.alleJobs nicht garantiert werfensicher — sie lesen aus der
+      // lokalen SQLite-Warteschlange, die bei einer beschädigten Datenbank
+      // ablehnen kann (siehe queueDb.ts). Ohne dieses .catch() liesse eine
+      // solche Ablehnung das ganze Promise.all scheitern, `geladen` würde
+      // nie `true`, und der Screen bliebe dauerhaft leer, obwohl Reise und
+      // Mitglieder längst da wären (Fix-Runde 1). Fällt einer der beiden
+      // aus, zeigt der Screen eben den reinen Serverstand ohne Warten-Zeile
+      // statt gar nichts.
+      eigenerZaehler(id).catch(() => null),
+      queueDb.alleJobs().catch((): QueueJob[] => []),
     ]);
     if (!aktiv.current) return;
     setTrip(t.data);
     setFehler(t.error);
     setMitglieder(m.data);
     setMitgliederFehler(m.error);
-    setZaehler(z);
+    setZaehler(z ?? t.data?.my_post_count ?? 0);
     setWartend(wartendeAnzahl(jobs.filter((job) => job.trip_id === id)));
     setGeladen(true);
   }, [id]);

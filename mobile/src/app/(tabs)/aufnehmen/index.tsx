@@ -181,12 +181,17 @@ export default function AufnehmenScreen() {
 
   // Zieht den Zähler bei jedem Reise-Wechsel nach (Auswahl aus mehreren
   // laufenden Reisen, Rückkehr auf den Screen) — ohne `reise` gibt es nichts
-  // zu zählen.
+  // zu zählen. eigenerZaehler kann ablehnen (kaputte lokale Warteschlange,
+  // siehe queueDb.ts) — ohne .catch() bliebe das eine unbehandelte
+  // Ablehnung; der Fallback auf reise.my_post_count beim Rendern unten
+  // greift dann einfach weiter (Fix-Runde 1).
   useEffect(() => {
     if (!reise) return;
-    void eigenerZaehler(reise.id).then((n) => {
-      if (aktiv.current) setZaehler(n);
-    });
+    void eigenerZaehler(reise.id)
+      .then((n) => {
+        if (aktiv.current) setZaehler(n);
+      })
+      .catch(() => {});
   }, [reise?.id]);
 
   if (trips === null) return <LeererKinoScreen />;

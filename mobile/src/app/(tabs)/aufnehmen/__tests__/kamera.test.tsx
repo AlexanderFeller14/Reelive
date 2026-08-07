@@ -154,6 +154,17 @@ test('nach einer Offline-Aufnahme bewegt sich der Zähler nach vorn statt stehen
   expect(mockEigenerZaehler).toHaveBeenCalledWith('t1');
 });
 
+// Fix-Runde 1: eigenerZaehler kann ablehnen (kaputte lokale Warteschlange).
+// Ohne .catch() an dieser Stelle bliebe eine unbehandelte Ablehnung stehen —
+// der Screen soll stattdessen einfach beim my_post_count-Fallback bleiben.
+test('eigenerZaehler schlägt fehl: die Pille zeigt trotzdem den Serverstand, kein Absturz', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise({ my_post_count: 4 })]));
+  mockEigenerZaehler.mockRejectedValueOnce(new Error('kaputt'));
+  await render(<AufnehmenScreen />);
+  expect(await screen.findByText('Norwegen mit dem Camper')).toBeTruthy();
+  expect(screen.getByText('4 Momente')).toBeTruthy();
+});
+
 test('ein Tipp auf den Auslöser nimmt ein Foto auf und navigiert zur Vorschau', async () => {
   (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
   await render(<AufnehmenScreen />);

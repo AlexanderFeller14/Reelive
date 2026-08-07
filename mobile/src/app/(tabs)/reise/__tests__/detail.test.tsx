@@ -243,3 +243,25 @@ test('ein einzelner wartender Moment wird im Singular gemeldet', async () => {
   await wrap();
   expect(await screen.findByText('1 Moment ist noch unterwegs.')).toBeTruthy();
 });
+
+// Fix-Runde 1: eigenerZaehler/queueDb.alleJobs lesen anders als fetchTrip/
+// fetchMembers aus der lokalen SQLite-Warteschlange und können werfen (siehe
+// queueDb.ts). Vorher lag das im selben Promise.all wie fetchTrip/fetchMembers
+// — eine Ablehnung liess `geladen` nie `true` werden, der Screen blieb ohne
+// jede Meldung leer. Beide Fälle einzeln nachgestellt.
+test('eigenerZaehler schlägt fehl: die Reise erscheint trotzdem mit dem Serverstand', async () => {
+  (fetchTrip as jest.Mock).mockResolvedValue({ data: { ...trip, my_post_count: 3 }, error: null });
+  (eigenerZaehler as jest.Mock).mockRejectedValue(new Error('SQLite kaputt'));
+  await wrap();
+  expect(await screen.findByText('Norwegen mit dem Camper')).toBeTruthy();
+  expect(screen.getByText('3')).toBeTruthy();
+  expect(screen.queryByText(/unterwegs/)).toBeNull();
+});
+
+test('queueDb.alleJobs schlägt fehl: die Reise erscheint trotzdem, nur ohne Warten-Zeile', async () => {
+  (fetchTrip as jest.Mock).mockResolvedValue({ data: { ...trip, my_post_count: 3 }, error: null });
+  (queueDb.alleJobs as jest.Mock).mockRejectedValue(new Error('SQLite kaputt'));
+  await wrap();
+  expect(await screen.findByText('Norwegen mit dem Camper')).toBeTruthy();
+  expect(screen.queryByText(/unterwegs/)).toBeNull();
+});

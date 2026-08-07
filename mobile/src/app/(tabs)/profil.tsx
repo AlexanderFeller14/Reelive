@@ -44,7 +44,7 @@ export default function ProfilScreen() {
       </Card>
       <Card style={styles.zeile}>
         <View style={styles.zeileText}>
-          <Text style={[type.bodyMedium, { color: colors['text-1'] }]}>Nur über WLAN senden</Text>
+          <Text style={[type.bodyMedium, { color: colors['text-1'] }]}>Nur über WLAN einsenden</Text>
           <Text style={[type.secondary, { color: colors['text-2'] }]}>
             Spart mobile Daten — deine Momente warten, bis du wieder im WLAN bist.
           </Text>
@@ -54,7 +54,7 @@ export default function ProfilScreen() {
           onValueChange={umschalten}
           trackColor={{ false: colors['bg-1'], true: colors.accent }}
           thumbColor={colors['bg-0']}
-          accessibilityLabel="Nur über WLAN senden"
+          accessibilityLabel="Nur über WLAN einsenden"
         />
       </Card>
       <Button variant="secondary" label="Abmelden" onPress={() => void signOut()} />

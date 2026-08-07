@@ -38,23 +38,23 @@ test('zeigt Profildaten und meldet ab', async () => {
 
 test('zeigt den WLAN-Schalter mit Erklärung, was er bewirkt', async () => {
   await render(<ThemeProvider><ProfilScreen /></ThemeProvider>);
-  expect(await screen.findByText('Nur über WLAN senden')).toBeTruthy();
+  expect(await screen.findByText('Nur über WLAN einsenden')).toBeTruthy();
   expect(
     screen.getByText('Spart mobile Daten — deine Momente warten, bis du wieder im WLAN bist.')
   ).toBeTruthy();
-  expect(screen.getByLabelText('Nur über WLAN senden').props.value).toBe(false);
+  expect(screen.getByLabelText('Nur über WLAN einsenden').props.value).toBe(false);
 });
 
 test('ein Tipp auf den Schalter schreibt die Wahl in die Einstellungen', async () => {
   await render(<ThemeProvider><ProfilScreen /></ThemeProvider>);
-  const schalter = await screen.findByLabelText('Nur über WLAN senden');
+  const schalter = await screen.findByLabelText('Nur über WLAN einsenden');
   await fireEvent(schalter, 'valueChange', true);
   expect(mockSetzeNurUeberWlan).toHaveBeenCalledWith(true);
-  expect(screen.getByLabelText('Nur über WLAN senden').props.value).toBe(true);
+  expect(screen.getByLabelText('Nur über WLAN einsenden').props.value).toBe(true);
 });
 
 test('ein bereits gespeichertes „Nur über WLAN" zeigt sich beim Öffnen', async () => {
   mockNurUeberWlan.mockResolvedValue(true);
   await render(<ThemeProvider><ProfilScreen /></ThemeProvider>);
-  await waitFor(() => expect(screen.getByLabelText('Nur über WLAN senden').props.value).toBe(true));
+  await waitFor(() => expect(screen.getByLabelText('Nur über WLAN einsenden').props.value).toBe(true));
 });
