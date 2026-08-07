@@ -10,11 +10,11 @@ jest.mock('@/lib/supabase', () => ({
   },
 }));
 
-import { momentAnlegen } from '../postsApi';
+import { momentAnlegen, aktuelleAutorId } from '../postsApi';
 import type { QueueJob } from '../types';
 
 const job: QueueJob = {
-  id: 'j1', post_id: 'p1', trip_id: 't1', typ: 'photo',
+  id: 'j1', post_id: 'p1', trip_id: 't1', author_id: 'u1', typ: 'photo',
   medium_uri: 'file:///m.jpg', thumb_uri: 'file:///t.jpg',
   storage_key: 'trips/t1/p1.jpg', thumb_key: 'trips/t1/p1_t.jpg',
   caption: null, captured_at: '2026-08-07T10:00:00.000Z', captured_tz: 'Europe/Zurich',
@@ -28,7 +28,11 @@ beforeEach(() => {
   mockGetSession.mockResolvedValue({ data: { session: { user: { id: 'u1' } } }, error: null });
 });
 
-test('Erfolg: legt an, author_id kommt aus der Session, typ wird auf type umbenannt', async () => {
+// Task-13-Fix-Runde-2: author_id kommt jetzt vom Job (beim Einreihen in
+// preview.tsx festgehalten), nicht mehr aus der Sitzung zum Zeitpunkt des
+// Schreibens — sonst könnte ein Moment, der bloss in der Warteschlange lag,
+// unter dem Namen der nächsten angemeldeten Person landen.
+test('Erfolg: legt an, author_id kommt vom Job, typ wird auf type umbenannt', async () => {
   mockInsert.mockResolvedValueOnce({ error: null });
   const ergebnis = await momentAnlegen(job);
   expect(ergebnis).toEqual({ error: null });
@@ -36,6 +40,18 @@ test('Erfolg: legt an, author_id kommt aus der Session, typ wird auf type umbena
     expect.objectContaining({ id: 'p1', author_id: 'u1', type: 'photo' })
   );
   expect(mockInsert.mock.calls[0][0]).not.toHaveProperty('typ');
+  // Kein Sitzungs-Lookup mehr für die Autorenschaft.
+  expect(mockGetSession).not.toHaveBeenCalled();
+});
+
+// Ein Job, dessen author_id NICHT zur aktuell angemeldeten Person passt, wird
+// von uploadWorker.naechsterJob() gar nicht erst ausgewählt (siehe
+// queueLogic.test.ts) — momentAnlegen selbst vertraut deshalb bewusst der
+// gespeicherten Kennung und rät nicht mehr selbst.
+test('author_id eines anderen Nutzers wird unverändert durchgereicht (die Auswahl davor ist die Absicherung)', async () => {
+  mockInsert.mockResolvedValueOnce({ error: null });
+  await momentAnlegen({ ...job, author_id: 'jemand-anders' });
+  expect(mockInsert).toHaveBeenCalledWith(expect.objectContaining({ author_id: 'jemand-anders' }));
 });
 
 test('Primärschlüssel schon vorhanden (23505): Wiederanlauf gilt als Erfolg', async () => {
@@ -72,9 +88,25 @@ test('jeder andere Fehler wird wiederholt, nicht verworfen', async () => {
   expect(ergebnis.error).not.toBeNull();
 });
 
-test('keine Session → Fehler statt Insert-Versuch', async () => {
-  mockGetSession.mockResolvedValueOnce({ data: { session: null }, error: null });
-  const ergebnis = await momentAnlegen(job);
-  expect(ergebnis.error).toBe('Du bist nicht angemeldet. Melde dich an und probier es nochmal.');
-  expect(mockInsert).not.toHaveBeenCalled();
+// aktuelleAutorId(): genutzt vom Worker VOR der Job-Auswahl (Task-13-Fix-Runde-2).
+describe('aktuelleAutorId', () => {
+  test('liefert die user id aus der aktiven Sitzung', async () => {
+    mockGetSession.mockResolvedValueOnce({ data: { session: { user: { id: 'u1' } } }, error: null });
+    await expect(aktuelleAutorId()).resolves.toBe('u1');
+  });
+
+  test('keine Sitzung → null', async () => {
+    mockGetSession.mockResolvedValueOnce({ data: { session: null }, error: null });
+    await expect(aktuelleAutorId()).resolves.toBeNull();
+  });
+
+  test('Sitzungs-Fehler → null statt zu werfen', async () => {
+    mockGetSession.mockResolvedValueOnce({ data: { session: null }, error: { message: 'kaputt' } });
+    await expect(aktuelleAutorId()).resolves.toBeNull();
+  });
+
+  test('getSession() rejected (z.B. Storage-Fehler) → null statt zu werfen', async () => {
+    mockGetSession.mockRejectedValueOnce(new Error('Storage kaputt'));
+    await expect(aktuelleAutorId()).resolves.toBeNull();
+  });
 });

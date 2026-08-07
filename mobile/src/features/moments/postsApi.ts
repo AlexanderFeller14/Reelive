@@ -51,30 +51,38 @@ function istRlsAblehnung(error: { code?: string; message?: string } | null | und
   return error?.code === RLS_ABLEHNUNG_CODE && RLS_ABLEHNUNG_MUSTER.test(error.message ?? '');
 }
 
+// Liest die aktuell aktive Autoren-Kennung aus der Sitzung. Genutzt vom
+// Worker VOR der Job-Auswahl (queueLogic.naechsterJob), damit ein Job, dessen
+// gespeicherte author_id nicht zur gerade angemeldeten Person passt, gar
+// nicht erst ausgewählt wird — Task-13-Fix-Runde-2. momentAnlegen unten
+// ermittelt die Kennung NICHT mehr selbst (siehe dort), das war die Lücke:
+// sie kam bisher aus der Sitzung zum Zeitpunkt des Schreibens, nicht zu dem
+// des Einreihens.
+export async function aktuelleAutorId(): Promise<string | null> {
+  try {
+    const { data, error } = await supabase.auth.getSession();
+    if (error) return null;
+    return data.session?.user.id ?? null;
+  } catch {
+    // getSession() selbst kann rejecten (z.B. Storage-Fehler, siehe AuthProvider).
+    return null;
+  }
+}
+
 export async function momentAnlegen(
   job: QueueJob
 ): Promise<{ error: string | null; dauerhaftAbgelehnt?: boolean }> {
-  // Die Autorenschaft ist ein Sitzungswert, kein Feld auf QueueJob (Task-6-Kontext) —
-  // sie kommt aus dem angemeldeten Client, nicht aus dem Job.
-  let authorId: string | undefined;
-  try {
-    const { data, error: sessionError } = await supabase.auth.getSession();
-    if (sessionError) {
-      return { error: meldung(sessionError, 'Du bist nicht angemeldet. Melde dich an und probier es nochmal.') };
-    }
-    authorId = data.session?.user.id;
-  } catch (fehler) {
-    // getSession() selbst kann rejecten (z.B. Storage-Fehler, siehe AuthProvider).
-    return { error: meldung(fehler as { message?: string }, 'Du bist nicht angemeldet. Melde dich an und probier es nochmal.') };
-  }
-  if (!authorId) {
-    return { error: 'Du bist nicht angemeldet. Melde dich an und probier es nochmal.' };
-  }
-
+  // Die Autorenschaft kommt jetzt vom Job selbst (beim Einreihen festgehalten,
+  // siehe QueueJob.author_id und preview.tsx) statt aus der AKTUELL aktiven
+  // Sitzung — sonst könnte ein Moment, der bloss in der Warteschlange lag,
+  // unter dem Namen der nächsten angemeldeten Person landen (Task-13-
+  // Fix-Runde-2). uploadWorker wählt über aktuelleAutorId()+naechsterJob
+  // ohnehin nur Jobs der gerade angemeldeten Person aus — dieser Insert
+  // vertraut deshalb bewusst der gespeicherten Kennung.
   const { error } = await supabase.from('posts').insert({
     id: job.post_id,
     trip_id: job.trip_id,
-    author_id: authorId,
+    author_id: job.author_id,
     // Einziges Feld, dessen Name abweicht: QueueJob.typ → posts.type.
     type: job.typ,
     storage_key: job.storage_key,

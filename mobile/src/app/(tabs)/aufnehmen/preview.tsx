@@ -21,12 +21,18 @@ import { cinema, palette, radius, spacing, type } from '@/theme/tokens';
 import * as medien from '@/features/moments/medien';
 import * as ortUndZeit from '@/features/moments/ortUndZeit';
 import * as uploadWorker from '@/features/moments/uploadWorker';
+import { useAuth } from '@/features/auth/AuthProvider';
 import type { QueueJob } from '@/features/moments/types';
 
 const CAPTION_MAX = 120;
 
 const OHNE_REISE_MELDUNG =
   'Diese Aufnahme lässt sich keiner Reise zuordnen. Geh zurück zur Kamera und versuch es nochmal.';
+// Praktisch unerreichbar (das Root-Layout lässt diesen Screen nur bei
+// status === 'signedIn' zu), aber ein Job ohne Autoren-Kennung darf nie
+// erzeugt werden — deshalb sichtbar abgelehnt statt geraten, gleiches Prinzip
+// wie OHNE_REISE_MELDUNG (Task-13-Fix-Runde-2).
+const OHNE_SITZUNG_MELDUNG = 'Du bist nicht angemeldet. Melde dich an und probier es nochmal.';
 const SENDEN_FEHLGESCHLAGEN_MELDUNG =
   'Der Moment konnte nicht gesichert werden — oft, weil kein Speicherplatz mehr frei ist. Räum etwas Platz frei und versuch es nochmal.';
 
@@ -86,6 +92,7 @@ function EinsendenButton({
 
 export default function PreviewScreen() {
   const router = useRouter();
+  const { userId } = useAuth();
   const { uri, typ, dauer, tripId } = useLocalSearchParams<{
     uri: string;
     typ: 'photo' | 'video';
@@ -169,6 +176,16 @@ export default function PreviewScreen() {
       return;
     }
 
+    // Autoren-Kennung wird HIER, beim Einreihen, festgehalten — nicht erst
+    // vom Worker beim Schreiben aus der dann aktuell aktiven Sitzung gelesen
+    // (Task-13-Fix-Runde-2). Sonst könnte ein Moment, der noch in der
+    // Warteschlange liegt, unter dem Namen der nächsten angemeldeten Person
+    // auf demselben Gerät landen.
+    if (!userId) {
+      setSendeFehler(OHNE_SITZUNG_MELDUNG);
+      return;
+    }
+
     setSendeFehler(null);
     setSendet(true);
     try {
@@ -181,6 +198,7 @@ export default function PreviewScreen() {
         id: postId,
         post_id: postId,
         trip_id: tripId,
+        author_id: userId,
         typ,
         medium_uri: medium,
         thumb_uri: thumb,

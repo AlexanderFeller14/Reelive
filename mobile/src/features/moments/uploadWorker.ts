@@ -15,14 +15,20 @@ const INTERVALL_MS = 5_000;
 
 // Task-13-Fix-Runde-1: ein Job, der beim Abmelden gerade auf Netz-Ein-/Ausgabe
 // wartet (bei einem Video leicht mehrere Sekunden), darf danach nicht weiter-
-// schreiben. postsApi.momentAnlegen() liest die Autorenschaft erst BEIM
-// SCHREIBEN aus der aktuell aktiven Sitzung (nicht beim Einreihen) — meldet
-// sich währenddessen eine andere Person auf demselben Gerät an, würde die
-// Aufnahme sonst unter deren Namen landen. starte()/stoppe() zählen diese
-// Generation hoch; jeder Durchlauf merkt sich seine beim Start, verarbeiteJob
-// prüft sie vor jedem einzelnen Schreibvorgang (Insert, Upload, Update,
-// Bestätigung, Löschen) erneut — nicht nur einmal am Anfang, weil sich der
-// Stand zwischen zwei await-Punkten geändert haben kann.
+// schreiben. starte()/stoppe() zählen diese Generation hoch; jeder Durchlauf
+// merkt sich seine beim Start, verarbeiteJob prüft sie vor jedem einzelnen
+// Schreibvorgang (Insert, Upload, Update, Bestätigung, Löschen) erneut — nicht
+// nur einmal am Anfang, weil sich der Stand zwischen zwei await-Punkten
+// geändert haben kann. Das deckt den RACE (mitten im Schreiben abgemeldet),
+// aber NICHT den häufigeren, racefreien Fall: ein Job liegt bloss in der
+// Warteschlange (zustand: 'wartet'), während sich A ab- und B anmeldet — der
+// nächste reguläre Tick liefe unter B's frischer, gültiger Generation und der
+// obige Check ginge trivial durch. DAFÜR sorgt Fix-Runde-2: die Autorenschaft
+// wird beim Einreihen an QueueJob.author_id festgehalten (nicht mehr beim
+// Schreiben aus der Sitzung gelesen, siehe postsApi.momentAnlegen), und
+// naechsterJob() wählt unten nur Jobs der GERADE angemeldeten Person aus
+// (postsApi.aktuelleAutorId()). Beide Mechanismen ergänzen sich, keiner
+// ersetzt den anderen.
 let generation = 0;
 function gehoertZurLaufendenGeneration(meineGeneration: number): boolean {
   return meineGeneration === generation;
@@ -128,30 +134,39 @@ async function verarbeiteJob(job: QueueJob, jetzt: number, meineGeneration: numb
   }
 }
 
-// Ein `laeuft`-Flag genügt gegen Überlappung, solange nur dieser Worker schreibt
-// (Task-6-Brief). Ein zweiter Aufruf während eines laufenden Durchlaufs (z.B. der
-// 5-Sekunden-Tick, während ein Upload noch unterwegs ist) tut nichts.
-let laeuft = false;
+// Verhindert Überlappung INNERHALB derselben Worker-Generation (Task-6-Brief,
+// z.B. der 5-Sekunden-Tick, während ein Upload noch unterwegs ist) — bewusst
+// nicht mehr über ein einzelnes globales Flag (Task-13-Fix-Runde-2): ein
+// Durchlauf blockiert nur einen zweiten Durchlauf DERSELBEN Generation. Ein
+// neuer Durchlauf nach stoppe()+starte() (Wechsel zu einer anderen Person auf
+// demselben Gerät, oder ein sofortiges Wiederanmelden derselben Person) gehört
+// einer NEUEN Generation an und wird von einem noch ausklingenden alten
+// Durchlauf nicht blockiert — dessen Schreibversuche scheitern ohnehin am
+// Generationscheck in verarbeiteJob. Ein rein globales Flag, das stoppe()
+// zurücksetzt (Runde 1), hätte dagegen JEDE Überlappung erlaubt, auch zweier
+// Durchläufe derselben, noch laufenden Generation.
+let laufendeGeneration: number | null = null;
 
 // Exportiert und macht genau einen Auswahl-plus-Abarbeiten-Durchlauf — nur so
 // ist die Schleife ohne echten Timer testbar (Task-6-Brief §Step 4).
 export async function einenJobAbarbeiten(): Promise<void> {
-  if (laeuft) return;
-  laeuft = true;
   // Erfasst VOR jedem await dieses Durchlaufs, welcher Worker-Laufzeit er
   // angehört — stoppe() kann dazwischen laufen, während dieser Durchlauf noch
   // auf Netzwerk/SQLite wartet (siehe verarbeiteJob).
   const meineGeneration = generation;
+  if (laufendeGeneration === meineGeneration) return;
+  laufendeGeneration = meineGeneration;
   try {
     await sicherstellenInitialisiert();
-    const [netz, nurWlan, jobs] = await Promise.all([
+    const [netz, nurWlan, jobs, aktuelleAutorId] = await Promise.all([
       Network.getNetworkStateAsync(),
       einstellungen.nurUeberWlan(),
       queueDb.alleJobs(),
+      postsApi.aktuelleAutorId(),
     ]);
     const aufWlan = netz.type === WIFI;
     const jetzt = Date.now();
-    const job = queueLogic.naechsterJob(jobs, jetzt, aufWlan, nurWlan);
+    const job = queueLogic.naechsterJob(jobs, jetzt, aufWlan, nurWlan, aktuelleAutorId);
     if (!job) return;
     await verarbeiteJob(job, jetzt, meineGeneration);
   } catch (fehler) {
@@ -159,7 +174,7 @@ export async function einenJobAbarbeiten(): Promise<void> {
     // Job-Auswahl): darf die Intervall-Schleife nie zum Stehen bringen.
     console.error('[uploadWorker] Durchlauf fehlgeschlagen', fehler);
   } finally {
-    laeuft = false;
+    if (laufendeGeneration === meineGeneration) laufendeGeneration = null;
   }
 }
 
@@ -194,11 +209,11 @@ export function starte(): void {
 // Ebenfalls idempotent: ohne laufenden Worker (oder ein zweites Mal aufgerufen)
 // passiert nichts. Zählt die Generation hoch — jeder Durchlauf, der diese
 // Laufzeit noch kannte, erkennt sich damit beim nächsten Schreibversuch als
-// überholt (siehe verarbeiteJob) und bricht ab, statt zu schreiben. Setzt
-// zusätzlich `laeuft` zurück: ein solcher überholter Durchlauf darf ein
-// unmittelbar folgendes starte() (Wechsel zu einer anderen Person auf
-// demselben Gerät) nicht blockieren, bis sein eigener, längst irrelevant
-// gewordener Netzwerk-Call ausklingt.
+// überholt (siehe verarbeiteJob) und bricht ab, statt zu schreiben. Kein
+// gesondertes Zurücksetzen von laufendeGeneration nötig: die ist an die ALTE
+// Generation gebunden, ein unmittelbar folgendes starte() erzeugt eine NEUE
+// (siehe dort) und wird von einem noch ausklingenden alten Durchlauf deshalb
+// nie blockiert (Task-13-Fix-Runde-2).
 export function stoppe(): void {
   if (intervallId !== null) {
     clearInterval(intervallId);
@@ -207,5 +222,4 @@ export function stoppe(): void {
   netzAbo?.remove();
   netzAbo = null;
   generation += 1;
-  laeuft = false;
 }

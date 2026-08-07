@@ -42,6 +42,11 @@ const SPALTEN_SCHEMA = [
   { name: 'id', typ: 'text', pflicht: true },
   { name: 'post_id', typ: 'text', pflicht: true },
   { name: 'trip_id', typ: 'text', pflicht: true },
+  // Task-13-Fix-Runde-2: Pflicht wie jede andere Kern-Spalte — eine Zeile ohne
+  // author_id (z.B. eine Alt-Zeile aus einer Installation von vor diesem Feld,
+  // siehe spaltenNachziehen unten) gilt über istVollstaendig() als
+  // unvollständig und wird nie verarbeitet, statt geraten zu werden.
+  { name: 'author_id', typ: 'text', pflicht: true },
   { name: 'typ', typ: 'text', pflicht: true },
   { name: 'medium_uri', typ: 'text', pflicht: true },
   { name: 'thumb_uri', typ: 'text', pflicht: true },
@@ -80,6 +85,7 @@ function zuZeile(job: QueueJob): Zeile {
     id: job.id,
     post_id: job.post_id,
     trip_id: job.trip_id,
+    author_id: job.author_id,
     typ: job.typ,
     medium_uri: job.medium_uri,
     thumb_uri: job.thumb_uri,
@@ -125,6 +131,7 @@ function zuJob(zeile: Record<string, unknown>): QueueJob | null {
     id: zeile.id as string,
     post_id: zeile.post_id as string,
     trip_id: zeile.trip_id as string,
+    author_id: zeile.author_id as string,
     typ: zeile.typ as QueueJob['typ'],
     medium_uri: zeile.medium_uri as string,
     thumb_uri: zeile.thumb_uri as string,
@@ -150,6 +157,29 @@ function werteFuer(zeile: Zeile, spalten: readonly Spalte[]): (string | number |
   return spalten.map((spalte) => zeile[spalte]);
 }
 
+// Migration für Bestandsinstallationen: `create table if not exists` legt nur
+// eine NEUE Tabelle mit dem vollen, aktuellen Schema an — eine bereits
+// existierende Tabelle (z.B. von vor Task-13-Fix-Runde-2, als es author_id
+// noch nicht gab) wandert dadurch NICHT nach. PRAGMA table_info zeigt die
+// tatsächlich vorhandenen Spalten; fehlt eine, wird sie per ALTER TABLE
+// nachgezogen — bewusst OHNE "not null", selbst wenn SPALTEN_SCHEMA die
+// Spalte als Pflicht führt: SQLite verweigert eine NOT-NULL-Spalte ohne
+// DEFAULT auf einer bereits befüllten Tabelle. Bestehende Zeilen bekommen so
+// NULL — istVollstaendig() (siehe zuJob) verwirft sie beim Lesen als
+// unvollständig, statt sie unter der aktuell angemeldeten Person
+// weiterzuverarbeiten. Das ist Absicht: ein Alt-Moment ohne bekannte
+// Autoren-Kennung darf nie unter fremdem Namen landen — auch nicht, indem
+// man es einfach der Person zuschreibt, die das Gerät gerade benutzt.
+async function spaltenNachziehen(db: SQLiteDatabase): Promise<void> {
+  const vorhandeneSpalten = await db.getAllAsync<{ name: string }>('pragma table_info(upload_queue)', []);
+  const namen = new Set(vorhandeneSpalten.map((s) => s.name));
+  for (const def of SPALTEN_SCHEMA) {
+    if (!namen.has(def.name)) {
+      await db.execAsync(`alter table upload_queue add column ${def.name} ${def.typ}`);
+    }
+  }
+}
+
 export async function initQueue(): Promise<void> {
   const db = await holeDatenbank();
   const spalten = SPALTEN_SCHEMA.map(spaltenDefinitionSql).join(',\n        ');
@@ -159,6 +189,7 @@ export async function initQueue(): Promise<void> {
         ${spalten}
       );
     `);
+    await spaltenNachziehen(db);
   } catch (fehler) {
     console.error('[queueDb] initQueue fehlgeschlagen', fehler);
     throw fehler;

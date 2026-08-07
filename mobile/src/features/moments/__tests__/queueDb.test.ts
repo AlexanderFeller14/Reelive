@@ -8,8 +8,24 @@ const zeilen: Record<string, unknown>[] = [];
 // ist (Task 13). mockExecAsync steht für "create table if not exists" und
 // schaltet die Tabelle frei.
 let tabelleAngelegt = false;
+// PRAGMA table_info(upload_queue): welche Spalten die (fiktive) Tabelle schon
+// hat, BEVOR initQueue() in diesem Testlauf läuft — simuliert eine
+// Bestandsinstallation (Task-13-Fix-Runde-2, spaltenNachziehen). Standard:
+// vollständig, kein ALTER TABLE nötig; ein dedizierter Migrations-Test
+// überschreibt das gezielt.
+const ALLE_SPALTEN = [
+  'id', 'post_id', 'trip_id', 'author_id', 'typ', 'medium_uri', 'thumb_uri',
+  'storage_key', 'thumb_key', 'caption', 'captured_at', 'captured_tz', 'lat',
+  'lng', 'place_name', 'duration_s', 'zustand', 'versuche', 'naechster_versuch',
+  'zeile_angelegt', 'medium_geladen', 'thumb_geladen',
+];
+let vorhandeneSpalten: string[] = [...ALLE_SPALTEN];
 const mockRunAsync = jest.fn(async (..._args: unknown[]) => {});
 const mockGetAllAsync = jest.fn(async (..._args: unknown[]) => {
+  const sql = _args[0];
+  if (typeof sql === 'string' && sql.includes('pragma table_info')) {
+    return vorhandeneSpalten.map((name) => ({ name }));
+  }
   if (!tabelleAngelegt) throw new Error('no such table: upload_queue');
   return zeilen;
 });
@@ -35,7 +51,7 @@ import { initQueue, jobHinzufuegen, alleJobs, jobAktualisieren, jobEntfernen } f
 import type { QueueJob } from '../types';
 
 const job: QueueJob = {
-  id: 'j1', post_id: 'p1', trip_id: 't1', typ: 'photo',
+  id: 'j1', post_id: 'p1', trip_id: 't1', author_id: 'u1', typ: 'photo',
   medium_uri: 'file:///m.jpg', thumb_uri: 'file:///t.jpg',
   storage_key: 'trips/t1/p1.jpg', thumb_key: 'trips/t1/p1_t.jpg',
   caption: 'Hallo', captured_at: '2026-08-07T10:00:00.000Z', captured_tz: 'Europe/Zurich',
@@ -55,6 +71,7 @@ function spaltenAusInsertSql(sql: string): string[] {
 
 beforeEach(() => {
   zeilen.length = 0;
+  vorhandeneSpalten = [...ALLE_SPALTEN];
   jest.clearAllMocks();
 });
 
@@ -72,6 +89,39 @@ test('initQueue legt jedes Feld von QueueJob als Spalte an', async () => {
   for (const feld of Object.keys(job)) {
     expect(sql).toMatch(new RegExp(`\\b${feld}\\b`));
   }
+});
+
+// Task-13-Fix-Runde-2: `create table if not exists` legt nur eine NEUE
+// Tabelle mit vollem Schema an — eine Bestandsinstallation (Tabelle existiert
+// schon, ohne die neue author_id-Spalte) wandert dadurch NICHT nach.
+test('initQueue zieht eine fehlende Spalte einer Bestandsinstallation per ALTER TABLE nach, ohne "not null"', async () => {
+  vorhandeneSpalten = ALLE_SPALTEN.filter((s) => s !== 'author_id');
+  await initQueue();
+  const alterAufrufe = mockExecAsync.mock.calls
+    .map(([sql]) => sql as string)
+    .filter((sql) => /alter table/i.test(sql));
+  expect(alterAufrufe).toHaveLength(1);
+  expect(alterAufrufe[0]).toMatch(/alter table upload_queue add column author_id/i);
+  // Bewusst ohne "not null", obwohl author_id im Schema Pflicht ist: SQLite
+  // verweigert eine NOT-NULL-Spalte ohne DEFAULT auf einer befüllten Tabelle.
+  expect(alterAufrufe[0]).not.toMatch(/not null/i);
+});
+
+test('initQueue lässt eine bereits vollständige Tabelle unangetastet (kein ALTER TABLE)', async () => {
+  await initQueue();
+  const hatAlter = mockExecAsync.mock.calls.some(([sql]) => /alter table/i.test(sql as string));
+  expect(hatAlter).toBe(false);
+});
+
+// Eine per ALTER TABLE nachgezogene Spalte ist nullable — Alt-Zeilen bekommen
+// author_id: null. istVollstaendig() (Pflichtfeld-Prüfung) verwirft sie beim
+// Lesen als unvollständig, statt sie unter der aktuell angemeldeten Person zu
+// verarbeiten. Das ist Absicht, nicht ein Nebeneffekt: ein Alt-Moment ohne
+// bekannte Autoren-Kennung darf nie unter fremdem Namen landen.
+test('alleJobs verwirft eine Alt-Zeile ohne author_id (Migration von vor Task 13)', async () => {
+  zeilen.push({ ...job, id: 'alt-1', author_id: null });
+  const jobs = await alleJobs();
+  expect(jobs).toHaveLength(0);
 });
 
 test('jobHinzufuegen schreibt alle Felder', async () => {

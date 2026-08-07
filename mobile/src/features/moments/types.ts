@@ -7,6 +7,14 @@ export type QueueJob = {
   id: string;
   post_id: string;
   trip_id: string;
+  // Beim Einreihen festgehalten (Task-13-Fix-Runde-2), NICHT beim Schreiben aus
+  // der Sitzung gelesen: sonst könnte ein Moment, der bloss in der
+  // Warteschlange liegt (zustand: 'wartet', noch nicht verarbeitet), unter dem
+  // Namen der nächsten angemeldeten Person auf demselben Gerät landen — ganz
+  // ohne Race, sobald sich A ab- und B anmeldet, bevor der Job je lief. Siehe
+  // preview.tsx (setzt es) und queueLogic.naechsterJob (wählt nur Jobs der
+  // aktuell angemeldeten Person aus).
+  author_id: string;
   typ: 'photo' | 'video';
   medium_uri: string;
   thumb_uri: string;

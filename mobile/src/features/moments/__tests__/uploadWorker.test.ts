@@ -16,6 +16,9 @@ jest.mock('../postsApi', () => ({
   momentAnlegen: jest.fn(async () => ({ error: null })),
   signierteUrls: jest.fn(async () => ({ medium_url: 'https://s3/m', thumb_url: 'https://s3/t' })),
   uploadBestaetigen: jest.fn(async () => ({ error: null })),
+  // Task-13-Fix-Runde-2: die gerade angemeldete Person — Standard passt zu
+  // basis.author_id, einzelne Tests überschreiben mit mockResolvedValueOnce.
+  aktuelleAutorId: jest.fn(async () => 'u1'),
 }));
 jest.mock('../einstellungen', () => ({ nurUeberWlan: jest.fn(async () => false) }));
 jest.mock('expo-network', () => ({
@@ -30,7 +33,7 @@ import * as Network from 'expo-network';
 import type { QueueJob } from '../types';
 
 const basis: QueueJob = {
-  id: 'j1', post_id: 'p1', trip_id: 't1', typ: 'photo',
+  id: 'j1', post_id: 'p1', trip_id: 't1', author_id: 'u1', typ: 'photo',
   medium_uri: 'file:///m.jpg', thumb_uri: 'file:///t.jpg',
   storage_key: 'trips/t1/p1.jpg', thumb_key: 'trips/t1/p1_t.jpg',
   caption: null, captured_at: '2026-08-07T10:00:00.000Z', captured_tz: 'Europe/Zurich',
@@ -44,6 +47,12 @@ beforeEach(() => {
   jobs.length = 0;
   jest.clearAllMocks();
   (global as unknown as { fetch: unknown }).fetch = globalFetch;
+  // jest.clearAllMocks() setzt NUR Aufruf-Historie zurück, nicht eine per
+  // .mockImplementation()/.mockResolvedValue() gesetzte Implementierung —
+  // zwei Tests unten hängen momentAnlegen bewusst an ein steuerbares Promise.
+  // Ohne diese explizite Wiederherstellung würde das in JEDEN nachfolgenden
+  // Test durchsickern und dort für immer hängen (beobachtet: Timeout).
+  (postsApi.momentAnlegen as jest.Mock).mockResolvedValue({ error: null });
 });
 
 test('ein vollständiger Durchlauf legt an, lädt beides hoch, bestätigt und räumt auf', async () => {
@@ -164,8 +173,9 @@ test('ein Job, der beim Abmelden mitten im Schreiben steckt, schreibt danach nic
 
 // Ein noch ausklingender, überholter Durchlauf darf ein sofort folgendes
 // starte() (z.B. Wechsel zu einer anderen Person auf demselben Gerät) nicht
-// blockieren — deshalb setzt stoppe() auch `laeuft` zurück.
-test('stoppe() setzt laeuft zurück, damit ein sofort folgender Durchlauf nicht blockiert bleibt', async () => {
+// blockieren — der Mutex hängt an der Generation, nicht an einem einzelnen
+// globalen Flag (Task-13-Fix-Runde-2).
+test('ein neuer Durchlauf nach stoppe() wird nicht durch einen noch ausklingenden alten (anderer Generation) blockiert', async () => {
   jobs.push({ ...basis });
   let aufloesenMomentAnlegen: (v: { error: string | null }) => void = () => {};
   let momentAnlegenAufgerufen: () => void = () => {};
@@ -190,4 +200,56 @@ test('stoppe() setzt laeuft zurück, damit ein sofort folgender Durchlauf nicht 
 
   aufloesenMomentAnlegen({ error: null }); // den ersten Durchlauf sauber auflösen
   await ersterDurchlauf;
+});
+
+// Task-13-Fix-Runde-2, DER ENTSCHEIDENDE FALL: kein Race, keine Gleichzeitig-
+// keit. Ein Moment liegt bloss in der Warteschlange (zustand: 'wartet',
+// längst fällig) — niemand ist mitten im Schreiben. A meldet sich ab, B an,
+// und ERST DANACH läuft der nächste reguläre Tick, vollständig unter B's
+// gültiger, frischer Sitzung. Der Generationscheck aus Runde 1 geht hier
+// TRIVIAL durch (die Generation vergleicht sich mit sich selbst) — nur der
+// author_id-Filter in naechsterJob (über aktuelleAutorId) verhindert, dass
+// A's Moment unter B's Namen geschrieben wird.
+test('ein Job, der bloss in der Warteschlange liegt, wird NICHT unter einer anderen, inzwischen angemeldeten Person geschrieben', async () => {
+  jobs.push({ ...basis, author_id: 'person-a' });
+  // Kein Abmelden-mitten-im-Schreiben nötig: aktuelleAutorId() liefert schon
+  // beim ersten (und einzigen) Aufruf "person-b" — ein simpler, späterer Tick.
+  (postsApi.aktuelleAutorId as jest.Mock).mockResolvedValue('person-b');
+
+  await einenJobAbarbeiten();
+
+  expect(postsApi.momentAnlegen).not.toHaveBeenCalled();
+  expect(queueDb.jobAktualisieren).not.toHaveBeenCalled();
+  expect(queueDb.jobEntfernen).not.toHaveBeenCalled();
+  // Der Job bleibt unverändert und wartend liegen — kein Fehlschlag gezählt.
+  const [unveraendert] = jobs as unknown as QueueJob[];
+  expect(unveraendert.versuche).toBe(0);
+  expect(unveraendert.zustand).toBe('wartet');
+});
+
+test('derselbe liegen gebliebene Job läuft durch, sobald die passende Person sich wieder anmeldet', async () => {
+  jobs.push({ ...basis, author_id: 'person-a' });
+  (postsApi.aktuelleAutorId as jest.Mock).mockResolvedValue('person-a');
+
+  await einenJobAbarbeiten();
+
+  expect(postsApi.momentAnlegen).toHaveBeenCalledTimes(1);
+  expect(queueDb.jobEntfernen).toHaveBeenCalledWith('j1');
+});
+
+// Auf einem geteilten Gerät liegen ggf. Jobs mehrerer Personen — nur der
+// zur gerade angemeldeten Person passende wird verarbeitet, der andere
+// bleibt unangetastet liegen.
+test('auf einem geteilten Gerät wird nur der Job der gerade angemeldeten Person verarbeitet', async () => {
+  jobs.push(
+    { ...basis, id: 'von-a', post_id: 'p-a', author_id: 'person-a' },
+    { ...basis, id: 'von-b', post_id: 'p-b', author_id: 'person-b' }
+  );
+  (postsApi.aktuelleAutorId as jest.Mock).mockResolvedValue('person-b');
+
+  await einenJobAbarbeiten();
+
+  expect(postsApi.momentAnlegen).toHaveBeenCalledTimes(1);
+  expect(queueDb.jobEntfernen).toHaveBeenCalledWith('von-b');
+  expect(jobs.some((j) => j.id === 'von-a')).toBe(true); // unangetastet liegen geblieben
 });

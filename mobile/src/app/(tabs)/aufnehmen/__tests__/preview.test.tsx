@@ -55,6 +55,11 @@ jest.mock('@/features/moments/uploadWorker', () => ({
   jobEinreihen: (job: unknown) => mockJobEinreihen(job),
 }));
 
+// Task-13-Fix-Runde-2: die Autoren-Kennung wird beim Einreihen aus useAuth()
+// gelesen, nicht mehr erst vom Worker beim Schreiben aus der Sitzung.
+const mockAuth: { userId: string | null } = { userId: 'u1' };
+jest.mock('@/features/auth/AuthProvider', () => ({ useAuth: () => mockAuth }));
+
 const mockJetzt = jest.fn();
 const mockOrtBestimmen = jest.fn();
 jest.mock('@/features/moments/ortUndZeit', () => ({
@@ -96,6 +101,7 @@ function erwarteteZeit(iso: string): string {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockAuth.userId = 'u1';
   mockParams = { uri: 'file://foto.jpg', typ: 'photo', dauer: '0', tripId: 't1' };
   mockNeuePostId.mockReturnValue('post-1');
   mockFotoAufbereiten.mockResolvedValue({ medium: 'file://medium.jpg', thumb: 'file://thumb.jpg' });
@@ -161,6 +167,7 @@ test('Einsenden reiht genau einen Job ein und navigiert zur Kamera zurück', asy
     id: 'post-1',
     post_id: 'post-1',
     trip_id: 't1',
+    author_id: 'u1',
     typ: 'photo',
     medium_uri: 'file://medium.jpg',
     thumb_uri: 'file://thumb.jpg',
@@ -310,6 +317,25 @@ test('ohne trip_id (Navigationslücke aus dem Kamera-Screen) wird das Einsenden 
   expect(mockJobEinreihen).not.toHaveBeenCalled();
   expect(mockReplace).not.toHaveBeenCalled();
   expect(await screen.findByText(/keiner Reise zuordnen/)).toBeTruthy();
+});
+
+// Task-13-Fix-Runde-2: ein Job ohne Autoren-Kennung darf nie entstehen — in
+// der Praxis lässt das Root-Layout diesen Screen ohne Sitzung gar nicht erst
+// zu, aber der Screen rät hier bewusst nicht, sondern lehnt sichtbar ab
+// (gleiches Prinzip wie ohne trip_id oben).
+test('ohne Sitzung (userId fehlt) wird das Einsenden abgelehnt, statt einen Job ohne Autoren-Kennung einzureihen', async () => {
+  mockAuth.userId = null;
+  mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
+  await render(<PreviewScreen />);
+
+  await act(async () => {
+    await fireEvent.press(screen.getByText('Einsenden'));
+  });
+
+  expect(mockFotoAufbereiten).not.toHaveBeenCalled();
+  expect(mockJobEinreihen).not.toHaveBeenCalled();
+  expect(mockReplace).not.toHaveBeenCalled();
+  expect(await screen.findByText(/nicht angemeldet/)).toBeTruthy();
 });
 
 test('setzt die StatusBar beim Erscheinen auf hell und beim Verlassen zurück auf dunkel', async () => {
