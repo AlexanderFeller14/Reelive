@@ -124,3 +124,70 @@ test('starte() ist idempotent, stoppe() räumt Intervall und Netz-Listener auf',
     jest.useRealTimers();
   }
 });
+
+// Task-13-Fix-Runde-1: postsApi.momentAnlegen() liest die Autorenschaft erst
+// BEIM AUFRUF aus der aktuell aktiven Sitzung (nicht beim Einreihen). Meldet
+// sich A ab und B auf demselben Gerät an, während ein Job noch auf die
+// Netzwerkantwort wartet (bei einem Video leicht mehrere Sekunden), darf die
+// Aufnahme danach nicht mehr — unter wessen Sitzung auch immer — geschrieben
+// werden. Der Test stellt genau diesen Moment her: momentAnlegen hängt fest,
+// stoppe() kommt dazwischen, erst DANACH löst die Netzwerkantwort auf.
+test('ein Job, der beim Abmelden mitten im Schreiben steckt, schreibt danach nichts mehr', async () => {
+  jobs.push({ ...basis });
+  let aufloesenMomentAnlegen: (v: { error: string | null }) => void = () => {};
+  let momentAnlegenAufgerufen: () => void = () => {};
+  const wurdeAufgerufen = new Promise<void>((resolve) => {
+    momentAnlegenAufgerufen = resolve;
+  });
+  (postsApi.momentAnlegen as jest.Mock).mockImplementation(() => {
+    momentAnlegenAufgerufen();
+    return new Promise((resolve) => {
+      aufloesenMomentAnlegen = resolve;
+    });
+  });
+
+  starte();
+  const durchlauf = einenJobAbarbeiten();
+  await wurdeAufgerufen; // haengt jetzt in momentAnlegen fest — genau der vom Review beschriebene Moment
+  stoppe(); // Abmelden waehrend des Uploads
+
+  aufloesenMomentAnlegen({ error: null }); // die Netzwerkantwort kommt jetzt doch noch zurueck
+  await durchlauf;
+
+  // momentAnlegen wurde noch unter der gueltigen (alten) Generation ausgeloest
+  // — das ist korrekt. Aber das Ergebnis darf danach nicht mehr persistiert
+  // werden: kein posts_angelegt-Update, kein Entfernen aus der Warteschlange.
+  expect(postsApi.momentAnlegen).toHaveBeenCalledTimes(1);
+  expect(queueDb.jobAktualisieren).not.toHaveBeenCalled();
+  expect(queueDb.jobEntfernen).not.toHaveBeenCalled();
+});
+
+// Ein noch ausklingender, überholter Durchlauf darf ein sofort folgendes
+// starte() (z.B. Wechsel zu einer anderen Person auf demselben Gerät) nicht
+// blockieren — deshalb setzt stoppe() auch `laeuft` zurück.
+test('stoppe() setzt laeuft zurück, damit ein sofort folgender Durchlauf nicht blockiert bleibt', async () => {
+  jobs.push({ ...basis });
+  let aufloesenMomentAnlegen: (v: { error: string | null }) => void = () => {};
+  let momentAnlegenAufgerufen: () => void = () => {};
+  const wurdeAufgerufen = new Promise<void>((resolve) => {
+    momentAnlegenAufgerufen = resolve;
+  });
+  (postsApi.momentAnlegen as jest.Mock).mockImplementation(() => {
+    momentAnlegenAufgerufen();
+    return new Promise((resolve) => {
+      aufloesenMomentAnlegen = resolve;
+    });
+  });
+
+  starte();
+  const ersterDurchlauf = einenJobAbarbeiten();
+  await wurdeAufgerufen; // laeuft === true, haengt in momentAnlegen fest
+  stoppe();
+
+  jobs.length = 0; // sonst würde der zweite Durchlauf denselben Job erneut aufgreifen
+  await einenJobAbarbeiten(); // darf NICHT als no-op durchgehen
+  expect(Network.getNetworkStateAsync).toHaveBeenCalledTimes(2);
+
+  aufloesenMomentAnlegen({ error: null }); // den ersten Durchlauf sauber auflösen
+  await ersterDurchlauf;
+});

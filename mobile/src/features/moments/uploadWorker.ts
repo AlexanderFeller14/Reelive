@@ -13,6 +13,21 @@ import type { QueueJob } from './types';
 
 const INTERVALL_MS = 5_000;
 
+// Task-13-Fix-Runde-1: ein Job, der beim Abmelden gerade auf Netz-Ein-/Ausgabe
+// wartet (bei einem Video leicht mehrere Sekunden), darf danach nicht weiter-
+// schreiben. postsApi.momentAnlegen() liest die Autorenschaft erst BEIM
+// SCHREIBEN aus der aktuell aktiven Sitzung (nicht beim Einreihen) — meldet
+// sich währenddessen eine andere Person auf demselben Gerät an, würde die
+// Aufnahme sonst unter deren Namen landen. starte()/stoppe() zählen diese
+// Generation hoch; jeder Durchlauf merkt sich seine beim Start, verarbeiteJob
+// prüft sie vor jedem einzelnen Schreibvorgang (Insert, Upload, Update,
+// Bestätigung, Löschen) erneut — nicht nur einmal am Anfang, weil sich der
+// Stand zwischen zwei await-Punkten geändert haben kann.
+let generation = 0;
+function gehoertZurLaufendenGeneration(meineGeneration: number): boolean {
+  return meineGeneration === generation;
+}
+
 // Nicht der enum-Reexport (Network.NetworkStateType), sondern der rohe String:
 // getNetworkStateAsync() liefert type: 'WIFI' zur Laufzeit ohnehin als String,
 // und so bleibt der Vergleich unabhängig davon, was ein Test von expo-network mockt.
@@ -45,10 +60,14 @@ async function teilHochladen(url: string, uri: string, contentType: string): Pro
 
 // Arbeitet EINEN bereits ausgewählten Job komplett ab (alle fälligen Schritte),
 // nicht nur einen einzelnen Schritt — siehe einenJobAbarbeiten() für die Auswahl.
-async function verarbeiteJob(job: QueueJob, jetzt: number): Promise<void> {
+// meineGeneration: die Worker-Laufzeit, zu der dieser Durchlauf beim Start
+// gehörte (siehe gehoertZurLaufendenGeneration oben) — wird vor jedem
+// Schreibvorgang erneut geprüft, nicht nur einmal beim Eintritt.
+async function verarbeiteJob(job: QueueJob, jetzt: number, meineGeneration: number): Promise<void> {
   let aktuell = job;
   try {
     if (!aktuell.zeile_angelegt) {
+      if (!gehoertZurLaufendenGeneration(meineGeneration)) return;
       const angelegt = await postsApi.momentAnlegen(aktuell);
       if (angelegt.error) {
         if (angelegt.dauerhaftAbgelehnt) {
@@ -56,6 +75,7 @@ async function verarbeiteJob(job: QueueJob, jetzt: number): Promise<void> {
           // Reveal: posts_insert_member lehnt das für immer ab (Phase 1 erlaubt nur
           // Nachzügler von vorher). Wiederholen hilft nie — Job verwerfen, Grund
           // festhalten, statt ihn endlos zu wiederholen (Task-6-Brief §Step 4).
+          if (!gehoertZurLaufendenGeneration(meineGeneration)) return;
           await queueDb.jobEntfernen(aktuell.id);
           console.error(
             '[uploadWorker] Moment dauerhaft von der Policy abgelehnt, Job verworfen',
@@ -67,6 +87,7 @@ async function verarbeiteJob(job: QueueJob, jetzt: number): Promise<void> {
         throw new Error(angelegt.error);
       }
       aktuell = { ...aktuell, zeile_angelegt: true };
+      if (!gehoertZurLaufendenGeneration(meineGeneration)) return;
       await queueDb.jobAktualisieren(aktuell);
     }
 
@@ -74,24 +95,33 @@ async function verarbeiteJob(job: QueueJob, jetzt: number): Promise<void> {
     if (!urls) throw new Error('Signierte URLs konnten nicht geholt werden.');
 
     if (!aktuell.medium_geladen) {
+      if (!gehoertZurLaufendenGeneration(meineGeneration)) return;
       await teilHochladen(urls.medium_url, aktuell.medium_uri, aktuell.typ === 'video' ? 'video/mp4' : 'image/jpeg');
       aktuell = { ...aktuell, medium_geladen: true };
+      if (!gehoertZurLaufendenGeneration(meineGeneration)) return;
       await queueDb.jobAktualisieren(aktuell);
     }
 
     if (!aktuell.thumb_geladen) {
+      if (!gehoertZurLaufendenGeneration(meineGeneration)) return;
       await teilHochladen(urls.thumb_url, aktuell.thumb_uri, 'image/jpeg');
       aktuell = { ...aktuell, thumb_geladen: true };
+      if (!gehoertZurLaufendenGeneration(meineGeneration)) return;
       await queueDb.jobAktualisieren(aktuell);
     }
 
+    if (!gehoertZurLaufendenGeneration(meineGeneration)) return;
     const bestaetigt = await postsApi.uploadBestaetigen(aktuell.post_id);
     if (bestaetigt.error) throw new Error(bestaetigt.error);
 
     // fertig ⇒ sofort entfernen statt erst noch den Zustand zu persistieren:
     // ein zusätzliches update() vor dem delete() wäre ein überflüssiger Schreibvorgang.
+    if (!gehoertZurLaufendenGeneration(meineGeneration)) return;
     await queueDb.jobEntfernen(aktuell.id);
   } catch (fehler) {
+    // Auch der Fehlschlag-Zähler ist ein Schreibvorgang: eine beendete
+    // Generation darf ihn nicht mehr hinterlassen (siehe Kommentar oben).
+    if (!gehoertZurLaufendenGeneration(meineGeneration)) return;
     const nachher = queueLogic.nachFehlschlag(aktuell, jetzt);
     await queueDb.jobAktualisieren(nachher);
     console.error('[uploadWorker] Job fehlgeschlagen, wird erneut versucht', aktuell.id, fehler);
@@ -108,6 +138,10 @@ let laeuft = false;
 export async function einenJobAbarbeiten(): Promise<void> {
   if (laeuft) return;
   laeuft = true;
+  // Erfasst VOR jedem await dieses Durchlaufs, welcher Worker-Laufzeit er
+  // angehört — stoppe() kann dazwischen laufen, während dieser Durchlauf noch
+  // auf Netzwerk/SQLite wartet (siehe verarbeiteJob).
+  const meineGeneration = generation;
   try {
     await sicherstellenInitialisiert();
     const [netz, nurWlan, jobs] = await Promise.all([
@@ -119,7 +153,7 @@ export async function einenJobAbarbeiten(): Promise<void> {
     const jetzt = Date.now();
     const job = queueLogic.naechsterJob(jobs, jetzt, aufWlan, nurWlan);
     if (!job) return;
-    await verarbeiteJob(job, jetzt);
+    await verarbeiteJob(job, jetzt, meineGeneration);
   } catch (fehler) {
     // Schutz gegen einen kaputten Durchlauf (z.B. SQLite/Netzwerk-Ausnahme VOR der
     // Job-Auswahl): darf die Intervall-Schleife nie zum Stehen bringen.
@@ -144,9 +178,11 @@ let intervallId: ReturnType<typeof setInterval> | null = null;
 let netzAbo: { remove: () => void } | null = null;
 
 // Idempotent: ein zweiter Aufruf, während der Worker schon läuft, legt kein
-// zweites Intervall/Abo an.
+// zweites Intervall/Abo an (und zählt die Generation dann auch nicht hoch —
+// es beginnt ja keine neue Laufzeit).
 export function starte(): void {
   if (intervallId !== null) return;
+  generation += 1;
   intervallId = setInterval(() => {
     void einenJobAbarbeiten();
   }, INTERVALL_MS);
@@ -156,7 +192,13 @@ export function starte(): void {
 }
 
 // Ebenfalls idempotent: ohne laufenden Worker (oder ein zweites Mal aufgerufen)
-// passiert nichts.
+// passiert nichts. Zählt die Generation hoch — jeder Durchlauf, der diese
+// Laufzeit noch kannte, erkennt sich damit beim nächsten Schreibversuch als
+// überholt (siehe verarbeiteJob) und bricht ab, statt zu schreiben. Setzt
+// zusätzlich `laeuft` zurück: ein solcher überholter Durchlauf darf ein
+// unmittelbar folgendes starte() (Wechsel zu einer anderen Person auf
+// demselben Gerät) nicht blockieren, bis sein eigener, längst irrelevant
+// gewordener Netzwerk-Call ausklingt.
 export function stoppe(): void {
   if (intervallId !== null) {
     clearInterval(intervallId);
@@ -164,4 +206,6 @@ export function stoppe(): void {
   }
   netzAbo?.remove();
   netzAbo = null;
+  generation += 1;
+  laeuft = false;
 }

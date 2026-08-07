@@ -19,6 +19,21 @@ function holeDatenbank(): Promise<SQLiteDatabase> {
   return datenbank;
 }
 
+// Gleiches Lazy-Muster wie holeDatenbank() oben: alleJobs() ruft dies bei
+// JEDEM Aufruf auf (auch bei jedem 5-Sekunden-Tick des Workers), `create
+// table if not exists` soll dafür aber nicht jedes Mal erneut ausgeführt
+// werden — genau die Last, die uploadWorker mit seinem eigenen
+// `sicherstellenInitialisiert` bereits bewusst vermeidet (Task-13-Fix-Runde-1,
+// Minor). Ein fehlgeschlagener Versuch wird NICHT gecacht — initQueue() wirft
+// dann beim nächsten Aufruf erneut, statt die Warteschlange nach einem
+// einmaligen Fehler für den Rest des Prozesses tot zu lassen.
+let tabelleSichergestellt = false;
+async function sicherstellenTabelle(): Promise<void> {
+  if (tabelleSichergestellt) return;
+  await initQueue();
+  tabelleSichergestellt = true;
+}
+
 // Einzige Quelle der Wahrheit für das Spaltenschema: Name, SQLite-Typ und ob die
 // Spalte Pflicht ist (not null). `create table`, die Spaltenreihenfolge für
 // insert/update UND die Pflichtfeld-Prüfung beim Lesen (siehe zuJob) werden alle
@@ -172,7 +187,7 @@ export async function jobHinzufuegen(job: QueueJob): Promise<void> {
 // die Tabelle selbst sicher (`create table if not exists` ist billig genug),
 // statt jeden Aufrufer (Reise-Detail, Zähler, ...) einzeln defensiv zu machen.
 export async function alleJobs(): Promise<QueueJob[]> {
-  await initQueue();
+  await sicherstellenTabelle();
   const db = await holeDatenbank();
   try {
     const zeilen = await db.getAllAsync<Record<string, unknown>>('select * from upload_queue', []);

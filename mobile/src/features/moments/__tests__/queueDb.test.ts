@@ -55,7 +55,6 @@ function spaltenAusInsertSql(sql: string): string[] {
 
 beforeEach(() => {
   zeilen.length = 0;
-  tabelleAngelegt = false;
   jest.clearAllMocks();
 });
 
@@ -117,16 +116,6 @@ test('Job übersteht eine Rundreise durch jobHinzufuegen und alleJobs unversehrt
 
   const [wiederhergestellt] = await alleJobs();
   expect(wiederhergestellt).toEqual(original);
-});
-
-// Task 13: der Worker (und mit ihm initQueue()) läuft erst ab signedIn — ein
-// frisch installiertes Gerät oder eines ohne Session/Profil hat die Tabelle
-// also noch nicht. alleJobs() wird trotzdem direkt von aussen gerufen (Reise-
-// Detail, Zähler) und darf diese Aufrufer nie mit einem SQLite-Fehler
-// blockieren, sondern muss die Tabelle selbst sicherstellen.
-test('alleJobs liefert auf einer noch nie angelegten Tabelle eine leere Liste statt zu werfen', async () => {
-  await expect(alleJobs()).resolves.toEqual([]);
-  expect(mockExecAsync).toHaveBeenCalledWith(expect.stringContaining('create table if not exists'));
 });
 
 test('alleJobs wandelt 0/1 zurück in Booleans', async () => {
@@ -192,4 +181,25 @@ test('öffnet die Datenbank nicht beim Import, sondern erst beim ersten Zugriff'
   await frischesModul.initQueue();
 
   expect(mockOpenDatabaseAsync).toHaveBeenCalledTimes(1);
+});
+
+// Task 13: der Worker (und mit ihm initQueue()) läuft erst ab signedIn — ein
+// frisch installiertes Gerät oder eines ohne Session/Profil hat die Tabelle
+// also noch nicht. alleJobs() wird trotzdem direkt von aussen gerufen (Reise-
+// Detail, Zähler) und darf diese Aufrufer nie mit einem SQLite-Fehler
+// blockieren, sondern muss die Tabelle selbst sicherstellen.
+//
+// Frisches Modul nach jest.resetModules() wie im Test direkt oberhalb — sonst
+// hätte ein früherer Test in dieser Datei (z.B. der erste initQueue-Aufruf)
+// `tabelleAngelegt` bereits dauerhaft auf true gesetzt und dieser Test würde
+// nichts mehr beweisen. `tabelleAngelegt` wird bewusst NICHT in beforeEach
+// zurückgesetzt (siehe oben) — es bildet eine reale, für die Prozesslaufzeit
+// einmal angelegte SQLite-Tabelle nach, kein Pro-Test-Zurücksetzen.
+test('alleJobs liefert auf einer noch nie angelegten Tabelle eine leere Liste statt zu werfen', async () => {
+  jest.resetModules();
+  tabelleAngelegt = false;
+  const frischesModul: typeof import('../queueDb') = require('../queueDb');
+
+  await expect(frischesModul.alleJobs()).resolves.toEqual([]);
+  expect(mockExecAsync).toHaveBeenCalledWith(expect.stringContaining('create table if not exists'));
 });
