@@ -7,3 +7,6 @@ node_modules/
 # mobile/.env.example ist nur getrackt, weil es früher mit -f erzwungen wurde).
 !**/.env.example
 .DS_Store
+
+# Claude Code: lokale Einstellungen und Agenten-Worktrees
+.claude/
