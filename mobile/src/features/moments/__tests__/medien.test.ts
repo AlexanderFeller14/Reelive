@@ -5,26 +5,77 @@
 // nicht die veraltete Form.
 jest.mock('expo-crypto', () => ({ randomUUID: () => 'uuid-fest' }));
 
+// Spione ausserhalb der Factory, damit die Tests Aufrufe über mehrere
+// manipulate()-Instanzen hinweg prüfen können (Fix-Runde 1, Findings 1–3).
+const mockResize = jest.fn();
+const mockSaveAsync = jest.fn();
+const mockRelease = jest.fn();
+let mockWirftBeimSpeichern = false;
+
+// Typen für den Mock-Kontext liegen bewusst ausserhalb der jest.mock-Factory:
+// babel-plugin-jest-hoist behandelt eine lokal darin deklarierte `type`-Alias-
+// Bindung nicht als Scope-Binding und wirft dann "out-of-scope variable",
+// obwohl sie nur zur Compile-Zeit existiert.
+type ResizeZiel = { width?: number; height?: number };
+type MockErgebnis = {
+  width: number;
+  height: number;
+  saveAsync: (optionen: { format?: string; compress?: number }) => Promise<{ uri: string }>;
+  release: () => void;
+};
+type MockKontext = {
+  resize: (ziel: ResizeZiel) => MockKontext;
+  renderAsync: () => Promise<MockErgebnis>;
+  release: () => void;
+};
+
 jest.mock('expo-image-manipulator', () => {
-  type MockKontext = {
-    resize: (groesse: { width?: number }) => MockKontext;
-    renderAsync: () => Promise<{ saveAsync: () => Promise<{ uri: string }> }>;
+  // Feste Testquellen: Querformat, Hochformat und ein bereits kleines Bild.
+  const quellmasse: Record<string, { width: number; height: number }> = {
+    'file:///quer.jpg': { width: 4032, height: 3024 },
+    'file:///hoch.jpg': { width: 3024, height: 4032 },
+    'file:///klein.jpg': { width: 200, height: 150 },
   };
-  function erzeugeKontext(_quelle: string): MockKontext {
-    let letzteBreite: number | undefined;
+
+  function erzeugeKontext(quelle: string): MockKontext {
+    const original = quellmasse[quelle] ?? { width: 1000, height: 1000 };
+    let angefordert: ResizeZiel | undefined;
     const kontext: MockKontext = {
-      resize: jest.fn((groesse: { width?: number }) => {
-        letzteBreite = groesse.width;
+      resize: jest.fn((ziel: ResizeZiel) => {
+        mockResize(ziel);
+        angefordert = ziel;
         return kontext;
       }),
-      renderAsync: jest.fn(async () => ({
-        saveAsync: jest.fn(async () => ({
-          uri: `file:///bearbeitet-${letzteBreite ?? 0}.jpg`,
-        })),
-      })),
+      renderAsync: jest.fn(async () => {
+        // Bewusst HIER eingefroren, nicht erst beim saveAsync-Aufruf gelesen:
+        // sonst würde eine vertauschte Reihenfolge von resize()/renderAsync()
+        // im Produktionscode nicht aufgedeckt.
+        const eingefroren = angefordert;
+        let breite = original.width;
+        let hoehe = original.height;
+        if (eingefroren?.width !== undefined) {
+          breite = eingefroren.width;
+          hoehe = Math.round((original.height / original.width) * breite);
+        } else if (eingefroren?.height !== undefined) {
+          hoehe = eingefroren.height;
+          breite = Math.round((original.width / original.height) * hoehe);
+        }
+        return {
+          width: breite,
+          height: hoehe,
+          saveAsync: jest.fn(async (optionen: { format?: string; compress?: number }) => {
+            mockSaveAsync(optionen);
+            if (mockWirftBeimSpeichern) throw new Error('Speichern fehlgeschlagen');
+            return { uri: `file:///bearbeitet-${breite}x${hoehe}.jpg` };
+          }),
+          release: jest.fn(() => mockRelease()),
+        };
+      }),
+      release: jest.fn(() => mockRelease()),
     };
     return kontext;
   }
+
   return {
     ImageManipulator: { manipulate: jest.fn((quelle: string) => erzeugeKontext(quelle)) },
     SaveFormat: { JPEG: 'jpeg' },
@@ -36,6 +87,11 @@ jest.mock('expo-video-thumbnails', () => ({
 }));
 
 import { storageKey, thumbKey, neuePostId, fotoAufbereiten, videoAufbereiten } from '../medien';
+
+beforeEach(() => {
+  jest.clearAllMocks();
+  mockWirftBeimSpeichern = false;
+});
 
 test('storageKey folgt dem vereinbarten Muster', () => {
   expect(storageKey('t1', 'p1', 'photo')).toBe('trips/t1/p1.jpg');
@@ -50,10 +106,55 @@ test('neuePostId liefert eine UUID', () => {
   expect(neuePostId()).toBe('uuid-fest');
 });
 
-test('fotoAufbereiten liefert Medium und Thumbnail', async () => {
-  const { medium, thumb } = await fotoAufbereiten('file:///roh.jpg');
-  expect(medium).toContain('1080');
-  expect(thumb).toContain('320');
+test('fotoAufbereiten skaliert bei Querformat die Breite auf die lange Kante', async () => {
+  const { medium, thumb } = await fotoAufbereiten('file:///quer.jpg');
+  expect(mockResize).toHaveBeenNthCalledWith(1, { width: 1080 });
+  expect(mockResize).toHaveBeenNthCalledWith(2, { width: 320 });
+  expect(medium).toBe('file:///bearbeitet-1080x810.jpg');
+  expect(thumb).toBe('file:///bearbeitet-320x240.jpg');
+});
+
+// Regressionsschutz gegen den ursprünglichen Fehler: ein Rückfall auf
+// "immer resize({ width })" würde hier die Höhe (1440 statt 1080) und damit
+// die lange Kante überschreiten lassen, statt sie zu deckeln.
+test('fotoAufbereiten skaliert bei Hochformat die Höhe auf die lange Kante', async () => {
+  const { medium, thumb } = await fotoAufbereiten('file:///hoch.jpg');
+  expect(mockResize).toHaveBeenNthCalledWith(1, { height: 1080 });
+  expect(mockResize).toHaveBeenNthCalledWith(2, { height: 320 });
+  expect(medium).toBe('file:///bearbeitet-810x1080.jpg');
+  expect(thumb).toBe('file:///bearbeitet-240x320.jpg');
+
+  const [breiteStr, hoeheStr] = medium.replace('file:///bearbeitet-', '').replace('.jpg', '').split('x');
+  expect(Math.max(Number(breiteStr), Number(hoeheStr))).toBeLessThanOrEqual(1080);
+});
+
+test('fotoAufbereiten skaliert ein bereits kleineres Bild nicht hoch', async () => {
+  const { medium, thumb } = await fotoAufbereiten('file:///klein.jpg');
+  expect(mockResize).not.toHaveBeenCalled();
+  expect(medium).toBe('file:///bearbeitet-200x150.jpg');
+  expect(thumb).toBe('file:///bearbeitet-200x150.jpg');
+});
+
+test('fotoAufbereiten speichert Medium und Thumbnail als JPEG mit Qualität 0.8', async () => {
+  await fotoAufbereiten('file:///quer.jpg');
+  expect(mockSaveAsync).toHaveBeenNthCalledWith(1, { format: 'jpeg', compress: 0.8 });
+  expect(mockSaveAsync).toHaveBeenNthCalledWith(2, { format: 'jpeg', compress: 0.8 });
+});
+
+test('fotoAufbereiten gibt Kontext und gerendertes Bild wieder frei (Sondierung + Medium + Thumbnail)', async () => {
+  await fotoAufbereiten('file:///quer.jpg');
+  // Sondierung der Quellmasse (Kontext + Bild) + Medium (Kontext + Bild) +
+  // Thumbnail (Kontext + Bild) = 6 Freigaben.
+  expect(mockRelease).toHaveBeenCalledTimes(6);
+});
+
+test('fotoAufbereiten gibt auch dann frei, wenn das Speichern wirft', async () => {
+  mockWirftBeimSpeichern = true;
+  await expect(fotoAufbereiten('file:///quer.jpg')).rejects.toThrow('Speichern fehlgeschlagen');
+  // Sondierung lief durch (2 Freigaben); der erste Speicherversuch (Medium)
+  // wirft, gibt Kontext und Bild aber trotzdem frei (weitere 2). Das
+  // Thumbnail wird wegen des geworfenen Fehlers gar nicht mehr versucht.
+  expect(mockRelease).toHaveBeenCalledTimes(4);
 });
 
 test('videoAufbereiten lässt das Video unangetastet und zieht ein Standbild', async () => {
