@@ -353,29 +353,36 @@ export default function AufnehmenScreen() {
         enableTorch={blitz === 'on' && modus === 'video'}
         videoQuality="1080p"
       />
-      <View style={styles.kopfPille}>
-        <Text style={[type.bodyMedium, { color: cinema['text-1'] }]}>{reise.name}</Text>
-        <Text style={[type.secondary, { color: cinema['text-2'] }]}>
-          {momenteText(zaehler ?? reise.my_post_count)}
-        </Text>
-      </View>
-      <View style={styles.steuerung}>
-        <PillenKnopf
-          label="Kamera wechseln"
-          onPress={() => setRichtung((r) => (r === 'back' ? 'front' : 'back'))}
-        >
-          <SwitchCamera size={22} color={cinema['text-1']} strokeWidth={1.75} />
-        </PillenKnopf>
-        <PillenKnopf
-          label={blitz === 'on' ? 'Blitz ausschalten' : 'Blitz einschalten'}
-          onPress={() => setBlitz((b) => (b === 'on' ? 'off' : 'on'))}
-        >
-          {blitz === 'on' ? (
-            <Zap size={22} color={cinema['text-1']} strokeWidth={1.75} />
-          ) : (
-            <ZapOff size={22} color={cinema['text-2']} strokeWidth={1.75} />
-          )}
-        </PillenKnopf>
+      <View style={styles.kopfZeile}>
+        <View style={styles.kopfPille}>
+          {/* numberOfLines: ein einzelnes langes Wort (Reisenamen sind frei
+              wählbar) würde die geschrumpfte Pille sonst überlaufen statt
+              gekürzt zu werden. */}
+          <Text numberOfLines={1} style={[type.bodyMedium, { color: cinema['text-1'] }]}>
+            {reise.name}
+          </Text>
+          <Text style={[type.secondary, { color: cinema['text-2'] }]}>
+            {momenteText(zaehler ?? reise.my_post_count)}
+          </Text>
+        </View>
+        <View style={styles.steuerung}>
+          <PillenKnopf
+            label="Kamera wechseln"
+            onPress={() => setRichtung((r) => (r === 'back' ? 'front' : 'back'))}
+          >
+            <SwitchCamera size={22} color={cinema['text-1']} strokeWidth={1.75} />
+          </PillenKnopf>
+          <PillenKnopf
+            label={blitz === 'on' ? 'Blitz ausschalten' : 'Blitz einschalten'}
+            onPress={() => setBlitz((b) => (b === 'on' ? 'off' : 'on'))}
+          >
+            {blitz === 'on' ? (
+              <Zap size={22} color={cinema['text-1']} strokeWidth={1.75} />
+            ) : (
+              <ZapOff size={22} color={cinema['text-2']} strokeWidth={1.75} />
+            )}
+          </PillenKnopf>
+        </View>
       </View>
       <View style={styles.ausloeserWrap}>
         <Ausloeser
@@ -413,23 +420,37 @@ const styles = StyleSheet.create({
     marginBottom: spacing.m,
     gap: spacing.xs,
   },
-  // Pille auf der Kamera-Vorschau (DESIGN-LANGUAGE §1/§4): translucent, Radius
-  // 999. Ohne echten Blur (expo-blur ist nicht installiert) — siehe Bericht.
-  kopfPille: {
+  // Eine Zeile für alles, was oben auf dem Sucher liegt: links die Kopf-Pille,
+  // rechts die Steuerung (Re-Review, Minor 1). Vorher lagen beide einzeln
+  // absolut positioniert übereinander — solange rechts nichts war, fiel nicht
+  // auf, dass die Kopf-Pille unbegrenzt breit wird; mit der Steuerung daneben
+  // läuft ein langer Reisename darunter. Die Zeile begrenzt die Pille
+  // (flexShrink), ohne die Steuerung zu verschieben: sie sitzt weiterhin am
+  // rechten Screen-Rand (§3, Ränder 24).
+  kopfZeile: {
     position: 'absolute',
     top: spacing.xl,
     left: spacing.screen,
+    right: spacing.screen,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: spacing.m,
+  },
+  // Pille auf der Kamera-Vorschau (DESIGN-LANGUAGE §1/§4): translucent, Radius
+  // 999. Ohne echten Blur (expo-blur ist nicht installiert) — siehe Bericht.
+  kopfPille: {
+    flexShrink: 1,
     paddingHorizontal: spacing.base,
     paddingVertical: spacing.s,
     borderRadius: radius.pill,
     backgroundColor: cinema['overlay-pill'],
   },
   // Kamera wechseln und Blitz (Spec §4): rechts oben, auf Höhe der Kopf-Pille,
-  // untereinander im 4er-Raster (§3).
+  // untereinander im 4er-Raster (§3). flexShrink: 0 — schrumpfen soll die
+  // Pille, nicht die Bedienelemente.
   steuerung: {
-    position: 'absolute',
-    top: spacing.xl,
-    right: spacing.screen,
+    flexShrink: 0,
     gap: spacing.m,
   },
   steuerPille: {

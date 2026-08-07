@@ -438,3 +438,17 @@ test('bei eingeschaltetem Blitz läuft im Video-Modus das Dauerlicht', async () 
 
   expect(letzteKameraProps().enableTorch).toBe(true);
 });
+
+// Re-Review, Minor 1: die Steuerung sitzt rechts oben auf derselben Höhe wie
+// die Kopf-Pille. Vor der Ergänzung war rechts nichts zu überdecken, seither
+// schon — ein langer Reisename lief unter die Bedienelemente. Begrenzt wird
+// die Pille, nicht die Steuerung verschoben.
+test('ein langer Reisename wird gekürzt, statt unter die Bedienelemente zu laufen', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(
+    geladen([reise({ name: 'Sommerreise quer durch Skandinavien mit dem alten Camper' })])
+  );
+  await render(<AufnehmenScreen />);
+
+  const name = await screen.findByText('Sommerreise quer durch Skandinavien mit dem alten Camper');
+  expect(name.props.numberOfLines).toBe(1);
+});
