@@ -50,6 +50,29 @@ test('sichtbar löst die success-Haptik genau einmal aus', async () => {
   await unmount();
 });
 
+// Fix-Runde 1: ein Wechsel von prefers-reduced-motion, während die
+// Inszenierung schon läuft (sichtbar bleibt unverändert true), liess den
+// Effekt neu laufen (er hängt auch an reducedMotion, weil die Dauer davon
+// abhängt) — ohne den Ref-Schutz hätte das die Haptik ein zweites Mal für
+// dasselbe Siegel ausgelöst.
+test('ein Wechsel von prefers-reduced-motion während der Inszenierung feuert die Haptik nicht zweimal', async () => {
+  const onFertig = jest.fn();
+  const { rerender, unmount } = await render(<Versiegelung sichtbar={true} onFertig={onFertig} />);
+  expect(mockNotificationAsync).toHaveBeenCalledTimes(1);
+
+  mockUseReducedMotion.mockReturnValue(true);
+  await act(async () => {
+    rerender(<Versiegelung sichtbar={true} onFertig={onFertig} />);
+  });
+
+  expect(mockNotificationAsync).toHaveBeenCalledTimes(1);
+
+  await act(async () => {
+    jest.advanceTimersByTime(200);
+  });
+  await unmount();
+});
+
 test('onFertig kommt nach der vollen Inszenierungsdauer (700–900 ms)', async () => {
   const onFertig = jest.fn();
   const { unmount } = await render(<Versiegelung sichtbar={true} onFertig={onFertig} />);

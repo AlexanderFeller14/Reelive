@@ -15,7 +15,7 @@ jest.mock('@/lib/supabase', () => ({
 import {
   fetchTrips, fetchTrip, fetchMembers, fetchInviteCode,
   createTrip, updateTrip, deleteTrip, removeMember,
-  redeemInvite, peekInvite,
+  redeemInvite, peekInvite, eigeneZaehler,
 } from '../tripsApi';
 
 beforeEach(() => jest.clearAllMocks());
@@ -110,6 +110,27 @@ test('fetchTrips benennt den Offline-Fall statt nur «probier es nochmal»', asy
   });
   const { error } = await fetchTrips();
   expect(error).toBe('Du bist offline. Verbinde dich und probier es nochmal.');
+});
+
+// Fix-Runde 1 (Task 9): eigeneZaehler() hatte bisher keinen eigenen Test —
+// nur tsc prüfte die Object.fromEntries(...)-Umwandlung. Der Momente-Zähler
+// (zaehler.ts) braucht bracket-Zugriff (zaehler[tripId]), darum die
+// Zuordnung Reise-id -> Zahl als reines Objekt statt als Map.
+test('eigeneZaehler liefert die rpc-Zuordnung als reines Objekt (bracket-lesbar)', async () => {
+  mockRpc.mockResolvedValueOnce({
+    data: [
+      { trip_id: 't1', count: 7 },
+      { trip_id: 't2', count: 0 },
+    ],
+    error: null,
+  });
+  await expect(eigeneZaehler()).resolves.toEqual({ t1: 7, t2: 0 });
+  expect(mockRpc).toHaveBeenCalledWith('my_post_counts');
+});
+
+test('eigeneZaehler liefert ein leeres Objekt statt zu werfen, wenn die rpc fehlschlägt', async () => {
+  mockRpc.mockResolvedValueOnce({ data: null, error: { message: 'kaputt' } });
+  await expect(eigeneZaehler()).resolves.toEqual({});
 });
 
 test('fetchTrip trennt «gibt es nicht» von «konnte nicht geladen werden»', async () => {

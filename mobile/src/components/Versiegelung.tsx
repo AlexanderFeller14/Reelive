@@ -27,17 +27,29 @@ export function Versiegelung({ sichtbar, onFertig }: Props) {
   // Elternteils), ohne dass das die laufende Animation neu anstösst.
   const onFertigRef = useRef(onFertig);
   onFertigRef.current = onFertig;
+  // Fix-Runde 1: der Effekt hängt (nötigerweise) auch an `reducedMotion`, weil
+  // die Dauer davon abhängt — ändert sich die Systemeinstellung, während die
+  // Inszenierung schon läuft (sichtbar bleibt true), lief der Effekt bisher
+  // erneut und feuerte die Haptik ein zweites Mal für dasselbe Siegel. Dieser
+  // Ref merkt sich «für dieses sichtbar=true schon gefeuert» unabhängig vom
+  // Effekt-Neustart und wird nur zurückgesetzt, wenn die Inszenierung wieder
+  // unsichtbar wird.
+  const haptikGefeuertRef = useRef(false);
 
   useEffect(() => {
     if (!sichtbar) {
       fortschritt.setValue(0);
+      haptikGefeuertRef.current = false;
       return;
     }
 
     // Haptik feuert genau einmal, beim Start der Inszenierung (§5: success
     // beim Versiegeln). .catch(): reines Beiwerk, darf das Versiegeln selbst
     // nie stören (gleiches Muster wie Ausloeser.leichtesFeedback).
-    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+    if (!haptikGefeuertRef.current) {
+      haptikGefeuertRef.current = true;
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+    }
 
     const dauer = reducedMotion ? REDUZIERTE_DAUER_MS : motion.duration.feature;
     fortschritt.setValue(0);
