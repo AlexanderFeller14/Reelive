@@ -16,6 +16,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { setStatusBarStyle } from 'expo-status-bar';
 import { Video as VideoIcon } from 'lucide-react-native';
 import { PressScale } from '@/components/PressScale';
+import { Versiegelung } from '@/components/Versiegelung';
 import { cinema, palette, radius, spacing, type } from '@/theme/tokens';
 import * as medien from '@/features/moments/medien';
 import * as ortUndZeit from '@/features/moments/ortUndZeit';
@@ -96,6 +97,10 @@ export default function PreviewScreen() {
   const [ort, setOrt] = useState<Ort>(KEIN_ORT);
   const [sendet, setSendet] = useState(false);
   const [sendeFehler, setSendeFehler] = useState<string | null>(null);
+  // Wird erst wahr, NACHDEM der Job sicher in der Warteschlange steckt (siehe
+  // absenden unten) — die Inszenierung entscheidet nie darüber, ob ein
+  // Moment gesichert ist, sie kommentiert nur einen bereits gesicherten.
+  const [versiegelt, setVersiegelt] = useState(false);
   // captured_at/captured_tz werden EINMAL beim Erscheinen dieses Screens
   // eingefroren (lazy state init) — das liegt so nah wie möglich am
   // tatsächlichen Auslöser-Moment aus Task 7 und darf sich nicht mit jedem
@@ -190,11 +195,13 @@ export default function PreviewScreen() {
       // nie darüber entscheiden, ob ein Moment gesichert ist.
       await uploadWorker.jobEinreihen(job);
 
-      // Task 9 hängt hier die Versiegelungs-Inszenierung ein (Gold-Glow,
-      // 700–900 ms, Haptik success) — der Moment ist zu diesem Zeitpunkt
-      // bereits sicher in der Warteschlange, die Animation entscheidet über
-      // nichts mehr.
-      router.replace('/aufnehmen');
+      // Der Moment ist ab hier bereits sicher in der Warteschlange — die
+      // Versiegelungs-Inszenierung (Gold-Glow, 700–900 ms, Haptik success,
+      // DESIGN-LANGUAGE §5) kommentiert das nur noch, sie entscheidet über
+      // nichts mehr. Sie navigiert selbst weiter, sobald sie fertig ist
+      // (onFertig unten) — bis dahin bleibt der Screen stehen, überdeckt vom
+      // Kino-Overlay.
+      setVersiegelt(true);
     } catch (fehler) {
       // Ein Fehler beim Aufbereiten oder Einreihen (z.B. voller Gerätespeicher,
       // Spec §7/§8) wird sichtbar gemacht statt den Moment stillschweigend
@@ -267,6 +274,8 @@ export default function PreviewScreen() {
           <EinsendenButton onPress={() => void absenden()} loading={sendet} />
         </View>
       </View>
+
+      <Versiegelung sichtbar={versiegelt} onFertig={() => router.replace('/aufnehmen')} />
     </KeyboardAvoidingView>
   );
 }

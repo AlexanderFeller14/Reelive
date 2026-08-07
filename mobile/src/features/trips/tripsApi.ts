@@ -57,6 +57,15 @@ async function loadCounts(): Promise<Map<string, number>> {
   return new Map((data as { trip_id: string; count: number }[]).map((r) => [r.trip_id, r.count]));
 }
 
+// Öffentliche Fassung von loadCounts() für Aufrufer ausserhalb dieser Datei
+// (Task 9: der Momente-Zähler zieht den Serverstand als Zuordnung Reise-id ->
+// Zahl aus derselben rpc, ergänzt um noch nicht hochgeladene Momente aus der
+// Warteschlange). Baut bewusst auf loadCounts() auf, statt die rpc erneut
+// abzufragen — eine Zuordnung, eine Quelle.
+export async function eigeneZaehler(): Promise<Record<string, number>> {
+  return Object.fromEntries(await loadCounts());
+}
+
 export async function fetchTrips(): Promise<Gelesen<Trip[]>> {
   const [{ data, error }, counts] = await Promise.all([
     supabase.from('trips').select(MIT_MITGLIEDERN).order('start_date', { ascending: false }),

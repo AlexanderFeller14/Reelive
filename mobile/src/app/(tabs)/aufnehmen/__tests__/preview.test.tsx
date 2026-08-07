@@ -43,6 +43,25 @@ jest.mock('@/features/moments/ortUndZeit', () => ({
   ortBestimmen: () => mockOrtBestimmen(),
 }));
 
+// Die echte Inszenierung (Task 9) läuft 700–900 ms und ist bereits für sich
+// getestet (Versiegelung.test.tsx) — hier interessiert nur der Vertrag „wird
+// sichtbar, sobald der Job eingereiht ist, und navigiert über onFertig weiter".
+// Der Mock feuert onFertig synchron, sobald er sichtbar wird, damit die
+// bestehenden Erwartungen an mockReplace ohne Timer-Steuerung auskommen.
+const mockVersiegelungSichtbar = jest.fn();
+jest.mock('@/components/Versiegelung', () => {
+  const react = jest.requireActual('react');
+  return {
+    Versiegelung: ({ sichtbar, onFertig }: { sichtbar: boolean; onFertig: () => void }) => {
+      mockVersiegelungSichtbar(sichtbar);
+      react.useEffect(() => {
+        if (sichtbar) onFertig();
+      }, [sichtbar, onFertig]);
+      return null;
+    },
+  };
+});
+
 import PreviewScreen from '../preview';
 
 // Nicht hart auf "14:34" verdrahtet: welche lokale Uhrzeit aus dem UTC-ISO-Wert
@@ -142,6 +161,28 @@ test('Einsenden reiht genau einen Job ein und navigiert zur Kamera zurück', asy
     thumb_geladen: false,
   });
   expect(mockReplace).toHaveBeenCalledWith('/aufnehmen');
+});
+
+test('die Versiegelung wird erst sichtbar, nachdem der Job eingereiht ist, und navigiert erst über ihr onFertig', async () => {
+  mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
+  await render(<PreviewScreen />);
+  // Vor dem Senden: die Inszenierung ist unsichtbar.
+  expect(mockVersiegelungSichtbar).toHaveBeenLastCalledWith(false);
+
+  const reihenfolge: string[] = [];
+  mockJobEinreihen.mockImplementation(async () => {
+    reihenfolge.push('eingereiht');
+  });
+  mockReplace.mockImplementation(() => {
+    reihenfolge.push('navigiert');
+  });
+
+  await act(async () => {
+    await fireEvent.press(screen.getByText('Einsenden'));
+  });
+
+  expect(mockVersiegelungSichtbar).toHaveBeenLastCalledWith(true);
+  expect(reihenfolge).toEqual(['eingereiht', 'navigiert']);
 });
 
 test('eine leere Caption wird als null statt als Leerstring eingereiht', async () => {
@@ -254,8 +295,8 @@ test('ein zweiter Tipp auf Einsenden während des Sendens reiht keinen zweiten J
 
   await act(async () => {
     aufloesen({ medium: 'file://medium.jpg', thumb: 'file://thumb.jpg' });
-    await waitFor(() => expect(mockReplace).toHaveBeenCalled());
   });
+  await waitFor(() => expect(mockReplace).toHaveBeenCalled());
 
   expect(mockFotoAufbereiten).toHaveBeenCalledTimes(1);
   expect(mockJobEinreihen).toHaveBeenCalledTimes(1);
