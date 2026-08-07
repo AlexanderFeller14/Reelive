@@ -19,6 +19,25 @@ jest.mock('expo-status-bar', () => ({
   setStatusBarStyle: (...args: unknown[]) => mockSetStatusBarStyle(...args),
 }));
 
+// expo-video braucht ein natives Modul, das es in diesem Jest-Setup nicht
+// gibt (gleiche Einschränkung wie expo-image in Task 8, siehe dessen
+// Bericht) — deshalb gemockt statt real importiert. `useVideoPlayer` liefert
+// ein greifbares Fake-Player-Objekt, damit der Video-Nachzug prüfen kann,
+// dass die Vorschau stumm und in Schleife läuft.
+const mockVideoPlayer = { loop: false, muted: false, play: jest.fn() };
+const mockUseVideoPlayer = jest.fn((source: unknown, setup?: (p: typeof mockVideoPlayer) => void) => {
+  setup?.(mockVideoPlayer);
+  return mockVideoPlayer;
+});
+jest.mock('expo-video', () => ({
+  useVideoPlayer: (source: unknown, setup?: (p: unknown) => void) => mockUseVideoPlayer(source, setup),
+  VideoView: (props: Record<string, unknown>) => {
+    const ReactActual = require('react');
+    const { View } = require('react-native');
+    return ReactActual.createElement(View, { testID: props.testID });
+  },
+}));
+
 const mockNeuePostId = jest.fn();
 const mockFotoAufbereiten = jest.fn();
 const mockVideoAufbereiten = jest.fn();
@@ -212,6 +231,29 @@ test('ein Video trägt seine Dauer in duration_s ein und ruft videoAufbereiten a
     duration_s: 12,
     storage_key: 'trips/t1/post-1.mp4',
   });
+});
+
+// Nachzug aus Task 8: der letzte Blick vor dem Versiegeln zeigt bei Videos
+// «das Aufgenommene formatfüllend» (Spec) statt nur eines Symbols mit Dauer —
+// stumm, in Schleife, ohne Bedienelemente (eine Vorschau, kein Player).
+test('ein Video wird als stumme, endlos wiederholte Vorschau ohne Bedienelemente angezeigt', async () => {
+  mockParams = { uri: 'file://video.mp4', typ: 'video', dauer: '12', tripId: 't1' };
+  mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
+  await render(<PreviewScreen />);
+
+  expect(mockUseVideoPlayer).toHaveBeenCalledWith('file://video.mp4', expect.any(Function));
+  expect(mockVideoPlayer.loop).toBe(true);
+  expect(mockVideoPlayer.muted).toBe(true);
+  expect(mockVideoPlayer.play).toHaveBeenCalled();
+  expect(screen.getByTestId('video-vorschau')).toBeTruthy();
+});
+
+test('bei einem Foto wird kein Video-Player angelegt', async () => {
+  mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
+  await render(<PreviewScreen />);
+
+  expect(mockUseVideoPlayer).toHaveBeenCalledWith(null, expect.any(Function));
+  expect(screen.queryByTestId('video-vorschau')).toBeNull();
 });
 
 test('Verwerfen reiht nichts ein und geht zurück zur Kamera', async () => {

@@ -14,7 +14,7 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { setStatusBarStyle } from 'expo-status-bar';
-import { Video as VideoIcon } from 'lucide-react-native';
+import { useVideoPlayer, VideoView } from 'expo-video';
 import { PressScale } from '@/components/PressScale';
 import { Versiegelung } from '@/components/Versiegelung';
 import { cinema, palette, radius, spacing, type } from '@/theme/tokens';
@@ -106,6 +106,17 @@ export default function PreviewScreen() {
   // tatsächlichen Auslöser-Moment aus Task 7 und darf sich nicht mit jedem
   // Tastenanschlag an der Caption weiterbewegen.
   const [zeit] = useState(() => ortUndZeit.jetzt());
+
+  // Nachzug aus Task 8 (Video-Nachzug): «das Aufgenommene formatfüllend» gilt
+  // auch für Videos — dieser Screen ist der letzte Blick vor dem Versiegeln.
+  // Stumm und in Schleife, ohne Bedienelemente: eine Vorschau, kein Player.
+  // `source: null` bei Fotos, damit kein Player für eine Bild-URI angelegt
+  // wird (Hooks laufen unabhängig von `typ` unbedingt, siehe Hook-Regeln).
+  const player = useVideoPlayer(typ === 'video' ? uri : null, (p) => {
+    p.loop = true;
+    p.muted = true;
+    p.play();
+  });
 
   useEffect(() => {
     setStatusBarStyle('light');
@@ -220,10 +231,14 @@ export default function PreviewScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       {typ === 'video' ? (
-        <View style={[StyleSheet.absoluteFill, styles.videoFlaeche]}>
-          <VideoIcon color={cinema['text-2']} size={48} strokeWidth={1.75} />
-          <Text style={[type.secondary, styles.videoText]}>Video · {dauer}s</Text>
-        </View>
+        <VideoView
+          testID="video-vorschau"
+          player={player}
+          style={StyleSheet.absoluteFill}
+          contentFit="cover"
+          nativeControls={false}
+          allowsPictureInPicture={false}
+        />
       ) : (
         <Image source={{ uri }} style={StyleSheet.absoluteFill} resizeMode="cover" />
       )}
@@ -282,13 +297,6 @@ export default function PreviewScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: cinema['bg-0'] },
-  videoFlaeche: {
-    backgroundColor: cinema['bg-1'],
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.s,
-  },
-  videoText: { color: cinema['text-2'] },
   scrimOben: {
     position: 'absolute',
     top: 0,
