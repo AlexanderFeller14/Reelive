@@ -6,7 +6,61 @@
 import type { RecapMoment } from './types';
 import { gruppiereNachTagen } from './tage';
 
-export type PlayerStand = { index: number; pausiert: boolean; fortschritt: number };
+// Phase-5-Final-Review, Punkt 1: `pausiert` war ein einzelnes `boolean` —
+// jede der (inzwischen vier) Stellen, die eine Pause AUFHEBEN, musste sich
+// auf "irgendetwas hat pausiert, also darf ich entpausieren" verlassen, ohne
+// zu wissen, OB sie selbst die Pause gesetzt hatte. Der Zwischenkarten-Timer
+// (player.tsx) hat genau darüber einen offenen Kommentar-Sheet stumm wieder
+// entpausiert, obwohl er nie der Grund für dessen Pause war — dieselbe
+// Fehlerklasse, die vorher schon dreimal in dieser Phase auftauchte (siehe
+// Bericht). Ein `Set<PauseGrund>` macht die Frage "darf ich entpausieren?"
+// bedeutungslos: jede Stelle nimmt NUR den Grund zurück, den sie selbst
+// gesetzt hat (mitGrund/ohneGrund unten) — ein zurückgenommener Grund, den
+// eine andere Stelle längst selbst schon entfernt hat, ist ein sicheres
+// No-Op, kein Fehler. Der Player läuft, sobald das Set leer ist.
+export type PauseGrund = 'halten' | 'kommentare' | 'zwischenkarte' | 'neuversuch';
+
+export type PlayerStand = { index: number; pausiert: ReadonlySet<PauseGrund>; fortschritt: number };
+
+// Fügt `grund` hinzu — liefert bei bereits vorhandenem Grund DIESELBE
+// Set-Referenz zurück (kein unnötiger Re-Render/Effekt-Neulauf, gleiches
+// Bail-out-Prinzip wie ein `setState`, dem derselbe Wert erneut übergeben
+// wird), sonst ein NEUES Set (nie in place mutiert — ein Konsument, der
+// `pausiert` in einem Effekt-Dependency-Array führt, braucht eine neue
+// Referenz, um den Wechsel überhaupt zu bemerken).
+export function mitGrund(pausiert: ReadonlySet<PauseGrund>, grund: PauseGrund): ReadonlySet<PauseGrund> {
+  if (pausiert.has(grund)) return pausiert;
+  return new Set(pausiert).add(grund);
+}
+
+// Nimmt `grund` zurück — und AUSSCHLIESSLICH `grund`. Das ist die eigentliche
+// Pointe dieses Moduls (siehe Kommentar bei PlayerStand oben): ein Aufruf mit
+// einem nicht (mehr) vorhandenen Grund — z.B. ein verwaister Timer, dessen
+// eigener Grund längst von anderswo zurückgenommen wurde — ist bewusst ein
+// sicheres No-Op (liefert dieselbe Referenz zurück), statt zu werfen oder
+// versehentlich einen FREMDEN, inzwischen gesetzten Grund mitzureissen.
+export function ohneGrund(pausiert: ReadonlySet<PauseGrund>, grund: PauseGrund): ReadonlySet<PauseGrund> {
+  if (!pausiert.has(grund)) return pausiert;
+  const naechste = new Set(pausiert);
+  naechste.delete(grund);
+  return naechste;
+}
+
+// Ob ein `playToEnd`/Video-Ende-Event den automatischen Vorschub auslösen
+// darf. Vertrag 4 (playerLogic-Vertrag, siehe player.tsx): eine Halten-Geste
+// MUSS ein währenddessen eintreffendes Video-Ende trotzdem durchlassen — sie
+// friert nur die ANZEIGE ein, nicht das native Player-Ende-Event. Jeder
+// andere Grund (Zwischenkarte steht, Kommentar-Sheet offen, stiller
+// Neuversuch nach einem Ladefehler läuft) blockiert dagegen weiterhin. Ein
+// Guard, der nur "ist irgendein Grund gesetzt" prüft, könnte diese beiden
+// Fälle nicht auseinanderhalten — genau dafür existiert PauseGrund als
+// benannte Menge statt eines einzelnen Flags.
+export function blockiertAutomatischenVorschub(pausiert: ReadonlySet<PauseGrund>): boolean {
+  for (const grund of pausiert) {
+    if (grund !== 'halten') return true;
+  }
+  return false;
+}
 
 // Anzeigedauer eines Fotos, bevor der Player automatisch weiterspringt.
 export const FOTO_DAUER_MS = 5000;

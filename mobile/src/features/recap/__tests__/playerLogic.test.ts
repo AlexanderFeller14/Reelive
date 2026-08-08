@@ -3,11 +3,16 @@ import {
   weiter,
   zurueck,
   tagWechselt,
+  mitGrund,
+  ohneGrund,
+  blockiertAutomatischenVorschub,
   FOTO_DAUER_MS,
   VIDEO_DAUER_FALLBACK_MS,
   VIDEO_DAUER_MIN_MS,
+  type PauseGrund,
   type PlayerStand,
 } from '../playerLogic';
+import * as tage from '../tage';
 import type { RecapMoment } from '../types';
 
 // Minimal-Moment mit sinnvollen Defaults — jeder Test überschreibt nur, was
@@ -50,6 +55,19 @@ describe('dauerFuer', () => {
     expect(dauerFuer(moment({ type: 'video', duration_s: 12 }))).toBe(12_000);
   });
 
+  // Phase-5-Final-Review, Punkt 8 (Review-Fund): fehlte bisher — die beiden
+  // Boden-Tests unten vergleichen `dauerFuer(...)` gegen `VIDEO_DAUER_MIN_MS`
+  // SELBST, nicht gegen ein Literal. Ein Mutant, der die Konstante von 1000
+  // auf z.B. 8000 ändert, bliebe bei BEIDEN grün (die Implementierung würde
+  // dann tatsächlich 8000 liefern, und der Test vergleicht ja weiterhin nur
+  // gegen dieselbe — inzwischen mutierte — Konstante). Zwei Zeilen weiter
+  // oben macht die Suite es für FOTO_DAUER_MS bereits richtig
+  // (`expect(FOTO_DAUER_MS).toBe(5000)`) — dasselbe Literal-Pinning fehlte
+  // hier für den Video-Boden.
+  test('VIDEO_DAUER_MIN_MS ist 1000 (Kommentar am Export: „eine Sekunde ist kurz genug … aber lang genug, um real sichtbar zu sein")', () => {
+    expect(VIDEO_DAUER_MIN_MS).toBe(1000);
+  });
+
   // Ein Boden verhindert, dass ein sehr kurzer/kaputter duration_s-Wert
   // (0 ist laut Check-Constraint technisch gültig) den Moment faktisch
   // unsichtbar macht — der Fortschrittsbalken würde sonst augenblicklich
@@ -57,14 +75,16 @@ describe('dauerFuer', () => {
   // Implementierung, die `duration_s ? … : Fallback` statt `=== null`
   // prüft, würde hier fälschlich den (viel längeren) Fallback statt des
   // Bodens liefern; dieser Test verlangt explizit den Boden, nicht 0 und
-  // nicht VIDEO_DAUER_FALLBACK_MS.
-  test('duration_s = 0 liefert den Boden VIDEO_DAUER_MIN_MS, nicht 0 und nicht den Fallback', () => {
-    expect(dauerFuer(moment({ type: 'video', duration_s: 0 }))).toBe(VIDEO_DAUER_MIN_MS);
+  // nicht VIDEO_DAUER_FALLBACK_MS. Literal `1000` statt `VIDEO_DAUER_MIN_MS`
+  // (Review-Fund, siehe oben): sonst bliebe der Test grün, selbst wenn die
+  // Konstante (und mit ihr die tatsächliche Anzeigedauer) sich änderte.
+  test('duration_s = 0 liefert den Boden von 1000 ms, nicht 0 und nicht den Fallback', () => {
+    expect(dauerFuer(moment({ type: 'video', duration_s: 0 }))).toBe(1000);
   });
 
-  test('ein sehr kurzer, aber echter duration_s-Wert wird ebenfalls auf den Boden angehoben', () => {
-    // 0.5 s * 1000 = 500 ms, unter dem Boden von VIDEO_DAUER_MIN_MS.
-    expect(dauerFuer(moment({ type: 'video', duration_s: 0.5 }))).toBe(VIDEO_DAUER_MIN_MS);
+  test('ein sehr kurzer, aber echter duration_s-Wert wird ebenfalls auf den Boden von 1000 ms angehoben', () => {
+    // 0.5 s * 1000 = 500 ms, unter dem Boden.
+    expect(dauerFuer(moment({ type: 'video', duration_s: 0.5 }))).toBe(1000);
   });
 
   test('ein Video mit ausreichender Dauer bleibt UNTER dem Boden unangetastet (Boden hebt nur an, kappt nicht)', () => {
@@ -88,21 +108,30 @@ describe('dauerFuer', () => {
 });
 
 describe('weiter', () => {
+  // Phase-5-Final-Review, Punkt 1: `pausiert` ist jetzt ein
+  // `ReadonlySet<PauseGrund>` statt eines booleans (siehe playerLogic.ts) —
+  // dieselben Fixtures wie zuvor, nur mit der neuen Repräsentation.
   const stand = (overrides: Partial<PlayerStand> = {}): PlayerStand => ({
     index: 0,
-    pausiert: false,
+    pausiert: new Set(),
     fortschritt: 0,
     ...overrides,
   });
+  const GEHALTEN = new Set<PauseGrund>(['halten']);
 
   test('erhöht den Index um eins und setzt den Fortschritt zurück', () => {
     const ergebnis = weiter(stand({ index: 1, fortschritt: 3400 }), 5);
-    expect(ergebnis).toEqual({ index: 2, pausiert: false, fortschritt: 0 });
+    expect(ergebnis).toEqual({ index: 2, pausiert: new Set(), fortschritt: 0 });
   });
 
-  test('lässt "pausiert" unverändert — weiter/zurueck entscheiden nicht über Pause', () => {
-    const ergebnis = weiter(stand({ index: 0, pausiert: true }), 5);
-    expect(ergebnis).toEqual({ index: 1, pausiert: true, fortschritt: 0 });
+  // "pausiert bleibt unangetastet" heisst hier konkret: dieselbe Set-
+  // REFERENZ geht unverändert durch — weiter() liest/schreibt sie nicht.
+  test('lässt "pausiert" unverändert (dieselbe Referenz) — weiter/zurueck entscheiden nicht über Pause', () => {
+    const ergebnis = weiter(stand({ index: 0, pausiert: GEHALTEN }), 5);
+    expect(ergebnis).not.toBe('ende');
+    if (ergebnis === 'ende') throw new Error('unreachable');
+    expect(ergebnis.pausiert).toBe(GEHALTEN);
+    expect(ergebnis).toEqual({ index: 1, pausiert: GEHALTEN, fortschritt: 0 });
   });
 
   // Brief: am letzten Moment liefert weiter 'ende', NICHT Index `anzahl` —
@@ -124,14 +153,15 @@ describe('weiter', () => {
 describe('zurueck', () => {
   const stand = (overrides: Partial<PlayerStand> = {}): PlayerStand => ({
     index: 0,
-    pausiert: false,
+    pausiert: new Set(),
     fortschritt: 0,
     ...overrides,
   });
+  const GEHALTEN = new Set<PauseGrund>(['halten']);
 
   test('verringert den Index um eins und setzt den Fortschritt zurück', () => {
     const ergebnis = zurueck(stand({ index: 2, fortschritt: 1200 }));
-    expect(ergebnis).toEqual({ index: 1, pausiert: false, fortschritt: 0 });
+    expect(ergebnis).toEqual({ index: 1, pausiert: new Set(), fortschritt: 0 });
   });
 
   // Brief: zurueck am ersten Moment bleibt bei Index 0 und setzt den
@@ -139,7 +169,7 @@ describe('zurueck', () => {
   // (kein negativer Index).
   test('am ersten Moment bleibt der Index bei 0, statt negativ zu werden', () => {
     const ergebnis = zurueck(stand({ index: 0, fortschritt: 800 }));
-    expect(ergebnis).toEqual({ index: 0, pausiert: false, fortschritt: 0 });
+    expect(ergebnis).toEqual({ index: 0, pausiert: new Set(), fortschritt: 0 });
   });
 
   // Brief: zurueck setzt fortschritt IMMER auf 0, auch mitten in einem
@@ -149,9 +179,10 @@ describe('zurueck', () => {
     expect(ergebnis.fortschritt).toBe(0);
   });
 
-  test('lässt "pausiert" unverändert', () => {
-    const ergebnis = zurueck(stand({ index: 3, pausiert: true }));
-    expect(ergebnis).toEqual({ index: 2, pausiert: true, fortschritt: 0 });
+  test('lässt "pausiert" unverändert (dieselbe Referenz)', () => {
+    const ergebnis = zurueck(stand({ index: 3, pausiert: GEHALTEN }));
+    expect(ergebnis.pausiert).toBe(GEHALTEN);
+    expect(ergebnis).toEqual({ index: 2, pausiert: GEHALTEN, fortschritt: 0 });
   });
 });
 
@@ -299,5 +330,99 @@ describe('tagWechselt', () => {
     // kippen.
     expect(tagWechselt(listeB, startDate, 1)).toBe(true);
     expect(tagWechselt(listeA, startDate, 1)).toBe(false);
+  });
+
+  // Phase-5-Final-Review, Punkt 8 (Review-Fund, "wenn es billig ist"): bis
+  // hierhin prüft keine einzige Zeile den eigentlichen ZWECK des WeakMap-
+  // Caches (siehe Kommentar bei `tageNummernCache` in playerLogic.ts) — die
+  // Tests oben prüfen nur RICHTIGE Ergebnisse, die auch eine Implementierung
+  // OHNE jeden Cache liefern würde (die WeakMap ersatzlos zu streichen liesse
+  // alle bisherigen Tests grün). Dieser Test spioniert `gruppiereNachTagen`
+  // direkt an: mehrere `tagWechselt`-Aufrufe für DIESELBE Array-Referenz
+  // dürfen es nur EINMAL aufrufen.
+  test('gruppiereNachTagen wird für dieselbe momente-Referenz nur EINMAL aufgerufen (WeakMap-Cache)', () => {
+    const spy = jest.spyOn(tage, 'gruppiereNachTagen');
+    const momente = [
+      moment({ id: 'a', captured_at: '2026-08-01T09:00:00.000Z' }),
+      moment({ id: 'b', captured_at: '2026-08-01T15:00:00.000Z' }),
+      moment({ id: 'c', captured_at: '2026-08-02T09:00:00.000Z' }),
+    ];
+    tagWechselt(momente, startDate, 0);
+    tagWechselt(momente, startDate, 1);
+    tagWechselt(momente, startDate, 2);
+    expect(spy).toHaveBeenCalledTimes(1);
+    spy.mockRestore();
+  });
+});
+
+describe('PauseGrund: mitGrund/ohneGrund/blockiertAutomatischenVorschub', () => {
+  const leer = (): ReadonlySet<PauseGrund> => new Set();
+
+  test('mitGrund fügt einen neuen Grund hinzu', () => {
+    const ergebnis = mitGrund(leer(), 'halten');
+    expect(ergebnis.has('halten')).toBe(true);
+    expect(ergebnis.size).toBe(1);
+  });
+
+  // Review-Fund-Prinzip (bissiger Test statt reiner Ergebnisprüfung): bei
+  // einem bereits vorhandenen Grund liefert mitGrund DIESELBE Referenz
+  // zurück (kein neues Set) — ein Mutant, der stattdessen IMMER
+  // `new Set(pausiert).add(grund)` zurückgibt, würde von einer reinen
+  // `.has()`-Prüfung nicht erkannt.
+  test('mitGrund liefert bei bereits vorhandenem Grund DIESELBE Set-Referenz (kein unnötiger Re-Render)', () => {
+    const stand = mitGrund(leer(), 'halten');
+    const nochmal = mitGrund(stand, 'halten');
+    expect(nochmal).toBe(stand);
+  });
+
+  test('ohneGrund nimmt genau den eigenen Grund zurück, andere Gründe bleiben unberührt', () => {
+    let stand = mitGrund(leer(), 'halten');
+    stand = mitGrund(stand, 'kommentare');
+    const ergebnis = ohneGrund(stand, 'halten');
+    expect(ergebnis.has('halten')).toBe(false);
+    expect(ergebnis.has('kommentare')).toBe(true);
+  });
+
+  // Das ist die eigentliche Pointe des Moduls (Final-Review Punkt 1): ein
+  // Aufruf mit einem NICHT vorhandenen Grund — z.B. ein verwaister Timer,
+  // dessen eigener Grund längst von anderswo zurückgenommen wurde — ist ein
+  // sicheres No-Op, auch wenn INZWISCHEN ein FREMDER Grund gesetzt wurde. Ein
+  // naiver `pausiert = false`-Ersatz (die alte Repräsentation) würde diesen
+  // fremden Grund hier mitreissen — dieser Test verlangt explizit, dass er
+  // stehen bleibt.
+  test('ohneGrund für einen nicht vorhandenen Grund ist ein No-Op — ein FREMDER, inzwischen gesetzter Grund bleibt unberührt', () => {
+    const stand = mitGrund(leer(), 'kommentare');
+    const ergebnis = ohneGrund(stand, 'zwischenkarte');
+    expect(ergebnis.has('kommentare')).toBe(true);
+    expect(ergebnis).toBe(stand); // No-Op: dieselbe Referenz, kein neues Set.
+  });
+
+  test('blockiertAutomatischenVorschub ist false, wenn kein Grund gesetzt ist', () => {
+    expect(blockiertAutomatischenVorschub(leer())).toBe(false);
+  });
+
+  // Vertrag 4, Kernfall (Repro aus dem Final-Review, Punkt 1): ein playToEnd
+  // während einer Halten-Geste MUSS durchgelassen werden.
+  test('blockiertAutomatischenVorschub ist false, wenn NUR "halten" gesetzt ist', () => {
+    expect(blockiertAutomatischenVorschub(mitGrund(leer(), 'halten'))).toBe(false);
+  });
+
+  test('blockiertAutomatischenVorschub ist true, wenn die Zwischenkarte steht', () => {
+    expect(blockiertAutomatischenVorschub(mitGrund(leer(), 'zwischenkarte'))).toBe(true);
+  });
+
+  test('blockiertAutomatischenVorschub ist true, wenn das Kommentar-Sheet offen ist', () => {
+    expect(blockiertAutomatischenVorschub(mitGrund(leer(), 'kommentare'))).toBe(true);
+  });
+
+  test('blockiertAutomatischenVorschub ist true, wenn ein stiller Neuversuch läuft', () => {
+    expect(blockiertAutomatischenVorschub(mitGrund(leer(), 'neuversuch'))).toBe(true);
+  });
+
+  // "halten" zusammen mit einem blockierenden Grund bleibt blockierend — die
+  // Ausnahme gilt nur, wenn "halten" der EINZIGE Grund ist.
+  test('blockiertAutomatischenVorschub bleibt true, wenn "halten" UND ein weiterer Grund gesetzt sind', () => {
+    const stand = mitGrund(mitGrund(leer(), 'halten'), 'kommentare');
+    expect(blockiertAutomatischenVorschub(stand)).toBe(true);
   });
 });

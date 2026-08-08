@@ -28,7 +28,17 @@ import { fetchRecapMomente } from '@/features/recap/recapApi';
 import { gruppiereNachTagen } from '@/features/recap/tage';
 import type { Kommentar, Reaktion, RecapMoment, RecapTag } from '@/features/recap/types';
 import { holeVorrat, laeuftBaldAb, type MedienUrl } from '@/features/recap/urlVorrat';
-import { dauerFuer, tagWechselt, weiter, zurueck, type PlayerStand } from '@/features/recap/playerLogic';
+import {
+  blockiertAutomatischenVorschub,
+  dauerFuer,
+  mitGrund,
+  ohneGrund,
+  tagWechselt,
+  weiter,
+  zurueck,
+  type PauseGrund,
+  type PlayerStand,
+} from '@/features/recap/playerLogic';
 import {
   entferneReaktion,
   fetchKommentare,
@@ -246,13 +256,16 @@ function FotoMoment({ url, onFehler }: { url: string; onFehler: () => void }) {
 // genau diesen Ladefehlschlag an den Elternteil (V10: einmal still neu
 // versuchen, bevor irgendetwas sichtbar wird).
 //
-// `pausiert` steuert player.pause()/play() direkt: "Halten = Pause" darf sich
+// `pausiert` (die für DIESE Komponente auf ein einzelnes boolean verdichtete
+// Frage "läuft gerade IRGENDEIN Pausier-Grund", siehe `gestoppt` weiter
+// unten) steuert player.pause()/play() direkt: "Halten = Pause" darf sich
 // nicht auf das Einfrieren des Fortschrittsbalkens beschränken — sonst liefe
 // Bild UND Ton eines Videos unbeirrt weiter, während die Anzeige stillstünde.
 // Genau dieser Fall (gehalten, während das Video währenddessen zu Ende
-// liefe) ist auch der Grund, warum `weiterAutomatisch` `pausiert` beim
-// Vorschub explizit auf `false` setzt (Vertrag 4): ohne echtes player.pause()
-// könnte `playToEnd` sogar während einer Halten-Geste feuern.
+// liefe) ist auch der Grund, warum `weiterAutomatisch` beim Vorschub den
+// Grund `'halten'` explizit zurücknimmt (Vertrag 4, playerLogic.ts): ohne
+// echtes player.pause() könnte `playToEnd` sogar während einer Halten-Geste
+// feuern.
 function VideoMoment({
   url, pausiert, onEnde, onFehler,
 }: {
@@ -355,8 +368,7 @@ export default function RecapPlayer() {
   const [pendingAnzahl, setPendingAnzahl] = useState(0);
   const [ausgelassenAnzahl, setAusgelassenAnzahl] = useState(0);
 
-  const [stand, setStand] = useState<PlayerStand>({ index: 0, pausiert: false, fortschritt: 0 });
-  const [zwischenkarte, setZwischenkarte] = useState(false);
+  const [stand, setStand] = useState<PlayerStand>({ index: 0, pausiert: new Set(), fortschritt: 0 });
   const [fehlgeschlagen, setFehlgeschlagen] = useState<Set<string>>(new Set());
 
   // Reaktionen (Task 12): `reaktionen` trägt den OPTIMISTISCHEN Zustand — ein
@@ -365,7 +377,6 @@ export default function RecapPlayer() {
   const [reaktionen, setReaktionen] = useState<Record<string, Reaktion[]>>({});
   const [reaktionFehler, setReaktionFehler] = useState<string | null>(null);
 
-  const [kommentarOffen, setKommentarOffen] = useState(false);
   const [kommentarMomentId, setKommentarMomentId] = useState<string | null>(null);
   const [kommentare, setKommentare] = useState<Kommentar[]>([]);
   const [kommentareLaden, setKommentareLaden] = useState(false);
@@ -388,23 +399,16 @@ export default function RecapPlayer() {
   // scheitert der auch, gilt der Moment als endgültig fehlgeschlagen.
   const versuchtRef = useRef<Set<string>>(new Set());
   const aktivIdRef = useRef<string | undefined>(undefined);
-  // Für videoZuEnde (Wichtig 1/Zusatz-Verteidigung): ob die Zwischenkarte
-  // gerade steht — siehe dort.
-  const zwischenkarteRef = useRef(false);
-  // Fix-Runde 2 (Review-Fund): ob das Kommentar-Sheet gerade offen ist —
-  // ebenfalls für videoZuEnde, siehe dort. BEWUSST NICHT `stand.pausiert`
-  // im Allgemeinen (ein erster, breiterer Versuch wurde verworfen): die
-  // Halten-Geste (onPressIn) setzt `pausiert:true` GENAUSO, aber dort ist
-  // ein während des Haltens eintreffendes `playToEnd` explizit ERWÜNSCHT
-  // ("feuert playToEnd ausnahmsweise während einer Halten-Geste..." in
-  // player.test.tsx, Vertrag 4 aus playerLogic.ts: `weiterAutomatisch`
-  // MUSS auch dann weiterschalten und `pausiert` selbst zurücksetzen,
-  // sonst bliebe der NÄCHSTE Moment lautlos hängen). Ein Guard auf
-  // `stand.pausiert` allgemein hätte also GENAU diesen bereits getesteten,
-  // gewünschten Fall kaputt gemacht. Das Kommentar-Sheet ist strukturell
-  // anders: dort SOLL ein currently laufendes Video wirklich angehalten
-  // bleiben, bis das Sheet schliesst.
-  const kommentarOffenRef = useRef(false);
+  // Phase-5-Final-Review, Punkt 1 (korrigiert): früher zwei separate Refs
+  // (`zwischenkarteRef`, `kommentarOffenRef`), weil `stand.pausiert` als
+  // einzelnes boolean die drei Gründe (Halten, Zwischenkarte,
+  // Kommentar-Sheet) nicht auseinanderhalten konnte — videoZuEnde brauchte
+  // zwei EIGENE, parallel geführte Booleans, um "Halten" (soll durchlassen,
+  // Vertrag 4) von den anderen beiden (sollen blockieren) zu unterscheiden.
+  // Mit PauseGrund als benannter Menge genügt EIN Ref auf das aktuelle
+  // `stand.pausiert` — `blockiertAutomatischenVorschub` (playerLogic.ts)
+  // kennt den Unterschied selbst.
+  const pausiertRef = useRef<ReadonlySet<PauseGrund>>(new Set());
   // Schlüssel `${postId}:${emoji}` — verhindert, dass ein schneller
   // Doppeltipp auf dasselbe Emoji zwei sich widersprechende Anfragen lostritt
   // (Frage aus dem Task-12-Auftrag). Ein Ref statt ein State-Flag: Prüfen und
@@ -453,11 +457,6 @@ export default function RecapPlayer() {
     // nie wieder einen stillen Neuversuch und zeigt dauerhaft die
     // Hinweispille, auch wenn das zugrunde liegende Problem (z.B. eine
     // einzelne kaputte Signatur) längst behoben ist.
-    // Klein (Review-Fund): ein frisches Laden ist ein frischer Anlauf — ein
-    // Moment, der beim VORHERIGEN Anlauf zweimal scheiterte, bekommt sonst
-    // nie wieder einen stillen Neuversuch und zeigt dauerhaft die
-    // Hinweispille, auch wenn das zugrunde liegende Problem (z.B. eine
-    // einzelne kaputte Signatur) längst behoben ist.
     versuchtRef.current.clear();
     setFehlgeschlagen(new Set());
 
@@ -465,7 +464,7 @@ export default function RecapPlayer() {
       setPhase('leer');
       return;
     }
-    setStand({ index: parseStartIndex(startParam, mitBild.length), pausiert: false, fortschritt: 0 });
+    setStand({ index: parseStartIndex(startParam, mitBild.length), pausiert: new Set(), fortschritt: 0 });
     setPhase('bereit');
   }, [tripId, startParam]);
 
@@ -487,9 +486,25 @@ export default function RecapPlayer() {
   );
 
   // «Das Licht geht aus»: der inszenierte Fade durch Dunkel beim Betreten
-  // des Players (DESIGN-LANGUAGE §5) — ein einmaliger Einstiegs-Übergang,
-  // keine Reaktion auf spätere Zustandswechsel, daher bewusst ohne weitere
-  // Abhängigkeiten.
+  // des Players (DESIGN-LANGUAGE §5).
+  //
+  // Review-Fund: `reducedMotion` hängt bewusst in den Deps, obwohl die
+  // Inszenierung konzeptionell "einmalig" ist. Grund: `useReducedMotion()`
+  // liefert beim allerersten Render IMMER `false` (useState(false)) und löst
+  // erst ASYNCHRON auf, sobald `AccessibilityInfo.isReduceMotionEnabled()`
+  // zurückkommt (useReducedMotion.ts). Mit `[]`-Deps lief dieser Effekt genau
+  // einmal, exakt beim Mount — zu einem Zeitpunkt, an dem `reducedMotion`
+  // strukturell IMMER `false` ist, egal was die echte Systemeinstellung
+  // sagt. `KINO_FADE_REDUZIERT_MS` war dadurch zur Laufzeit unerreichbar,
+  // nur im (den echten Hook synchron mockenden) Test erreichbar. Mit
+  // `[reducedMotion]` läuft der Effekt ein zweites Mal, FALLS der Hook nach
+  // dem Mount tatsächlich auf `true` auflöst, und startet die Animation dann
+  // mit der kürzeren Dauer neu — dasselbe akzeptierte Verhalten wie
+  // Versiegelung.tsx/RevealInszenierung.tsx (dort ebenfalls `reducedMotion`
+  // in den Deps, siehe deren Fix-Runde-1-Kommentar). Löst der Hook (der
+  // Normalfall) auf `false` auf, ändert sich der State-Wert nicht, React
+  // rendert nicht neu, der Effekt läuft kein zweites Mal — keine zusätzliche
+  // Animation im Normalfall.
   const kinoFade = useRef(new Animated.Value(1)).current;
   useEffect(() => {
     Animated.timing(kinoFade, {
@@ -499,14 +514,24 @@ export default function RecapPlayer() {
       useNativeDriver: true,
     }).start();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [reducedMotion]);
 
   const aktivMoment = spielliste[stand.index];
   aktivIdRef.current = aktivMoment?.id;
+  // Beide aus `stand.pausiert` abgeleitet (Phase-5-Final-Review, Punkt 1):
+  // `zwischenkarte` — zeigt die Tages-Zwischenkarte gerade, `kommentarOffen`
+  // — ist das Kommentar-Sheet gerade offen. Kein eigener State mehr (vorher
+  // je ein `useState`, das im gleichen Atemzug wie der jeweilige Grund
+  // gesetzt/entfernt wurde — zwei Quellen der Wahrheit für dieselbe
+  // Information). `gestoppt` ist die für Fortschrittsbalken/VideoMoment
+  // verdichtete Frage "läuft gerade IRGENDEIN Grund" (die einzige Stelle,
+  // an der die Unterscheidung der Gründe bewusst NICHT mehr interessiert).
+  const zwischenkarte = stand.pausiert.has('zwischenkarte');
+  const kommentarOffen = stand.pausiert.has('kommentare');
+  const gestoppt = stand.pausiert.size > 0;
   // Für videoZuEnde unten — direkt in der Render-Zeile aktuell gehalten
   // (gleiches Muster wie aktivIdRef, siehe dort).
-  zwischenkarteRef.current = zwischenkarte;
-  kommentarOffenRef.current = kommentarOffen;
+  pausiertRef.current = stand.pausiert;
   kommentarMomentIdRef.current = kommentarMomentId;
 
   // Erstes (und einziges) useMemo dieser Codebase (Vertrag 1): `tage` hängt
@@ -659,15 +684,22 @@ export default function RecapPlayer() {
   // hätte entweder eine zweite, unabhängige Touch-Fläche gebraucht (Konflikt
   // mit den Tipp-Zonen und der Zwischenkarte) oder eine Fallunterscheidung
   // in `onPanResponderMove` (nur bei Abwärtsbewegung visuell folgen, bei
-  // Aufwärtsbewegung nicht) — UND hätte gegen die Zwischenkarte abgesichert
-  // werden müssen: die Karte hat ihren eigenen 1,5-s-Zeitgeber, der
-  // `pausiert` unbedingt auf `false` zurücksetzt (siehe der Effekt bei
-  // `ZWISCHENKARTE_DAUER_MS`), und hätte damit ein währenddessen per
-  // Aufwärtswisch geöffnetes Sheet wieder lautlos "entpausiert". Ohne echten
-  // Gerätetest wollte ich diese Kombination nicht ungeprüft einbauen. Der
-  // Tipp-Knopf ist deterministisch, hat ein 44×44-Touch-Target
-  // (DESIGN-LANGUAGE v2 §8) und ist der einzige Weg, den auch die Tests
-  // unten prüfen — siehe Bericht, Abschnitt "Wisch-Geste".
+  // Aufwärtsbewegung nicht). Ohne echten Gerätetest wollte ich diese
+  // Kombination nicht ungeprüft einbauen. Der Tipp-Knopf ist deterministisch,
+  // hat ein 44×44-Touch-Target (DESIGN-LANGUAGE v2 §8) und ist der einzige
+  // Weg, den auch die Tests unten prüfen — siehe Bericht, Abschnitt
+  // "Wisch-Geste".
+  //
+  // Phase-5-Final-Review, Punkt 1: eine frühere Fassung dieses Kommentars
+  // begründete die Zurückhaltung bei der Wisch-Geste u.a. damit, dass der
+  // Zwischenkarten-Timer `pausiert` "unbedingt auf false zurücksetzt" und
+  // ein währenddessen geöffnetes Sheet dadurch lautlos entpausiert würde —
+  // GENAU dieser Mechanismus war der tatsächliche, unabhängig von der
+  // Wisch-Geste auslösbare Bug (siehe der Effekt bei
+  // `ZWISCHENKARTE_DAUER_MS` und `ueberspringen` unten): der Zwischenkarten-
+  // Timer nimmt jetzt AUSSCHLIESSLICH den Grund `'zwischenkarte'` zurück,
+  // nie `'kommentare'` — ein offenes Sheet bleibt also so oder so
+  // pausiert, auch über einen verwaisten Timer hinweg.
   const oeffneKommentare = () => {
     const moment = aktivMoment;
     if (!moment) return;
@@ -711,10 +743,12 @@ export default function RecapPlayer() {
     setKommentare([]);
     setKommentareFehler(null);
     setKommentareLaden(true);
-    setKommentarOffen(true);
     // Der Screen verwaltet `pausiert` selbst (playerLogic fasst es bewusst
     // nicht an) — solange das Sheet offen ist, läuft weder Timer noch Video.
-    setStand((s) => ({ ...s, pausiert: true }));
+    // `kommentarOffen` (Render-Zeile oben) ist AUS `stand.pausiert`
+    // abgeleitet, es gibt also nur diesen einen Schreibzugriff, keinen
+    // separaten `setKommentarOffen`-Aufruf mehr.
+    setStand((s) => ({ ...s, pausiert: mitGrund(s.pausiert, 'kommentare') }));
 
     void fetchKommentare(momentId).then(({ data, error }) => {
       // Das Sheet wurde inzwischen für einen ANDEREN Moment neu geöffnet
@@ -729,11 +763,11 @@ export default function RecapPlayer() {
   };
 
   const schliesseKommentare = () => {
-    setKommentarOffen(false);
-    // Vertrag 4 (Task 11, playerLogic): ein PROGRAMMATISCHES Zurücksetzen
-    // muss `pausiert` explizit auf false setzen — sonst bliebe der Player
-    // nach dem Schliessen lautlos stehen, ohne dass irgendetwas noch hält.
-    setStand((s) => ({ ...s, pausiert: false }));
+    // Nimmt AUSSCHLIESSLICH den eigenen Grund zurück (Phase-5-Final-Review,
+    // Punkt 1) — bleibt der Player aus einem ANDEREN Grund pausiert (z.B.
+    // eine Halten-Geste, die währenddessen begonnen hätte), bleibt er das
+    // auch nach dem Schliessen des Sheets.
+    setStand((s) => ({ ...s, pausiert: ohneGrund(s.pausiert, 'kommentare') }));
   };
 
   const kommentarAbsenden = () => {
@@ -780,8 +814,15 @@ export default function RecapPlayer() {
 
   // Programmatisches Weiterschalten (Timer-Ablauf ODER Video-Ende) — beide
   // münden hier. Vertrag 4: `weiter()` lässt `pausiert` unangetastet, ein
-  // programmatischer Aufruf MUSS es hier selbst auf `false` setzen, sonst
-  // bliebe der Player nach einer vorherigen Halten-Geste lautlos stehen.
+  // programmatischer Aufruf MUSS den Grund `'halten'` hier selbst
+  // zurücknehmen — sonst bliebe der NÄCHSTE Moment nach einer vorherigen
+  // Halten-Geste lautlos stehen (genau der Fall, den
+  // `blockiertAutomatischenVorschub` in videoZuEnde unten bewusst
+  // DURCHLÄSST). Alle anderen Gründe (Zwischenkarte, Kommentar-Sheet,
+  // Neuversuch) bleiben unangetastet — `weiterAutomatisch` wird über
+  // videoZuEnde ohnehin nur erreicht, wenn keiner von ihnen mehr blockiert
+  // (siehe dort), und über den Auto-Vorschub-Timer nur, wenn `stand.pausiert`
+  // beim Aufsetzen des Timers bereits leer war.
   const weiterAutomatisch = useCallback(() => {
     void pruefeUndErneuereVorratImHintergrund();
     const ergebnis = weiter(stand, spielliste.length);
@@ -789,7 +830,7 @@ export default function RecapPlayer() {
       setPhase('ende');
       return;
     }
-    setStand({ ...ergebnis, pausiert: false });
+    setStand({ ...ergebnis, pausiert: ohneGrund(ergebnis.pausiert, 'halten') });
   }, [stand, spielliste.length, pruefeUndErneuereVorratImHintergrund]);
   // Ref-Indirektion (gleiches Muster wie Versiegelung.tsx/onFertigRef): der
   // Auto-Vorschub-Timer und das Video-Ende-Event rufen IMMER die neueste
@@ -810,24 +851,22 @@ export default function RecapPlayer() {
   // sondern dieser explizite Abgleich mit dem tatsächlich aktiven Moment.
   const videoZuEnde = useCallback((postId: string) => {
     if (aktivIdRef.current !== postId) return;
-    // Zusätzliche Verteidigung zum physischen player.pause() (siehe
-    // VideoMoment oben): steht die Zwischenkarte, hat sie ihren eigenen
-    // Zeitgeber (ZWISCHENKARTE_DAUER_MS) — ein Event, das trotzdem
-    // eintrifft (Timing-Lücke zwischen Commit und tatsächlichem Pausieren),
-    // darf sie nicht überholen.
-    if (zwischenkarteRef.current) return;
-    // Fix-Runde 2 (Review-Fund): strukturell dieselbe Race wie bei der
-    // Zwischenkarte, hier für das Kommentar-Sheet. `oeffneKommentare` setzt
-    // `pausiert:true` SYNCHRON beim Öffnen, aber VideoMoments eigener
-    // Pause-Effekt (`player.pause()`) committet erst im NÄCHSTEN
-    // Effekt-Durchlauf (siehe VideoMoment oben, Deps `[pausiert, player]`)
-    // — trifft `playToEnd` GENAU in diesem schmalen Fenster ein, war
-    // `aktivIdRef` noch unverändert UND `zwischenkarteRef` false:
-    // `weiterAutomatischRef.current()` hätte den Player HINTER dem gerade
-    // geöffneten Sheet weitergeschaltet und `pausiert` sogar explizit
-    // wieder auf `false` gesetzt (Vertrag 4) — der Player liefe dann
-    // unsichtbar unter dem offenen Sheet weiter.
-    if (kommentarOffenRef.current) return;
+    // Phase-5-Final-Review, Punkt 1: EIN Guard statt zwei separater Refs
+    // (frühere Fassung: `zwischenkarteRef`/`kommentarOffenRef`, siehe
+    // Kommentar bei `pausiertRef` oben). `blockiertAutomatischenVorschub`
+    // (playerLogic.ts) lässt genau `'halten'` durch (Vertrag 4 — ein
+    // während einer Halten-Geste eintreffendes `playToEnd` MUSS trotzdem
+    // weiterschalten, siehe `weiterAutomatisch`) und blockiert jeden
+    // anderen Grund: steht die Zwischenkarte (eigener Zeitgeber,
+    // ZWISCHENKARTE_DAUER_MS — ein Event, das trotzdem eintrifft, darf sie
+    // nicht überholen), ist das Kommentar-Sheet offen (`oeffneKommentare`
+    // setzt den Grund SYNCHRON, aber VideoMoments eigener Pause-Effekt
+    // committet erst im NÄCHSTEN Durchlauf, siehe VideoMoment oben, Deps
+    // `[pausiert, player]` — trifft `playToEnd` GENAU in diesem schmalen
+    // Fenster ein, würde der Player sonst unsichtbar unter dem offenen
+    // Sheet weiterlaufen), oder läuft gerade ein stiller Neuversuch nach
+    // einem Ladefehler.
+    if (blockiertAutomatischenVorschub(pausiertRef.current)) return;
     weiterAutomatischRef.current();
   }, []);
 
@@ -840,7 +879,12 @@ export default function RecapPlayer() {
   // hier gesetzten Timer in diesem Fall automatisch per Cleanup auf, sobald
   // `stand.index` sich dadurch ändert (kein doppeltes Weiterschalten).
   useEffect(() => {
-    if (phase !== 'bereit' || zwischenkarte || stand.pausiert) return;
+    // `stand.pausiert.size > 0` deckt ALLE Gründe ab, inklusive `'halten'`
+    // und `'zwischenkarte'` (anders als `blockiertAutomatischenVorschub` in
+    // videoZuEnde oben) — der reguläre Pro-Moment-Timer ist kein Event, das
+    // eine Halten-Geste ausnahmsweise durchlassen müsste, er darf während
+    // JEDES Grundes schlicht nicht laufen.
+    if (phase !== 'bereit' || stand.pausiert.size > 0) return;
     const moment = spielliste[stand.index];
     if (!moment) return;
     const dauer = dauerFuer(moment);
@@ -848,22 +892,34 @@ export default function RecapPlayer() {
     segmentStartRef.current = Date.now() - stand.fortschritt;
     const timer = setTimeout(() => weiterAutomatischRef.current(), rest);
     return () => clearTimeout(timer);
-  }, [phase, zwischenkarte, stand.pausiert, stand.index, stand.fortschritt, spielliste]);
+  }, [phase, stand.pausiert, stand.index, stand.fortschritt, spielliste]);
 
   // Tages-Zwischenkarte: erscheint VOR dem ersten Moment eines neuen Tages
   // (tagWechselt aus Task 7) und steht 1,5 s, bevor sie selbst weiterschaltet.
+  //
+  // Phase-5-Final-Review, Punkt 1: dieser Effekt hat die Deps `[phase,
+  // spielliste, startDate, stand.index]` — `ueberspringen()` (Tipp auf die
+  // Karte) ändert KEINE davon, Cleanup/Neulauf bleiben also aus, wenn die
+  // Karte per Tipp übersprungen wird. Der hier gesetzte Timer bleibt in dem
+  // Fall bis zu seinem regulären Ablauf verwaist stehen und feuert dann
+  // trotzdem noch — das ist bewusst hingenommen, nicht wegdesignt (ein
+  // zusätzlicher Ref/State allein für "wurde diese Karte schon
+  // übersprungen" wäre mehr Zustand für denselben Fall). Was den früheren
+  // Bug ausmachte, war NICHT der verwaiste Timer selbst, sondern dass sein
+  // Rumpf `pausiert` BEDINGUNGSLOS zurücksetzte, statt nur den eigenen
+  // Grund: `ohneGrund(..., 'zwischenkarte')` ist bei einer bereits (per
+  // Tipp) entfernten Zwischenkarte ein sicheres No-Op (siehe playerLogic.ts)
+  // — ein inzwischen aus einem GANZ ANDEREN Grund (z.B. offenes
+  // Kommentar-Sheet) pausierter Player bleibt davon unberührt.
   useEffect(() => {
     if (phase !== 'bereit') return;
     if (!tagWechselt(spielliste, startDate, stand.index)) {
-      setZwischenkarte(false);
+      setStand((s) => ({ ...s, pausiert: ohneGrund(s.pausiert, 'zwischenkarte') }));
       return;
     }
-    setZwischenkarte(true);
+    setStand((s) => ({ ...s, pausiert: mitGrund(s.pausiert, 'zwischenkarte') }));
     const timer = setTimeout(() => {
-      setZwischenkarte(false);
-      // Vertrag 4: eine ABGELAUFENE Zwischenkarte ist ein programmatischer
-      // Vorschub — pausiert muss explizit zurückgesetzt werden.
-      setStand((s) => ({ ...s, pausiert: false }));
+      setStand((s) => ({ ...s, pausiert: ohneGrund(s.pausiert, 'zwischenkarte') }));
     }, ZWISCHENKARTE_DAUER_MS);
     return () => clearTimeout(timer);
   }, [phase, spielliste, startDate, stand.index]);
@@ -889,8 +945,9 @@ export default function RecapPlayer() {
   // der Tipp-Zonen. Es ist also kein Flag-Check, der das verhindert, sondern
   // die Render-Reihenfolge selbst.
   const ueberspringen = () => {
-    setZwischenkarte(false);
-    setStand((s) => ({ ...s, pausiert: false }));
+    // Nimmt AUSSCHLIESSLICH den eigenen Grund zurück (Phase-5-Final-Review,
+    // Punkt 1) — siehe der lange Kommentar beim Zwischenkarten-Effekt oben.
+    setStand((s) => ({ ...s, pausiert: ohneGrund(s.pausiert, 'zwischenkarte') }));
   };
 
   const beiLadefehler = useCallback(
@@ -906,21 +963,21 @@ export default function RecapPlayer() {
       // Der einmalige, unsichtbare Neuversuch (V10): den Player anhalten,
       // während im Hintergrund neu signiert wird — "das darf man nicht
       // sehen" heisst hier: kein Fehlertext, nur ein kurzes, stilles Warten.
-      setStand((s) => ({ ...s, pausiert: true }));
+      setStand((s) => ({ ...s, pausiert: mitGrund(s.pausiert, 'neuversuch') }));
       void (async () => {
         const { vorrat } = await holeVorrat(tripId);
         if (aktiv.current && vorrat) {
           setUrls(vorrat.urls);
           setGueltigBis(vorrat.gueltigBis);
         }
-        // Vertrag 4: programmatische Erneuerung — pausiert muss explizit
-        // zurückgesetzt werden. Zusätzliche Stale-Guard (gleiches Prinzip
-        // wie videoZuEnde/Wichtig 2): der Player kann inzwischen längst zu
-        // einem ANDEREN Moment weitergeschaltet haben (Tipp, Auto-Vorschub)
-        // — dessen eigenen, unabhängig gesetzten Pausiert-Zustand (z.B. ein
+        // Nimmt AUSSCHLIESSLICH den eigenen Grund zurück (Phase-5-Final-
+        // Review, Punkt 1). Zusätzliche Stale-Guard (gleiches Prinzip wie
+        // videoZuEnde/Wichtig 2): der Player kann inzwischen längst zu einem
+        // ANDEREN Moment weitergeschaltet haben (Tipp, Auto-Vorschub) —
+        // dessen eigenen, unabhängig gesetzten Pausier-Zustand (z.B. ein
         // neues Halten) darf diese verspätete Antwort nicht überschreiben.
         if (aktiv.current && aktivIdRef.current === postId) {
-          setStand((s) => ({ ...s, pausiert: false }));
+          setStand((s) => ({ ...s, pausiert: ohneGrund(s.pausiert, 'neuversuch') }));
         }
       })();
     },
@@ -936,7 +993,7 @@ export default function RecapPlayer() {
     if (!moment) return;
     const dauer = dauerFuer(moment);
     const vergangen = Math.min(dauer, Math.max(0, Date.now() - segmentStartRef.current));
-    setStand((s) => ({ ...s, pausiert: true, fortschritt: vergangen }));
+    setStand((s) => ({ ...s, pausiert: mitGrund(s.pausiert, 'halten'), fortschritt: vergangen }));
   };
 
   const beendeBeruehrung = (seite: 'links' | 'rechts') => {
@@ -956,19 +1013,23 @@ export default function RecapPlayer() {
           setPhase('ende');
           return;
         }
-        setStand({ ...ergebnis, pausiert: false });
+        // Nimmt AUSSCHLIESSLICH den eigenen Grund zurück — onPressIn hat ihn
+        // gerade erst für DIESE Berührung gesetzt (Phase-5-Final-Review,
+        // Punkt 1).
+        setStand({ ...ergebnis, pausiert: ohneGrund(ergebnis.pausiert, 'halten') });
         return;
       }
       // Klein (Review-Fund): V10 gilt in BEIDE Richtungen ("vor jedem
       // Weiter" schliesst ein zurueck() nicht aus — auch dabei bleibt der
       // Player sichtbar auf demselben Vorrat angewiesen).
       void pruefeUndErneuereVorratImHintergrund();
-      setStand({ ...zurueck(stand), pausiert: false });
+      const ergebnisZurueck = zurueck(stand);
+      setStand({ ...ergebnisZurueck, pausiert: ohneGrund(ergebnisZurueck.pausiert, 'halten') });
       return;
     }
     // Halten, dann losgelassen: "und weiter beim Loslassen" (Brief) heisst
     // hier fortsetzen, NICHT zum nächsten Moment springen.
-    setStand((s) => ({ ...s, pausiert: false }));
+    setStand((s) => ({ ...s, pausiert: ohneGrund(s.pausiert, 'halten') }));
   };
 
   const schliessen = () => {
@@ -1078,7 +1139,11 @@ export default function RecapPlayer() {
           // Verknüpfung liefe ein Video darunter unbeirrt weiter (Bild UND
           // Ton) und könnte sogar unter der Karte zu Ende laufen, sodass der
           // Moment, den die Karte gerade ankündigt, nie gezeigt würde.
-          pausiert={stand.pausiert || zwischenkarte}
+          // `gestoppt` = irgendein Grund aus `stand.pausiert` ist gesetzt
+          // (Halten, Kommentar-Sheet, Zwischenkarte oder Neuversuch) — an
+          // DIESER Stelle interessiert bewusst nur "läuft/läuft nicht", nicht
+          // welcher Grund es ist (siehe Render-Zeile oben).
+          pausiert={gestoppt}
           onVideoEnde={() => videoZuEnde(aktivMoment.id)}
           onFehler={() => beiLadefehler(aktivMoment.id)}
         />
@@ -1089,7 +1154,7 @@ export default function RecapPlayer() {
             aktivIndex={stand.index}
             dauerMs={dauerFuer(aktivMoment)}
             vergangenMs={stand.fortschritt}
-            pausiert={stand.pausiert || zwischenkarte}
+            pausiert={gestoppt}
           />
           <View style={styles.kopfReihe}>
             <View style={styles.namePille}>
@@ -1209,6 +1274,10 @@ export default function RecapPlayer() {
               onChangeText={setKommentarText}
               error={kommentarSendenFehler ?? undefined}
               maxLength={KOMMENTAR_MAX_LAENGE}
+              // Phase-5-Final-Review, Punkt 4: ohne diesen Schalter zieht
+              // `Input` über `useTheme()` zwingend die Licht-Palette (siehe
+              // dort) — eine weisse Box mitten im Kinosaal.
+              kino
             />
           </View>
           <PressScale

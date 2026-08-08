@@ -6,9 +6,57 @@ import { render, screen, fireEvent, act } from '@testing-library/react-native';
 // braucht player.tsx für seine Halten-vs-Tipp-Unterscheidung.
 jest.useFakeTimers();
 
-// M9: steuerbar für den reduced-motion-Zweig des Kino-Fades.
-const mockUseReducedMotion = jest.fn(() => false);
-jest.mock('@/theme/useReducedMotion', () => ({ useReducedMotion: () => mockUseReducedMotion() }));
+// M9, korrigiert (Phase-5-Final-Review, Punkt 3): der frühere Mock gab
+// `reducedMotion` SYNCHRON zurück (`jest.fn(() => false)`, dann per
+// `mockReturnValue(true)` umgeschaltet) — genau die Eigenschaft entfernt, um
+// die es beim Kino-Fade-Test eigentlich geht. Der ECHTE Hook
+// (useReducedMotion.ts) startet IMMER bei `false` (`useState(false)`) und
+// löst erst ASYNCHRON auf, sobald `AccessibilityInfo.isReduceMotionEnabled()`
+// zurückkommt — mit dem alten Mock war ein Effekt mit `[]`-Deps im Player
+// (der ursprüngliche Bug) nicht von einem korrekt mit `[reducedMotion]`
+// reagierenden Effekt zu unterscheiden: BEIDE liefern beim ersten Render
+// bereits den (synchron gemockten) Endwert. Dieser Mock bildet den echten
+// Hook nach: ein `useState`, das erst durch einen von aussen aufgelösten
+// Promise (`mockReducedMotionAufloesen`) NACH dem Mount wechselt — exakt wie
+// `AccessibilityInfo.isReduceMotionEnabled()` es täte.
+//
+// Ein EINZELNER, geteilter Resolver reicht nicht: `useReducedMotion()` wird
+// nicht nur einmal (im Player) aufgerufen, sondern von JEDER `PressScale`-
+// Instanz im Baum ebenfalls (KinoButton, TextLink, jede EmojiPille, …, siehe
+// PressScale.tsx) — jede bekommt beim Mounten ihren EIGENEN Promise/Resolver.
+// Ein einzelner `let`-Resolver würde von der zuletzt gemounteten Instanz
+// überschrieben, `mockReducedMotionAufloesen` löste dann NUR noch DEREN
+// Promise auf, nicht den des Players. Alle ausstehenden Resolver landen
+// deshalb in einem Set und werden gemeinsam aufgelöst.
+const mockReducedMotionResolver = new Set<(wert: boolean) => void>();
+jest.mock('@/theme/useReducedMotion', () => {
+  const ReactActual = require('react');
+  return {
+    useReducedMotion: () => {
+      const [wert, setWert] = ReactActual.useState(false);
+      ReactActual.useEffect(() => {
+        let lebt = true;
+        const versprechen = new Promise((resolve: (wert: boolean) => void) => {
+          mockReducedMotionResolver.add(resolve);
+        });
+        void versprechen.then((enabled: boolean) => {
+          if (lebt) setWert(enabled);
+        });
+        return () => {
+          lebt = false;
+        };
+      }, []);
+      return wert;
+    },
+  };
+});
+// Löst ALLE ausstehenden „AccessibilityInfo"-Promises auf (siehe Kommentar
+// oben) — muss innerhalb eines `act(...)` aufgerufen werden (die `.then()`-
+// Handler lösen ein echtes `setState` aus).
+function mockReducedMotionAufloesen(wert: boolean) {
+  for (const resolve of mockReducedMotionResolver) resolve(wert);
+  mockReducedMotionResolver.clear();
+}
 
 const mockPush = jest.fn();
 const mockReplace = jest.fn();
@@ -59,12 +107,24 @@ const mockVideoPlayer = {
     return { remove: jest.fn() };
   }),
 };
+// Phase-5-Final-Review, Punkt 1 (Review-Fund am Mock selbst): `setup` lief
+// bislang UNBEDINGT bei jedem Aufruf — expo-video ruft ihn in Wirklichkeit
+// aber nur EINMAL, beim tatsächlichen Erzeugen des Players (neue Quelle),
+// nicht bei jedem Re-Render der Komponente, die `useVideoPlayer` aufruft.
+// `setup` ruft hier `p.play()` (siehe VideoMoment in player.tsx) — ein
+// Mock, der ihn bei JEDEM Render erneut abfeuert, erzeugt bei jedem
+// beliebigen Re-Render einen zusätzlichen, mit der eigentlichen Pause/Play-
+// Logik NICHTS zu tuenden `play()`-Aufruf und macht `play.mock.calls.length`
+// als Signal unbrauchbar für alles, was genauer als "mindestens N-mal"
+// prüfen will. Jetzt an dieselbe Bedingung gekoppelt wie der
+// Listener-Reset direkt darüber (beides passiert nur bei einer TATSÄCHLICH
+// neuen Quelle).
 const mockUseVideoPlayer = jest.fn((source: unknown, setup?: (p: typeof mockVideoPlayer) => void) => {
   if (source !== mockLastSource) {
     for (const key of Object.keys(mockListeners)) delete mockListeners[key];
     mockLastSource = source;
+    setup?.(mockVideoPlayer);
   }
-  setup?.(mockVideoPlayer);
   return mockVideoPlayer;
 });
 jest.mock('expo-video', () => ({
@@ -531,40 +591,80 @@ describe('Tages-Zwischenkarte', () => {
     expect(screen.getByTestId('player-ende')).toBeTruthy();
   });
 
-  // M6 (Review-Fund): drei der vier Vertrag-4-Zeilen (pausiert:false bei
-  // programmatischem Vorschub) hatten keinen eigenen, bissigen Test — nur
-  // `weiterAutomatisch` war abgesichert. `stand.pausiert` ist bei einem
-  // realen Kartenaufruf zwar immer schon `false` (die Karte blockiert die
-  // Tipp-Zonen strukturell, siehe M5-Test oben), `fireEvent` prüft aber
-  // keine Geometrie und kann pausiert deshalb hier gezielt VORHER auf `true`
-  // setzen, um `ueberspringen()`s eigene Rücksetzung isoliert zu prüfen.
-  test('ein Tipp auf die Zwischenkarte setzt pausiert zurück, selbst wenn es zuvor true war', async () => {
-    (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    (holeVorrat as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
-    await wrap();
-    await fireEvent(screen.getByTestId('player-rechts'), 'pressIn'); // pausiert:true
-    await fireEvent.press(screen.getByTestId('player-zwischenkarte'));
-    await act(async () => {
-      jest.advanceTimersByTime(5000); // FOTO_DAUER_MS
+  // Phase-5-Final-Review, Punkt 1 — DER Repro aus dem Bericht: der
+  // Zwischenkarten-Timer bleibt nach einem Tipp-Überspringen verwaist stehen
+  // (seine Deps `[phase, spielliste, startDate, stand.index]` ändern sich
+  // durch `ueberspringen()` nicht, Cleanup/Neulauf bleiben also aus) und
+  // feuert trotzdem noch, wenn inzwischen aus einem GANZ ANDEREN Grund
+  // (Kommentar-Sheet) pausiert wurde. Die ALTE Repräsentation (`pausiert:
+  // false` unbedingt) hätte diese fremde Pause stillschweigend aufgehoben —
+  // der Player wäre HINTER dem offenen Sheet weitergelaufen (Bild UND Ton).
+  // Ersetzt zwei ältere Tests (M6), die genau dieses unbedingte Zurücksetzen
+  // noch als GEWÜNSCHTES Verhalten prüften — mit den benannten Gründen ist
+  // das nicht mehr korrekt (siehe deren eigener Kommentar: "stand.pausiert
+  // ist bei einem realen Kartenaufruf zwar immer schon false").
+  test('überspringen → Kommentar-Sheet öffnen → 1500 ms vorspulen: der Player bleibt pausiert (Final-Review-Repro)', async () => {
+    // Gleicher Aufbau wie "ein Video unter der Zwischenkarte wird wirklich
+    // pausiert…" oben: p2v ist Tag 2s erstes (Video-)Moment, der Wechsel
+    // p3 → p2v löst die Tages-Zwischenkarte aus.
+    const p2v = moment({
+      id: 'p2v', type: 'video', duration_s: 3, captured_at: '2026-08-11T09:00:00.000Z', place_name: null,
     });
-    expect(screen.getByTestId('player-video')).toBeTruthy(); // p1 -> p2, automatisch
-  });
+    mockParams = { id: 't1', start: '2' }; // p3 (Tag 1, letzter Moment vor dem Tageswechsel)
+    (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: [p1, p2, p3, p2v], error: null });
+    (holeVorrat as jest.Mock).mockResolvedValue({
+      vorrat: {
+        urls: new Map([['p1', bild('p1')], ['p2', bild('p2')], ['p3', bild('p3')], ['p2v', bild('p2v')]]),
+        gueltigBis: Date.now() + 999_999,
+        ausgelassen: 0,
+      },
+      error: null,
+      grund: null,
+    });
+    await wrap();
+    // Schritt 1: Tageswechsel — die Karte für Tag 2 erscheint, ihr
+    // 1,5-s-Timer T startet (t=0 im Folgenden).
+    await fireEvent(screen.getByTestId('player-rechts'), 'pressIn');
+    await fireEvent(screen.getByTestId('player-rechts'), 'pressOut');
+    expect(screen.getByTestId('player-zwischenkarte')).toBeTruthy();
 
-  // Dasselbe Prinzip für die automatisch ABLAUFENDE Karte (der zweite der
-  // vier ungetesteten Fälle).
-  test('die automatisch ablaufende Zwischenkarte setzt pausiert zurück, selbst wenn es zuvor true war', async () => {
-    (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    (holeVorrat as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
-    await wrap();
-    await fireEvent(screen.getByTestId('player-rechts'), 'pressIn'); // pausiert:true
+    // Schritt 2: bei t≈200ms auf die Karte tippen (überspringen). T lebt
+    // verwaist weiter.
     await act(async () => {
-      jest.advanceTimersByTime(1500);
+      jest.advanceTimersByTime(200);
     });
+    await fireEvent.press(screen.getByTestId('player-zwischenkarte'));
     expect(screen.queryByTestId('player-zwischenkarte')).toBeNull();
+
+    // Schritt 3: bei t≈400ms den Kommentar-Knopf tippen → Sheet öffnet,
+    // Video pausiert ECHT (player.pause()).
     await act(async () => {
-      jest.advanceTimersByTime(5000);
+      jest.advanceTimersByTime(200);
     });
-    expect(screen.getByTestId('player-video')).toBeTruthy();
+    await fireEvent.press(screen.getByTestId('player-kommentare-oeffnen'));
+    expect(screen.getByTestId('kommentar-eingabe')).toBeTruthy(); // Sheet ist offen
+    const spielAufrufeBeimOeffnen = mockVideoPlayer.play.mock.calls.length;
+    const pauseAufrufeBeimOeffnen = mockVideoPlayer.pause.mock.calls.length;
+
+    // Schritt 4: bei insgesamt t=1500ms (seit dem Tageswechsel) feuert der
+    // verwaiste Timer T. Er darf NUR seinen eigenen Grund ('zwischenkarte')
+    // zurücknehmen — der bereits per `ueberspringen()` entfernt wurde
+    // (sicheres No-Op) — NICHT 'kommentare'.
+    await act(async () => {
+      jest.advanceTimersByTime(1100); // 200 + 200 + 1100 = 1500
+    });
+
+    // Schritt 5 (der eigentliche Fehler, jetzt widerlegt): kein neuer
+    // player.play()-Aufruf — der Player läuft NICHT hinter dem (weiterhin
+    // offenen) Sheet weiter. Ohne den Mock-Fix oben (setup nur bei
+    // tatsächlich neuer Quelle, siehe dort) wäre diese Zählung durch
+    // renderausgelöste, mit der Pause-Logik nichts zu tuende Zusatzaufrufe
+    // verrauscht gewesen.
+    expect(mockVideoPlayer.play.mock.calls.length).toBe(spielAufrufeBeimOeffnen);
+    // Gegenprobe: auch kein neuer pause()-Aufruf — der Player wurde nie
+    // wieder losgelassen, den man erneut hätte anhalten müssen.
+    expect(mockVideoPlayer.pause.mock.calls.length).toBe(pauseAufrufeBeimOeffnen);
+    expect(screen.getByTestId('kommentar-eingabe')).toBeTruthy(); // Sheet weiterhin offen
   });
 });
 
@@ -1008,16 +1108,33 @@ describe('Kino-Fade beim Betreten ("das Licht geht aus")', () => {
     timingSpy.mockRestore();
   });
 
-  test('verkürzt sich mit reduced motion auf 200ms', async () => {
-    mockUseReducedMotion.mockReturnValue(true);
+  // Phase-5-Final-Review, Punkt 3 (Review-Fund): dieser Test war grün, WEIL
+  // der alte Mock `reducedMotion` synchron auf `true` setzte — mit `[]`-Deps
+  // im Player-Effekt (der eigentliche Bug) UND mit `[reducedMotion]`-Deps
+  // (der Fix) liefert ein synchron auf `true` gemockter Hook nämlich
+  // GENAU DASSELBE Ergebnis (der Effekt läuft beim allerersten, einzigen
+  // Commit bereits mit `reducedMotion=true`) — der Mock konnte den Bug also
+  // gar nicht aufdecken. Dieser Test bildet die reale Reihenfolge nach: der
+  // Player mountet zuerst mit `reducedMotion=false` (Hook-Vertrag, siehe
+  // useReducedMotion.ts) — der normale 350-ms-Aufruf feuert. ERST danach
+  // löst der Hook (asynchron, wie in Produktion) auf `true` auf; nur ein
+  // Effekt, der wirklich an `reducedMotion` hängt, feuert dann einen
+  // ZWEITEN, 200-ms-Aufruf. Gegen den alten `[]`-Deps-Code (von Hand
+  // ausser Kraft gesetzt, siehe Bericht) bleibt dieser zweite Aufruf aus —
+  // der Test wird dort korrekt rot.
+  test('verkürzt sich auf 200ms, sobald der Hook reduced motion ERST NACH dem Mount meldet', async () => {
     const timingSpy = jest.spyOn(Animated, 'timing');
     (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
     (holeVorrat as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
     await wrap();
+    // Direkt nach dem Mount ist reducedMotion noch false (Hook-Vertrag) — nur
+    // der normale 350-ms-Aufruf ist bislang passiert.
+    expect(timingSpy.mock.calls.some(([, config]) => config.toValue === 0 && config.duration === 200)).toBe(false);
+    mockReducedMotionAufloesen(true);
+    await act(async () => {});
     const fadeAufruf = timingSpy.mock.calls.find(([, config]) => config.toValue === 0 && config.duration === 200);
     expect(fadeAufruf).toBeTruthy();
     timingSpy.mockRestore();
-    mockUseReducedMotion.mockReturnValue(false);
   });
 });
 
