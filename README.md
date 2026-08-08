@@ -20,6 +20,26 @@ supabase test db      # pgTAP-Tests (RLS-Policies!) ausführen
 Regel: Schema-Änderungen NUR über Migrationen in `supabase/migrations/`.
 Jede RLS-Policy braucht Tests in `supabase/tests/`.
 
+## Testdaten
+
+`supabase/seed.sql` legt Konten, drei Reisen und 30 Momente an — aber **keine
+Dateien**: der Seed schreibt Zeilen, er lädt nichts hoch. Und `supabase db reset`
+leert den Medien-Bucket gleich mit. Ohne den zweiten Halbschritt zeigen Übersicht,
+Player und Karte deshalb leere Kacheln, und jede Lese-URL antwortet mit 404.
+
+```bash
+npx supabase db reset                     # Zeilen
+node scripts/testmedien-hochladen.mjs     # Dateien dazu (braucht ffmpeg)
+```
+
+Das Skript erzeugt je Moment eine eigene Farbfläche mit Ort und Uhrzeit darauf —
+kein Foto, aber genug für alles, was lokal zu prüfen ist, und auf einem Screenshot
+ist sofort zu sehen, welcher Moment gerade gezeigt wird. Videos werden als echte
+mp4 erzeugt und spielen auf dem Gerät ab. Mehrfaches Ausführen ist harmlos.
+
+**Nach jedem `db reset` beides ausführen.** Das gilt auch für den Share-Token: er
+liegt in `share_links` und ist nach dem Reset ein anderer.
+
 ## Entwicklung (Upload-Pfad)
 
 Die Edge Function `media-urls` (`supabase/functions/media-urls`) stellt kurzlebige
