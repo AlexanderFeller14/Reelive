@@ -45,6 +45,25 @@ test('aufgedeckte Reise trägt sie nicht', async () => {
   expect(screen.queryByText('Versiegelt')).toBeNull();
 });
 
+// Task 10: «entwickelte» Reisen (revealed/archived) tragen statt der
+// Versiegelt-Pille eine Play-Einladung — Gegenprobe zum Test oben, der nur
+// belegt, dass die alte Pille FEHLT, nicht dass etwas Sinnvolles an ihre
+// Stelle tritt.
+test('aufgedeckte Reise trägt die Recap-Play-Pille', async () => {
+  await wrap(<TripCard trip={{ ...trip, status: 'revealed' }} onPress={jest.fn()} />);
+  expect(screen.getByText('Recap ansehen')).toBeTruthy();
+});
+
+test('archivierte Reise trägt sie ebenfalls', async () => {
+  await wrap(<TripCard trip={{ ...trip, status: 'archived' }} onPress={jest.fn()} />);
+  expect(screen.getByText('Recap ansehen')).toBeTruthy();
+});
+
+test('laufende Reise trägt die Play-Pille nicht', async () => {
+  await wrap(<TripCard trip={trip} onPress={jest.fn()} />);
+  expect(screen.queryByText('Recap ansehen')).toBeNull();
+});
+
 test('ein Moment wird im Singular gezählt', async () => {
   await wrap(<TripCard trip={{ ...trip, my_post_count: 1 }} onPress={jest.fn()} />);
   expect(screen.getByText('1 Moment')).toBeTruthy();
