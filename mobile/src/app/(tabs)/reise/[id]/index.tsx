@@ -102,15 +102,31 @@ export default function ReiseDetail() {
   // eine frische erst NACH der Inszenierung (siehe inszenierungFertig unten).
   const [inszenierungSichtbar, setInszenierungSichtbar] = useState(false);
   const [revealBereit, setRevealBereit] = useState(false);
-  // Verhindert, dass ein erneuter Fokus-Lauf (laden() feuert bei JEDEM
-  // Fokussieren) die eben getroffene Entscheidung nochmal trifft: ohne diesen
-  // Wächter würde ein Fehlschlag von merkeRevealGesehen() (Speicher voll/
-  // kaputt) die Inszenierung bei jedem weiteren Fokussieren DIESES
-  // Bildschirm-Aufrufs erneut über die bereits sichtbare «Recap starten»-
-  // Fläche legen — siehe Kommentar bei gesehen.ts. Über einen App-Neustart
-  // hinweg (neuer Mount, neue Ref) bleibt der in Kauf genommene Rückfall
-  // bestehen: dann läuft sie höchstens einmal zu viel, nie in einer Schleife.
-  const revealPruefungAbgeschlossenRef = useRef(false);
+  // Zwei getrennte Wächter statt einem (Review Important 3 am ursprünglichen
+  // einzelnen Ref): `revealPruefungLaeuftRef` schützt nur den Moment WÄHREND
+  // `revealGesehen()` noch aussteht — er verhindert, dass zwei überlappende
+  // `laden()`-Aufrufe (z. B. ein zweiter durch `entfernen()`, während der
+  // erste noch auf AsyncStorage wartet) den Speicher beide gleichzeitig
+  // befragen. `revealEntschiedenRef` wird ERST gesetzt, NACHDEM eine
+  // Entscheidung tatsächlich angewendet wurde (`setRevealBereit`/
+  // `setInszenierungSichtbar`) — genau DAS, nicht der In-Flight-Zustand, ist
+  // was künftige `laden()`-Aufrufe von einem erneuten Check abhalten soll.
+  //
+  // Der ursprüngliche einzelne Ref wurde VOR dem `await revealGesehen(id)`
+  // gesetzt (richtig gegen Nebenläufigkeit) und im Abbruchpfad
+  // (`if (!aktiv.current) return`) NIE zurückgenommen: verlor der Screen
+  // während des AsyncStorage-Lesens den Fokus (Tab-Wechsel, ein `push` auf
+  // `/reise/[id]/einladen` — der Screen bleibt dabei gemountet), blieb er
+  // für den Rest dieses Mounts auf "true" hängen, ohne dass je `revealBereit`
+  // oder `inszenierungSichtbar` gesetzt worden wäre — eine aufgedeckte Reise
+  // hätte dann WEDER die Inszenierung NOCH «Recap starten» gezeigt. Mit der
+  // Aufteilung bleibt nur `revealPruefungLaeuftRef` (unten wieder auf
+  // `false` gesetzt, sobald `revealGesehen()` zurückkommt — VOR dem
+  // `aktiv`-Check) über den Abbruch hinaus gesetzt; `revealEntschiedenRef`
+  // bleibt `false`, ein späterer `laden()`-Aufruf (echtes Refokussieren)
+  // versucht es also erneut.
+  const revealPruefungLaeuftRef = useRef(false);
+  const revealEntschiedenRef = useRef(false);
   // Schirmt setState nach Blur/Unmount ab — gleiches Muster wie in der
   // Listen-Schwesterdatei (reise/index.tsx): jeder Fokus-Zyklus bekommt seinen
   // eigenen Wächter, der beim Verlassen des Screens auf false gesetzt wird, damit
@@ -155,14 +171,25 @@ export default function ReiseDetail() {
     // ist. Das trifft die Owner-Person direkt nach einem erfolgreichen
     // abschliessen() (derselbe laden()-Aufruf, siehe dort) genauso wie jedes
     // andere Mitglied, das die Reise irgendwann später wieder aufmacht — mit
-    // oder ohne Push. `revealPruefungAbgeschlossenRef` sorgt dafür, dass ein
-    // erneuter Fokus-Lauf, während die erste Entscheidung noch nicht
-    // abgeschlossen oder ihr Ergebnis noch nicht auf dem Schirm ist, sie
-    // nicht ein zweites Mal trifft.
-    if (t.data && t.data.status !== 'active' && !revealPruefungAbgeschlossenRef.current) {
-      revealPruefungAbgeschlossenRef.current = true;
+    // oder ohne Push.
+    if (
+      t.data &&
+      t.data.status !== 'active' &&
+      !revealEntschiedenRef.current &&
+      !revealPruefungLaeuftRef.current
+    ) {
+      revealPruefungLaeuftRef.current = true;
       const gesehen = await revealGesehen(id);
+      // VOR dem aktiv-Check zurückgesetzt: der In-Flight-Zustand endet hier
+      // so oder so, ob der Screen inzwischen den Fokus verloren hat oder
+      // nicht — sonst bliebe er bei einem Abbruch hängen und würde jeden
+      // späteren laden()-Aufruf blockieren (siehe Kommentar bei den Refs).
+      revealPruefungLaeuftRef.current = false;
       if (!aktiv.current) return;
+      // Ab hier gilt die Entscheidung als getroffen — erst JETZT, nicht
+      // schon vor dem await, damit ein Abbruch oben sie erneut versuchen
+      // lässt statt sie für den Rest dieses Mounts zu verhindern.
+      revealEntschiedenRef.current = true;
       if (gesehen) {
         setRevealBereit(true);
       } else {
@@ -359,7 +386,15 @@ export default function ReiseDetail() {
           <Text style={[type.body, { color: colors['text-2'] }]}>
             Eure Reise ist zu Ende. Zeit für den Recap.
           </Text>
-          <Button variant="primary" label="Reise abschliessen" onPress={abschliessenOeffnen} />
+          {/* Review-Nachtrag zu Task 8 (Important 3/M4 dieser Runde): solange
+              das Sheet offen ist, trägt SEIN «Abschliessen» die Akzentfarbe —
+              dieser Knopf hier tritt zurück, sonst stünden zwei Akzentflächen
+              gleichzeitig im Baum (§7). */}
+          <Button
+            variant={bestaetigenSichtbar ? 'secondary' : 'primary'}
+            label="Reise abschliessen"
+            onPress={abschliessenOeffnen}
+          />
         </View>
       )}
 
@@ -429,7 +464,7 @@ export default function ReiseDetail() {
       )}
       {istOwner && laeuft && (
         <Button
-          variant={reiseZuEnde ? 'secondary' : 'primary'}
+          variant={reiseZuEnde || bestaetigenSichtbar ? 'secondary' : 'primary'}
           label="Freunde einladen"
           onPress={() => router.push(`/reise/${id}/einladen`)}
         />
@@ -440,8 +475,19 @@ export default function ReiseDetail() {
           Letzteres status === 'active') — «Recap starten» ersetzt
           «Freunde einladen» als einzige Akzent-Fläche, statt eine zweite
           hinzuzufügen (§7). Für ALLE Mitglieder sichtbar, nicht nur für die
-          Owner-Person — der Recap gehört der ganzen Gruppe. */}
-      {revealBereit && <Button variant="primary" label="Recap starten" onPress={zumRecap} />}
+          Owner-Person — der Recap gehört der ganzen Gruppe.
+          Review-Nachtrag: ein neuer, schmaler Pfad macht `bestaetigenSichtbar`
+          und `revealBereit` gleichzeitig wahr — ein unabhängiger laden()-Lauf
+          entdeckt einen Reveal (z. B. von einem zweiten Gerät ausgelöst),
+          während DIESES Sheet noch offen steht und niemand es geschlossen
+          hat. Auch hier tritt der Screen-Knopf zugunsten des Sheets zurück. */}
+      {revealBereit && (
+        <Button
+          variant={bestaetigenSichtbar ? 'secondary' : 'primary'}
+          label="Recap starten"
+          onPress={zumRecap}
+        />
+      )}
       {istOwner && (
         <Button variant="secondary" label="Reise bearbeiten" onPress={() => router.push(`/reise/${id}/bearbeiten`)} />
       )}

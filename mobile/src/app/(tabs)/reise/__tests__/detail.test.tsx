@@ -5,22 +5,29 @@ import { palette } from '@/theme/tokens';
 
 const mockPush = jest.fn();
 const mockReplace = jest.fn();
-// Review Important 3: `(cb) => cb()` feuerte bei JEDEM Render statt nur beim
-// Fokussieren/bei geänderter Callback-Referenz — überlebte bislang nur, weil
-// jeder verwendete Mock stabile Objektreferenzen zurückgab. Das verdeckte statt
-// reparierte die eigentliche Lücke: `void laden()` aus dem Erfolgspfad von
-// `abschliessen()` löschen blieb unbemerkt grün, weil ohnehin ständig neu
-// geladen wurde. `useEffect(cb, [cb])` reproduziert die echte Semantik von
-// useFocusEffect exakt — der Screen memoisiert seinen Callback bereits mit
-// `useCallback([laden])`, der Effekt läuft also einmal beim Mount und erneut
-// nur, wenn sich `id`/`userId` ändern. `require('react')` statt eines
-// Top-Level-Imports, weil jest.mock()-Factories laut babel-plugin-jest-hoist
-// keine Variablen aus dem Modul-Scope referenzieren dürfen.
+// Review Important 3 (Task 8): `(cb) => cb()` feuerte bei JEDEM Render statt
+// nur beim Fokussieren/bei geänderter Callback-Referenz — überlebte bislang
+// nur, weil jeder verwendete Mock stabile Objektreferenzen zurückgab. Das
+// verdeckte statt reparierte die eigentliche Lücke: `void laden()` aus dem
+// Erfolgspfad von `abschliessen()` löschen blieb unbemerkt grün, weil
+// ohnehin ständig neu geladen wurde. `useEffect(cb, [cb])` reproduziert die
+// echte Semantik von useFocusEffect exakt — der Screen memoisiert seinen
+// Callback bereits mit `useCallback([laden])`, der Effekt läuft also einmal
+// beim Mount und erneut nur, wenn sich `id`/`userId` ändern. `require('react')`
+// statt eines Top-Level-Imports, weil jest.mock()-Factories laut
+// babel-plugin-jest-hoist keine Variablen aus dem Modul-Scope referenzieren
+// dürfen — `mockRouteId` ist erlaubt, weil der Name mit "mock" beginnt.
+//
+// Review Important 3 (Task 9): `mockRouteId` statt eines festen `'t1'` —
+// sonst bliebe unbemerkt, wenn `zumRecap()` die Reise-Kennung fest verdrahtet
+// statt der tatsächlichen `id` zu verwenden (alle Fixtures heissen `t1`,
+// eine hartkodierte Zeichenkette wäre unterschiedslos "richtig" gewesen).
+let mockRouteId = 't1';
 jest.mock('expo-router', () => {
   const { useEffect } = require('react');
   return {
     useRouter: () => ({ push: mockPush, replace: mockReplace, back: jest.fn() }),
-    useLocalSearchParams: () => ({ id: 't1' }),
+    useLocalSearchParams: () => ({ id: mockRouteId }),
     useFocusEffect: (cb: () => void) => useEffect(cb, [cb]),
   };
 });
@@ -138,6 +145,7 @@ const wrap = () => render(<ThemeProvider><ReiseDetail /></ThemeProvider>);
 beforeEach(() => {
   jest.clearAllMocks();
   mockAuth.userId = 'u1';
+  mockRouteId = 't1';
   (fetchTrip as jest.Mock).mockResolvedValue(tripOk);
   (fetchMembers as jest.Mock).mockResolvedValue(mitgliederOk);
   (eigenerZaehler as jest.Mock).mockResolvedValue(0);
@@ -397,10 +405,22 @@ test('queueDb.verworfene schlägt fehl: die Reise erscheint trotzdem', async () 
 
 // === Task 8: «Reise abschliessen» ===
 
-// Review Important 3/M4: eine einzelne Style-Prüfung an zwei bekannten Knöpfen
-// deckt nicht ab, dass IRGENDEIN anderer Knopf (z. B. «Reise bearbeiten» oder
-// «Verstanden») versehentlich zusätzlich primär würde. Läuft über den
-// vollständigen gerenderten Baum, nicht nur über zwei benannte Stellen.
+// Review Important 3/M4 (Task 8): eine einzelne Style-Prüfung an zwei
+// bekannten Knöpfen deckt nicht ab, dass IRGENDEIN anderer Knopf (z. B.
+// «Reise bearbeiten» oder «Verstanden») versehentlich zusätzlich primär
+// würde. Läuft über den vollständigen gerenderten Baum, nicht nur über zwei
+// benannte Stellen.
+//
+// Review-Nachtrag (Task 9): diese Funktion ERZWINGT §7 nicht von sich aus —
+// sie zählt nur, für den EINEN Baum, mit dem sie aufgerufen wird. Bis hierhin
+// wurde sie nie bei offenem Sheet aufgerufen, obwohl dort (Sheet-eigenes
+// «Abschliessen» + der jeweilige Screen-Primärbutton dahinter) tatsächlich
+// zwei Akzentflächen gleichzeitig standen — ein realer Fund, kein
+// hypothetischer. Die Tests unten rufen sie jetzt auch für den
+// Sheet-offen-Fall auf (inkl. des durch Task 9 neu möglichen dritten
+// Zustands «Recap starten» + offenes Sheet); vollständig ist die Abdeckung
+// damit trotzdem nicht (revealed/archived/Nicht-Owner-Zustände bleiben
+// ungeprüft) — das ist eine bewusste Lücke, keine verdeckte.
 type Baumknoten = { type?: string; props?: { style?: unknown }; children?: (Baumknoten | string)[] | null };
 function zaehleAccentFlaechen(baum: unknown): number {
   let anzahl = 0;
@@ -710,10 +730,10 @@ test('eine archivierte Reise bekommt dieselbe Reveal-Entdeckung wie eine aufgede
 // merkeRevealGesehen nie erfolgreich geschrieben). `entfernen()` liefert
 // einen zweiten, von der Reveal-Entdeckung komplett unabhängigen laden()-
 // Aufruf INNERHALB DESSELBEN Bildschirm-Aufrufs (der X-Knopf hängt an keiner
-// Status-Bedingung) — ohne den revealPruefungAbgeschlossenRef-Wächter würde
-// dieser zweite Aufruf `revealGesehen` erneut befragen, wieder `false`
-// bekommen und die Inszenierung ein zweites Mal über den längst sichtbaren
-// «Recap starten»-Knopf legen.
+// Status-Bedingung) — ohne `revealEntschiedenRef` würde dieser zweite Aufruf
+// `revealGesehen` erneut befragen, wieder `false` bekommen und die
+// Inszenierung ein zweites Mal über den längst sichtbaren «Recap
+// starten»-Knopf legen.
 test('ein zweiter Ladevorgang nach abgeschlossener Entscheidung fragt revealGesehen nicht nochmal ab, selbst wenn das Merken weiterhin als gescheitert gilt', async () => {
   (fetchTrip as jest.Mock).mockResolvedValue(tripRevealedOk);
   (revealGesehen as jest.Mock).mockResolvedValue(false);
@@ -730,4 +750,86 @@ test('ein zweiter Ladevorgang nach abgeschlossener Entscheidung fragt revealGese
   expect(revealGesehen).toHaveBeenCalledTimes(1);
   expect(screen.queryByTestId('reveal-inszenierung-fake')).toBeNull();
   expect(screen.getByText('Recap starten')).toBeTruthy();
+});
+
+// Review Important 3: der ursprüngliche einzelne Ref wurde VOR dem `await`
+// gesetzt — richtig, um zwei ÜBERLAPPENDE laden()-Aufrufe (dieser Test) davon
+// abzuhalten, `revealGesehen` beide gleichzeitig zu befragen. Eine
+// kontrolliert unaufgelöste Promise hält den ERSTEN Aufruf mitten im Warten
+// fest, während `entfernen()` (siehe Test oben) einen ZWEITEN auslöst, noch
+// bevor der erste zurückkommt.
+test('zwei überlappende laden()-Aufrufe fragen revealGesehen nur einmal ab (Schutz vor Nebenläufigkeit)', async () => {
+  (fetchTrip as jest.Mock).mockResolvedValue(tripRevealedOk);
+  let freigeben!: (wert: boolean) => void;
+  (revealGesehen as jest.Mock).mockImplementation(
+    () => new Promise<boolean>((resolve) => { freigeben = resolve; })
+  );
+  await wrap();
+  await waitFor(() => expect(revealGesehen).toHaveBeenCalledTimes(1));
+
+  // Der erste Aufruf (vom Mount) wartet noch auf revealGesehen() — jetzt
+  // löst ein zweiter, unabhängiger laden()-Aufruf aus.
+  await fireEvent.press(screen.getByLabelText('Jonas entfernen'));
+  await waitFor(() => expect(removeMember).toHaveBeenCalledWith('t1', 'u2'));
+
+  // Ohne den «läuft gerade»-Schutz (Ref-Zuweisung VOR dem await) hätte der
+  // zweite Aufruf revealGesehen ein zweites Mal befragt, obwohl der erste
+  // noch nicht fertig war.
+  expect(revealGesehen).toHaveBeenCalledTimes(1);
+
+  freigeben(false);
+  await screen.findByTestId('reveal-inszenierung-fake');
+});
+
+// Review-Nachtrag zu Task 8 (Important 3/M4 dieser Runde): bei offenem Sheet
+// stand bislang eine ZWEITE Akzentfläche im Baum — der Screen-Primärbutton
+// dahinter blieb primär, während das Sheet sein eigenes «Abschliessen»
+// zeigte. Der `zaehleAccentFlaechen`-Docstring behauptete das Gegenteil,
+// ohne je in diesem Zustand geprüft worden zu sein.
+test('bei offenem Sheet bleibt nur das «Abschliessen» im Sheet primär — der Screen-Knopf dahinter tritt zurück', async () => {
+  (fetchTrip as jest.Mock).mockResolvedValue(tripAmEndeOk);
+  await wrap();
+  await fireEvent.press(await screen.findByText('Reise abschliessen'));
+  await screen.findByText('Reise abschliessen?');
+  expect(zaehleAccentFlaechen(screen.toJSON())).toBe(1);
+});
+
+// Der durch Task 9 neu mögliche dritte Zustand: das Sheet steht offen (noch
+// nichts hat es geschlossen), während ein UNABHÄNGIGER Ladevorgang (hier über
+// `entfernen()` ausgelöst) entdeckt, dass die Reise inzwischen aufgedeckt ist
+// — z. B. weil ein zweites Gerät sie abgeschlossen hat. «Recap starten»
+// erscheint im Hintergrund, ohne dass DIESES Sheet je «Abschliessen» gedrückt
+// hätte.
+test('ein Reveal während offenem Sheet (z. B. von einem zweiten Gerät) lässt trotzdem nur eine Akzentfläche stehen', async () => {
+  (fetchTrip as jest.Mock).mockResolvedValue(tripAmEndeOk);
+  (revealGesehen as jest.Mock).mockResolvedValue(true);
+  await wrap();
+  await fireEvent.press(await screen.findByText('Reise abschliessen'));
+  await screen.findByText('Reise abschliessen?');
+
+  (fetchTrip as jest.Mock).mockResolvedValue(tripRevealedOk);
+  await fireEvent.press(screen.getByLabelText('Jonas entfernen'));
+  await waitFor(() => expect(removeMember).toHaveBeenCalledWith('t1', 'u2'));
+
+  await screen.findByText('Recap starten');
+  // Das Sheet bleibt offen — nichts in diesem Ablauf schliesst es automatisch.
+  expect(screen.getByText('Reise abschliessen?')).toBeTruthy();
+  expect(zaehleAccentFlaechen(screen.toJSON())).toBe(1);
+});
+
+// Review Important 3 (Coda): «params: { id }» → «params: { id: 't1' }» wäre
+// mit allen anderen Tests dieser Datei unterschiedslos grün geblieben, weil
+// jede Fixture `t1` heisst. `mockRouteId` macht die Reise-Kennung für DIESEN
+// einen Test bewusst anders, um zu beweisen, dass zumRecap() tatsächlich die
+// übergebene `id` verwendet statt eines fest verdrahteten Werts.
+test('«Recap starten» verwendet die tatsächliche Reise-Kennung, nicht fest verdrahtet «t1»', async () => {
+  mockRouteId = 'reise-xyz';
+  (fetchTrip as jest.Mock).mockResolvedValue({ data: { ...tripRevealed, id: 'reise-xyz' }, error: null });
+  (revealGesehen as jest.Mock).mockResolvedValue(true);
+  await wrap();
+  await fireEvent.press(await screen.findByText('Recap starten'));
+  expect(mockPush).toHaveBeenCalledWith({
+    pathname: '/recap/[id]/uebersicht',
+    params: { id: 'reise-xyz' },
+  });
 });
