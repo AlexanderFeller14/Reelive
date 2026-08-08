@@ -1177,6 +1177,104 @@ describe('Reaktionen (Task 12)', () => {
     await wrap();
     expect(screen.queryByTestId('player-reaktionen-andere')).toBeNull();
   });
+
+  // Fix-Runde 1, Mutation A aus dem Review: ohne den `user_id === userId`-
+  // Filter in `eigeneEmojis` würde JEDE Reaktion auf dem Moment — egal von
+  // wem — die eigene Pille aktiv färben. Effekt in Produktion: 😂 leuchtet
+  // als "meine" Reaktion, obwohl sie von Jonas stammt, und ein Tipp darauf
+  // löscht seine statt selbst zu reagieren.
+  test('eine FREMDE Reaktion auf ein Emoji der Leiste färbt die eigene Pille NICHT aktiv', async () => {
+    (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
+    (holeVorrat as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+    (fetchReaktionen as jest.Mock).mockResolvedValue({
+      data: { p1: [{ post_id: 'p1', user_id: 'u2', emoji: '😂' }] }, // Jonas, nicht ich (u1)
+      error: null,
+    });
+    (setzeReaktion as jest.Mock).mockResolvedValue({ error: null });
+
+    await wrap();
+    expect(screen.getByTestId('player-emoji-lachen').props.accessibilityState.selected).toBe(false);
+
+    // Ein Tipp auf 😂 muss deshalb SETZEN, nicht Jonas' Reaktion entfernen.
+    await fireEvent.press(screen.getByTestId('player-emoji-lachen'));
+    expect(setzeReaktion).toHaveBeenCalledWith('p1', '😂');
+    expect(entferneReaktion).not.toHaveBeenCalled();
+  });
+
+  // Fix-Runde 1, Mutation D aus dem Review: ohne den aktivIdRef-Abgleich
+  // beim Rollback würde ein Fehler zu einem längst verlassenen Moment auf
+  // dem FALSCHEN, inzwischen aktiven Moment aufblitzen.
+  test('ein Reaktionsfehler zu einem verlassenen Moment erscheint NICHT auf dem inzwischen aktiven Moment', async () => {
+    mockParams = { id: 't1', start: '1' }; // p2, kein Tageswechsel zu p3
+    (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
+    (holeVorrat as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+    const { promise, loese } = unaufgeloest<{ error: string | null }>();
+    (setzeReaktion as jest.Mock).mockReturnValue(promise);
+
+    await wrap();
+    await fireEvent.press(screen.getByTestId('player-emoji-herz')); // reagiert auf p2, hängt
+    await fireEvent(screen.getByTestId('player-rechts'), 'pressIn');
+    await fireEvent(screen.getByTestId('player-rechts'), 'pressOut'); // weiter zu p3
+
+    await act(async () => {
+      loese({ error: 'Deine Reaktion konnte nicht gespeichert werden. Probier es gleich nochmal.' });
+    });
+    expect(
+      screen.queryByText('Deine Reaktion konnte nicht gespeichert werden. Probier es gleich nochmal.')
+    ).toBeNull();
+  });
+
+  // Klein 4 aus dem Review: ein verschluckter Ladefehler liess jeden Moment
+  // fälschlich reaktionslos wirken, ohne dass die Person je erfahren hätte,
+  // warum.
+  test('ein Ladefehler der Reaktionen wird angezeigt, statt verschluckt zu werden', async () => {
+    (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
+    (holeVorrat as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+    (fetchReaktionen as jest.Mock).mockResolvedValue({
+      data: {},
+      error: 'Die Reaktionen konnten nicht geladen werden. Probier es gleich nochmal.',
+    });
+    await wrap();
+    expect(
+      screen.getByText('Die Reaktionen konnten nicht geladen werden. Probier es gleich nochmal.')
+    ).toBeTruthy();
+  });
+
+  // Klein 5 aus dem Review: sozialApi fängt jeden ERWARTETEN Fehlerpfad
+  // selbst ab (liefert { error }, wirft nicht) — ein echtes reject() ist der
+  // unerwartete Rest. Ohne das eigene .catch() bliebe der Pending-Schlüssel
+  // für immer belegt, dieses Emoji auf diesem Moment liesse sich nie wieder
+  // antippen.
+  test('ein tatsächlich abgelehntes Promise (nicht nur { error }) rollt zurück und gibt das Emoji wieder frei', async () => {
+    (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
+    (holeVorrat as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+    (setzeReaktion as jest.Mock).mockRejectedValueOnce(new Error('unerwarteter Absturz'));
+    (setzeReaktion as jest.Mock).mockResolvedValueOnce({ error: null });
+
+    await wrap();
+    // Anders als bei den obigen Rücknahme-Tests bewusst OHNE Zwischen-
+    // Assertion auf den optimistischen Zustand: ein bereits ABGELEHNTES
+    // Promise (mockRejectedValueOnce) löst genauso schnell auf wie ein
+    // bereits AUFGELÖSTES — der Rollback ist zum Zeitpunkt des awaiteten
+    // fireEvent.press schon gelaufen (dieselbe Lehre wie bei "scheitert das
+    // Setzen" weiter oben, das ursprünglich denselben Fehler hatte). Hier
+    // zählt allein das Endergebnis: Rollback UND Fehlermeldung UND ein
+    // freigegebener Pending-Schlüssel.
+    await fireEvent.press(screen.getByTestId('player-emoji-herz'));
+
+    await act(async () => {});
+    // Rollback nach der Ablehnung — UND eine Fehlermeldung statt einer
+    // Unhandled Rejection.
+    expect(screen.getByTestId('player-emoji-herz').props.accessibilityState.selected).toBe(false);
+    expect(
+      screen.getByText('Deine Reaktion konnte nicht gespeichert werden. Probier es gleich nochmal.')
+    ).toBeTruthy();
+
+    // Der Pending-Schlüssel wurde freigegeben: ein erneuter Tipp löst eine
+    // ZWEITE Anfrage aus, statt für immer gesperrt zu bleiben.
+    await fireEvent.press(screen.getByTestId('player-emoji-herz'));
+    expect(setzeReaktion).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe('Kommentar-Sheet (Task 12)', () => {
@@ -1210,6 +1308,37 @@ describe('Kommentar-Sheet (Task 12)', () => {
       jest.advanceTimersByTime(5000);
     });
     expect(screen.getByTestId('player-zwischenkarte')).toBeTruthy(); // p3 -> p4, Tageswechsel
+  });
+
+  // Wichtig 3 aus dem Review: eine noch laufende Sendung für einen
+  // VERLASSENEN Moment (Sheet geschlossen, während schreibeKommentar noch
+  // unterwegs war) darf den Senden-Knopf einer NEUEN Sitzung nicht für den
+  // Rest der Player-Sitzung als "sendet gerade" (Spinner, disabled) stehen
+  // lassen — ihre eigene, spät eintreffende Antwort trifft auf den
+  // Stale-Guard in kommentarAbsenden und würde `kommentarSendetLaeuft`
+  // sonst nie mehr zurücksetzen.
+  test('eine hängende Sendung für einen verlassenen Moment lässt den Senden-Knopf einer neu geöffneten Sitzung nicht für immer als "sendet" stehen', async () => {
+    (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
+    (holeVorrat as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+    (fetchKommentare as jest.Mock).mockResolvedValue({ data: [], error: null });
+    const { promise } = unaufgeloest<{ error: string | null }>();
+    (schreibeKommentar as jest.Mock).mockReturnValue(promise); // bleibt für p1 hängen
+
+    await wrap(); // start=0 -> p1
+    await fireEvent.press(screen.getByTestId('player-zwischenkarte')); // Tag-1-Karte weg
+    await fireEvent.press(screen.getByTestId('player-kommentare-oeffnen')); // öffnet für p1
+    await act(async () => {});
+    await fireEvent.changeText(screen.getByTestId('kommentar-eingabe'), 'Hallo');
+    await fireEvent.press(screen.getByTestId('kommentar-senden')); // sendetLaeuft=true, hängt
+
+    await fireEvent.press(screen.getByTestId('sheet-backdrop')); // schliessen, OHNE auf die Antwort zu warten
+    await fireEvent(screen.getByTestId('player-rechts'), 'pressIn');
+    await fireEvent(screen.getByTestId('player-rechts'), 'pressOut'); // weiter zu p2
+    await fireEvent.press(screen.getByTestId('player-kommentare-oeffnen')); // neu öffnen für p2
+    await act(async () => {});
+
+    // Fixiert: der Knopf zeigt "Senden", nicht dauerhaft den Spinner.
+    expect(screen.getByText('Senden')).toBeTruthy();
   });
 
   // Mutationsschutz: ein Mutant, der `pausiert: false` beim Öffnen entfernt

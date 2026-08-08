@@ -512,8 +512,18 @@ export default function RecapPlayer() {
   useEffect(() => {
     if (spielliste.length === 0) return;
     let lebt = true;
-    void fetchReaktionen(spielliste.map((m) => m.id)).then(({ data }) => {
-      if (lebt && aktiv.current) setReaktionen(data);
+    void fetchReaktionen(spielliste.map((m) => m.id)).then(({ data, error }) => {
+      if (!lebt || !aktiv.current) return;
+      setReaktionen(data);
+      // Fix-Runde 1, Klein 4: ein verschluckter Ladefehler liess jeden
+      // Moment fälschlich reaktionslos wirken — die eigene, tatsächlich
+      // schon bestehende Reaktion zeigte sich nicht als aktiv, UND der
+      // erste Tipp darauf wurde dank `ignoreDuplicates` zu einem stillen
+      // No-Op (erst der zweite Tipp hätte sie entfernt), ohne dass die
+      // Person je erfahren hätte, warum. Dieselbe Pille wie ein
+      // fehlgeschlagener Tipp selbst — verschwindet beim nächsten
+      // Momentwechsel (siehe Effekt unten).
+      if (error) setReaktionFehler(error);
     });
     return () => {
       lebt = false;
@@ -579,19 +589,42 @@ export default function RecapPlayer() {
       [momentId]: (stand[momentId] ?? []).filter((r) => !(r.emoji === emoji && r.user_id === uid)),
     });
 
-    setReaktionen(warReagiert ? entfernen : hinzufuegen);
-    const aufruf = warReagiert ? entferneReaktion(momentId, emoji) : setzeReaktion(momentId, emoji);
-    void aufruf.then(({ error }) => {
+    // Rücknahme (Rollback): exakt die entgegengesetzte Änderung der
+    // optimistischen oben — die Reaktion verschwindet wieder (bzw. taucht
+    // wieder auf). Als benannte Funktion, weil sowohl ein AUFGELÖSTES `{
+    // error }` als auch ein tatsächliches `reject()` (Fix-Runde 1, Klein 5)
+    // dieselbe Behandlung brauchen.
+    const rollback = (nachricht: string) => {
       pendingReaktionenRef.current.delete(schluessel);
-      if (!error || !aktiv.current) return;
-      // Rücknahme: exakt die entgegengesetzte Änderung der optimistischen
-      // oben — die Reaktion verschwindet wieder (bzw. taucht wieder auf).
+      if (!aktiv.current) return;
       setReaktionen(warReagiert ? hinzufuegen : entfernen);
       // Nur anzeigen, wenn noch derselbe Moment aktiv ist — sonst würde ein
       // Fehler zu einem längst verlassenen Moment auf dem FALSCHEN,
       // inzwischen aktiven Moment aufblitzen.
-      if (aktivIdRef.current === momentId) setReaktionFehler(error);
-    });
+      if (aktivIdRef.current === momentId) setReaktionFehler(nachricht);
+    };
+
+    setReaktionen(warReagiert ? entfernen : hinzufuegen);
+    const aufruf = warReagiert ? entferneReaktion(momentId, emoji) : setzeReaktion(momentId, emoji);
+    void aufruf
+      .then(({ error }) => {
+        if (error) rollback(error);
+        else pendingReaktionenRef.current.delete(schluessel);
+      })
+      .catch(() => {
+        // sozialApi fängt jeden erwarteten Fehlerpfad selbst ab und liefert
+        // ihn als `{ error }`, statt zu werfen (siehe dortiger Kommentar) —
+        // ein tatsächliches reject() hier ist der unerwartete Rest (z.B.
+        // eine Laufzeitausnahme in der fetch-Polyfill). Ohne dieses `.catch`
+        // (Fix-Runde 1, Klein 5) bliebe `schluessel` für immer in
+        // `pendingReaktionenRef` hängen — dieses Emoji auf diesem Moment
+        // liesse sich nie wieder antippen, plus eine Unhandled Rejection.
+        rollback(
+          warReagiert
+            ? 'Deine Reaktion konnte nicht entfernt werden. Probier es gleich nochmal.'
+            : 'Deine Reaktion konnte nicht gespeichert werden. Probier es gleich nochmal.'
+        );
+      });
   };
 
   // Öffnet das Kommentar-Sheet für den GERADE aktiven Moment und hält diesen
@@ -602,6 +635,24 @@ export default function RecapPlayer() {
   // Auftrag). Der Player pausiert zusätzlich strukturell (unten), solange
   // das Sheet offen ist — der eigene State macht die Zusicherung aber
   // explizit statt sich allein darauf zu verlassen.
+  //
+  // Fix-Runde 1, bewusste Abweichung vom Brief-Wortlaut ("Wisch nach oben
+  // öffnet das Sheet"): dieser Knopf ist der EINZIGE Weg, das Sheet zu
+  // öffnen — es gibt keine Wisch-Geste dafür. Der einzige PanResponder des
+  // Screens (unten, `panResponder`) erkennt ausschliesslich Abwärtswische
+  // zum Schliessen des Players; ihn zusätzlich für Aufwärtswische zu öffnen
+  // hätte entweder eine zweite, unabhängige Touch-Fläche gebraucht (Konflikt
+  // mit den Tipp-Zonen und der Zwischenkarte) oder eine Fallunterscheidung
+  // in `onPanResponderMove` (nur bei Abwärtsbewegung visuell folgen, bei
+  // Aufwärtsbewegung nicht) — UND hätte gegen die Zwischenkarte abgesichert
+  // werden müssen: die Karte hat ihren eigenen 1,5-s-Zeitgeber, der
+  // `pausiert` unbedingt auf `false` zurücksetzt (siehe der Effekt bei
+  // `ZWISCHENKARTE_DAUER_MS`), und hätte damit ein währenddessen per
+  // Aufwärtswisch geöffnetes Sheet wieder lautlos "entpausiert". Ohne echten
+  // Gerätetest wollte ich diese Kombination nicht ungeprüft einbauen. Der
+  // Tipp-Knopf ist deterministisch, hat ein 44×44-Touch-Target
+  // (DESIGN-LANGUAGE v2 §8) und ist der einzige Weg, den auch die Tests
+  // unten prüfen — siehe Bericht, Abschnitt "Wisch-Geste".
   const oeffneKommentare = () => {
     const moment = aktivMoment;
     if (!moment) return;
@@ -618,6 +669,15 @@ export default function RecapPlayer() {
     setKommentarMomentId(momentId);
     setKommentarText('');
     setKommentarSendenFehler(null);
+    // Fix-Runde 1, Wichtig 3: eine noch laufende Sendung für den VORHERIGEN
+    // Moment (Sheet geschlossen, während schreibeKommentar noch unterwegs
+    // war) darf den Senden-Knopf dieser neuen Sitzung nicht für immer als
+    // "sendet gerade" zeigen — ihre eigene Antwort trifft ohnehin auf den
+    // Stale-Guard in kommentarAbsenden (kommentarMomentIdRef zeigt dann
+    // schon hierher) und würde `setKommentarSendetLaeuft(false)` nie mehr
+    // erreichen. Ein frisches Öffnen ist eine frische Sitzung, die noch
+    // nichts gesendet hat.
+    setKommentarSendetLaeuft(false);
     setKommentare([]);
     setKommentareFehler(null);
     setKommentareLaden(true);
@@ -1241,14 +1301,36 @@ const styles = StyleSheet.create({
     backgroundColor: cinema['bg-0'],
     zIndex: 2,
   },
+  // Fix-Runde 1, Blocker 1: ohne zIndex lag dieser Bereich UNTER den
+  // Tipp-Zonen (zIndex 1, siehe tapZoneLinks/tapZoneRechts unten) — jeder
+  // Tipp auf ein Emoji oder den Kommentar-Knopf traf physisch player-links/
+  // -rechts und blätterte nur weiter, statt zu reagieren bzw. das Sheet zu
+  // öffnen. zIndex 2 hebt ihn über die Tipp-Zonen; bleibt unter der
+  // Zwischenkarte (ebenfalls zIndex 2, aber SPÄTER im Baum — bei gleichem
+  // zIndex gewinnt in React Native das später gerenderte Geschwister,
+  // gleiches Prinzip wie beim tapZoneLinks/-Rechts-Kommentar unten), die
+  // Karte deckt die Leiste also weiterhin vollständig ab, während sie steht.
+  //
+  // NICHT über RNTL testbar: fireEvent.press sucht per testID und ruft den
+  // onPress-Handler direkt auf, unabhängig von echtem Hit-Testing/Stapelung
+  // — genau die Lücke, aus der dieser Fehler unbemerkt entstehen konnte
+  // (jeder bestehende Test blieb grün, obwohl das Feature auf einem echten
+  // Gerät tot war). Reisst diese Zusicherung beim nächsten Umbau wieder
+  // auf, bleibt sie ohne manuellen Gerätetest unsichtbar.
   sozialBereich: {
     position: 'absolute',
     left: spacing.screen,
     right: spacing.screen,
     bottom: spacing.xl,
     gap: spacing.base,
+    zIndex: 2,
   },
-  reaktionsReihe: { flexDirection: 'row', alignItems: 'center', gap: spacing.s },
+  // Fix-Runde 1, Klein 6: sechs 44-px-Pillen + fünf 8-px-Lücken sind 304 px
+  // — auf einem 320-pt-Gerät bleiben zwischen den 24-px-Screen-Rändern nur
+  // 272 px. `flexWrap` lässt die letzte Pille (den Kommentar-Knopf) in eine
+  // zweite Zeile umbrechen, statt über den Rand hinauszulaufen; `gap` gilt
+  // in React Native für beide Achsen, auch für die umgebrochene Zeile.
+  reaktionsReihe: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.s },
   emojiPille: {
     width: 44,
     height: 44,
