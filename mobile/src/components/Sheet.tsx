@@ -8,6 +8,7 @@ import {
   Pressable,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { useTheme } from '@/theme/ThemeProvider';
@@ -25,8 +26,18 @@ const WISCH_WEG_SCHWELLE = 96;
 const WISCH_GESCHWINDIGKEIT_SCHWELLE = 0.5;
 // Begrenzt die Höhe unabhängig vom Inhalt (Review Important 2: eine längere
 // Kommentarliste — Task 12 — würde sonst unbegrenzt nach oben wachsen und oben
-// aus dem Bild laufen).
-const MAX_HOEHE = '85%';
+// aus dem Bild laufen). Re-Review: ein Prozent-String hier wäre wirkungslos
+// gewesen — `panelClip` sitzt in `schatten`, und `schatten` ist
+// `position:'absolute'` OHNE `top` und ohne explizite Höhe, hat also keine
+// DEFINITE Höhe, gegen die ein Prozentwert auflösen könnte (Yoga verhält sich
+// darin wie CSS: eine prozentuale Höhe ohne definite Elternhöhe wird ignoriert).
+// Ein numerischer Wert aus dem tatsächlichen Fenster braucht diese Voraussetzung
+// nicht — er gilt unabhängig von der Elternhöhe — und ist ausserdem der Teil
+// dieses Fixes, den ein Test wirklich prüfen kann: react-test-renderer führt
+// kein echtes Yoga-Layout aus, ein Prozentsatz allein sagt also nichts über das
+// Ergebnis, eine berechnete Zahl schon. Exportiert, damit Sheet.test.tsx exakt
+// denselben Anteil prüft statt eine zweite, potenziell abweichende Zahl zu raten.
+export const MAX_HOEHE_ANTEIL = 0.85;
 
 // Reine Entscheidung, ohne PanResponder/Animated drumherum — so bleibt sie ohne
 // simulierte Touch-Events direkt testbar (gleiches Prinzip wie queueLogic.ts:
@@ -67,6 +78,11 @@ type Props = {
 export function Sheet({ sichtbar, titel, onSchliessen, children, kino }: Props) {
   const { colors } = useTheme();
   const reducedMotion = useReducedMotion();
+  // useWindowDimensions statt eines Prozent-Strings in der Stylesheet — siehe
+  // Kommentar bei MAX_HOEHE_ANTEIL. Reagiert nebenbei auch auf eine Drehung des
+  // Geräts, während das Sheet offen ist.
+  const { height: fensterHoehe } = useWindowDimensions();
+  const maxHoehe = fensterHoehe * MAX_HOEHE_ANTEIL;
   const translateY = useRef(new Animated.Value(AUSGANGSPOSITION)).current;
   const opacity = useRef(new Animated.Value(0)).current;
   // onSchliessen kann sich zwischen zwei Renderns ändern (neue Funktionsreferenz
@@ -168,7 +184,7 @@ export function Sheet({ sichtbar, titel, onSchliessen, children, kino }: Props) 
         testID="sheet-schatten"
         style={[styles.schatten, { backgroundColor: flaeche, opacity, transform: [{ translateY }] }]}
       >
-        <View testID="sheet-panel" style={styles.panelClip}>
+        <View testID="sheet-panel" style={[styles.panelClip, { maxHeight: maxHoehe }]}>
           {/* Nur der Griffbereich ist wischbar — der Rest bleibt frei für
               Inhalt wie Listen oder Eingabefelder (Task 12), die eigene
               Touch-Gesten (Scroll) brauchen. */}
@@ -204,7 +220,9 @@ const styles = StyleSheet.create({
     ...shadow.s3,
   },
   panelClip: {
-    maxHeight: MAX_HOEHE,
+    // maxHeight kommt dynamisch aus useWindowDimensions() (siehe JSX) — ein
+    // Prozentwert hier hätte keine definite Elternhöhe zum Auflösen (siehe
+    // Kommentar bei MAX_HOEHE_ANTEIL).
     overflow: 'hidden',
     borderTopLeftRadius: radius.card,
     borderTopRightRadius: radius.card,

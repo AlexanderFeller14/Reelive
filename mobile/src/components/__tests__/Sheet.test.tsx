@@ -1,9 +1,9 @@
 import { render, screen, fireEvent } from '@testing-library/react-native';
-import { Animated, Easing, StyleSheet, Text } from 'react-native';
+import { Animated, Dimensions, Easing, StyleSheet, Text } from 'react-native';
 import * as React from 'react';
 import { ThemeProvider } from '@/theme/ThemeProvider';
 import { cinema, motion, palette, radius, shadow } from '@/theme/tokens';
-import { Sheet, wischUeberSchwelle } from '../Sheet';
+import { MAX_HOEHE_ANTEIL, Sheet, wischUeberSchwelle } from '../Sheet';
 
 const mockUseReducedMotion = jest.fn(() => false);
 jest.mock('@/theme/useReducedMotion', () => ({
@@ -216,7 +216,17 @@ describe('DESIGN-LANGUAGE §4 — Spec-Masse, einzeln geprüft (Mutationslücken
 // Review Important 2: eine Maximalhöhe lässt sich aus einem Kind heraus nicht
 // nachrüsten — Task 12 (Kommentarliste) braucht sie zwingend.
 describe('Review Important 2 — Maximalhöhe und Kino-Variante', () => {
-  test('das Panel ist in der Höhe begrenzt und klippt überlaufenden Inhalt', async () => {
+  // Re-Review: `maxHeight: '85%'` war mit hoher Wahrscheinlichkeit wirkungslos
+  // — `panelClip` sitzt in `schatten`, und `schatten` ist `position:'absolute'`
+  // OHNE `top` und ohne explizite Höhe, hat also keine DEFINITE Höhe, gegen die
+  // ein Prozentwert auflösen könnte. `react-test-renderer` führt kein echtes
+  // Yoga-Layout aus — ein „ist ein Prozentstring gesetzt"-Test hätte diesen
+  // Fehler NIE sehen können, mit oder ohne Layout-Engine. Der Fix (numerisch
+  // aus useWindowDimensions() statt Prozent-String, siehe MAX_HOEHE_ANTEIL in
+  // Sheet.tsx) macht die Wirkung dagegen direkt prüfbar: eine Zahl lässt sich
+  // exakt gegen die bekannte Fenstergrösse dieser Jest-Umgebung nachrechnen,
+  // unabhängig davon, ob irgendein Elternknoten je eine definite Höhe bekommt.
+  test('das Panel ist auf einen Anteil der tatsächlichen Fensterhöhe begrenzt (nicht auf einen wirkungslosen Prozent-String) und klippt überlaufenden Inhalt', async () => {
     await wrap(
       <Sheet sichtbar onSchliessen={jest.fn()}>
         <Text>Inhalt</Text>
@@ -224,7 +234,9 @@ describe('Review Important 2 — Maximalhöhe und Kino-Variante', () => {
     );
     const panel = screen.getByTestId('sheet-panel');
     const flach = StyleSheet.flatten(panel.props.style);
-    expect(flach.maxHeight).toBeTruthy();
+    const erwarteteHoehe = Dimensions.get('window').height * MAX_HOEHE_ANTEIL;
+    expect(typeof flach.maxHeight).toBe('number');
+    expect(flach.maxHeight).toBeCloseTo(erwarteteHoehe);
     expect(flach.overflow).toBe('hidden');
   });
 
