@@ -20,6 +20,16 @@ export const cinema = {
 
 export type ColorTokens = typeof palette;
 
+// Modal-Backdrop hinter einem Sheet (Phase-5-Final-Review, Punkt 6): weder
+// ein Foto-Scrim (§1, an Fotoinhalt gebunden) noch die Pillen-Farbe
+// `overlay-pill` (an Text/Icons auf Fotos gebunden) — ein reiner Abdunkler
+// hinter einem von unten kommenden Panel. Gilt UNVERÄNDERT für den hellen
+// UND den Kino-Sheet (Sheet.tsx setzt ihn unabhängig von `kino`), darum kein
+// Teil von `palette`/`cinema`. Wert deckt sich mit
+// docs/superpowers/specs/2026-08-06-design-language-v2-airbnb-design.md
+// (Abschnitt Sheet: „Scrim rgba(0,0,0,0.4) faded 250 ms").
+export const backdrop = 'rgba(0,0,0,0.4)' as const;
+
 export const radius = { control: 12, card: 24, pill: 999 } as const;
 
 // `screen` (Screen-Rand) und `l` (Layout-Abstand) sind semantisch getrennte

@@ -12,7 +12,7 @@ import {
   View,
 } from 'react-native';
 import { useTheme } from '@/theme/ThemeProvider';
-import { cinema, motion, radius, shadow, spacing, type } from '@/theme/tokens';
+import { backdrop, cinema, motion, radius, shadow, spacing, type } from '@/theme/tokens';
 import { useReducedMotion } from '@/theme/useReducedMotion';
 
 const REDUZIERTE_DAUER_MS = 200;
@@ -200,16 +200,11 @@ export function Sheet({ sichtbar, titel, onSchliessen, children, kino }: Props) 
 }
 
 const styles = StyleSheet.create({
-  // Review: einziger hartcodierter Farbwert ausserhalb der in §1 sanktionierten
-  // Foto-Scrims — aber kein frei erfundener Wert: der Begleittext nennt für
-  // GENAU dieses Bauteil «Scrim rgba(0,0,0,0.4) faded 250 ms»
-  // (docs/superpowers/specs/2026-08-06-design-language-v2-airbnb-design.md,
-  // Abschnitt Sheet), gleiches Prinzip wie preview.tsx's Foto-Scrim-Literale.
-  // `palette`/`cinema` kennen noch keinen Backdrop-Token für einen reinen
-  // Dimm-Overlay (anders als `overlay-pill`, das für Fotos gedacht ist) — ein
-  // solcher Token gehört in `mobile/src/theme/tokens.ts`, ausserhalb des
-  // Datei-Scopes dieses Tasks (nur Sheet.tsx + reise/[id]/index.tsx).
-  hintergrund: { backgroundColor: 'rgba(0,0,0,0.4)' },
+  // Phase-5-Final-Review, Punkt 6: kein fester Hex-/rgba-Wert mehr im Code
+  // (DESIGN-LANGUAGE §9) — `backdrop` (mobile/src/theme/tokens.ts) trägt
+  // denselben Wert («Scrim rgba(0,0,0,0.4) faded 250 ms», siehe dort) und
+  // gilt für beide Sheets (hell UND Kino) unverändert.
+  hintergrund: { backgroundColor: backdrop },
   schatten: {
     position: 'absolute',
     left: 0,
