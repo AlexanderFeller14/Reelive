@@ -58,6 +58,10 @@ function moment(overrides: Partial<{
 //   Liste zählt, alles dahinter verschiebt; in Tokio, damit ein Ausschnitt,
 //   der ihn mitrechnet, sichtbar über den halben Planeten geht.
 // - p4 lädt noch hoch ('pending') und liegt aus demselben Grund in SYDNEY.
+//   Er hat bewusst eine URL im Vorrat (siehe VORRAT_OK): sonst sortierte ihn
+//   schon `urls.has(m.id)` aus, und der `upload_status`-Filter wäre durch
+//   keinen Test gedeckt — man könnte ihn ersatzlos löschen, ohne dass eine
+//   Zusicherung fiele (Fixrunde 1).
 // - p3 ist sichtbar, hat aber keinen Ort (lat/lng null) — er gehört in die
 //   Spielliste (und damit in die Index-Zählung), aber nicht auf die Karte.
 const ohneUrlM = moment({ id: 'p5', captured_at: '2026-08-10T07:00:00.000Z', lat: 35.68, lng: 139.69 });
@@ -75,8 +79,15 @@ function bild(id: string) {
   return { post_id: id, medium_url: `https://cdn.example/${id}-medium.jpg`, thumb_url: `https://cdn.example/${id}-thumb.jpg` };
 }
 
+// p4 ist absichtlich dabei, obwohl er noch hochlädt: so ist der
+// `upload_status`-Filter der EINZIGE, der ihn noch aussortiert, und jede der
+// beiden Filterbedingungen des Screens hat ihren eigenen Gegenbeweis (p4 für
+// `upload_status`, p5 für `urls.has`). Dass die Edge Function `media-urls`
+// serverseitig ohnehin nur für hochgeladene Momente signiert, ist kein
+// Argument dagegen — der Screen darf sich nicht darauf verlassen, und kein
+// Test dieses Screens wüsste davon.
 const VORRAT_OK = {
-  urls: new Map([['p1', bild('p1')], ['p2', bild('p2')], ['p3', bild('p3')]]),
+  urls: new Map([['p1', bild('p1')], ['p2', bild('p2')], ['p3', bild('p3')], ['p4', bild('p4')]]),
   gueltigBis: Date.now() + 999_999,
   ausgelassen: 1,
 };
@@ -119,11 +130,22 @@ test('Momente ohne Ort bekommen keine Nadel', async () => {
 // Player — Momente, die noch hochladen oder für die es keine URL gibt,
 // gehören nicht darauf. Sie hätten sonst nicht nur eine Nadel zu viel,
 // sondern würden auch die Index-Zählung verschieben.
-test('ein noch hochladender Moment und einer ohne Bild bekommen keine Nadel', async () => {
+//
+// Bewusst ZWEI Tests statt eines mit zwei Zusicherungen (Fixrunde 1): der
+// Screen filtert über zwei Bedingungen, und jede braucht einen Test, der
+// allein durch ihr Fehlen rot wird. In einem gemeinsamen Test liesse sich
+// nicht ablesen, welche der beiden gerade fehlt.
+test('ein noch hochladender Moment bekommt keine Nadel — auch mit URL im Vorrat', async () => {
   ladeErfolg();
   await wrap();
   await screen.findByTestId('karte-nadel-p1');
   expect(screen.queryByTestId('karte-nadel-p4')).toBeNull();
+});
+
+test('ein Moment ohne Bild im Vorrat bekommt keine Nadel', async () => {
+  ladeErfolg();
+  await wrap();
+  await screen.findByTestId('karte-nadel-p1');
   expect(screen.queryByTestId('karte-nadel-p5')).toBeNull();
 });
 
@@ -161,6 +183,18 @@ test('hat kein einziger Moment einen Ort, steht gar keine Karte da', async () =>
   await screen.findByLabelText('Zurück');
   expect(screen.queryByTestId('karte-flaeche')).toBeNull();
   expect(screen.queryByTestId(/^karte-nadel/)).toBeNull();
+});
+
+// Fixrunde 1: `fetchRecapMomente`/`holeVorrat` geben Fehler als Wert zurück
+// — wirft doch eine von beiden, darf das keine unbehandelte Ablehnung werden
+// und den Screen nicht unbedienbar zurücklassen. Der Rückweg muss bleiben.
+test('wirft der Ladeweg, bleibt der Screen bedienbar statt haengen zu bleiben', async () => {
+  (fetchRecapMomente as jest.Mock).mockRejectedValue(new Error('kaputt'));
+  (holeVorrat as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+  await wrap();
+  await fireEvent.press(await screen.findByLabelText('Zurück'));
+  expect(mockBack).toHaveBeenCalled();
+  expect(screen.queryByTestId('karte-flaeche')).toBeNull();
 });
 
 test('der Zurück-Pfeil verlässt den Screen per back(), wenn ein Rückweg existiert', async () => {

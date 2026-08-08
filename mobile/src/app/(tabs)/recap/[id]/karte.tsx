@@ -5,6 +5,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { ChevronLeft } from 'lucide-react-native';
 import { Pille } from '@/components/Pille';
 import { PressScale } from '@/components/PressScale';
+import { meldeFehler } from '@/lib/fehlermelder';
 import { useTheme } from '@/theme/ThemeProvider';
 import { cinema, radius, spacing } from '@/theme/tokens';
 import { useOberkante } from '@/theme/useOberkante';
@@ -36,24 +37,53 @@ export default function RecapKarte() {
 
   useEffect(() => {
     let aktiv = true;
-    void Promise.all([fetchRecapMomente(id), holeVorrat(id)]).then(([momente, { vorrat }]) => {
-      if (!aktiv) return;
-      // DIE Stelle, an der ein Fehler still bliebe: die Karte muss dieselbe
-      // Liste zählen wie der Player. `punkt.index` geht später als `start`
-      // an ihn, und `parseStartIndex` zählt dort in genau diese gefilterte
-      // Liste (player.tsx:503-527); uebersicht.tsx:316-317 baut ihr
-      // `indexById` aus derselben Filterung. Gäbe dieser Screen die rohe
-      // Momente-Liste herein, verschöbe jeder noch hochladende Moment alles
-      // dahinter — die Nadeln sässen weiterhin richtig, aber der Sprung
-      // landete beim falschen Moment, und das merkt niemand, ausser er
-      // zählt nach.
-      const urls = vorrat?.urls ?? new Map<string, MedienUrl>();
-      const uploaded = momente.data.filter((m) => m.upload_status === 'uploaded');
-      const mitBild = uploaded.filter((m) => urls.has(m.id));
-      const { punkte: p } = zuKartenPunkten(mitBild);
-      setPunkte(p);
-      setAusschnitt(ausschnittFuer(p));
-    });
+    void Promise.all([fetchRecapMomente(id), holeVorrat(id)])
+      .then(([momente, { vorrat }]) => {
+        if (!aktiv) return;
+        // DIE Stelle, an der ein Fehler still bliebe: die Karte muss dieselbe
+        // Liste zählen wie der Player. `punkt.index` geht später als `start`
+        // an ihn, und `parseStartIndex` zählt dort in genau diese gefilterte
+        // Liste (player.tsx:503-527); uebersicht.tsx:316-317 baut ihr
+        // `indexById` aus derselben Filterung. Gäbe dieser Screen die rohe
+        // Momente-Liste herein, verschöbe jeder noch hochladende Moment alles
+        // dahinter — die Nadeln sässen weiterhin richtig, aber der Sprung
+        // landete beim falschen Moment, und das merkt niemand, ausser er
+        // zählt nach.
+        //
+        // BEIDE Bedingungen sind nötig, keine ist durch die andere gedeckt:
+        // dass `media-urls` serverseitig nur für hochgeladene Momente
+        // signiert (und `urls.has` deshalb heute dasselbe aussortiert), ist
+        // eine Eigenschaft einer ANDEREN Datei, die dieser Screen nicht
+        // kennt und auf die er sich nicht verlassen darf.
+        const urls = vorrat?.urls ?? new Map<string, MedienUrl>();
+        const uploaded = momente.data.filter((m) => m.upload_status === 'uploaded');
+        const mitBild = uploaded.filter((m) => urls.has(m.id));
+        const { punkte: p } = zuKartenPunkten(mitBild);
+        setPunkte(p);
+        setAusschnitt(ausschnittFuer(p));
+      })
+      // fetchRecapMomente und holeVorrat geben Fehler als WERT zurück statt
+      // zu werfen — aber "wirft normalerweise nicht" ist keine Zusicherung,
+      // die diese Kette tragen kann. Wirft eine der beiden doch, wäre die
+      // Ablehnung ohne dieses .catch() unbehandelt, und das vorangestellte
+      // `void` unterdrückte auch noch die Warnung davor (Fixrunde 1).
+      //
+      // Der Screen landet dann im selben Zustand wie nach einem Ladefehler:
+      // keine Punkte, kein Ausschnitt. Beim ERSTEN Laden ist das derselbe
+      // Zustand wie der Anfangszustand — bei einem Wechsel der Reise-id aber
+      // nicht: dort müssen die Nadeln der vorherigen Reise verschwinden,
+      // statt über einer Karte stehen zu bleiben, zu der sie nicht gehören.
+      //
+      // «Leer» sichtbar von «Fehler» zu unterscheiden ist Sache von Task 10,
+      // der den Ladeweg ohnehin umbaut. Bis dahin geht der Fehler wenigstens
+      // nicht lautlos verloren, sondern an den Fehlermelder (ohne DSN ein
+      // No-Op, siehe lib/fehlermelder.ts).
+      .catch((fehler: unknown) => {
+        if (!aktiv) return;
+        meldeFehler(fehler, { screen: 'recap/karte', tripId: id });
+        setPunkte([]);
+        setAusschnitt(null);
+      });
     return () => {
       aktiv = false;
     };
