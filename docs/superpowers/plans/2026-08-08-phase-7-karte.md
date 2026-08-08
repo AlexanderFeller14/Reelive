@@ -258,8 +258,27 @@ git commit -- mobile/src/features/recap supabase/seed.sql \
   - `type KartenPunkt = { moment: RecapMoment; lat: number; lng: number; index: number }`
   - `function zuKartenPunkten(momente: RecapMoment[]): { punkte: KartenPunkt[]; ohneOrt: RecapMoment[] }`
 
-`index` ist die Position in der **sortierten** Liste — genau der Wert, den
-`player.tsx` als `start` erwartet. Tasks 8 und 10 benutzen ihn.
+`index` ist die Position in der Liste, die HEREINGEGEBEN wird — und die muss
+die **Spielliste** sein, nicht die rohe Momente-Liste.
+
+**Korrektur nach dem Review von Task 2 (2026-08-09).** Der ursprüngliche Plan
+behauptete, `start` sei ein Index in alle sortierten Momente. Das ist falsch,
+nachgeprüft in `player.tsx:503-527`: der Player baut seine Spielliste als
+
+```ts
+const uploaded = momente.filter((m) => m.upload_status === 'uploaded');
+const mitBild = uploaded.filter((m) => urlsMap.has(m.id));
+```
+
+und `parseStartIndex(startParam, mitBild.length)` zählt in **diese** Liste.
+`uebersicht.tsx:316-317` baut ihr `indexById` aus exakt derselben Filterung.
+Jeder Moment, der noch `pending` ist oder für den der Vorrat keine URL hat,
+verschiebt sonst alles dahinter — der Sprung von der Karte landete beim
+falschen Moment, und niemand merkt es, ausser er zählt nach.
+
+`zuKartenPunkten` bleibt unverändert: es sortiert und zählt über das, was es
+bekommt. Die Pflicht liegt beim Aufrufer (Tasks 5, 8, 10), ihm dieselbe
+gefilterte Liste zu geben, die Player und Übersicht benutzen.
 
 - [ ] **Schritt 1: Den fehlschlagenden Test schreiben**
 
@@ -466,6 +485,15 @@ test('ueber den 180. Laengengrad hinweg bleibt der Ausschnitt eng', () => {
   expect(Math.abs(a.longitude)).toBeGreaterThan(175);
 });
 
+// Der Fehler, den Task 3 beim Umsetzen gefunden hat: bei identischen
+// Laengengraden fand die Luecken-Suche eine Luecke von 0 Grad und machte
+// daraus eine Spanne von 360 — der Mittelpunkt landete auf dem Antipoden.
+test('mehrere Punkte auf derselben Koordinate bleiben dort', () => {
+  const a = ausschnittFuer([punkt(38.71, -9.13), punkt(38.71, -9.13)])!;
+  expect(a.longitude).toBeCloseTo(-9.13, 5);
+  expect(a.latitude).toBeCloseTo(38.71, 5);
+});
+
 test('der Mittelpunkt bleibt im gueltigen Bereich', () => {
   const a = ausschnittFuer([punkt(-17.8, 179.0), punkt(-17.9, -179.5)])!;
   expect(a.longitude).toBeGreaterThanOrEqual(-180);
@@ -509,6 +537,15 @@ function laengenSpanne(lngs: number[]): { mitte: number; spanne: number } {
       nachLuecke = (i + 1) % sortiert.length;
     }
   }
+  // Sind alle Laengengrade gleich (ein einziger Punkt, oder mehrere auf
+  // derselben Koordinate), ist JEDE Luecke 0 — auch die Umrundung, denn
+  // (x - x + 360) % 360 ist 0. Ohne diesen Ausstieg ergaebe `360 - 0` eine
+  // Spanne von 360 Grad und einen Mittelpunkt auf dem Antipoden: fuer Lissabon
+  // (-9.13) landete die Karte bei 170.87 im Pazifik. Groesste Luecke = 0 heisst
+  // genau dann «alle gleich»: bei zwei verschiedenen Werten a < b sind beide
+  // Luecken (b-a) und (a-b+360) groesser als null.
+  if (groessteLuecke === 0) return { mitte: sortiert[0], spanne: 0 };
+
   const west = sortiert[nachLuecke];
   const spanne = 360 - groessteLuecke;
   // +540 statt +180 vor dem Modulo: der Zwischenwert kann negativ werden, und
@@ -854,6 +891,15 @@ export default function RecapKarte() {
 
 Verbindliche Punkte für die Umsetzung:
 
+- **Die Spielliste, nicht die rohe Momente-Liste.** Vor `zuKartenPunkten` filtert
+  der Screen genau wie Player und Übersicht:
+  ```ts
+  const uploaded = momente.data.filter((m) => m.upload_status === 'uploaded');
+  const mitBild = uploaded.filter((m) => v.urls.has(m.id));
+  const { punkte, ohneOrt } = zuKartenPunkten(mitBild);
+  ```
+  Sonst zeigt `punkt.index` in einen anderen Indexraum als der Player, und der
+  Sprung landet beim falschen Moment (siehe Task 2, Interfaces).
 - Der Screen ist **hell** (`colors['bg-0']` als Grund unter der Karte).
 - Die Zurück-Pille sitzt bei `top: oben`, links bei `spacing.screen`, als
   translucente Pille (`rgba(19,17,16,0.55)`, Radius 999, Lucide `ChevronLeft`).
@@ -1104,9 +1150,9 @@ const zumPlayer = (punkt: KartenPunkt) => {
 };
 ```
 
-`punkt.index` kommt aus `zuKartenPunkten` und zählt über die sortierte
-Gesamtliste — dieselbe, die der Player aufbaut. Nie den Index innerhalb von
-`punkte` verwenden: der überspringt die Momente ohne Ort.
+`punkt.index` kommt aus `zuKartenPunkten` und zählt über die **Spielliste**,
+die Task 5 vorher filtert — dieselbe, die der Player aufbaut. Nie den Index
+innerhalb von `punkte` verwenden: der überspringt die Momente ohne Ort.
 
 Uhrzeit über dieselbe Formatierung wie im Player (`captured_at` in
 `captured_tz`), nicht über eine zweite eigene.
@@ -1163,7 +1209,7 @@ Ausschnitt wird auf die gefilterten Punkte neu gesetzt (mit derselben
 Reduced-Motion-Weiche wie in Task 7).
 
 Der Tagesfilter ändert `punkt.index` NICHT — der zeigt weiterhin in die
-Gesamtliste, sonst startet der Player falsch.
+ungefilterte Spielliste, sonst startet der Player falsch.
 
 - [ ] **Schritt 4: Laufen lassen**
 
