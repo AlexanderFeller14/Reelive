@@ -62,6 +62,32 @@ jest.mock('@/features/moments/queueDb', () => ({
 // importiert @/lib/supabase (→ AsyncStorage-Nativmodul, in Jest nicht
 // vorhanden) — deshalb wie die übrigen Feature-Module vollständig gemockt.
 jest.mock('@/features/recap/recapApi', () => ({ revealTrip: jest.fn() }));
+// Task 9: gesehen.ts ist eigens getestet (gesehen.test.ts) — hier zählt nur,
+// OB und WANN dieser Screen es aufruft, nicht wie es intern AsyncStorage
+// benutzt.
+jest.mock('@/features/recap/gesehen', () => ({
+  revealGesehen: jest.fn(),
+  merkeRevealGesehen: jest.fn(),
+}));
+// Die Inszenierung selbst (Haptik, Timing, prefers-reduced-motion) ist in
+// RevealInszenierung.test.tsx abgesichert. Hier steht ein steuerbarer
+// Platzhalter: sichtbar rendert einen drückbaren Testknoten, ein Druck darauf
+// simuliert «Inszenierung fertig» (onFertig) — ohne echte Animated-Timer, die
+// diese Datei (keine Fake-Timer) sonst 700–900 ms lang wirklich abwarten müsste.
+jest.mock('@/components/RevealInszenierung', () => {
+  const React = require('react');
+  const { Pressable, Text } = require('react-native');
+  return {
+    RevealInszenierung: ({ sichtbar, onFertig }: { sichtbar: boolean; onFertig: () => void }) =>
+      sichtbar
+        ? React.createElement(
+            Pressable,
+            { testID: 'reveal-inszenierung-fake', onPress: onFertig },
+            React.createElement(Text, null, 'Inszenierung läuft')
+          )
+        : null,
+  };
+});
 
 import ReiseDetail from '../[id]/index';
 import * as Haptics from 'expo-haptics';
@@ -69,6 +95,7 @@ import { fetchTrip, fetchMembers, removeMember, deleteTrip } from '@/features/tr
 import { eigenerZaehler } from '@/features/moments/zaehler';
 import * as queueDb from '@/features/moments/queueDb';
 import { revealTrip } from '@/features/recap/recapApi';
+import { revealGesehen, merkeRevealGesehen } from '@/features/recap/gesehen';
 
 const trip = {
   id: 't1', name: 'Norwegen mit dem Camper', start_date: '2026-08-01', end_date: '2026-08-14',
@@ -117,6 +144,12 @@ beforeEach(() => {
   (revealTrip as jest.Mock).mockResolvedValue({ revealed_at: '2026-08-08T00:00:00Z', error: null });
   (queueDb.alleJobs as jest.Mock).mockResolvedValue([]);
   (queueDb.verworfene as jest.Mock).mockResolvedValue(keineVerworfenen);
+  // Default «schon gesehen»: die meisten bestehenden Tests in dieser Datei
+  // beschäftigen sich nicht mit der Reveal-Inszenierung — mit `true` bleibt
+  // ihr Bildschirm unverändert (sofort «Recap starten», kein Overlay davor).
+  // Tests, die explizit die Inszenierung wollen, überschreiben das mit `false`.
+  (revealGesehen as jest.Mock).mockResolvedValue(true);
+  (merkeRevealGesehen as jest.Mock).mockResolvedValue(undefined);
 });
 
 test('zeigt Name, Zeitraum und Mitglieder', async () => {
@@ -593,4 +626,108 @@ test('ein erneutes Öffnen nach einem Fehler zeigt die alte Fehlermeldung nicht 
   await fireEvent.press(screen.getByText('Reise abschliessen'));
   await screen.findByText('Reise abschliessen?');
   expect(screen.queryByText(fehlerText)).toBeNull();
+});
+
+// === Task 9: Reveal-Entdeckung — Versprechen V6 («funktioniert auch ohne
+// Push»). Kein einziger Mock in dieser Datei kennt Push oder Deep-Links —
+// die Entdeckung hängt komplett am ohnehin bei jedem Fokussieren laufenden
+// laden(). Genau das beweisen die folgenden Tests: sie lösen NICHTS aus
+// ausser einem normalen Render/Fokus-Zyklus, und die Inszenierung erscheint
+// trotzdem. ===
+
+test('eine laufende Reise fragt revealGesehen gar nicht erst ab', async () => {
+  await wrap();
+  await screen.findByText('Norwegen mit dem Camper');
+  expect(revealGesehen).not.toHaveBeenCalled();
+  expect(screen.queryByTestId('reveal-inszenierung-fake')).toBeNull();
+  expect(screen.queryByText('Recap starten')).toBeNull();
+});
+
+test('eine bereits gesehene aufgedeckte Reise zeigt sofort «Recap starten», ohne Inszenierung', async () => {
+  (fetchTrip as jest.Mock).mockResolvedValue(tripRevealedOk);
+  (revealGesehen as jest.Mock).mockResolvedValue(true);
+  await wrap();
+  expect(await screen.findByText('Recap starten')).toBeTruthy();
+  expect(screen.queryByTestId('reveal-inszenierung-fake')).toBeNull();
+  expect(revealGesehen).toHaveBeenCalledWith('t1');
+  expect(merkeRevealGesehen).not.toHaveBeenCalled();
+});
+
+// Das Kernstück von V6: die App entdeckt den Reveal SELBST beim
+// Fokussieren, ganz ohne Push oder Deep-Link — dieser Test tut nichts
+// anderes als rendern und wartet ab.
+test('eine frisch aufgedeckte, noch nie gesehene Reise spielt zuerst die Inszenierung — «Recap starten» erscheint erst danach und wird gemerkt', async () => {
+  (fetchTrip as jest.Mock).mockResolvedValue(tripRevealedOk);
+  (revealGesehen as jest.Mock).mockResolvedValue(false);
+  await wrap();
+
+  await screen.findByTestId('reveal-inszenierung-fake');
+  // Solange die Inszenierung läuft, steht der Primär-Button noch NICHT da —
+  // «zeigt DANACH» aus dem Task-9-Brief ist eine Reihenfolge, keine blosse
+  // Koexistenz.
+  expect(screen.queryByText('Recap starten')).toBeNull();
+  expect(merkeRevealGesehen).not.toHaveBeenCalled();
+
+  // Simuliert das Ende der Inszenierung (onFertig) — die echte Optik/Timing
+  // sind in RevealInszenierung.test.tsx abgesichert.
+  await fireEvent.press(screen.getByTestId('reveal-inszenierung-fake'));
+
+  await waitFor(() => expect(screen.queryByTestId('reveal-inszenierung-fake')).toBeNull());
+  expect(await screen.findByText('Recap starten')).toBeTruthy();
+  expect(merkeRevealGesehen).toHaveBeenCalledWith('t1');
+});
+
+test('«Recap starten» führt zur Recap-Übersicht dieser Reise', async () => {
+  (fetchTrip as jest.Mock).mockResolvedValue(tripRevealedOk);
+  (revealGesehen as jest.Mock).mockResolvedValue(true);
+  await wrap();
+  await fireEvent.press(await screen.findByText('Recap starten'));
+  expect(mockPush).toHaveBeenCalledWith({ pathname: '/recap/[id]/uebersicht', params: { id: 't1' } });
+});
+
+// DESIGN-LANGUAGE §7: höchstens eine Fläche trägt die Akzentfarbe — auch auf
+// dem neuen Zustand nach dem Reveal, nicht nur auf den beiden schon
+// bestehenden Zuständen (vor/ab Enddatum), die weiter oben geprüft werden.
+test('«Recap starten» bleibt der einzige Primär-Button einer aufgedeckten Reise', async () => {
+  (fetchTrip as jest.Mock).mockResolvedValue(tripRevealedOk);
+  (revealGesehen as jest.Mock).mockResolvedValue(true);
+  await wrap();
+  await screen.findByText('Recap starten');
+  expect(zaehleAccentFlaechen(screen.toJSON())).toBe(1);
+});
+
+test('eine archivierte Reise bekommt dieselbe Reveal-Entdeckung wie eine aufgedeckte', async () => {
+  (fetchTrip as jest.Mock).mockResolvedValue({ data: { ...trip, status: 'archived' as const }, error: null });
+  (revealGesehen as jest.Mock).mockResolvedValue(true);
+  await wrap();
+  expect(await screen.findByText('Recap starten')).toBeTruthy();
+  expect(revealGesehen).toHaveBeenCalledWith('t1');
+});
+
+// Beweist gleich zwei Dinge aus dem Task-9-Brief: dass die Prüfung
+// tatsächlich «genau einmal» läuft, UND was bei einem gescheiterten Merken
+// passiert (hier fest auf `false` gestellt — so, als hätte
+// merkeRevealGesehen nie erfolgreich geschrieben). `entfernen()` liefert
+// einen zweiten, von der Reveal-Entdeckung komplett unabhängigen laden()-
+// Aufruf INNERHALB DESSELBEN Bildschirm-Aufrufs (der X-Knopf hängt an keiner
+// Status-Bedingung) — ohne den revealPruefungAbgeschlossenRef-Wächter würde
+// dieser zweite Aufruf `revealGesehen` erneut befragen, wieder `false`
+// bekommen und die Inszenierung ein zweites Mal über den längst sichtbaren
+// «Recap starten»-Knopf legen.
+test('ein zweiter Ladevorgang nach abgeschlossener Entscheidung fragt revealGesehen nicht nochmal ab, selbst wenn das Merken weiterhin als gescheitert gilt', async () => {
+  (fetchTrip as jest.Mock).mockResolvedValue(tripRevealedOk);
+  (revealGesehen as jest.Mock).mockResolvedValue(false);
+  await wrap();
+
+  await fireEvent.press(await screen.findByTestId('reveal-inszenierung-fake'));
+  await screen.findByText('Recap starten');
+  expect(revealGesehen).toHaveBeenCalledTimes(1);
+
+  await fireEvent.press(screen.getByLabelText('Jonas entfernen'));
+  await waitFor(() => expect(removeMember).toHaveBeenCalledWith('t1', 'u2'));
+  await waitFor(() => expect((fetchTrip as jest.Mock).mock.calls.length).toBeGreaterThan(1));
+
+  expect(revealGesehen).toHaveBeenCalledTimes(1);
+  expect(screen.queryByTestId('reveal-inszenierung-fake')).toBeNull();
+  expect(screen.getByText('Recap starten')).toBeTruthy();
 });

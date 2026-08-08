@@ -1,12 +1,13 @@
 import { useCallback, useRef, useState } from 'react';
 import { Alert, ScrollView, Text, View, StyleSheet } from 'react-native';
-import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { Lock, X } from 'lucide-react-native';
 import { PressScale } from '@/components/PressScale';
 import { Avatar } from '@/components/Avatar';
 import { Badge } from '@/components/Badge';
 import { Button } from '@/components/Button';
+import { RevealInszenierung } from '@/components/RevealInszenierung';
 import { Sheet } from '@/components/Sheet';
 import { useTheme } from '@/theme/ThemeProvider';
 import { radius, spacing, type } from '@/theme/tokens';
@@ -19,6 +20,7 @@ import * as queueDb from '@/features/moments/queueDb';
 import { wartendeAnzahl } from '@/features/moments/queueLogic';
 import type { QueueJob, VerworfenerMoment } from '@/features/moments/types';
 import { revealTrip } from '@/features/recap/recapApi';
+import { merkeRevealGesehen, revealGesehen } from '@/features/recap/gesehen';
 
 // DESIGN-LANGUAGE §5: destruktive Dialoge kündigen sich haptisch an (warning).
 // Sparsam eingesetzt — nur die drei Dialoge dieses Screens. Ein fehlender
@@ -91,6 +93,24 @@ export default function ReiseDetail() {
   const [bestaetigenSichtbar, setBestaetigenSichtbar] = useState(false);
   const [revealLaedt, setRevealLaedt] = useState(false);
   const [revealFehler, setRevealFehler] = useState<string | null>(null);
+  // Task 9 — Reveal-Entdeckung (Versprechen V6: der Recap muss ohne Push
+  // erreichbar sein). `laden()` prüft bei jedem Fokussieren selbst, ob die
+  // Reise nicht mehr aktiv ist und die Inszenierung für sie schon gezeigt
+  // wurde (gesehen.ts, persistiert). `inszenierungSichtbar` steuert nur die
+  // Optik; `revealBereit` schaltet den Primär-Button «Recap starten» frei —
+  // getrennt, weil eine schon gesehene Reise `revealBereit` sofort bekommt,
+  // eine frische erst NACH der Inszenierung (siehe inszenierungFertig unten).
+  const [inszenierungSichtbar, setInszenierungSichtbar] = useState(false);
+  const [revealBereit, setRevealBereit] = useState(false);
+  // Verhindert, dass ein erneuter Fokus-Lauf (laden() feuert bei JEDEM
+  // Fokussieren) die eben getroffene Entscheidung nochmal trifft: ohne diesen
+  // Wächter würde ein Fehlschlag von merkeRevealGesehen() (Speicher voll/
+  // kaputt) die Inszenierung bei jedem weiteren Fokussieren DIESES
+  // Bildschirm-Aufrufs erneut über die bereits sichtbare «Recap starten»-
+  // Fläche legen — siehe Kommentar bei gesehen.ts. Über einen App-Neustart
+  // hinweg (neuer Mount, neue Ref) bleibt der in Kauf genommene Rückfall
+  // bestehen: dann läuft sie höchstens einmal zu viel, nie in einer Schleife.
+  const revealPruefungAbgeschlossenRef = useRef(false);
   // Schirmt setState nach Blur/Unmount ab — gleiches Muster wie in der
   // Listen-Schwesterdatei (reise/index.tsx): jeder Fokus-Zyklus bekommt seinen
   // eigenen Wächter, der beim Verlassen des Screens auf false gesetzt wird, damit
@@ -129,7 +149,44 @@ export default function ReiseDetail() {
     setWartend(wartendeAnzahl(jobs.filter((job) => job.trip_id === id)));
     setVerworfen(abgelehnt);
     setGeladen(true);
+
+    // Reveal-Entdeckung (V6): keine Benachrichtigung, kein Deep-Link — nur
+    // die Tatsache, dass diese Reise beim (Wieder-)Öffnen nicht mehr 'active'
+    // ist. Das trifft die Owner-Person direkt nach einem erfolgreichen
+    // abschliessen() (derselbe laden()-Aufruf, siehe dort) genauso wie jedes
+    // andere Mitglied, das die Reise irgendwann später wieder aufmacht — mit
+    // oder ohne Push. `revealPruefungAbgeschlossenRef` sorgt dafür, dass ein
+    // erneuter Fokus-Lauf, während die erste Entscheidung noch nicht
+    // abgeschlossen oder ihr Ergebnis noch nicht auf dem Schirm ist, sie
+    // nicht ein zweites Mal trifft.
+    if (t.data && t.data.status !== 'active' && !revealPruefungAbgeschlossenRef.current) {
+      revealPruefungAbgeschlossenRef.current = true;
+      const gesehen = await revealGesehen(id);
+      if (!aktiv.current) return;
+      if (gesehen) {
+        setRevealBereit(true);
+      } else {
+        setInszenierungSichtbar(true);
+      }
+    }
   }, [id, userId]);
+
+  // Läuft, sobald die Inszenierung ihre volle Dauer gespielt hat (siehe
+  // RevealInszenierung — success-Haptik und Timing sind dort schon
+  // abgesichert). `id` statt `trip?.id`: stabile Referenz, unabhängig davon,
+  // ob `trip` zwischen Start und Ende der Animation neu geladen wurde.
+  const inszenierungFertig = useCallback(() => {
+    setInszenierungSichtbar(false);
+    setRevealBereit(true);
+    void merkeRevealGesehen(id);
+  }, [id]);
+
+  const zumRecap = () => {
+    // Gleiche Übergangslösung wie in recap/index.tsx: `/recap/[id]/uebersicht`
+    // fehlt noch in der generierten (gitignorten) Routen-Liste, solange Metro
+    // seit Task 10 nicht neu gelaufen ist.
+    router.push({ pathname: '/recap/[id]/uebersicht', params: { id } } as unknown as Href);
+  };
 
   // Erst wenn die Erklärung tatsächlich gesehen und bestätigt wurde. Der
   // lokale Zustand geht sofort mit, damit die Meldung nicht bis zum nächsten
@@ -377,6 +434,14 @@ export default function ReiseDetail() {
           onPress={() => router.push(`/reise/${id}/einladen`)}
         />
       )}
+      {/* Task 9 — der Screen hatte nach dem Reveal bislang KEINEN
+          Primär-Button. `revealBereit` und `laeuft` schliessen sich
+          gegenseitig aus (Ersteres setzt status !== 'active' voraus,
+          Letzteres status === 'active') — «Recap starten» ersetzt
+          «Freunde einladen» als einzige Akzent-Fläche, statt eine zweite
+          hinzuzufügen (§7). Für ALLE Mitglieder sichtbar, nicht nur für die
+          Owner-Person — der Recap gehört der ganzen Gruppe. */}
+      {revealBereit && <Button variant="primary" label="Recap starten" onPress={zumRecap} />}
       {istOwner && (
         <Button variant="secondary" label="Reise bearbeiten" onPress={() => router.push(`/reise/${id}/bearbeiten`)} />
       )}
@@ -405,6 +470,11 @@ export default function ReiseDetail() {
       <Button variant="primary" label="Abschliessen" onPress={() => void abschliessen()} loading={revealLaedt} />
       <Button variant="secondary" label="Abbrechen" onPress={abschliessenSchliessen} disabled={revealLaedt} />
     </Sheet>
+
+    {/* Wie das Sheet: GESCHWISTER der ScrollView, nicht ihr Kind — ihr
+        StyleSheet.absoluteFill soll den ganzen Bildschirm decken, nicht nur
+        die (potenziell höhere, scrollbare) Inhaltsfläche. */}
+    <RevealInszenierung sichtbar={inszenierungSichtbar} onFertig={inszenierungFertig} />
     </>
   );
 }
