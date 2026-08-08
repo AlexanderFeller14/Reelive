@@ -48,7 +48,8 @@
           "locationWhenInUsePermission": "Reelive hängt Ort und Zeit an deine Momente, damit der Recap sie einordnen kann."
         }
       ],
-      "expo-video"
+      "expo-video",
+      "expo-notifications"
     ],
     "experiments": {
       "typedRoutes": true,
