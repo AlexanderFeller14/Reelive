@@ -188,6 +188,16 @@ Zähler-Pille am Rand («4»). Ein Tipp zoomt auf die Gruppe, bis sie auseinande
 fällt — nicht auf ein Listen-Sheet. Wer auf der Karte sucht, will die Karte
 benutzen.
 
+**Nachtrag aus Task 7 (2026-08-09): der Zoom hat eine Sackgasse.** Zwei Momente
+auf derselben Koordinate — im Museum, im Restaurant, zweimal aus der Hand am
+selben Aussichtspunkt — fallen durch keinen Zoom auseinander. Der Ausschnitt
+hat eine Mindestspanne von rund 1,1 km, und darunter passiert nichts mehr. Wer
+so eine Gruppe antippt, tippt sonst ins Leere und kommt an die Momente nie
+heran. Lässt sich eine Gruppe durch Hineinzoomen nicht auflösen, öffnet der
+Tipp deshalb doch ein Sheet — mit der Liste ihrer Momente, aus der jeder
+einzeln erreichbar ist. Die Regel bleibt: **erst zoomen, Sheet nur, wenn Zoomen
+nichts mehr ausrichtet.**
+
 Die Gruppierung rechnet in Bildschirmpunkten, nicht in Metern: sie soll
 verhindern, dass Nadeln einander verdecken, und das hängt am Zoom, nicht an der
 Geografie.

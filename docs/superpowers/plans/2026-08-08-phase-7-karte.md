@@ -1137,6 +1137,34 @@ test('das Sheet schliesst, ohne den Screen zu verlassen', async () => {
 
 - [ ] **Schritt 2: Laufen lassen, Fehlschlag bestätigen**
 
+- [ ] **Schritt 2b: Der Ausweg für Gruppen, die sich nicht auflösen lassen**
+
+Task 7 hat eine Sackgasse gefunden: zwei Momente auf derselben Koordinate
+fallen durch keinen Zoom auseinander — der Ausschnitt hat eine Mindestspanne
+von rund 1,1 km. Wer so eine Gruppe antippt, tippt ins Leere.
+
+```ts
+test('eine Gruppe, die sich nicht aufzoomen laesst, oeffnet doch ein Sheet', async () => {
+  // Zwei Momente auf exakt derselben Koordinate.
+  await wrap(<RecapKarte />);
+  await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
+  expect(screen.getByText('2 Momente an diesem Ort')).toBeTruthy();
+  expect(screen.getAllByTestId(/^gruppe-eintrag/)).toHaveLength(2);
+});
+
+test('eine Gruppe, die sich aufzoomen laesst, oeffnet KEIN Sheet', async () => {
+  await wrap(<RecapKarte />);
+  await fireEvent.press(await screen.findByTestId('karte-nadel-p3'));
+  expect(screen.queryByText(/an diesem Ort/)).toBeNull();
+});
+```
+
+Die Regel bleibt: erst zoomen, Sheet nur, wenn Zoomen nichts mehr ausrichtet.
+Wie «lässt sich nicht auflösen» festgestellt wird, entscheidet der Implementer —
+naheliegend ist ein Vergleich des Zielausschnitts mit der Mindestspanne aus
+`ausschnitt.ts`. Jeder Eintrag im Sheet führt über denselben Index-Weg in den
+Player wie ein einzelner Moment.
+
 - [ ] **Schritt 3: Sheet implementieren**
 
 Aufbau nach Spec §5.7. Der Sprung:
