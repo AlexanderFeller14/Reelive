@@ -18,13 +18,17 @@ export async function verifyOtp(phone: string, code: string): Promise<{ error: s
 }
 
 export async function signOut(): Promise<void> {
-  // VOR supabase.auth.signOut(), nicht danach: die Löschung läuft über die
-  // RLS-Policy push_tokens_delete_own (user_id = auth.uid()) — nach dem
-  // Abmelden gibt es kein auth.uid() mehr, der Löschversuch träfe dann auf
-  // gar keine Zeile mehr (RLS blendet sie aus, kein Fehler, aber wirkungslos).
-  // deregistrierePushToken() wirft nie und braucht kein Ergebnis (Push ist
-  // best effort) — ein hängender oder fehlschlagender Aufruf darf das
-  // Abmelden selbst nie verzögern oder verhindern.
+  // VOR supabase.auth.signOut(), nicht danach — und zwingend sequenziell,
+  // nicht nur aus Vorsicht: die Löschung läuft über die RLS-Policy
+  // push_tokens_delete_own (user_id = auth.uid()). Nach dem Abmelden gibt es
+  // kein auth.uid() mehr, der Löschversuch träfe dann auf gar keine Zeile
+  // mehr (RLS blendet sie aus, kein Fehler, aber wirkungslos) — die Session
+  // muss beim Löschen also noch gültig sein.
+  // deregistrierePushToken() wirft selbst nie (siehe pushApi.ts), verzögert
+  // das Abmelden aber sehr wohl, wenn sie hängt: getExpoPushTokenAsync()
+  // macht intern ein fetch() ohne erkennbaren Timeout. Das nehmen wir bewusst
+  // in Kauf — parallel zu supabase.auth.signOut() aufzuräumen würde an
+  // genau der RLS-Lücke oben scheitern.
   await deregistrierePushToken();
   await supabase.auth.signOut();
 }

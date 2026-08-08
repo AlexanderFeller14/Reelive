@@ -23,12 +23,19 @@ jest.mock('expo-device', () => ({
 const mockGetPermissionsAsync = jest.fn();
 const mockRequestPermissionsAsync = jest.fn();
 const mockGetExpoPushTokenAsync = jest.fn();
+const mockSetNotificationChannelAsync = jest.fn();
 jest.mock('expo-notifications', () => ({
   getPermissionsAsync: (...args: unknown[]) => mockGetPermissionsAsync(...args),
   requestPermissionsAsync: (...args: unknown[]) => mockRequestPermissionsAsync(...args),
   getExpoPushTokenAsync: (...args: unknown[]) => mockGetExpoPushTokenAsync(...args),
+  setNotificationChannelAsync: (...args: unknown[]) => mockSetNotificationChannelAsync(...args),
+  // Realer Wert egal (siehe pushApi.ts: nur durchgereicht, nie ausgewertet) —
+  // die Konstante muss nur existieren, damit der Android-Zweig nicht an
+  // einem undefined-Property scheitert.
+  AndroidImportance: { DEFAULT: 3 },
 }));
 
+import { Platform } from 'react-native';
 import { registrierePushToken, deregistrierePushToken } from '../pushApi';
 
 const GRANTED = { status: 'granted', granted: true, canAskAgain: true, expires: 'never' };
@@ -42,6 +49,7 @@ beforeEach(() => {
   mockGetExpoPushTokenAsync.mockResolvedValue({ type: 'expo', data: 'ExponentPushToken[abc]' });
   mockUpsert.mockResolvedValue({ data: [{ token: 'ExponentPushToken[abc]' }], error: null });
   mockDeleteEq.mockResolvedValue({ data: null, error: null });
+  mockSetNotificationChannelAsync.mockResolvedValue({ id: 'default' });
   mockFrom.mockReturnValue({
     upsert: (...args: unknown[]) => mockUpsert(...args),
     delete: () => ({ eq: (...args: unknown[]) => mockDeleteEq(...args) }),
@@ -97,7 +105,15 @@ test('Erfolg: schreibt genau eine Zeile per upsert auf token, inkl. explizitem u
 // tatsächlicher Wurf liesse den `await` rejecten und den Test schon daran
 // scheitern, unabhängig vom .resolves.toBe()-Vergleich danach.
 describe('wirft nie — jeder Fehlschlag liefert einen gültigen Wert statt zu werfen', () => {
-  test('Device.isDevice-Zugriff wirft', async () => {
+  // Bewusst hypothetisch, kein realer Pfad: das echte expo-device exportiert
+  // isDevice als einmalig beim Modul-Import berechnete Konstante
+  // (node_modules/expo-device/build/Device.js: `export const isDevice = …`),
+  // nicht als Getter. Ein Wurf dort passierte beim allerersten Import der
+  // Datei, lange bevor registrierePushToken() aufgerufen wird — dieser Test
+  // kann also so nie eintreten. Er bleibt trotzdem stehen, um zu belegen,
+  // dass der äussere try/catch auch einen synchronen Wurf an dieser Stelle
+  // abfangen würde, falls sich die Export-Form von expo-device je ändert.
+  test('Device.isDevice-Zugriff wirft (hypothetisch, siehe Kommentar)', async () => {
     mockIsDevice.mockImplementation(() => {
       throw new Error('kaputt');
     });
@@ -142,6 +158,48 @@ describe('wirft nie — jeder Fehlschlag liefert einen gültigen Wert statt zu w
   test('upsert wirft direkt (unerwarteter Reject statt {error})', async () => {
     mockUpsert.mockRejectedValue(new Error('kaputt'));
     await expect(registrierePushToken('u1')).resolves.toBe('fehler');
+  });
+});
+
+// jest-expo löst 'react-native' standardmässig mit Platform.OS === 'ios'
+// auf (siehe Erfolgstest oben: platform: 'ios') — der komplette
+// `if (Platform.OS === 'android')`-Zweig (Notification-Channel vor der
+// Berechtigungsanfrage, Android-13-Voraussetzung laut versionsgenauer
+// SDK-57-Doku) wurde bislang von KEINEM Testfall erreicht. Platform.OS ist
+// bei react-native ein normales, beschreibbares Datenfeld (kein Getter,
+// node_modules/react-native/Libraries/Utilities/Platform.ios.js), lässt
+// sich also direkt umschalten und danach wiederherstellen.
+describe('Android: Notification-Channel vor der Berechtigungsanfrage', () => {
+  const urspruenglichesOS = Platform.OS;
+
+  afterEach(() => {
+    Platform.OS = urspruenglichesOS;
+  });
+
+  test('Erfolg: Channel wird angelegt, danach normaler Ablauf bis ok', async () => {
+    Platform.OS = 'android';
+
+    const ergebnis = await registrierePushToken('u1');
+
+    expect(ergebnis).toBe('ok');
+    expect(mockSetNotificationChannelAsync).toHaveBeenCalledTimes(1);
+    expect(mockSetNotificationChannelAsync).toHaveBeenCalledWith(
+      'default',
+      expect.objectContaining({ name: 'Reelive', importance: 3 })
+    );
+    // Reihenfolge: der Channel muss VOR der Berechtigungsprüfung stehen
+    // (Android 13+ zeigt sonst gar keinen Dialog, siehe Kommentar in pushApi.ts).
+    const channelAufruf = mockSetNotificationChannelAsync.mock.invocationCallOrder[0];
+    const berechtigungAufruf = mockGetPermissionsAsync.mock.invocationCallOrder[0];
+    expect(channelAufruf).toBeLessThan(berechtigungAufruf);
+  });
+
+  test('interner Fehlerfall: Channel-Erstellung wirft → Ablauf läuft trotzdem bis ok weiter', async () => {
+    Platform.OS = 'android';
+    mockSetNotificationChannelAsync.mockRejectedValue(new Error('kaputt'));
+
+    await expect(registrierePushToken('u1')).resolves.toBe('ok');
+    expect(mockGetPermissionsAsync).toHaveBeenCalledTimes(1);
   });
 });
 
