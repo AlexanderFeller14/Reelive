@@ -5,12 +5,14 @@ import { Button } from '@/components/Button';
 import { Input } from '@/components/Input';
 import { useTheme } from '@/theme/ThemeProvider';
 import { spacing, type } from '@/theme/tokens';
+import { useOberkante } from '@/theme/useOberkante';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { createTrip } from '@/features/trips/tripsApi';
 import { parseGermanDate, validateDateRange } from '@/features/trips/tripDay';
 
 export default function NeueReise() {
   const { colors } = useTheme();
+  const oben = useOberkante(spacing.xxl);
   const router = useRouter();
   const { userId } = useAuth();
   const [name, setName] = useState('');
@@ -46,7 +48,7 @@ export default function NeueReise() {
   };
 
   return (
-    <View style={[styles.screen, { backgroundColor: colors['bg-0'] }]}>
+    <View style={[styles.screen, { backgroundColor: colors['bg-0'], paddingTop: oben }]}>
       <Text style={[type.h1, { color: colors['text-1'] }]}>Neue Reise</Text>
       <Text style={[type.secondary, { color: colors['text-2'] }]}>
         Name und Zeitraum reichen — Freunde lädst du gleich danach ein.

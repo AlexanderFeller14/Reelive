@@ -5,12 +5,14 @@ import { TripCard } from '@/components/TripCard';
 import { Button } from '@/components/Button';
 import { useTheme } from '@/theme/ThemeProvider';
 import { spacing, type } from '@/theme/tokens';
+import { useOberkante } from '@/theme/useOberkante';
 import { fetchTrips } from '@/features/trips/tripsApi';
 import { groupTrips } from '@/features/trips/tripDay';
 import type { Trip } from '@/features/trips/types';
 
 export default function RecapListe() {
   const { colors } = useTheme();
+  const oben = useOberkante(spacing.xl);
   const router = useRouter();
   const [trips, setTrips] = useState<Trip[]>([]);
   // Gleiche Dreiteilung wie reise/index.tsx: `geladen` trennt «lädt noch» von
@@ -58,7 +60,7 @@ export default function RecapListe() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors['bg-0'] }}>
-      <ScrollView contentContainerStyle={styles.inhalt}>
+      <ScrollView contentContainerStyle={[styles.inhalt, { paddingTop: oben }]}>
         <Text style={[type.h1, { color: colors['text-1'] }]}>Deine Recaps</Text>
 
         {fehler && (

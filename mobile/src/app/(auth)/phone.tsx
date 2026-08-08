@@ -5,11 +5,13 @@ import { Button } from '@/components/Button';
 import { Input } from '@/components/Input';
 import { useTheme } from '@/theme/ThemeProvider';
 import { spacing, type } from '@/theme/tokens';
+import { useOberkante } from '@/theme/useOberkante';
 import { normalizePhone } from '@/features/auth/phone';
 import { requestOtp } from '@/features/auth/authApi';
 
 export default function PhoneScreen() {
   const { colors } = useTheme();
+  const oben = useOberkante(spacing.xxl);
   const router = useRouter();
   const [input, setInput] = useState('');
   const [error, setError] = useState<string | undefined>();
@@ -30,7 +32,7 @@ export default function PhoneScreen() {
   };
 
   return (
-    <View style={[styles.screen, { backgroundColor: colors['bg-0'] }]}>
+    <View style={[styles.screen, { backgroundColor: colors['bg-0'], paddingTop: oben }]}>
       <Text style={[type.label, { color: colors['text-2'] }]}>Schritt 1 von 2</Text>
       <Text style={[type.h1, { color: colors['text-1'] }]}>Deine Handynummer</Text>
       <Text style={[type.secondary, { color: colors['text-2'] }]}>

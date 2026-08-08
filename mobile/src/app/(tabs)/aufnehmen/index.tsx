@@ -9,6 +9,7 @@ import { Ausloeser } from '@/components/Ausloeser';
 import { Pille } from '@/components/Pille';
 import { PressScale } from '@/components/PressScale';
 import { cinema, palette, radius, spacing, type } from '@/theme/tokens';
+import { useOberkante } from '@/theme/useOberkante';
 import { fetchTrips } from '@/features/trips/tripsApi';
 import * as tripsCache from '@/features/trips/tripsCache';
 import type { GemerkteReise } from '@/features/trips/tripsCache';
@@ -108,9 +109,12 @@ function BerechtigungScreen() {
 }
 
 function ReiseWahlScreen({ reisen, onWahl }: { reisen: GemerkteReise[]; onWahl: (id: string) => void }) {
+  // Der einzige Teil dieses Kino-Screens, der von oben nach unten gelesen
+  // wird — der Sucher selbst bleibt randlos und hat oben nichts zu schonen.
+  const oben = useOberkante(spacing.xl);
   return (
     <View style={styles.screen}>
-      <ScrollView contentContainerStyle={styles.wahlInhalt}>
+      <ScrollView contentContainerStyle={[styles.wahlInhalt, { paddingTop: oben }]}>
         <Text style={[type.h2, styles.titel, { marginBottom: spacing.l }]}>Für welche Reise?</Text>
         {reisen.map((reise) => (
           <PressScale key={reise.id} accessibilityRole="button" onPress={() => onWahl(reise.id)}>

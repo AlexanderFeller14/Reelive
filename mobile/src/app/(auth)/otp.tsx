@@ -5,10 +5,12 @@ import { Button } from '@/components/Button';
 import { Input } from '@/components/Input';
 import { useTheme } from '@/theme/ThemeProvider';
 import { spacing, type } from '@/theme/tokens';
+import { useOberkante } from '@/theme/useOberkante';
 import { requestOtp, verifyOtp } from '@/features/auth/authApi';
 
 export default function OtpScreen() {
   const { colors } = useTheme();
+  const oben = useOberkante(spacing.xxl);
   const { phone } = useLocalSearchParams<{ phone: string }>();
   const [code, setCode] = useState('');
   const [error, setError] = useState<string | undefined>();
@@ -37,7 +39,7 @@ export default function OtpScreen() {
   };
 
   return (
-    <View style={[styles.screen, { backgroundColor: colors['bg-0'] }]}>
+    <View style={[styles.screen, { backgroundColor: colors['bg-0'], paddingTop: oben }]}>
       <Text style={[type.label, { color: colors['text-2'] }]}>Schritt 2 von 2</Text>
       <Text style={[type.h1, { color: colors['text-1'] }]}>Dein Code</Text>
       <Text style={[type.secondary, { color: colors['text-2'] }]}>

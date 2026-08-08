@@ -5,11 +5,13 @@ import QRCode from 'react-native-qrcode-svg';
 import { Button } from '@/components/Button';
 import { useTheme } from '@/theme/ThemeProvider';
 import { palette, radius, spacing, type } from '@/theme/tokens';
+import { useOberkante } from '@/theme/useOberkante';
 import { fetchInviteCode } from '@/features/trips/tripsApi';
 import { createInviteUrl } from '@/features/trips/inviteLink';
 
 export default function Einladen() {
   const { colors } = useTheme();
+  const oben = useOberkante(spacing.xxl);
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
   const [url, setUrl] = useState<string | null>(null);
@@ -49,7 +51,7 @@ export default function Einladen() {
   };
 
   return (
-    <View style={[styles.screen, { backgroundColor: colors['bg-0'] }]}>
+    <View style={[styles.screen, { backgroundColor: colors['bg-0'], paddingTop: oben }]}>
       <Text style={[type.h1, { color: colors['text-1'] }]}>Freunde einladen</Text>
       <Text style={[type.body, { color: colors['text-2'] }]}>
         Scannen oder Link schicken. Deine Freunde können jederzeit dazukommen, auch mitten in der Reise.

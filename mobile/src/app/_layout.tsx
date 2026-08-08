@@ -11,6 +11,7 @@ import {
   Figtree_600SemiBold,
   Figtree_700Bold,
 } from '@expo-google-fonts/figtree';
+import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
 import { ThemeProvider, useTheme } from '@/theme/ThemeProvider';
 import { AuthProvider, useAuth } from '@/features/auth/AuthProvider';
 import { resolveRoute, isPublicArea, istWebGesperrt } from '@/features/auth/guard';
@@ -177,10 +178,17 @@ export default function RootLayout() {
   });
   if (!fontsLoaded) return null;
   return (
-    <ThemeProvider>
-      <AuthProvider>
-        <Guarded />
-      </AuthProvider>
-    </ThemeProvider>
+    // SafeAreaProvider, weil keiner der drei Stacks einen Navigations-Header
+    // zeigt: jeder Screen beginnt bei y = 0 und muss selbst wissen, was das
+    // Geraet oben belegt (useOberkante). `initialWindowMetrics` liefert die
+    // Werte schon beim ersten Frame — ohne das springt der Inhalt beim Start
+    // sichtbar nach unten, sobald die echten Insets eintreffen.
+    <SafeAreaProvider initialMetrics={initialWindowMetrics}>
+      <ThemeProvider>
+        <AuthProvider>
+          <Guarded />
+        </AuthProvider>
+      </ThemeProvider>
+    </SafeAreaProvider>
   );
 }

@@ -10,6 +10,7 @@ import { Sheet } from '@/components/Sheet';
 import { useTheme } from '@/theme/ThemeProvider';
 import { useReducedMotion } from '@/theme/useReducedMotion';
 import { motion, radius, spacing, type } from '@/theme/tokens';
+import { useOberkante } from '@/theme/useOberkante';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { fetchTrip } from '@/features/trips/tripsApi';
 import type { Trip } from '@/features/trips/types';
@@ -116,9 +117,10 @@ function SkelettBlock({ style }: { style: object }) {
 
 function SkelettScreen() {
   const { colors } = useTheme();
+  const oben = useOberkante(spacing.xl);
   return (
     <View testID="recap-skeleton" style={{ flex: 1, backgroundColor: colors['bg-0'] }}>
-      <View style={styles.inhalt}>
+      <View style={[styles.inhalt, { paddingTop: oben }]}>
         <SkelettBlock style={{ width: 160, height: 30, borderRadius: radius.control }} />
         <View style={[styles.kachelRaster, { marginTop: spacing.xl }]}>
           {Array.from({ length: 9 }).map((_, i) => (
@@ -228,6 +230,7 @@ function ExportSheetInhalt({
 
 export default function RecapUebersicht() {
   const { colors } = useTheme();
+  const oben = useOberkante(spacing.xl);
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { userId } = useAuth();
@@ -385,7 +388,7 @@ export default function RecapUebersicht() {
   if (!trip) {
     return (
       <View style={{ flex: 1, backgroundColor: colors['bg-0'] }}>
-        <View style={styles.inhalt}>
+        <View style={[styles.inhalt, { paddingTop: oben }]}>
           {kopf}
           <Text style={[type.body, { color: colors.danger }]}>{fehler ?? 'Diese Reise gibt es nicht mehr.'}</Text>
           {fehler && <Button variant="secondary" label="Nochmal versuchen" onPress={() => void nochmal()} loading={laedt} />}
@@ -407,7 +410,7 @@ export default function RecapUebersicht() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors['bg-0'] }}>
-      <ScrollView contentContainerStyle={styles.inhalt}>
+      <ScrollView contentContainerStyle={[styles.inhalt, { paddingTop: oben }]}>
         {kopf}
         <Text style={[type.h1, { color: colors['text-1'] }]}>{trip.name}</Text>
 

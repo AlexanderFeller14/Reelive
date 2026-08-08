@@ -4,11 +4,13 @@ import { Button } from '@/components/Button';
 import { Input } from '@/components/Input';
 import { useTheme } from '@/theme/ThemeProvider';
 import { spacing, type } from '@/theme/tokens';
+import { useOberkante } from '@/theme/useOberkante';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { createProfile, validateDisplayName, validateUsername } from '@/features/auth/profileApi';
 
 export default function ProfileSetupScreen() {
   const { colors } = useTheme();
+  const oben = useOberkante(spacing.xxl);
   const { userId, refreshProfile } = useAuth();
   const [username, setUsername] = useState('');
   const [displayName, setDisplayName] = useState('');
@@ -35,7 +37,7 @@ export default function ProfileSetupScreen() {
   };
 
   return (
-    <View style={[styles.screen, { backgroundColor: colors['bg-0'] }]}>
+    <View style={[styles.screen, { backgroundColor: colors['bg-0'], paddingTop: oben }]}>
       <Text style={[type.h1, { color: colors['text-1'] }]}>Fast geschafft</Text>
       <Text style={[type.secondary, { color: colors['text-2'] }]}>
         So sehen dich deine Freunde im Recap.
