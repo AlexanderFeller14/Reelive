@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from '@testing-library/react-native';
+import { render, screen, fireEvent, act } from '@testing-library/react-native';
 import { ThemeProvider } from '@/theme/ThemeProvider';
 
 const mockPush = jest.fn();
@@ -49,10 +49,19 @@ jest.mock('@/features/teilen/TeilenSheetInhalt', () => {
       ReactActual.createElement(Text, { testID: 'mock-teilen-sheet-inhalt' }, tripId),
   };
 });
+// Task 7: exportApi hat ihre eigene, vollständige Testdatei
+// (features/recap/__tests__/exportApi.test.ts) — hier nur ein Spion. Ein
+// echter Import würde expo-media-library ziehen, das sich in diesem
+// Jest-Setup nicht mocken lässt (native Klassenvererbung, siehe Kommentar
+// dort/Bericht).
+jest.mock('@/features/recap/exportApi', () => ({ sichereAlleInGalerie: jest.fn() }));
+const mockOpenSettings = jest.fn(() => Promise.resolve());
+jest.mock('expo-linking', () => ({ openSettings: () => mockOpenSettings() }));
 
 import RecapUebersicht from '../[id]/uebersicht';
 import { fetchTrip } from '@/features/trips/tripsApi';
 import { fetchRecapMomente } from '@/features/recap/recapApi';
+import { sichereAlleInGalerie } from '@/features/recap/exportApi';
 import { holeVorrat } from '@/features/recap/urlVorrat';
 
 const trip = {
@@ -403,5 +412,153 @@ describe('«Recap teilen»: nur Owner-Person, nur bei revealed', () => {
     await wrap();
     await screen.findByText('Lissabon Städtetrip');
     expect(screen.queryByTestId('uebersicht-teilen-oeffnen')).toBeNull();
+  });
+});
+
+// Task 7: «Alle sichern» — offen für jedes Mitglied (kein Owner-Vorbehalt
+// wie beim Teilen), nur ausgeblendet, wenn es nichts zu sichern gibt.
+describe('«Alle sichern»', () => {
+  beforeEach(() => {
+    (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: VOLLSTAENDIG, error: null });
+    (holeVorrat as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+  });
+
+  test('sichtbar für eine NICHT-Owner-Person, solange es Momente zum Sichern gibt', async () => {
+    mockAuth.userId = 'jemand-anders';
+    await wrap();
+    await screen.findByText('Lissabon Städtetrip');
+    expect(screen.getByTestId('uebersicht-alle-sichern-oeffnen')).toBeTruthy();
+  });
+
+  test('fehlt, wenn es buchstäblich nichts zu sichern gibt', async () => {
+    (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: [], error: null });
+    (holeVorrat as jest.Mock).mockResolvedValue({
+      vorrat: { urls: new Map(), gueltigBis: Date.now() + 999_999, ausgelassen: 0 },
+      error: null,
+      grund: null,
+    });
+    await wrap();
+    await screen.findByText('Diese Reise ist leer geblieben.');
+    expect(screen.queryByTestId('uebersicht-alle-sichern-oeffnen')).toBeNull();
+  });
+
+  test('ruft sichereAlleInGalerie mit GENAU den drei sichtbaren Momenten (moment+URL) auf', async () => {
+    (sichereAlleInGalerie as jest.Mock).mockReturnValue(new Promise(() => {}));
+    await wrap();
+    await screen.findByText('Lissabon Städtetrip');
+    await fireEvent.press(screen.getByTestId('uebersicht-alle-sichern-oeffnen'));
+    expect(sichereAlleInGalerie).toHaveBeenCalledTimes(1);
+    const eintraege = (sichereAlleInGalerie as jest.Mock).mock.calls[0][0] as { moment: { id: string } }[];
+    expect(eintraege.map((e) => e.moment.id).sort()).toEqual(['p1', 'p2', 'p3']);
+  });
+
+  test('zeigt den laufenden Fortschritt («N von M»), sobald onFortschritt feuert', async () => {
+    let fortschrittMelden!: (stand: { erledigt: number; gesamt: number }) => void;
+    (sichereAlleInGalerie as jest.Mock).mockImplementation(
+      (_eintraege: unknown, onFortschritt: (stand: { erledigt: number; gesamt: number }) => void) => {
+        fortschrittMelden = onFortschritt;
+        return new Promise(() => {});
+      }
+    );
+    await wrap();
+    await screen.findByText('Lissabon Städtetrip');
+    await fireEvent.press(screen.getByTestId('uebersicht-alle-sichern-oeffnen'));
+    expect(screen.getByText('0 von 3 gesichert')).toBeTruthy();
+    await act(async () => {
+      fortschrittMelden({ erledigt: 2, gesamt: 3 });
+    });
+    expect(screen.getByText('2 von 3 gesichert')).toBeTruthy();
+  });
+
+  test('eine ehrliche Bilanz am Ende — inklusive Fehlschlägen, nicht bloss "fertig"', async () => {
+    (sichereAlleInGalerie as jest.Mock).mockResolvedValue({
+      status: 'fertig', gesichert: 2, gesamt: 3, fehlgeschlagen: 1, abgebrochen: false,
+    });
+    await wrap();
+    await screen.findByText('Lissabon Städtetrip');
+    await fireEvent.press(screen.getByTestId('uebersicht-alle-sichern-oeffnen'));
+    await act(async () => {});
+    expect(await screen.findByTestId('export-bilanz')).toHaveTextContent(
+      '2 von 3 Momenten gesichert. 1 ist fehlgeschlagen.'
+    );
+  });
+
+  test('"Fertig" schliesst das Sheet wieder', async () => {
+    (sichereAlleInGalerie as jest.Mock).mockResolvedValue({
+      status: 'fertig', gesichert: 3, gesamt: 3, fehlgeschlagen: 0, abgebrochen: false,
+    });
+    await wrap();
+    await screen.findByText('Lissabon Städtetrip');
+    await fireEvent.press(screen.getByTestId('uebersicht-alle-sichern-oeffnen'));
+    await act(async () => {});
+    await screen.findByTestId('export-bilanz');
+    await fireEvent.press(screen.getByText('Fertig'));
+    expect(screen.queryByTestId('export-bilanz')).toBeNull();
+  });
+
+  // Kernfall (Brief, wörtlich: "nie ein stiller Fehlschlag" — gilt genauso
+  // für "alle sichern" wie für den Einzelmoment im Player).
+  test('fehlende Berechtigung zeigt die Ursache und "Einstellungen öffnen", statt einfach nichts zu tun', async () => {
+    (sichereAlleInGalerie as jest.Mock).mockResolvedValue({
+      status: 'keine_berechtigung', text: 'Reelive braucht Zugriff auf deine Fotobibliothek …',
+    });
+    await wrap();
+    await screen.findByText('Lissabon Städtetrip');
+    await fireEvent.press(screen.getByTestId('uebersicht-alle-sichern-oeffnen'));
+    await act(async () => {});
+    expect(await screen.findByText('Reelive braucht Zugriff auf deine Fotobibliothek …')).toBeTruthy();
+    await fireEvent.press(screen.getByText('Einstellungen öffnen'));
+    expect(mockOpenSettings).toHaveBeenCalled();
+  });
+
+  test('"Abbrechen" bricht den laufenden Export über das AbortSignal ab', async () => {
+    let empfangenesSignal: AbortSignal | undefined;
+    (sichereAlleInGalerie as jest.Mock).mockImplementation(
+      (_eintraege: unknown, _onFortschritt: unknown, signal?: AbortSignal) => {
+        empfangenesSignal = signal;
+        return new Promise(() => {});
+      }
+    );
+    await wrap();
+    await screen.findByText('Lissabon Städtetrip');
+    await fireEvent.press(screen.getByTestId('uebersicht-alle-sichern-oeffnen'));
+    expect(empfangenesSignal?.aborted).toBe(false);
+    await fireEvent.press(screen.getByText('Abbrechen'));
+    expect(empfangenesSignal?.aborted).toBe(true);
+  });
+
+  // Ein Schliessen WÄHREND der Export noch läuft ist implizit ein Abbrechen
+  // (Kommentar im Code: kein stiller Weiterlauf ohne sichtbare Kontrolle).
+  test('ein Schliessen des Sheets WÄHREND des Laufs bricht ihn ebenfalls ab', async () => {
+    let empfangenesSignal: AbortSignal | undefined;
+    (sichereAlleInGalerie as jest.Mock).mockImplementation(
+      (_eintraege: unknown, _onFortschritt: unknown, signal?: AbortSignal) => {
+        empfangenesSignal = signal;
+        return new Promise(() => {});
+      }
+    );
+    await wrap();
+    await screen.findByText('Lissabon Städtetrip');
+    await fireEvent.press(screen.getByTestId('uebersicht-alle-sichern-oeffnen'));
+    await fireEvent.press(screen.getByTestId('sheet-backdrop'));
+    expect(empfangenesSignal?.aborted).toBe(true);
+  });
+
+  // Gegenprobe: ist der Export bereits FERTIG, darf ein Schliessen keinen
+  // (inzwischen längst erledigten) Abbruch mehr auslösen — es gibt nichts
+  // mehr, das abzubrechen wäre.
+  test('ein Schliessen NACH dem Ende bricht nichts mehr ab', async () => {
+    (sichereAlleInGalerie as jest.Mock).mockResolvedValue({
+      status: 'fertig', gesichert: 3, gesamt: 3, fehlgeschlagen: 0, abgebrochen: false,
+    });
+    await wrap();
+    await screen.findByText('Lissabon Städtetrip');
+    await fireEvent.press(screen.getByTestId('uebersicht-alle-sichern-oeffnen'));
+    await act(async () => {});
+    await screen.findByTestId('export-bilanz');
+    await fireEvent.press(screen.getByTestId('sheet-backdrop'));
+    expect(screen.queryByTestId('export-bilanz')).toBeNull();
+    // Kein zweiter Aufruf durch das Schliessen selbst ausgelöst.
+    expect(sichereAlleInGalerie).toHaveBeenCalledTimes(1);
   });
 });

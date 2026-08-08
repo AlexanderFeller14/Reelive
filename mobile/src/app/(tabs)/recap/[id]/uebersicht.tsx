@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Animated, ScrollView, Text, View, StyleSheet } from 'react-native';
+import { ActivityIndicator, Animated, ScrollView, Text, View, StyleSheet } from 'react-native';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { Image } from 'expo-image';
-import { ChevronLeft, Share2 } from 'lucide-react-native';
+import * as Linking from 'expo-linking';
+import { ChevronLeft, Download, Share2 } from 'lucide-react-native';
 import { PressScale } from '@/components/PressScale';
 import { Button } from '@/components/Button';
 import { Sheet } from '@/components/Sheet';
@@ -13,6 +14,7 @@ import { useAuth } from '@/features/auth/AuthProvider';
 import { fetchTrip } from '@/features/trips/tripsApi';
 import type { Trip } from '@/features/trips/types';
 import { fetchRecapMomente } from '@/features/recap/recapApi';
+import { sichereAlleInGalerie, type AlleErgebnis, type AlleFortschritt } from '@/features/recap/exportApi';
 import { gruppiereNachTagen } from '@/features/recap/tage';
 import type { RecapMoment, RecapTag } from '@/features/recap/types';
 import { holeVorrat, type MedienUrl, type Vorrat } from '@/features/recap/urlVorrat';
@@ -66,6 +68,23 @@ function unterwegsText(anzahl: number): string {
 // niemand von hier aus kennt.
 function ausgelassenText(anzahl: number): string {
   return `${anzahl} ${anzahl === 1 ? 'Moment liess' : 'Momente liessen'} sich gerade nicht laden. Schau später nochmal rein.`;
+}
+
+// Task 7, ehrliche Bilanz (Brief, wörtlich: "Nicht «fertig», wenn drei
+// Dateien fehlen"): nennt IMMER die tatsächlichen Zahlen, nie ein
+// pauschales "fertig" — auch bei einem Abbruch oder bei Fehlschlägen.
+function bilanzText(ausgang: Extract<AlleErgebnis, { status: 'fertig' }>): string {
+  if (ausgang.abgebrochen) {
+    const teile = [`Abgebrochen bei ${ausgang.gesichert} von ${ausgang.gesamt} Momenten.`];
+    if (ausgang.fehlgeschlagen > 0) {
+      teile.push(`${ausgang.fehlgeschlagen} ${ausgang.fehlgeschlagen === 1 ? 'ist' : 'sind'} dabei fehlgeschlagen.`);
+    }
+    return teile.join(' ');
+  }
+  if (ausgang.fehlgeschlagen === 0) {
+    return `${ausgang.gesichert} von ${ausgang.gesamt} Momenten gesichert.`;
+  }
+  return `${ausgang.gesichert} von ${ausgang.gesamt} Momenten gesichert. ${ausgang.fehlgeschlagen} ${ausgang.fehlgeschlagen === 1 ? 'ist' : 'sind'} fehlgeschlagen.`;
 }
 
 // Ruhige bg-1-Fläche mit Opacity-Puls (DESIGN-LANGUAGE §4: "Skeleton:
@@ -158,6 +177,55 @@ function TagesAbschnitt({
   );
 }
 
+// Inhalt des «Alle sichern»-Fortschritts-Sheets (Task 7) — helle Variante
+// (uebersicht.tsx ist, anders als der Recap-Player, ein Licht-Screen, siehe
+// DESIGN-LANGUAGE §1: nur Kamera/Preview/Versiegeln/Player sind Kino), lokal
+// statt einer eigenen Datei (Brief nennt für Task 7 nur exportApi.ts als
+// neue Datei).
+function ExportSheetInhalt({
+  stand, ausgang, onAbbrechen, onFertig,
+}: {
+  stand: AlleFortschritt;
+  ausgang: AlleErgebnis | null;
+  onAbbrechen: () => void;
+  onFertig: () => void;
+}) {
+  const { colors } = useTheme();
+
+  if (ausgang === null) {
+    return (
+      <View style={{ gap: spacing.base }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.s }}>
+          <ActivityIndicator testID="export-laedt" color={colors['text-1']} />
+          <Text style={[type.body, { color: colors['text-1'] }]}>
+            {stand.erledigt} von {stand.gesamt} gesichert
+          </Text>
+        </View>
+        <Button variant="secondary" label="Abbrechen" onPress={onAbbrechen} />
+      </View>
+    );
+  }
+
+  if (ausgang.status === 'keine_berechtigung') {
+    return (
+      <View style={{ gap: spacing.base }}>
+        <Text style={[type.body, { color: colors['text-1'] }]}>{ausgang.text}</Text>
+        <Button variant="primary" label="Einstellungen öffnen" onPress={() => void Linking.openSettings()} />
+        <Button variant="text" label="Schliessen" onPress={onFertig} />
+      </View>
+    );
+  }
+
+  return (
+    <View style={{ gap: spacing.base }}>
+      <Text testID="export-bilanz" style={[type.body, { color: colors['text-1'] }]}>
+        {bilanzText(ausgang)}
+      </Text>
+      <Button variant="primary" label="Fertig" onPress={onFertig} />
+    </View>
+  );
+}
+
 export default function RecapUebersicht() {
   const { colors } = useTheme();
   const router = useRouter();
@@ -171,6 +239,14 @@ export default function RecapUebersicht() {
   // (Aktion 'erstellen') prüft beides server-seitig noch einmal
   // (CLAUDE.md-Eckpfeiler: die Versiegelung wird serverseitig erzwungen).
   const [teilenOffen, setTeilenOffen] = useState(false);
+  // Task 7: «Alle sichern». `exportAusgang===null` heisst "läuft noch"
+  // (inkl. des allerersten Augenblicks nach dem Öffnen) — erst ein
+  // tatsächliches AlleErgebnis beendet die laufende Ansicht, siehe Sheet-
+  // Inhalt unten.
+  const [exportOffen, setExportOffen] = useState(false);
+  const [exportStand, setExportStand] = useState<AlleFortschritt>({ erledigt: 0, gesamt: 0 });
+  const [exportAusgang, setExportAusgang] = useState<AlleErgebnis | null>(null);
+  const exportAbortRef = useRef<AbortController | null>(null);
   // Gleiche Dreiteilung wie überall sonst im Projekt: `geladen` trennt «lädt
   // noch» von «fertig», `fehler` bündelt den ersten Fehlschlag der drei
   // parallelen Abrufe (Reise, Momente, Vorrat) — Priorität Reise vor Vorrat
@@ -225,27 +301,84 @@ export default function RecapUebersicht() {
 
   if (!geladen) return <SkelettScreen />;
 
+  // Vorgezogen aus dem ursprünglichen Anschluss an den `!trip`-Check: `kopf`
+  // (unten) braucht `mitBild.length`, um den «Alle sichern»-Knopf auszu-
+  // blenden, wenn es nichts zu sichern gibt — UND `kopf` wird selbst noch
+  // VOR dem `!trip`-Check gebraucht (Wiederverwendung im "Reise gibt es
+  // nicht mehr"-Zweig). Die Berechnung selbst braucht `trip` nicht wirklich
+  // (nur `tage` weiter unten tut das, wegen `trip.start_date`) — sie bleibt
+  // deshalb sicher berechenbar, auch während `trip` noch null sein könnte.
+  const urls = vorrat?.urls ?? new Map<string, MedienUrl>();
+  const uploaded = momente.filter((m) => m.upload_status === 'uploaded');
+  const mitBild = uploaded.filter((m) => urls.has(m.id));
+  const indexById = new Map(mitBild.map((m, i) => [m.id, i] as const));
+
+  // Startet «Alle sichern»: öffnet das Fortschritts-Sheet SOFORT (bevor die
+  // erste Berechtigungsprüfung überhaupt zurück ist) — ein Tipp muss immer
+  // sichtbar reagieren, nie ein still hängender Knopf sein.
+  const alleSichern = () => {
+    const eintraege = mitBild.map((m) => ({ moment: m, url: urls.get(m.id)! }));
+    const controller = new AbortController();
+    exportAbortRef.current = controller;
+    setExportAusgang(null);
+    setExportStand({ erledigt: 0, gesamt: eintraege.length });
+    setExportOffen(true);
+    void sichereAlleInGalerie(eintraege, (stand) => setExportStand(stand), controller.signal).then((ausgang) => {
+      if (!aktiv.current) return;
+      setExportAusgang(ausgang);
+    });
+  };
+
+  const exportAbbrechen = () => {
+    exportAbortRef.current?.abort();
+  };
+
+  // Ein Schliessen WÄHREND der Export noch läuft (Wisch/Tipp auf den
+  // Hintergrund, siehe Sheet.tsx) ist implizit ein Abbrechen — ein
+  // laufender Export, den niemand mehr sieht, wäre kein stiller Fehlschlag,
+  // aber ein stiller WEITERLAUF, den die Person nicht mehr steuern könnte.
+  const exportSchliessen = () => {
+    if (exportAusgang === null) exportAbortRef.current?.abort();
+    setExportOffen(false);
+  };
+
   // `trip` ist an dieser Stelle noch nicht auf null geprüft (kopf wird auch
   // im "Reise gibt es nicht mehr"-Zweig unten wiederverwendet) — `trip &&`
-  // lässt den Teilen-Knopf dort automatisch weg, ohne einen zweiten `kopf`
+  // lässt beide Knöpfe dort automatisch weg, ohne einen zweiten `kopf`
   // pflegen zu müssen.
   const kannTeilen = !!trip && trip.owner_id === userId && trip.status === 'revealed';
+  // «Alle sichern» steht jedem Mitglied offen (kein Owner-Vorbehalt wie beim
+  // Teilen, Brief) — nur ausgeblendet, wenn es buchstäblich nichts zu
+  // sichern gibt.
+  const kannExportieren = !!trip && mitBild.length > 0;
 
   const kopf = (
     <View style={styles.kopfzeile}>
       <PressScale accessibilityRole="button" accessibilityLabel="Zurück" onPress={zurueck}>
         <ChevronLeft size={24} color={colors['text-1']} strokeWidth={1.75} />
       </PressScale>
-      {kannTeilen && (
-        <PressScale
-          testID="uebersicht-teilen-oeffnen"
-          accessibilityRole="button"
-          accessibilityLabel="Recap teilen"
-          onPress={() => setTeilenOffen(true)}
-        >
-          <Share2 size={22} color={colors['text-1']} strokeWidth={1.75} />
-        </PressScale>
-      )}
+      <View style={styles.kopfAktionen}>
+        {kannExportieren && (
+          <PressScale
+            testID="uebersicht-alle-sichern-oeffnen"
+            accessibilityRole="button"
+            accessibilityLabel="Alle sichern"
+            onPress={alleSichern}
+          >
+            <Download size={22} color={colors['text-1']} strokeWidth={1.75} />
+          </PressScale>
+        )}
+        {kannTeilen && (
+          <PressScale
+            testID="uebersicht-teilen-oeffnen"
+            accessibilityRole="button"
+            accessibilityLabel="Recap teilen"
+            onPress={() => setTeilenOffen(true)}
+          >
+            <Share2 size={22} color={colors['text-1']} strokeWidth={1.75} />
+          </PressScale>
+        )}
+      </View>
     </View>
   );
 
@@ -267,10 +400,6 @@ export default function RecapUebersicht() {
   // trotzdem keine URL ausstellen konnte (`urls.has` false) — die Zahl dafür
   // ist `vorrat.ausgelassen`, eine EIGENE, vom Server gezählte Grösse, keine
   // hier selbst nachgerechnete Differenz (Task-10-Brief, zweiter Hinweis).
-  const urls = vorrat?.urls ?? new Map<string, MedienUrl>();
-  const uploaded = momente.filter((m) => m.upload_status === 'uploaded');
-  const mitBild = uploaded.filter((m) => urls.has(m.id));
-  const indexById = new Map(mitBild.map((m, i) => [m.id, i] as const));
   const tage = gruppiereNachTagen(mitBild, trip.start_date);
   const pendingAnzahl = momente.length - uploaded.length;
   const ausgelassenAnzahl = vorrat?.ausgelassen ?? 0;
@@ -322,6 +451,16 @@ export default function RecapUebersicht() {
           <TeilenSheetInhalt tripId={id} />
         </Sheet>
       )}
+      {kannExportieren && (
+        <Sheet sichtbar={exportOffen} titel="Momente sichern" onSchliessen={exportSchliessen}>
+          <ExportSheetInhalt
+            stand={exportStand}
+            ausgang={exportAusgang}
+            onAbbrechen={exportAbbrechen}
+            onFertig={() => setExportOffen(false)}
+          />
+        </Sheet>
+      )}
     </View>
   );
 }
@@ -329,6 +468,7 @@ export default function RecapUebersicht() {
 const styles = StyleSheet.create({
   inhalt: { padding: spacing.screen, paddingTop: spacing.xl, paddingBottom: spacing.xxl, gap: spacing.m },
   kopfzeile: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  kopfAktionen: { flexDirection: 'row', alignItems: 'center', gap: spacing.base },
   // Drei Spalten. Lücke explizit `spacing.xs` über `columnGap`/`rowGap` —
   // NICHT über `justifyContent: 'space-between'` (Review Task 10, Minor):
   // das liess die Lücke aus dem verbleibenden Rest-Raum entstehen, je nach

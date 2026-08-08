@@ -1,5 +1,12 @@
-import { Animated, PanResponder, StyleSheet } from 'react-native';
+import { Alert, Animated, PanResponder, StyleSheet } from 'react-native';
 import { render, screen, fireEvent, act } from '@testing-library/react-native';
+
+// Alert zeigt im Test nur einen Dialog an, ohne dass jemand tippt (gleiches
+// Muster wie reise/__tests__/detail.test.tsx) — der Task-7-Block unten löst
+// bei Bedarf gezielt den "Einstellungen öffnen"-Knopf aus.
+type AlertKnopf = { text?: string; style?: string; onPress?: () => void };
+const mockAlertSpion = jest.fn();
+jest.spyOn(Alert, 'alert').mockImplementation((...args: unknown[]) => mockAlertSpion(...args));
 
 // Fake Timers global (wie Ausloeser.test.tsx): Date.now() läuft synchron mit
 // den Timern mit (Jest-„modern"-Fake-Timer faken auch Date) — genau das
@@ -165,6 +172,12 @@ jest.mock('expo-haptics', () => ({
   impactAsync: (...args: unknown[]) => mockHaptics(...args),
   ImpactFeedbackStyle: { Light: 'light' },
 }));
+// Task 7: exportApi hat ihre eigene, vollständige Testdatei
+// (features/recap/__tests__/exportApi.test.ts) — hier nur ein Spion auf
+// `sichereMomentInGalerie`, der Player ruft nichts anderes daraus auf.
+jest.mock('@/features/recap/exportApi', () => ({ sichereMomentInGalerie: jest.fn() }));
+const mockOpenSettings = jest.fn(() => Promise.resolve());
+jest.mock('expo-linking', () => ({ openSettings: () => mockOpenSettings() }));
 
 import RecapPlayer from '../[id]/player';
 import { fetchTrip } from '@/features/trips/tripsApi';
@@ -174,6 +187,7 @@ import {
   fetchReaktionen, setzeReaktion, entferneReaktion, fetchKommentare, schreibeKommentar,
 } from '@/features/recap/sozialApi';
 import type { RecapMoment } from '@/features/recap/types';
+import { sichereMomentInGalerie } from '@/features/recap/exportApi';
 
 const trip = {
   id: 't1', name: 'Lissabon Städtetrip', start_date: '2026-08-10', end_date: '2026-08-14',
@@ -1698,5 +1712,124 @@ describe('Kommentar-Sheet (Task 12)', () => {
     expect(fetchKommentare).toHaveBeenCalledTimes(2);
     expect(screen.getByTestId('kommentar-eingabe').props.value).toBe('');
     expect(screen.getByText('Toller Moment!')).toBeTruthy();
+  });
+});
+
+// Task 7: «In Galerie sichern» für den aktuellen Moment. exportApi selbst
+// ist gemockt (eigene, vollständige Tests in exportApi.test.ts) — hier wird
+// nur geprüft, dass der Player sie mit dem richtigen Moment/URL aufruft und
+// auf jedes ihrer drei Ergebnisse (Erfolg, keine Berechtigung, sonstiger
+// Fehler) richtig reagiert.
+describe('«In Galerie sichern»', () => {
+  beforeEach(() => {
+    (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
+    (holeVorrat as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+  });
+
+  test('ruft sichereMomentInGalerie mit dem aktiven Moment und seiner MEDIUM-URL (nicht dem Thumbnail) auf', async () => {
+    (sichereMomentInGalerie as jest.Mock).mockResolvedValue({ ok: true });
+    await wrap();
+    await fireEvent.press(screen.getByTestId('player-sichern'));
+    await act(async () => {});
+    expect(sichereMomentInGalerie).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'p1' }),
+      expect.objectContaining({ medium_url: bild('p1').medium_url, thumb_url: bild('p1').thumb_url })
+    );
+  });
+
+  test('Erfolg zeigt eine kurze Bestätigung', async () => {
+    (sichereMomentInGalerie as jest.Mock).mockResolvedValue({ ok: true });
+    await wrap();
+    await fireEvent.press(screen.getByTestId('player-sichern'));
+    await act(async () => {});
+    expect(await screen.findByTestId('player-export-hinweis')).toHaveTextContent('In der Fotobibliothek gesichert.');
+  });
+
+  // Kernfall (Brief, wörtlich): NIE ein stiller Fehlschlag bei fehlender
+  // Berechtigung — ein Alert mit Weg in die Einstellungen, nicht nur eine
+  // leicht zu übersehende Pille.
+  test('fehlende Berechtigung zeigt einen Alert mit Weg in die Einstellungen, keine stille Pille', async () => {
+    (sichereMomentInGalerie as jest.Mock).mockResolvedValue({
+      ok: false, grund: 'keine_berechtigung', text: 'Reelive braucht Zugriff auf deine Fotobibliothek …',
+    });
+    await wrap();
+    await fireEvent.press(screen.getByTestId('player-sichern'));
+    await act(async () => {});
+    expect(mockAlertSpion).toHaveBeenCalledWith(
+      'Kein Zugriff auf die Fotobibliothek',
+      'Reelive braucht Zugriff auf deine Fotobibliothek …',
+      expect.any(Array)
+    );
+    expect(screen.queryByTestId('player-export-hinweis')).toBeNull();
+  });
+
+  test('"Einstellungen öffnen" im Alert ruft Linking.openSettings auf', async () => {
+    (sichereMomentInGalerie as jest.Mock).mockResolvedValue({
+      ok: false, grund: 'keine_berechtigung', text: 'Kein Zugriff.',
+    });
+    await wrap();
+    await fireEvent.press(screen.getByTestId('player-sichern'));
+    await act(async () => {});
+    const knoepfe = mockAlertSpion.mock.calls[0][2] as AlertKnopf[];
+    knoepfe.find((k) => k.text === 'Einstellungen öffnen')?.onPress?.();
+    expect(mockOpenSettings).toHaveBeenCalled();
+  });
+
+  test('ein sonstiger Fehlschlag (z.B. Netzwerk) zeigt die Ursache als Pille, ohne Alert', async () => {
+    (sichereMomentInGalerie as jest.Mock).mockResolvedValue({
+      ok: false, grund: 'fehler', text: 'Dieser Moment konnte nicht gesichert werden. Probier es gleich nochmal.',
+    });
+    await wrap();
+    await fireEvent.press(screen.getByTestId('player-sichern'));
+    await act(async () => {});
+    expect(await screen.findByTestId('player-export-hinweis')).toHaveTextContent(
+      'Dieser Moment konnte nicht gesichert werden. Probier es gleich nochmal.'
+    );
+    expect(mockAlertSpion).not.toHaveBeenCalled();
+  });
+
+  test('zeigt einen Ladeindikator, während sichereMomentInGalerie noch läuft', async () => {
+    let aufloesen!: (wert: { ok: true }) => void;
+    (sichereMomentInGalerie as jest.Mock).mockReturnValue(new Promise((resolve) => { aufloesen = resolve; }));
+    await wrap();
+    await fireEvent.press(screen.getByTestId('player-sichern'));
+    await act(async () => {});
+    expect(screen.getByTestId('player-sichern-laedt')).toBeTruthy();
+    // Ein zweiter Tipp während des Ladens darf KEINEN zweiten Aufruf
+    // auslösen (Doppel-Tipp-Schutz).
+    await fireEvent.press(screen.getByTestId('player-sichern'));
+    await act(async () => {
+      aufloesen({ ok: true });
+    });
+    expect(sichereMomentInGalerie).toHaveBeenCalledTimes(1);
+  });
+
+  // Wechselt der Moment, WÄHREND sichereMomentInGalerie noch für den
+  // VORHERIGEN Moment läuft, darf dessen verspätete Antwort weder eine
+  // Pille auf dem NEUEN Moment zeigen noch dessen Sichern-Knopf für immer im
+  // Ladezustand einfrieren (Stale-Guard, gleiches Prinzip wie beiLadefehler).
+  test('eine verspätete Antwort für einen verlassenen Moment zeigt keine Pille auf dem neuen Moment', async () => {
+    let aufloesen!: (wert: { ok: true }) => void;
+    (sichereMomentInGalerie as jest.Mock).mockReturnValue(new Promise((resolve) => { aufloesen = resolve; }));
+    await wrap();
+    await fireEvent.press(screen.getByTestId('player-sichern'));
+    await act(async () => {});
+
+    await fireEvent(screen.getByTestId('player-rechts'), 'pressIn');
+    await fireEvent(screen.getByTestId('player-rechts'), 'pressOut');
+    await act(async () => {});
+    // p2 (Video) ist jetzt aktiv statt p1 (Foto) — einziger Video-Moment der
+    // Fixture, eindeutiger Beleg für den Momentwechsel als `player-video`.
+    expect(screen.getByTestId('player-video')).toBeTruthy();
+
+    await act(async () => {
+      aufloesen({ ok: true });
+    });
+    expect(screen.queryByTestId('player-export-hinweis')).toBeNull();
+    // Der Sichern-Knopf des NEUEN Moments bleibt bedienbar (kein
+    // fälschlich hängender Ladezustand).
+    await fireEvent.press(screen.getByTestId('player-sichern'));
+    await act(async () => {});
+    expect(sichereMomentInGalerie).toHaveBeenCalledTimes(2);
   });
 });

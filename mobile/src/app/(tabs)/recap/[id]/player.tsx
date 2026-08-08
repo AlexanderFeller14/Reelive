@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Animated,
   Easing,
   PanResponder,
@@ -15,7 +16,8 @@ import { setStatusBarStyle } from 'expo-status-bar';
 import { Image } from 'expo-image';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import * as Haptics from 'expo-haptics';
-import { MessageCircle, X } from 'lucide-react-native';
+import * as Linking from 'expo-linking';
+import { Download, MessageCircle, X } from 'lucide-react-native';
 import { PressScale } from '@/components/PressScale';
 import { Fortschrittsbalken } from '@/components/Fortschrittsbalken';
 import { Sheet } from '@/components/Sheet';
@@ -25,6 +27,7 @@ import { useReducedMotion } from '@/theme/useReducedMotion';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { fetchTrip } from '@/features/trips/tripsApi';
 import { fetchRecapMomente } from '@/features/recap/recapApi';
+import { sichereMomentInGalerie } from '@/features/recap/exportApi';
 import { gruppiereNachTagen } from '@/features/recap/tage';
 import type { Kommentar, Reaktion, RecapMoment, RecapTag } from '@/features/recap/types';
 import { holeVorrat, laeuftBaldAb, type MedienUrl } from '@/features/recap/urlVorrat';
@@ -388,6 +391,14 @@ export default function RecapPlayer() {
   const [reaktionen, setReaktionen] = useState<Record<string, Reaktion[]>>({});
   const [reaktionFehler, setReaktionFehler] = useState<string | null>(null);
 
+  // Task 7: «In Galerie sichern» für den GERADE aktiven Moment. Eigener
+  // Hinweistext statt Wiederverwendung von `reaktionFehler` — ein Erfolg
+  // ("gesichert.") ist kein Fehler, beide sollen aber nach demselben Muster
+  // (eine Pille unter der Reaktionsreihe, verschwindet beim Momentwechsel)
+  // behandelt werden.
+  const [exportLaeuft, setExportLaeuft] = useState(false);
+  const [exportHinweis, setExportHinweis] = useState<string | null>(null);
+
   const [kommentarMomentId, setKommentarMomentId] = useState<string | null>(null);
   const [kommentare, setKommentare] = useState<Kommentar[]>([]);
   const [kommentareLaden, setKommentareLaden] = useState(false);
@@ -582,9 +593,18 @@ export default function RecapPlayer() {
   }, [spielliste]);
 
   // Eine stehengebliebene Fehlermeldung vom vorherigen Moment darf nicht auf
-  // dem neuen weiterhängen.
+  // dem neuen weiterhängen. Gleiches gilt für den Export-Hinweis (Task 7) —
+  // ein "gesichert."-Text von Moment A darf nicht unter Moment B weiterstehen.
+  // `exportLaeuft` wird HIER ebenfalls zurückgesetzt (nicht nur am Ende von
+  // sichereAktuellenMoment): wechselt die Person WÄHREND eines laufenden
+  // Exports von Moment A zu Moment B, greift dort die Stale-Guard
+  // (aktivIdRef.current !== momentId) und lässt `exportLaeuft` NIE mehr auf
+  // false zurückfallen — ohne diesen Reset bliebe der Sichern-Knopf auf dem
+  // NEUEN, unbeteiligten Moment B fälschlich im Ladezustand hängen.
   useEffect(() => {
     setReaktionFehler(null);
+    setExportHinweis(null);
+    setExportLaeuft(false);
   }, [aktivMoment?.id]);
 
   const eigeneEmojis = useMemo(() => {
@@ -779,6 +799,39 @@ export default function RecapPlayer() {
     // eine Halten-Geste, die währenddessen begonnen hätte), bleibt er das
     // auch nach dem Schliessen des Sheets.
     setStand((s) => ({ ...s, pausiert: ohneGrund(s.pausiert, 'kommentare') }));
+  };
+
+  // Task 7: «In Galerie sichern» für den gerade aktiven Moment — exportApi
+  // sichert IMMER url.medium_url (volle Auflösung), nie das Thumbnail.
+  // Ohne Berechtigung: NIE ein stiller Fehlschlag (Brief, wörtlich) — ein
+  // Alert erklärt die Ursache und bietet den Weg in die Einstellungen an,
+  // statt nur eine kleine Pille zu zeigen, die leicht übersehen wird. Ein
+  // sonstiger Fehlschlag (Netzwerk, Galerie-Fehler) bekommt dieselbe kleine
+  // Hinweis-Pille wie `reaktionFehler` — sichtbares, aber nicht blockierendes
+  // Feedback, passend zur Schwere eines einzelnen fehlgeschlagenen Exports.
+  const sichereAktuellenMoment = async () => {
+    const moment = aktivMoment;
+    if (!moment) return;
+    const url = urls.get(moment.id);
+    if (!url) return;
+    const momentId = moment.id;
+    setExportLaeuft(true);
+    setExportHinweis(null);
+    const ergebnis = await sichereMomentInGalerie(moment, url);
+    if (!aktiv.current || aktivIdRef.current !== momentId) return;
+    setExportLaeuft(false);
+    if (!ergebnis.ok) {
+      if (ergebnis.grund === 'keine_berechtigung') {
+        Alert.alert('Kein Zugriff auf die Fotobibliothek', ergebnis.text, [
+          { text: 'Abbrechen', style: 'cancel' },
+          { text: 'Einstellungen öffnen', onPress: () => void Linking.openSettings() },
+        ]);
+        return;
+      }
+      setExportHinweis(ergebnis.text);
+      return;
+    }
+    setExportHinweis('In der Fotobibliothek gesichert.');
   };
 
   const kommentarAbsenden = () => {
@@ -1233,10 +1286,37 @@ export default function RecapPlayer() {
                 <MessageCircle size={20} color={cinema['text-1']} strokeWidth={1.75} />
               </View>
             </PressScale>
+            {/* Nur sichtbar, wenn es für DIESEN Moment überhaupt eine URL
+                gibt (siehe MomentAnzeige) — ein Moment, der gerade nicht
+                lädt, hat nichts, das sich sichern liesse. */}
+            {url && (
+              <PressScale
+                testID="player-sichern"
+                accessibilityRole="button"
+                accessibilityLabel="In Galerie sichern"
+                accessibilityState={{ disabled: exportLaeuft }}
+                onPress={() => {
+                  if (!exportLaeuft) void sichereAktuellenMoment();
+                }}
+              >
+                <View style={styles.kommentarKnopf}>
+                  {exportLaeuft ? (
+                    <ActivityIndicator testID="player-sichern-laedt" color={cinema['text-1']} size="small" />
+                  ) : (
+                    <Download size={20} color={cinema['text-1']} strokeWidth={1.75} />
+                  )}
+                </View>
+              </PressScale>
+            )}
           </View>
           {reaktionFehler && (
             <View style={styles.reaktionFehlerPille}>
               <Text style={[type.secondary, { color: cinema['text-1'] }]}>{reaktionFehler}</Text>
+            </View>
+          )}
+          {exportHinweis && (
+            <View testID="player-export-hinweis" style={styles.reaktionFehlerPille}>
+              <Text style={[type.secondary, { color: cinema['text-1'] }]}>{exportHinweis}</Text>
             </View>
           )}
         </View>
