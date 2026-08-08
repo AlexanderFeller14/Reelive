@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { OFFLINE_HINT, istOffline } from '@/lib/netzfehler';
+import { deregistrierePushToken } from '@/features/push/pushApi';
 
 export async function requestOtp(phone: string): Promise<{ error: string | null }> {
   const { error } = await supabase.auth.signInWithOtp({ phone });
@@ -17,6 +18,14 @@ export async function verifyOtp(phone: string, code: string): Promise<{ error: s
 }
 
 export async function signOut(): Promise<void> {
+  // VOR supabase.auth.signOut(), nicht danach: die Löschung läuft über die
+  // RLS-Policy push_tokens_delete_own (user_id = auth.uid()) — nach dem
+  // Abmelden gibt es kein auth.uid() mehr, der Löschversuch träfe dann auf
+  // gar keine Zeile mehr (RLS blendet sie aus, kein Fehler, aber wirkungslos).
+  // deregistrierePushToken() wirft nie und braucht kein Ergebnis (Push ist
+  // best effort) — ein hängender oder fehlschlagender Aufruf darf das
+  // Abmelden selbst nie verzögern oder verhindern.
+  await deregistrierePushToken();
   await supabase.auth.signOut();
 }
 
