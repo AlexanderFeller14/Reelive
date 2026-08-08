@@ -6,7 +6,7 @@
 
 create extension if not exists pgtap with schema extensions;
 begin;
-select plan(11);
+select plan(12);
 
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-00000000000a', 'anna@test.local'),
@@ -48,7 +48,18 @@ insert into public.push_tokens (token, user_id, platform)
   values ('tok-anna-1', '00000000-0000-0000-0000-00000000000a', 'ios');
 select pass('Angemeldet kann eine eigene push_tokens-Zeile anlegen');
 
--- === 2. Angemeldet: eine Zeile mit fremder user_id anlegen scheitert ===
+-- === 2. Angemeldet: die eigene Zeile löschen gelingt ===
+-- Genau darauf baut die App: deregistrierePushToken() beim Abmelden löscht die
+-- eigene Zeile. Eigener Scratch-Token statt tok-anna-1: der wird weiter unten
+-- (Schritt 6) noch für den Upsert-Übernahme-Test gebraucht.
+insert into public.push_tokens (token, user_id, platform)
+  values ('tok-anna-scratch', '00000000-0000-0000-0000-00000000000a', 'ios');
+delete from public.push_tokens where token = 'tok-anna-scratch';
+select is(
+  (select count(*)::int from public.push_tokens where token = 'tok-anna-scratch'), 0,
+  'Angemeldet kann die eigene push_tokens-Zeile löschen (push_tokens_delete_own)');
+
+-- === 3. Angemeldet: eine Zeile mit fremder user_id anlegen scheitert ===
 select throws_ok(
   $$insert into public.push_tokens (token, user_id, platform)
     values ('tok-anna-2', '00000000-0000-0000-0000-00000000000b', 'ios')$$,
@@ -60,20 +71,20 @@ select pg_temp.login_as('00000000-0000-0000-0000-00000000000b');
 insert into public.push_tokens (token, user_id, platform)
   values ('tok-ben-1', '00000000-0000-0000-0000-00000000000b', 'android');
 
--- === 3. Angemeldet: fremde Zeilen sind unsichtbar ===
+-- === 4. Angemeldet: fremde Zeilen sind unsichtbar ===
 select pg_temp.login_as('00000000-0000-0000-0000-00000000000a');
 select is(
   (select count(*)::int from public.push_tokens), 1,
   'fremde Zeilen sind unsichtbar - Anna sieht nur ihre eigene');
 
--- === 4. Angemeldet: fremde Zeile löschen bewirkt nichts ===
+-- === 5. Angemeldet: fremde Zeile löschen bewirkt nichts ===
 delete from public.push_tokens where token = 'tok-ben-1';
 select pg_temp.as_service();
 select is(
   (select count(*)::int from public.push_tokens where token = 'tok-ben-1'), 1,
   'eine fremde Zeile zu löschen bewirkt nichts - Bens Zeile besteht weiter');
 
--- === 5. anon: jeder Zugriff scheitert ===
+-- === 6. anon: jeder Zugriff scheitert ===
 select pg_temp.as_anon();
 select throws_ok(
   $$select count(*) from public.push_tokens$$,
@@ -89,7 +100,7 @@ select throws_ok(
   $$delete from public.push_tokens where token = 'tok-anna-1'$$,
   '42501', null, 'anon: delete scheitert');
 
--- === 6. Geräte-/Account-Wechsel: Upsert durch eine ANDERE Person übernimmt
+-- === 7. Geräte-/Account-Wechsel: Upsert durch eine ANDERE Person übernimmt
 -- die Zeile, statt sie zu duplizieren ===
 select pg_temp.login_as('00000000-0000-0000-0000-00000000000b');
 insert into public.push_tokens (token, user_id, platform)

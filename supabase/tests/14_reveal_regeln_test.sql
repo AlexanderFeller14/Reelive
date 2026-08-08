@@ -9,7 +9,7 @@
 
 create extension if not exists pgtap with schema extensions;
 begin;
-select plan(12);
+select plan(15);
 
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-00000000000a', 'anna@test.local'),
@@ -68,6 +68,17 @@ select throws_ok(
   $$update public.trips set revealed_at = now()
     where id = '11111111-1111-1111-1111-111111111111'$$,
   '42501', null, 'authenticated kann trips.revealed_at nicht schreiben');
+
+-- Die stärkere Form (vgl. 12_upload_status_test.sql:116-119): nicht nur der
+-- Fehlercode, sondern der Zustand danach. authenticated hat volles SELECT auf
+-- trips (20260803090200_membership_rls.sql) - Anna liest hier als Owner ihre
+-- eigene Reise, kein Rollenwechsel nötig.
+select is(
+  (select status::text from public.trips where id = '11111111-1111-1111-1111-111111111111'),
+  'active', 'trips.status blieb nach dem verweigerten Update unverändert (active)');
+select is(
+  (select revealed_at from public.trips where id = '11111111-1111-1111-1111-111111111111'),
+  null, 'trips.revealed_at blieb nach dem verweigerten Update unverändert (NULL)');
 
 -- Fixture: vorab (per service_role) je eine Reaktion und ein Kommentar von
 -- Ben anlegen, damit die Sichtbarkeits-Assertionen unten nicht vakuos sind -
@@ -130,6 +141,17 @@ select is(
 select is(
   (select count(*)::int from public.comments where post_id = '22222222-2222-2222-2222-222222222222'),
   2, 'im Archiv sieht ein Mitglied die Kommentare weiterhin');
+
+-- === 7. can_see_post bleibt nach dem CREATE OR REPLACE (Archiv-Erweiterung,
+-- 20260808090100_can_see_post_archived.sql) vor anon verschlossen ===
+-- Ein CREATE OR REPLACE ersetzt nur den Funktionskörper und erhält laut
+-- Migrationskommentar die bestehende ACL aus 20260803090600_role_hardening.sql
+-- unangetastet - diese Zeile ist der Beleg dafür, nicht nur die Behauptung.
+-- Vorlage: 10_counts_archived_test.sql (my_post_counts-Grant-Assertion).
+reset role;
+select ok(
+  not has_function_privilege('anon','public.can_see_post(uuid)','execute'),
+  'anon darf can_see_post nicht ausführen');
 
 select * from finish();
 rollback;
