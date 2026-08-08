@@ -1,5 +1,7 @@
-import { render, screen, fireEvent } from '@testing-library/react-native';
+import { render, screen, fireEvent, within } from '@testing-library/react-native';
 import { ThemeProvider } from '@/theme/ThemeProvider';
+import { palette } from '@/theme/tokens';
+import type { MedienUrl } from '@/features/recap/urlVorrat';
 
 const mockPush = jest.fn();
 const mockReplace = jest.fn();
@@ -14,6 +16,16 @@ jest.mock('expo-router', () => ({
 }));
 jest.mock('@/features/recap/recapApi', () => ({ fetchRecapMomente: jest.fn() }));
 jest.mock('@/features/recap/urlVorrat', () => ({ holeVorrat: jest.fn() }));
+// expo-image ist ein natives View — im Test reicht ein Platzhalter, der alle
+// Props (`source`, `testID`, `onLoad`) durchreicht. Gleiches Muster wie in
+// uebersicht.test.tsx; ohne den Mock scheitert schon das Laden des Moduls
+// (expo-image/src/observe.ts erwartet eine native Umgebung), seit die Nadel
+// ein Bild trägt.
+jest.mock('expo-image', () => {
+  const ReactActual = require('react');
+  const { View } = require('react-native');
+  return { Image: (props: object) => ReactActual.createElement(View, props) };
+});
 // Spion MIT echter Implementierung: die Nadeln unten sollen weiterhin aus der
 // echten Rechnung entstehen, aber die Liste, die der Screen hineingibt, muss
 // sich prüfen lassen. Sie ist der eine Punkt dieses Screens, an dem ein
@@ -75,7 +87,11 @@ const m3 = moment({ id: 'p3', captured_at: '2026-08-11T10:00:00.000Z', lat: null
 // Bereits chronologisch sortiert, wie fetchRecapMomente es liefert.
 const VOLLSTAENDIG = [ohneUrlM, m1, m2, pendingM, m3];
 
-function bild(id: string) {
+// Rückgabetyp explizit als MedienUrl: `thumb_url` ist dort `string | null`,
+// und ohne die Angabe erbte VORRAT_OK ein zu enges `string` — ein Vorrat ohne
+// Thumbnail liesse sich dann gar nicht erst hineingeben (siehe
+// VORRAT_OHNE_THUMB).
+function bild(id: string): MedienUrl {
   return { post_id: id, medium_url: `https://cdn.example/${id}-medium.jpg`, thumb_url: `https://cdn.example/${id}-thumb.jpg` };
 }
 
@@ -90,6 +106,17 @@ const VORRAT_OK = {
   urls: new Map([['p1', bild('p1')], ['p2', bild('p2')], ['p3', bild('p3')], ['p4', bild('p4')]]),
   gueltigBis: Date.now() + 999_999,
   ausgelassen: 1,
+};
+
+// Derselbe Vorrat, aber für p1 ohne Thumbnail: `media-urls` lässt `thumb_url`
+// weg, wenn der Moment keinen `thumb_key` hat (siehe dessen index.ts) — für
+// die Karte ist das kein Sonderfall, sondern ein Moment wie jeder andere.
+const VORRAT_OHNE_THUMB = {
+  ...VORRAT_OK,
+  urls: new Map<string, MedienUrl>([
+    ...VORRAT_OK.urls,
+    ['p1', { post_id: 'p1', medium_url: bild('p1').medium_url, thumb_url: null }],
+  ]),
 };
 
 const wrap = () => render(<ThemeProvider><RecapKarte /></ThemeProvider>);
@@ -147,6 +174,87 @@ test('ein Moment ohne Bild im Vorrat bekommt keine Nadel', async () => {
   await wrap();
   await screen.findByTestId('karte-nadel-p1');
   expect(screen.queryByTestId('karte-nadel-p5')).toBeNull();
+});
+
+// Task 6: die Nadel trägt das Gesicht ihres eigenen Moments. Ein vertauschter
+// Vorrats-Zugriff (z.B. über den Index statt über die id) sässe geografisch
+// richtig und zeigte trotzdem das falsche Bild.
+test('jede Nadel trägt das Thumbnail ihres eigenen Moments', async () => {
+  ladeErfolg();
+  await wrap();
+  const nadel = await screen.findByTestId('karte-nadel-p2');
+  expect(within(nadel).getByTestId('nadel-bild').props.source.uri).toBe(bild('p2').thumb_url);
+});
+
+// Fällt der Screen hier nicht auf `medium_url` zurück, bleibt für jeden Moment
+// ohne Thumbnail für immer der pulsende Skeleton stehen — und mit ihm eine
+// Nadel, die der Marker jeden Frame neu zeichnet (siehe tracksViewChanges
+// unten). uebersicht.tsx nimmt an derselben Stelle denselben Ausweg.
+test('fehlt das Thumbnail, nimmt die Nadel das mittlere Bild', async () => {
+  ladeErfolg(VOLLSTAENDIG, VORRAT_OHNE_THUMB);
+  await wrap();
+  const nadel = await screen.findByTestId('karte-nadel-p1');
+  expect(within(nadel).getByTestId('nadel-bild').props.source.uri).toBe(bild('p1').medium_url);
+});
+
+// DER Punkt, an dem dieser Screen technisch kippt (Spec §5.4, Task-6-Brief):
+// `tracksViewChanges` steuert, ob react-native-maps die Nadel weiter
+// nachzeichnet. Dauerhaft `true` heisst: jede Nadel wird bei jedem Frame neu
+// gerendert, und die Karte ruckelt, sobald mehr als eine Handvoll darauf
+// liegt. Dauerhaft `false` heisst: die Nadel friert in dem Zustand ein, den
+// sie beim ersten Zeichnen hatte — und das ist der leere Kreis, denn das Bild
+// kommt erst danach aus dem Netz. Beide Fehler sehen im Test gleich aus, wenn
+// man nur einen der beiden Zeitpunkte prüft; darum stehen hier beide.
+test('die Nadel wird nachgezeichnet, bis ihr Bild steht — und danach nicht mehr', async () => {
+  ladeErfolg();
+  await wrap();
+  const nadel = await screen.findByTestId('karte-nadel-p1');
+  expect(nadel.props.tracksViewChanges).toBe(true);
+
+  await fireEvent(within(nadel).getByTestId('nadel-bild'), 'load');
+  expect(screen.getByTestId('karte-nadel-p1').props.tracksViewChanges).toBe(false);
+});
+
+// Die fertige Nadel darf die anderen nicht mit einfrieren: jede hängt an
+// ihrem eigenen Bild.
+test('eine fertige Nadel schaltet nur sich selbst ab', async () => {
+  ladeErfolg();
+  await wrap();
+  const nadel = await screen.findByTestId('karte-nadel-p1');
+  await fireEvent(within(nadel).getByTestId('nadel-bild'), 'load');
+  expect(screen.getByTestId('karte-nadel-p2').props.tracksViewChanges).toBe(true);
+});
+
+// K3: die Linie zeigt die Reise als Bewegung — in der Reihenfolge der
+// AUFNAHME. `punkte` kommt bereits nach `captured_at` sortiert aus
+// zuKartenPunkten; hier wird festgehalten, dass der Screen diese Reihenfolge
+// unverändert weitergibt und nicht etwa nach Upload-Zeit oder Koordinate
+// umsortiert.
+test('die Linie verbindet die Momente in Aufnahmereihenfolge', async () => {
+  ladeErfolg();
+  await wrap();
+  const linie = await screen.findByTestId('karte-linie');
+  expect(linie.props.coordinates).toEqual([
+    { latitude: 38.71, longitude: -9.14 },
+    { latitude: 38.72, longitude: -9.13 },
+  ]);
+});
+
+test('die Linie ist der Akzent in Breite 3', async () => {
+  ladeErfolg();
+  await wrap();
+  const linie = await screen.findByTestId('karte-linie');
+  expect(linie.props.strokeColor).toBe(palette.accent);
+  expect(linie.props.strokeWidth).toBe(3);
+});
+
+// Eine Linie braucht zwei Punkte. Mit einem einzigen Moment stünde sonst ein
+// Overlay auf der Karte, das nichts verbindet.
+test('ein einzelner Moment ergibt keine Linie', async () => {
+  ladeErfolg([m1, m3]);
+  await wrap();
+  await screen.findByTestId('karte-nadel-p1');
+  expect(screen.queryByTestId('karte-linie')).toBeNull();
 });
 
 // Der Test, der den stillen Fehler laut macht (siehe Mock-Kommentar oben):

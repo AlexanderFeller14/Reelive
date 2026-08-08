@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
-import MapView, { Marker, type Region } from 'react-native-maps';
+import MapView, { Marker, Polyline, type Region } from 'react-native-maps';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { ChevronLeft } from 'lucide-react-native';
+import { KartenNadel } from '@/components/KartenNadel';
 import { Pille } from '@/components/Pille';
 import { PressScale } from '@/components/PressScale';
 import { meldeFehler } from '@/lib/fehlermelder';
@@ -14,6 +15,58 @@ import { holeVorrat, type MedienUrl } from '@/features/recap/urlVorrat';
 import { ausschnittFuer } from '@/features/karte/ausschnitt';
 import { zuKartenPunkten } from '@/features/karte/kartenPunkte';
 import type { Ausschnitt, KartenPunkt } from '@/features/karte/typen';
+
+// Eine feste leere Map statt `new Map()` bei jedem Zurücksetzen: der Wert geht
+// als Abhängigkeit in die Nadeln, und eine jedes Mal neue Map liesse sie ohne
+// Grund neu rechnen.
+const KEINE_URLS: ReadonlyMap<string, MedienUrl> = new Map();
+
+// Das Bild der Nadel. `thumb_url` fehlt, wenn `media-urls` für den Moment
+// keinen `thumb_key` hatte (siehe supabase/functions/media-urls/index.ts) —
+// dann trägt das mittlere Bild die Nadel, genau wie in uebersicht.tsx. Ohne
+// diesen Ausweg bliebe für solche Momente für immer der Skeleton stehen.
+function nadelBild(urls: ReadonlyMap<string, MedienUrl>, momentId: string): string | null {
+  const url = urls.get(momentId);
+  if (!url) return null;
+  return url.thumb_url ?? url.medium_url;
+}
+
+// Eine Nadel samt ihrem Marker — als eigene Komponente, weil `bereit` zu
+// GENAU EINER Nadel gehört. Läge der Zustand als Menge im Screen, zöge jedes
+// eintreffende Bild ein Rendern aller Nadeln nach sich.
+//
+// `tracksViewChanges` ist die Stelle, an der dieser Screen technisch kippt.
+// Der Wert sagt react-native-maps, ob es die Nadel weiter nachzeichnen soll:
+//
+// - dauerhaft `true`: jede Nadel wird bei jedem Frame neu gerendert; ab einer
+//   Handvoll Nadeln ruckelt die Karte sichtbar.
+// - dauerhaft `false`: die Nadel friert in dem Zustand ein, den sie beim
+//   ersten Zeichnen hatte. Das Bild kommt aber erst danach aus dem Netz —
+//   stehen bliebe also der leere Kreis, für immer.
+//
+// Deshalb: nachzeichnen, bis das Bild steht, und ab da nicht mehr. Wann es
+// steht, weiss nur die Nadel selbst (`onBereit`).
+function NadelMarker({ punkt, thumbUrl }: { punkt: KartenPunkt; thumbUrl: string | null }) {
+  const [bereit, setBereit] = useState(false);
+  const merkeBereit = useCallback(() => setBereit(true), []);
+
+  // Eine neue URL ist ein neues Bild (der Vorrat erneuert seine Signaturen,
+  // bevor sie ablaufen): bis es geladen ist, muss die Nadel wieder
+  // nachgezeichnet werden.
+  useEffect(() => {
+    setBereit(false);
+  }, [thumbUrl]);
+
+  return (
+    <Marker
+      testID={`karte-nadel-${punkt.moment.id}`}
+      coordinate={{ latitude: punkt.lat, longitude: punkt.lng }}
+      tracksViewChanges={!bereit}
+    >
+      <KartenNadel moment={punkt.moment} thumbUrl={thumbUrl} onBereit={merkeBereit} />
+    </Marker>
+  );
+}
 
 // Die Karte als zweite Lesart desselben Recaps (Spec §5.2): dieselbe Ebene
 // wie uebersicht.tsx und player.tsx, damit `[id]` geteilt bleibt.
@@ -34,6 +87,9 @@ export default function RecapKarte() {
 
   const [punkte, setPunkte] = useState<KartenPunkt[]>([]);
   const [ausschnitt, setAusschnitt] = useState<Ausschnitt | null>(null);
+  // Die Bild-URLs bleiben liegen, weil jede Nadel ihr eigenes Thumbnail
+  // trägt (Spec §5.4) — nicht nur, um damit zu filtern.
+  const [urls, setUrls] = useState<ReadonlyMap<string, MedienUrl>>(KEINE_URLS);
 
   useEffect(() => {
     let aktiv = true;
@@ -55,10 +111,11 @@ export default function RecapKarte() {
         // signiert (und `urls.has` deshalb heute dasselbe aussortiert), ist
         // eine Eigenschaft einer ANDEREN Datei, die dieser Screen nicht
         // kennt und auf die er sich nicht verlassen darf.
-        const urls = vorrat?.urls ?? new Map<string, MedienUrl>();
+        const vorratUrls = vorrat?.urls ?? KEINE_URLS;
         const uploaded = momente.data.filter((m) => m.upload_status === 'uploaded');
-        const mitBild = uploaded.filter((m) => urls.has(m.id));
+        const mitBild = uploaded.filter((m) => vorratUrls.has(m.id));
         const { punkte: p } = zuKartenPunkten(mitBild);
+        setUrls(vorratUrls);
         setPunkte(p);
         setAusschnitt(ausschnittFuer(p));
       })
@@ -81,6 +138,7 @@ export default function RecapKarte() {
       .catch((fehler: unknown) => {
         if (!aktiv) return;
         meldeFehler(fehler, { screen: 'recap/karte', tripId: id });
+        setUrls(KEINE_URLS);
         setPunkte([]);
         setAusschnitt(null);
       });
@@ -93,6 +151,19 @@ export default function RecapKarte() {
   // Task 7 gruppiert Nadeln nach ihrem Abstand in BILDSCHIRMpunkten und
   // braucht dafür den aktuellen Zoom, nicht den anfänglichen.
   const merkeAusschnitt = useCallback((region: Region) => setAusschnitt(region), []);
+
+  // Die Linie der Reise (Spec K3/§5.6). `punkte` kommt aus zuKartenPunkten
+  // bereits nach `captured_at` sortiert — hier wird bewusst NICHT noch einmal
+  // sortiert: die Linie zeigt, in welcher Reihenfolge aufgenommen wurde, nie,
+  // in welcher hochgeladen wurde.
+  //
+  // `useMemo` ist hier nicht Feinschliff: `merkeAusschnitt` lässt den Screen
+  // bei jeder Kartenbewegung neu rendern, und ein bei jedem Rendern neues
+  // Koordinaten-Array schickte die Polyline jedes Mal erneut über die Brücke.
+  const linie = useMemo(
+    () => punkte.map((p) => ({ latitude: p.lat, longitude: p.lng })),
+    [punkte]
+  );
 
   const zurueck = () => {
     if (router.canGoBack()) router.back();
@@ -115,12 +186,19 @@ export default function RecapKarte() {
           initialRegion={ausschnitt}
           onRegionChangeComplete={merkeAusschnitt}
         >
-          {punkte.map((p) => (
-            <Marker
-              key={p.moment.id}
-              testID={`karte-nadel-${p.moment.id}`}
-              coordinate={{ latitude: p.lat, longitude: p.lng }}
+          {/* Die Linie steht VOR den Nadeln im Baum, damit sie unter ihnen
+              liegt. Unter zwei Punkten gibt es nichts zu verbinden. */}
+          {linie.length > 1 && (
+            <Polyline
+              testID="karte-linie"
+              coordinates={linie}
+              strokeColor={colors.accent}
+              strokeWidth={3}
             />
+          )}
+
+          {punkte.map((p) => (
+            <NadelMarker key={p.moment.id} punkt={p} thumbUrl={nadelBild(urls, p.moment.id)} />
           ))}
         </MapView>
       )}
