@@ -292,15 +292,32 @@ Deno.serve(async (req: Request): Promise<Response> => {
     // `type` und `media_ext` kommen mit, weil der Pfad hier NEU abgeleitet
     // wird statt aus storage_key übernommen — siehe unten.
     const postZeilen: MedienZeile[] = [];
+    // Versatz-Paginierung läuft über eine Menge, die sich unter ihr bewegen
+    // kann: Ein `confirm`, das während des Blätterns einen Moment mit früherem
+    // captured_at auf 'uploaded' setzt, schiebt alles danach um eine Position
+    // nach hinten — die letzte Zeile der vorigen Seite erscheint dann als
+    // erste der nächsten NOCH EINMAL. Die Verlust-Richtung fängt der
+    // Quervergleich unten, die Doppel-Richtung nicht: 1201 eingesammelte
+    // Zeilen bei 1200 gezählten sind >= und schlagen nirgends an. Die Antwort
+    // trüge ein doppeltes post_id, der Recap zeigte denselben Moment zweimal.
+    // Darum die Menge der schon gesehenen IDs.
+    const gesehen = new Set<string>();
+    let abgeholt = 0;
     let gezaehlt: number | null = null;
     for (;;) {
-      // Der Versatz ist immer «so viele habe ich schon». Bewusst nicht
-      // Seitennummer × Seitengrösse: dann hinge die Richtigkeit daran, dass
-      // eine volle Seite auch wirklich POSTS_SEITENGROESSE Zeilen bringt —
-      // also daran, dass max_rows in config.toml genau diesen Wert hat. Wird
-      // es dort je kleiner gesetzt, blättert diese Schleife trotzdem korrekt
-      // weiter, statt bei der ersten kürzeren Seite abzubrechen.
-      const von = postZeilen.length;
+      // Der Versatz ist immer «so viele Zeilen hat der Server schon
+      // geliefert». Bewusst nicht Seitennummer × Seitengrösse: dann hinge die
+      // Richtigkeit daran, dass eine volle Seite auch wirklich
+      // POSTS_SEITENGROESSE Zeilen bringt — also daran, dass max_rows in
+      // config.toml genau diesen Wert hat. Wird es dort je kleiner gesetzt,
+      // blättert diese Schleife trotzdem korrekt weiter.
+      //
+      // Und bewusst nicht die Zahl der BEHALTENEN Zeilen: seit dem Aussortieren
+      // von Doubletten sind das zwei verschiedene Zahlen, und nur die gelieferte
+      // wächst garantiert bei jedem Durchgang. Am behaltenen Stand gemessen
+      // könnte eine Seite aus lauter Doubletten den Versatz stehen lassen —
+      // eine Endlosschleife.
+      const von = abgeholt;
       const { data, error: postsError, count } = await supabaseAdmin
         .from('posts')
         // Gezählt wird nur beim ersten Durchgang: der count ist eine eigene
@@ -319,15 +336,22 @@ Deno.serve(async (req: Request): Promise<Response> => {
       if (gezaehlt === null) gezaehlt = count ?? null;
 
       const seitenZeilen = (data ?? []) as MedienZeile[];
-      postZeilen.push(...seitenZeilen);
+      abgeholt += seitenZeilen.length;
+      for (const zeile of seitenZeilen) {
+        if (gesehen.has(zeile.id)) continue;
+        gesehen.add(zeile.id);
+        postZeilen.push(zeile);
+      }
 
       // Leere Seite: mehr gibt es nicht. Diese Bedingung beendet die Schleife
       // auch dann, wenn die Zählung fehlt — und sie terminiert sicher, weil
       // jeder andere Durchgang den Versatz um mindestens eine Zeile schiebt.
       if (seitenZeilen.length === 0) break;
       // Vollzählig laut Zählung des ersten Durchgangs. Spart den sonst
-      // nötigen letzten, leeren Abruf.
-      if (gezaehlt !== null && postZeilen.length >= gezaehlt) break;
+      // nötigen letzten, leeren Abruf. Gemessen wird am Gelieferten: sonst
+      // liefe eine Doublette als «mir fehlt noch eine» in einen Abruf, der
+      // dieselbe Doublette noch einmal bringt.
+      if (gezaehlt !== null && abgeholt >= gezaehlt) break;
     }
 
     // Quergeprüft gegen die Zählung: Kommen am Ende weniger Zeilen zusammen,
@@ -335,6 +359,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     // — etwa ein Nachzügler-Insert, der die Seitengrenzen verschoben hat. Die
     // Antwort geht trotzdem raus (ein unvollständiger Recap ist besser als
     // gar keiner), aber die Lücke steht im Log statt niemandem aufzufallen.
+    const beimSammelnVerloren = gezaehlt === null ? 0 : Math.max(0, gezaehlt - postZeilen.length);
     if (gezaehlt !== null && postZeilen.length < gezaehlt) {
       console.error('media-urls: lesen hat weniger Momente eingesammelt als gezählt.', {
         trip_id: tripZeile.id,
@@ -355,6 +380,12 @@ Deno.serve(async (req: Request): Promise<Response> => {
     const gueltigBis = new Date(Date.now() + LESE_URL_GUELTIGKEIT_SEKUNDEN * 1000).toISOString();
 
     let medien: MedienEintrag[];
+    // Wie viele Momente dieser Reise es gibt, die aber nicht in dieser Antwort
+    // stehen. Zwei Quellen: aussortierte Zeilen (Pfad passt nicht zur
+    // Ableitung, siehe unten) und Zeilen, die beim Blättern verlorengingen.
+    // Beides ist für die App dasselbe — «der Recap ist um N Momente kürzer,
+    // als er sein sollte» — und beides war bisher nur im Server-Log sichtbar.
+    let ausgelassen = 0;
     try {
       const aws = s3Client();
       const eintraege = await Promise.all(
@@ -431,12 +462,25 @@ Deno.serve(async (req: Request): Promise<Response> => {
         }),
       );
       medien = eintraege.filter((eintrag): eintrag is MedienEintrag => eintrag !== null);
+      ausgelassen = (eintraege.length - medien.length) + beimSammelnVerloren;
     } catch (err) {
       console.error('media-urls: Signieren der Lese-URLs fehlgeschlagen', err);
       return fehler('Signieren fehlgeschlagen.', 502);
     }
 
-    return json({ medien, gueltig_bis: gueltigBis }, 200);
+    // `ausgelassen` ist ein rein additives Feld: bestehende Leser (Task 6,
+    // mobile/src/features/recap/urlVorrat.ts) greifen auf `medien` und
+    // `gueltig_bis` zu und bleiben davon unberührt. Es steht immer da, auch
+    // als 0 — ein Feld, das nur im Fehlerfall auftaucht, wird beim Bauen der
+    // App übersehen und fehlt dann genau dann, wenn es gebraucht wird.
+    //
+    // Warum es überhaupt existiert: Das Aussortieren unten ist gegenüber der
+    // App genauso still, wie der blosse Log-Alarm gegenüber dem Betrieb still
+    // war. Ohne diese Zahl ist ein ausgelassener Moment von einem nie
+    // existierenden nicht zu unterscheiden, und der Recap behauptet
+    // Vollständigkeit, die er nicht hat. Mit ihr kann er sagen, dass N
+    // Momente fehlen.
+    return json({ medien, gueltig_bis: gueltigBis, ausgelassen }, 200);
   }
 
   const postId = body.post_id;

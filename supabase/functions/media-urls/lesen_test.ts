@@ -23,10 +23,13 @@
 // Dazu, weil billig und aus der Angreifer-Sicht naheliegend: unbekannte
 // trip_id → 404, archivierte Reise → weiterhin lesbar, Gültigkeit der
 // Lese-URLs = 3600 s gegenüber 600 s beim Upload, thumb_url entfällt bei
-// thumb_key = null — und die beiden Angriffszeilen: eine, deren gespeicherter
+// thumb_key = null — und die drei Angriffszeilen: eine, deren gespeicherter
 // thumb_key auf eine FREMDE Reise zeigt, bekommt trotzdem nur die abgeleitete
 // thumb_url der eigenen (Zeile D); eine, deren storage_key dorthin zeigt,
-// fällt ganz aus der Antwort (Zeile E).
+// fällt ganz aus der Antwort und wird in `ausgelassen` gezählt (Zeile E); und
+// eine, die in einer anderen Reise liegt, aber einen auf UNSERE Reise
+// passenden storage_key trägt, taucht nicht auf — die einzige Zeile, an der
+// sich die Reise-Eingrenzung des Selects zeigen kann (Zeile F).
 //
 // Aufbau wie confirm_integration_test.ts: kein Unit-Test (index.ts exportiert
 // bewusst nichts, Deno.serve steht direkt im Modul), sondern echte
@@ -174,6 +177,7 @@ async function erwarteJson(res: Response, erwarteterStatus: number): Promise<unk
 type LeseAntwort = {
   medien: Array<{ post_id: string; medium_url: string; thumb_url?: string }>;
   gueltig_bis: string;
+  ausgelassen: number;
 };
 
 Deno.test({
@@ -212,6 +216,8 @@ Deno.test({
 
     // Schlüssel des hochgeladenen Moments, für das Aufräumen im finally.
     let hochgeladeneSchluessel: string[] = [];
+    // Zweite Reise, die es nur für Fall F gibt — im finally mit aufgeräumt.
+    let nachbarTripId: string | null = null;
 
     try {
       // --- Fixtures -------------------------------------------------------
@@ -332,6 +338,47 @@ Deno.test({
       });
       await erwarteJson(postERes, 201);
 
+      // F: liegt in einer ANDEREN Reise, trägt aber einen storage_key, der
+      //    auf UNSERE Reise zeigt — und zwar genau den Pfad, den die
+      //    Ableitung für diese post_id in unserer Reise ergäbe. Damit ist F
+      //    die einzige Zeile, an der sich die Reise-Eingrenzung des Selects
+      //    überhaupt zeigen kann: Fällt `.eq('trip_id', …)` weg, scannt die
+      //    Function die ganze posts-Tabelle, und F rutscht durch den
+      //    Ableitungs-Abgleich hindurch in die Antwort — jeder andere fremde
+      //    Moment würde dort noch aussortiert. Ohne diese Fixture bleibt eine
+      //    der Kernaussagen der Aktion ungetestet, und die Richtigkeit hinge
+      //    allein am Stolperdraht.
+      const nachbarRes = await fetch(`${SUPABASE_URL}/rest/v1/trips`, {
+        method: 'POST',
+        headers: restHeaders({ Prefer: 'return=representation' }),
+        body: JSON.stringify({
+          name: 'Integrationstest media-urls Nachbarreise',
+          start_date: '2026-01-01',
+          end_date: '2026-01-02',
+          owner_id: LEA_ID,
+        }),
+      });
+      const [nachbar] = (await erwarteJson(nachbarRes, 201)) as Array<{ id: string }>;
+      nachbarTripId = nachbar.id;
+
+      const postFId = crypto.randomUUID();
+      const postFRes = await fetch(`${SUPABASE_URL}/rest/v1/posts`, {
+        method: 'POST',
+        headers: restHeaders({ Prefer: 'return=representation' }),
+        body: JSON.stringify({
+          id: postFId,
+          trip_id: nachbarTripId,
+          author_id: LEA_ID,
+          type: 'photo',
+          storage_key: erwarteteSchluessel(tripId, postFId, 'photo', 'jpg').storage_key,
+          thumb_key: null,
+          upload_status: 'uploaded',
+          captured_at: '2026-01-01T13:00:00+01:00',
+          captured_tz: 'Europe/Zurich',
+        }),
+      });
+      await erwarteJson(postFRes, 201);
+
       // A tatsächlich hochladen — über denselben Weg wie die App: sign, PUT,
       // confirm. Erst danach trägt die Zeile die server-abgeleiteten
       // Schlüssel, und nur die darf `lesen` signieren.
@@ -402,10 +449,16 @@ Deno.test({
       const okRes = await lesen(leaHeaders, tripId);
       const antwort = (await erwarteJson(okRes, 200)) as LeseAntwort;
 
-      // Genau A, C und D, in captured_at-Reihenfolge. B fehlt (pending), und
-      // E fehlt, weil sein storage_key nicht zur Ableitung passt — beide
-      // Auslassungen in einer Zusicherung.
+      // Genau A, C und D, in captured_at-Reihenfolge. B fehlt (pending), E
+      // fehlt (storage_key passt nicht zur Ableitung) und F fehlt, weil es
+      // zu einer anderen Reise gehört — drei verschiedene Gründe, eine
+      // Zusicherung.
       assertEquals(antwort.medien.map((m) => m.post_id), [postA.id, postC.id, postDId]);
+
+      // Die Auslassung von E ist für die App sichtbar, statt den Recap
+      // stillschweigend kürzer zu machen. F zählt hier NICHT mit: es gehört
+      // schlicht nicht zu dieser Reise, es fehlt also nichts.
+      assertEquals(antwort.ausgelassen, 1);
 
       const eintragA = antwort.medien[0];
       const eintragC = antwort.medien[1];
@@ -531,16 +584,19 @@ Deno.test({
         }
       }
 
-      // Cascade räumt trip_members und posts der Test-Reise mit auf.
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/trips?id=eq.${tripId}`, {
-        method: 'DELETE',
-        headers: restHeaders(),
-      }).catch((err) => {
-        console.warn('Aufräumen der Test-Reise fehlgeschlagen (Netzwerk):', err);
-        return null;
-      });
-      if (res && !res.ok) {
-        console.warn(`Aufräumen der Test-Reise fehlgeschlagen: HTTP ${res.status}`, await res.text());
+      // Cascade räumt trip_members und posts der Test-Reisen mit auf.
+      for (const id of [tripId, nachbarTripId]) {
+        if (id === null) continue;
+        const res = await fetch(`${SUPABASE_URL}/rest/v1/trips?id=eq.${id}`, {
+          method: 'DELETE',
+          headers: restHeaders(),
+        }).catch((err) => {
+          console.warn('Aufräumen der Test-Reise fehlgeschlagen (Netzwerk):', err);
+          return null;
+        });
+        if (res && !res.ok) {
+          console.warn(`Aufräumen der Test-Reise fehlgeschlagen: HTTP ${res.status}`, await res.text());
+        }
       }
     }
   },
@@ -628,6 +684,11 @@ Deno.test({
       // Ohne Blättern stünde hier 1000 — der stille Verlust, um den es geht.
       assertEquals(antwort.medien.length, ANZAHL);
       assertEquals(antwort.medien.map((m) => m.post_id), erwarteteReihenfolge);
+      // Nichts ausgelassen, und keine Doublette: die Reihenfolge oben
+      // vergleicht Position für Position, ein zweifach gelieferter Moment
+      // fiele dort auf.
+      assertEquals(antwort.ausgelassen, 0);
+      assertEquals(new Set(antwort.medien.map((m) => m.post_id)).size, ANZAHL);
     } finally {
       const res = await fetch(`${SUPABASE_URL}/rest/v1/trips?id=eq.${tripId}`, {
         method: 'DELETE',

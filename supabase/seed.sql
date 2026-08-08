@@ -97,9 +97,19 @@ on conflict (trip_id, user_id) do nothing;
 -- ===========================================================================
 -- Momente — sortiert IMMER nach captured_at (Gerätezeit), nie nach Upload
 -- ===========================================================================
--- storage_key/thumb_key zeigen auf noch nicht existierende R2-Objekte
--- (Upload kommt in Phase 4). upload_status bleibt darum ehrlich 'pending',
--- ausser wo ein fertiger Upload simuliert werden soll.
+-- storage_key/thumb_key zeigen auf Objekte, die im Speicher nicht liegen: Der
+-- Seed legt Zeilen an, er lädt nichts hoch (das tut die App über
+-- supabase/functions/media-urls). Ein GET auf eine daraus abgeleitete Lese-URL
+-- gibt darum 404. upload_status ist trotzdem 'uploaded', wo ein fertiger
+-- Upload simuliert werden soll — sonst gäbe es lokal keine aufgedeckte Reise,
+-- an der sich der Recap überhaupt ansehen lässt.
+--
+-- Feste IDs für ALLE Momente, wie im Kopf dieser Datei angekündigt. Das ist
+-- nicht nur Kosmetik: `posts` hat ausser dem Primärschlüssel keinen
+-- Unique-Constraint, also kann `on conflict do nothing` ohne feste IDs gar
+-- nicht greifen — ein zweiter Durchlauf der Datei legte dieselben Momente
+-- einfach noch einmal an. Über `supabase db reset` fällt das nie auf (die DB
+-- ist dann leer), beim direkten Einspielen gegen eine laufende Instanz sofort.
 --
 -- Die Schlüssel stehen hier sprechend ('trips/norwegen/001.jpg'), damit die
 -- Seed-Daten lesbar bleiben; ans echte Ablageschema zieht sie das UPDATE am
@@ -107,21 +117,21 @@ on conflict (trip_id, user_id) do nothing;
 
 -- Norwegen (versiegelt) — bewusst durcheinander eingesendet, damit auffällt,
 -- wenn irgendwo nach created_at statt nach captured_at sortiert wird.
-insert into public.posts (trip_id, author_id, type, media_ext, storage_key, thumb_key, duration_s, caption, captured_at, captured_tz, lat, lng, place_name, upload_status, created_at) values
-  ('aaaaaaaa-0000-4000-8000-000000000001', '11111111-1111-4111-8111-111111111111', 'photo', 'jpg', 'trips/norwegen/001.jpg', 'trips/norwegen/001_t.jpg', null, 'Fähre ablegt, Regen von der Seite', '2026-08-01 07:12:00+02', 'Europe/Oslo', 59.9139, 10.7522, 'Oslo', 'uploaded', '2026-08-01 09:40:00+02'),
-  ('aaaaaaaa-0000-4000-8000-000000000001', '44444444-4444-4444-8444-444444444444', 'photo', 'jpg', 'trips/norwegen/002.jpg', 'trips/norwegen/002_t.jpg', null, 'Jonas hat den Gaskocher vergessen', '2026-08-01 19:48:00+02', 'Europe/Oslo', 60.3913, 5.3221, 'Bergen', 'uploaded', '2026-08-02 08:02:00+02'),
-  ('aaaaaaaa-0000-4000-8000-000000000001', '33333333-3333-4333-8333-333333333333', 'video', 'mp4', 'trips/norwegen/003.mp4', 'trips/norwegen/003_t.jpg', 12.4, 'Wasserfall, viel zu laut zum Reden', '2026-08-02 11:20:00+02', 'Europe/Oslo', 60.8641, 7.1155, 'Vøringsfossen', 'uploaded', '2026-08-02 11:26:00+02'),
-  ('aaaaaaaa-0000-4000-8000-000000000001', '55555555-5555-4555-8555-555555555555', 'photo', 'jpg', 'trips/norwegen/004.jpg', 'trips/norwegen/004_t.jpg', null, null, '2026-08-02 16:05:00+02', 'Europe/Oslo', 60.4675, 7.4900, 'Eidfjord', 'uploaded', '2026-08-02 20:11:00+02'),
-  ('aaaaaaaa-0000-4000-8000-000000000001', '11111111-1111-4111-8111-111111111111', 'photo', 'jpg', 'trips/norwegen/005.jpg', 'trips/norwegen/005_t.jpg', null, 'Erste Nacht ohne Dunkelheit', '2026-08-03 00:41:00+02', 'Europe/Oslo', 61.0625, 7.0910, 'Aurlandsfjord', 'uploaded', '2026-08-03 07:55:00+02'),
-  ('aaaaaaaa-0000-4000-8000-000000000001', '44444444-4444-4444-8444-444444444444', 'video', 'mp4', 'trips/norwegen/006.mp4', 'trips/norwegen/006_t.jpg', 8.1, 'Serpentinen runter nach Geiranger', '2026-08-03 14:33:00+02', 'Europe/Oslo', 62.1010, 7.2050, 'Geiranger', 'uploaded', '2026-08-03 18:20:00+02'),
-  ('aaaaaaaa-0000-4000-8000-000000000001', '33333333-3333-4333-8333-333333333333', 'photo', 'jpg', 'trips/norwegen/007.jpg', 'trips/norwegen/007_t.jpg', null, 'Kaffee auf dem Dach vom Camper', '2026-08-04 08:02:00+02', 'Europe/Oslo', 62.1010, 7.2050, 'Geiranger', 'uploaded', '2026-08-04 08:09:00+02'),
-  ('aaaaaaaa-0000-4000-8000-000000000001', '11111111-1111-4111-8111-111111111111', 'photo', 'jpg', 'trips/norwegen/008.jpg', 'trips/norwegen/008_t.jpg', null, 'Trollstigen im Nebel, sehen nichts', '2026-08-04 12:47:00+02', 'Europe/Oslo', 62.4581, 7.6708, 'Trollstigen', 'uploaded', '2026-08-04 15:02:00+02'),
-  ('aaaaaaaa-0000-4000-8000-000000000001', '55555555-5555-4555-8555-555555555555', 'photo', 'jpg', 'trips/norwegen/009.jpg', 'trips/norwegen/009_t.jpg', null, 'Zimtschnecken für alle', '2026-08-04 17:15:00+02', 'Europe/Oslo', 62.4722, 6.1495, 'Ålesund', 'uploaded', '2026-08-05 09:31:00+02'),
-  ('aaaaaaaa-0000-4000-8000-000000000001', '44444444-4444-4444-8444-444444444444', 'photo', 'jpg', 'trips/norwegen/010.jpg', 'trips/norwegen/010_t.jpg', null, null, '2026-08-05 06:58:00+02', 'Europe/Oslo', 62.4722, 6.1495, 'Ålesund', 'uploaded', '2026-08-05 07:04:00+02'),
-  ('aaaaaaaa-0000-4000-8000-000000000001', '33333333-3333-4333-8333-333333333333', 'video', 'mp4', 'trips/norwegen/011.mp4', 'trips/norwegen/011_t.jpg', 21.7, 'Mira springt rein, 9 Grad', '2026-08-05 13:26:00+02', 'Europe/Oslo', 63.1105, 7.6450, 'Atlantikstrasse', 'uploaded', '2026-08-05 19:40:00+02'),
-  ('aaaaaaaa-0000-4000-8000-000000000001', '11111111-1111-4111-8111-111111111111', 'photo', 'jpg', 'trips/norwegen/012.jpg', 'trips/norwegen/012_t.jpg', null, 'Elch. Wirklich. Kein Busch.', '2026-08-05 20:55:00+02', 'Europe/Oslo', 63.4305, 10.3951, 'Trondheim', 'uploaded', '2026-08-06 07:12:00+02'),
+insert into public.posts (id, trip_id, author_id, type, media_ext, storage_key, thumb_key, duration_s, caption, captured_at, captured_tz, lat, lng, place_name, upload_status, created_at) values
+  ('cccccccc-0000-4000-8000-000000000001', 'aaaaaaaa-0000-4000-8000-000000000001', '11111111-1111-4111-8111-111111111111', 'photo', 'jpg', 'trips/norwegen/001.jpg', 'trips/norwegen/001_t.jpg', null, 'Fähre ablegt, Regen von der Seite', '2026-08-01 07:12:00+02', 'Europe/Oslo', 59.9139, 10.7522, 'Oslo', 'uploaded', '2026-08-01 09:40:00+02'),
+  ('cccccccc-0000-4000-8000-000000000002', 'aaaaaaaa-0000-4000-8000-000000000001', '44444444-4444-4444-8444-444444444444', 'photo', 'jpg', 'trips/norwegen/002.jpg', 'trips/norwegen/002_t.jpg', null, 'Jonas hat den Gaskocher vergessen', '2026-08-01 19:48:00+02', 'Europe/Oslo', 60.3913, 5.3221, 'Bergen', 'uploaded', '2026-08-02 08:02:00+02'),
+  ('cccccccc-0000-4000-8000-000000000003', 'aaaaaaaa-0000-4000-8000-000000000001', '33333333-3333-4333-8333-333333333333', 'video', 'mp4', 'trips/norwegen/003.mp4', 'trips/norwegen/003_t.jpg', 12.4, 'Wasserfall, viel zu laut zum Reden', '2026-08-02 11:20:00+02', 'Europe/Oslo', 60.8641, 7.1155, 'Vøringsfossen', 'uploaded', '2026-08-02 11:26:00+02'),
+  ('cccccccc-0000-4000-8000-000000000004', 'aaaaaaaa-0000-4000-8000-000000000001', '55555555-5555-4555-8555-555555555555', 'photo', 'jpg', 'trips/norwegen/004.jpg', 'trips/norwegen/004_t.jpg', null, null, '2026-08-02 16:05:00+02', 'Europe/Oslo', 60.4675, 7.4900, 'Eidfjord', 'uploaded', '2026-08-02 20:11:00+02'),
+  ('cccccccc-0000-4000-8000-000000000005', 'aaaaaaaa-0000-4000-8000-000000000001', '11111111-1111-4111-8111-111111111111', 'photo', 'jpg', 'trips/norwegen/005.jpg', 'trips/norwegen/005_t.jpg', null, 'Erste Nacht ohne Dunkelheit', '2026-08-03 00:41:00+02', 'Europe/Oslo', 61.0625, 7.0910, 'Aurlandsfjord', 'uploaded', '2026-08-03 07:55:00+02'),
+  ('cccccccc-0000-4000-8000-000000000006', 'aaaaaaaa-0000-4000-8000-000000000001', '44444444-4444-4444-8444-444444444444', 'video', 'mp4', 'trips/norwegen/006.mp4', 'trips/norwegen/006_t.jpg', 8.1, 'Serpentinen runter nach Geiranger', '2026-08-03 14:33:00+02', 'Europe/Oslo', 62.1010, 7.2050, 'Geiranger', 'uploaded', '2026-08-03 18:20:00+02'),
+  ('cccccccc-0000-4000-8000-000000000007', 'aaaaaaaa-0000-4000-8000-000000000001', '33333333-3333-4333-8333-333333333333', 'photo', 'jpg', 'trips/norwegen/007.jpg', 'trips/norwegen/007_t.jpg', null, 'Kaffee auf dem Dach vom Camper', '2026-08-04 08:02:00+02', 'Europe/Oslo', 62.1010, 7.2050, 'Geiranger', 'uploaded', '2026-08-04 08:09:00+02'),
+  ('cccccccc-0000-4000-8000-000000000008', 'aaaaaaaa-0000-4000-8000-000000000001', '11111111-1111-4111-8111-111111111111', 'photo', 'jpg', 'trips/norwegen/008.jpg', 'trips/norwegen/008_t.jpg', null, 'Trollstigen im Nebel, sehen nichts', '2026-08-04 12:47:00+02', 'Europe/Oslo', 62.4581, 7.6708, 'Trollstigen', 'uploaded', '2026-08-04 15:02:00+02'),
+  ('cccccccc-0000-4000-8000-000000000009', 'aaaaaaaa-0000-4000-8000-000000000001', '55555555-5555-4555-8555-555555555555', 'photo', 'jpg', 'trips/norwegen/009.jpg', 'trips/norwegen/009_t.jpg', null, 'Zimtschnecken für alle', '2026-08-04 17:15:00+02', 'Europe/Oslo', 62.4722, 6.1495, 'Ålesund', 'uploaded', '2026-08-05 09:31:00+02'),
+  ('cccccccc-0000-4000-8000-000000000010', 'aaaaaaaa-0000-4000-8000-000000000001', '44444444-4444-4444-8444-444444444444', 'photo', 'jpg', 'trips/norwegen/010.jpg', 'trips/norwegen/010_t.jpg', null, null, '2026-08-05 06:58:00+02', 'Europe/Oslo', 62.4722, 6.1495, 'Ålesund', 'uploaded', '2026-08-05 07:04:00+02'),
+  ('cccccccc-0000-4000-8000-000000000011', 'aaaaaaaa-0000-4000-8000-000000000001', '33333333-3333-4333-8333-333333333333', 'video', 'mp4', 'trips/norwegen/011.mp4', 'trips/norwegen/011_t.jpg', 21.7, 'Mira springt rein, 9 Grad', '2026-08-05 13:26:00+02', 'Europe/Oslo', 63.1105, 7.6450, 'Atlantikstrasse', 'uploaded', '2026-08-05 19:40:00+02'),
+  ('cccccccc-0000-4000-8000-000000000012', 'aaaaaaaa-0000-4000-8000-000000000001', '11111111-1111-4111-8111-111111111111', 'photo', 'jpg', 'trips/norwegen/012.jpg', 'trips/norwegen/012_t.jpg', null, 'Elch. Wirklich. Kein Busch.', '2026-08-05 20:55:00+02', 'Europe/Oslo', 63.4305, 10.3951, 'Trondheim', 'uploaded', '2026-08-06 07:12:00+02'),
   -- Heute eingesendet, noch nicht durchgeladen
-  ('aaaaaaaa-0000-4000-8000-000000000001', '55555555-5555-4555-8555-555555555555', 'photo', 'jpg', 'trips/norwegen/013.jpg', null, null, 'Frühstück am Wasser', '2026-08-06 08:30:00+02', 'Europe/Oslo', 63.4305, 10.3951, 'Trondheim', 'pending', '2026-08-06 08:33:00+02')
+  ('cccccccc-0000-4000-8000-000000000013', 'aaaaaaaa-0000-4000-8000-000000000001', '55555555-5555-4555-8555-555555555555', 'photo', 'jpg', 'trips/norwegen/013.jpg', null, null, 'Frühstück am Wasser', '2026-08-06 08:30:00+02', 'Europe/Oslo', 63.4305, 10.3951, 'Trondheim', 'pending', '2026-08-06 08:33:00+02')
 on conflict do nothing;
 
 -- Lissabon (revealed) — feste IDs, weil Reaktionen und Kommentare daran hängen
@@ -141,12 +151,12 @@ insert into public.posts (id, trip_id, author_id, type, media_ext, storage_key, 
 on conflict do nothing;
 
 -- Sardinien (archiviert)
-insert into public.posts (trip_id, author_id, type, media_ext, storage_key, thumb_key, duration_s, caption, captured_at, captured_tz, lat, lng, place_name, upload_status, created_at) values
-  ('aaaaaaaa-0000-4000-8000-000000000003', '11111111-1111-4111-8111-111111111111', 'photo', 'jpg', 'trips/sardinien/001.jpg', 'trips/sardinien/001_t.jpg', null, 'Van steht, Meer ist da', '2025-09-06 15:40:00+02', 'Europe/Rome', 40.9265, 9.4986, 'Olbia', 'uploaded', '2025-09-06 15:44:00+02'),
-  ('aaaaaaaa-0000-4000-8000-000000000003', '55555555-5555-4555-8555-555555555555', 'photo', 'jpg', 'trips/sardinien/002.jpg', 'trips/sardinien/002_t.jpg', null, 'Wasser unwirklich türkis', '2025-09-08 11:12:00+02', 'Europe/Rome', 41.2036, 9.4092, 'La Maddalena', 'uploaded', '2025-09-08 19:03:00+02'),
-  ('aaaaaaaa-0000-4000-8000-000000000003', '11111111-1111-4111-8111-111111111111', 'video', 'mp4', 'trips/sardinien/003.mp4', 'trips/sardinien/003_t.jpg', 18.9, 'Sofia klettert, ich halte die Kamera', '2025-09-11 09:50:00+02', 'Europe/Rome', 40.2733, 9.6280, 'Cala Goloritzé', 'uploaded', '2025-09-11 20:15:00+02'),
-  ('aaaaaaaa-0000-4000-8000-000000000003', '55555555-5555-4555-8555-555555555555', 'photo', 'jpg', 'trips/sardinien/004.jpg', 'trips/sardinien/004_t.jpg', null, null, '2025-09-14 18:22:00+02', 'Europe/Rome', 39.2238, 9.1217, 'Cagliari', 'uploaded', '2025-09-14 21:47:00+02'),
-  ('aaaaaaaa-0000-4000-8000-000000000003', '11111111-1111-4111-8111-111111111111', 'photo', 'jpg', 'trips/sardinien/005.jpg', 'trips/sardinien/005_t.jpg', null, 'Zwei Wochen, 400 Kilometer, ein Reifen', '2025-09-20 10:05:00+02', 'Europe/Rome', 40.9265, 9.4986, 'Olbia', 'uploaded', '2025-09-20 10:12:00+02')
+insert into public.posts (id, trip_id, author_id, type, media_ext, storage_key, thumb_key, duration_s, caption, captured_at, captured_tz, lat, lng, place_name, upload_status, created_at) values
+  ('dddddddd-0000-4000-8000-000000000001', 'aaaaaaaa-0000-4000-8000-000000000003', '11111111-1111-4111-8111-111111111111', 'photo', 'jpg', 'trips/sardinien/001.jpg', 'trips/sardinien/001_t.jpg', null, 'Van steht, Meer ist da', '2025-09-06 15:40:00+02', 'Europe/Rome', 40.9265, 9.4986, 'Olbia', 'uploaded', '2025-09-06 15:44:00+02'),
+  ('dddddddd-0000-4000-8000-000000000002', 'aaaaaaaa-0000-4000-8000-000000000003', '55555555-5555-4555-8555-555555555555', 'photo', 'jpg', 'trips/sardinien/002.jpg', 'trips/sardinien/002_t.jpg', null, 'Wasser unwirklich türkis', '2025-09-08 11:12:00+02', 'Europe/Rome', 41.2036, 9.4092, 'La Maddalena', 'uploaded', '2025-09-08 19:03:00+02'),
+  ('dddddddd-0000-4000-8000-000000000003', 'aaaaaaaa-0000-4000-8000-000000000003', '11111111-1111-4111-8111-111111111111', 'video', 'mp4', 'trips/sardinien/003.mp4', 'trips/sardinien/003_t.jpg', 18.9, 'Sofia klettert, ich halte die Kamera', '2025-09-11 09:50:00+02', 'Europe/Rome', 40.2733, 9.6280, 'Cala Goloritzé', 'uploaded', '2025-09-11 20:15:00+02'),
+  ('dddddddd-0000-4000-8000-000000000004', 'aaaaaaaa-0000-4000-8000-000000000003', '55555555-5555-4555-8555-555555555555', 'photo', 'jpg', 'trips/sardinien/004.jpg', 'trips/sardinien/004_t.jpg', null, null, '2025-09-14 18:22:00+02', 'Europe/Rome', 39.2238, 9.1217, 'Cagliari', 'uploaded', '2025-09-14 21:47:00+02'),
+  ('dddddddd-0000-4000-8000-000000000005', 'aaaaaaaa-0000-4000-8000-000000000003', '11111111-1111-4111-8111-111111111111', 'photo', 'jpg', 'trips/sardinien/005.jpg', 'trips/sardinien/005_t.jpg', null, 'Zwei Wochen, 400 Kilometer, ein Reifen', '2025-09-20 10:05:00+02', 'Europe/Rome', 40.9265, 9.4986, 'Olbia', 'uploaded', '2025-09-20 10:12:00+02')
 on conflict do nothing;
 
 -- ---------------------------------------------------------------------------
@@ -190,12 +200,15 @@ insert into public.reactions (post_id, user_id, emoji, created_at) values
   ('bbbbbbbb-0000-4000-8000-000000000011', '11111111-1111-4111-8111-111111111111', '🔥', '2026-05-14 08:15:00+02')
 on conflict do nothing;
 
-insert into public.comments (post_id, user_id, text, created_at) values
-  ('bbbbbbbb-0000-4000-8000-000000000004', '33333333-3333-4333-8333-333333333333', 'Vier? Es waren sieben.', '2026-05-13 19:24:00+02'),
-  ('bbbbbbbb-0000-4000-8000-000000000004', '11111111-1111-4111-8111-111111111111', 'Ich zähle nur die, die ich zugebe.', '2026-05-13 19:29:00+02'),
-  ('bbbbbbbb-0000-4000-8000-000000000006', '11111111-1111-4111-8111-111111111111', 'Das Licht hat keiner erfunden.', '2026-05-13 19:26:00+02'),
-  ('bbbbbbbb-0000-4000-8000-000000000007', '44444444-4444-4444-8444-444444444444', 'Ich habe die Augen zugemacht, nicht geschlafen.', '2026-05-13 21:14:00+02'),
-  ('bbbbbbbb-0000-4000-8000-000000000011', '33333333-3333-4333-8333-333333333333', 'Nächstes Jahr wieder, gleiche Bar.', '2026-05-14 08:20:00+02')
+-- Feste IDs aus demselben Grund wie bei den Momenten: comments hat ausser
+-- dem Primärschlüssel keinen Unique-Constraint, ohne sie griffe das
+-- `on conflict` nie und ein zweiter Durchlauf verdoppelte die Kommentare.
+insert into public.comments (id, post_id, user_id, text, created_at) values
+  ('eeeeeeee-0000-4000-8000-000000000001', 'bbbbbbbb-0000-4000-8000-000000000004', '33333333-3333-4333-8333-333333333333', 'Vier? Es waren sieben.', '2026-05-13 19:24:00+02'),
+  ('eeeeeeee-0000-4000-8000-000000000002', 'bbbbbbbb-0000-4000-8000-000000000004', '11111111-1111-4111-8111-111111111111', 'Ich zähle nur die, die ich zugebe.', '2026-05-13 19:29:00+02'),
+  ('eeeeeeee-0000-4000-8000-000000000003', 'bbbbbbbb-0000-4000-8000-000000000006', '11111111-1111-4111-8111-111111111111', 'Das Licht hat keiner erfunden.', '2026-05-13 19:26:00+02'),
+  ('eeeeeeee-0000-4000-8000-000000000004', 'bbbbbbbb-0000-4000-8000-000000000007', '44444444-4444-4444-8444-444444444444', 'Ich habe die Augen zugemacht, nicht geschlafen.', '2026-05-13 21:14:00+02'),
+  ('eeeeeeee-0000-4000-8000-000000000005', 'bbbbbbbb-0000-4000-8000-000000000011', '33333333-3333-4333-8333-333333333333', 'Nächstes Jahr wieder, gleiche Bar.', '2026-05-14 08:20:00+02')
 on conflict do nothing;
 
 -- Geteilter Recap-Link (Auflösung läuft später über eine Edge Function)
