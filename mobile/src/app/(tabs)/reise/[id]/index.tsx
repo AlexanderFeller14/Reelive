@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 import { Alert, ScrollView, Text, View, StyleSheet } from 'react-native';
-import { useFocusEffect, useLocalSearchParams, useRouter, type Href } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { Lock, X } from 'lucide-react-native';
 import { PressScale } from '@/components/PressScale';
@@ -209,10 +209,13 @@ export default function ReiseDetail() {
   }, [id]);
 
   const zumRecap = () => {
-    // Gleiche Übergangslösung wie in recap/index.tsx: `/recap/[id]/uebersicht`
-    // fehlt noch in der generierten (gitignorten) Routen-Liste, solange Metro
-    // seit Task 10 nicht neu gelaufen ist.
-    router.push({ pathname: '/recap/[id]/uebersicht', params: { id } } as unknown as Href);
+    // Phase-5-Final-Review, Punkt 7: der Cast war eine Übergangslösung, so
+    // lange `/recap/[id]/uebersicht` in der generierten (gitignorten)
+    // Routen-Liste fehlte — Task 11 hat die Route angelegt, `tsc` ist ohne
+    // Cast sauber (siehe dasselbe Muster in recap/[id]/uebersicht.tsx:
+    // `zumPlayer`, das exakt diese Begründung schon für `/recap/[id]/player`
+    // dokumentiert).
+    router.push({ pathname: '/recap/[id]/uebersicht', params: { id } });
   };
 
   // Erst wenn die Erklärung tatsächlich gesehen und bestätigt wurde. Der
