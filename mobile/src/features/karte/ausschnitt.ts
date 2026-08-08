@@ -24,6 +24,15 @@ function laengenSpanne(lngs: number[]): { mitte: number; spanne: number } {
       nachLuecke = (i + 1) % sortiert.length;
     }
   }
+  // Sind alle Laengengrade gleich (ein einziger Punkt, oder mehrere auf
+  // derselben Koordinate), ist JEDE Luecke 0 — auch die Umrundung, denn
+  // (x - x + 360) % 360 ist 0. Ohne diesen Ausstieg ergaebe `360 - 0` eine
+  // Spanne von 360 Grad und einen Mittelpunkt auf dem Antipoden: fuer Lissabon
+  // (-9.13) landete die Karte bei 170.87 im Pazifik. Groesste Luecke = 0 heisst
+  // genau dann «alle gleich»: bei zwei verschiedenen Werten a < b sind beide
+  // Luecken (b-a) und (a-b+360) groesser als null.
+  if (groessteLuecke === 0) return { mitte: sortiert[0], spanne: 0 };
+
   const west = sortiert[nachLuecke];
   const spanne = 360 - groessteLuecke;
   // +540 statt +180 vor dem Modulo: der Zwischenwert kann negativ werden, und

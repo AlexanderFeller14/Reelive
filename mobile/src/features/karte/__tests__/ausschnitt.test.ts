@@ -35,6 +35,15 @@ test('ueber den 180. Laengengrad hinweg bleibt der Ausschnitt eng', () => {
   expect(Math.abs(a.longitude)).toBeGreaterThan(175);
 });
 
+// Der Fehler, den Task 3 beim Umsetzen gefunden hat: bei identischen
+// Laengengraden fand die Luecken-Suche eine Luecke von 0 Grad und machte
+// daraus eine Spanne von 360 — der Mittelpunkt landete auf dem Antipoden.
+test('mehrere Punkte auf derselben Koordinate bleiben dort', () => {
+  const a = ausschnittFuer([punkt(38.71, -9.13), punkt(38.71, -9.13)])!;
+  expect(a.longitude).toBeCloseTo(-9.13, 5);
+  expect(a.latitude).toBeCloseTo(38.71, 5);
+});
+
 test('der Mittelpunkt bleibt im gueltigen Bereich', () => {
   const a = ausschnittFuer([punkt(-17.8, 179.0), punkt(-17.9, -179.5)])!;
   expect(a.longitude).toBeGreaterThanOrEqual(-180);
