@@ -117,12 +117,15 @@ diese Reihenfolge einhalten, jeder Schritt setzt den vorigen voraus:
      bzw. `android.serviceAccountKeyPath` (JSON-Schlüssel eines Play-Console-Dienstkontos,
      **nie** eingecheckt) — beide entstehen erst mit den Konten aus Schritt 2 und lassen sich
      danach entweder hier eintragen oder interaktiv beim ersten `eas submit` angeben.
-4. **R2-Zugangsdaten in die Function-Umgebung.** Der Code spricht seit Phase 4 S3-kompatibel;
-   für ein echtes Deployment wechseln nur Endpoint und Zugangsdaten. Ein Cloudflare-R2-Bucket
-   anlegen, dann `S3_ENDPOINT`/`S3_REGION`/`S3_ACCESS_KEY`/`S3_SECRET_KEY`/`S3_BUCKET` **nicht**
-   in `supabase/functions/.env` (nur lokal, Docker), sondern über `supabase secrets set` für
-   das deployte Projekt setzen — siehe die ausführlichen Kommentare in
-   `supabase/functions/.env.example` für die Bedeutung jedes Werts.
+4. **R2-Zugangsdaten in die Function-Umgebung.** Der Code spricht seit Phase 4 S3-kompatibel —
+   seit dem Abschluss-Review von Phase 6 gilt das für **alle drei** speicherberührenden
+   Functions (`media-urls`, `share-link` **und** `konto-loeschen`; zuvor löschte Letztere
+   noch über die Supabase-Storage-API statt über S3, siehe `konto-loeschen/store.ts`). Für
+   ein echtes Deployment wechseln darum wirklich nur Endpoint und Zugangsdaten. Ein
+   Cloudflare-R2-Bucket anlegen, dann `S3_ENDPOINT`/`S3_REGION`/`S3_ACCESS_KEY`/
+   `S3_SECRET_KEY`/`S3_BUCKET` **nicht** in `supabase/functions/.env` (nur lokal, Docker),
+   sondern über `supabase secrets set` für das deployte Projekt setzen — siehe die
+   ausführlichen Kommentare in `supabase/functions/.env.example` für die Bedeutung jedes Werts.
 5. **Sentry-DSN.** Ein Sentry-Projekt anlegen, DSN aus dessen Einstellungen kopieren, als
    `EXPO_PUBLIC_SENTRY_DSN` in `mobile/.env` (bzw. die EAS-Build-Umgebung) eintragen — siehe
    Kommentar in `mobile/.env.example`. Ohne diese Variable bleibt `initFehlermelder()` ein
@@ -131,6 +134,35 @@ diese Reihenfolge einhalten, jeder Schritt setzt den vorigen voraus:
    bereits eingetragene `@sentry/react-native`-Plugin ausserdem `SENTRY_ORG`/`SENTRY_PROJECT`/
    `SENTRY_AUTH_TOKEN` als Umgebungsvariablen (fehlen sie, warnt `expo export`/`expo start`
    nur beim Build — die App selbst bleibt davon unberührt).
+
+**`mobile/.env` ist für EAS Build unsichtbar — nicht nur für den Sentry-DSN oben.** Alle
+`EXPO_PUBLIC_*`-Variablen werden zur **Build-Zeit** in den JS-Bundle einkompiliert
+(Metro/`babel-preset-expo`); ein EAS-Cloud-Build liest dafür nie `mobile/.env` (gitignored,
+landet nie auf dem Build-Server), sondern ausschliesslich die EAS-Umgebungsvariablen des
+Profils. Ohne `EXPO_PUBLIC_SUPABASE_URL`/`EXPO_PUBLIC_SUPABASE_ANON_KEY` wirft
+`mobile/src/lib/supabase.ts` schon beim Modul-Laden — der erste `eas build --profile
+production` liefert dann eine App, die sofort mit «Supabase-Konfiguration fehlt» abstürzt.
+Build-kritisch sind: die beiden Supabase-Variablen (Absturz ohne sie),
+`EXPO_PUBLIC_TEILEN_BASIS_URL` (ohne sie zeigt "Recap teilen" für einen bestehenden Link nur
+eine Konfigurationsmeldung statt des Links) sowie `EXPO_PUBLIC_AUTH_APPLE`/
+`EXPO_PUBLIC_AUTH_GOOGLE` (fehlen sie, bleiben die Login-Buttons wie gewollt ausgeblendet —
+ungefährlich, aber besser explizit gesetzt als dem impliziten `undefined`-Fallback überlassen).
+
+Die drei Profile in `eas.json` tragen deshalb ein `"environment"`-Feld
+(`development`/`preview`/`production`), das einen Build an die gleichnamige EAS-Umgebung
+bindet. Die Werte selbst gehören **nicht** als Klartext in `eas.json` (gleiche Haltung wie bei
+`projectId`/`bundleIdentifier` oben — ein erfundener Wert wäre falsch): sie werden einmalig je
+Umgebung angelegt, entweder im Expo-Dashboard (Project → Environment Variables) oder per CLI:
+
+```bash
+npx eas env:create --environment production --name EXPO_PUBLIC_SUPABASE_URL --value https://<projekt>.supabase.co
+```
+
+— wiederholt für die übrigen vier Variablen oben, und für `preview` entsprechend (dieses
+Profil bündelt die JS ebenso zur Build-Zeit, `distribution: internal`, kein Dev-Client). Das
+`development`-Profil braucht das in der Praxis nicht: es baut mit `developmentClient: true`
+und lädt JS zur Laufzeit über Metro (`npx expo start`), das lokale `mobile/.env` liest — das
+`environment`-Feld steht trotzdem auch dort, für den Tag, an dem sich das ändert.
 
 **Zwei Umgebungsvariablen aus Phase 6 müssen von Hand synchron gehalten werden** — es gibt
 keine automatische Ableitung der einen aus der anderen:
