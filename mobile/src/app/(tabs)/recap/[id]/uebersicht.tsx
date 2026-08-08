@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Animated, ScrollView, Text, View, StyleSheet } from 'react-native';
-import { useFocusEffect, useLocalSearchParams, useRouter, type Href } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { Image } from 'expo-image';
 import { ChevronLeft } from 'lucide-react-native';
 import { PressScale } from '@/components/PressScale';
@@ -208,12 +208,10 @@ export default function RecapUebersicht() {
   };
 
   const zumPlayer = (index: number) => {
-    // `/recap/[id]/player` entsteht erst in Task 11 und fehlt darum noch in
-    // der generierten (gitignorten) Routen-Liste `.expo/types/router.d.ts` —
-    // gleiche Übergangslösung wie schon in `aufnehmen/index.tsx` für
-    // `/aufnehmen/preview` (siehe Kommentar dort). Entfällt ersatzlos, sobald
-    // Task 11 die Route anlegt und die Typen einmal neu erzeugt wurden.
-    router.push({ pathname: '/recap/[id]/player', params: { id, start: String(index) } } as unknown as Href);
+    // Task 11 hat die Route angelegt und die Typen wurden neu erzeugt — der
+    // frühere Cast auf `Href` (Übergangslösung, solange die Route fehlte) ist
+    // damit hinfällig und entfernt, die Navigation ist wieder typgeprüft.
+    router.push({ pathname: '/recap/[id]/player', params: { id, start: String(index) } });
   };
 
   if (!geladen) return <SkelettScreen />;
