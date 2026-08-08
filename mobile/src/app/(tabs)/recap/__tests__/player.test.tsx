@@ -84,11 +84,30 @@ jest.mock('@/features/recap/urlVorrat', () => ({
   ...jest.requireActual('@/features/recap/urlVorrat'),
   holeVorrat: jest.fn(),
 }));
+// Task 12: sozialApi ist reine IO (supabase.from), komplett gemockt — die
+// realen Datenformen prüft sozialApi.test.ts bereits für sich.
+jest.mock('@/features/recap/sozialApi', () => ({
+  fetchReaktionen: jest.fn(),
+  setzeReaktion: jest.fn(),
+  entferneReaktion: jest.fn(),
+  fetchKommentare: jest.fn(),
+  schreibeKommentar: jest.fn(),
+  KOMMENTAR_MAX_LAENGE: 500,
+}));
+jest.mock('@/features/auth/AuthProvider', () => ({ useAuth: () => ({ userId: 'u1' }) }));
+const mockHaptics = jest.fn((..._args: unknown[]) => Promise.resolve());
+jest.mock('expo-haptics', () => ({
+  impactAsync: (...args: unknown[]) => mockHaptics(...args),
+  ImpactFeedbackStyle: { Light: 'light' },
+}));
 
 import RecapPlayer from '../[id]/player';
 import { fetchTrip } from '@/features/trips/tripsApi';
 import { fetchRecapMomente } from '@/features/recap/recapApi';
 import { holeVorrat } from '@/features/recap/urlVorrat';
+import {
+  fetchReaktionen, setzeReaktion, entferneReaktion, fetchKommentare, schreibeKommentar,
+} from '@/features/recap/sozialApi';
 import type { RecapMoment } from '@/features/recap/types';
 
 const trip = {
@@ -142,6 +161,11 @@ beforeEach(() => {
   mockKannZurueck = true;
   mockParams = { id: 't1' };
   (fetchTrip as jest.Mock).mockResolvedValue({ data: trip, error: null });
+  // Task 12: von den meisten (nicht-sozialen) Tests unbenutzt, aber jeder
+  // Durchlauf, der `phase='bereit'` erreicht, löst den Reaktionen-Ladeeffekt
+  // aus — ein Default hier hält den Rest der Suite unverändert grün.
+  (fetchReaktionen as jest.Mock).mockResolvedValue({ data: {}, error: null });
+  (fetchKommentare as jest.Mock).mockResolvedValue({ data: [], error: null });
 });
 
 describe('Laden & Randfälle', () => {
@@ -512,5 +536,296 @@ describe('Schliessen', () => {
     await fireEvent.press(screen.getByTestId('player-schliessen'));
     expect(mockReplace).toHaveBeenCalledWith('/recap');
     expect(mockBack).not.toHaveBeenCalled();
+  });
+});
+
+// Ein steuerbares Promise, um "die Antwort ist noch nicht da" nachzustellen
+// (optimistisches Setzen prüfen, ohne das echte Timing zu kennen).
+function unaufgeloest<T>(): { promise: Promise<T>; loese: (wert: T) => void } {
+  let loese!: (wert: T) => void;
+  const promise = new Promise<T>((res) => {
+    loese = res;
+  });
+  return { promise, loese };
+}
+
+describe('Reaktionen (Task 12)', () => {
+  test('lädt die Reaktionen für ALLE Momente der Spielliste in einem einzigen Aufruf', async () => {
+    (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
+    (holeVorrat as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+    await wrap();
+    expect(fetchReaktionen).toHaveBeenCalledTimes(1);
+    expect(fetchReaktionen).toHaveBeenCalledWith(['p1', 'p2', 'p3', 'p4']);
+  });
+
+  test('ein Tipp zeigt die Reaktion SOFORT, ohne auf die Antwort zu warten', async () => {
+    (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
+    (holeVorrat as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+    const { promise, loese } = unaufgeloest<{ error: string | null }>();
+    (setzeReaktion as jest.Mock).mockReturnValue(promise); // absichtlich NICHT aufgelöst
+
+    await wrap();
+    expect(screen.getByTestId('player-emoji-herz').props.accessibilityState.selected).toBe(false);
+
+    await fireEvent.press(screen.getByTestId('player-emoji-herz'));
+    // Ohne jedes Warten auf `promise` — die Pille muss JETZT schon aktiv sein.
+    expect(screen.getByTestId('player-emoji-herz').props.accessibilityState.selected).toBe(true);
+    expect(mockHaptics).toHaveBeenCalledWith('light');
+
+    await act(async () => {
+      loese({ error: null });
+    });
+    expect(screen.getByTestId('player-emoji-herz').props.accessibilityState.selected).toBe(true);
+  });
+
+  test('scheitert das Setzen, verschwindet die Reaktion wieder und die Ursache steht kurz da', async () => {
+    (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
+    (holeVorrat as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+    const { promise, loese } = unaufgeloest<{ error: string | null }>();
+    (setzeReaktion as jest.Mock).mockReturnValue(promise);
+
+    await wrap();
+    await fireEvent.press(screen.getByTestId('player-emoji-herz'));
+    // Optimistisch: noch VOR der Antwort schon aktiv.
+    expect(screen.getByTestId('player-emoji-herz').props.accessibilityState.selected).toBe(true);
+
+    await act(async () => {
+      loese({ error: 'Deine Reaktion konnte nicht gespeichert werden. Probier es gleich nochmal.' });
+    });
+    // Rücknahme: die Pille ist wieder inaktiv, UND die Ursache steht da.
+    expect(screen.getByTestId('player-emoji-herz').props.accessibilityState.selected).toBe(false);
+    expect(
+      screen.getByText('Deine Reaktion konnte nicht gespeichert werden. Probier es gleich nochmal.')
+    ).toBeTruthy();
+  });
+
+  test('ein schneller Doppeltipp auf dasselbe Emoji löst nur EINE Anfrage aus', async () => {
+    (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
+    (holeVorrat as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+    const { promise, loese } = unaufgeloest<{ error: string | null }>();
+    (setzeReaktion as jest.Mock).mockReturnValue(promise);
+
+    await wrap();
+    const pille = screen.getByTestId('player-emoji-herz');
+    // Zwei Tipps, WÄHREND die Antwort auf den ersten noch aussteht (die
+    // Anfrage bleibt bis zum manuellen `loese` unten hängen) — genau das
+    // pathologische "schneller Doppeltipp" aus dem Auftrag. Der Schutz in
+    // tippeEmoji ist rein synchron (Set.has/Set.add), er braucht dafür
+    // keine echte Gleichzeitigkeit der beiden Presses — nur dass BEIDE
+    // eintreffen, bevor `setzeReaktion` beantwortet ist.
+    await fireEvent.press(pille);
+    await fireEvent.press(pille);
+    expect(setzeReaktion).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      loese({ error: null });
+    });
+    expect(setzeReaktion).toHaveBeenCalledTimes(1);
+  });
+
+  test('ein zweiter Tipp auf eine bereits eigene Reaktion entfernt sie wieder (Toggle)', async () => {
+    (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
+    (holeVorrat as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+    (fetchReaktionen as jest.Mock).mockResolvedValue({
+      data: { p1: [{ post_id: 'p1', user_id: 'u1', emoji: '❤️' }] },
+      error: null,
+    });
+    (entferneReaktion as jest.Mock).mockResolvedValue({ error: null });
+
+    await wrap();
+    expect(screen.getByTestId('player-emoji-herz').props.accessibilityState.selected).toBe(true);
+
+    await fireEvent.press(screen.getByTestId('player-emoji-herz'));
+    // Sofort (optimistisch) inaktiv, entferneReaktion NICHT setzeReaktion.
+    expect(screen.getByTestId('player-emoji-herz').props.accessibilityState.selected).toBe(false);
+    expect(entferneReaktion).toHaveBeenCalledWith('p1', '❤️');
+    expect(setzeReaktion).not.toHaveBeenCalled();
+  });
+
+  test('scheitert das Entfernen, taucht die Reaktion wieder auf', async () => {
+    (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
+    (holeVorrat as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+    (fetchReaktionen as jest.Mock).mockResolvedValue({
+      data: { p1: [{ post_id: 'p1', user_id: 'u1', emoji: '❤️' }] },
+      error: null,
+    });
+    const { promise, loese } = unaufgeloest<{ error: string | null }>();
+    (entferneReaktion as jest.Mock).mockReturnValue(promise);
+
+    await wrap();
+    await fireEvent.press(screen.getByTestId('player-emoji-herz'));
+    // Optimistisch: noch VOR der Antwort schon inaktiv.
+    expect(screen.getByTestId('player-emoji-herz').props.accessibilityState.selected).toBe(false);
+
+    await act(async () => {
+      loese({ error: 'Deine Reaktion konnte nicht entfernt werden. Probier es gleich nochmal.' });
+    });
+    expect(screen.getByTestId('player-emoji-herz').props.accessibilityState.selected).toBe(true);
+    expect(
+      screen.getByText('Deine Reaktion konnte nicht entfernt werden. Probier es gleich nochmal.')
+    ).toBeTruthy();
+  });
+
+  test('Reaktionen anderer Personen erscheinen dezent — nur die Emojis, kein Name, kein Zähler', async () => {
+    (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
+    (holeVorrat as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+    (fetchReaktionen as jest.Mock).mockResolvedValue({
+      data: {
+        p1: [
+          { post_id: 'p1', user_id: 'u2', emoji: '😂' },
+          { post_id: 'p1', user_id: 'u3', emoji: '😂' }, // dedupliziert
+          { post_id: 'p1', user_id: 'u2', emoji: '👏' },
+        ],
+      },
+      error: null,
+    });
+    await wrap();
+    expect(screen.getByTestId('player-reaktionen-andere')).toBeTruthy();
+    expect(screen.getByText('😂 👏')).toBeTruthy();
+    expect(screen.queryByText('Jonas')).toBeNull();
+  });
+
+  test('kein Emoji der anderen wird angezeigt, solange nur die eigene Person reagiert hat', async () => {
+    (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
+    (holeVorrat as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+    (fetchReaktionen as jest.Mock).mockResolvedValue({
+      data: { p1: [{ post_id: 'p1', user_id: 'u1', emoji: '❤️' }] },
+      error: null,
+    });
+    await wrap();
+    expect(screen.queryByTestId('player-reaktionen-andere')).toBeNull();
+  });
+});
+
+describe('Kommentar-Sheet (Task 12)', () => {
+  test('öffnet das Sheet, lädt die Kommentare des aktiven Moments und pausiert den Player', async () => {
+    mockParams = { id: 't1', start: '2' }; // p3
+    (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
+    (holeVorrat as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+    (fetchKommentare as jest.Mock).mockResolvedValue({
+      data: [{ id: 'c1', post_id: 'p3', user_id: 'u2', text: 'Wow!', created_at: 't', autor_name: 'Jonas' }],
+      error: null,
+    });
+    await wrap();
+
+    await fireEvent.press(screen.getByTestId('player-kommentare-oeffnen'));
+    await act(async () => {});
+    expect(fetchKommentare).toHaveBeenCalledWith('p3');
+    expect(screen.getByText('Jonas')).toBeTruthy();
+    expect(screen.getByText('Wow!')).toBeTruthy();
+
+    // Pausiert: selbst nach Ablauf der vollen Fotodauer bleibt p3 stehen.
+    await act(async () => {
+      jest.advanceTimersByTime(5000);
+    });
+    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: bild('p3').medium_url });
+
+    // Schliessen (Sheet-Backdrop-Tipp) setzt pausiert wieder zurück — der
+    // Auto-Vorschub läuft danach normal weiter, ohne dass irgendetwas
+    // anderes ihn manuell wieder anstossen müsste.
+    await fireEvent.press(screen.getByTestId('sheet-backdrop'));
+    await act(async () => {
+      jest.advanceTimersByTime(5000);
+    });
+    expect(screen.getByTestId('player-zwischenkarte')).toBeTruthy(); // p3 -> p4, Tageswechsel
+  });
+
+  // Mutationsschutz: ein Mutant, der `pausiert: false` beim Öffnen entfernt
+  // (Sheet öffnet, ohne den Player anzuhalten), liesse GENAU diesen Test
+  // fallen — ohne ihn würde der obige Test nicht zwingend unterscheiden
+  // können, ob "p3 bleibt stehen" am Sheet oder an einem Zufall liegt, weil
+  // dort auch andere Timer-Effekte mitspielen könnten.
+  test('ein Video pausiert ebenfalls, solange das Sheet offen ist', async () => {
+    mockParams = { id: 't1', start: '1' }; // p2, Video
+    (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
+    (holeVorrat as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+    await wrap();
+    const spielVorherAnzahl = mockVideoPlayer.play.mock.calls.length;
+
+    await fireEvent.press(screen.getByTestId('player-kommentare-oeffnen'));
+    expect(mockVideoPlayer.pause).toHaveBeenCalled();
+
+    await fireEvent.press(screen.getByTestId('sheet-backdrop'));
+    expect(mockVideoPlayer.play.mock.calls.length).toBeGreaterThan(spielVorherAnzahl);
+  });
+
+  test('eine späte Antwort für einen längst verlassenen Moment überschreibt die Kommentare des NEUEN Moments nicht', async () => {
+    (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
+    (holeVorrat as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+    const { promise: erstePromise, loese: loeseErste } =
+      unaufgeloest<{ data: unknown; error: string | null }>();
+    (fetchKommentare as jest.Mock)
+      .mockReturnValueOnce(erstePromise) // Öffnen für p1 — bleibt hängen
+      .mockResolvedValueOnce({
+        data: [{ id: 'c2', post_id: 'p2', user_id: 'u2', text: 'Zweiter Moment', created_at: 't', autor_name: 'Jonas' }],
+        error: null,
+      });
+
+    await wrap(); // start=0 -> p1
+    await fireEvent.press(screen.getByTestId('player-zwischenkarte')); // Tag-1-Karte weg
+    await fireEvent.press(screen.getByTestId('player-kommentare-oeffnen')); // öffnet für p1, hängt
+    await fireEvent.press(screen.getByTestId('sheet-backdrop')); // schliessen, läuft weiter
+
+    await fireEvent(screen.getByTestId('player-rechts'), 'pressIn');
+    await fireEvent(screen.getByTestId('player-rechts'), 'pressOut'); // p1 -> p2
+    await fireEvent.press(screen.getByTestId('player-kommentare-oeffnen')); // öffnet für p2
+    await act(async () => {});
+    expect(screen.getByText('Zweiter Moment')).toBeTruthy();
+
+    // Die LÄNGST fällige Antwort für p1 trifft jetzt erst ein — sie darf die
+    // bereits angezeigten Kommentare von p2 nicht verdrängen.
+    await act(async () => {
+      loeseErste({ data: [{ id: 'c1', post_id: 'p1', user_id: 'u2', text: 'Erster Moment', created_at: 't', autor_name: 'Jonas' }], error: null });
+    });
+    expect(screen.getByText('Zweiter Moment')).toBeTruthy();
+    expect(screen.queryByText('Erster Moment')).toBeNull();
+  });
+
+  test('ein zu langer Kommentar wird vor dem Absenden abgefangen — schreibeKommentar meldet den Fehler, kein optimistisches Anhängen', async () => {
+    (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
+    (holeVorrat as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+    (schreibeKommentar as jest.Mock).mockResolvedValue({
+      error: 'Kommentare dürfen höchstens 500 Zeichen haben.',
+    });
+
+    await wrap();
+    await fireEvent.press(screen.getByTestId('player-kommentare-oeffnen'));
+    await act(async () => {});
+
+    const zuLangerText = 'a'.repeat(501);
+    await fireEvent.changeText(screen.getByTestId('kommentar-eingabe'), zuLangerText);
+    await fireEvent.press(screen.getByTestId('kommentar-senden'));
+    await act(async () => {});
+
+    expect(schreibeKommentar).toHaveBeenCalledWith('p1', zuLangerText);
+    expect(screen.getByText('Kommentare dürfen höchstens 500 Zeichen haben.')).toBeTruthy();
+    // Kein zweiter fetchKommentare-Aufruf (kein Neuladen bei einem Fehler) —
+    // der einzige Aufruf ist der beim Öffnen des Sheets.
+    expect(fetchKommentare).toHaveBeenCalledTimes(1);
+  });
+
+  test('ein erfolgreich gesendeter Kommentar leert das Feld und lädt die Liste neu', async () => {
+    (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
+    (holeVorrat as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+    (schreibeKommentar as jest.Mock).mockResolvedValue({ error: null });
+    (fetchKommentare as jest.Mock)
+      .mockResolvedValueOnce({ data: [], error: null }) // beim Öffnen
+      .mockResolvedValueOnce({
+        data: [{ id: 'c1', post_id: 'p1', user_id: 'u1', text: 'Toller Moment!', created_at: 't', autor_name: 'Lea' }],
+        error: null,
+      });
+
+    await wrap();
+    await fireEvent.press(screen.getByTestId('player-kommentare-oeffnen'));
+    await act(async () => {});
+
+    await fireEvent.changeText(screen.getByTestId('kommentar-eingabe'), 'Toller Moment!');
+    await fireEvent.press(screen.getByTestId('kommentar-senden'));
+    await act(async () => {});
+
+    expect(schreibeKommentar).toHaveBeenCalledWith('p1', 'Toller Moment!');
+    expect(fetchKommentare).toHaveBeenCalledTimes(2);
+    expect(screen.getByTestId('kommentar-eingabe').props.value).toBe('');
+    expect(screen.getByText('Toller Moment!')).toBeTruthy();
   });
 });

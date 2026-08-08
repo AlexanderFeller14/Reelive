@@ -5,6 +5,7 @@ import {
   Easing,
   PanResponder,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -13,17 +14,29 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { setStatusBarStyle } from 'expo-status-bar';
 import { Image } from 'expo-image';
 import { useVideoPlayer, VideoView } from 'expo-video';
-import { X } from 'lucide-react-native';
+import * as Haptics from 'expo-haptics';
+import { MessageCircle, X } from 'lucide-react-native';
 import { PressScale } from '@/components/PressScale';
 import { Fortschrittsbalken } from '@/components/Fortschrittsbalken';
-import { cinema, motion, radius, spacing, type } from '@/theme/tokens';
+import { Sheet } from '@/components/Sheet';
+import { Input } from '@/components/Input';
+import { cinema, motion, palette, radius, spacing, type } from '@/theme/tokens';
 import { useReducedMotion } from '@/theme/useReducedMotion';
+import { useAuth } from '@/features/auth/AuthProvider';
 import { fetchTrip } from '@/features/trips/tripsApi';
 import { fetchRecapMomente } from '@/features/recap/recapApi';
 import { gruppiereNachTagen } from '@/features/recap/tage';
-import type { RecapMoment, RecapTag } from '@/features/recap/types';
+import type { Kommentar, Reaktion, RecapMoment, RecapTag } from '@/features/recap/types';
 import { holeVorrat, laeuftBaldAb, type MedienUrl } from '@/features/recap/urlVorrat';
 import { dauerFuer, tagWechselt, weiter, zurueck, type PlayerStand } from '@/features/recap/playerLogic';
+import {
+  entferneReaktion,
+  fetchKommentare,
+  fetchReaktionen,
+  KOMMENTAR_MAX_LAENGE,
+  schreibeKommentar,
+  setzeReaktion,
+} from '@/features/recap/sozialApi';
 
 // Die nächsten drei Fotos werden per expo-image vorgeladen (V8) — beim
 // Weitertippen darf nichts schwarz blitzen.
@@ -41,6 +54,19 @@ const SCHLIESSEN_SCHWELLE_PX = 120;
 // inszenierte Übergang beim Betreten des Players ("das Licht geht aus").
 const KINO_FADE_DAUER_MS = 350;
 const KINO_FADE_REDUZIERT_MS = 200;
+
+// Feste kleine Emoji-Leiste (Task-12-Brief: kein Picker, kein neues Paket).
+// `id` ist der stabile Schlüssel für testID/React-key (ein Emoji-Glyph kann
+// aus mehreren Codepoints bestehen, z.B. Herz + Variationsselektor — als
+// testID unpraktisch), `emoji` ist der Wert, den sozialApi tatsächlich
+// speichert.
+const EMOJI_LEISTE: { id: string; emoji: string; label: string }[] = [
+  { id: 'herz', emoji: '❤️', label: 'Herz' },
+  { id: 'lachen', emoji: '😂', label: 'Lachen' },
+  { id: 'staunen', emoji: '😮', label: 'Staunen' },
+  { id: 'klatschen', emoji: '👏', label: 'Applaus' },
+  { id: 'weinen', emoji: '😢', label: 'Träne' },
+];
 
 // Dieselben Formulierungen wie im Schwester-Screen recap/[id]/uebersicht.tsx
 // für Nachzügler/Ausgelassene (Task-11-Brief: "nimm dieselben, statt neue zu
@@ -125,6 +151,59 @@ function TextLink({ label, onPress }: { label: string; onPress: () => void }) {
     <PressScale accessibilityRole="button" onPress={onPress}>
       <Text style={[type.bodyMedium, styles.textLink]}>{label}</Text>
     </PressScale>
+  );
+}
+
+// Ein Emoji der festen Leiste. Aktiv (eigene Reaktion): Pille füllt sich mit
+// `cinema['text-1']` — derselbe Ton, den `KinoButton` bereits für "solide
+// Fläche auf Kino-Hintergrund" benutzt, kein neuer Wert. 44×44: minimales
+// Touch-Target (DESIGN-LANGUAGE v2 §8).
+function EmojiPille({
+  id, emoji, label, aktiv, onPress,
+}: {
+  id: string;
+  emoji: string;
+  label: string;
+  aktiv: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <PressScale
+      testID={`player-emoji-${id}`}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ selected: aktiv }}
+      onPress={onPress}
+    >
+      <View style={[styles.emojiPille, aktiv && styles.emojiPilleAktiv]}>
+        <Text style={styles.emojiZeichen}>{emoji}</Text>
+      </View>
+    </PressScale>
+  );
+}
+
+// Reaktionen ANDERER Personen auf den aktiven Moment — dezent, nur die
+// Emojis, ohne Namen und ohne Zähler (Task-12-Brief, Schritt 4: "nicht als
+// Zählerbalken").
+function AndereReaktionenPille({ emojis }: { emojis: string[] }) {
+  if (emojis.length === 0) return null;
+  return (
+    <View
+      testID="player-reaktionen-andere"
+      style={styles.andereReaktionenPille}
+      accessibilityLabel={`Weitere Reaktionen: ${emojis.join(', ')}`}
+    >
+      <Text style={[type.secondary, { color: cinema['text-1'] }]}>{emojis.join(' ')}</Text>
+    </View>
+  );
+}
+
+function KommentarZeile({ kommentar }: { kommentar: Kommentar }) {
+  return (
+    <View testID={`kommentar-${kommentar.id}`} style={styles.kommentarZeile}>
+      <Text style={[type.bodyMedium, { color: cinema['text-1'] }]}>{kommentar.autor_name}</Text>
+      <Text style={[type.body, { color: cinema['text-1'] }]}>{kommentar.text}</Text>
+    </View>
   );
 }
 
@@ -261,6 +340,7 @@ export default function RecapPlayer() {
   const router = useRouter();
   const { id: tripId, start: startParam } = useLocalSearchParams<{ id: string; start?: string }>();
   const reducedMotion = useReducedMotion();
+  const { userId } = useAuth();
 
   const [phase, setPhase] = useState<LadePhase>('laedt');
   const [fehlerText, setFehlerText] = useState<string | null>(null);
@@ -279,6 +359,21 @@ export default function RecapPlayer() {
   const [zwischenkarte, setZwischenkarte] = useState(false);
   const [fehlgeschlagen, setFehlgeschlagen] = useState<Set<string>>(new Set());
 
+  // Reaktionen (Task 12): `reaktionen` trägt den OPTIMISTISCHEN Zustand — ein
+  // Tipp schreibt hier sofort, bevor die Antwort von setzeReaktion/
+  // entferneReaktion da ist (siehe tippeEmoji unten).
+  const [reaktionen, setReaktionen] = useState<Record<string, Reaktion[]>>({});
+  const [reaktionFehler, setReaktionFehler] = useState<string | null>(null);
+
+  const [kommentarOffen, setKommentarOffen] = useState(false);
+  const [kommentarMomentId, setKommentarMomentId] = useState<string | null>(null);
+  const [kommentare, setKommentare] = useState<Kommentar[]>([]);
+  const [kommentareLaden, setKommentareLaden] = useState(false);
+  const [kommentareFehler, setKommentareFehler] = useState<string | null>(null);
+  const [kommentarText, setKommentarText] = useState('');
+  const [kommentarSendetLaeuft, setKommentarSendetLaeuft] = useState(false);
+  const [kommentarSendenFehler, setKommentarSendenFehler] = useState<string | null>(null);
+
   const aktiv = useRef(true);
   // Wandzeit, zu der das aktuelle Segment (bei fortschritt=0) begonnen hätte
   // — daraus lässt sich beim Berühren (Halten-Geste) exakt zurückrechnen,
@@ -293,6 +388,19 @@ export default function RecapPlayer() {
   // scheitert der auch, gilt der Moment als endgültig fehlgeschlagen.
   const versuchtRef = useRef<Set<string>>(new Set());
   const aktivIdRef = useRef<string | undefined>(undefined);
+  // Schlüssel `${postId}:${emoji}` — verhindert, dass ein schneller
+  // Doppeltipp auf dasselbe Emoji zwei sich widersprechende Anfragen lostritt
+  // (Frage aus dem Task-12-Auftrag). Ein Ref statt ein State-Flag: Prüfen und
+  // Setzen müssen SYNCHRON im selben Tastendruck passieren, bevor der
+  // nächste Tipp überhaupt eintrifft — React committed einen State-Wechsel
+  // erst beim nächsten Renderzyklus, ein zweiter, sehr schneller Tipp könnte
+  // ihn also noch mit dem alten Wert lesen.
+  const pendingReaktionenRef = useRef<Set<string>>(new Set());
+  // Für welchen Moment das Kommentar-Sheet zuletzt geöffnet/geladen hat — mit
+  // dem State `kommentarMomentId` synchron gehalten, damit eine spät
+  // eintreffende Antwort (Sheet inzwischen für einen ANDEREN Moment neu
+  // geöffnet) das dann aktuellere Ergebnis nicht überschreibt.
+  const kommentarMomentIdRef = useRef<string | null>(null);
 
   const laden = useCallback(async () => {
     setPhase('laedt');
@@ -366,6 +474,7 @@ export default function RecapPlayer() {
 
   const aktivMoment = spielliste[stand.index];
   aktivIdRef.current = aktivMoment?.id;
+  kommentarMomentIdRef.current = kommentarMomentId;
 
   // Erstes (und einziges) useMemo dieser Codebase (Vertrag 1): `tage` hängt
   // nur an der referenzstabilen `spielliste` + `startDate`, muss also nicht
@@ -376,6 +485,175 @@ export default function RecapPlayer() {
     if (!aktivMoment) return null;
     return tage.find((t) => t.momente.some((m) => m.id === aktivMoment.id)) ?? null;
   }, [tage, aktivMoment]);
+
+  // EIN fetchReaktionen()-Aufruf für die GANZE Spielliste (Brief: nicht pro
+  // Moment — bei 200 Momenten der Unterschied zwischen "lädt" und "lädt
+  // nicht"), sobald sie feststeht. `spielliste` ist referenzstabil (Vertrag
+  // 1 aus Task 11), der Effekt feuert also genau einmal pro erfolgreichem
+  // Laden, nicht bei jedem Momentwechsel.
+  useEffect(() => {
+    if (spielliste.length === 0) return;
+    let lebt = true;
+    void fetchReaktionen(spielliste.map((m) => m.id)).then(({ data }) => {
+      if (lebt && aktiv.current) setReaktionen(data);
+    });
+    return () => {
+      lebt = false;
+    };
+  }, [spielliste]);
+
+  // Eine stehengebliebene Fehlermeldung vom vorherigen Moment darf nicht auf
+  // dem neuen weiterhängen.
+  useEffect(() => {
+    setReaktionFehler(null);
+  }, [aktivMoment?.id]);
+
+  const eigeneEmojis = useMemo(() => {
+    if (!aktivMoment || !userId) return new Set<string>();
+    const liste = reaktionen[aktivMoment.id] ?? [];
+    return new Set(liste.filter((r) => r.user_id === userId).map((r) => r.emoji));
+  }, [reaktionen, aktivMoment, userId]);
+
+  // Nur die EMOJIS anderer Personen, dedupliziert — kein Name, kein Zähler
+  // (Brief, Schritt 4).
+  const andereEmojis = useMemo(() => {
+    if (!aktivMoment) return [];
+    const liste = reaktionen[aktivMoment.id] ?? [];
+    const menge = new Set<string>();
+    for (const r of liste) {
+      if (r.user_id !== userId) menge.add(r.emoji);
+    }
+    return Array.from(menge);
+  }, [reaktionen, aktivMoment, userId]);
+
+  // Tippen auf ein Emoji: OPTIMISTISCH setzen/entfernen (Brief, Kernstück
+  // dieses Screens) — die Reaktion ändert sich sofort im UI, ohne auf die
+  // Antwort von setzeReaktion/entferneReaktion zu warten. Scheitert der
+  // Aufruf, macht der `.then()`-Zweig unten GENAU die entgegengesetzte
+  // Änderung und zeigt die Ursache kurz an. Ein zweiter Tipp auf eine bereits
+  // eigene Reaktion ENTFERNT sie (Toggle) — die einzige Deutung, die zu
+  // "Tippen setzt, Tippen nimmt zurück" ohne einen zweiten Interaktionsweg
+  // (z.B. Halten) auskommt; ein PK aus (post_id, user_id, emoji) erlaubt
+  // ohnehin nur genau diese zwei Zustände pro Person und Emoji.
+  const tippeEmoji = (emoji: string) => {
+    const moment = aktivMoment;
+    if (!moment || !userId) return;
+    const momentId = moment.id;
+    const uid = userId;
+    const schluessel = `${momentId}:${emoji}`;
+    // Doppeltipp-Schutz: eine Anfrage für GENAU dieses Tripel läuft schon.
+    // Der zweite (schnelle) Tipp wird bis zur Antwort schlicht ignoriert,
+    // statt eine zweite, sich widersprechende Anfrage loszuschicken.
+    if (pendingReaktionenRef.current.has(schluessel)) return;
+    pendingReaktionenRef.current.add(schluessel);
+
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    setReaktionFehler(null);
+
+    const warReagiert = (reaktionen[momentId] ?? []).some((r) => r.emoji === emoji && r.user_id === uid);
+
+    const hinzufuegen = (stand: Record<string, Reaktion[]>) => ({
+      ...stand,
+      [momentId]: [...(stand[momentId] ?? []), { post_id: momentId, user_id: uid, emoji }],
+    });
+    const entfernen = (stand: Record<string, Reaktion[]>) => ({
+      ...stand,
+      [momentId]: (stand[momentId] ?? []).filter((r) => !(r.emoji === emoji && r.user_id === uid)),
+    });
+
+    setReaktionen(warReagiert ? entfernen : hinzufuegen);
+    const aufruf = warReagiert ? entferneReaktion(momentId, emoji) : setzeReaktion(momentId, emoji);
+    void aufruf.then(({ error }) => {
+      pendingReaktionenRef.current.delete(schluessel);
+      if (!error || !aktiv.current) return;
+      // Rücknahme: exakt die entgegengesetzte Änderung der optimistischen
+      // oben — die Reaktion verschwindet wieder (bzw. taucht wieder auf).
+      setReaktionen(warReagiert ? hinzufuegen : entfernen);
+      // Nur anzeigen, wenn noch derselbe Moment aktiv ist — sonst würde ein
+      // Fehler zu einem längst verlassenen Moment auf dem FALSCHEN,
+      // inzwischen aktiven Moment aufblitzen.
+      if (aktivIdRef.current === momentId) setReaktionFehler(error);
+    });
+  };
+
+  // Öffnet das Kommentar-Sheet für den GERADE aktiven Moment und hält diesen
+  // in einem eigenen State fest (`kommentarMomentId`), statt bei jedem
+  // Zugriff `aktivMoment.id` neu zu lesen — schreibeKommentar bekommt so
+  // IMMER den Moment, für den das Sheet geöffnet wurde, unabhängig davon, ob
+  // währenddessen im Hintergrund der Vorrat erneuert wird (Frage aus dem
+  // Auftrag). Der Player pausiert zusätzlich strukturell (unten), solange
+  // das Sheet offen ist — der eigene State macht die Zusicherung aber
+  // explizit statt sich allein darauf zu verlassen.
+  const oeffneKommentare = () => {
+    const moment = aktivMoment;
+    if (!moment) return;
+    const momentId = moment.id;
+    // EAGER, synchron gesetzt — nicht erst über die Render-Zeile weiter
+    // unten (`kommentarMomentIdRef.current = kommentarMomentId`). Löst
+    // fetchKommentare unten schneller auf, als React den durch
+    // setKommentarMomentId ausgelösten Re-Render committet (z.B. weil die
+    // Antwort aus einem Cache kommt oder — wie im eigenen Test — synchron
+    // aufgelöst ist), würde der Ref-Vergleich im `.then()` unten sonst noch
+    // den ALTEN Wert sehen und die frische Antwort fälschlich verwerfen —
+    // das Sheet bliebe dann für immer beim Ladespinner stehen.
+    kommentarMomentIdRef.current = momentId;
+    setKommentarMomentId(momentId);
+    setKommentarText('');
+    setKommentarSendenFehler(null);
+    setKommentare([]);
+    setKommentareFehler(null);
+    setKommentareLaden(true);
+    setKommentarOffen(true);
+    // Der Screen verwaltet `pausiert` selbst (playerLogic fasst es bewusst
+    // nicht an) — solange das Sheet offen ist, läuft weder Timer noch Video.
+    setStand((s) => ({ ...s, pausiert: true }));
+
+    void fetchKommentare(momentId).then(({ data, error }) => {
+      // Das Sheet wurde inzwischen für einen ANDEREN Moment neu geöffnet
+      // (schliessen → weiter → wieder öffnen, während diese Antwort noch
+      // unterwegs war) — eine späte Antwort für den ALTEN Moment darf den
+      // inzwischen frischeren Zustand nicht überschreiben.
+      if (!aktiv.current || kommentarMomentIdRef.current !== momentId) return;
+      setKommentareLaden(false);
+      setKommentare(data);
+      setKommentareFehler(error);
+    });
+  };
+
+  const schliesseKommentare = () => {
+    setKommentarOffen(false);
+    // Vertrag 4 (Task 11, playerLogic): ein PROGRAMMATISCHES Zurücksetzen
+    // muss `pausiert` explizit auf false setzen — sonst bliebe der Player
+    // nach dem Schliessen lautlos stehen, ohne dass irgendetwas noch hält.
+    setStand((s) => ({ ...s, pausiert: false }));
+  };
+
+  const kommentarAbsenden = () => {
+    const postId = kommentarMomentId;
+    if (!postId || kommentarSendetLaeuft) return;
+    setKommentarSendetLaeuft(true);
+    setKommentarSendenFehler(null);
+    void schreibeKommentar(postId, kommentarText).then(({ error }) => {
+      if (!aktiv.current || kommentarMomentIdRef.current !== postId) return;
+      setKommentarSendetLaeuft(false);
+      if (error) {
+        setKommentarSendenFehler(error);
+        return;
+      }
+      setKommentarText('');
+      // Bewusst NICHT optimistisch (anders als Reaktionen, Brief): ein
+      // erneutes fetchKommentare zeigt den serverseitig zugewiesenen
+      // Autorennamen/Zeitstempel, ohne dass der Player das Profil der
+      // angemeldeten Person selbst kennen müsste.
+      setKommentareLaden(true);
+      void fetchKommentare(postId).then(({ data, error: ladeFehler }) => {
+        if (!aktiv.current || kommentarMomentIdRef.current !== postId) return;
+        setKommentareLaden(false);
+        setKommentare(data);
+        setKommentareFehler(ladeFehler);
+      });
+    });
+  };
 
   const pruefeUndErneuereVorratImHintergrund = useCallback(async () => {
     if (erneuerungLaeuftRef.current) return;
@@ -648,11 +926,41 @@ export default function RecapPlayer() {
           </View>
         </View>
 
-        {aktivMoment.caption && (
-          <View style={styles.captionPille} pointerEvents="none">
-            <Text style={[type.body, { color: cinema['text-1'] }]}>{aktivMoment.caption}</Text>
+        <View style={styles.sozialBereich} pointerEvents="box-none">
+          {aktivMoment.caption && (
+            <View style={styles.captionPille} pointerEvents="none">
+              <Text style={[type.body, { color: cinema['text-1'] }]}>{aktivMoment.caption}</Text>
+            </View>
+          )}
+          <AndereReaktionenPille emojis={andereEmojis} />
+          <View style={styles.reaktionsReihe}>
+            {EMOJI_LEISTE.map((r) => (
+              <EmojiPille
+                key={r.id}
+                id={r.id}
+                emoji={r.emoji}
+                label={r.label}
+                aktiv={eigeneEmojis.has(r.emoji)}
+                onPress={() => tippeEmoji(r.emoji)}
+              />
+            ))}
+            <PressScale
+              testID="player-kommentare-oeffnen"
+              accessibilityRole="button"
+              accessibilityLabel="Kommentare öffnen"
+              onPress={oeffneKommentare}
+            >
+              <View style={styles.kommentarKnopf}>
+                <MessageCircle size={20} color={cinema['text-1']} strokeWidth={1.75} />
+              </View>
+            </PressScale>
           </View>
-        )}
+          {reaktionFehler && (
+            <View style={styles.reaktionFehlerPille}>
+              <Text style={[type.secondary, { color: cinema['text-1'] }]}>{reaktionFehler}</Text>
+            </View>
+          )}
+        </View>
 
         <Pressable
           testID="player-links"
@@ -696,6 +1004,58 @@ export default function RecapPlayer() {
         pointerEvents="none"
         style={[StyleSheet.absoluteFill, styles.kinoFade, { opacity: kinoFade }]}
       />
+
+      {/* GESCHWISTER des Animated.View mit den Pan-Handlern, nicht sein Kind
+          (gleiches Muster wie reise/[id]/index.tsx) — das Sheet muss über
+          allem liegen, inklusive der Tipp-Zonen. */}
+      <Sheet sichtbar={kommentarOffen} titel="Kommentare" onSchliessen={schliesseKommentare} kino>
+        {kommentareLaden ? (
+          <ActivityIndicator testID="kommentare-laedt" color={cinema['text-1']} />
+        ) : kommentareFehler ? (
+          <Text style={[type.secondary, { color: cinema['text-2'] }]}>{kommentareFehler}</Text>
+        ) : kommentare.length === 0 ? (
+          <Text style={[type.secondary, { color: cinema['text-2'] }]}>
+            Noch keine Kommentare. Schreib den ersten.
+          </Text>
+        ) : (
+          <ScrollView testID="kommentar-liste" style={styles.kommentarListe}>
+            {kommentare.map((k) => (
+              <KommentarZeile key={k.id} kommentar={k} />
+            ))}
+          </ScrollView>
+        )}
+        <View style={styles.kommentarEingabeReihe}>
+          <View style={{ flex: 1 }}>
+            <Input
+              testID="kommentar-eingabe"
+              label="Kommentar schreiben"
+              value={kommentarText}
+              onChangeText={setKommentarText}
+              error={kommentarSendenFehler ?? undefined}
+              maxLength={KOMMENTAR_MAX_LAENGE}
+            />
+          </View>
+          <PressScale
+            testID="kommentar-senden"
+            accessibilityRole="button"
+            accessibilityLabel="Kommentar senden"
+            disabled={kommentarSendetLaeuft || kommentarText.trim().length === 0}
+            accessibilityState={{ disabled: kommentarSendetLaeuft || kommentarText.trim().length === 0 }}
+            onPress={() => {
+              if (kommentarText.trim().length === 0 || kommentarSendetLaeuft) return;
+              kommentarAbsenden();
+            }}
+          >
+            <View style={styles.kommentarSendenKnopf}>
+              {kommentarSendetLaeuft ? (
+                <ActivityIndicator color={palette['on-accent']} size="small" />
+              ) : (
+                <Text style={[type.bodyMedium, { color: palette['on-accent'] }]}>Senden</Text>
+              )}
+            </View>
+          </PressScale>
+        </View>
+      </Sheet>
     </View>
   );
 }
@@ -747,11 +1107,15 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: cinema['bg-1'],
   },
+  // Kein `position:absolute` mehr (anders als vor Task 12): die Pille ist
+  // jetzt ein normales Flow-Kind von `sozialBereich`, das seinerseits
+  // GENAU EINMAL vom unteren Rand aus positioniert ist — Caption,
+  // "Reaktionen anderer" und die Emoji-Leiste stapeln sich darin per `gap`,
+  // ohne sich je zu überlappen, unabhängig davon, wie viele Zeilen die
+  // Caption braucht.
   captionPille: {
-    position: 'absolute',
-    left: spacing.screen,
-    right: spacing.screen,
-    bottom: spacing.xl,
+    alignSelf: 'flex-start',
+    maxWidth: '100%',
     borderRadius: radius.control,
     backgroundColor: cinema['overlay-pill'],
     paddingHorizontal: spacing.base,
@@ -785,5 +1149,61 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: spacing.xl,
     backgroundColor: cinema['bg-0'],
+  },
+  sozialBereich: {
+    position: 'absolute',
+    left: spacing.screen,
+    right: spacing.screen,
+    bottom: spacing.xl,
+    gap: spacing.base,
+  },
+  reaktionsReihe: { flexDirection: 'row', alignItems: 'center', gap: spacing.s },
+  emojiPille: {
+    width: 44,
+    height: 44,
+    borderRadius: radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: cinema['overlay-pill'],
+  },
+  emojiPilleAktiv: { backgroundColor: cinema['text-1'] },
+  emojiZeichen: { fontSize: 20 },
+  kommentarKnopf: {
+    width: 44,
+    height: 44,
+    borderRadius: radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: cinema['overlay-pill'],
+  },
+  andereReaktionenPille: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: spacing.base,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.pill,
+    backgroundColor: cinema['overlay-pill'],
+  },
+  reaktionFehlerPille: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: spacing.base,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.pill,
+    backgroundColor: cinema['overlay-pill'],
+  },
+  kommentarListe: { maxHeight: 320 },
+  kommentarZeile: {
+    gap: spacing.xs,
+    paddingVertical: spacing.s,
+    borderBottomWidth: 1,
+    borderBottomColor: cinema['bg-0'],
+  },
+  kommentarEingabeReihe: { flexDirection: 'row', alignItems: 'flex-end', gap: spacing.s },
+  kommentarSendenKnopf: {
+    height: 52,
+    borderRadius: radius.control,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.l,
+    backgroundColor: palette.accent,
   },
 });
