@@ -36,7 +36,7 @@ function funktionMeldung(error: unknown, sonst: string): string {
 // den Recap vollständig.
 const SPALTEN = [
   'id', 'trip_id', 'author_id', 'type', 'duration_s', 'caption',
-  'captured_at', 'captured_tz', 'place_name', 'upload_status',
+  'captured_at', 'captured_tz', 'place_name', 'lat', 'lng', 'upload_status',
   'profiles!posts_author_id_fkey(display_name)',
 ].join(', ');
 
@@ -73,6 +73,8 @@ export async function fetchRecapMomente(tripId: string): Promise<Gelesen<RecapMo
     captured_at: row.captured_at,
     captured_tz: row.captured_tz,
     place_name: row.place_name,
+    lat: row.lat,
+    lng: row.lng,
     upload_status: row.upload_status,
     autor_name: row.profiles?.display_name ?? '',
   }));

@@ -13,6 +13,12 @@ export type RecapMoment = {
   captured_at: string;
   captured_tz: string;
   place_name: string | null;
+  // Koordinaten der Aufnahme. null ist der Normalfall und kein Fehler:
+  // ortBestimmen() (Phase 4) liefert bewusst null, wenn die Ortungsdienste
+  // nicht erlaubt sind, drinnen kein Fix zustande kommt oder die Frist
+  // ablaeuft — der Moment wird trotzdem eingesendet.
+  lat: number | null;
+  lng: number | null;
   upload_status: 'pending' | 'uploaded';
   // Kommt aus profiles.display_name (Join, siehe recapApi.fetchRecapMomente),
   // ist also kein Feld von posts selbst.

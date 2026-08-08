@@ -63,11 +63,13 @@ type MedienLink = { medium_url: string; thumb_url: string | null };
 
 // Bildet die schareApi-Antwort auf die RecapMoment-Form ab, damit
 // dauerFuer/gruppiereNachTagen/tagWechselt/sortiereMomente UNVERÄNDERT
-// wiederverwendbar bleiben (sie sind auf RecapMoment[] typisiert). Die vier
-// hier aufgefüllten Felder (id, trip_id, author_id, upload_status) liest
-// KEINE der wiederverwendeten Funktionen jemals — id dient nur als
-// stabiler Schlüssel (aus post_id), die übrigen drei sind reine
-// Platzhalter, um die Form zu erfüllen.
+// wiederverwendbar bleiben (sie sind auf RecapMoment[] typisiert). Die
+// hier aufgefüllten Felder (id, trip_id, author_id, lat, lng,
+// upload_status) liest KEINE der wiederverwendeten Funktionen jemals — id
+// dient nur als stabiler Schlüssel (aus post_id), die übrigen sind reine
+// Platzhalter, um die Form zu erfüllen. GeteiltesMoment führt lat/lng
+// (noch) nicht mit — die Karte auf dieser Seite ist ein eigener, späterer
+// Task.
 function zuRecapMoment(m: GeteiltesMoment): RecapMoment {
   return {
     id: m.post_id,
@@ -79,6 +81,8 @@ function zuRecapMoment(m: GeteiltesMoment): RecapMoment {
     captured_at: m.captured_at,
     captured_tz: m.captured_tz,
     place_name: m.place_name,
+    lat: null,
+    lng: null,
     upload_status: 'uploaded',
     autor_name: m.autor_name,
   };
