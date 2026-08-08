@@ -46,6 +46,30 @@ export function ohneGrund(pausiert: ReadonlySet<PauseGrund>, grund: PauseGrund):
   return naechste;
 }
 
+// Nimmt mehrere Gründe auf einmal zurück — bleibt No-Op-sicher: sind ALLE
+// übergebenen Gründe bereits abwesend, liefert sie dieselbe Referenz zurück
+// (jeder Zwischenschritt ist selbst schon No-Op-sicher, siehe ohneGrund).
+//
+// Final-Review Phase-5-Nachbesserung: `beiLadefehler` (player.tsx) setzt
+// `'neuversuch'` beim SCHEITERNDEN Moment und nimmt ihn nur zurück, wenn
+// beim Eintreffen der Antwort noch DERSELBE Moment aktiv ist (Stale-Guard,
+// gleiches Prinzip wie bei `videoZuEnde`) — tippt die Person währenddessen
+// weiter, verlässt sie diesen Zweig, und `'neuversuch'` blieb bis zu dieser
+// Korrektur UNENTFERNBAR gesetzt (kein anderer Aufrufer nahm je genau
+// diesen Grund zurück, anders als `'halten'`, das `beendeBeruehrung`/
+// `weiterAutomatisch` schon zurücknahmen). Verwendet dort, wo der Index
+// TATSÄCHLICH wechselt (Tipp-Navigation, automatischer Vorschub): sowohl
+// `'halten'` als auch `'neuversuch'` gehören zum VERLASSENEN Moment, keiner
+// von beiden darf den NEUEN blockieren.
+export function ohneGruende(
+  pausiert: ReadonlySet<PauseGrund>,
+  gruende: readonly PauseGrund[]
+): ReadonlySet<PauseGrund> {
+  let ergebnis = pausiert;
+  for (const grund of gruende) ergebnis = ohneGrund(ergebnis, grund);
+  return ergebnis;
+}
+
 // Ob ein `playToEnd`/Video-Ende-Event den automatischen Vorschub auslösen
 // darf. Vertrag 4 (playerLogic-Vertrag, siehe player.tsx): eine Halten-Geste
 // MUSS ein währenddessen eintreffendes Video-Ende trotzdem durchlassen — sie

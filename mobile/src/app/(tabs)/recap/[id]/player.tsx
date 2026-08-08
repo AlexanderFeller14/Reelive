@@ -33,6 +33,7 @@ import {
   dauerFuer,
   mitGrund,
   ohneGrund,
+  ohneGruende,
   tagWechselt,
   weiter,
   zurueck,
@@ -64,6 +65,16 @@ const SCHLIESSEN_SCHWELLE_PX = 120;
 // inszenierte Übergang beim Betreten des Players ("das Licht geht aus").
 const KINO_FADE_DAUER_MS = 350;
 const KINO_FADE_REDUZIERT_MS = 200;
+
+// Final-Review Phase-5-Nachbesserung: Gründe, die zum VERLASSENEN Moment
+// gehören und bei jedem TATSÄCHLICHEN Indexwechsel (Tipp-Navigation,
+// automatischer Vorschub) zurückgenommen werden — nie zum NEUEN Moment
+// mitgeschleppt. 'kommentare' und 'zwischenkarte' gehören bewusst NICHT
+// hierher: 'kommentare' hängt am Sheet (schliesst über schliesseKommentare,
+// nicht über einen Indexwechsel — während es offen ist, sind die Tipp-Zonen
+// ohnehin vom Sheet verdeckt), 'zwischenkarte' ist über den eigenen Effekt
+// (Deps u.a. stand.index) bereits selbstverwaltend.
+const MOMENTWECHSEL_GRUENDE: PauseGrund[] = ['halten', 'neuversuch'];
 
 // Feste kleine Emoji-Leiste (Task-12-Brief: kein Picker, kein neues Paket).
 // `id` ist der stabile Schlüssel für testID/React-key (ein Emoji-Glyph kann
@@ -814,15 +825,19 @@ export default function RecapPlayer() {
 
   // Programmatisches Weiterschalten (Timer-Ablauf ODER Video-Ende) — beide
   // münden hier. Vertrag 4: `weiter()` lässt `pausiert` unangetastet, ein
-  // programmatischer Aufruf MUSS den Grund `'halten'` hier selbst
+  // programmatischer Aufruf MUSS `MOMENTWECHSEL_GRUENDE` hier selbst
   // zurücknehmen — sonst bliebe der NÄCHSTE Moment nach einer vorherigen
   // Halten-Geste lautlos stehen (genau der Fall, den
-  // `blockiertAutomatischenVorschub` in videoZuEnde unten bewusst
-  // DURCHLÄSST). Alle anderen Gründe (Zwischenkarte, Kommentar-Sheet,
-  // Neuversuch) bleiben unangetastet — `weiterAutomatisch` wird über
-  // videoZuEnde ohnehin nur erreicht, wenn keiner von ihnen mehr blockiert
-  // (siehe dort), und über den Auto-Vorschub-Timer nur, wenn `stand.pausiert`
-  // beim Aufsetzen des Timers bereits leer war.
+  // `blockiertAutomatischenVorschub` in videoZuEnde unten für `'halten'`
+  // bewusst DURCHLÄSST). Final-Review Phase-5-Nachbesserung: `'neuversuch'`
+  // gehört ebenfalls hierher — ohne diese Zeile blieb es unentfernbar
+  // gesetzt, wenn eine Person während eines laufenden Neuversuchs
+  // weitertippte (die Stale-Guard in `beiLadefehler` verhindert dann, dass
+  // dessen EIGENE, verspätete Antwort den Grund noch zurücknimmt). `'halten'`
+  // ist ohnehin schon leer, wenn `weiterAutomatisch` über `videoZuEnde` oder
+  // den Auto-Vorschub-Timer erreicht wird (siehe dort) — `ohneGruende` bleibt
+  // dafür ein sicheres No-Op. `'zwischenkarte'`/`'kommentare'` bleiben
+  // unangetastet, siehe Kommentar bei `MOMENTWECHSEL_GRUENDE`.
   const weiterAutomatisch = useCallback(() => {
     void pruefeUndErneuereVorratImHintergrund();
     const ergebnis = weiter(stand, spielliste.length);
@@ -830,7 +845,7 @@ export default function RecapPlayer() {
       setPhase('ende');
       return;
     }
-    setStand({ ...ergebnis, pausiert: ohneGrund(ergebnis.pausiert, 'halten') });
+    setStand({ ...ergebnis, pausiert: ohneGruende(ergebnis.pausiert, MOMENTWECHSEL_GRUENDE) });
   }, [stand, spielliste.length, pruefeUndErneuereVorratImHintergrund]);
   // Ref-Indirektion (gleiches Muster wie Versiegelung.tsx/onFertigRef): der
   // Auto-Vorschub-Timer und das Video-Ende-Event rufen IMMER die neueste
@@ -914,7 +929,16 @@ export default function RecapPlayer() {
   useEffect(() => {
     if (phase !== 'bereit') return;
     if (!tagWechselt(spielliste, startDate, stand.index)) {
-      setStand((s) => ({ ...s, pausiert: ohneGrund(s.pausiert, 'zwischenkarte') }));
+      // Kleinigkeit (Final-Review-Nachbesserung): dieser Zweig läuft bei
+      // JEDEM Indexwechsel, der KEIN Tageswechsel ist — der ganz normale
+      // Regelfall. `ohneGrund` selbst ist zwar No-Op-sicher (liefert
+      // dieselbe Set-Referenz), aber `setStand` bekäme trotzdem bei JEDEM
+      // Aufruf ein NEUES `stand`-Objekt (`{...s, pausiert: sameRef}`) und
+      // löste damit immer einen Render aus, selbst wenn 'zwischenkarte'
+      // ohnehin schon fehlt. Der explizite `.has()`-Check davor lässt
+      // `setStand` in diesem — häufigsten — Fall ganz aus, React bailt dann
+      // vollständig aus (dieselbe `s`-Referenz zurückgegeben).
+      setStand((s) => (s.pausiert.has('zwischenkarte') ? { ...s, pausiert: ohneGrund(s.pausiert, 'zwischenkarte') } : s));
       return;
     }
     setStand((s) => ({ ...s, pausiert: mitGrund(s.pausiert, 'zwischenkarte') }));
@@ -976,6 +1000,19 @@ export default function RecapPlayer() {
         // ANDEREN Moment weitergeschaltet haben (Tipp, Auto-Vorschub) —
         // dessen eigenen, unabhängig gesetzten Pausier-Zustand (z.B. ein
         // neues Halten) darf diese verspätete Antwort nicht überschreiben.
+        //
+        // Final-Review Phase-5-Nachbesserung: GENAU diese Stale-Guard machte
+        // 'neuversuch' unentfernbar, wenn währenddessen weitergetippt wurde
+        // — die Bedingung schlägt dann für immer fehl, und keine andere
+        // Stelle nahm bis zu dieser Korrektur je 'neuversuch' zurück. Der
+        // Ausweg liegt bewusst NICHT hier (ein bedingungsloses Zurücknehmen
+        // hätte bei mehreren gleichzeitig scheiternden Momenten den GRUND
+        // eines fremden, noch laufenden Neuversuchs mitreissen können —
+        // 'neuversuch' ist EIN Set-Eintrag ohne Bezug zu einem bestimmten
+        // Moment, mehrere Momente können ihn sich "teilen"), sondern in
+        // MOMENTWECHSEL_GRUENDE: jeder TATSÄCHLICHE Indexwechsel
+        // (beendeBeruehrung/weiterAutomatisch) nimmt 'neuversuch' selbst
+        // zurück, bevor diese verspätete Antwort überhaupt eintrifft.
         if (aktiv.current && aktivIdRef.current === postId) {
           setStand((s) => ({ ...s, pausiert: ohneGrund(s.pausiert, 'neuversuch') }));
         }
@@ -1013,10 +1050,11 @@ export default function RecapPlayer() {
           setPhase('ende');
           return;
         }
-        // Nimmt AUSSCHLIESSLICH den eigenen Grund zurück — onPressIn hat ihn
-        // gerade erst für DIESE Berührung gesetzt (Phase-5-Final-Review,
-        // Punkt 1).
-        setStand({ ...ergebnis, pausiert: ohneGrund(ergebnis.pausiert, 'halten') });
+        // Ein echter Indexwechsel per Tipp: nimmt `MOMENTWECHSEL_GRUENDE`
+        // zurück, nicht nur `'halten'` (Final-Review Phase-5-Nachbesserung,
+        // siehe Kommentar dort — `'neuversuch'` gehört ebenfalls zum
+        // VERLASSENEN Moment und darf den neuen nicht blockieren).
+        setStand({ ...ergebnis, pausiert: ohneGruende(ergebnis.pausiert, MOMENTWECHSEL_GRUENDE) });
         return;
       }
       // Klein (Review-Fund): V10 gilt in BEIDE Richtungen ("vor jedem
@@ -1024,7 +1062,7 @@ export default function RecapPlayer() {
       // Player sichtbar auf demselben Vorrat angewiesen).
       void pruefeUndErneuereVorratImHintergrund();
       const ergebnisZurueck = zurueck(stand);
-      setStand({ ...ergebnisZurueck, pausiert: ohneGrund(ergebnisZurueck.pausiert, 'halten') });
+      setStand({ ...ergebnisZurueck, pausiert: ohneGruende(ergebnisZurueck.pausiert, MOMENTWECHSEL_GRUENDE) });
       return;
     }
     // Halten, dann losgelassen: "und weiter beim Loslassen" (Brief) heisst

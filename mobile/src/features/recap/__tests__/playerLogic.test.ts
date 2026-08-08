@@ -5,6 +5,7 @@ import {
   tagWechselt,
   mitGrund,
   ohneGrund,
+  ohneGruende,
   blockiertAutomatischenVorschub,
   FOTO_DAUER_MS,
   VIDEO_DAUER_FALLBACK_MS,
@@ -395,6 +396,43 @@ describe('PauseGrund: mitGrund/ohneGrund/blockiertAutomatischenVorschub', () => 
     const ergebnis = ohneGrund(stand, 'zwischenkarte');
     expect(ergebnis.has('kommentare')).toBe(true);
     expect(ergebnis).toBe(stand); // No-Op: dieselbe Referenz, kein neues Set.
+  });
+
+  // Final-Review Phase-5-Nachbesserung: ohneGruende nimmt mehrere Gründe auf
+  // einmal zurück — genau das, was ein echter Indexwechsel (Tipp-Navigation,
+  // automatischer Vorschub) braucht, damit weder 'halten' noch 'neuversuch'
+  // vom VERLASSENEN Moment auf den NEUEN übergehen (siehe player.tsx,
+  // MOMENTWECHSEL_GRUENDE).
+  test('ohneGruende nimmt mehrere Gründe auf einmal zurück, andere Gründe bleiben unberührt', () => {
+    let stand = mitGrund(leer(), 'halten');
+    stand = mitGrund(stand, 'neuversuch');
+    stand = mitGrund(stand, 'kommentare');
+    const ergebnis = ohneGruende(stand, ['halten', 'neuversuch']);
+    expect(ergebnis.has('halten')).toBe(false);
+    expect(ergebnis.has('neuversuch')).toBe(false);
+    expect(ergebnis.has('kommentare')).toBe(true);
+  });
+
+  // Dieselbe No-Op-Pointe wie bei ohneGrund, jetzt für mehrere Gründe auf
+  // einmal: sind ALLE übergebenen Gründe bereits abwesend, liefert
+  // ohneGruende dieselbe Referenz zurück — kein unnötiger Re-Render, wenn
+  // z.B. weiterAutomatisch aufgerufen wird, obwohl 'halten'/'neuversuch'
+  // ohnehin schon leer sind (der Normalfall über den Auto-Vorschub-Timer).
+  test('ohneGruende ist ein No-Op (dieselbe Referenz), wenn KEINER der übergebenen Gründe vorhanden ist', () => {
+    const stand = mitGrund(leer(), 'kommentare');
+    const ergebnis = ohneGruende(stand, ['halten', 'neuversuch']);
+    expect(ergebnis.has('kommentare')).toBe(true);
+    expect(ergebnis).toBe(stand);
+  });
+
+  // Regression, die den Final-Review-Fund exakt nachbildet: 'neuversuch'
+  // allein (kein 'halten') muss ebenfalls zurückgenommen werden — ein
+  // Mutant, der ohneGruende nur auf den ERSTEN Grund der Liste anwendet,
+  // fiele hier durch.
+  test('ohneGruende nimmt auch einen NUR teilweise vorhandenen Grund zurück (nur "neuversuch", kein "halten")', () => {
+    const stand = mitGrund(leer(), 'neuversuch');
+    const ergebnis = ohneGruende(stand, ['halten', 'neuversuch']);
+    expect(ergebnis.size).toBe(0);
   });
 
   test('blockiertAutomatischenVorschub ist false, wenn kein Grund gesetzt ist', () => {

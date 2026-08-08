@@ -843,6 +843,54 @@ describe('Video-Momente', () => {
     });
     expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: bild('p3').medium_url });
   });
+
+  // Final-Review Phase-5-Nachbesserung: der Test oben prüft nur, dass eine
+  // verspätete Neuversuch-Antwort ein UNABHÄNGIG gesetztes Halten nicht
+  // überschreibt — er sagt nichts darüber, ob der Player nach einem
+  // WEITERGETIPPTEN Neuversuch je wieder anläuft. Genau das war die Lücke:
+  // 'neuversuch' blieb ohne ein `pressOut` auf dem NEUEN Moment für immer
+  // gesetzt (keine Stelle nahm es je zurück, wenn die Stale-Guard in
+  // beiLadefehler einmal fehlschlug). Dieser Test tippt NUR weiter, hält
+  // NICHT erneut — und verlangt den tatsächlichen WIEDERANLAUF: der
+  // Auto-Vorschub muss den neuen Moment nach dessen Fotodauer verlassen.
+  test('eine verspätete Neuversuch-Antwort blockiert den neuen Moment NICHT dauerhaft — der Auto-Vorschub läuft normal weiter', async () => {
+    mockParams = { id: 't1', start: '1' }; // p2, Video
+    (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
+    let neuversuchAufloesen: (v: unknown) => void = () => {};
+    (holeVorrat as jest.Mock)
+      .mockResolvedValueOnce({ vorrat: VORRAT_OK, error: null, grund: null }) // initiales Laden
+      .mockReturnValueOnce(new Promise((resolve) => { neuversuchAufloesen = resolve; })); // Neuversuch hängt
+    await wrap();
+    await act(async () => {
+      mockListeners.statusChange?.forEach((cb) => cb({ status: 'error' })); // löst den (hängenden) Neuversuch für p2 aus
+    });
+    // Nutzer tippt (kurz) weiter, OHNE danach zu halten -> p3. Unter dem
+    // alten Code blieb 'neuversuch' hier unentfernt hängen.
+    await fireEvent(screen.getByTestId('player-rechts'), 'pressIn');
+    await fireEvent(screen.getByTestId('player-rechts'), 'pressOut');
+    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: bild('p3').medium_url });
+
+    // Die verspätete Antwort für p2 trifft jetzt ein — darf p3 NICHT
+    // dauerhaft stilllegen (Stale-Guard greift: aktivIdRef zeigt auf p3,
+    // nicht mehr auf p2, die Rücknahme in beiLadefehler selbst bleibt also
+    // aus — entscheidend ist, dass der Tipp oben 'neuversuch' bereits
+    // zurückgenommen hat).
+    await act(async () => {
+      neuversuchAufloesen({ vorrat: VORRAT_OK });
+    });
+
+    // p3 läuft normal weiter: nach Ablauf seiner Fotodauer schaltet der
+    // Auto-Vorschub TATSÄCHLICH weiter (p3 -> p4 kreuzt einen Tageswechsel,
+    // die Zwischenkarte für Tag 2 erscheint statt sofort p4s Foto — aber
+    // p4s FotoMoment ist bereits gemountet und trägt dessen source; genau
+    // DAS beweist, dass weiterAutomatisch überhaupt gefeuert hat). Bliebe
+    // 'neuversuch' hängen, stünde der Player hier für immer auf p3 (siehe
+    // der jetzt widerlegte Bug).
+    await act(async () => {
+      jest.advanceTimersByTime(5000); // FOTO_DAUER_MS
+    });
+    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: bild('p4').medium_url });
+  });
 });
 
 function bildErneuert(id: string) {
