@@ -135,6 +135,44 @@ Deno.test('fuehreRevealAus: ein Nicht-Owner bekommt 403 und löst keinen Statusw
   assertEquals(aufrufe.holeMitglieder, 0, 'versendeRevealPush wurde gar nicht erst aufgerufen');
 });
 
+// Re-Review-Fund: der Owner-Check muss VOR den Status-Zweigen stehen, nicht
+// nur vor dem CAS-Update. Eine bereits revealte oder archivierte Reise hat
+// je einen eigenen frühen Rückgabe-Zweig (Zeile 184/187) — verschöbe man den
+// Owner-Check hinter diese beiden, bekäme JEDE authentifizierte Person, die
+// eine trip_id kennt, für eine revealte Reise 200 statt 403 und für eine
+// archivierte 409 statt 403. Die beiden Tests oben/unten deckten das nicht:
+// "ein Nicht-Owner bekommt 403" prüft nur gegen status='active', und auch
+// reveal_integration_test.ts testet den Nicht-Owner nur dort. Diese beiden
+// Fälle schliessen genau die Lücke, für die Befund 2 ursprünglich geschrieben
+// wurde: kein Mitglied darf die Reise für alle öffnen, unabhängig vom Status.
+Deno.test('fuehreRevealAus: ein Nicht-Owner bekommt 403, auch wenn die Reise bereits revealed ist', async () => {
+  const zustand = neueFakeZustand('revealed');
+  const store = fakeStore(zustand, { holeMitglieder: 0, loescheTokens: [] });
+  const { fn: sendeFn, aufrufe: sendeAufrufe } = fakeSendeFn();
+
+  const ergebnis = await fuehreRevealAus(store, sendeFn, TRIP_ID, MEMBER_ID);
+
+  assertEquals(ergebnis, {
+    status: 403,
+    body: { fehler: 'Nur wer die Reise angelegt hat, kann sie abschliessen.' },
+  });
+  assertEquals(sendeAufrufe.length, 0);
+});
+
+Deno.test('fuehreRevealAus: ein Nicht-Owner bekommt 403, auch wenn die Reise bereits archiviert ist', async () => {
+  const zustand = neueFakeZustand('archived');
+  const store = fakeStore(zustand, { holeMitglieder: 0, loescheTokens: [] });
+  const { fn: sendeFn, aufrufe: sendeAufrufe } = fakeSendeFn();
+
+  const ergebnis = await fuehreRevealAus(store, sendeFn, TRIP_ID, MEMBER_ID);
+
+  assertEquals(ergebnis, {
+    status: 403,
+    body: { fehler: 'Nur wer die Reise angelegt hat, kann sie abschliessen.' },
+  });
+  assertEquals(sendeAufrufe.length, 0);
+});
+
 // --- Reise nicht gefunden ----------------------------------------------------
 Deno.test('fuehreRevealAus: eine unbekannte trip_id liefert 404', async () => {
   const zustand = neueFakeZustand('active');

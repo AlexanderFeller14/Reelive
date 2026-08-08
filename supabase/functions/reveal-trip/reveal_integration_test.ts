@@ -184,6 +184,16 @@ Deno.test({
       const zweiteAntwort = (await erwarteJson(zweiterAufruf, 200)) as { ok: boolean; revealed_at: string };
       assertEquals(zweiteAntwort.revealed_at, ersteAntwort.revealed_at);
 
+      // --- Re-Review-Fund: Nicht-Owner bleibt 403, auch NACH dem Reveal ---
+      // Der Owner-Check muss vor den Status-Zweigen greifen, nicht nur vor
+      // dem CAS-Update — sonst bekäme jede authentifizierte Person, die die
+      // trip_id kennt, für eine bereits revealte Reise 200 statt 403 (den
+      // idempotenten Zweig einer fremden Person untergeschoben).
+      const nichtOwnerNachReveal = await reveal(miraHeaders);
+      assertEquals(await erwarteJson(nichtOwnerNachReveal, 403), {
+        fehler: 'Nur wer die Reise angelegt hat, kann sie abschliessen.',
+      });
+
       // --- archived -> 409 --------------------------------------------------
       await erwarteJson(
         await fetch(`${SUPABASE_URL}/rest/v1/trips?id=eq.${tripId}`, {
@@ -195,6 +205,12 @@ Deno.test({
       );
       const archivAufruf = await reveal(leaHeaders);
       assertEquals(await erwarteJson(archivAufruf, 409), { fehler: 'Diese Reise ist schon archiviert.' });
+
+      // --- Nicht-Owner bleibt 403, auch für eine archivierte Reise --------
+      const nichtOwnerNachArchiv = await reveal(miraHeaders);
+      assertEquals(await erwarteJson(nichtOwnerNachArchiv, 403), {
+        fehler: 'Nur wer die Reise angelegt hat, kann sie abschliessen.',
+      });
     } finally {
       await fetch(`${SUPABASE_URL}/rest/v1/trips?id=eq.${tripId}`, {
         method: 'DELETE',

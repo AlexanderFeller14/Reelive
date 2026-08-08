@@ -9,7 +9,7 @@
 
 create extension if not exists pgtap with schema extensions;
 begin;
-select plan(15);
+select plan(17);
 
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-00000000000a', 'anna@test.local'),
@@ -152,6 +152,27 @@ reset role;
 select ok(
   not has_function_privilege('anon','public.can_see_post(uuid)','execute'),
   'anon darf can_see_post nicht ausführen');
+
+-- Re-Review-Ergänzung: der Migrationskommentar in
+-- 20260808090100_can_see_post_archived.sql verspricht vier unveränderte
+-- Eigenschaften ("Signatur, security definer, set search_path und Grants
+-- bleiben unverändert") - bisher war nur der Grant belegt (Assertion oben).
+-- Gerade `set search_path = public` auf einer SECURITY DEFINER-Funktion ist
+-- die klassische Eskalationslücke: fehlte es, könnte eine Session mit
+-- manipuliertem `search_path` can_see_post dazu bringen, eine eigene
+-- gleichnamige Funktion/Tabelle statt der echten `public.*`-Objekte
+-- aufzulösen - mit den Rechten des Funktionsbesitzers. pg_proc trägt beides
+-- direkt: prosecdef (SECURITY DEFINER ja/nein) und proconfig (die GUC-Liste,
+-- der Eintrag "search_path=public" darunter). Werte am laufenden Stack per
+-- psql erhoben, nicht geraten.
+select is(
+  (select prosecdef from pg_proc where oid = 'public.can_see_post(uuid)'::regprocedure),
+  true,
+  'can_see_post bleibt SECURITY DEFINER');
+select is(
+  (select proconfig from pg_proc where oid = 'public.can_see_post(uuid)'::regprocedure),
+  array['search_path=public'],
+  'can_see_post behält search_path=public - sonst könnte eine Session mit manipuliertem search_path die Auflösung von public.* umlenken');
 
 select * from finish();
 rollback;
