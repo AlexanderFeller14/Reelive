@@ -1,6 +1,6 @@
 import { render, screen, fireEvent, within } from '@testing-library/react-native';
 import { ThemeProvider } from '@/theme/ThemeProvider';
-import { palette } from '@/theme/tokens';
+import { motion, palette } from '@/theme/tokens';
 import type { MedienUrl } from '@/features/recap/urlVorrat';
 
 const mockPush = jest.fn();
@@ -38,6 +38,48 @@ jest.mock('expo-image', () => {
 jest.mock('@/features/karte/kartenPunkte', () => {
   const echt = jest.requireActual('@/features/karte/kartenPunkte');
   return { zuKartenPunkten: jest.fn(echt.zuKartenPunkten) };
+});
+// Steuerbar wie mockKannZurueck: ohne das liesse sich der Sprung-Zweig von
+// `zeige` gar nicht erreichen — AccessibilityInfo meldet im Testlauf immer
+// «keine Reduktion», und die Weiche wäre aus Test-Sicht toter Code.
+let mockReduziert = false;
+jest.mock('@/theme/useReducedMotion', () => ({ useReducedMotion: () => mockReduziert }));
+// Eigener Maps-Mock statt des globalen aus jest.setup.ts — aus zwei Gründen,
+// die beide am imperativen Handle hängen:
+//
+// 1. Der globale Mock baut seine `jest.fn()` bei jedem Rendern neu und gibt
+//    sie nicht nach aussen. Wer zusichern will, dass die Karte gefahren (oder
+//    eben gesprungen) ist, kommt an sie nicht heran.
+// 2. `tracksViewChanges` steht nach einer Prop-Änderung nur für EINEN Commit
+//    auf `true` — genau den, der die Nadel neu zeichnen lässt. React spielt
+//    Render und Effekt innerhalb desselben `act()` ab; im Endzustand steht
+//    wieder `false`, und ein Test, der nur den Endzustand liest, könnte
+//    «springt wieder an» nicht von «ist nie angesprungen» unterscheiden.
+//    Derselbe Umweg wie in components/__tests__/KartenNadel.test.tsx.
+const mockAnimateToRegion = jest.fn();
+const mockSetRegion = jest.fn();
+const mockTracksVerlauf: { id: unknown; tracks: unknown }[] = [];
+jest.mock('react-native-maps', () => {
+  const ReactActual = require('react');
+  const { View } = require('react-native');
+  const Karte = ReactActual.forwardRef((props: Record<string, unknown>, ref: unknown) => {
+    ReactActual.useImperativeHandle(ref, () => ({
+      animateToRegion: mockAnimateToRegion,
+      setRegion: mockSetRegion,
+      fitToCoordinates: jest.fn(),
+    }));
+    return ReactActual.createElement(View, props, props.children);
+  });
+  return {
+    __esModule: true,
+    default: Karte,
+    Marker: (props: Record<string, unknown>) => {
+      mockTracksVerlauf.push({ id: props.testID, tracks: props.tracksViewChanges });
+      return ReactActual.createElement(View, props, props.children);
+    },
+    Polyline: (props: Record<string, unknown>) => ReactActual.createElement(View, props),
+    PROVIDER_DEFAULT: undefined,
+  };
 });
 
 import RecapKarte from '../[id]/karte';
@@ -86,6 +128,29 @@ const m3 = moment({ id: 'p3', captured_at: '2026-08-11T10:00:00.000Z', lat: null
 
 // Bereits chronologisch sortiert, wie fetchRecapMomente es liefert.
 const VOLLSTAENDIG = [ohneUrlM, m1, m2, pendingM, m3];
+
+// ---------------------------------------------------------------------------
+// Task 7: zwei Momente, die sich eine Nadel teilen
+// ---------------------------------------------------------------------------
+//
+// Alle Zahlen unten hängen an der Fenstergrösse des Testlaufs: jest-expo meldet
+// 750 × 1334 Punkte. Ein Grad Länge sind bei einer Spanne von 0.01° also 75'000
+// Punkte, ein Grad Breite 133'400 — ein Zehntausendstel Grad demnach 7.5 bzw.
+// 13.3 Punkte. Die beiden Momente liegen damit rund 15 Punkte auseinander und
+// somit unter GRUPPEN_ABSTAND_PT (40).
+//
+// Die id bleibt p2, damit VORRAT_OK unverändert passt — es ist derselbe zweite
+// Moment wie oben, nur eine Strasse weiter statt einen Stadtteil.
+const m2Nah = moment({ id: 'p2', captured_at: '2026-08-10T18:00:00.000Z', lat: 38.7101, lng: -9.1401 });
+const NAH_BEIEINANDER = [m1, m2Nah];
+
+// Hineingezoomt: bei 0.002° Spanne liegen dieselben zwei Momente rund 76 Punkte
+// auseinander — die Gruppe fällt auseinander.
+const ENG = { latitude: 38.71005, longitude: -9.14005, latitudeDelta: 0.002, longitudeDelta: 0.002 };
+// Und einer dazwischen: rund 31 Punkte Abstand, die Gruppe bleibt bestehen —
+// aber der Ausschnitt ist bereits ENGER als die Mindestspanne von
+// `ausschnittFuer` (0.01°). Genau hier führte ein ungebremstes Ziel hinaus.
+const MITTEL = { ...ENG, latitudeDelta: 0.005, longitudeDelta: 0.005 };
 
 // Rückgabetyp explizit als MedienUrl: `thumb_url` ist dort `string | null`,
 // und ohne die Angabe erbte VORRAT_OK ein zu enges `string` — ein Vorrat ohne
@@ -139,9 +204,21 @@ function ladeErfolg(momente = VOLLSTAENDIG, vorrat = VORRAT_OK) {
   (holeVorrat as jest.Mock).mockResolvedValue({ vorrat, error: null, grund: null });
 }
 
+// Nimmt die mitgeschriebenen Werte EINER Nadel heraus und leert den Verlauf —
+// so bezieht sich jede Zusicherung auf genau den Abschnitt seit dem letzten
+// Aufruf. Nach id gefiltert, weil beim Auseinanderfallen einer Gruppe eine
+// zweite Nadel dazukommt, die naturgemäss frisch gezeichnet wird.
+function tracksSeitDann(id: string): unknown[] {
+  const eigene = mockTracksVerlauf.filter((e) => e.id === id).map((e) => e.tracks);
+  mockTracksVerlauf.length = 0;
+  return eigene;
+}
+
 beforeEach(() => {
   jest.clearAllMocks();
   mockKannZurueck = true;
+  mockReduziert = false;
+  mockTracksVerlauf.length = 0;
 });
 
 test('setzt eine Nadel je Moment mit Ort', async () => {
@@ -264,6 +341,110 @@ test('eine fertige Nadel schaltet nur sich selbst ab', async () => {
   const nadel = await screen.findByTestId('karte-nadel-p1');
   await fireEvent(within(nadel).getByTestId('nadel-bild'), 'load');
   expect(screen.getByTestId('karte-nadel-p2').props.tracksViewChanges).toBe(true);
+});
+
+// ---------------------------------------------------------------------------
+// Task 7: Gruppierung, und was ein Tipp auf eine Gruppe auslöst
+// ---------------------------------------------------------------------------
+
+// Spec §5.5: Nadeln, die sich sonst gegenseitig verdecken, teilen sich eine.
+test('dicht beieinander liegende Momente teilen sich eine Nadel', async () => {
+  ladeErfolg(NAH_BEIEINANDER);
+  await wrap();
+  const nadeln = await screen.findAllByTestId(/^karte-nadel/);
+  expect(nadeln).toHaveLength(1);
+  expect(screen.getByText('2')).toBeTruthy();
+});
+
+// Gruppiert wird nach dem Abstand auf DEM GERADE SICHTBAREN Ausschnitt, nicht
+// auf dem, mit dem die Karte geöffnet wurde. Ohne das bliebe die Gruppe auch
+// dann eine Nadel, wenn ihre Momente längst über den halben Schirm verteilt
+// sind.
+test('beim Hineinzoomen faellt die Gruppe in einzelne Nadeln', async () => {
+  ladeErfolg(NAH_BEIEINANDER);
+  await wrap();
+  expect(await screen.findAllByTestId(/^karte-nadel/)).toHaveLength(1);
+
+  await fireEvent(screen.getByTestId('karte-flaeche'), 'regionChangeComplete', ENG);
+  expect(screen.getAllByTestId(/^karte-nadel/)).toHaveLength(2);
+  expect(screen.queryByText('2')).toBeNull();
+});
+
+// Die Zähler-Pille muss beim Zoomen MITLAUFEN. Das ist nicht dasselbe wie der
+// Test darüber: der liest den React-Baum, und der stimmt auch dann, wenn die
+// Nadel auf der Karte längst eingefroren ist. Sichtbar wäre der Fehler nur auf
+// dem Gerät — eine Gruppe, auf der weiterhin «2» steht, obwohl sie zwei Nadeln
+// geworden ist. Beobachtbar ist er hier nur am mitgeschriebenen Verlauf von
+// `tracksViewChanges` (siehe Mock oben).
+test('faellt die Gruppe auseinander, wird ihre Nadel neu gezeichnet', async () => {
+  ladeErfolg(NAH_BEIEINANDER);
+  await wrap();
+  const nadel = await screen.findByTestId('karte-nadel-p1');
+  await fireEvent(within(nadel).getByTestId('nadel-bild'), 'load');
+  expect(tracksSeitDann('karte-nadel-p1').at(-1)).toBe(false);
+
+  await fireEvent(screen.getByTestId('karte-flaeche'), 'regionChangeComplete', ENG);
+  const verlauf = tracksSeitDann('karte-nadel-p1');
+  expect(verlauf).toContain(true); // sprang wieder an — die neue Nadel wird gezeichnet
+  expect(verlauf.at(-1)).toBe(false); // und beruhigt sich wieder
+});
+
+// Spec §5.5: wer auf der Karte sucht, will die Karte benutzen — ein Tipp auf
+// eine Gruppe fährt hinein, statt ein Sheet zu öffnen.
+test('ein Tipp auf eine Gruppe faehrt in sie hinein', async () => {
+  ladeErfolg(NAH_BEIEINANDER);
+  await wrap();
+  await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
+
+  expect(mockAnimateToRegion).toHaveBeenCalledTimes(1);
+  const [ziel, dauer] = mockAnimateToRegion.mock.calls[0];
+  // Mitte der Gruppe, und enger als der Ausschnitt, aus dem heraus getippt
+  // wurde (0.01° — die Mindestspanne von ausschnittFuer).
+  expect(ziel.latitude).toBeCloseTo(38.71005, 4);
+  expect(ziel.longitude).toBeCloseTo(-9.14005, 4);
+  expect(ziel.latitudeDelta).toBeLessThan(0.01);
+  expect(ziel.longitudeDelta).toBeLessThan(0.01);
+  expect(dauer).toBe(motion.duration.base);
+});
+
+// `ausschnittFuer` hat eine Mindestspanne von rund 1,1 km — sie ist für den
+// Erststart gedacht, damit ein einzelner Moment nicht maximal herangezoomt
+// wird. Ungebremst als Ziel genommen, führte ein Tipp auf eine Gruppe aus
+// einem bereits nahen Ausschnitt heraus — die Karte zoomte HINAUS, obwohl der
+// Tipp hineinführen soll.
+test('ein Tipp auf eine Gruppe zoomt nie hinaus', async () => {
+  ladeErfolg(NAH_BEIEINANDER);
+  await wrap();
+  await screen.findByTestId('karte-nadel-p1');
+  await fireEvent(screen.getByTestId('karte-flaeche'), 'regionChangeComplete', MITTEL);
+
+  await fireEvent.press(screen.getByTestId('karte-nadel-p1'));
+  const [ziel] = mockAnimateToRegion.mock.calls[0];
+  expect(ziel.latitudeDelta).toBeLessThan(MITTEL.latitudeDelta);
+  expect(ziel.longitudeDelta).toBeLessThan(MITTEL.longitudeDelta);
+});
+
+// Genau ein Punkt ist keine Gruppe: dorthin führt in Task 8 das Moment-Sheet.
+// Die Karte darf dabei nicht fahren — sonst rutschte der Moment unter dem
+// Sheet weg, während man ihn liest.
+test('ein Tipp auf eine einzelne Nadel bewegt die Karte nicht', async () => {
+  ladeErfolg();
+  await wrap();
+  await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
+  expect(mockAnimateToRegion).not.toHaveBeenCalled();
+  expect(mockSetRegion).not.toHaveBeenCalled();
+});
+
+// DESIGN-LANGUAGE §5 / Spec K12: mit Reduced Motion wird gesprungen statt
+// gefahren. Die Weiche sitzt in `zeige` — der EINEN Stelle, über die jede
+// Kamerabewegung dieses Screens geht.
+test('mit Reduced Motion springt die Karte, statt zu fahren', async () => {
+  mockReduziert = true;
+  ladeErfolg(NAH_BEIEINANDER);
+  await wrap();
+  await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
+  expect(mockAnimateToRegion).not.toHaveBeenCalled();
+  expect(mockSetRegion).toHaveBeenCalledTimes(1);
 });
 
 // K3: die Linie zeigt die Reise als Bewegung — in der Reihenfolge der

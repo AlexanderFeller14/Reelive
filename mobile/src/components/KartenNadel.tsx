@@ -194,6 +194,14 @@ type MarkerProps = {
   punkt: KartenPunkt;
   thumbUrl: string | null;
   anzahl?: number;
+  /**
+   * Tipp auf die Nadel. Bekommt den Punkt zurück, den sie darstellt (bei einer
+   * Gruppe deren Anker) — statt eine fertige Aktion einzupacken. Nur so kann
+   * der Screen EINE unveränderliche Funktion an alle Nadeln geben; ein
+   * `() => tuWas(gruppe)` wäre bei jedem Rendern eine neue und machte das
+   * `memo` unten wirkungslos.
+   */
+  onPress?: (punkt: KartenPunkt) => void;
 };
 
 // Die Nadel auf der Karte. `tracksViewChanges` ist die Stelle, an der dieser
@@ -220,12 +228,17 @@ type MarkerProps = {
 // Koordinaten-Literal unten harmlos — neu gebaut wird es nur noch, wenn sich
 // wirklich eine Eigenschaft geändert hat.
 export const KartenNadelMarker = memo(function KartenNadelMarker({
-  punkt, thumbUrl, anzahl = 1,
+  punkt, thumbUrl, anzahl = 1, onPress,
 }: MarkerProps) {
   const { moment } = punkt;
   const abbild = nadelAbbild(moment, thumbUrl, anzahl);
   const [fertigesAbbild, setFertigesAbbild] = useState<string | null>(null);
   const merkeBereit = useCallback(() => setFertigesAbbild(abbild), [abbild]);
+
+  // Der Marker reicht dem Screen zurück, WELCHE Nadel getippt wurde. Die
+  // Closure entsteht hier drinnen statt im Screen — sie wird damit nur neu
+  // gebaut, wenn diese Nadel ohnehin neu rendert.
+  const angetippt = useCallback(() => onPress?.(punkt), [onPress, punkt]);
 
   return (
     <Marker
@@ -233,6 +246,7 @@ export const KartenNadelMarker = memo(function KartenNadelMarker({
       accessibilityLabel={nadelBeschriftung(moment, anzahl)}
       coordinate={{ latitude: punkt.lat, longitude: punkt.lng }}
       tracksViewChanges={fertigesAbbild !== abbild}
+      onPress={angetippt}
     >
       <KartenNadel moment={moment} thumbUrl={thumbUrl} anzahl={anzahl} onBereit={merkeBereit} />
     </Marker>

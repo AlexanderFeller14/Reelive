@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { StyleSheet, useWindowDimensions, View } from 'react-native';
 import MapView, { Polyline, type Region } from 'react-native-maps';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { ChevronLeft } from 'lucide-react-native';
@@ -8,13 +8,15 @@ import { Pille } from '@/components/Pille';
 import { PressScale } from '@/components/PressScale';
 import { meldeFehler } from '@/lib/fehlermelder';
 import { useTheme } from '@/theme/ThemeProvider';
-import { cinema, radius, spacing } from '@/theme/tokens';
+import { cinema, motion, radius, spacing } from '@/theme/tokens';
 import { useOberkante } from '@/theme/useOberkante';
+import { useReducedMotion } from '@/theme/useReducedMotion';
 import { fetchRecapMomente } from '@/features/recap/recapApi';
 import { holeVorrat, type MedienUrl } from '@/features/recap/urlVorrat';
 import { ausschnittFuer } from '@/features/karte/ausschnitt';
+import { gruppiere } from '@/features/karte/gruppierung';
 import { zuKartenPunkten } from '@/features/karte/kartenPunkte';
-import type { Ausschnitt, KartenPunkt } from '@/features/karte/typen';
+import type { Ausschnitt, Gruppe, KartenPunkt } from '@/features/karte/typen';
 
 // Eine feste leere Map statt `new Map()` bei jedem Zurücksetzen: der Wert geht
 // als Abhängigkeit in die Nadeln, und eine jedes Mal neue Map liesse sie ohne
@@ -58,6 +60,15 @@ export default function RecapKarte() {
   // oben denselben Abstand hält wie links — auf Geräten mit Dynamic Island
   // schiebt useOberkante sie ohnehin darunter.
   const oben = useOberkante(spacing.screen);
+  const reducedMotion = useReducedMotion();
+  const karte = useRef<MapView>(null);
+  // Die Fläche, auf der gruppiert wird. Die Karte liegt als absoluteFill über
+  // dem ganzen Screen, das Fenster ist also ihr Mass. In der Höhe fehlt die
+  // Tab-Bar; das verschiebt die 40-Punkte-Schwelle um wenige Prozent und
+  // entscheidet nur über Nadeln, die ohnehin genau auf der Grenze liegen.
+  // Nachzumessen wäre genauer, brächte aber einen ersten Durchlauf mit 0 × 0
+  // mit sich — und der projizierte JEDEN Moment auf dieselbe Stelle.
+  const { width: breite, height: hoehe } = useWindowDimensions();
 
   const [punkte, setPunkte] = useState<KartenPunkt[]>([]);
   const [ausschnitt, setAusschnitt] = useState<Ausschnitt | null>(null);
@@ -139,6 +150,84 @@ export default function RecapKarte() {
     [punkte]
   );
 
+  // Nadeln, die einander sonst verdecken, teilen sich eine (Spec §5.5).
+  // Gruppiert wird nach dem Abstand auf DEM GERADE SICHTBAREN Ausschnitt —
+  // darum steht `ausschnitt` in den Abhängigkeiten und nicht bloss der
+  // Anfangswert: beim Hineinzoomen fällt eine Gruppe von selbst auseinander.
+  //
+  // `useMemo` ist hier so wenig Feinschliff wie bei `linie`: `gruppiere`
+  // vergleicht jeden Punkt mit jeder bisherigen Gruppe, und der Screen rendert
+  // bei jeder Kartenbewegung neu — dazu bei jedem Zustand, der mit der Karte
+  // nichts zu tun hat (die eintreffenden Bild-URLs heute, das Moment-Sheet in
+  // Task 8). Ohne die Bindung an genau diese vier Werte liefe die Rechnung bei
+  // jedem einzelnen Rendern mit, und jede Nadel bekäme frisch gebaute Gruppen.
+  const gruppen = useMemo(
+    () => (ausschnitt ? gruppiere(punkte, ausschnitt, breite, hoehe) : []),
+    [punkte, ausschnitt, breite, hoehe]
+  );
+
+  // DIE eine Stelle, an der sich die Kamera dieses Screens bewegt (Spec K12):
+  // der Gruppen-Zoom heute, der Tagesfilter in Task 9. Zwei Wege liefen
+  // garantiert auseinander — und an einem von beiden fehlte irgendwann die
+  // Reduced-Motion-Weiche.
+  //
+  // Der Erststart geht bewusst NICHT hier durch: die Karte wird überhaupt erst
+  // gemountet, wenn der Ausschnitt feststeht, und öffnet mit `initialRegion`
+  // direkt dort. Es gibt nichts, wovon aus gefahren würde.
+  const zeige = useCallback(
+    (ziel: Ausschnitt) => {
+      // DESIGN-LANGUAGE §5: mit Reduced Motion wird gesprungen statt gefahren.
+      // `setRegion` ist der Sprung — react-native-maps setzt die Region intern
+      // mit Dauer 0. Der Umweg über `setNativeProps` wäre keiner: MapView ist
+      // eine zusammengesetzte Komponente und hat die Methode gar nicht.
+      if (reducedMotion) karte.current?.setRegion(ziel);
+      else karte.current?.animateToRegion(ziel, motion.duration.base);
+    },
+    [reducedMotion]
+  );
+
+  // Was ein Tipp auf eine Nadel wissen muss — in einem Ref statt in den
+  // Abhängigkeiten von `aufNadel`. Hinge die Funktion an `gruppen` und
+  // `ausschnitt`, bekäme jede Nadel bei JEDER Kartenbewegung ein neues
+  // `onPress`; das `memo` am Marker (KartenNadel.tsx) wäre wirkungslos, und
+  // jede Nadel schickte ihre Koordinate erneut über die Brücke, obwohl sich an
+  // ihr nichts geändert hat.
+  const stand = useRef<{ gruppen: Gruppe[]; ausschnitt: Ausschnitt | null }>({ gruppen, ausschnitt });
+  useEffect(() => {
+    stand.current = { gruppen, ausschnitt };
+  }, [gruppen, ausschnitt]);
+
+  // Ein Tipp auf eine Gruppe fährt in sie hinein, statt ein Sheet zu öffnen
+  // (Spec §5.5): wer auf der Karte sucht, will die Karte benutzen.
+  const aufNadel = useCallback(
+    (anker: KartenPunkt) => {
+      const { gruppen: aktuelle, ausschnitt: sichtbar } = stand.current;
+      const gruppe = aktuelle.find((g) => g.anker === anker);
+      if (!gruppe || !sichtbar) return;
+      // Genau ein Punkt ist keine Gruppe: dorthin führt das Moment-Sheet
+      // (Task 8), keine Kamerafahrt — der Moment soll nicht unter dem Sheet
+      // wegrutschen, während man ihn liest.
+      if (gruppe.punkte.length === 1) return;
+
+      const umfasst = ausschnittFuer(gruppe.punkte);
+      if (!umfasst) return;
+      zeige({
+        ...umfasst,
+        // Die Fahrt geht immer HINEIN, nie hinaus. `ausschnittFuer` hat eine
+        // Mindestspanne von rund 1,1 km — sie ist für den Erststart gedacht,
+        // damit ein einzelner Moment nicht maximal herangezoomt wird. Liegen
+        // die Momente einer Gruppe enger beieinander, ist ihr Ergebnis WEITER
+        // als das, was gerade zu sehen ist, und der Tipp zoomte hinaus. Die
+        // halbe sichtbare Spanne ist die Antwort auf beides: nie hinaus, und
+        // immer sichtbar hinein — auch bei Momenten auf derselben Koordinate,
+        // die keine Zoomstufe trennen kann.
+        latitudeDelta: Math.min(umfasst.latitudeDelta, sichtbar.latitudeDelta / 2),
+        longitudeDelta: Math.min(umfasst.longitudeDelta, sichtbar.longitudeDelta / 2),
+      });
+    },
+    [zeige]
+  );
+
   const zurueck = () => {
     if (router.canGoBack()) router.back();
     // Ohne Rückweg (Deep Link direkt auf die Karte) führt der Weg auf die
@@ -155,6 +244,7 @@ export default function RecapKarte() {
           Atlantik (Spec K9). Die Erklärung dazu kommt in Task 10. */}
       {ausschnitt && (
         <MapView
+          ref={karte}
           testID="karte-flaeche"
           style={StyleSheet.absoluteFill}
           initialRegion={ausschnitt}
@@ -171,8 +261,18 @@ export default function RecapKarte() {
             />
           )}
 
-          {punkte.map((p) => (
-            <KartenNadelMarker key={p.moment.id} punkt={p} thumbUrl={nadelBild(urls, p.moment.id)} />
+          {/* Der Schlüssel hängt am Anker, nicht am Inhalt der Gruppe: beim
+              Zoomen ändert sich die Zusammensetzung laufend, und ein Schlüssel
+              aus ihr heraus hängte jedes Mal eine neue Nadel an die Karte,
+              statt die vorhandene weiterzuzeichnen. */}
+          {gruppen.map((g) => (
+            <KartenNadelMarker
+              key={g.anker.moment.id}
+              punkt={g.anker}
+              thumbUrl={nadelBild(urls, g.anker.moment.id)}
+              anzahl={g.punkte.length}
+              onPress={aufNadel}
+            />
           ))}
         </MapView>
       )}
