@@ -50,13 +50,16 @@ function verworfenTitel(anzahl: number): string {
   return anzahl === 1 ? 'Ein Moment konnte nicht mehr eingesendet werden' : `${anzahl} Momente konnten nicht mehr eingesendet werden`;
 }
 
-// Task-8-Brief §Step 3: die beruhigende Zeile im Bestätigungs-Sheet — Singular
-// und Plural korrekt, Zahl bleibt auch im Singular stehen (gleiche Konvention
-// wie wartendText oben).
+// Review Important 1: die Zahl bleibt im Singular NICHT stehen — anders als bei
+// wartendText oben («1 Moment ist …») folgt diese Zeile der Konvention von
+// verworfenTitel(1) («Ein Moment …») weiter oben in dieser Datei: «Dein 1
+// wartender Moment» ist grammatisch schief, «Dein wartender Moment» nicht.
+// «Reveal» ersetzt durch «Aufdeckung» (DESIGN-LANGUAGE §6: Deutsch; dieselbe
+// Formulierung steht schon in postsApi.ts/uploadWorker.ts/VERWORFEN_GRUND).
 function wartendeMomenteBeruhigung(anzahl: number): string {
   return anzahl === 1
-    ? 'Dein 1 wartender Moment kommt noch durch — er ist vor dem Reveal entstanden.'
-    : `Deine ${anzahl} wartenden Momente kommen noch durch — sie sind vor dem Reveal entstanden.`;
+    ? 'Dein wartender Moment kommt noch durch — er ist vor der Aufdeckung entstanden.'
+    : `Deine ${anzahl} wartenden Momente kommen noch durch — sie sind vor der Aufdeckung entstanden.`;
 }
 
 export default function ReiseDetail() {
@@ -356,16 +359,23 @@ export default function ReiseDetail() {
         ))}
       </View>
 
-      {/* Task-8-Brief §Wo der Knopf sitzt: vor dem Enddatum steht «Reise
-          abschliessen» hier unten, ohne zu drängen — danach (siehe oben)
-          rückt er nach oben und verschwindet hier. */}
+      {/* Review-Entscheidung zu §7 (genau EIN Primär-Button, nicht zwingend
+          GENAU einer): vor dem Enddatum bleibt «Freunde einladen» primär —
+          das ist die Aktion, die eine LAUFENDE Reise wirklich braucht — und
+          «Reise abschliessen» steht als Outline unten, ohne zu drängen. Ab
+          dem Enddatum (oben) dreht sich das um: «Reise abschliessen» wird
+          primär, «Freunde einladen» tritt zurück. So trägt in jedem Zustand
+          genau eine Fläche die Akzentfarbe, und die Betonung folgt dem, was
+          gerade dran ist. */}
       {zeigtAbschliessen && !reiseZuEnde && (
-        <Button variant="primary" label="Reise abschliessen" onPress={abschliessenOeffnen} />
+        <Button variant="secondary" label="Reise abschliessen" onPress={abschliessenOeffnen} />
       )}
       {istOwner && laeuft && (
-        // DESIGN-LANGUAGE §7: genau ein Primär-Button pro Screen — «Reise
-        // abschliessen» ist er jetzt, «Freunde einladen» wird zum Sekundär-Button.
-        <Button variant="secondary" label="Freunde einladen" onPress={() => router.push(`/reise/${id}/einladen`)} />
+        <Button
+          variant={reiseZuEnde ? 'secondary' : 'primary'}
+          label="Freunde einladen"
+          onPress={() => router.push(`/reise/${id}/einladen`)}
+        />
       )}
       {istOwner && (
         <Button variant="secondary" label="Reise bearbeiten" onPress={() => router.push(`/reise/${id}/bearbeiten`)} />
@@ -378,9 +388,15 @@ export default function ReiseDetail() {
     </ScrollView>
 
     <Sheet sichtbar={bestaetigenSichtbar} titel="Reise abschliessen?" onSchliessen={abschliessenSchliessen}>
+      {/* Review Important 1: «niemand mehr Momente einsenden» war sachlich
+          falsch — posts_insert_member (20260803090300_sealing_rls.sql) lässt
+          Nachzügler mit captured_at <= revealed_at ausdrücklich weiter zu, für
+          ALLE Mitglieder, nicht nur den lokalen Warteschlangenstand dieser
+          Person. Die Zeile sagt jetzt beides ehrlich: keine NEUEN Momente,
+          aber schon aufgenommene kommen — von allen — noch durch. */}
       <Text style={[type.body, { color: colors['text-2'] }]}>
-        Danach kann niemand mehr Momente einsenden, und alle sehen den Recap. Das lässt sich nicht
-        rückgängig machen.
+        Danach kann niemand mehr neue Momente aufnehmen. Bereits aufgenommene Momente von allen
+        kommen noch durch, und alle sehen den Recap. Das lässt sich nicht rückgängig machen.
       </Text>
       {wartend > 0 && (
         <Text style={[type.secondary, { color: colors['text-2'] }]}>{wartendeMomenteBeruhigung(wartend)}</Text>

@@ -5,11 +5,25 @@ import { palette } from '@/theme/tokens';
 
 const mockPush = jest.fn();
 const mockReplace = jest.fn();
-jest.mock('expo-router', () => ({
-  useRouter: () => ({ push: mockPush, replace: mockReplace, back: jest.fn() }),
-  useLocalSearchParams: () => ({ id: 't1' }),
-  useFocusEffect: (cb: () => void) => cb(),
-}));
+// Review Important 3: `(cb) => cb()` feuerte bei JEDEM Render statt nur beim
+// Fokussieren/bei geänderter Callback-Referenz — überlebte bislang nur, weil
+// jeder verwendete Mock stabile Objektreferenzen zurückgab. Das verdeckte statt
+// reparierte die eigentliche Lücke: `void laden()` aus dem Erfolgspfad von
+// `abschliessen()` löschen blieb unbemerkt grün, weil ohnehin ständig neu
+// geladen wurde. `useEffect(cb, [cb])` reproduziert die echte Semantik von
+// useFocusEffect exakt — der Screen memoisiert seinen Callback bereits mit
+// `useCallback([laden])`, der Effekt läuft also einmal beim Mount und erneut
+// nur, wenn sich `id`/`userId` ändern. `require('react')` statt eines
+// Top-Level-Imports, weil jest.mock()-Factories laut babel-plugin-jest-hoist
+// keine Variablen aus dem Modul-Scope referenzieren dürfen.
+jest.mock('expo-router', () => {
+  const { useEffect } = require('react');
+  return {
+    useRouter: () => ({ push: mockPush, replace: mockReplace, back: jest.fn() }),
+    useLocalSearchParams: () => ({ id: 't1' }),
+    useFocusEffect: (cb: () => void) => useEffect(cb, [cb]),
+  };
+});
 
 // Alert zeigt im Test nur einen Dialog an, ohne dass jemand tippt. Damit die
 // destruktiven Pfade prüfbar sind, wird der bestätigende Knopf sofort ausgelöst.
@@ -350,6 +364,30 @@ test('queueDb.verworfene schlägt fehl: die Reise erscheint trotzdem', async () 
 
 // === Task 8: «Reise abschliessen» ===
 
+// Review Important 3/M4: eine einzelne Style-Prüfung an zwei bekannten Knöpfen
+// deckt nicht ab, dass IRGENDEIN anderer Knopf (z. B. «Reise bearbeiten» oder
+// «Verstanden») versehentlich zusätzlich primär würde. Läuft über den
+// vollständigen gerenderten Baum, nicht nur über zwei benannte Stellen.
+type Baumknoten = { type?: string; props?: { style?: unknown }; children?: (Baumknoten | string)[] | null };
+function zaehleAccentFlaechen(baum: unknown): number {
+  let anzahl = 0;
+  const besuchen = (knoten: unknown): void => {
+    if (knoten == null || typeof knoten === 'string') return;
+    if (Array.isArray(knoten)) {
+      knoten.forEach(besuchen);
+      return;
+    }
+    const b = knoten as Baumknoten;
+    if (b.props?.style) {
+      const flach = StyleSheet.flatten(b.props.style as never) as { backgroundColor?: string };
+      if (flach.backgroundColor === palette.accent) anzahl += 1;
+    }
+    b.children?.forEach(besuchen);
+  };
+  besuchen(baum);
+  return anzahl;
+}
+
 test('Reise abschliessen fehlt für Mitglieder ohne Owner-Rolle', async () => {
   mockAuth.userId = 'u2';
   await wrap();
@@ -364,56 +402,91 @@ test('Reise abschliessen fehlt bei bereits aufgedeckter Reise', async () => {
   expect(screen.queryByText('Reise abschliessen')).toBeNull();
 });
 
-test('vor dem Enddatum steht der Knopf unten, ohne ankündigende Zeile', async () => {
-  (fetchTrip as jest.Mock).mockResolvedValue(tripVorEndeOk);
+// Review M2: `laeuft` prüft exakt `status === 'active'` — eine Aufweichung auf
+// `status !== 'revealed'` (Mutation) hätte den Knopf einer archivierten Reise
+// angeboten, die Function hätte mit 409 abgelehnt. Kein bestehender Test
+// deckte das ab.
+test('Reise abschliessen fehlt bei archivierter Reise', async () => {
+  (fetchTrip as jest.Mock).mockResolvedValue({ data: { ...trip, status: 'archived' }, error: null });
   await wrap();
-  expect(await screen.findByText('Reise abschliessen')).toBeTruthy();
-  expect(screen.queryByText('Eure Reise ist zu Ende. Zeit für den Recap.')).toBeNull();
+  await screen.findByText('Norwegen mit dem Camper');
+  expect(screen.queryByText('Reise abschliessen')).toBeNull();
 });
 
-test('ab dem Enddatum rückt der Knopf nach oben, mit ankündigender Zeile', async () => {
+// Review-Entscheidung: vor dem Enddatum bleibt «Freunde einladen» primär (die
+// Aktion, die eine laufende Reise wirklich braucht) und «Reise abschliessen»
+// steht als Outline unten. Review M3: bislang prüfte kein Test die POSITION
+// (nur Anwesenheit) — eine Mutation, die den unteren Block unkonditional
+// rendert und den oberen streicht, wäre unbemerkt geblieben. Über die
+// Zeichenposition im serialisierten Baum geprüft: RNTL v14 exponiert keine
+// Sibling-Order-Matcher, `JSON.stringify(toJSON())` erhält aber die
+// Dokumentreihenfolge.
+test('vor dem Enddatum steht «Reise abschliessen» unten als Sekundär-Button — «Freunde einladen» bleibt primär', async () => {
+  (fetchTrip as jest.Mock).mockResolvedValue(tripVorEndeOk);
+  await wrap();
+  await screen.findByText('Norwegen mit dem Camper');
+  expect(screen.queryByText('Eure Reise ist zu Ende. Zeit für den Recap.')).toBeNull();
+
+  const abschliessen = StyleSheet.flatten(screen.getByText('Reise abschliessen').parent?.props.style);
+  expect(abschliessen.borderWidth).toBe(1);
+  expect(abschliessen.backgroundColor).toBe(palette['bg-0']);
+
+  const einladen = StyleSheet.flatten(screen.getByText('Freunde einladen').parent?.props.style);
+  expect(einladen.backgroundColor).toBe(palette.accent);
+
+  const baum = JSON.stringify(screen.toJSON());
+  expect(baum.indexOf('Reise abschliessen')).toBeGreaterThan(baum.indexOf('Wer dabei ist'));
+
+  // DESIGN-LANGUAGE §7: höchstens eine Fläche trägt die Akzentfarbe.
+  expect(zaehleAccentFlaechen(screen.toJSON())).toBe(1);
+});
+
+test('ab dem Enddatum rückt «Reise abschliessen» nach oben und wird zum Primär-Button — «Freunde einladen» tritt zurück', async () => {
   (fetchTrip as jest.Mock).mockResolvedValue(tripAmEndeOk);
   await wrap();
   expect(await screen.findByText('Eure Reise ist zu Ende. Zeit für den Recap.')).toBeTruthy();
-  // getByText wirft bei mehr als einem Treffer — das sichert zugleich, dass
-  // der Knopf nicht gleichzeitig oben UND unten steht.
-  expect(screen.getByText('Reise abschliessen')).toBeTruthy();
+
+  // getByText wirft bei mehr als einem Treffer — sichert zugleich, dass der
+  // Knopf nicht gleichzeitig oben UND unten steht.
+  const abschliessen = StyleSheet.flatten(screen.getByText('Reise abschliessen').parent?.props.style);
+  expect(abschliessen.backgroundColor).toBe(palette.accent);
+
+  const einladen = StyleSheet.flatten(screen.getByText('Freunde einladen').parent?.props.style);
+  expect(einladen.borderWidth).toBe(1);
+  expect(einladen.backgroundColor).toBe(palette['bg-0']);
+
+  const baum = JSON.stringify(screen.toJSON());
+  expect(baum.indexOf('Reise abschliessen')).toBeLessThan(baum.indexOf('Wer dabei ist'));
+
+  expect(zaehleAccentFlaechen(screen.toJSON())).toBe(1);
 });
 
-test('«Freunde einladen» ist Sekundär-Button — «Reise abschliessen» bleibt der einzige Primär-Button (DESIGN-LANGUAGE §7)', async () => {
-  await wrap();
-  const label = await screen.findByText('Freunde einladen');
-  const flattened = StyleSheet.flatten(label.parent?.props.style);
-  expect(flattened.borderWidth).toBe(1);
-  expect(flattened.backgroundColor).toBe(palette['bg-0']);
-});
-
-test('«Reise abschliessen» trägt die Akzent-Fläche des Primär-Buttons', async () => {
-  await wrap();
-  const label = await screen.findByText('Reise abschliessen');
-  const flattened = StyleSheet.flatten(label.parent?.props.style);
-  expect(flattened.backgroundColor).toBe(palette.accent);
-});
-
-test('Tippen auf «Reise abschliessen» öffnet das Bestätigungs-Sheet und löst warning-Haptik aus', async () => {
+test('Tippen auf «Reise abschliessen» öffnet das Bestätigungs-Sheet mit korrektem Text und löst warning-Haptik aus', async () => {
   await wrap();
   await fireEvent.press(await screen.findByText('Reise abschliessen'));
   expect(await screen.findByText('Reise abschliessen?')).toBeTruthy();
+  // Review Important 1: die Zeile behauptet nicht mehr, dass NIEMAND mehr
+  // Momente einsenden kann (posts_insert_member erlaubt Nachzügler mit
+  // captured_at <= revealed_at ausdrücklich weiter, für alle Mitglieder) —
+  // sondern sagt ehrlich beides: keine neuen Momente, bereits aufgenommene
+  // kommen noch durch.
   expect(
-    screen.getByText(/Danach kann niemand mehr Momente einsenden.*rückgängig machen\./)
+    screen.getByText(
+      'Danach kann niemand mehr neue Momente aufnehmen. Bereits aufgenommene Momente von allen kommen noch durch, und alle sehen den Recap. Das lässt sich nicht rückgängig machen.'
+    )
   ).toBeTruthy();
   expect(Haptics.notificationAsync).toHaveBeenCalledWith('warning');
 });
 
-test('Sheet zeigt die Wartenden-Zeile nicht, wenn keine Momente warten', async () => {
+test('Sheet zeigt die persönliche Wartenden-Zeile nicht, wenn keine eigenen Momente warten', async () => {
   await wrap();
   await fireEvent.press(await screen.findByText('Reise abschliessen'));
   await screen.findByText('Reise abschliessen?');
-  expect(screen.queryByText(/kommen noch durch/)).toBeNull();
-  expect(screen.queryByText(/kommt noch durch/)).toBeNull();
+  expect(screen.queryByText(/kommt noch durch — er/)).toBeNull();
+  expect(screen.queryByText(/wartenden Momente kommen noch durch/)).toBeNull();
 });
 
-test('Sheet zeigt die Wartenden-Zeile im Plural, wenn mehrere Momente warten', async () => {
+test('Sheet zeigt die persönliche Wartenden-Zeile im Plural, wenn mehrere eigene Momente warten', async () => {
   (queueDb.alleJobs as jest.Mock).mockResolvedValue([
     { trip_id: 't1', zustand: 'wartet' },
     { trip_id: 't1', zustand: 'wartet' },
@@ -422,16 +495,19 @@ test('Sheet zeigt die Wartenden-Zeile im Plural, wenn mehrere Momente warten', a
   await wrap();
   await fireEvent.press(await screen.findByText('Reise abschliessen'));
   expect(
-    await screen.findByText('Deine 3 wartenden Momente kommen noch durch — sie sind vor dem Reveal entstanden.')
+    await screen.findByText('Deine 3 wartenden Momente kommen noch durch — sie sind vor der Aufdeckung entstanden.')
   ).toBeTruthy();
 });
 
-test('Sheet zeigt die Wartenden-Zeile im Singular, wenn genau ein Moment wartet', async () => {
+// Review Important 1: die Zahl bleibt im Singular NICHT stehen (Konvention von
+// verworfenTitel(1) — «Ein Moment …», nicht «1 Moment …»), und «Reveal» wurde
+// durch das im Projekt sonst durchgängig verwendete «Aufdeckung» ersetzt.
+test('Sheet zeigt die persönliche Wartenden-Zeile im Singular, wenn genau ein eigener Moment wartet', async () => {
   (queueDb.alleJobs as jest.Mock).mockResolvedValue([{ trip_id: 't1', zustand: 'wartet' }]);
   await wrap();
   await fireEvent.press(await screen.findByText('Reise abschliessen'));
   expect(
-    await screen.findByText('Dein 1 wartender Moment kommt noch durch — er ist vor dem Reveal entstanden.')
+    await screen.findByText('Dein wartender Moment kommt noch durch — er ist vor der Aufdeckung entstanden.')
   ).toBeTruthy();
 });
 
@@ -452,11 +528,11 @@ test('Tippen auf den Hintergrund schliesst das Bestätigungs-Sheet', async () =>
   await waitFor(() => expect(screen.queryByText('Reise abschliessen?')).toBeNull());
 });
 
-test('Abschliessen ruft revealTrip auf; bei Erfolg schliesst das Sheet und lädt die Reise neu', async () => {
+test('Abschliessen ruft revealTrip auf; bei Erfolg schliesst das Sheet und lädt die Reise GENAU EIN weiteres Mal neu', async () => {
   // Stabile Referenz für den Zustand «nach dem Reveal» (siehe Kommentar bei
-  // tripRevealedOk oben) — sonst würde jeder erneute Ladeversuch (der
-  // useFocusEffect-Mock feuert bei jedem Render nach) ein frisches Objekt
-  // liefern und den Screen endlos weiterrendern lassen.
+  // tripRevealedOk oben) — mit korrigiertem useFocusEffect (Important 3) läuft
+  // der Ladeweg zwar nicht mehr bei jedem Render, aber ein frisches Objekt pro
+  // Aufruf wäre trotzdem ein unnötiger Rerender.
   let aufgedeckt = false;
   (fetchTrip as jest.Mock).mockImplementation(async () => (aufgedeckt ? tripRevealedOk : tripOk));
   (revealTrip as jest.Mock).mockImplementation(async () => {
@@ -467,12 +543,17 @@ test('Abschliessen ruft revealTrip auf; bei Erfolg schliesst das Sheet und lädt
   await fireEvent.press(await screen.findByText('Reise abschliessen'));
   await screen.findByText('Reise abschliessen?');
 
+  const ladeAufrufeVorAbschluss = (fetchTrip as jest.Mock).mock.calls.length;
   await fireEvent.press(screen.getByText('Abschliessen'));
 
   await waitFor(() => expect(revealTrip).toHaveBeenCalledWith('t1'));
   await waitFor(() => expect(screen.queryByText('Reise abschliessen?')).toBeNull());
   // Reise neu geladen: status ist jetzt 'revealed', der Knopf verschwindet.
   await waitFor(() => expect(screen.queryByText('Reise abschliessen')).toBeNull());
+  // Review M1: mit dem korrigierten useFocusEffect-Mock lädt fetchTrip nicht
+  // mehr bei jedem Render nach — dieser Test schlägt jetzt tatsächlich fehl,
+  // wenn `void laden()` aus dem Erfolgspfad von `abschliessen()` gelöscht wird.
+  await waitFor(() => expect((fetchTrip as jest.Mock).mock.calls.length).toBe(ladeAufrufeVorAbschluss + 1));
 });
 
 test('ein Fehler beim Abschliessen zeigt die Ursache und lässt den Knopf bedienbar (idempotent)', async () => {
@@ -494,4 +575,22 @@ test('ein Fehler beim Abschliessen zeigt die Ursache und lässt den Knopf bedien
   expect(screen.getByText('Reise abschliessen?')).toBeTruthy();
   await fireEvent.press(screen.getByText('Abschliessen'));
   await waitFor(() => expect(revealTrip).toHaveBeenCalledTimes(2));
+});
+
+// Review M5: `setRevealFehler(null)` in `abschliessenOeffnen` löschen blieb
+// unbemerkt — kein Test öffnete das Sheet nach einem Fehler ein zweites Mal.
+test('ein erneutes Öffnen nach einem Fehler zeigt die alte Fehlermeldung nicht mehr', async () => {
+  const fehlerText = 'Die Reise konnte nicht abgeschlossen werden. Probier es gleich nochmal.';
+  (revealTrip as jest.Mock).mockResolvedValue({ revealed_at: null, error: fehlerText });
+  await wrap();
+  await fireEvent.press(await screen.findByText('Reise abschliessen'));
+  await fireEvent.press(screen.getByText('Abschliessen'));
+  await screen.findByText(fehlerText);
+
+  await fireEvent.press(screen.getByText('Abbrechen'));
+  await waitFor(() => expect(screen.queryByText('Reise abschliessen?')).toBeNull());
+
+  await fireEvent.press(screen.getByText('Reise abschliessen'));
+  await screen.findByText('Reise abschliessen?');
+  expect(screen.queryByText(fehlerText)).toBeNull();
 });
