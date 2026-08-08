@@ -36,6 +36,7 @@ import '@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { AwsClient } from 'npm:aws4fetch@1';
 import { erwarteteSchluessel } from './keys.ts';
+import { beurteileLesezugriff } from './lesenZugriff.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
@@ -242,38 +243,53 @@ Deno.serve(async (req: Request): Promise<Response> => {
       console.error('media-urls: trips-Select fehlgeschlagen', tripError);
       return fehler('Reise konnte nicht geladen werden.', 500);
     }
-    if (!trip) {
-      return fehler('Reise nicht gefunden.', 404);
-    }
-    const tripZeile = trip as TripZeile;
+    const tripRohdaten = trip as TripZeile | null;
 
-    // Die Versiegelung. 'active' heisst: noch niemand sieht etwas, auch nicht
-    // die Autorin ihres eigenen Moments — das ist der ganze Punkt des
-    // Produkts, nicht eine Bequemlichkeit der Oberfläche. 'archived' bleibt
-    // lesbar: weggelegt ist nicht zugesperrt (dieselbe Menge wie in
-    // posts_select_revealed_members).
-    if (tripZeile.status !== 'revealed' && tripZeile.status !== 'archived') {
-      return fehler('Diese Reise ist noch versiegelt.', 403);
-    }
-
+    // trip_members wird nur abgefragt, wenn die Reise existiert UND nicht
+    // mehr versiegelt ist — sonst steht das Urteil (404 bzw. "noch
+    // versiegelt") schon fest, unabhängig von der Mitgliedschaft, und die
+    // Abfrage wäre unbenutzte Arbeit gegen jede erratene trip_id. Diese
+    // Kurzschluss-Eigenschaft der Abfragen bleibt bewusst hier in index.ts:
+    // sie betrifft I/O, keine Entscheidung, und gehört darum nicht in die
+    // reine Prüfkette unten.
+    //
     // is_trip_member() ist hier unbrauchbar — siehe die ausführliche
     // Begründung weiter unten im sign/confirm-Zweig: Der Oracle-Guard
     // (20260803090700) liefert für Service-Role immer false. Also direkt
     // lesen. Wer aus der Reise entfernt wurde, hat keine trip_members-Zeile
     // mehr und fällt damit ab hier heraus, auch wenn er die trip_id kennt.
-    const { data: mitgliedschaft, error: mitgliedError } = await supabaseAdmin
-      .from('trip_members')
-      .select('user_id')
-      .eq('trip_id', tripZeile.id)
-      .eq('user_id', anfragendeId)
-      .maybeSingle();
-    if (mitgliedError) {
-      console.error('media-urls: trip_members-Select fehlgeschlagen', mitgliedError);
-      return fehler('Kein Zugriff auf diese Reise.', 403);
+    let mitgliedschaft: { user_id: string } | null = null;
+    if (tripRohdaten && (tripRohdaten.status === 'revealed' || tripRohdaten.status === 'archived')) {
+      const { data: mitgliedZeile, error: mitgliedError } = await supabaseAdmin
+        .from('trip_members')
+        .select('user_id')
+        .eq('trip_id', tripRohdaten.id)
+        .eq('user_id', anfragendeId)
+        .maybeSingle();
+      if (mitgliedError) {
+        console.error('media-urls: trip_members-Select fehlgeschlagen', mitgliedError);
+        // mitgliedschaft bleibt null: beurteileLesezugriff trifft für "keine
+        // Zeile" und "Fehler beim Abfragen" dieselbe Entscheidung (403,
+        // derselbe Text) — nur der Log-Seiteneffekt gehört hierher, nicht in
+        // die reine Funktion.
+      } else {
+        mitgliedschaft = mitgliedZeile;
+      }
     }
-    if (!mitgliedschaft) {
-      return fehler('Kein Zugriff auf diese Reise.', 403);
+
+    // Die eigentliche Versiegelungs-Prüfkette — herausgelöst nach
+    // lesenZugriff.ts, damit sie ohne laufenden Stack unit-testbar ist
+    // (lesenZugriff_test.ts). "Reise existiert → Status ist 'revealed' oder
+    // 'archived' → aufrufende Person ist Mitglied", wortgleich zur Vorfassung
+    // (Fehlertexte, Status-Codes, Reihenfolge).
+    const urteil = beurteileLesezugriff(tripRohdaten, mitgliedschaft);
+    if (!urteil.erlaubt) {
+      return fehler(urteil.nachricht, urteil.status);
     }
+    // Sicher: beurteileLesezugriff liefert erlaubt:true nur, wenn tripRohdaten
+    // nicht null war (siehe dortiger erster Zweig) — derselbe Cast-nach-
+    // Existenzprüfung-Stil wie bei postZeile weiter unten in dieser Datei.
+    const tripZeile = tripRohdaten as TripZeile;
 
     // Nur fertige Uploads: ein Moment mit upload_status 'pending' hat kein
     // vollständiges Objekt im Speicher, eine URL darauf wäre ein 404 in der
