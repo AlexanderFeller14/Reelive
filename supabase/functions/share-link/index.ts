@@ -54,6 +54,7 @@ import {
   tokenLaengePlausibel,
 } from './aufloesung.ts';
 import { erstelleAdminClient, erstelleShareStore } from './store.ts';
+import { berechneAblauf, beurteileErstellen, beurteileWiderrufen } from './verwaltung.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
@@ -76,11 +77,6 @@ const TEILEN_BASIS_URL = (Deno.env.get('TEILEN_BASIS_URL') ?? '').replace(/\/$/,
 // zurück. Nach Ablauf führt der einzige Weg zurück durch die Prüfkette dieser
 // Function — und die fragt revoked, expires_at und Reise-Status neu.
 const LESE_URL_GUELTIGKEIT_SEKUNDEN = 3600;
-
-// Obergrenze für `gueltig_tage` bei `erstellen`. Kein Sicherheitswert, sondern
-// eine Plausibilitätsgrenze: ein Link mit 100000 Tagen Laufzeit ist ein
-// Tippfehler, kein Wunsch.
-const MAX_GUELTIG_TAGE = 3650;
 
 type AnfrageBody = { aktion?: unknown; token?: unknown; trip_id?: unknown; gueltig_tage?: unknown };
 
@@ -290,17 +286,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
       return fehler('trip_id fehlt.', 400);
     }
 
-    // gueltig_tage: fehlend oder null heisst «ohne Ablauf».
-    let expiresAt: string | null = null;
-    const gueltigTage = body.gueltig_tage;
-    if (gueltigTage !== undefined && gueltigTage !== null) {
-      if (
-        typeof gueltigTage !== 'number' || !Number.isInteger(gueltigTage) ||
-        gueltigTage < 1 || gueltigTage > MAX_GUELTIG_TAGE
-      ) {
-        return fehler(`gueltig_tage muss eine ganze Zahl zwischen 1 und ${MAX_GUELTIG_TAGE} sein.`, 400);
-      }
-      expiresAt = new Date(Date.now() + gueltigTage * 86_400_000).toISOString();
+    const ablauf = berechneAblauf(body.gueltig_tage, new Date());
+    if (!ablauf.ok) {
+      return fehler(ablauf.nachricht, 400);
     }
 
     if (!TEILEN_BASIS_URL) {
@@ -313,28 +301,19 @@ Deno.serve(async (req: Request): Promise<Response> => {
       console.error('share-link: trips-Select fehlgeschlagen', tripError);
       return fehler('Reise konnte nicht geladen werden.', 500);
     }
-    if (!trip) {
-      return fehler('Reise nicht gefunden.', 404);
-    }
-    // Die Service-Role schreibt an RLS vorbei — share_links_insert_owner
-    // (20260808130000) wird bei diesem Insert gar nicht ausgewertet. Beide
-    // Bedingungen der Policy stehen deshalb hier noch einmal, als die
-    // tatsächlich wirksame Prüfung. Wortlaut wie in reveal-trip.
-    if (trip.owner_id !== anfragendeId) {
-      return fehler('Nur wer die Reise angelegt hat, kann den Recap teilen.', 403);
-    }
-    if (trip.status === 'active') {
-      // Versprechen W3, erste Hälfte: ein Share-Link auf eine nicht
-      // aufgedeckte Reise existiert gar nicht erst. Die zweite Hälfte hält
-      // beurteileToken (auch eine irgendwie entstandene Zeile löst sich
-      // nicht auf).
-      return fehler('Diese Reise ist noch versiegelt.', 409);
-    }
-    if (trip.status !== 'revealed') {
-      return fehler('Diese Reise ist archiviert. Für sie entsteht kein neuer Link mehr.', 409);
+    // Die Service-Role schreibt an RLS vorbei (`rolbypassrls`) —
+    // share_links_insert_owner (20260808130000) wird bei diesem Insert gar
+    // nicht ausgewertet. Und seit 20260808140000 hat `authenticated` überhaupt
+    // kein Schreibrecht mehr auf share_links: DIESE Prüfung ist die einzige,
+    // die «nur die Owner-Person, nur eine aufgedeckte Reise» noch erzwingt.
+    // Sie liegt deshalb als reine Funktion in verwaltung.ts und ist dort ohne
+    // Docker geprüft (verwaltung_test.ts) — nicht nur im Integrationstest.
+    const erstellUrteil = beurteileErstellen(trip, anfragendeId);
+    if (!erstellUrteil.erlaubt) {
+      return fehler(erstellUrteil.nachricht, erstellUrteil.status);
     }
 
-    const { token, error: insertError } = await store.legeLinkAn(tripId, expiresAt);
+    const { token, error: insertError } = await store.legeLinkAn(tripId, ablauf.expiresAt);
     if (insertError || !token) {
       console.error('share-link: share_links-Insert fehlgeschlagen', insertError);
       return fehler('Link konnte nicht erstellt werden.', 500);
@@ -359,12 +338,11 @@ Deno.serve(async (req: Request): Promise<Response> => {
     }
 
     // EINE Antwort für «Token gibt es nicht» und «Token gehört jemand
-    // anderem». Das ist kein Detail: `aufloesen` gibt sich alle Mühe, kein
-    // Orakel zu sein — wäre `widerrufen` eines, liesse sich die Existenz
-    // eines Tokens hier prüfen, mit nichts weiter als einem beliebigen
-    // eigenen Konto. Ein 403 «gehört dir nicht» wäre genau diese Auskunft.
-    if (!besitzer || besitzer.owner_id !== anfragendeId) {
-      return fehler('Diesen Link gibt es nicht.', 404);
+    // anderem» — die Begründung und die gefrorene Konstante stehen in
+    // verwaltung.ts, geprüft ohne Docker in verwaltung_test.ts.
+    const widerrufUrteil = beurteileWiderrufen(besitzer, anfragendeId);
+    if (!widerrufUrteil.erlaubt) {
+      return fehler(widerrufUrteil.nachricht, widerrufUrteil.status);
     }
 
     // Idempotent: ein zweiter Widerruf ist kein Fehler. Das Update setzt

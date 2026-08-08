@@ -1,0 +1,102 @@
+-- ----------------------------------------------------------------------------
+-- share_links: `authenticated` schreibt gar nicht mehr direkt.
+--
+-- Der Befund (Task 2 dieser Phase): `20260803090500_social_rls.sql` erteilt
+-- `grant select, insert, update, delete on public.share_links to authenticated`
+-- — ohne Spalten-Einschränkung. Über einen direkten PostgREST-Aufruf konnte die
+-- Owner-Person damit dreierlei, was kein Entwurf je vorgesehen hat:
+--
+--   1. Einen Link mit SELBSTGEWÄHLTEM Token anlegen. `share_links.token` ist
+--      `text` mit Default `encode(gen_random_bytes(16),'hex')` — ein Default
+--      greift nur, wenn die Spalte beim Insert fehlt. Ein Client konnte also
+--      einen Link mit dem Token 'a' erzeugen.
+--
+--      Das ist der schwerste der drei Punkte, weil daran der ganze öffentliche
+--      Leseweg hängt: Die Prüfkette in functions/share-link/aufloesung.ts, die
+--      bewusste Entscheidung der Spec gegen eine eigene Ratenbegrenzung («der
+--      Raum ist gross genug, dass Raten sinnlos ist», Spec §5.1) und das
+--      Zeitverhalten der vier byte-gleichen Ablehnungen setzen ALLE 2^128
+--      voraus. Solange ein Client den Token selbst bestimmen kann, ist diese
+--      Zahl eine Konvention des Clients und keine Zusicherung des Servers.
+--
+--   2. Einen widerrufenen Link WIEDERBELEBEN (`update … set revoked = false`).
+--      Spec §5.1 begründet das Flag statt eines Delete damit, dass «ein
+--      widerrufener Link unterscheidbar bleiben soll von einem, den es nie gab,
+--      damit ein Support-Fall beantwortbar ist». Ist `revoked` in beide
+--      Richtungen schaltbar, ist «dieser Link wurde am 3. widerrufen» keine
+--      haltbare Aussage mehr.
+--
+--   3. Den Token einer bereits geteilten Zeile nachträglich umschreiben —
+--      dieselbe Wirkung wie 1., nur an einer Zeile, die schon in fremden Händen
+--      ist.
+--
+-- Alles drei betrifft nur die eigene Reise, ist also kein Angriff auf Fremde.
+-- Aber die Momente in dieser Reise gehören allen Mitreisenden, nicht der
+-- Owner-Person — und ausgelöst wird es nicht von einem Angreifer, sondern von
+-- einem manipulierten oder schlicht falsch gebauten Client.
+--
+-- ----------------------------------------------------------------------------
+-- Der Entscheid: nein, ein Client schreibt hier nicht mehr direkt.
+-- ----------------------------------------------------------------------------
+-- Der Weg über die Edge Function ist gebaut und geprüft
+-- (supabase/functions/share-link). Der direkte Schreibweg war nie Teil eines
+-- Entwurfs — der Kommentar in 20260803090500_social_rls.sql:35-37 sagt es
+-- wörtlich: «Öffentliche Auflösung eines Tokens läuft NIE über diese Tabelle
+-- direkt, sondern über eine Edge Function mit Service-Role (Phase 6).» Er ist
+-- seit Phase 1 offen geblieben, weil es die Function noch nicht gab.
+--
+-- Was `authenticated` danach noch darf, und warum genau das:
+--
+--   select  BLEIBT. Die App muss anzeigen können, ob für eine Reise schon ein
+--           Link existiert und ob er widerrufen ist (Spec §5.3: «falls schon
+--           einer existiert — Link deaktivieren»). Lesen kann nichts kaputt
+--           machen, und `share_links_select_owner` grenzt es auf die eigenen
+--           Reisen ein. Eine eigene Function-Aktion dafür wäre eine zweite
+--           Schnittstelle für etwas, das die Policy bereits richtig löst.
+--
+--   insert  WEG. Erzeugt wird ausschliesslich über die Aktion `erstellen`, und
+--           die schickt die Spalte `token` bewusst nicht mit — der Zufall kommt
+--           aus pgcrypto, nicht aus einem Client und nicht aus dem
+--           Edge-Runtime (functions/share-link/store.ts, legeLinkAn).
+--
+--   update  WEG. Widerrufen läuft über die Aktion `widerrufen`, und die setzt
+--           `revoked` nur auf true. Ein Zurückschalten gibt es damit nirgends
+--           mehr — auch nicht in der Function.
+--
+--   delete  WEG, und das ist keine Nebenwirkung, sondern gewollt: Spec §5.1
+--           verlangt ausdrücklich «Kein Löschen». Eine gelöschte Zeile ist für
+--           eine spätere Rechenschaft wertlos. Die Function hat aus demselben
+--           Grund gar keine Lösch-Aktion. (Kaskaden bleiben unberührt: löscht
+--           jemand die Reise oder sein Konto, verschwinden die Zeilen über
+--           `on delete cascade` — das ist ein Tabellen-Constraint, kein
+--           Privileg.)
+--
+-- ----------------------------------------------------------------------------
+-- Warum die vier Policies aus 20260808130000 trotzdem stehen bleiben
+-- ----------------------------------------------------------------------------
+-- Ohne Grant sind die drei Schreib-Policies heute unerreichbar: Postgres prüft
+-- das Tabellen-Privileg, bevor RLS überhaupt ausgewertet wird. Sie bleiben als
+-- ZWEITE Schicht: Wer in einer späteren Phase ein Schreibrecht zurückgibt —
+-- versehentlich oder für ein neues Feature —, öffnet damit nicht die Tabelle,
+-- sondern trifft weiterhin auf «nur die Owner-Person, nur eine aufgedeckte
+-- Reise». Zwei Schlösser, von denen jedes allein hält.
+--
+-- Damit diese zweite Schicht keine ungeprüfte Behauptung ist, stellt
+-- supabase/tests/15_share_links_test.sql die Grants innerhalb der
+-- Test-Transaktion kurz wieder her (und rollt sie mit zurück) und prüft die
+-- Policies genau in dem Zustand, für den sie gedacht sind.
+--
+-- ----------------------------------------------------------------------------
+-- Was das für die Function bedeutet: nichts wird leichter
+-- ----------------------------------------------------------------------------
+-- `service_role` trägt in diesem Image `rolbypassrls = true` — RLS wird für die
+-- Edge Function also gar nicht ausgewertet, weder vorher noch nachher. Die
+-- Prüfungen «gehört die Reise der anfragenden Person?» und «ist sie
+-- aufgedeckt?» liegen deshalb dort, wo sie wirken: in
+-- functions/share-link/verwaltung.ts, als reine Funktionen mit eigenen Tests
+-- (verwaltung_test.ts, ohne Docker). Diese Migration verschiebt keine
+-- Zusicherung in die Function — sie hält nur fest, dass die Function ab jetzt
+-- der einzige Weg dorthin ist.
+-- ----------------------------------------------------------------------------
+
+revoke insert, update, delete on public.share_links from authenticated;

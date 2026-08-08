@@ -1,6 +1,6 @@
 create extension if not exists pgtap with schema extensions;
 begin;
-select plan(19);
+select plan(18);
 
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-00000000000a', 'anna@test.local'),
@@ -126,18 +126,35 @@ select pg_temp.login_as('00000000-0000-0000-0000-00000000000b');
 select is(count(*)::int, 0, 'reports_select_owner: Nicht-Owner sieht die Meldung nicht')
   from public.reports where post_id = '22222222-2222-2222-2222-222222222222';
 
--- share_links: nur der Owner verwaltet sie
+-- share_links: kein angemeldeter Client schreibt hier mehr direkt.
+--
+-- Bis 20260808140000_share_links_nur_edge_function.sql standen hier zwei
+-- Assertions: Ben (Mitglied, nicht Owner) wird abgewiesen, Anna (Owner) darf
+-- anlegen. Der Positivpfad ist entfallen — nicht weil die Zusicherung
+-- weggefallen wäre, sondern weil sie umgezogen ist: Angelegt wird
+-- ausschliesslich über die Edge Function `share-link` (Aktion `erstellen`, mit
+-- Service-Role), und `authenticated` hat auf share_links nur noch `select`.
+-- Der Grund steht ausführlich in jener Migration; kurz: `token` ist `text` mit
+-- Default, ein Default greift nur bei fehlender Spalte, und damit konnte sich
+-- ein Client seinen eigenen — beliebig kurzen — Token aussuchen.
+--
+-- Wo die Zusicherungen jetzt liegen:
+--   * «nur der Owner, nur eine aufgedeckte Reise»
+--     -> supabase/functions/share-link/verwaltung.ts (beurteileErstellen),
+--        geprüft in verwaltung_test.ts ohne Docker
+--   * «authenticated schreibt gar nicht»
+--     -> supabase/tests/15_share_links_test.sql, Abschnitt A
+--   * «die Policies halten trotzdem, falls je wieder ein Grant kommt»
+--     -> dieselbe Datei, Abschnitt B (Grant innerhalb der Transaktion)
+--
+-- Bens Ablehnung bleibt hier stehen. Sie schlägt jetzt schon am fehlenden
+-- Tabellen-Privileg fehl statt an der Policy — derselbe SQLSTATE, ein anderer
+-- Mechanismus, und in beiden Fällen die richtige Antwort.
 select pg_temp.login_as('00000000-0000-0000-0000-00000000000b');
 select throws_ok(
   $$insert into public.share_links (trip_id)
     values ('11111111-1111-1111-1111-111111111111')$$,
-  '42501', null, 'Nur der Owner erstellt Share-Links');
-
--- Positivpfad (Finding 2 — bisher nur Bens Ablehnung getestet): der Owner
--- erstellt einen Share-Link auf dem revealed Trip.
-select pg_temp.login_as('00000000-0000-0000-0000-00000000000a');
-insert into public.share_links (trip_id) values ('11111111-1111-1111-1111-111111111111');
-select pass('share_links_all_owner: Owner erstellt Share-Link auf revealed Trip');
+  '42501', null, 'Kein angemeldeter Client legt Share-Links direkt an');
 
 -- Autorisierte Erweiterung (Task-5-Review): Testabdeckung für
 -- posts_delete_after_reveal NACH dem Reveal — Fremde löschen nicht,
