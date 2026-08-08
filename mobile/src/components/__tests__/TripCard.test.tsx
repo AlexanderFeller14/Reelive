@@ -46,21 +46,36 @@ test('aufgedeckte Reise trägt sie nicht', async () => {
 });
 
 // Task 10: «entwickelte» Reisen (revealed/archived) tragen statt der
-// Versiegelt-Pille eine Play-Einladung — Gegenprobe zum Test oben, der nur
+// Versiegelt-Pille eine Play-Einladung, aber NUR wenn der Aufrufer das per
+// `alsRecap` ausdrücklich anfordert — Gegenprobe zum Test oben, der nur
 // belegt, dass die alte Pille FEHLT, nicht dass etwas Sinnvolles an ihre
 // Stelle tritt.
-test('aufgedeckte Reise trägt die Recap-Play-Pille', async () => {
+test('aufgedeckte Reise trägt mit alsRecap die Recap-Play-Pille', async () => {
+  await wrap(<TripCard trip={{ ...trip, status: 'revealed' }} alsRecap onPress={jest.fn()} />);
+  expect(screen.getByText('Recap ansehen')).toBeTruthy();
+});
+
+test('archivierte Reise trägt sie mit alsRecap ebenfalls', async () => {
+  await wrap(<TripCard trip={{ ...trip, status: 'archived' }} alsRecap onPress={jest.fn()} />);
+  expect(screen.getByText('Recap ansehen')).toBeTruthy();
+});
+
+test('laufende Reise trägt die Play-Pille nicht, selbst mit alsRecap', async () => {
+  await wrap(<TripCard trip={trip} alsRecap onPress={jest.fn()} />);
+  expect(screen.queryByText('Recap ansehen')).toBeNull();
+});
+
+// Review Task 10, Important 1: ohne `alsRecap` (der Reise-Tab lässt es weg,
+// siehe reise/index.tsx) bleibt eine aufgedeckte Reise ohne jede Pille — ein
+// Tipp dort führt in die Reise-Verwaltung, nicht in den Recap, «Recap
+// ansehen» wäre ein Versprechen gewesen, das der Tipp nicht einlöst.
+test('ohne alsRecap zeigt eine aufgedeckte Reise keine Pille', async () => {
   await wrap(<TripCard trip={{ ...trip, status: 'revealed' }} onPress={jest.fn()} />);
-  expect(screen.getByText('Recap ansehen')).toBeTruthy();
+  expect(screen.queryByText('Recap ansehen')).toBeNull();
 });
 
-test('archivierte Reise trägt sie ebenfalls', async () => {
+test('ohne alsRecap gilt das auch für eine archivierte Reise', async () => {
   await wrap(<TripCard trip={{ ...trip, status: 'archived' }} onPress={jest.fn()} />);
-  expect(screen.getByText('Recap ansehen')).toBeTruthy();
-});
-
-test('laufende Reise trägt die Play-Pille nicht', async () => {
-  await wrap(<TripCard trip={trip} onPress={jest.fn()} />);
   expect(screen.queryByText('Recap ansehen')).toBeNull();
 });
 

@@ -14,18 +14,35 @@ import type { Trip } from '@/features/trips/types';
 //
 // Task 10 (Recap-Tab): zwei Kartenzustände statt einem. `active` bleibt
 // unverändert — die Versiegelt-Pille ist reine Symbolik (Icon in `seal`,
-// §1: "seal = Versiegelungs-Symbolik"). `revealed`/`archived` («entwickelt»,
+// §1: "seal = Versiegelungs-Symbolik") und hängt allein an `trip.status`,
+// unabhängig davon, wo die Karte steht. `revealed`/`archived` («entwickelt»,
 // Konzept §5.2 "Cover-Collage, «Recap ansehen»-Play-Button") zeigt an
 // derselben Stelle stattdessen eine Pille mit Play-Icon in `accent-text` —
-// das ist eine Einladung zum Antippen, keine Symbolik, deshalb der
-// Interaktions-Ton statt seal (§1: "accent = Interaktion, seal =
+// aber NUR, wenn der Aufrufer das per `alsRecap` ausdrücklich anfordert
+// (Review Task 10, Important 1). Ohne dieses Flag hätte JEDE aufgedeckte
+// Reise überall, wo TripCard steht, «Recap ansehen» getragen — auch in
+// reise/index.tsx, wo ein Tipp auf die Karte in den Reise-Detail-Screen
+// führt, nicht in den Recap. Die Pille wäre dort ein Versprechen gewesen,
+// das der Tipp nicht einlöst. Der Recap-Tab (die einzige Stelle, an der ein
+// Tipp tatsächlich die Übersicht öffnet) setzt `alsRecap`, der Reise-Tab
+// lässt es weg und zeigt aufgedeckte Reisen weiterhin ohne jede Pille —
+// genau der Stand vor diesem Task.
+//
+// `accent` statt `seal`, weil das Antippen dort, wo die Pille steht, eine
+// Interaktion ist, keine Symbolik (§1: "accent = Interaktion, seal =
 // Versiegelungs-Symbolik. Nie mischen."). Die Pille liegt unter derselben
 // PressScale wie die ganze Karte und ist kein eigenes Tap-Ziel — sie zeigt
 // nur an, was ein Tipp auf die Karte auslöst (Übersicht).
-export function TripCard({ trip, onPress }: { trip: Trip; onPress: () => void }) {
+export function TripCard({
+  trip, onPress, alsRecap = false,
+}: {
+  trip: Trip;
+  onPress: () => void;
+  alsRecap?: boolean;
+}) {
   const { colors } = useTheme();
   const momente = `${trip.my_post_count} ${trip.my_post_count === 1 ? 'Moment' : 'Momente'}`;
-  const aufgedeckt = trip.status !== 'active';
+  const aufgedeckt = alsRecap && trip.status !== 'active';
 
   return (
     <PressScale scaleTo={0.98} accessibilityRole="button" onPress={onPress}>

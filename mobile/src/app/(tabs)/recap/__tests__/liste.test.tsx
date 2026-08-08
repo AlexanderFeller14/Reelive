@@ -83,5 +83,29 @@ test('eine Karte führt in die Übersicht dieser Reise', async () => {
   (fetchTrips as jest.Mock).mockResolvedValue(geladen([recap]));
   await wrap();
   await fireEvent.press(await screen.findByText('Lissabon Städtetrip'));
-  expect(mockPush).toHaveBeenCalledWith({ pathname: '/recap/[id]/uebersicht', params: { id: 't2' } });
+  expect(mockPush).toHaveBeenCalledWith('/recap/t2/uebersicht');
+});
+
+// Review Task 10, Important 1: die Karte trägt hier `alsRecap` — ein Tipp
+// führt tatsächlich in die Übersicht (siehe Test oben), die Pille darf hier
+// also stehen (anders als auf dem Reise-Tab, siehe TripCard.test.tsx).
+test('eine Recap-Karte trägt die Play-Pille', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([recap]));
+  await wrap();
+  expect(await screen.findByText('Recap ansehen')).toBeTruthy();
+});
+
+// Review Task 10, Important 2 (M2): `geladen &&` in der `leer`-Bedingung
+// entfernt hätte «Noch kein Recap» schon WÄHREND des Ladens gezeigt, obwohl
+// `trips` zu diesem Zeitpunkt nur deshalb leer ist, weil noch nichts
+// angekommen ist — keine Aussage über die Daten der Person. `fetchTrips`
+// bleibt hier absichtlich unaufgelöst hängen, bis der Test es selbst freigibt.
+test('während des Ladens erscheint der leere Zustand nicht', async () => {
+  let freigeben: (v: { data: unknown[]; error: null }) => void = () => {};
+  (fetchTrips as jest.Mock).mockReturnValue(new Promise((res) => { freigeben = res; }));
+  await wrap();
+  expect(screen.queryByText('Noch kein Recap')).toBeNull();
+
+  freigeben(geladen([]));
+  expect(await screen.findByText('Noch kein Recap')).toBeTruthy();
 });

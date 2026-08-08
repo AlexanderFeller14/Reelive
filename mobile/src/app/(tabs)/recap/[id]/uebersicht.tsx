@@ -45,10 +45,14 @@ function tagesueberschrift(tag: RecapTag): string {
   return teile.join(' · ');
 }
 
-// Singular/Plural wie überall sonst im Projekt (z.B. wartendText in
-// reise/[id]/index.tsx): die Zahl bleibt auch im Singular stehen.
-function hochladenText(anzahl: number): string {
-  return `${anzahl} ${anzahl === 1 ? 'Moment wird' : 'Momente werden'} noch hochgeladen.`;
+// Gleiche Formulierung wie `wartendText` im Schwester-Screen
+// (reise/[id]/index.tsx) für denselben Zustand — «hochladen» steht in
+// DESIGN-LANGUAGE §6 auf der Nie-Liste des Vokabulars («einsenden», nie
+// «hochladen»); der Brief hatte den Satz nur als Beispiel vorgegeben, nicht
+// als Zitat (Review Task 10, Kleinigkeit). Singular/Plural wie überall sonst
+// im Projekt: die Zahl bleibt auch im Singular stehen.
+function unterwegsText(anzahl: number): string {
+  return `${anzahl} ${anzahl === 1 ? 'Moment ist' : 'Momente sind'} noch unterwegs.`;
 }
 
 // Task-10-Brief, zweiter Hinweis: `ausgelassen` ist etwas ANDERES als
@@ -91,10 +95,10 @@ function SkelettBlock({ style }: { style: object }) {
 function SkelettScreen() {
   const { colors } = useTheme();
   return (
-    <View style={{ flex: 1, backgroundColor: colors['bg-0'] }}>
+    <View testID="recap-skeleton" style={{ flex: 1, backgroundColor: colors['bg-0'] }}>
       <View style={styles.inhalt}>
         <SkelettBlock style={{ width: 160, height: 30, borderRadius: radius.control }} />
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', marginTop: spacing.xl }}>
+        <View style={[styles.kachelRaster, { marginTop: spacing.xl }]}>
           {Array.from({ length: 9 }).map((_, i) => (
             <SkelettBlock key={i} style={styles.kachel} />
           ))}
@@ -116,7 +120,7 @@ function TagesAbschnitt({
   return (
     <View style={{ gap: spacing.m }}>
       <Text style={[type.h2, { color: colors['text-1'] }]}>{tagesueberschrift(tag)}</Text>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' }}>
+      <View style={styles.kachelRaster}>
         {tag.momente.map((m) => {
           const url = urls.get(m.id);
           const index = indexById.get(m.id);
@@ -136,6 +140,7 @@ function TagesAbschnitt({
             >
               <View style={[styles.kachel, { backgroundColor: colors['bg-1'] }]}>
                 <Image
+                  testID={`recap-bild-${m.id}`}
                   source={{ uri: url.thumb_url ?? url.medium_url }}
                   style={StyleSheet.absoluteFill}
                   contentFit="cover"
@@ -274,7 +279,7 @@ export default function RecapUebersicht() {
         {!fehler && (pendingAnzahl > 0 || ausgelassenAnzahl > 0) && (
           <View style={{ gap: spacing.xs, marginTop: spacing.xl }}>
             {pendingAnzahl > 0 && (
-              <Text style={[type.secondary, { color: colors['text-2'] }]}>{hochladenText(pendingAnzahl)}</Text>
+              <Text style={[type.secondary, { color: colors['text-2'] }]}>{unterwegsText(pendingAnzahl)}</Text>
             )}
             {ausgelassenAnzahl > 0 && (
               <Text style={[type.secondary, { color: colors['text-2'] }]}>{ausgelassenText(ausgelassenAnzahl)}</Text>
@@ -289,9 +294,13 @@ export default function RecapUebersicht() {
 const styles = StyleSheet.create({
   inhalt: { padding: spacing.screen, paddingTop: spacing.xl, paddingBottom: spacing.xxl, gap: spacing.m },
   kopfzeile: { flexDirection: 'row', alignItems: 'center' },
-  // Drei Spalten, kleine Lücke aus dem 4er-Raster; `space-between` erledigt
-  // den horizontalen Abstand ohne `gap` (RN-`gap` in Kombination mit
-  // `flexWrap` UND `justifyContent` streut hier ungleich, `space-between`
-  // ist die verlässlichere Variante für ein gleichmässiges 3er-Raster).
-  kachel: { width: '31.5%', aspectRatio: 1, borderRadius: radius.control, marginBottom: spacing.xs, overflow: 'hidden' },
+  // Drei Spalten. Lücke explizit `spacing.xs` über `columnGap`/`rowGap` —
+  // NICHT über `justifyContent: 'space-between'` (Review Task 10, Minor):
+  // das liess die Lücke aus dem verbleibenden Rest-Raum entstehen, je nach
+  // Gerätebreite unterschiedlich gross und nie exakt aus dem 4er-Raster.
+  // `columnGap`/`rowGap` sind seit RN 0.71 vollwertig, auch kombiniert mit
+  // `flexWrap` — die Lücke ist damit immer exakt `spacing.xs`, unabhängig
+  // von der Gerätebreite.
+  kachelRaster: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-start', columnGap: spacing.xs, rowGap: spacing.xs },
+  kachel: { width: '31.5%', aspectRatio: 1, borderRadius: radius.control, overflow: 'hidden' },
 });

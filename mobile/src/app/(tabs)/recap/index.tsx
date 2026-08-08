@@ -1,20 +1,13 @@
 import { useCallback, useRef, useState } from 'react';
 import { ScrollView, Text, View, StyleSheet } from 'react-native';
-import { useFocusEffect, useRouter, type Href } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { TripCard } from '@/components/TripCard';
 import { Button } from '@/components/Button';
 import { useTheme } from '@/theme/ThemeProvider';
 import { spacing, type } from '@/theme/tokens';
 import { fetchTrips } from '@/features/trips/tripsApi';
+import { groupTrips } from '@/features/trips/tripDay';
 import type { Trip } from '@/features/trips/types';
-
-// «Entwickelt» ist jede Reise, die kein Geheimnis mehr ist — 'revealed' UND
-// 'archived' (Task-10-Brief: "status in ('revealed','archived')"). 'active'
-// erscheint hier nie: eine laufende Reise hat höchstens ein Versprechen auf
-// einen Recap, keinen — die gehört auf den Reise-Tab, nicht hierher.
-function nurRecaps(trips: Trip[]): Trip[] {
-  return trips.filter((t) => t.status !== 'active');
-}
 
 export default function RecapListe() {
   const { colors } = useTheme();
@@ -57,7 +50,10 @@ export default function RecapListe() {
     }, [laden])
   );
 
-  const recaps = nurRecaps(trips);
+  // Dieselbe Filterung wie in reise/index.tsx, dort schon als groupTrips
+  // gebaut — keine zweite, gleichlautende Funktion für dasselbe Kriterium
+  // (Review Task 10, Kleinigkeit).
+  const { recaps } = groupTrips(trips);
   const leer = geladen && !fehler && recaps.length === 0;
 
   return (
@@ -87,15 +83,8 @@ export default function RecapListe() {
               <TripCard
                 key={t.id}
                 trip={t}
-                onPress={() =>
-                  // `/recap/[id]/uebersicht` entsteht erst in diesem Task und fehlt
-                  // darum noch in der generierten (gitignorten) Routen-Liste
-                  // `.expo/types/router.d.ts` — gleiche, in `aufnehmen/index.tsx`
-                  // bereits etablierte Übergangslösung wie dort für
-                  // `/aufnehmen/preview` (siehe Kommentar dort). Entfällt, sobald
-                  // die Typen einmal mit laufendem Metro-Bundler neu erzeugt wurden.
-                  router.push({ pathname: '/recap/[id]/uebersicht', params: { id: t.id } } as unknown as Href)
-                }
+                alsRecap
+                onPress={() => router.push(`/recap/${t.id}/uebersicht`)}
               />
             ))}
           </View>

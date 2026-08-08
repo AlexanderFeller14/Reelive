@@ -99,6 +99,12 @@ export default function ReiseListe() {
         {recaps.length > 0 && (
           <View style={{ gap: spacing.l }}>
             <Text style={[type.h2, { color: colors['text-1'] }]}>Recaps</Text>
+            {/* Bewusst OHNE `alsRecap`: ein Tipp hier führt in die Reise-
+                Verwaltung (Mitglieder, Bearbeiten, Einladen), nicht in die
+                Recap-Übersicht — die «Recap ansehen»-Pille wäre hier ein
+                Versprechen, das der Tipp nicht einlöst (Review Task 10,
+                Important 1). Der Recap-Tab setzt `alsRecap`, weil dort ein
+                Tipp tatsächlich die Übersicht öffnet. */}
             {recaps.map((t) => (
               <TripCard key={t.id} trip={t} onPress={() => router.push(`/reise/${t.id}`)} />
             ))}
