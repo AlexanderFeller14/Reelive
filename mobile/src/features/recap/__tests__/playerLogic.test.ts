@@ -5,6 +5,7 @@ import {
   tagWechselt,
   FOTO_DAUER_MS,
   VIDEO_DAUER_FALLBACK_MS,
+  VIDEO_DAUER_MIN_MS,
   type PlayerStand,
 } from '../playerLogic';
 import type { RecapMoment } from '../types';
@@ -29,28 +30,60 @@ function moment(overrides: Partial<RecapMoment>): RecapMoment {
 }
 
 describe('dauerFuer', () => {
-  test('ein Foto dauert immer FOTO_DAUER_MS', () => {
-    expect(dauerFuer(moment({ type: 'photo', duration_s: null }))).toBe(FOTO_DAUER_MS);
+  // Literal-Assert statt nur "gegen sich selbst" (Review-Fund): ein Test,
+  // der dauerFuer(...) nur gegen FOTO_DAUER_MS vergleicht, bleibt grün, auch
+  // wenn die Konstante selbst mutiert (Implementierung gegen Implementierung
+  // geprüft). Spec §8.2: Fotos laufen 5 Sekunden — das ist die Zahl, die
+  // zählt, unabhängig vom Namen der Konstante.
+  test('FOTO_DAUER_MS ist 5000 (Spec §8.2: Fotos laufen 5 Sekunden)', () => {
+    expect(FOTO_DAUER_MS).toBe(5000);
+  });
+
+  test('ein Foto dauert immer FOTO_DAUER_MS (5000 ms)', () => {
+    expect(dauerFuer(moment({ type: 'photo', duration_s: null }))).toBe(5000);
     // Ein duration_s auf einem Foto (sollte laut Schema nie vorkommen) darf
     // die Dauer trotzdem nicht verändern — Fotos hängen NIE von duration_s ab.
-    expect(dauerFuer(moment({ type: 'photo', duration_s: 42 }))).toBe(FOTO_DAUER_MS);
+    expect(dauerFuer(moment({ type: 'photo', duration_s: 42 }))).toBe(5000);
   });
 
   test('ein Video dauert duration_s * 1000', () => {
     expect(dauerFuer(moment({ type: 'video', duration_s: 12 }))).toBe(12_000);
   });
 
-  // 0 ist ein gültiger, aber falsy Wert — eine Implementierung, die
-  // `duration_s ? … : Fallback` statt `duration_s === null` prüft, würde
-  // hier fälschlich den Fallback liefern. Dieser Test unterscheidet beide.
-  test('duration_s = 0 liefert 0, nicht den Fallback (falsy ist nicht null)', () => {
-    expect(dauerFuer(moment({ type: 'video', duration_s: 0 }))).toBe(0);
+  // Ein Boden verhindert, dass ein sehr kurzer/kaputter duration_s-Wert
+  // (0 ist laut Check-Constraint technisch gültig) den Moment faktisch
+  // unsichtbar macht — der Fortschrittsbalken würde sonst augenblicklich
+  // füllen. 0 ist gleichzeitig ein gültiger, aber FALSY Wert — eine
+  // Implementierung, die `duration_s ? … : Fallback` statt `=== null`
+  // prüft, würde hier fälschlich den (viel längeren) Fallback statt des
+  // Bodens liefern; dieser Test verlangt explizit den Boden, nicht 0 und
+  // nicht VIDEO_DAUER_FALLBACK_MS.
+  test('duration_s = 0 liefert den Boden VIDEO_DAUER_MIN_MS, nicht 0 und nicht den Fallback', () => {
+    expect(dauerFuer(moment({ type: 'video', duration_s: 0 }))).toBe(VIDEO_DAUER_MIN_MS);
   });
 
-  test('ein Video ohne duration_s (nullable Spalte) bekommt den benannten Rückfallwert, kein NaN', () => {
+  test('ein sehr kurzer, aber echter duration_s-Wert wird ebenfalls auf den Boden angehoben', () => {
+    // 0.5 s * 1000 = 500 ms, unter dem Boden von VIDEO_DAUER_MIN_MS.
+    expect(dauerFuer(moment({ type: 'video', duration_s: 0.5 }))).toBe(VIDEO_DAUER_MIN_MS);
+  });
+
+  test('ein Video mit ausreichender Dauer bleibt UNTER dem Boden unangetastet (Boden hebt nur an, kappt nicht)', () => {
+    expect(dauerFuer(moment({ type: 'video', duration_s: 12 }))).toBe(12_000);
+    expect(12_000).toBeGreaterThan(VIDEO_DAUER_MIN_MS);
+  });
+
+  test('ein Video ohne duration_s (nullable Spalte, Verteidigungsfall) bekommt den benannten Rückfallwert, kein NaN', () => {
     const dauer = dauerFuer(moment({ type: 'video', duration_s: null }));
     expect(Number.isNaN(dauer)).toBe(false);
     expect(dauer).toBe(VIDEO_DAUER_FALLBACK_MS);
+  });
+
+  // VIDEO_DAUER_FALLBACK_MS muss mindestens die laut Check-Constraint
+  // maximal zulässige Videolänge (30 s) abdecken (Review-Fund) — sonst
+  // schneidet der Fallback ein legales, aber dauer-loses Video mitten im
+  // Bild ab.
+  test('VIDEO_DAUER_FALLBACK_MS ist mindestens 30 Sekunden (maximal zulässige Videolänge laut Check-Constraint)', () => {
+    expect(VIDEO_DAUER_FALLBACK_MS).toBeGreaterThanOrEqual(30_000);
   });
 });
 
@@ -198,16 +231,73 @@ describe('tagWechselt', () => {
     expect(tagWechselt([abflugOslo, ankunftTokyo], startDate, 1)).toBe(true);
   });
 
-  // Ein Moment mit unbrauchbarem captured_tz kostet laut tage.ts höchstens
-  // sich selbst (er fehlt in gruppiereNachTagens Ergebnis) — tagWechselt
-  // darf dabei weder werfen noch die Zuordnung der Nachbarn durcheinander
-  // bringen.
-  test('ein Moment mit ungültigem captured_tz wirft nicht, benachbarte Momente bleiben korrekt zugeordnet', () => {
+  // Review-Fund, Important 3/4: der ursprüngliche Test prüfte hier NUR
+  // not.toThrow() — die eigentliche Designentscheidung (id-basierte
+  // Zuordnung statt Position im ggf. verkürzten Ergebnis von
+  // gruppiereNachTagen) war dadurch durch keinen einzigen Rückgabewert
+  // gedeckt. Ein Mutant, der stattdessen positional in eine geflachte
+  // Ausgabe indiziert (`gruppiereNachTagen(...).flatMap(t => t.momente.map(
+  // () => t.nummer))`, dann `flach[index] !== flach[index - 1]`), blieb bei
+  // reinem not.toThrow() unbemerkt grün.
+  //
+  // Fall A: der verworfene Moment liegt INNERHALB eines Tages (a, kaputt, b
+  // sind real alle Tag 1). Review-Fund, Important 4: ein fehlender
+  // Map-Eintrag auf EINER Seite gilt als "kein Wechsel" (false), nicht als
+  // Wechsel — sonst kündigt der Player denselben Tag zweimal an (an kaputts
+  // Position UND an b's Position direkt danach).
+  test('ein verworfener Moment INNERHALB eines Tages erzeugt keine falsche Tages-Zwischenkarte (weder an seiner Position noch danach)', () => {
     const a = moment({ id: 'a', captured_at: '2026-08-01T09:00:00.000Z', captured_tz: 'Europe/Zurich' });
     const kaputt = moment({ id: 'kaputt', captured_at: '2026-08-01T10:00:00.000Z', captured_tz: 'Nicht/Existent' });
     const b = moment({ id: 'b', captured_at: '2026-08-01T11:00:00.000Z', captured_tz: 'Europe/Zurich' });
     const momente = [a, kaputt, b];
     expect(() => tagWechselt(momente, startDate, 1)).not.toThrow();
-    expect(() => tagWechselt(momente, startDate, 2)).not.toThrow();
+    expect(tagWechselt(momente, startDate, 1)).toBe(false); // an kaputts Position
+    expect(tagWechselt(momente, startDate, 2)).toBe(false); // an b's Position, direkt danach
+  });
+
+  // Fall B: der verworfene Moment liegt GENAU AN einer echten Tagesgrenze
+  // (a ist Tag 1, b ist Tag 2). Der bewusste Kompromiss aus Important 4:
+  // auch hier liefert tagWechselt an beiden Nachbarpositionen false — der
+  // echte Wechsel wird nicht angezeigt, weil sein einziger unmittelbarer
+  // Zeuge der verworfene Moment gewesen wäre. Das ist zugleich der Test, der
+  // eine positionale Re-Implementierung am schärfsten von der id-basierten
+  // unterscheidet: gruppiereNachTagen liefert für [a, kaputt, b] nur zwei
+  // Tage mit je einem Moment (kaputt fehlt), macht eine geflachte Ausgabe
+  // `[1, 2]` (Länge 2) — `flach[2]` wäre dort `undefined` (Index aus dem
+  // 3-elementigen `momente` direkt in die 2-elementige Ausgabe gespiegelt)
+  // und `undefined !== 2` läge fälschlich bei `true`.
+  test('ein verworfener Moment GENAU AN einer Tagesgrenze zeigt an keiner Nachbarposition einen Wechsel (dokumentierter Kompromiss)', () => {
+    const a = moment({ id: 'a', captured_at: '2026-08-01T09:00:00.000Z', captured_tz: 'Europe/Zurich' });
+    const kaputt = moment({ id: 'kaputt', captured_at: '2026-08-01T10:00:00.000Z', captured_tz: 'Nicht/Existent' });
+    const b = moment({ id: 'b', captured_at: '2026-08-02T09:00:00.000Z', captured_tz: 'Europe/Zurich' });
+    const momente = [a, kaputt, b];
+    expect(tagWechselt(momente, startDate, 1)).toBe(false);
+    expect(tagWechselt(momente, startDate, 2)).toBe(false);
+  });
+
+  // Review-Fund, Important 5: tagWechselt memoisiert die Tagesnummern über
+  // die Array-REFERENZ von `momente` (WeakMap), damit ein Player mit
+  // hunderten Momenten nicht pro Momentwechsel erneut gruppiereNachTagen
+  // (und damit pro Moment ein frisches Intl.DateTimeFormat) aufbaut. Ein
+  // Cache, der stattdessen z.B. nach Länge oder startDate allein schlüsselte
+  // (statt nach der Referenz), würde zwei verschiedene, gleich lange Listen
+  // verwechseln — dieser Test ruft beide verschachtelt auf und verlangt,
+  // dass jede ihr eigenes, korrektes Ergebnis behält.
+  test('zwei verschiedene momente-Arrays gleicher Länge werden unabhängig zwischengespeichert, keine Verwechslung', () => {
+    const listeA = [
+      moment({ id: 'a1', captured_at: '2026-08-01T09:00:00.000Z' }),
+      moment({ id: 'a2', captured_at: '2026-08-01T15:00:00.000Z' }), // gleicher Tag wie a1
+    ];
+    const listeB = [
+      moment({ id: 'b1', captured_at: '2026-08-01T09:00:00.000Z' }),
+      moment({ id: 'b2', captured_at: '2026-08-02T09:00:00.000Z' }), // anderer Tag als b1
+    ];
+    expect(tagWechselt(listeA, startDate, 1)).toBe(false);
+    expect(tagWechselt(listeB, startDate, 1)).toBe(true);
+    // Nochmal, verschachtelt in umgekehrter Reihenfolge: ein Cache, der
+    // Listen verwechselt, würde spätestens hier eines der beiden Ergebnisse
+    // kippen.
+    expect(tagWechselt(listeB, startDate, 1)).toBe(true);
+    expect(tagWechselt(listeA, startDate, 1)).toBe(false);
   });
 });
