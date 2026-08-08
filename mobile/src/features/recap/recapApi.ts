@@ -24,10 +24,20 @@ function funktionMeldung(error: unknown, sonst: string): string {
   return meldung(err ?? null, sonst);
 }
 
+// `profiles!posts_author_id_fkey` statt nur `profiles`: zwischen `posts` und
+// `profiles` gibt es ZWEI Wege — der direkte über `posts.author_id` und ein
+// many-to-many über `reactions` (post_id/user_id). PostgREST verweigert eine
+// mehrdeutige Einbettung mit HTTP 300 (PGRST201) und liefert gar keine Daten.
+//
+// Gefunden erst beim Durchspielen der laufenden App: der Recap zeigte
+// «Die Momente konnten nicht geladen werden» — für jede Reise, für jede
+// Person. Kein Test hat es gesehen, weil alle den Supabase-Client mocken und
+// der Mock die Abfrage nie wirklich stellt. Wer den Namen hier kürzt, bricht
+// den Recap vollständig.
 const SPALTEN = [
   'id', 'trip_id', 'author_id', 'type', 'duration_s', 'caption',
   'captured_at', 'captured_tz', 'place_name', 'upload_status',
-  'profiles(display_name)',
+  'profiles!posts_author_id_fkey(display_name)',
 ].join(', ');
 
 type PostRow = Omit<RecapMoment, 'autor_name'> & {

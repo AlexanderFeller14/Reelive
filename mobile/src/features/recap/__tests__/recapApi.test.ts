@@ -57,7 +57,13 @@ describe('fetchRecapMomente', () => {
     // Kein N+1: der Autorenname muss TEIL derselben select()-Spaltenliste
     // sein, nicht ein zweiter Aufruf gegen profiles.
     expect(select).toHaveBeenCalledTimes(1);
-    expect(select.mock.calls[0][0]).toEqual(expect.stringContaining('profiles(display_name)'));
+    // Der Fremdschlüsselname MUSS drinstehen: zwischen posts und profiles gibt
+    // es zwei Wege (author_id direkt, und many-to-many über reactions).
+    // Ohne ihn antwortet PostgREST mit HTTP 300 und der Recap bleibt leer —
+    // was kein gemockter Test bemerkt, weil der Mock die Abfrage nie stellt.
+    expect(select.mock.calls[0][0]).toEqual(
+      expect.stringContaining('profiles!posts_author_id_fkey(display_name)')
+    );
     expect(eq).toHaveBeenCalledWith('trip_id', 't1');
   });
 
