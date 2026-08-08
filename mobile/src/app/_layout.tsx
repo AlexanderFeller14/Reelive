@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { Platform, StyleSheet, Text, View } from 'react-native';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
@@ -12,7 +13,8 @@ import {
 } from '@expo-google-fonts/figtree';
 import { ThemeProvider, useTheme } from '@/theme/ThemeProvider';
 import { AuthProvider, useAuth } from '@/features/auth/AuthProvider';
-import { resolveRoute, isPublicArea } from '@/features/auth/guard';
+import { resolveRoute, isPublicArea, istWebGesperrt } from '@/features/auth/guard';
+import { spacing, type } from '@/theme/tokens';
 import { peekRememberedInvite, discardRememberedInvite } from '@/features/trips/inviteLink';
 import { redeemInvite } from '@/features/trips/tripsApi';
 import { redeemPendingInvite } from '@/features/trips/joinFlow';
@@ -20,6 +22,28 @@ import * as uploadWorker from '@/features/moments/uploadWorker';
 import { registrierePushToken } from '@/features/push/pushApi';
 
 void SplashScreen.preventAutoHideAsync();
+
+// Web-Hartsperre (siehe istWebGesperrt in guard.ts für die volle Begründung):
+// «Reelive gibt es als App» — freundlich, mit dem Wortzug-Platzhalter
+// (gleiches Muster wie (auth)/welcome.tsx, echtes SVG-Asset existiert noch
+// nicht), OHNE jede Login-Möglichkeit. Bewusst hier lokal statt in einer
+// eigenen Datei unter components/: einziger Aufrufer, eng an das Layout
+// gekoppelt (dieselbe Begründung wie KinoButton/TextLink in player.tsx).
+function WebNurAppSeite() {
+  const { colors } = useTheme();
+  return (
+    <View testID="web-nur-app-seite" style={[styles.webSperreScreen, { backgroundColor: colors['bg-0'] }]}>
+      <Text style={[type.h3, { color: colors['text-1'] }]}>Reelive</Text>
+      <Text style={[type.h1, styles.webSperreText, { color: colors['text-1'] }]}>
+        Reelive gibt es als App.
+      </Text>
+      <Text style={[type.body, styles.webSperreText, { color: colors['text-2'] }]}>
+        Diese Seite lässt sich nur in der Reelive-App öffnen. Hast du einen geteilten
+        Recap-Link bekommen, öffne genau den — der funktioniert auch hier im Browser.
+      </Text>
+    </View>
+  );
+}
 
 function Guarded() {
   const { status, userId } = useAuth();
@@ -29,25 +53,38 @@ function Guarded() {
   const segments = useSegments() as string[];
   const router = useRouter();
   const { colors } = useTheme();
+  const area = segments[0]; // '(auth)' | '(tabs)' | 'join' | 'teilen' | undefined
+  const webGesperrt = istWebGesperrt(Platform.OS, area);
 
   useEffect(() => {
+    // Auf Web ausserhalb von 'teilen': kein <Stack/> (siehe Return unten),
+    // also auch keine Redirect-Entscheidung nötig — der Ziel-Screen wäre
+    // seinerseits ebenfalls gesperrt.
+    if (webGesperrt) return;
     const target = resolveRoute(status);
     if (!target) return;
     void SplashScreen.hideAsync();
-    const area = segments[0]; // '(auth)' | '(tabs)' | 'join' | undefined
     // Der Beitritts-Screen bleibt in jedem Status stehen.
     if (isPublicArea(area)) return;
     if (status === 'signedIn' && area !== '(tabs)') router.replace(target);
     if (status !== 'signedIn' && area !== '(auth)') router.replace(target);
     if (status === 'needsProfile' && segments[1] !== 'profile-setup') router.replace(target);
-  }, [status, segments, router]);
+  }, [status, segments, router, webGesperrt, area]);
 
   // Ein vor dem Login angetippter Einladungslink wird eingelöst, sobald Session
   // UND Profil stehen — vorher gäbe es keine profiles-Zeile für trip_members.
   // Die eigentliche Logik steckt in redeemPendingInvite() (joinFlow.ts): dort
   // getestet, hier nur noch mit den echten IO-Abhängigkeiten aufgerufen.
+  // `webGesperrt` zusätzlich in JEDEM der drei folgenden Effekte (nicht nur
+  // im Redirect-Effekt oben): solange die Web-Hartsperre steht, soll dieser
+  // Baum NICHTS tun ausser die Sperr-Seite zu zeigen — auch nicht scheinbar
+  // Harmloses wie den (auf Web ohnehin leeren) Upload-Worker starten. Das ist
+  // in der Praxis heute nicht erreichbar (secureSessionStorage.web.ts liefert
+  // nie eine Session, `status` wird auf Web also realistisch nie 'signedIn'),
+  // aber die Garantie soll nicht an dieser fremden Datei hängen — sie gilt
+  // hier, unabhängig davon, WARUM `status` gerade ist, was er ist.
   useEffect(() => {
-    if (status !== 'signedIn') return;
+    if (webGesperrt || status !== 'signedIn') return;
     let aktiv = true;
     void redeemPendingInvite({
       peekRememberedInvite,
@@ -60,7 +97,7 @@ function Guarded() {
     return () => {
       aktiv = false;
     };
-  }, [status, router]);
+  }, [status, router, webGesperrt]);
 
   // Der Worker legt posts-Zeilen an — dafür braucht er Sitzung UND Profil,
   // also dieselbe Bedingung wie beim Einlösen der Einladung oben: vor
@@ -72,10 +109,10 @@ function Guarded() {
   // ganz ohne eigene Zähler — die Cleanup-Funktion übernimmt sowohl den
   // Wechsel weg von signedIn als auch das Unmounten (App-Beenden).
   useEffect(() => {
-    if (status !== 'signedIn') return;
+    if (webGesperrt || status !== 'signedIn') return;
     uploadWorker.starte();
     return () => uploadWorker.stoppe();
-  }, [status]);
+  }, [status, webGesperrt]);
 
   // Push-Registrierung: einmal pro signedIn-Wechsel anstossen, ohne auf das
   // Ergebnis zu warten und ohne das Rendern zu blockieren (Vorbild: der
@@ -84,9 +121,24 @@ function Guarded() {
   // höchstens eine Zeile per upsert auf token; ein doppelter Aufruf bei
   // erneutem signedIn (z.B. nach kurzem Session-Verlust) ist harmlos.
   useEffect(() => {
-    if (status !== 'signedIn' || !userId) return;
+    if (webGesperrt || status !== 'signedIn' || !userId) return;
     void registrierePushToken(userId);
-  }, [status, userId]);
+  }, [status, userId, webGesperrt]);
+
+  // Web-Hartsperre: KEIN <Stack/> — nicht nur ein Redirect. Ohne <Stack/>
+  // mountet keiner der eigentlichen Routen-Screens überhaupt (inkl. aller
+  // (auth)- und (tabs)-Screens sowie 'join'), ihre Effekte laufen also nie
+  // an. Ein Redirect allein hätte den Zielscreen für einen Frame lang
+  // trotzdem gemountet (und potenziell dessen Effekte ausgelöst) — genau die
+  // Lücke aus dem Task-4-Fund.
+  if (webGesperrt) {
+    return (
+      <>
+        <StatusBar style="dark" />
+        <WebNurAppSeite />
+      </>
+    );
+  }
 
   return (
     <>
@@ -95,6 +147,17 @@ function Guarded() {
     </>
   );
 }
+
+const styles = StyleSheet.create({
+  webSperreScreen: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'flex-start',
+    padding: spacing.screen,
+    gap: spacing.s,
+  },
+  webSperreText: { marginTop: spacing.s },
+});
 
 export default function RootLayout() {
   const [fontsLoaded] = useFonts({

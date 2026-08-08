@@ -8,11 +8,27 @@ import * as React from 'react';
 // Objekte pro Aufruf), damit Router/Segmente nicht selbst Rerenders auslösen.
 const mockRouter = { replace: jest.fn() };
 const mockSegments: string[] = ['(tabs)'];
+// Task 5: die Web-Hartsperre braucht einen ECHTEN Nachweis, dass <Stack/>
+// NICHT gemountet wird, nicht nur, dass irgendwo Text erscheint — deshalb
+// ein Spion statt `() => null` (gleiches Prinzip wie mockRouter/mockInvoke
+// in anderen Testdateien: Aufruf UND Nicht-Aufruf müssen prüfbar sein).
+const mockStackRender = jest.fn((_props?: unknown) => null);
 jest.mock('expo-router', () => ({
   useRouter: () => mockRouter,
   useSegments: () => mockSegments,
-  Stack: () => null,
+  Stack: (props: unknown) => mockStackRender(props),
 }));
+
+// Platform.OS umschalten (Task 5): react-native wird NICHT gemockt — Platform
+// ist bei react-native ein normales, beschreibbares Datenfeld (kein Getter,
+// gleiches Muster/gleiche Begründung wie pushApi.test.ts, dortiges
+// "Android: Notification-Channel..."-describe), lässt sich also direkt
+// umschalten und danach wiederherstellen. Ein jest.mock('react-native', …)
+// wäre hier zusätzlich riskant: expo-modules-core liest Platform.OS schon
+// beim Laden (jest-expo-Setup), bevor irgendein modul-lokaler `const` dieser
+// Datei initialisiert ist — ein Mock-Factory-Closure darauf träfe auf eine
+// TDZ/Initialisierungsreihenfolge, die nicht zuverlässig ist.
+import { Platform } from 'react-native';
 
 jest.mock('expo-splash-screen', () => ({
   preventAutoHideAsync: jest.fn(async () => true),
@@ -61,6 +77,8 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockAuth.status = 'loading';
   mockAuth.userId = null;
+  mockSegments[0] = '(tabs)';
+  Platform.OS = 'ios';
 });
 
 // Task 13: der Worker legt posts-Zeilen an, braucht dafür Sitzung UND Profil
@@ -149,4 +167,70 @@ test('sobald Sitzung und Profil stehen (signedIn), wird die Push-Registrierung m
 
   expect(pushApi.registrierePushToken).toHaveBeenCalledWith('u1');
   await unmount();
+});
+
+// Task 5, Koordinator-Entscheid nach einem Fund aus Task 4: der Web-Export
+// bündelt die GANZE App, isPublicArea() allein sperrt keine Route. Auf Web
+// bleibt jetzt bis auf 'teilen' alles gesperrt — kein <Stack/>, keine
+// Redirect-Logik, nur die freundliche «Reelive gibt es als App»-Seite.
+describe('Web-Hartsperre (istWebGesperrt)', () => {
+  test('auf Web ausserhalb von "teilen" wird <Stack/> NICHT gerendert — die Sperr-Seite steht stattdessen', async () => {
+    Platform.OS = 'web';
+    mockSegments[0] = '(tabs)';
+    const { getByText, unmount } = await render(<RootLayout />);
+    expect(mockStackRender).not.toHaveBeenCalled();
+    expect(getByText('Reelive gibt es als App.')).toBeTruthy();
+    await unmount();
+  });
+
+  // Bewusst KEIN Sonderfall wie bei isPublicArea: 'join' bleibt auf Web
+  // ebenfalls gesperrt (siehe Begründung in guard.ts) — der Beitritts-Screen
+  // verzweigt ohne Session selbst in den Login-Flow.
+  test('auf Web bleibt auch "join" gesperrt', async () => {
+    Platform.OS = 'web';
+    mockSegments[0] = 'join';
+    const { unmount } = await render(<RootLayout />);
+    expect(mockStackRender).not.toHaveBeenCalled();
+    await unmount();
+  });
+
+  test('auf Web bleibt "teilen" erreichbar — <Stack/> wird gerendert, keine Sperr-Seite', async () => {
+    Platform.OS = 'web';
+    mockSegments[0] = 'teilen';
+    const { queryByText, unmount } = await render(<RootLayout />);
+    expect(mockStackRender).toHaveBeenCalledTimes(1);
+    expect(queryByText('Reelive gibt es als App.')).toBeNull();
+    await unmount();
+  });
+
+  test('auf nativen Plattformen ist die Sperre nie aktiv — <Stack/> wird wie zuvor immer gerendert', async () => {
+    Platform.OS = 'ios';
+    mockSegments[0] = '(tabs)';
+    const { unmount } = await render(<RootLayout />);
+    expect(mockStackRender).toHaveBeenCalledTimes(1);
+    await unmount();
+  });
+
+  // Der schärfere Test (siehe Bericht): nicht nur behaupten, dass nichts
+  // läuft, sondern eine Situation herstellen, in der es OHNE die Sperre
+  // etwas TÄTE (status künstlich auf signedIn gesetzt), und belegen, dass
+  // trotzdem nichts passiert. In der echten App ist `status === 'signedIn'`
+  // auf Web praktisch unerreichbar (secureSessionStorage.web liefert nie
+  // eine Session) — genau deshalb testet dieser Fall die Absicherung selbst,
+  // nicht nur den heutigen Erreichbarkeits-Zufall.
+  test('selbst wenn status künstlich signedIn ist, laufen unter der Web-Sperre weder Redirect noch Worker noch Push-Registrierung an', async () => {
+    Platform.OS = 'web';
+    mockSegments[0] = '(tabs)';
+    mockAuth.status = 'signedIn';
+    mockAuth.userId = 'u1';
+    const { unmount } = await render(<RootLayout />);
+
+    expect(mockRouter.replace).not.toHaveBeenCalled();
+    expect(uploadWorker.starte).not.toHaveBeenCalled();
+    expect(pushApi.registrierePushToken).not.toHaveBeenCalled();
+    expect(mockStackRender).not.toHaveBeenCalled();
+
+    await unmount();
+    expect(uploadWorker.stoppe).not.toHaveBeenCalled(); // war nie gestartet
+  });
 });
