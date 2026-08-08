@@ -16,13 +16,36 @@ type Props = {
 // ein einziger Klumpen aufsteigen — jeder liest trotzdem von DEMSELBEN
 // `fortschritt`-Wert ab, es gibt also weiterhin genau einen Zeitgeber (siehe
 // Kommentar unten, gleiches Prinzip wie Versiegelung.tsx).
+//
+// Review Major 1: `versatzX`/`versatzY` werden UNTEN bewusst über `transform`
+// (translateX/translateY) ausgedrückt, nie über `left`/`top`. Der Elternteil
+// (`styles.mitte`) zentriert per `alignItems`/`justifyContent: 'center'` —
+// aber sobald ein Kind mit `position: 'absolute'` einen Inset (`left`/`top`/
+// `right`/`bottom`) gesetzt bekommt, gewinnt in Yoga IMMER der Inset über die
+// Ausrichtung des Elternteils (react-native/ReactCommon/yoga/yoga/algorithm/
+// AbsoluteLayout.cpp: `justifyAbsoluteChild`/`alignAbsoluteChild` laufen nur,
+// wenn KEIN Inset gesetzt ist). Mit `left`/`top` sassen alle fünf Funken
+// relativ zur oberen linken Ecke des ganzen Bildschirms statt ums Siegel
+// verteilt — nur `transform` einzusetzen ist hier also nicht bloss näher an
+// §5 («nur transform und opacity»), sondern die einzige Art, wie die
+// Zentrierung des Elternteils überhaupt erhalten bleibt.
+//
+// `versatzX`/`versatzY` liegen auf dem 4er-Raster aus §3 (auch wenn es hier
+// um eine Bewegungs- statt eine Layout-Distanz geht) — FUNKEN_AUFSTIEG unten
+// ist die einzige benannte Ausnahme davon.
 const FUNKEN = [
-  { left: -60, oben: 8, startVersatz: 0 },
-  { left: -26, oben: -18, startVersatz: 0.07 },
-  { left: 4, oben: 14, startVersatz: 0.02 },
-  { left: 34, oben: -12, startVersatz: 0.1 },
-  { left: 60, oben: 4, startVersatz: 0.05 },
+  { versatzX: -48, versatzY: 8, startVersatz: 0 },
+  { versatzX: -24, versatzY: -16, startVersatz: 0.07 },
+  { versatzX: 8, versatzY: 12, startVersatz: 0.02 },
+  { versatzX: 24, versatzY: -12, startVersatz: 0.1 },
+  { versatzX: 48, versatzY: 4, startVersatz: 0.05 },
 ] as const;
+
+// Wie viele Pixel die Funken über ihren Startpunkt steigen. Bewusst
+// ausserhalb der §3-Werte {4,8,12,16,24,32,48} belassen: das ist eine
+// Bewegungsstrecke, keine Distanz zwischen zwei Flächen — die einzige
+// Ausnahme in dieser Datei, darum hier benannt statt stillschweigend.
+const FUNKEN_AUFSTIEG = 96;
 
 // Die zweite der zwei ausdrücklich erlaubten Inszenierungen (DESIGN-LANGUAGE
 // v2 §5): «Siegel bricht auf, Gold-Funken ✦ steigen (kein Konfetti). Haptik:
@@ -108,7 +131,14 @@ export function RevealInszenierung({ sichtbar, onFertig }: Props) {
   });
 
   return (
-    <View style={StyleSheet.absoluteFill} pointerEvents="none" testID="reveal-inszenierung">
+    // Review Minor: ANDERS als Versiegelung.tsx (wo darunter nur die
+    // Aufnahme-Vorschau liegt) deckt dieser Overlay im Reise-Detail
+    // tippbare, teils destruktive Aktionen ab («Reise löschen», «Reise
+    // bearbeiten», Mitglied-entfernen-Kreuze). `pointerEvents="none"` liesse
+    // Tipps während der ganzen Inszenierung ungehindert durch den blickdicht
+    // wirkenden Overlay auf diese Flächen durch — deshalb hier ausdrücklich
+    // "auto" (blockiert alles darunter), statt wie dort "none".
+    <View style={StyleSheet.absoluteFill} pointerEvents="auto" testID="reveal-inszenierung">
       <Animated.View style={[StyleSheet.absoluteFill, styles.hintergrund, { opacity: scrimOpacity }]} />
       <View style={[StyleSheet.absoluteFill, styles.mitte]}>
         <Animated.View style={[styles.icon, { opacity: siegelOpacity, transform: [{ scale: siegelScale }] }]}>
@@ -129,9 +159,12 @@ export function RevealInszenierung({ sichtbar, onFertig }: Props) {
             outputRange: [0, 1, 1, 0],
             extrapolateLeft: 'clamp',
           });
+          // Startet bei `versatzY` (der kleinen vertikalen Streuung) und
+          // steigt von dort `FUNKEN_AUFSTIEG` Pixel weiter auf — beides über
+          // `translateY`, nicht `top` (siehe Kommentar bei FUNKEN oben).
           const funkeTranslateY = fortschritt.interpolate({
             inputRange: [start, 1],
-            outputRange: [0, -96],
+            outputRange: [funke.versatzY, funke.versatzY - FUNKEN_AUFSTIEG],
             extrapolateLeft: 'clamp',
           });
           return (
@@ -140,10 +173,11 @@ export function RevealInszenierung({ sichtbar, onFertig }: Props) {
               style={[
                 styles.funke,
                 {
-                  left: funke.left,
-                  top: funke.oben,
                   opacity: funkeOpacity,
-                  transform: [{ translateY: funkeTranslateY }],
+                  // `translateX` ist hier ein fester Wert (keine Animation) —
+                  // reiner horizontaler Versatz, kombiniert mit dem
+                  // animierten `translateY` im selben Array.
+                  transform: [{ translateX: funke.versatzX }, { translateY: funkeTranslateY }],
                 },
               ]}
             >
