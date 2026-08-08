@@ -35,3 +35,22 @@ test('createProfile: Erfolg → error null', async () => {
   expect(error).toBeNull();
   expect(mockInsert).toHaveBeenCalledWith({ id: 'uid-1', username: 'lea', display_name: 'Lea' });
 });
+
+// `feld` sagt dem Screen, WO die Meldung hingehört. Vorher gab es nur einen
+// Fehlerstring, und der landete pauschal unter dem Username-Feld — auch
+// «Das Profil konnte nicht gespeichert werden», was mit dem Username nichts
+// zu tun hat (DESIGN-LANGUAGE §4: feldgenaue Zuordnung).
+test('createProfile weist den vergebenen Username dem Username-Feld zu', async () => {
+  mockInsert.mockResolvedValueOnce({ error: { code: '23505', message: 'duplicate key' } });
+  await expect(createProfile('uid-1', 'lea', 'Lea')).resolves.toEqual({
+    error: 'Dieser Username ist vergeben — probier einen anderen.',
+    feld: 'username',
+  });
+});
+
+test('createProfile ordnet einen allgemeinen Fehler keinem Feld zu', async () => {
+  mockInsert.mockResolvedValueOnce({ error: { code: '08006', message: 'connection failure' } });
+  const { error, feld } = await createProfile('uid-1', 'lea', 'Lea');
+  expect(error).toBe('Das Profil konnte nicht gespeichert werden. Probier es gleich nochmal.');
+  expect(feld).toBeNull();
+});

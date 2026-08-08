@@ -13,17 +13,24 @@ export function validateDisplayName(displayName: string): string | null {
   return len >= 1 && len <= 40 ? null : 'Sag uns, wie du heissen willst (1–40 Zeichen).';
 }
 
+// `feld` sagt dem Screen, WO die Meldung hingehoert. Vorher gab es nur einen
+// Fehlerstring, und der landete pauschal unter dem Username-Feld — auch «Das
+// Profil konnte nicht gespeichert werden», was mit dem Username nichts zu tun
+// hat. DESIGN-LANGUAGE §4 verlangt feldgenaue Zuordnung, und die kann nur
+// treffen, wer weiss, welches Feld gemeint ist.
 export async function createProfile(
   userId: string,
   username: string,
   displayName: string
-): Promise<{ error: string | null }> {
+): Promise<{ error: string | null; feld: 'username' | null }> {
   const { error } = await supabase
     .from('profiles')
     .insert({ id: userId, username, display_name: displayName.trim() });
-  if (!error) return { error: null };
-  if (error.code === '23505') return { error: 'Dieser Username ist vergeben — probier einen anderen.' };
-  return { error: 'Das Profil konnte nicht gespeichert werden. Probier es gleich nochmal.' };
+  if (!error) return { error: null, feld: null };
+  if (error.code === '23505') {
+    return { error: 'Dieser Username ist vergeben — probier einen anderen.', feld: 'username' };
+  }
+  return { error: 'Das Profil konnte nicht gespeichert werden. Probier es gleich nochmal.', feld: null };
 }
 
 export async function fetchOwnProfile(userId: string): Promise<Profile | null> {

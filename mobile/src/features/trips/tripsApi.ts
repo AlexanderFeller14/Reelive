@@ -250,10 +250,24 @@ export async function fetchInviteCode(tripId: string): Promise<Gelesen<string | 
   return { data: data?.invite_code ?? null, error: null };
 }
 
-export async function peekInvite(code: string): Promise<InvitePreview | null> {
+// Liefert `Gelesen<…>` wie jede andere Lesefunktion dieser Datei. Vorher gab
+// sie nur `InvitePreview | null` zurueck und faltete damit zwei voellig
+// verschiedene Lagen in denselben Wert: «diesen Code gibt es nicht» und «ich
+// konnte gerade nicht nachsehen». Der Beitritts-Screen behauptete im Funkloch
+// deshalb, der Einladungslink sei erloschen — die eine Aussage, die niemand
+// nachpruefen kann und die den Gast endgueltig wegschickt.
+//
+// Unbekannter Code bleibt bewusst KEIN Fehler: peek_invite liefert dafuer
+// null Zeilen, und `data: null, error: null` ist genau diese Aussage.
+export async function peekInvite(code: string): Promise<Gelesen<InvitePreview | null>> {
   const { data, error } = await supabase.rpc('peek_invite', { p_code: code });
-  if (error || !data || (data as InvitePreview[]).length === 0) return null;
-  return (data as InvitePreview[])[0];
+  if (error) {
+    return {
+      data: null,
+      error: meldung(error, 'Die Einladung konnte nicht geladen werden. Probier es gleich nochmal.'),
+    };
+  }
+  return { data: ((data ?? []) as InvitePreview[])[0] ?? null, error: null };
 }
 
 export async function redeemInvite(code: string): Promise<RedeemResult> {

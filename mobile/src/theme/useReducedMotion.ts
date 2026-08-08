@@ -8,9 +8,16 @@ export function useReducedMotion(): boolean {
 
   useEffect(() => {
     let mounted = true;
-    void AccessibilityInfo.isReduceMotionEnabled().then((enabled) => {
-      if (mounted) setReducedMotion(enabled);
-    });
+    // `.catch` ist Pflicht, nicht Zierde: ein abgelehntes Promise aus einem
+    // nativen Modul wird sonst zu einer unbehandelten Ablehnung, die in
+    // Release-Builds als Absturz zaehlt — und das fuer eine reine
+    // Komfortabfrage. Faellt sie aus, bleibt es beim Startwert `false`:
+    // Bewegung an, so wie ohne die Einstellung.
+    AccessibilityInfo.isReduceMotionEnabled()
+      .then((enabled) => {
+        if (mounted) setReducedMotion(enabled);
+      })
+      .catch(() => {});
     const subscription = AccessibilityInfo.addEventListener('reduceMotionChanged', setReducedMotion);
     return () => {
       mounted = false;

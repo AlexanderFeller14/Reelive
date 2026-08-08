@@ -13,6 +13,12 @@ export default function OtpScreen() {
   const [code, setCode] = useState('');
   const [error, setError] = useState<string | undefined>();
   const [loading, setLoading] = useState(false);
+  // «Code erneut senden» loeste vorher requestOtp aus und verwarf das Ergebnis:
+  // ob ein neuer Code unterwegs war oder Supabase mit 429 abgewiesen hatte, sah
+  // der Screen gleich aus — naemlich nach nichts. Wer keinen Code bekam, tippte
+  // dann in Endlosschleife auf einen Knopf, der nie antwortet.
+  const [erneut, setErneut] = useState<{ text: string; fehler: boolean } | null>(null);
+  const [erneutLaeuft, setErneutLaeuft] = useState(false);
 
   const submit = async () => {
     setLoading(true);
@@ -20,6 +26,14 @@ export default function OtpScreen() {
     setLoading(false);
     if (apiError) setError(apiError);
     // Erfolg: onAuthStateChange feuert, der Guard (Root-Layout) leitet weiter.
+  };
+
+  const erneutSenden = async () => {
+    setErneutLaeuft(true);
+    setErneut(null);
+    const { error: apiError } = await requestOtp(phone);
+    setErneutLaeuft(false);
+    setErneut({ text: apiError ?? 'Neuer Code ist unterwegs.', fehler: !!apiError });
   };
 
   return (
@@ -41,7 +55,17 @@ export default function OtpScreen() {
           placeholder="123456"
         />
         <Button variant="primary" label="Bestätigen" onPress={submit} loading={loading} disabled={code.length !== 6} />
-        <Button variant="text" label="Code erneut senden" onPress={() => void requestOtp(phone)} />
+        <Button
+          variant="text"
+          label="Code erneut senden"
+          onPress={() => void erneutSenden()}
+          loading={erneutLaeuft}
+        />
+        {erneut && (
+          <Text style={[type.secondary, { color: erneut.fehler ? colors.danger : colors['text-2'] }]}>
+            {erneut.text}
+          </Text>
+        )}
       </View>
     </View>
   );

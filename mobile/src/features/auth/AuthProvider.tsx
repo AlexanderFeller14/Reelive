@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useMemo, useState, useCallback, type ReactNode } from 'react';
 import { AppState } from 'react-native';
 import type { Session } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
@@ -69,17 +69,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => sub.subscription.unsubscribe();
   }, [evaluate]);
 
-  return (
-    <AuthContext.Provider
-      value={{
-        status,
-        userId: session?.user.id ?? null,
-        refreshProfile: () => evaluate(session),
-      }}
-    >
-      {children}
-    </AuthContext.Provider>
+  // Ohne useMemo entsteht bei JEDEM Render dieses Providers ein neues
+  // Context-Objekt, und React weckt daraufhin jeden Consumer — hier also
+  // praktisch jeden Screen der App, denn der Provider sitzt an der Wurzel.
+  // Die enthaltenen Werte aendern sich dagegen selten.
+  const wert = useMemo<AuthContextValue>(
+    () => ({
+      status,
+      userId: session?.user.id ?? null,
+      refreshProfile: () => evaluate(session),
+    }),
+    [status, session, evaluate]
   );
+
+  return <AuthContext.Provider value={wert}>{children}</AuthContext.Provider>;
 }
 
 export const useAuth = () => useContext(AuthContext);

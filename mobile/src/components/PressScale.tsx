@@ -12,7 +12,14 @@ export function PressScale({ scaleTo = 0.97, children, onPressIn, onPressOut, ..
   const reducedMotion = useReducedMotion();
   const springTo = (toValue: number) => {
     // Reduced Motion (§5): Scale bleibt bei 1, keine Spring-Animation.
-    if (reducedMotion) return;
+    // `setValue(1)` statt eines blossen `return`: schaltet jemand die
+    // Systemeinstellung mitten im Druck um, steht `scale` bereits auf 0.97 —
+    // ein reines Aussteigen haette das Element dauerhaft geschrumpft stehen
+    // lassen. So endet jeder Weg durch diese Funktion bei 1.
+    if (reducedMotion) {
+      scale.setValue(1);
+      return;
+    }
     Animated.spring(scale, { toValue, useNativeDriver: true, ...motion.spring }).start();
   };
 

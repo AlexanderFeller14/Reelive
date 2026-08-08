@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Animated, Easing, Text, TextInput, View, type TextInputProps } from 'react-native';
 import { useTheme } from '@/theme/ThemeProvider';
 import { cinema, motion, palette, radius, spacing, type } from '@/theme/tokens';
@@ -37,19 +37,28 @@ export function Input({ label, error, value, placeholder, style, onFocus, onBlur
   const anim = useRef(new Animated.Value(lifted ? 1 : 0)).current;
   const reducedMotion = useReducedMotion();
 
-  const animate = (to: number) => {
+  // Die Animation haengt am abgeleiteten `lifted`, NICHT an den Fokus-Handlern.
+  // Vorher trieben nur onFocus/onBlur den Wert — ein programmatisch gesetzter
+  // `value` (Prefill des Bearbeiten-Formulars, wiederhergestellter Entwurf,
+  // Autofill) hob das Label deshalb nie an, und die Beschriftung lag mitten
+  // im bereits ausgefuellten Feld. Als Effekt formuliert deckt eine einzige
+  // Stelle alle drei Ausloeser ab: Fokus, Blur und Wertwechsel von aussen.
+  useEffect(() => {
+    const to = lifted ? 1 : 0;
     // Reduced Motion (§5): Wert direkt setzen statt zu animieren.
     if (reducedMotion) {
       anim.setValue(to);
       return;
     }
-    Animated.timing(anim, {
+    const lauf = Animated.timing(anim, {
       toValue: to,
       duration: motion.duration.fast,
       easing: Easing.bezier(...motion.easeSmooth),
       useNativeDriver: true, // nur transform/scale — UI-Thread (DESIGN-LANGUAGE v2 §5)
-    }).start();
-  };
+    });
+    lauf.start();
+    return () => lauf.stop();
+  }, [lifted, reducedMotion, anim]);
 
   // Kino übernimmt dieselbe Zuordnung wie Sheet.tsx (Fläche `bg-1`, Text
   // `text-1`, Rand-Ersatz für `line-strong` ist `text-2` — die feste
@@ -84,6 +93,12 @@ export function Input({ label, error, value, placeholder, style, onFocus, onBlur
         }}
       >
         <Animated.Text
+          // Das sichtbare Label und `accessibilityLabel` am TextInput tragen
+          // denselben Text — VoiceOver las ihn dadurch zweimal vor, einmal als
+          // eigenes Textelement und einmal als Beschriftung des Feldes. Sichtbar
+          // bleibt es, hoerbar nur noch einmal, naemlich am Feld selbst.
+          importantForAccessibility="no"
+          accessibilityElementsHidden
           style={{
             position: 'absolute',
             left: pad,
@@ -107,12 +122,10 @@ export function Input({ label, error, value, placeholder, style, onFocus, onBlur
           placeholderTextColor={labelFarbeUnfokus}
           onFocus={(e) => {
             setFocused(true);
-            animate(1);
             onFocus?.(e);
           }}
           onBlur={(e) => {
             setFocused(false);
-            if (!value) animate(0);
             onBlur?.(e);
           }}
           style={[

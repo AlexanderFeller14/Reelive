@@ -15,17 +15,22 @@ export default function ProfileSetupScreen() {
   const [usernameError, setUsernameError] = useState<string | undefined>();
   const [displayNameError, setDisplayNameError] = useState<string | undefined>();
   const [loading, setLoading] = useState(false);
+  const [formularFehler, setFormularFehler] = useState<string | null>(null);
 
   const submit = async () => {
     const uErr = validateUsername(username);
     const dErr = validateDisplayName(displayName);
     setUsernameError(uErr ?? undefined);
     setDisplayNameError(dErr ?? undefined);
+    setFormularFehler(null);
     if (uErr || dErr || !userId) return;
     setLoading(true);
-    const { error } = await createProfile(userId, username, displayName);
+    const { error, feld } = await createProfile(userId, username, displayName);
     setLoading(false);
-    if (error) return setUsernameError(error);
+    if (error) {
+      if (feld === 'username') return setUsernameError(error);
+      return setFormularFehler(error);
+    }
     await refreshProfile(); // Guard leitet zu den Tabs weiter
   };
 
@@ -51,6 +56,9 @@ export default function ProfileSetupScreen() {
         error={displayNameError}
         placeholder="Lea"
       />
+      {formularFehler && (
+        <Text style={[type.body, { color: colors.danger }]}>{formularFehler}</Text>
+      )}
       <Button variant="primary" label="Los geht's" onPress={submit} loading={loading} />
     </View>
   );

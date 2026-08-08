@@ -19,17 +19,36 @@ export default function ReiseBearbeiten() {
   const [beginnFehler, setBeginnFehler] = useState<string | undefined>();
   const [endeFehler, setEndeFehler] = useState<string | undefined>();
   const [laedt, setLaedt] = useState(false);
+  // Drei getrennte Zustaende, weil sie drei verschiedene Dinge bedeuten und
+  // verschiedene naechste Schritte haben: die Vorschau laedt noch, das Laden
+  // ist gescheitert (wiederholbar), das Speichern ist gescheitert (Formular
+  // steht, Eingaben bleiben erhalten).
+  const [geladen, setGeladen] = useState(false);
+  const [ladefehler, setLadefehler] = useState<string | null>(null);
+  const [speicherFehler, setSpeicherFehler] = useState<string | null>(null);
+  const [versuch, setVersuch] = useState(0);
 
   useEffect(() => {
-    void fetchTrip(id).then(({ data }) => {
-      // Kommt nichts (Lesefehler oder Reise weg), bleibt das Formular leer —
-      // die Pflichtfeld-Prüfung in `speichern` lässt es dann nicht durch.
-      if (!data) return;
-      setName(data.name);
-      setBeginn(formatGermanDate(data.start_date));
-      setEnde(formatGermanDate(data.end_date));
+    let aktiv = true;
+    setGeladen(false);
+    void fetchTrip(id).then(({ data, error }) => {
+      if (!aktiv) return;
+      // Vorher blieb das Formular bei einem Lesefehler einfach leer stehen —
+      // es sah aus wie eine Reise ohne Namen und ohne Daten, also wie ein
+      // Zustand der Daten statt wie ein Fehler beim Lesen. Jetzt sagt der
+      // Screen, was los ist, und bietet den einen sinnvollen Schritt an.
+      setLadefehler(error ?? (data ? null : 'Diese Reise gibt es nicht mehr.'));
+      if (data) {
+        setName(data.name);
+        setBeginn(formatGermanDate(data.start_date));
+        setEnde(formatGermanDate(data.end_date));
+      }
+      setGeladen(true);
     });
-  }, [id]);
+    return () => {
+      aktiv = false;
+    };
+  }, [id, versuch]);
 
   const speichern = async () => {
     const nFehler = name.trim().length === 0 ? 'Gib deiner Reise einen Namen.' : null;
@@ -41,14 +60,31 @@ export default function ReiseBearbeiten() {
     setNameFehler(nFehler ?? undefined);
     setBeginnFehler(bFehler ?? undefined);
     setEndeFehler(eFehler ?? undefined);
+    setSpeicherFehler(null);
     if (nFehler || bFehler || eFehler || !start || !end) return;
 
     setLaedt(true);
     const { error } = await updateTrip(id, { name, startDate: start, endDate: end });
     setLaedt(false);
-    if (error) return setNameFehler(error);
+    // Der Fehler gehoert NICHT in den Namensfeld-Slot: er sagt nichts ueber den
+    // Namen aus (DESIGN-LANGUAGE §4 will feldgenaue Zuordnung, und «Probier es
+    // gleich nochmal» unter dem Namensfeld behauptet, der Name sei schuld).
+    if (error) return setSpeicherFehler(error);
     router.back();
   };
+
+  if (!geladen) return <View style={{ flex: 1, backgroundColor: colors['bg-0'] }} />;
+
+  if (ladefehler) {
+    return (
+      <View style={[styles.screen, { backgroundColor: colors['bg-0'] }]}>
+        <Text style={[type.h1, { color: colors['text-1'] }]}>Reise bearbeiten</Text>
+        <Text style={[type.body, { color: colors.danger }]}>{ladefehler}</Text>
+        <Button variant="primary" label="Nochmal versuchen" onPress={() => setVersuch((v) => v + 1)} />
+        <Button variant="text" label="Zurück" onPress={() => router.back()} />
+      </View>
+    );
+  }
 
   return (
     <View style={[styles.screen, { backgroundColor: colors['bg-0'] }]}>
@@ -56,6 +92,7 @@ export default function ReiseBearbeiten() {
       <Input label="Name der Reise" value={name} onChangeText={setName} error={nameFehler} />
       <Input label="Beginn" value={beginn} onChangeText={setBeginn} error={beginnFehler} keyboardType="numbers-and-punctuation" />
       <Input label="Ende" value={ende} onChangeText={setEnde} error={endeFehler} keyboardType="numbers-and-punctuation" />
+      {speicherFehler && <Text style={[type.body, { color: colors.danger }]}>{speicherFehler}</Text>}
       <Button variant="primary" label="Speichern" onPress={speichern} loading={laedt} />
     </View>
   );

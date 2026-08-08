@@ -22,7 +22,7 @@ jest.mock('@/features/trips/tripsApi', () => ({
 
 import NeueReise from '../neu';
 import ReiseBearbeiten from '../[id]/bearbeiten';
-import { createTrip, updateTrip } from '@/features/trips/tripsApi';
+import { createTrip, updateTrip, fetchTrip } from '@/features/trips/tripsApi';
 
 const wrap = (ui: React.ReactElement) => render(<ThemeProvider>{ui}</ThemeProvider>);
 
@@ -94,4 +94,34 @@ test('Bearbeiten kommt mit vorbelegten Werten und speichert', async () => {
       name: 'Norwegen 2026', startDate: '2026-08-01', endDate: '2026-08-14',
     })
   );
+});
+
+// === Bearbeiten: Lesefehler und Speicherfehler sind zweierlei ===
+
+test('bearbeiten: Lesefehler zeigt den Fehler statt eines leeren Formulars', async () => {
+  (fetchTrip as jest.Mock).mockResolvedValueOnce({ data: null, error: 'Du bist gerade offline.' });
+  await wrap(<ReiseBearbeiten />);
+  expect(await screen.findByText('Du bist gerade offline.')).toBeTruthy();
+  // Vorher stand hier ein leeres Formular — es sah aus wie eine Reise ohne
+  // Namen, nicht wie ein Fehler beim Lesen.
+  expect(screen.queryByLabelText('Name der Reise')).toBeNull();
+  expect(screen.getByText('Nochmal versuchen')).toBeTruthy();
+});
+
+test('bearbeiten: nach «Nochmal versuchen» steht das Formular', async () => {
+  (fetchTrip as jest.Mock).mockResolvedValueOnce({ data: null, error: 'Du bist gerade offline.' });
+  await wrap(<ReiseBearbeiten />);
+  await fireEvent.press(await screen.findByText('Nochmal versuchen'));
+  await waitFor(() => expect(screen.getByLabelText('Name der Reise').props.value).toBe('Norwegen'));
+});
+
+test('bearbeiten: ein Speicherfehler landet nicht im Namensfeld', async () => {
+  (updateTrip as jest.Mock).mockResolvedValueOnce({
+    error: 'Die Reise konnte nicht gespeichert werden. Probier es gleich nochmal.',
+  });
+  await wrap(<ReiseBearbeiten />);
+  await waitFor(() => expect(screen.getByLabelText('Name der Reise').props.value).toBe('Norwegen'));
+  await fireEvent.press(screen.getByText('Speichern'));
+  expect(await screen.findByText(/nicht gespeichert werden/)).toBeTruthy();
+  expect(feldZeile('Name der Reise').queryByText(/nicht gespeichert werden/)).toBeNull();
 });

@@ -34,6 +34,21 @@ export function validateDateRange(startIso: string | null, endIso: string | null
   return null;
 }
 
+// Der heutige Kalendertag am Ort des Geraets, als 'YYYY-MM-DD'.
+//
+// `new Date().toISOString().slice(0, 10)` liefert den Kalendertag in UTC und
+// war damit in Mitteleuropa jede Nacht zwischen 00:00 und 02:00 einen Tag zu
+// frueh: der Reisetag zaehlte zu niedrig und «Reise abschliessen» rueckte
+// einen Tag zu spaet nach oben. Die uebrigen Funktionen dieser Datei rechnen
+// bewusst in UTC, weil sie reine Kalendertage OHNE Zeitzone vergleichen —
+// dieser Wert dagegen ist die Frage «welchen Tag hat der Nutzer gerade», und
+// die beantwortet nur die lokale Uhr.
+export function heutigerKalendertag(jetzt: Date = new Date()): string {
+  const monat = String(jetzt.getMonth() + 1).padStart(2, '0');
+  const tag = String(jetzt.getDate()).padStart(2, '0');
+  return `${jetzt.getFullYear()}-${monat}-${tag}`;
+}
+
 export function tripDay(startIso: string, todayIso: string): number {
   const diff = Math.round((toUtc(todayIso) - toUtc(startIso)) / MS_PRO_TAG);
   return diff < 0 ? 0 : diff + 1;

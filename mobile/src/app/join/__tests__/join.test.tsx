@@ -26,7 +26,7 @@ const wrap = () => render(<ThemeProvider><JoinScreen /></ThemeProvider>);
 beforeEach(() => {
   jest.clearAllMocks();
   mockAuth.status = 'signedIn';
-  (peekInvite as jest.Mock).mockResolvedValue(preview);
+  (peekInvite as jest.Mock).mockResolvedValue({ data: preview, error: null });
 });
 
 test('zeigt die Vorschau samt einladender Person', async () => {
@@ -37,14 +37,14 @@ test('zeigt die Vorschau samt einladender Person', async () => {
 });
 
 test('unbekannter Code erklärt die Lage', async () => {
-  (peekInvite as jest.Mock).mockResolvedValue(null);
+  (peekInvite as jest.Mock).mockResolvedValue({ data: null, error: null });
   await wrap();
   expect(await screen.findByText('Diesen Einladungslink gibt es nicht mehr.')).toBeTruthy();
   expect(screen.queryByText('Reise beitreten')).toBeNull();
 });
 
 test('abgeschlossene Reise verweist auf den Recap-Link', async () => {
-  (peekInvite as jest.Mock).mockResolvedValue({ ...preview, status: 'revealed' });
+  (peekInvite as jest.Mock).mockResolvedValue({ data: { ...preview, status: 'revealed' }, error: null });
   await wrap();
   expect(
     await screen.findByText('Diese Reise ist schon abgeschlossen. Frag nach dem Recap-Link.')
@@ -73,4 +73,18 @@ test('ohne Session wird der Code gemerkt und zum Login geschickt', async () => {
   await waitFor(() => expect(rememberInvite).toHaveBeenCalledWith('abc123'));
   expect(mockReplace).toHaveBeenCalledWith('/welcome');
   expect(redeemInvite).not.toHaveBeenCalled();
+});
+
+// Der Unterschied zwischen «gibt es nicht» und «konnte nicht nachsehen»: nur
+// der zweite Fall darf wiederholbar sein. Vorher sah der Gast im Funkloch den
+// Satz, der die Einladung fuer erloschen erklaert — endgueltig und falsch.
+test('Lesefehler zeigt den Fehler und laesst es nochmal versuchen', async () => {
+  (peekInvite as jest.Mock).mockResolvedValue({ data: null, error: 'Du bist gerade offline.' });
+  await wrap();
+  expect(await screen.findByText('Du bist gerade offline.')).toBeTruthy();
+  expect(screen.queryByText('Diesen Einladungslink gibt es nicht mehr.')).toBeNull();
+
+  (peekInvite as jest.Mock).mockResolvedValue({ data: preview, error: null });
+  await fireEvent.press(screen.getByText('Nochmal versuchen'));
+  expect(await screen.findByText('Norwegen mit dem Camper')).toBeTruthy();
 });

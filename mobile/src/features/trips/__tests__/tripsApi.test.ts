@@ -17,6 +17,7 @@ import {
   createTrip, updateTrip, deleteTrip, removeMember,
   redeemInvite, peekInvite, eigeneZaehler,
 } from '../tripsApi';
+import { OFFLINE_HINT } from '@/lib/netzfehler';
 
 beforeEach(() => jest.clearAllMocks());
 
@@ -244,14 +245,30 @@ test('peekInvite liefert die Vorschau', async () => {
     }],
     error: null,
   });
-  const preview = await peekInvite('abc');
-  expect(preview?.owner_display_name).toBe('Lea');
+  const { data, error } = await peekInvite('abc');
+  expect(data?.owner_display_name).toBe('Lea');
+  expect(error).toBeNull();
   expect(mockRpc).toHaveBeenCalledWith('peek_invite', { p_code: 'abc' });
 });
 
-test('peekInvite liefert null bei unbekanntem Code', async () => {
+test('peekInvite: unbekannter Code ist kein Fehler, nur keine Daten', async () => {
   mockRpc.mockResolvedValueOnce({ data: [], error: null });
-  await expect(peekInvite('weg')).resolves.toBeNull();
+  await expect(peekInvite('weg')).resolves.toEqual({ data: null, error: null });
+});
+
+// Der Unterschied, um den es geht: «gibt es nicht» und «konnte nicht nachsehen»
+// duerfen im Beitritts-Screen nie denselben Satz ausloesen.
+test('peekInvite meldet einen Lesefehler als Fehler, nicht als fehlende Reise', async () => {
+  mockRpc.mockResolvedValueOnce({ data: null, error: { message: 'boom' } });
+  const { data, error } = await peekInvite('abc');
+  expect(data).toBeNull();
+  expect(error).toBe('Die Einladung konnte nicht geladen werden. Probier es gleich nochmal.');
+});
+
+test('peekInvite nennt bei Funkloch die Ursache', async () => {
+  mockRpc.mockResolvedValueOnce({ data: null, error: { message: 'Network request failed' } });
+  const { error } = await peekInvite('abc');
+  expect(error).toBe(OFFLINE_HINT);
 });
 
 test('redeemInvite reicht den Status durch', async () => {

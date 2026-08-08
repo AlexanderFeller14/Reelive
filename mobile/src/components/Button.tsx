@@ -20,7 +20,12 @@ export function Button({ variant, label, onPress, disabled, loading }: Props) {
   return (
     <PressScale
       accessibilityRole="button"
-      accessibilityState={{ disabled: !!blocked }}
+      // `accessibilityLabel` explizit, weil der Text im Ladezustand durch einen
+      // ActivityIndicator ersetzt wird — ohne ihn ist der Knopf dann namenlos.
+      // `busy` unterscheidet fuer VoiceOver «laedt gerade» von «deaktiviert»,
+      // obwohl beide Zustaende hier dieselbe Sperre ausloesen.
+      accessibilityLabel={label}
+      accessibilityState={{ disabled: !!blocked, busy: !!loading }}
       disabled={!!blocked}
       onPress={() => {
         if (!blocked) onPress();

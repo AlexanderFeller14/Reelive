@@ -41,3 +41,21 @@ test('otp: falscher Code zeigt die Fehlermeldung der API', async () => {
   await fireEvent.press(screen.getByText('Bestätigen'));
   expect(await screen.findByText(/stimmt nicht oder ist abgelaufen/)).toBeTruthy();
 });
+
+// «Code erneut senden» verwarf das Ergebnis von requestOtp: ob ein neuer Code
+// unterwegs war oder Supabase mit 429 abgewiesen hatte, sah gleich aus.
+test('otp: erneut senden bestätigt sichtbar', async () => {
+  (requestOtp as jest.Mock).mockResolvedValueOnce({ error: null });
+  await wrap(<OtpScreen />);
+  await fireEvent.press(screen.getByText('Code erneut senden'));
+  expect(await screen.findByText('Neuer Code ist unterwegs.')).toBeTruthy();
+});
+
+test('otp: abgewiesenes erneutes Senden nennt den Grund', async () => {
+  (requestOtp as jest.Mock).mockResolvedValueOnce({
+    error: 'Zu viele Versuche. Warte kurz und fordere dann einen neuen Code an.',
+  });
+  await wrap(<OtpScreen />);
+  await fireEvent.press(screen.getByText('Code erneut senden'));
+  expect(await screen.findByText(/Zu viele Versuche/)).toBeTruthy();
+});

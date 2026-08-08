@@ -1,4 +1,4 @@
-import {
+import { heutigerKalendertag,
   parseGermanDate, formatGermanDate, validateDateRange,
   tripDay, tripLength, formatRange, groupTrips,
 } from '../tripDay';
@@ -63,4 +63,25 @@ test('groupTrips trennt laufende Reisen von Recaps', () => {
   const { laufend, recaps } = groupTrips(trips);
   expect(laufend.map((t) => t.id)).toEqual(['a']);
   expect(recaps.map((t) => t.id)).toEqual(['b', 'c']);
+});
+
+// `new Date().toISOString().slice(0, 10)` lieferte den Kalendertag in UTC —
+// in Mitteleuropa also jede Nacht zwischen 00:00 und 02:00 einen Tag zu früh.
+// Der Reisetag zählte dann zu niedrig und «Reise abschliessen» rückte einen
+// Tag zu spät nach oben.
+test('heutigerKalendertag nimmt die lokale Uhr, nicht UTC', () => {
+  // 00:30 Ortszeit, egal in welcher Zone die Suite läuft.
+  const nachts = new Date(2026, 7, 9, 0, 30, 0);
+  expect(heutigerKalendertag(nachts)).toBe('2026-08-09');
+  // Der eigentliche Unterschied zeigt sich nur östlich von Greenwich (dort ist
+  // getTimezoneOffset negativ) — genau dort lag die alte UTC-Rechnung daneben.
+  // Läuft die Suite in UTC oder westlich davon, gibt es um 00:30 nichts zu
+  // unterscheiden, und die Zeile hätte nichts zu sagen.
+  if (nachts.getTimezoneOffset() < 0) {
+    expect(nachts.toISOString().slice(0, 10)).toBe('2026-08-08');
+  }
+});
+
+test('heutigerKalendertag füllt Monat und Tag auf zwei Stellen', () => {
+  expect(heutigerKalendertag(new Date(2026, 0, 5, 12, 0, 0))).toBe('2026-01-05');
 });

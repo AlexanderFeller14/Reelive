@@ -42,3 +42,39 @@ test('mit `kino` nutzt das Feld die feste Kino-Palette statt useTheme()', async 
   expect(StyleSheet.flatten(box!.props.style).backgroundColor).toBe(cinema['bg-1']);
   expect(StyleSheet.flatten(screen.getByLabelText('Kommentar').props.style).color).toBe(cinema['text-1']);
 });
+
+// Die Animation hing vorher nur an onFocus/onBlur. Ein programmatisch
+// gesetzter `value` — Prefill des Bearbeiten-Formulars, wiederhergestellter
+// Entwurf, Autofill — hob das Label deshalb nie an, und die Beschriftung lag
+// mitten im bereits ausgefüllten Feld.
+//
+// Geprüft wird über den Reduced-Motion-Pfad, weil der den Zielwert synchron
+// setzt statt ihn über 150 ms zu interpolieren: die Aussage ist dieselbe
+// («das Label folgt dem Wert»), nur ohne Timer im Test.
+jest.mock('@/theme/useReducedMotion', () => ({ useReducedMotion: () => true }));
+
+// `includeHiddenElements`, weil das Label seit dem a11y-Fix bewusst nicht mehr
+// im Accessibility-Baum steht — sichtbar ist es weiterhin.
+const labelVerschiebung = (labelText: string) => {
+  const label = screen.getByText(labelText, { includeHiddenElements: true });
+  const transform = StyleSheet.flatten(label.props.style).transform as { translateY: number }[];
+  return transform[0].translateY;
+};
+
+test('ein vorbefülltes Feld hebt sein Label sofort an', async () => {
+  await wrap(<Input label="Name der Reise" value="Norwegen" onChangeText={() => {}} />);
+  expect(labelVerschiebung('Name der Reise')).toBe(-9);
+});
+
+test('ein leeres Feld lässt sein Label in der Mitte stehen', async () => {
+  await wrap(<Input label="Name der Reise" value="" onChangeText={() => {}} />);
+  expect(labelVerschiebung('Name der Reise')).toBe(0);
+});
+
+// Sichtbares Label und accessibilityLabel am Feld tragen denselben Text —
+// VoiceOver las ihn zweimal vor.
+test('das sichtbare Label bleibt für VoiceOver stumm', async () => {
+  await wrap(<Input label="Beginn" value="" onChangeText={() => {}} />);
+  expect(screen.queryByText('Beginn')).toBeNull();
+  expect(screen.getByText('Beginn', { includeHiddenElements: true })).toBeTruthy();
+});
