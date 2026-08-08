@@ -80,7 +80,13 @@ describe('fetchReaktionen', () => {
     });
     const ergebnis = await fetchReaktionen(['p1', 'p2']);
     expect(mockFrom).toHaveBeenCalledTimes(1); // EIN Aufruf für beide Momente, nicht zwei
+    expect(kette.select).toHaveBeenCalledWith('post_id, user_id, emoji');
     expect(kette.in).toHaveBeenCalledWith('post_id', ['p1', 'p2']);
+    // Review-Fund (Klein 4B/4C aus Fix-Runde 1): ungeprüft liesse sich sowohl
+    // die abgefragte Spaltenliste als auch die Sortierung unbemerkt entfernen
+    // — kein anderer Test in dieser Datei sieht dem `select`/`order`-Aufruf
+    // von fetchReaktionen auf die Finger.
+    expect(kette.order).toHaveBeenCalledWith('created_at', { ascending: true });
     expect(ergebnis.error).toBeNull();
     expect(ergebnis.data).toEqual({
       p1: [
@@ -226,6 +232,18 @@ describe('fetchKommentare', () => {
     await fetchKommentare('p7');
     expect(kette.eq).toHaveBeenCalledWith('post_id', 'p7');
     expect(kette.order).toHaveBeenCalledWith('created_at', { ascending: true });
+  });
+
+  // Review-Fund (Klein 4B aus Fix-Runde 1): der Erfolgstest oben füttert
+  // `profiles` unabhängig von der tatsächlich abgefragten Spaltenliste in
+  // die Mock-Antwort — ein Streichen von `profiles(display_name)` aus dem
+  // echten `select()`-Aufruf bliebe unbemerkt grün, obwohl in Produktion
+  // dann jeder Autorenname leer wäre. Diese Prüfung sieht dem Aufruf selbst
+  // auf die Finger.
+  test('fragt den Autorennamen über den profiles-Join mit ab', async () => {
+    const kette = kommentareKette({ data: [], error: null });
+    await fetchKommentare('p1');
+    expect(kette.select).toHaveBeenCalledWith(expect.stringContaining('profiles(display_name)'));
   });
 
   test('Netzwerkfehler → Offline-Hinweis, leere Liste statt eines Wurfs', async () => {
