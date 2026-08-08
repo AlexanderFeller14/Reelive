@@ -13,6 +13,7 @@ import { isPublicArea } from '../guard';
 
 test.each([
   ['join', true],
+  ['teilen', true],
   ['(auth)', false],
   ['(tabs)', false],
   [undefined, false],

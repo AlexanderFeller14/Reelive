@@ -14,6 +14,12 @@ export function resolveRoute(status: AuthStatus): '/welcome' | '/profile-setup' 
 // Der Beitritts-Screen muss auch ohne Session stehenbleiben dürfen: er zeigt die
 // Vorschau und schickt erst beim Antippen in den Login. Ohne diese Ausnahme
 // würde der Guard einen frisch angetippten Einladungslink sofort wegleiten.
+//
+// 'teilen' (Phase 6, Web-Player) genauso: ein geteilter Recap-Link zeigt sich
+// über share-link/aufloesen ausschliesslich Aussenstehenden OHNE Konto (Spec-
+// Versprechen W5) — secureSessionStorage.web.ts liefert auf dieser Plattform
+// nie eine Sitzung, der Guard würde sonst jeden Aufruf sofort nach /welcome
+// umleiten, bevor der Screen überhaupt rendert.
 export function isPublicArea(area: string | undefined): boolean {
-  return area === 'join';
+  return area === 'join' || area === 'teilen';
 }
