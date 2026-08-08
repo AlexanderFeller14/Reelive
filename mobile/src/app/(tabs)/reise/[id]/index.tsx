@@ -7,6 +7,7 @@ import { PressScale } from '@/components/PressScale';
 import { Avatar } from '@/components/Avatar';
 import { Badge } from '@/components/Badge';
 import { Button } from '@/components/Button';
+import { Sheet } from '@/components/Sheet';
 import { useTheme } from '@/theme/ThemeProvider';
 import { radius, spacing, type } from '@/theme/tokens';
 import { useAuth } from '@/features/auth/AuthProvider';
@@ -17,6 +18,7 @@ import { eigenerZaehler } from '@/features/moments/zaehler';
 import * as queueDb from '@/features/moments/queueDb';
 import { wartendeAnzahl } from '@/features/moments/queueLogic';
 import type { QueueJob, VerworfenerMoment } from '@/features/moments/types';
+import { revealTrip } from '@/features/recap/recapApi';
 
 // DESIGN-LANGUAGE §5: destruktive Dialoge kündigen sich haptisch an (warning).
 // Sparsam eingesetzt — nur die drei Dialoge dieses Screens. Ein fehlender
@@ -48,6 +50,15 @@ function verworfenTitel(anzahl: number): string {
   return anzahl === 1 ? 'Ein Moment konnte nicht mehr eingesendet werden' : `${anzahl} Momente konnten nicht mehr eingesendet werden`;
 }
 
+// Task-8-Brief §Step 3: die beruhigende Zeile im Bestätigungs-Sheet — Singular
+// und Plural korrekt, Zahl bleibt auch im Singular stehen (gleiche Konvention
+// wie wartendText oben).
+function wartendeMomenteBeruhigung(anzahl: number): string {
+  return anzahl === 1
+    ? 'Dein 1 wartender Moment kommt noch durch — er ist vor dem Reveal entstanden.'
+    : `Deine ${anzahl} wartenden Momente kommen noch durch — sie sind vor dem Reveal entstanden.`;
+}
+
 export default function ReiseDetail() {
   const { colors } = useTheme();
   const router = useRouter();
@@ -71,6 +82,12 @@ export default function ReiseDetail() {
   const [zaehler, setZaehler] = useState(0);
   const [wartend, setWartend] = useState(0);
   const [verworfen, setVerworfen] = useState<VerworfenerMoment[]>([]);
+  // Task 8: Bestätigungs-Sheet für «Reise abschliessen». revealFehler bleibt
+  // eigens vom Lade-`fehler` oben getrennt — ein gescheiterter Reveal darf den
+  // Screen nicht so behandeln, als wäre die Reise nicht mehr ladbar.
+  const [bestaetigenSichtbar, setBestaetigenSichtbar] = useState(false);
+  const [revealLaedt, setRevealLaedt] = useState(false);
+  const [revealFehler, setRevealFehler] = useState<string | null>(null);
   // Schirmt setState nach Blur/Unmount ab — gleiches Muster wie in der
   // Listen-Schwesterdatei (reise/index.tsx): jeder Fokus-Zyklus bekommt seinen
   // eigenen Wächter, der beim Verlassen des Screens auf false gesetzt wird, damit
@@ -141,6 +158,37 @@ export default function ReiseDetail() {
     }, [laden])
   );
 
+  // Task-8-Brief §Der Reveal ist unumkehrbar: die Function ist idempotent, ein
+  // zweiter Versuch nach einem Fehlschlag ist immer erlaubt — nichts wird
+  // gesperrt, das Sheet bleibt bedienbar.
+  const abschliessenOeffnen = () => {
+    setRevealFehler(null);
+    warnhaptik();
+    setBestaetigenSichtbar(true);
+  };
+
+  const abschliessenSchliessen = () => {
+    setBestaetigenSichtbar(false);
+  };
+
+  const abschliessen = async () => {
+    setRevealLaedt(true);
+    setRevealFehler(null);
+    const { error } = await revealTrip(id);
+    if (error) {
+      setRevealFehler(error);
+      setRevealLaedt(false);
+      return;
+    }
+    setRevealLaedt(false);
+    setBestaetigenSichtbar(false);
+    // Reise neu laden: `trip.status` wechselt danach auf 'revealed', genau die
+    // Vorbedingung, die Task 9 (Reveal-Entdeckung) an dieser Stelle prüft, um
+    // seine Inszenierung auszulösen. Diese Datei kennt Task 9 noch nicht (er
+    // läuft nach diesem Task) — der Reload ist der Teil davon, der hier hingehört.
+    void laden();
+  };
+
   if (!geladen) return <View style={{ flex: 1, backgroundColor: colors['bg-0'] }} />;
 
   if (!trip) {
@@ -162,6 +210,11 @@ export default function ReiseDetail() {
   const heute = new Date().toISOString().slice(0, 10);
   const tag = tripDay(trip.start_date, heute);
   const laenge = tripLength(trip.start_date, trip.end_date);
+  // Task-8-Brief §Wo der Knopf sitzt: ab dem Enddatum (inklusive) rückt
+  // «Reise abschliessen» nach oben. Beide Enden sind reine 'YYYY-MM-DD'-Daten,
+  // ein Stringvergleich reicht (gleiches Prinzip wie in tripDay.ts).
+  const reiseZuEnde = heute >= trip.end_date;
+  const zeigtAbschliessen = istOwner && laeuft;
 
   const entfernen = (m: TripMember) => {
     warnhaptik();
@@ -216,6 +269,11 @@ export default function ReiseDetail() {
   };
 
   return (
+    // Fragment statt eines einzelnen Wurzelelements: das Sheet muss als
+    // GESCHWISTER der ScrollView stehen, nicht als deren Kind — innerhalb der
+    // ScrollView würde sein StyleSheet.absoluteFill sich auf die (potenziell
+    // scrollbare, höhere) Inhaltsfläche beziehen statt auf den festen Screen.
+    <>
     <ScrollView style={{ backgroundColor: colors['bg-0'] }} contentContainerStyle={styles.inhalt}>
       <View style={{ aspectRatio: 3 / 2, borderRadius: radius.card, backgroundColor: colors['bg-1'], padding: spacing.m }}>
         {laeuft && (
@@ -232,6 +290,18 @@ export default function ReiseDetail() {
           <Text style={[type.secondary, { color: colors['text-2'] }]}>{`Tag ${tag} von ${laenge}`}</Text>
         )}
       </View>
+
+      {/* Task-8-Brief §Wo der Knopf sitzt: ab dem Enddatum rückt der Auslöser
+          hierher nach oben, mit einer ankündigenden Zeile davor. Vor dem
+          Enddatum steht er stattdessen unten bei den anderen Aktionen. */}
+      {zeigtAbschliessen && reiseZuEnde && (
+        <View style={{ gap: spacing.m }}>
+          <Text style={[type.body, { color: colors['text-2'] }]}>
+            Eure Reise ist zu Ende. Zeit für den Recap.
+          </Text>
+          <Button variant="primary" label="Reise abschliessen" onPress={abschliessenOeffnen} />
+        </View>
+      )}
 
       <View style={{ gap: spacing.xs }}>
         <Text style={[type.display, { color: colors['text-1'] }]}>{String(zaehler)}</Text>
@@ -286,8 +356,16 @@ export default function ReiseDetail() {
         ))}
       </View>
 
+      {/* Task-8-Brief §Wo der Knopf sitzt: vor dem Enddatum steht «Reise
+          abschliessen» hier unten, ohne zu drängen — danach (siehe oben)
+          rückt er nach oben und verschwindet hier. */}
+      {zeigtAbschliessen && !reiseZuEnde && (
+        <Button variant="primary" label="Reise abschliessen" onPress={abschliessenOeffnen} />
+      )}
       {istOwner && laeuft && (
-        <Button variant="primary" label="Freunde einladen" onPress={() => router.push(`/reise/${id}/einladen`)} />
+        // DESIGN-LANGUAGE §7: genau ein Primär-Button pro Screen — «Reise
+        // abschliessen» ist er jetzt, «Freunde einladen» wird zum Sekundär-Button.
+        <Button variant="secondary" label="Freunde einladen" onPress={() => router.push(`/reise/${id}/einladen`)} />
       )}
       {istOwner && (
         <Button variant="secondary" label="Reise bearbeiten" onPress={() => router.push(`/reise/${id}/bearbeiten`)} />
@@ -298,6 +376,20 @@ export default function ReiseDetail() {
         onPress={istOwner ? loeschen : verlassen}
       />
     </ScrollView>
+
+    <Sheet sichtbar={bestaetigenSichtbar} titel="Reise abschliessen?" onSchliessen={abschliessenSchliessen}>
+      <Text style={[type.body, { color: colors['text-2'] }]}>
+        Danach kann niemand mehr Momente einsenden, und alle sehen den Recap. Das lässt sich nicht
+        rückgängig machen.
+      </Text>
+      {wartend > 0 && (
+        <Text style={[type.secondary, { color: colors['text-2'] }]}>{wartendeMomenteBeruhigung(wartend)}</Text>
+      )}
+      {revealFehler && <Text style={[type.body, { color: colors.danger }]}>{revealFehler}</Text>}
+      <Button variant="primary" label="Abschliessen" onPress={() => void abschliessen()} loading={revealLaedt} />
+      <Button variant="secondary" label="Abbrechen" onPress={abschliessenSchliessen} disabled={revealLaedt} />
+    </Sheet>
+    </>
   );
 }
 

@@ -1,6 +1,7 @@
-import { Alert } from 'react-native';
+import { Alert, StyleSheet } from 'react-native';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
 import { ThemeProvider } from '@/theme/ThemeProvider';
+import { palette } from '@/theme/tokens';
 
 const mockPush = jest.fn();
 const mockReplace = jest.fn();
@@ -43,12 +44,17 @@ jest.mock('@/features/moments/queueDb', () => ({
   verworfene: jest.fn(async () => []),
   verworfeneQuittieren: jest.fn(async () => {}),
 }));
+// Task 8: «Reise abschliessen» ruft revealTrip auf (Task 5). Echtes recapApi
+// importiert @/lib/supabase (→ AsyncStorage-Nativmodul, in Jest nicht
+// vorhanden) — deshalb wie die übrigen Feature-Module vollständig gemockt.
+jest.mock('@/features/recap/recapApi', () => ({ revealTrip: jest.fn() }));
 
 import ReiseDetail from '../[id]/index';
 import * as Haptics from 'expo-haptics';
 import { fetchTrip, fetchMembers, removeMember, deleteTrip } from '@/features/trips/tripsApi';
 import { eigenerZaehler } from '@/features/moments/zaehler';
 import * as queueDb from '@/features/moments/queueDb';
+import { revealTrip } from '@/features/recap/recapApi';
 
 const trip = {
   id: 't1', name: 'Norwegen mit dem Camper', start_date: '2026-08-01', end_date: '2026-08-14',
@@ -70,6 +76,22 @@ const einVerworfener = [
   { id: 'p9', trip_id: 't1', author_id: 'u1', grund: VERWORFEN_GRUND, verworfen_am: 1 },
 ];
 
+// Task 8: «Reise abschliessen» rückt ab dem Enddatum nach oben. Relativ zum
+// echten heutigen Datum berechnet statt eines fixen Literals wie beim
+// `trip`-Fixture oben — sonst würde dieser Test brüchig, sobald das echte
+// Datum irgendwann den 14.08.2026 überschreitet.
+const HEUTE = new Date().toISOString().slice(0, 10);
+function inTagen(tage: number): string {
+  return new Date(Date.now() + tage * 86_400_000).toISOString().slice(0, 10);
+}
+const tripVorEnde = { ...trip, end_date: inTagen(30) };
+const tripVorEndeOk = { data: tripVorEnde, error: null };
+const tripAmEnde = { ...trip, end_date: HEUTE };
+const tripAmEndeOk = { data: tripAmEnde, error: null };
+// Stabile Referenz für den Nachlade-Test unten (siehe Kommentar dort).
+const tripRevealed = { ...trip, status: 'revealed' as const };
+const tripRevealedOk = { data: tripRevealed, error: null };
+
 const wrap = () => render(<ThemeProvider><ReiseDetail /></ThemeProvider>);
 
 beforeEach(() => {
@@ -78,6 +100,7 @@ beforeEach(() => {
   (fetchTrip as jest.Mock).mockResolvedValue(tripOk);
   (fetchMembers as jest.Mock).mockResolvedValue(mitgliederOk);
   (eigenerZaehler as jest.Mock).mockResolvedValue(0);
+  (revealTrip as jest.Mock).mockResolvedValue({ revealed_at: '2026-08-08T00:00:00Z', error: null });
   (queueDb.alleJobs as jest.Mock).mockResolvedValue([]);
   (queueDb.verworfene as jest.Mock).mockResolvedValue(keineVerworfenen);
 });
@@ -323,4 +346,152 @@ test('queueDb.verworfene schlägt fehl: die Reise erscheint trotzdem', async () 
   (queueDb.verworfene as jest.Mock).mockRejectedValue(new Error('SQLite kaputt'));
   await wrap();
   expect(await screen.findByText('Norwegen mit dem Camper')).toBeTruthy();
+});
+
+// === Task 8: «Reise abschliessen» ===
+
+test('Reise abschliessen fehlt für Mitglieder ohne Owner-Rolle', async () => {
+  mockAuth.userId = 'u2';
+  await wrap();
+  await screen.findByText('Norwegen mit dem Camper');
+  expect(screen.queryByText('Reise abschliessen')).toBeNull();
+});
+
+test('Reise abschliessen fehlt bei bereits aufgedeckter Reise', async () => {
+  (fetchTrip as jest.Mock).mockResolvedValue({ data: { ...trip, status: 'revealed' }, error: null });
+  await wrap();
+  await screen.findByText('Norwegen mit dem Camper');
+  expect(screen.queryByText('Reise abschliessen')).toBeNull();
+});
+
+test('vor dem Enddatum steht der Knopf unten, ohne ankündigende Zeile', async () => {
+  (fetchTrip as jest.Mock).mockResolvedValue(tripVorEndeOk);
+  await wrap();
+  expect(await screen.findByText('Reise abschliessen')).toBeTruthy();
+  expect(screen.queryByText('Eure Reise ist zu Ende. Zeit für den Recap.')).toBeNull();
+});
+
+test('ab dem Enddatum rückt der Knopf nach oben, mit ankündigender Zeile', async () => {
+  (fetchTrip as jest.Mock).mockResolvedValue(tripAmEndeOk);
+  await wrap();
+  expect(await screen.findByText('Eure Reise ist zu Ende. Zeit für den Recap.')).toBeTruthy();
+  // getByText wirft bei mehr als einem Treffer — das sichert zugleich, dass
+  // der Knopf nicht gleichzeitig oben UND unten steht.
+  expect(screen.getByText('Reise abschliessen')).toBeTruthy();
+});
+
+test('«Freunde einladen» ist Sekundär-Button — «Reise abschliessen» bleibt der einzige Primär-Button (DESIGN-LANGUAGE §7)', async () => {
+  await wrap();
+  const label = await screen.findByText('Freunde einladen');
+  const flattened = StyleSheet.flatten(label.parent?.props.style);
+  expect(flattened.borderWidth).toBe(1);
+  expect(flattened.backgroundColor).toBe(palette['bg-0']);
+});
+
+test('«Reise abschliessen» trägt die Akzent-Fläche des Primär-Buttons', async () => {
+  await wrap();
+  const label = await screen.findByText('Reise abschliessen');
+  const flattened = StyleSheet.flatten(label.parent?.props.style);
+  expect(flattened.backgroundColor).toBe(palette.accent);
+});
+
+test('Tippen auf «Reise abschliessen» öffnet das Bestätigungs-Sheet und löst warning-Haptik aus', async () => {
+  await wrap();
+  await fireEvent.press(await screen.findByText('Reise abschliessen'));
+  expect(await screen.findByText('Reise abschliessen?')).toBeTruthy();
+  expect(
+    screen.getByText(/Danach kann niemand mehr Momente einsenden.*rückgängig machen\./)
+  ).toBeTruthy();
+  expect(Haptics.notificationAsync).toHaveBeenCalledWith('warning');
+});
+
+test('Sheet zeigt die Wartenden-Zeile nicht, wenn keine Momente warten', async () => {
+  await wrap();
+  await fireEvent.press(await screen.findByText('Reise abschliessen'));
+  await screen.findByText('Reise abschliessen?');
+  expect(screen.queryByText(/kommen noch durch/)).toBeNull();
+  expect(screen.queryByText(/kommt noch durch/)).toBeNull();
+});
+
+test('Sheet zeigt die Wartenden-Zeile im Plural, wenn mehrere Momente warten', async () => {
+  (queueDb.alleJobs as jest.Mock).mockResolvedValue([
+    { trip_id: 't1', zustand: 'wartet' },
+    { trip_id: 't1', zustand: 'wartet' },
+    { trip_id: 't1', zustand: 'wartet' },
+  ]);
+  await wrap();
+  await fireEvent.press(await screen.findByText('Reise abschliessen'));
+  expect(
+    await screen.findByText('Deine 3 wartenden Momente kommen noch durch — sie sind vor dem Reveal entstanden.')
+  ).toBeTruthy();
+});
+
+test('Sheet zeigt die Wartenden-Zeile im Singular, wenn genau ein Moment wartet', async () => {
+  (queueDb.alleJobs as jest.Mock).mockResolvedValue([{ trip_id: 't1', zustand: 'wartet' }]);
+  await wrap();
+  await fireEvent.press(await screen.findByText('Reise abschliessen'));
+  expect(
+    await screen.findByText('Dein 1 wartender Moment kommt noch durch — er ist vor dem Reveal entstanden.')
+  ).toBeTruthy();
+});
+
+test('Abbrechen schliesst das Sheet, ohne revealTrip aufzurufen', async () => {
+  await wrap();
+  await fireEvent.press(await screen.findByText('Reise abschliessen'));
+  await screen.findByText('Reise abschliessen?');
+  await fireEvent.press(screen.getByText('Abbrechen'));
+  await waitFor(() => expect(screen.queryByText('Reise abschliessen?')).toBeNull());
+  expect(revealTrip).not.toHaveBeenCalled();
+});
+
+test('Tippen auf den Hintergrund schliesst das Bestätigungs-Sheet', async () => {
+  await wrap();
+  await fireEvent.press(await screen.findByText('Reise abschliessen'));
+  await screen.findByText('Reise abschliessen?');
+  await fireEvent.press(screen.getByTestId('sheet-backdrop'));
+  await waitFor(() => expect(screen.queryByText('Reise abschliessen?')).toBeNull());
+});
+
+test('Abschliessen ruft revealTrip auf; bei Erfolg schliesst das Sheet und lädt die Reise neu', async () => {
+  // Stabile Referenz für den Zustand «nach dem Reveal» (siehe Kommentar bei
+  // tripRevealedOk oben) — sonst würde jeder erneute Ladeversuch (der
+  // useFocusEffect-Mock feuert bei jedem Render nach) ein frisches Objekt
+  // liefern und den Screen endlos weiterrendern lassen.
+  let aufgedeckt = false;
+  (fetchTrip as jest.Mock).mockImplementation(async () => (aufgedeckt ? tripRevealedOk : tripOk));
+  (revealTrip as jest.Mock).mockImplementation(async () => {
+    aufgedeckt = true;
+    return { revealed_at: '2026-08-08T00:00:00Z', error: null };
+  });
+  await wrap();
+  await fireEvent.press(await screen.findByText('Reise abschliessen'));
+  await screen.findByText('Reise abschliessen?');
+
+  await fireEvent.press(screen.getByText('Abschliessen'));
+
+  await waitFor(() => expect(revealTrip).toHaveBeenCalledWith('t1'));
+  await waitFor(() => expect(screen.queryByText('Reise abschliessen?')).toBeNull());
+  // Reise neu geladen: status ist jetzt 'revealed', der Knopf verschwindet.
+  await waitFor(() => expect(screen.queryByText('Reise abschliessen')).toBeNull());
+});
+
+test('ein Fehler beim Abschliessen zeigt die Ursache und lässt den Knopf bedienbar (idempotent)', async () => {
+  (revealTrip as jest.Mock).mockResolvedValue({
+    revealed_at: null,
+    error: 'Die Reise konnte nicht abgeschlossen werden. Probier es gleich nochmal.',
+  });
+  await wrap();
+  await fireEvent.press(await screen.findByText('Reise abschliessen'));
+  await screen.findByText('Reise abschliessen?');
+
+  await fireEvent.press(screen.getByText('Abschliessen'));
+  await waitFor(() => expect(revealTrip).toHaveBeenCalledTimes(1));
+  expect(
+    await screen.findByText('Die Reise konnte nicht abgeschlossen werden. Probier es gleich nochmal.')
+  ).toBeTruthy();
+  // Sheet bleibt offen, der Knopf bleibt bedienbar — ein zweiter Versuch ist
+  // immer erlaubt, weil die Function idempotent ist (Task-8-Brief).
+  expect(screen.getByText('Reise abschliessen?')).toBeTruthy();
+  await fireEvent.press(screen.getByText('Abschliessen'));
+  await waitFor(() => expect(revealTrip).toHaveBeenCalledTimes(2));
 });
