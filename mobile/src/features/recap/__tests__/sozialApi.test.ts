@@ -80,6 +80,13 @@ describe('fetchReaktionen', () => {
     });
     const ergebnis = await fetchReaktionen(['p1', 'p2']);
     expect(mockFrom).toHaveBeenCalledTimes(1); // EIN Aufruf für beide Momente, nicht zwei
+    // Phase-5-Final-Review, Punkt 8 (Review-Fund): `mockFrom` wurde bisher
+    // nirgends in dieser Datei auf den TABELLENNAMEN geprüft, nur auf
+    // Aufrufzahl (toHaveBeenCalledTimes/not.toHaveBeenCalled). Reaktionen
+    // fälschlich in `comments` zu schreiben/lesen liesse die ganze Datei
+    // grün. Gleiches Muster wie recapApi.test.ts:56 (`toHaveBeenCalledWith
+    // ('posts')`).
+    expect(mockFrom).toHaveBeenCalledWith('reactions');
     expect(kette.select).toHaveBeenCalledWith('post_id, user_id, emoji');
     expect(kette.in).toHaveBeenCalledWith('post_id', ['p1', 'p2']);
     // Review-Fund (Klein 4B/4C aus Fix-Runde 1): ungeprüft liesse sich sowohl
@@ -129,6 +136,8 @@ describe('setzeReaktion', () => {
     const kette = upsertKette({ error: null });
     const ergebnis = await setzeReaktion('p1', '❤️');
     expect(ergebnis).toEqual({ error: null });
+    // Phase-5-Final-Review, Punkt 8: siehe Kommentar bei fetchReaktionen oben.
+    expect(mockFrom).toHaveBeenCalledWith('reactions');
     expect(kette.upsert).toHaveBeenCalledWith(
       { post_id: 'p1', user_id: 'u1', emoji: '❤️' },
       { onConflict: 'post_id,user_id,emoji', ignoreDuplicates: true }
@@ -172,6 +181,8 @@ describe('entferneReaktion', () => {
     const kette = deleteKette({ error: null });
     const ergebnis = await entferneReaktion('p1', '❤️');
     expect(ergebnis).toEqual({ error: null });
+    // Phase-5-Final-Review, Punkt 8: siehe Kommentar bei fetchReaktionen oben.
+    expect(mockFrom).toHaveBeenCalledWith('reactions');
     expect(kette.eq1).toHaveBeenCalledWith('post_id', 'p1');
     expect(kette.eq2).toHaveBeenCalledWith('user_id', 'u1');
     expect(kette.eq3).toHaveBeenCalledWith('emoji', '❤️');
@@ -210,6 +221,9 @@ describe('fetchKommentare', () => {
     });
     const ergebnis = await fetchKommentare('p1');
     expect(ergebnis.error).toBeNull();
+    // Phase-5-Final-Review, Punkt 8: siehe Kommentar bei fetchReaktionen oben
+    // — hier für `comments` statt `reactions`.
+    expect(mockFrom).toHaveBeenCalledWith('comments');
     expect(ergebnis.data).toEqual([
       {
         id: 'c1', post_id: 'p1', user_id: 'u1', text: 'Schön hier!',
@@ -259,6 +273,8 @@ describe('schreibeKommentar', () => {
     const kette = insertKette({ error: null });
     const ergebnis = await schreibeKommentar('p1', '  Toller Moment!  ');
     expect(ergebnis).toEqual({ error: null });
+    // Phase-5-Final-Review, Punkt 8: siehe Kommentar bei fetchReaktionen oben.
+    expect(mockFrom).toHaveBeenCalledWith('comments');
     expect(kette.insert).toHaveBeenCalledWith({ post_id: 'p1', user_id: 'u1', text: 'Toller Moment!' });
   });
 
