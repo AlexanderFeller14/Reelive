@@ -30,7 +30,7 @@ jest.mock('@expo-google-fonts/figtree', () => ({
   Figtree_700Bold: 0,
 }));
 
-const mockAuth: { status: string } = { status: 'loading' };
+const mockAuth: { status: string; userId: string | null } = { status: 'loading', userId: null };
 jest.mock('@/features/auth/AuthProvider', () => ({
   AuthProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   useAuth: () => mockAuth,
@@ -47,12 +47,20 @@ jest.mock('@/features/moments/uploadWorker', () => ({
   stoppe: jest.fn(),
 }));
 
+// pushApi.ts importiert @/lib/supabase (Task 4), das wiederum echtes
+// AsyncStorage lädt — unter Jest genau wie uploadWorker oben nie ungemockt.
+jest.mock('@/features/push/pushApi', () => ({
+  registrierePushToken: jest.fn(async () => 'ok'),
+}));
+
 import RootLayout from '../_layout';
 import * as uploadWorker from '@/features/moments/uploadWorker';
+import * as pushApi from '@/features/push/pushApi';
 
 beforeEach(() => {
   jest.clearAllMocks();
   mockAuth.status = 'loading';
+  mockAuth.userId = null;
 });
 
 // Task 13: der Worker legt posts-Zeilen an, braucht dafür Sitzung UND Profil
@@ -120,4 +128,25 @@ test('beim Unmount (z.B. App-Beenden) stoppt ein laufender Worker', async () => 
   await unmount();
 
   expect(uploadWorker.stoppe).toHaveBeenCalledTimes(1);
+});
+
+// Task 4: Push-Registrierung wird wie der Upload-Worker erst bei signedIn
+// angestossen — vorher gibt es weder eine gültige Sitzung noch eine userId.
+test('vor signedIn wird keine Push-Registrierung angestossen', async () => {
+  const { unmount } = await render(<RootLayout />);
+  expect(pushApi.registrierePushToken).not.toHaveBeenCalled();
+  await unmount();
+});
+
+test('sobald Sitzung und Profil stehen (signedIn), wird die Push-Registrierung mit der userId angestossen', async () => {
+  const { rerender, unmount } = await render(<RootLayout />);
+
+  mockAuth.status = 'signedIn';
+  mockAuth.userId = 'u1';
+  await act(async () => {
+    rerender(<RootLayout />);
+  });
+
+  expect(pushApi.registrierePushToken).toHaveBeenCalledWith('u1');
+  await unmount();
 });
