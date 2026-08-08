@@ -35,9 +35,32 @@
 // eigener Kalendertag rückwärts läuft, rutscht dadurch in den bereits
 // laufenden (höheren) Tag statt einen vorherigen, bereits abgeschlossenen Tag
 // wiederzueröffnen — chronologisch später bedeutet dadurch immer auch:
-// gleiche oder höhere Tagesnummer, nie eine kleinere. Ein Nebeneffekt bei
-// Westwärts-Reisen: eine Tagesnummer kann dabei übersprungen werden (kosmetisch,
-// passiert ohnehin bei momentlosen Tagen, siehe Tests).
+// gleiche oder höhere Tagesnummer, nie eine kleinere.
+//
+// Nebenwirkung (Review-Fund, korrigiert — die erste Fassung dieses Kommentars
+// beschrieb die falsche Richtung): WESTWÄRTS ist harmlos. Eine Tagesnummer
+// kann dort fehlen (z.B. L.A. abends → Tokio zwei Tage später ergibt Tag 1,
+// Tag 3), aber nur, weil der übersprungene Tag WIRKLICH keine Momente hat —
+// das war schon vor diesem Fix so und ist reine Anzeige-Kosmetik (ein Tag
+// ohne Momente erscheint ohnehin nicht in der Liste).
+//
+// Die echte Nebenwirkung liegt OSTWÄRTS: der gerade laufende Tag "saugt" so
+// lange weitere Momente auf, bis deren eigener lokaler Kalendertag ihn
+// einholt — ein ganzer lokaler Kalendertag der nachhinkenden Zone (z.B. der
+// gesamte 01.08. in Los Angeles, nachdem der 02.08. in Tokio bereits lief)
+// bekommt dadurch KEINE eigene Tageskarte, sondern wird Teil des vorherigen
+// Tages. Für einen so "verschluckten" Moment weicht `RecapTag.datum` damit
+// von seinem EIGENEN lokalen Kalendertag ab (das Datum bleibt weiterhin rein
+// arithmetisch aus start_date + (nummer - 1) abgeleitet, siehe datumFuerTag
+// unten — es gehört jetzt einfach zu einer anderen Nummer, als der Moment
+// alleine ergäbe). Vor diesem Fix galt ausnahmslos `datum` == lokales Datum
+// jedes Moments der Gruppe; das gilt jetzt nicht mehr uneingeschränkt. Bewusst
+// in Kauf genommen — die Alternative wäre, einen bereits abgeschlossenen Tag
+// wiederzueröffnen (Important 1) und die Chronologie erneut zu brechen.
+// Task 10/11 dürfen sich deshalb NICHT darauf verlassen, dass `datum` das
+// Ortsdatum jedes einzelnen Moments der Gruppe ist — nur, dass es das Datum
+// DES TAGES ist. Test: "bei einem verschluckten Ortstag kann RecapTag.datum
+// vom eigenen lokalen Datum eines Moments abweichen".
 
 import type { RecapMoment, RecapTag } from './types';
 
@@ -136,6 +159,20 @@ function berechneRohTagesnummer(moment: RecapMoment, startDate: string): number 
     const [ly, lm, ld] = lokalesDatum(moment.captured_at, moment.captured_tz);
     const [sy, sm, sd] = parseIsoDatum(startDate);
     const diffTage = Math.round((toUtcTag(ly, lm, ld) - toUtcTag(sy, sm, sd)) / MS_PRO_TAG);
+    // Number.isFinite statt blindem Vertrauen (Review-Fund, Important 3 war
+    // nur halb behoben): formatToParts() liefert auf manchen Intl-Teil-
+    // implementierungen (Hermes/iOS historisch, siehe Kommentar in
+    // mobile/src/app/(tabs)/aufnehmen/preview.tsx) 'year'/'month'/'day' NICHT
+    // als eigene Parts, sondern alles als einen einzigen 'literal'-Part —
+    // dann liefert teile.find(...)?.value undefined, Number(undefined) ist
+    // NaN, und OHNE diesen Guard würde NaN + 1 als "gültige" Tagesnummer
+    // zurückgegeben. Derselbe Guard fängt eine zweite, unabhängige NaN-Quelle
+    // gleich mit ab: ein kaputtes/leeres startDate (parseIsoDatum('') → NaN).
+    // Beide Quellen würfen hier NICHT (Math.round(NaN) ist NaN, kein Wurf) —
+    // die Prüfung muss deshalb explizit stehen, nicht im try/catch aufgehen.
+    if (!Number.isFinite(diffTage)) {
+      throw new RangeError('Tagesnummer liess sich nicht berechnen (kein auswertbares Kalenderdatum).');
+    }
     return diffTage + 1;
   } catch (fehler) {
     console.error('[tage] Moment ohne verwertbaren Zeitpunkt/Zeitzone übersprungen', moment.id, fehler);
@@ -173,6 +210,12 @@ export function gruppiereNachTagen(momente: RecapMoment[], startDate: string): R
   let laufendeNummer = 1;
   for (const moment of sortiert) {
     const roh = berechneRohTagesnummer(moment, startDate);
+    // roh ist ab hier garantiert eine endliche Zahl (berechneRohTagesnummer
+    // wirft NIE ein NaN weiter, siehe dortiger Number.isFinite-Guard) — sonst
+    // würde EIN kaputter Moment über Math.max(NaN, laufendeNummer) = NaN die
+    // laufende Nummer für ALLE nachfolgenden Momente vergiften (Review-Fund):
+    // ein einzelner kaputter Moment darf nur sich selbst kosten, nie die
+    // Gruppierung der übrigen.
     if (roh === null) continue;
     const nummer = Math.max(roh, laufendeNummer);
     laufendeNummer = nummer;

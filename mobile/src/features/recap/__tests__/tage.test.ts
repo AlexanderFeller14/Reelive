@@ -245,6 +245,108 @@ describe('gruppiereNachTagen', () => {
     expect(tage[0].momente.map((m) => m.id)).toEqual(['a', 'b']);
   });
 
+  // Re-Review-Fund: mit nur ZWEI Momenten fällt die Mutation
+  // "laufendeNummer = nummer" → "laufendeNummer = roh" nicht auf (das war
+  // gerade der Fall oben). Ein DRITTER, chronologisch noch späterer Moment
+  // mit demselben (niedrigeren) eigenen lokalen Tag wie der zweite deckt sie
+  // auf: mit der Mutation würde die laufende Nummer nach dem zweiten Moment
+  // fälschlich auf dessen ROHEN Wert (1) zurückfallen statt auf der bereits
+  // erreichten Nummer (2) zu bleiben — der dritte Moment eröffnete dadurch
+  // wieder einen (kleineren, "abgeschlossenen") Tag, und die Tagesliste
+  // stünde erneut absteigend (exakt Important 1 zurück).
+  test('die monotone Vergabe bleibt über mehr als zwei Momente stabil (kein Rückfall in einen abgeschlossenen Tag)', () => {
+    const abflugTokio = moment({
+      id: 'a',
+      captured_at: '2026-08-01T23:30:00.000Z', // lokal: 02.08. (Asia/Tokyo)
+      captured_tz: 'Asia/Tokyo',
+    });
+    const ankunftLosAngeles = moment({
+      id: 'b',
+      captured_at: '2026-08-02T01:00:00.000Z', // lokal: 01.08., abends (America/Los_Angeles)
+      captured_tz: 'America/Los_Angeles',
+    });
+    const spaeterLosAngeles = moment({
+      id: 'c',
+      captured_at: '2026-08-02T03:00:00.000Z', // chronologisch NOCH später, lokal weiterhin 01.08.
+      captured_tz: 'America/Los_Angeles',
+    });
+    const tage = gruppiereNachTagen([abflugTokio, ankunftLosAngeles, spaeterLosAngeles], startDate);
+    expect(tage).toHaveLength(1);
+    expect(tage[0].nummer).toBe(2);
+    expect(tage[0].momente.map((m) => m.id)).toEqual(['a', 'b', 'c']);
+  });
+
+  // Minor (Review): die Nebenwirkung der monotonen Vergabe ist nicht bloss
+  // eine übersprungene Nummer, sondern kann RecapTag.datum vom EIGENEN
+  // lokalen Datum eines einzelnen Moments abweichen lassen, sobald dessen
+  // Kalendertag von einem vorherigen, "laufenden" Tag verschluckt wird —
+  // bewusst in Kauf genommen (siehe Kommentarkopf), hier als Vertrag
+  // festgehalten, damit Task 10/11 sich nicht auf das Gegenteil verlassen.
+  test('bei einem verschluckten Ortstag kann RecapTag.datum vom eigenen lokalen Datum eines Moments abweichen', () => {
+    const abflugTokio = moment({
+      id: 'a',
+      captured_at: '2026-08-01T23:30:00.000Z', // lokal: 02.08. (Asia/Tokyo)
+      captured_tz: 'Asia/Tokyo',
+    });
+    const ankunftLosAngeles = moment({
+      id: 'b',
+      captured_at: '2026-08-02T01:00:00.000Z', // eigenes lokales Datum: 01.08. (America/Los_Angeles)
+      captured_tz: 'America/Los_Angeles',
+    });
+    const tage = gruppiereNachTagen([abflugTokio, ankunftLosAngeles], startDate);
+    expect(tage).toHaveLength(1);
+    // b's eigenes lokales Datum wäre 2026-08-01 — die Gruppe trägt aber das
+    // Datum von a's (höherem, laufendem) Tag.
+    expect(tage[0].datum).toBe('2026-08-02');
+    expect(tage[0].momente.map((m) => m.id)).toEqual(['a', 'b']);
+  });
+
+  // Review-Fund (neu, vom Fix für Important 2/3 eingeführt): ein einzelner
+  // Moment, dessen roher Tageswert NaN wird, darf NICHT über
+  // Math.max(NaN, laufendeNummer) die laufende Nummer für ALLE
+  // nachfolgenden Momente vergiften — sonst kostet er nicht nur sich
+  // selbst, sondern reisst gültige Momente mit sich.
+  test('ein einzelner kaputter Moment vergiftet nicht die Tagesnummern nachfolgender, gültiger Momente', () => {
+    const gueltigVorher = moment({ id: 'a', captured_at: '2026-08-01T08:00:00.000Z' });
+    const kaputt = moment({ id: 'b', captured_at: 'kein-datum' });
+    const gueltigNachher = moment({ id: 'c', captured_at: '2026-08-02T08:00:00.000Z' });
+    const tage = gruppiereNachTagen([gueltigVorher, kaputt, gueltigNachher], startDate);
+    expect(tage.map((t) => ({ nummer: t.nummer, momente: t.momente.map((m) => m.id) }))).toEqual([
+      { nummer: 1, momente: ['a'] },
+      { nummer: 2, momente: ['c'] },
+    ]);
+  });
+
+  // Review-Fund, Important (halb behoben): formatToParts() liefert auf
+  // manchen Intl-Teilimplementierungen (Hermes/iOS historisch — siehe
+  // Kommentar in mobile/src/app/(tabs)/aufnehmen/preview.tsx, der Intl
+  // gerade DESHALB meidet) 'year'/'month'/'day' nicht als eigene Parts,
+  // sondern alles als einen einzigen 'literal'-Part. Nachgestellt über einen
+  // Spy auf Intl.DateTimeFormat.prototype.formatToParts.
+  test('eine Intl-Teilimplementierung ohne year/month/day-Parts wirft nicht und kostet nur den betroffenen Moment', () => {
+    const spy = jest
+      .spyOn(Intl.DateTimeFormat.prototype, 'formatToParts')
+      .mockReturnValueOnce([{ type: 'literal', value: 'unbrauchbar' }] as unknown as Intl.DateTimeFormatPart[]);
+    // kaputt zuerst (chronologisch früher), damit der EINE abgefangene
+    // formatToParts-Aufruf sicher ihn trifft, nicht den gültigen Moment.
+    const kaputt = moment({ id: 'b', captured_at: '2026-08-01T08:00:00.000Z' });
+    const gueltig = moment({ id: 'a', captured_at: '2026-08-01T10:00:00.000Z' });
+    const tage = gruppiereNachTagen([kaputt, gueltig], startDate);
+    spy.mockRestore();
+    expect(tage).toHaveLength(1);
+    expect(tage[0].momente.map((m) => m.id)).toEqual(['a']);
+  });
+
+  // Zweite, unabhängige NaN-Quelle: ein kaputtes/leeres startDate selbst
+  // (nicht captured_at/captured_tz eines Moments) — derselbe
+  // Number.isFinite-Guard fängt auch das ab, statt NaN-Tagesnummern für
+  // JEDEN Moment zu erzeugen.
+  test('ein kaputtes startDate wirft nicht und liefert eine leere Liste statt NaN-Tagesnummern', () => {
+    const a = moment({ id: 'a' });
+    expect(() => gruppiereNachTagen([a], 'kaputtes-startdatum')).not.toThrow();
+    expect(gruppiereNachTagen([a], 'kaputtes-startdatum')).toEqual([]);
+  });
+
   // Review-Fund, Important 2: captured_tz hat keine CHECK-Constraint und ist
   // vom Client frei setzbar — ein ungültiger Bezeichner (fremder/älterer
   // Client, abweichende tzdata zwischen zwei Geräten desselben Recaps) lässt
