@@ -24,6 +24,17 @@ const httpFehler = (status: number, body: unknown) => ({
 describe('laeuftBaldAb', () => {
   const vorrat = (gueltigBis: number): Vorrat => ({ urls: new Map(), gueltigBis, ausgelassen: 0 });
 
+  // Phase-5-Final-Review, Punkt 8 (Review-Fund): fehlte bisher — der Test
+  // "exakt fünf Minuten" unten leitete seinen Vergleichswert bislang aus
+  // `BALD_ABLAUF_SCHWELLE_MS` SELBST ab, statt gegen ein Literal zu prüfen.
+  // Jeder Wert zwischen 4:59 (Test oben) und 10:00 (Test unten) bestand damit
+  // alle vier Tests dieser Suite — die Fünf-Minuten-Schwelle aus Spec §7 war
+  // nirgends festgenagelt. Literal-Pinning nach demselben Muster wie
+  // `FOTO_DAUER_MS`/`VIDEO_DAUER_MIN_MS` in playerLogic.test.ts.
+  test('BALD_ABLAUF_SCHWELLE_MS sind fünf Minuten (Spec §7: Ablauf-Vorlauf für Lese-URLs)', () => {
+    expect(BALD_ABLAUF_SCHWELLE_MS).toBe(5 * 60 * 1000);
+  });
+
   test('true, wenn noch weniger als fünf Minuten übrig sind', () => {
     const jetzt = 1_000_000;
     const vierMin59 = jetzt + 4 * 60 * 1000 + 59 * 1000;
@@ -32,11 +43,24 @@ describe('laeuftBaldAb', () => {
 
   // Grenzfall exakt bei fünf Minuten: die Schwelle greift bei WENIGER als
   // fünf Minuten, exakt fünf Minuten zählt noch nicht als "bald ab" — ein
-  // Mutant, der < zu <= dreht, fällt hier durch.
+  // Mutant, der < zu <= dreht, fällt hier durch. Literal `5 * 60 * 1000`
+  // statt `BALD_ABLAUF_SCHWELLE_MS` (Review-Fund, siehe oben): der Test prüft
+  // damit den tatsächlichen Fünf-Minuten-Grenzwert, nicht bloss "was auch
+  // immer die Konstante gerade ist".
   test('exakt fünf Minuten übrig gilt noch nicht als bald ablaufend', () => {
     const jetzt = 1_000_000;
-    const fuenfMinuten = jetzt + BALD_ABLAUF_SCHWELLE_MS;
+    const fuenfMinuten = jetzt + 5 * 60 * 1000;
     expect(laeuftBaldAb(vorrat(fuenfMinuten), jetzt)).toBe(false);
+  });
+
+  // Knapp über der Schwelle (5:01) — engere Gegenprobe zum 10-Minuten-Test
+  // unten, die einen Mutanten fängt, der die Schwelle grosszügig nach oben
+  // verschiebt (z.B. auf 10 Minuten): 5:01 läge dann fälschlich noch
+  // innerhalb der (mutierten) Schwelle.
+  test('fünf Minuten und eine Sekunde übrig gilt nicht mehr als bald ablaufend', () => {
+    const jetzt = 1_000_000;
+    const fuenfMinuten01 = jetzt + 5 * 60 * 1000 + 1000;
+    expect(laeuftBaldAb(vorrat(fuenfMinuten01), jetzt)).toBe(false);
   });
 
   test('false, wenn mehr als fünf Minuten übrig sind', () => {
@@ -138,17 +162,38 @@ describe('holeVorrat', () => {
     });
   });
 
-  // Die Function liefert `ausgelassen` inzwischen IMMER (auch als 0, siehe
-  // Kommentar am Typ) — fehlt es trotzdem, ist die Antwort nicht vertrauens-
-  // würdig genug für einen Vorrat.
-  test('eine Antwort ohne ausgelassen wird als Fehlschlag gewertet', async () => {
+  // Phase-5-Final-Review, Punkt 2: `ausgelassen` ist rein informativ («N
+  // Momente liessen sich nicht laden») — anders als `medien`/`gueltig_bis`
+  // darf sein Fehlen den Recap nicht am Laden hindern. App (EAS) und Edge
+  // Function (`supabase functions deploy`) werden getrennt ausgerollt; ein
+  // Rollback oder eine vertauschte Reihenfolge, in der die Function das Feld
+  // (noch) nicht sendet, darf aus "ein Hinweistext fehlt" nicht "der ganze
+  // Recap lädt nicht" machen.
+  test('eine Antwort ohne ausgelassen wird als 0 behandelt, kein Ladefehler', async () => {
     mockInvoke.mockResolvedValueOnce({
       data: { medien: [], gueltig_bis: '2026-08-08T13:00:00.000Z' },
       error: null,
     });
     const { vorrat, error } = await holeVorrat('t1');
-    expect(vorrat).toBeNull();
-    expect(error).toBe('Die Momente konnten nicht geladen werden. Probier es gleich nochmal.');
+    expect(error).toBeNull();
+    expect(vorrat?.ausgelassen).toBe(0);
+  });
+
+  // Gegenprobe zum Test oben: ein TATSÄCHLICH übermittelter Wert (auch 0)
+  // wird weiterhin unverändert durchgereicht, `?? 0` darf einen echten Wert
+  // nicht überschreiben — ein Mutant, der `antwort.ausgelassen ?? 0` zu
+  // `antwort.ausgelassen || 0` verkürzt, würde HIER durchfallen, weil 0
+  // bereits falsy ist und beide Schreibweisen für 0 identisch wirken; der
+  // eigentliche Unterschied zeigt sich erst bei einem vorhandenen,
+  // von 0 verschiedenen Wert wie hier.
+  test('ein tatsächlich übermittelter ausgelassen-Wert bleibt unverändert', async () => {
+    mockInvoke.mockResolvedValueOnce({
+      data: { medien: [], gueltig_bis: '2026-08-08T13:00:00.000Z', ausgelassen: 4 },
+      error: null,
+    });
+    const { vorrat, error } = await holeVorrat('t1');
+    expect(error).toBeNull();
+    expect(vorrat?.ausgelassen).toBe(4);
   });
 
   // Die beiden 403-Fälle bedeuten Verschiedenes (Reise noch versiegelt vs.

@@ -14,9 +14,11 @@ import { supabase } from '@/lib/supabase';
 import { OFFLINE_HINT, istOffline } from '@/lib/netzfehler';
 
 export type MedienUrl = { post_id: string; medium_url: string; thumb_url: string | null };
-// ausgelassen: Anzahl Momente, für die es keine URL gab (Function liefert
-// das Feld seit einer nachträglichen Erweiterung IMMER, auch als 0) — Task
-// 11 zeigt daraus «N Momente konnten nicht geladen werden».
+// ausgelassen: Anzahl Momente, für die es keine URL gab — Task 11 zeigt
+// daraus «N Momente konnten nicht geladen werden». Die Function liefert das
+// Feld im Normalfall immer (auch als 0), aber `holeVorrat` liest es WEICH
+// (Phase-5-Final-Review, Punkt 2: App und Function werden getrennt
+// ausgerollt, ein fehlendes Feld darf den Recap nie am Laden hindern).
 export type Vorrat = { urls: Map<string, MedienUrl>; gueltigBis: number; ausgelassen: number };
 
 // Fünf Minuten Vorlauf, bevor eine Lese-URL wirklich abläuft (Brief: die
@@ -115,14 +117,20 @@ export async function holeVorrat(
   // würde also NIE erneut aufgerufen, bis jede URL wirklich abgelaufen ist.
   // Das ist exakt das Ende, das Versprechen V10 verbietet. Ein kaputter Wert
   // zählt deshalb schon hier als Ladefehler, nicht erst beim Ablauf-Check.
+  //
+  // Phase-5-Final-Review, Punkt 2: `ausgelassen` ist NICHT Teil dieser
+  // harten Prüfung — anders als `medien`/`gueltig_bis` (ohne die es gar
+  // keinen benutzbaren Vorrat gibt) ist `ausgelassen` rein informativ («N
+  // Momente liessen sich nicht laden», siehe player.tsx). App und Edge
+  // Function werden getrennt ausgerollt (EAS gegen `supabase functions
+  // deploy`) — ein Rollback oder eine vertauschte Reihenfolge, in der die
+  // Function das Feld (noch/nicht mehr) sendet, darf aus «ein Hinweistext
+  // fehlt» nicht «der ganze Recap lädt nicht» machen. `?? 0` liest das Feld
+  // deshalb WEICH: fehlt es, ist die einzig vertretbare Annahme "nichts
+  // bekannt ausgelassen", nicht ein Ladefehler.
   const antwort = data as Partial<LeseAntwort> | null;
   const gueltigBis = typeof antwort?.gueltig_bis === 'string' ? Date.parse(antwort.gueltig_bis) : NaN;
-  if (
-    !antwort ||
-    !Array.isArray(antwort.medien) ||
-    Number.isNaN(gueltigBis) ||
-    typeof antwort.ausgelassen !== 'number'
-  ) {
+  if (!antwort || !Array.isArray(antwort.medien) || Number.isNaN(gueltigBis)) {
     return { vorrat: null, error: LADEFEHLER, grund: null };
   }
 
@@ -135,7 +143,7 @@ export async function holeVorrat(
     });
   }
 
-  return { vorrat: { urls, gueltigBis, ausgelassen: antwort.ausgelassen }, error: null, grund: null };
+  return { vorrat: { urls, gueltigBis, ausgelassen: antwort.ausgelassen ?? 0 }, error: null, grund: null };
 }
 
 // true, sobald weniger als BALD_ABLAUF_SCHWELLE_MS bis gueltigBis übrig
