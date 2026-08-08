@@ -17,11 +17,12 @@ import { peekRememberedInvite, discardRememberedInvite } from '@/features/trips/
 import { redeemInvite } from '@/features/trips/tripsApi';
 import { redeemPendingInvite } from '@/features/trips/joinFlow';
 import * as uploadWorker from '@/features/moments/uploadWorker';
+import { registrierePushToken } from '@/features/push/pushApi';
 
 void SplashScreen.preventAutoHideAsync();
 
 function Guarded() {
-  const { status } = useAuth();
+  const { status, userId } = useAuth();
   // Cast: mit experiments.typedRoutes engt useSegments() den Rückgabetyp auf die
   // aktuell existierenden Routen ein — segments[1] wäre sonst ein
   // Tuple-Out-of-Bounds-Fehler. Laufzeitverhalten unverändert.
@@ -75,6 +76,17 @@ function Guarded() {
     uploadWorker.starte();
     return () => uploadWorker.stoppe();
   }, [status]);
+
+  // Push-Registrierung: einmal pro signedIn-Wechsel anstossen, ohne auf das
+  // Ergebnis zu warten und ohne das Rendern zu blockieren (Vorbild: der
+  // Upload-Worker-Start oben). Anders als der Worker braucht es kein
+  // Cleanup — registrierePushToken() wirft nie (Task-4-Brief) und schreibt
+  // höchstens eine Zeile per upsert auf token; ein doppelter Aufruf bei
+  // erneutem signedIn (z.B. nach kurzem Session-Verlust) ist harmlos.
+  useEffect(() => {
+    if (status !== 'signedIn' || !userId) return;
+    void registrierePushToken(userId);
+  }, [status, userId]);
 
   return (
     <>

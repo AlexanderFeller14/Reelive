@@ -2,12 +2,22 @@
 import '@supabase/functions-js/edge-runtime.d.ts';
 
 // Erste Edge Function des Projekts: stellt kurzlebige presigned PUT-URLs für
-// S3 aus und bestätigt fertige Uploads. Sie ist der einzige Ort im System,
-// der die S3-Zugangsdaten kennt.
+// S3 aus, bestätigt fertige Uploads und gibt seit Phase 5 Lese-URLs für den
+// Recap heraus. Sie ist der einzige Ort im System, der die S3-Zugangsdaten
+// kennt.
 //
 // Nicht verhandelbare Regeln (Task-Brief §Sicherheitsregeln):
-//   1. Ausschliesslich schreibende (PUT) URLs. Lesen bricht die Versiegelung
-//      und kommt frühestens mit Phase 5, mit ganz anderen Bedingungen.
+//   1. Schreibende (PUT) URLs für den Upload, lesende (GET) URLs nur über die
+//      Aktion `lesen` — und die ist der Ort, an dem die Versiegelung hängt.
+//      Bis Phase 5 war sie dadurch geschützt, dass es überhaupt keinen
+//      Leseweg gab; jetzt schützt sie eine Prüfkette, die genauso hart sein
+//      muss: Reise existiert → Status ist 'revealed' oder 'archived' →
+//      aufrufende Person ist Mitglied. Erst danach entsteht eine Signatur.
+//      Vor dem Reveal bekommt niemand eine Lese-URL, auch nicht die Autorin
+//      des Moments (dieselbe Regel wie posts_select_revealed_members in
+//      supabase/migrations/20260806120100_counts_and_archived.sql — nur dass
+//      die Function mit Service-Role an RLS vorbeiliest und die Prüfung
+//      deshalb selbst führen muss).
 //   2. Schlüssel werden aus der `posts`-Zeile abgeleitet (erwarteteSchluessel
 //      in ./keys.ts), nie aus dem Client-Body übernommen — sonst könnte
 //      jemand eine Signatur für einen fremden Pfad erschleichen. Auch die
@@ -16,8 +26,9 @@ import '@supabase/functions-js/edge-runtime.d.ts';
 //      Liste beschränkt und nach dem Insert unveränderlich. Das gilt
 //      auch rückwirkend: `confirm` schreibt dieselben abgeleiteten Schlüssel
 //      in `posts.storage_key`/`thumb_key`, statt den ungeprüften Client-Wert
-//      (aus dem Insert) stehen zu lassen — sonst würde eine künftige
-//      Lese-URL-Function (Phase 5) genau diesen Client-Pfad signieren.
+//      (aus dem Insert) stehen zu lassen. `lesen` leitet aus demselben Grund
+//      ebenfalls ab, statt storage_key zu übernehmen: keine der drei
+//      Aktionen signiert je einen Pfad, den ein Client geschrieben hat.
 //   3. Identität kommt ausschliesslich aus dem JWT im Authorization-Header
 //      (supabaseAdmin.auth.getUser(token)), nie aus dem Body. Signiert wird
 //      nur, wenn die aufrufende Person Autor des Posts UND Mitglied der
@@ -25,6 +36,7 @@ import '@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { AwsClient } from 'npm:aws4fetch@1';
 import { erwarteteSchluessel } from './keys.ts';
+import { beurteileLesezugriff } from './lesenZugriff.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
@@ -35,8 +47,40 @@ const S3_ACCESS_KEY = Deno.env.get('S3_ACCESS_KEY') ?? '';
 const S3_SECRET_KEY = Deno.env.get('S3_SECRET_KEY') ?? '';
 
 // Presigned PUT-URLs bleiben knapp gültig — sie sollen genau einen
-// Upload-Versuch abdecken, keine Vorratshaltung von Signaturen.
-const URL_GUELTIGKEIT_SEKUNDEN = 600;
+// Upload-Versuch abdecken, keine Vorratshaltung von Signaturen. Der Client
+// holt sich unmittelbar vor dem Hochladen eine frische URL; scheitert der
+// Upload, wiederholt der Queue-Job den ganzen Schritt inklusive `sign`.
+const UPLOAD_URL_GUELTIGKEIT_SEKUNDEN = 600;
+
+// Lese-URLs brauchen deutlich mehr Luft: Eine Antwort deckt eine ganze
+// Filmrolle ab, der Player lädt im Voraus, pausiert, springt zurück, und das
+// Telefon wandert zwischendurch in die Tasche. Mit 600 s müsste die App
+// mitten im Recap neu signieren lassen. Eine Stunde überdauert einen
+// Durchlauf, ohne dass eine weitergereichte URL zu einem dauerhaften Zugang
+// wird: nach Ablauf führt der einzige Weg zurück durch die Prüfkette dieser
+// Function — und die fragt Status und Mitgliedschaft neu.
+const LESE_URL_GUELTIGKEIT_SEKUNDEN = 3600;
+
+// Seitengrösse beim Einsammeln der Momente. Orientiert an max_rows aus
+// supabase/config.toml (1000): grösser hat keine Wirkung, weil PostgREST dort
+// ohnehin kappt, kleiner kostet nur Round-Trips. Die Richtigkeit der Schleife
+// hängt aber NICHT daran, dass die beiden Zahlen gleich sind — siehe dort.
+//
+// Zur Grössenordnung, damit sie jemand bewusst entschieden hat: Eine Reise mit
+// 1000 fertigen Momenten bedeutet 2000 Signaturen und rund ein Megabyte JSON
+// pro Aufruf. Das ist ungefähr die Obergrenze dessen, was diese Antwort in
+// einem Stück tragen sollte. Wird das je der Normalfall, gehört ein Fenster in
+// die Aktion (Task 6 hält den Vorrat auf Client-Seite ohnehin schon) — aber
+// ein Fenster ist eine Entscheidung mit einem Parameter und einer Anzeige für
+// die App, kein stiller Abschnitt bei genau 1000.
+const POSTS_SEITENGROESSE = 1000;
+
+type TripStatus = 'active' | 'revealed' | 'archived';
+
+type TripZeile = {
+  id: string;
+  status: TripStatus;
+};
 
 type PostZeile = {
   id: string;
@@ -48,7 +92,27 @@ type PostZeile = {
   media_ext: string | null;
 };
 
-type AnfrageBody = { aktion?: unknown; post_id?: unknown };
+// Zeile für die Lese-Antwort. storage_key ist in der Tabelle `not null`,
+// thumb_key nicht (supabase/migrations/20260803090100_content_tables.sql);
+// thumb_key dient hier deshalb als Ja/Nein, nicht als Pfad.
+type MedienZeile = {
+  id: string;
+  type: 'photo' | 'video';
+  media_ext: string | null;
+  storage_key: string;
+  thumb_key: string | null;
+};
+
+// thumb_url ist optional, weil thumb_key null sein kann — siehe `lesen`.
+type MedienEintrag = {
+  post_id: string;
+  medium_url: string;
+  thumb_url?: string;
+};
+
+// `sign`/`confirm` arbeiten auf einem Moment (post_id), `lesen` auf einer
+// ganzen Reise (trip_id) — absichtlich verschiedene Parameter.
+type AnfrageBody = { aktion?: unknown; post_id?: unknown; trip_id?: unknown };
 
 function json(payload: unknown, status: number): Response {
   return new Response(JSON.stringify(payload), {
@@ -78,9 +142,25 @@ function s3ObjektUrl(key: string): URL {
 
 async function presignedPutUrl(aws: AwsClient, key: string): Promise<string> {
   const url = s3ObjektUrl(key);
-  url.searchParams.set('X-Amz-Expires', String(URL_GUELTIGKEIT_SEKUNDEN));
+  url.searchParams.set('X-Amz-Expires', String(UPLOAD_URL_GUELTIGKEIT_SEKUNDEN));
   const signed = await aws.sign(url.toString(), {
     method: 'PUT',
+    aws: { signQuery: true },
+  });
+  return signed.url;
+}
+
+// Die Methode ist Teil der Signatur: SigV4 setzt sie als erste Zeile des
+// Canonical Request, dessen SHA-256 in den String-to-Sign eingeht. Eine hier
+// erzeugte URL taugt darum nur zum GET — ein PUT auf dieselbe URL berechnet
+// serverseitig einen anderen Canonical Request und scheitert mit
+// SignatureDoesNotMatch. Eine Lese-URL kann also nie zum Überschreiben
+// fremder Momente umgewidmet werden (Beleg: Fall 4 in lesen_test.ts).
+async function presignedGetUrl(aws: AwsClient, key: string): Promise<string> {
+  const url = s3ObjektUrl(key);
+  url.searchParams.set('X-Amz-Expires', String(LESE_URL_GUELTIGKEIT_SEKUNDEN));
+  const signed = await aws.sign(url.toString(), {
+    method: 'GET',
     aws: { signQuery: true },
   });
   return signed.url;
@@ -142,6 +222,283 @@ Deno.serve(async (req: Request): Promise<Response> => {
   }
 
   const aktion = body.aktion;
+
+  // `lesen` zweigt hier ab, VOR der post_id-Prüfung: es arbeitet auf einer
+  // trip_id, nicht auf einem Moment. Dadurch bleibt der Weg von `sign` und
+  // `confirm` darunter unverändert — inklusive der Reihenfolge seiner
+  // Prüfungen und der Fehlertexte.
+  if (aktion === 'lesen') {
+    const tripId = body.trip_id;
+    if (typeof tripId !== 'string' || tripId.length === 0) {
+      return fehler('trip_id fehlt.', 400);
+    }
+
+    const { data: trip, error: tripError } = await supabaseAdmin
+      .from('trips')
+      .select('id, status')
+      .eq('id', tripId)
+      .maybeSingle();
+
+    if (tripError) {
+      console.error('media-urls: trips-Select fehlgeschlagen', tripError);
+      return fehler('Reise konnte nicht geladen werden.', 500);
+    }
+    const tripRohdaten = trip as TripZeile | null;
+
+    // trip_members wird nur abgefragt, wenn die Reise existiert UND nicht
+    // mehr versiegelt ist — sonst steht das Urteil (404 bzw. "noch
+    // versiegelt") schon fest, unabhängig von der Mitgliedschaft, und die
+    // Abfrage wäre unbenutzte Arbeit gegen jede erratene trip_id. Diese
+    // Kurzschluss-Eigenschaft der Abfragen bleibt bewusst hier in index.ts:
+    // sie betrifft I/O, keine Entscheidung, und gehört darum nicht in die
+    // reine Prüfkette unten.
+    //
+    // is_trip_member() ist hier unbrauchbar — siehe die ausführliche
+    // Begründung weiter unten im sign/confirm-Zweig: Der Oracle-Guard
+    // (20260803090700) liefert für Service-Role immer false. Also direkt
+    // lesen. Wer aus der Reise entfernt wurde, hat keine trip_members-Zeile
+    // mehr und fällt damit ab hier heraus, auch wenn er die trip_id kennt.
+    let mitgliedschaft: { user_id: string } | null = null;
+    if (tripRohdaten && (tripRohdaten.status === 'revealed' || tripRohdaten.status === 'archived')) {
+      const { data: mitgliedZeile, error: mitgliedError } = await supabaseAdmin
+        .from('trip_members')
+        .select('user_id')
+        .eq('trip_id', tripRohdaten.id)
+        .eq('user_id', anfragendeId)
+        .maybeSingle();
+      if (mitgliedError) {
+        console.error('media-urls: trip_members-Select fehlgeschlagen', mitgliedError);
+        // mitgliedschaft bleibt null: beurteileLesezugriff trifft für "keine
+        // Zeile" und "Fehler beim Abfragen" dieselbe Entscheidung (403,
+        // derselbe Text) — nur der Log-Seiteneffekt gehört hierher, nicht in
+        // die reine Funktion.
+      } else {
+        mitgliedschaft = mitgliedZeile;
+      }
+    }
+
+    // Die eigentliche Versiegelungs-Prüfkette — herausgelöst nach
+    // lesenZugriff.ts, damit sie ohne laufenden Stack unit-testbar ist
+    // (lesenZugriff_test.ts). "Reise existiert → Status ist 'revealed' oder
+    // 'archived' → aufrufende Person ist Mitglied", wortgleich zur Vorfassung
+    // (Fehlertexte, Status-Codes, Reihenfolge).
+    const urteil = beurteileLesezugriff(tripRohdaten, mitgliedschaft);
+    if (!urteil.erlaubt) {
+      return fehler(urteil.nachricht, urteil.status);
+    }
+    // Sicher: beurteileLesezugriff liefert erlaubt:true nur, wenn tripRohdaten
+    // nicht null war (siehe dortiger erster Zweig) — derselbe Cast-nach-
+    // Existenzprüfung-Stil wie bei postZeile weiter unten in dieser Datei.
+    const tripZeile = tripRohdaten as TripZeile;
+
+    // Nur fertige Uploads: ein Moment mit upload_status 'pending' hat kein
+    // vollständiges Objekt im Speicher, eine URL darauf wäre ein 404 in der
+    // Filmrolle. Reihenfolge nach captured_at aufsteigend, id als zweites
+    // Kriterium für eine stabile Sortierung bei gleicher Zeit (Global
+    // Constraint: nie nach created_at).
+    //
+    // Geblättert, und das ist keine Vorsicht auf Vorrat: PostgREST kappt jede
+    // Antwort bei max_rows (supabase/config.toml, 1000) — ohne Fehler, ohne
+    // Hinweis im Ergebnis, ohne dass supabase-js etwas davon merkt. Ein
+    // einzelner Select würde einer Reise mit mehr als 1000 Momenten
+    // stillschweigend den Rest des Recaps abschneiden, ausgerechnet bei der
+    // Antwort, auf die das ganze Produkt hinausläuft. Es wird darum gezählt
+    // und geblättert, bis eine Seite nicht mehr voll ist.
+    //
+    // `type` und `media_ext` kommen mit, weil der Pfad hier NEU abgeleitet
+    // wird statt aus storage_key übernommen — siehe unten.
+    const postZeilen: MedienZeile[] = [];
+    // Versatz-Paginierung läuft über eine Menge, die sich unter ihr bewegen
+    // kann: Ein `confirm`, das während des Blätterns einen Moment mit früherem
+    // captured_at auf 'uploaded' setzt, schiebt alles danach um eine Position
+    // nach hinten — die letzte Zeile der vorigen Seite erscheint dann als
+    // erste der nächsten NOCH EINMAL. Die Verlust-Richtung fängt der
+    // Quervergleich unten, die Doppel-Richtung nicht: 1201 eingesammelte
+    // Zeilen bei 1200 gezählten sind >= und schlagen nirgends an. Die Antwort
+    // trüge ein doppeltes post_id, der Recap zeigte denselben Moment zweimal.
+    // Darum die Menge der schon gesehenen IDs.
+    const gesehen = new Set<string>();
+    let abgeholt = 0;
+    let gezaehlt: number | null = null;
+    for (;;) {
+      // Der Versatz ist immer «so viele Zeilen hat der Server schon
+      // geliefert». Bewusst nicht Seitennummer × Seitengrösse: dann hinge die
+      // Richtigkeit daran, dass eine volle Seite auch wirklich
+      // POSTS_SEITENGROESSE Zeilen bringt — also daran, dass max_rows in
+      // config.toml genau diesen Wert hat. Wird es dort je kleiner gesetzt,
+      // blättert diese Schleife trotzdem korrekt weiter.
+      //
+      // Und bewusst nicht die Zahl der BEHALTENEN Zeilen: seit dem Aussortieren
+      // von Doubletten sind das zwei verschiedene Zahlen, und nur die gelieferte
+      // wächst garantiert bei jedem Durchgang. Am behaltenen Stand gemessen
+      // könnte eine Seite aus lauter Doubletten den Versatz stehen lassen —
+      // eine Endlosschleife.
+      const von = abgeholt;
+      const { data, error: postsError, count } = await supabaseAdmin
+        .from('posts')
+        // Gezählt wird nur beim ersten Durchgang: der count ist eine eigene
+        // Aggregation, und ihn pro Seite zu wiederholen kostet ohne Nutzen.
+        .select('id, type, media_ext, storage_key, thumb_key', gezaehlt === null ? { count: 'exact' } : undefined)
+        .eq('trip_id', tripZeile.id)
+        .eq('upload_status', 'uploaded')
+        .order('captured_at', { ascending: true })
+        .order('id', { ascending: true })
+        .range(von, von + POSTS_SEITENGROESSE - 1);
+
+      if (postsError) {
+        console.error('media-urls: posts-Select für lesen fehlgeschlagen', postsError);
+        return fehler('Momente konnten nicht geladen werden.', 500);
+      }
+      if (gezaehlt === null) gezaehlt = count ?? null;
+
+      const seitenZeilen = (data ?? []) as MedienZeile[];
+      abgeholt += seitenZeilen.length;
+      for (const zeile of seitenZeilen) {
+        if (gesehen.has(zeile.id)) continue;
+        gesehen.add(zeile.id);
+        postZeilen.push(zeile);
+      }
+
+      // Leere Seite: mehr gibt es nicht. Diese Bedingung beendet die Schleife
+      // auch dann, wenn die Zählung fehlt — und sie terminiert sicher, weil
+      // jeder andere Durchgang den Versatz um mindestens eine Zeile schiebt.
+      if (seitenZeilen.length === 0) break;
+      // Vollzählig laut Zählung des ersten Durchgangs. Spart den sonst
+      // nötigen letzten, leeren Abruf. Gemessen wird am Gelieferten: sonst
+      // liefe eine Doublette als «mir fehlt noch eine» in einen Abruf, der
+      // dieselbe Doublette noch einmal bringt.
+      if (gezaehlt !== null && abgeholt >= gezaehlt) break;
+    }
+
+    // Quergeprüft gegen die Zählung: Kommen am Ende weniger Zeilen zusammen,
+    // als die erste Seite versprochen hat, ist unterwegs etwas verlorengegangen
+    // — etwa ein Nachzügler-Insert, der die Seitengrenzen verschoben hat. Die
+    // Antwort geht trotzdem raus (ein unvollständiger Recap ist besser als
+    // gar keiner), aber die Lücke steht im Log statt niemandem aufzufallen.
+    const beimSammelnVerloren = gezaehlt === null ? 0 : Math.max(0, gezaehlt - postZeilen.length);
+    if (gezaehlt !== null && postZeilen.length < gezaehlt) {
+      console.error('media-urls: lesen hat weniger Momente eingesammelt als gezählt.', {
+        trip_id: tripZeile.id,
+        gezaehlt,
+        eingesammelt: postZeilen.length,
+      });
+    }
+
+    if (!s3KonfigVollstaendig()) {
+      console.error('media-urls: S3-Umgebungsvariablen unvollständig.');
+      return fehler('Server nicht konfiguriert.', 500);
+    }
+
+    // gueltig_bis wird VOR dem Signieren gestempelt. Jede Signatur läuft ab
+    // ihrem eigenen X-Amz-Date, das nie früher liegt als dieser Moment — der
+    // Wert ist damit konservativ (nie später als die echte Ablaufzeit), und
+    // die App erneuert lieber eine Sekunde zu früh als eine zu spät.
+    const gueltigBis = new Date(Date.now() + LESE_URL_GUELTIGKEIT_SEKUNDEN * 1000).toISOString();
+
+    let medien: MedienEintrag[];
+    // Wie viele Momente dieser Reise es gibt, die aber nicht in dieser Antwort
+    // stehen. Zwei Quellen: aussortierte Zeilen (Pfad passt nicht zur
+    // Ableitung, siehe unten) und Zeilen, die beim Blättern verlorengingen.
+    // Beides ist für die App dasselbe — «der Recap ist um N Momente kürzer,
+    // als er sein sollte» — und beides war bisher nur im Server-Log sichtbar.
+    let ausgelassen = 0;
+    try {
+      const aws = s3Client();
+      const eintraege = await Promise.all(
+        postZeilen.map(async (zeile): Promise<MedienEintrag | null> => {
+          // Der signierte Pfad wird abgeleitet (keys.ts), nicht aus
+          // storage_key übernommen. Beide sind heute identisch: `confirm`
+          // schreibt genau diese abgeleiteten Werte in die Zeile, und
+          // upload_status kann kein Client setzen (Spalten-Grant in
+          // supabase/migrations/20260803090600_role_hardening.sql, dazu kein
+          // UPDATE-Recht auf posts). Beides ist in pgTAP festgenagelt:
+          // supabase/tests/07_role_hardening_test.sql (Insert mit
+          // upload_status → 42501) und supabase/tests/12_upload_status_test.sql
+          // (Update auf upload_status → 42501). Eine Zeile mit
+          // upload_status='uploaded' trägt deshalb server-abgeleitete
+          // Schlüssel — zusätzlich belegt in confirm_integration_test.ts.
+          //
+          // Trotzdem wird hier abgeleitet, denn die Zusicherung wird
+          // anderswo gehalten: von einem Spalten-Grant, einem fehlenden
+          // UPDATE-Recht und den beiden pgTAP-Dateien, die sie bewachen.
+          // Eine Migration, die den Grant für ein späteres Feature lockert,
+          // lässt zwar jene Tests fallen — aber wer sie dann anpasst, sieht
+          // dieser Function nicht an, dass er ihr gerade die Grundlage
+          // entzieht. Ein Import-Job mit Service-Role umginge sie ganz.
+          // storage_key ist der EINZIGE Bestandteil des Pfades, den je ein
+          // Client geschrieben hat; ihn nicht zu benutzen macht den Leseweg
+          // unabhängig von allem ausserhalb dieser Datei. tripZeile.id statt
+          // der Spalte trip_id: nach dieser Reise wurde gefiltert, ein
+          // Objekt einer anderen Reise kann so gar nicht erst adressiert
+          // werden.
+          const abgeleitet = erwarteteSchluessel(
+            tripZeile.id,
+            zeile.id,
+            zeile.type,
+            zeile.media_ext,
+          );
+
+          // Weicht der gespeicherte Pfad von der Ableitung ab, fällt der
+          // Eintrag heraus — samt Log. Zwei Dinge können das auslösen, und
+          // für beide ist Auslassen die richtige Antwort: eine
+          // untergeschobene Zeile (die darf erst recht keine URL bekommen)
+          // oder eine Zeile aus einem anderen Schlüsselschema (dann liegen
+          // die Bytes woanders, und die abgeleitete URL zeigte ins Nichts —
+          // eine kaputte Kachel statt einer ehrlichen Lücke).
+          //
+          // Dass hier ausgelassen und nicht nur geloggt wird, hat einen
+          // zweiten Grund: Ein Alarm, der im Normalbetrieb mitläuft, wird
+          // gelernt zu überlesen, und ein echter Treffer geht darin unter.
+          // Der Normalbetrieb muss deshalb still sein — supabase/seed.sql
+          // schreibt seine Schlüssel seit Phase 5 im selben Schema.
+          if (zeile.storage_key !== abgeleitet.storage_key) {
+            console.error(
+              'media-urls: storage_key weicht vom abgeleiteten Pfad ab, Moment wird ausgelassen.',
+              { post_id: zeile.id, gespeichert: zeile.storage_key, abgeleitet: abgeleitet.storage_key },
+            );
+            return null;
+          }
+
+          const eintrag: MedienEintrag = {
+            post_id: zeile.id,
+            medium_url: await presignedGetUrl(aws, abgeleitet.storage_key),
+          };
+          // thumb_key ist nullable und wird hier nur als Ja/Nein gelesen: ob
+          // es überhaupt ein Thumbnail gibt. Ohne diese Abfrage entstünde bei
+          // null eine Signatur auf den Pfad ".../null" — eine gültige URL auf
+          // ein Objekt, das es nicht gibt. Der Eintrag lässt thumb_url dann
+          // weg, damit die App den Fall sieht statt ihn zu laden. Der Pfad
+          // kommt auch hier aus der Ableitung und nie aus der Spalte: ein
+          // Thumbnail ist der Inhalt eines Moments in klein, für die
+          // Versiegelung also nichts Geringeres als das Medium selbst.
+          if (zeile.thumb_key) {
+            eintrag.thumb_url = await presignedGetUrl(aws, abgeleitet.thumb_key);
+          }
+          return eintrag;
+        }),
+      );
+      medien = eintraege.filter((eintrag): eintrag is MedienEintrag => eintrag !== null);
+      ausgelassen = (eintraege.length - medien.length) + beimSammelnVerloren;
+    } catch (err) {
+      console.error('media-urls: Signieren der Lese-URLs fehlgeschlagen', err);
+      return fehler('Signieren fehlgeschlagen.', 502);
+    }
+
+    // `ausgelassen` ist ein rein additives Feld: bestehende Leser (Task 6,
+    // mobile/src/features/recap/urlVorrat.ts) greifen auf `medien` und
+    // `gueltig_bis` zu und bleiben davon unberührt. Es steht immer da, auch
+    // als 0 — ein Feld, das nur im Fehlerfall auftaucht, wird beim Bauen der
+    // App übersehen und fehlt dann genau dann, wenn es gebraucht wird.
+    //
+    // Warum es überhaupt existiert: Das Aussortieren unten ist gegenüber der
+    // App genauso still, wie der blosse Log-Alarm gegenüber dem Betrieb still
+    // war. Ohne diese Zahl ist ein ausgelassener Moment von einem nie
+    // existierenden nicht zu unterscheiden, und der Recap behauptet
+    // Vollständigkeit, die er nicht hat. Mit ihr kann er sagen, dass N
+    // Momente fehlen.
+    return json({ medien, gueltig_bis: gueltigBis, ausgelassen }, 200);
+  }
+
   const postId = body.post_id;
   if (typeof postId !== 'string' || postId.length === 0) {
     return fehler('post_id fehlt.', 400);
@@ -236,10 +593,11 @@ Deno.serve(async (req: Request): Promise<Response> => {
   // Status: die Spalten stammen ursprünglich vom Client (er braucht die
   // Schlüssel vor dem Insert, siehe medien.ts) und sind ungeprüft. Erst mit
   // diesem Schreibvorgang benennt die Zeile garantiert das Objekt, das
-  // tatsächlich unter dem server-abgeleiteten Pfad liegt — sonst würde eine
-  // spätere Lese-URL-Function (Phase 5) den ungeprüften Client-Pfad aus
-  // storage_key signieren und genau die Lücke wiedereröffnen, die diese
-  // Function beim Signieren schliesst.
+  // tatsächlich unter dem server-abgeleiteten Pfad liegt. `lesen` verlässt
+  // sich seit Phase 5 nicht mehr darauf — es leitet selbst ab —, aber die
+  // Spalte bleibt damit die Wahrheit über den Ablageort, und der
+  // Abgleich-Stolperdraht dort schlägt nur an, wenn wirklich etwas schief
+  // ist.
   const { error: updateError } = await supabaseAdmin
     .from('posts')
     .update({ upload_status: 'uploaded', storage_key, thumb_key })

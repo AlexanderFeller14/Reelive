@@ -273,9 +273,18 @@ max_frequency = "5s"
 
 # Lokale Testnummern — kein SMS-Provider, keine Kosten. Jeder dieser Nummern
 # gilt der feste Code. NIE in ein hosted Projekt übernehmen.
+#
+# Alle fünf Konten aus supabase/seed.sql stehen hier. Ohne das können sich nur
+# Lea und Ben anmelden — und dann lässt sich nichts prüfen, was mehrere
+# Perspektiven braucht: Mira ist Owner der aufgedeckten Lissabon-Reise, Sofia
+# ist absichtlich NICHT deren Mitglied, und genau dieser Unterschied ist der
+# Kern der Versiegelung.
 [auth.sms.test_otp]
 41790000001 = "123456"
 41790000002 = "123456"
+41790000003 = "123456"
+41790000004 = "123456"
+41790000005 = "123456"
 
 # Configure logged in session timeouts.
 # [auth.sessions]
@@ -441,3 +450,20 @@ entrypoint = "./functions/media-urls/index.ts"
 # Specifies static files to be bundled with the function. Supports glob patterns.
 # For example, if you want to serve static HTML pages in your function:
 # static_files = [ "./functions/media-urls/*.html" ]
+
+# reveal-trip (Phase 5) — die einzige Stelle, an der eine Reise ihren Status
+# wechselt. Der Block stand bisher nicht hier: die CLI-Defaults trafen zufällig
+# das Richtige, weshalb nichts brach. Genau das ist der Grund, ihn
+# nachzutragen — eine Sicherheitseigenschaft, die nur zufällig gilt, ist keine.
+# Wer die Defaults morgen ändert, ändert damit stillschweigend, wer diese
+# Function aufrufen darf.
+[functions.reveal-trip]
+enabled = true
+# JWT-Pflicht am Gateway, aus denselben Gründen wie bei media-urls: Ohne
+# gültiges, korrekt signiertes JWT erreicht der Aufruf die Function gar nicht.
+# Dahinter prüft der Handler zusätzlich selbst (supabaseAdmin.auth.getUser),
+# dass es eine echte angemeldete Person ist — und danach, dass sie die Reise
+# angelegt hat. Der Anon-Key allein reicht für keinen dieser Schritte.
+verify_jwt = true
+import_map = "./functions/reveal-trip/deno.json"
+entrypoint = "./functions/reveal-trip/index.ts"

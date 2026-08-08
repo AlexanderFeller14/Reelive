@@ -18,6 +18,26 @@ const ERLAUBTE_ENDUNGEN: Record<'photo' | 'video', readonly string[]> = {
 };
 const STANDARD_ENDUNG: Record<'photo' | 'video', string> = { photo: 'jpg', video: 'mp4' };
 
+// ---------------------------------------------------------------------------
+// ACHTUNG, bevor hier jemand etwas ändert: Das ist kein Hilfsmittel mehr,
+// sondern das SPEICHERFORMAT.
+// ---------------------------------------------------------------------------
+// Seit Phase 5 leitet auch die Aktion `lesen` den Pfad hierüber ab, statt
+// posts.storage_key zu übernehmen (Begründung in index.ts). Damit ist diese
+// Funktion der einzige Ort, der weiss, wo die Bytes liegen — für ALLE bereits
+// hochgeladenen Momente, rückwirkend.
+//
+// Eine Änderung an Präfix, Endung oder Thumb-Suffix entwertet deshalb jedes
+// gespeicherte Objekt: die Zeilen zeigen weiterhin auf den alten Pfad, die
+// Ableitung auf einen neuen, und `lesen` lässt jeden betroffenen Moment aus
+// (der Abgleich in index.ts schlägt an). Das ist keine Datenmigration, das ist
+// eine Umbenennung im Bucket — jedes Objekt, bevor die neue Fassung live geht.
+//
+// Wer das Schema wirklich ändern muss, braucht dreierlei: die Umbenennung im
+// Speicher, ein Nachziehen von posts.storage_key/thumb_key, und einen Plan für
+// die Zeit dazwischen (beide Schemata parallel lesen). Ohne das ist der Recap
+// aller Altreisen leer.
+// ---------------------------------------------------------------------------
 export function erwarteteSchluessel(
   tripId: string,
   postId: string,
