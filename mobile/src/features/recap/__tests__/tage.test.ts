@@ -62,6 +62,28 @@ describe('sortiereMomente', () => {
   test('leere Eingabe liefert eine leere Liste, keinen Fehler', () => {
     expect(sortiereMomente([])).toEqual([]);
   });
+
+  // Ein reiner Text-Vergleich der ISO-Strings wäre hier falsch: "22" < "23"
+  // liest sich lexikalisch kleiner, obwohl a (21:00 UTC) tatsächlich VOR b
+  // (22:00 UTC) liegt — captured_at kommt mit unterschiedlichem Offset-
+  // Format aus der Datenbank (Kommentar im Code), und genau das prüft dieser
+  // Test konkret nach.
+  test('vergleicht captured_at als echten Zeitpunkt, nicht als Text (unterschiedliche Offset-Formate)', () => {
+    const a = moment({ id: 'a', captured_at: '2026-08-01T23:00:00+02:00' }); // = 21:00 UTC
+    const b = moment({ id: 'b', captured_at: '2026-08-01T22:00:00Z' }); // = 22:00 UTC
+    expect(sortiereMomente([b, a]).map((m) => m.id)).toEqual(['a', 'b']);
+  });
+
+  // Ein unparsbares captured_at darf die Sortierung nicht zum Werfen bringen
+  // (Date.parse liefert dafür NaN) — es landet stattdessen deterministisch
+  // ans Ende, id entscheidet auch hier bei mehreren kaputten Werten.
+  test('ein unparsbares captured_at wirft nicht und landet deterministisch am Ende', () => {
+    const gueltig = moment({ id: 'a', captured_at: '2026-08-01T09:00:00.000Z' });
+    const kaputtZ = moment({ id: 'z', captured_at: 'kein-datum' });
+    const kaputtY = moment({ id: 'y', captured_at: 'auch-kaputt' });
+    expect(() => sortiereMomente([kaputtZ, gueltig, kaputtY])).not.toThrow();
+    expect(sortiereMomente([kaputtZ, gueltig, kaputtY]).map((m) => m.id)).toEqual(['a', 'y', 'z']);
+  });
 });
 
 describe('gruppiereNachTagen', () => {
@@ -198,6 +220,56 @@ describe('gruppiereNachTagen', () => {
     const tage = gruppiereNachTagen([tag3, tag1, tag2], startDate);
     expect(tage.map((t) => t.nummer)).toEqual([1, 2, 3]);
   });
+
+  // Review-Fund, Important 1: ein Ostwärts-Zeitsprung (Tokio → Los Angeles)
+  // lässt den EIGENEN lokalen Kalendertag eines späteren Moments hinter den
+  // eines früheren zurückfallen. Ohne Korrektur würde die chronologisch
+  // spätere Ankunft unter einer KLEINEREN Tagesnummer erscheinen als der
+  // frühere Abflug — Chronologie ist der Eckpfeiler dieses Projekts.
+  test('die Tagesreihenfolge bleibt chronologisch, auch wenn der lokale Kalendertag rückwärts läuft', () => {
+    const abflugTokio = moment({
+      id: 'a',
+      captured_at: '2026-08-01T23:30:00.000Z', // lokal: 02.08., 08:30 (Asia/Tokyo)
+      captured_tz: 'Asia/Tokyo',
+    });
+    const ankunftLosAngeles = moment({
+      id: 'b',
+      captured_at: '2026-08-02T01:00:00.000Z', // chronologisch SPÄTER, lokal aber: 01.08., 18:00 (America/Los_Angeles)
+      captured_tz: 'America/Los_Angeles',
+    });
+    const tage = gruppiereNachTagen([abflugTokio, ankunftLosAngeles], startDate);
+    // Beide Momente landen im selben, höheren Tag — die Ankunft rutscht NICHT
+    // rückwärts vor den Abflug.
+    expect(tage).toHaveLength(1);
+    expect(tage[0].nummer).toBe(2);
+    expect(tage[0].momente.map((m) => m.id)).toEqual(['a', 'b']);
+  });
+
+  // Review-Fund, Important 2: captured_tz hat keine CHECK-Constraint und ist
+  // vom Client frei setzbar — ein ungültiger Bezeichner (fremder/älterer
+  // Client, abweichende tzdata zwischen zwei Geräten desselben Recaps) lässt
+  // Intl.DateTimeFormat schon beim Konstruieren werfen. Das darf höchstens
+  // den betroffenen Moment kosten, nie den gesamten Recap.
+  test('ein ungültiges captured_tz wirft nicht und kostet nur den betroffenen Moment', () => {
+    const gueltig = moment({ id: 'a', captured_at: '2026-08-01T09:00:00.000Z', captured_tz: 'Europe/Zurich' });
+    const kaputt = moment({ id: 'b', captured_at: '2026-08-01T10:00:00.000Z', captured_tz: 'Nicht/Existent' });
+    expect(() => gruppiereNachTagen([gueltig, kaputt], startDate)).not.toThrow();
+    const tage = gruppiereNachTagen([gueltig, kaputt], startDate);
+    expect(tage).toHaveLength(1);
+    expect(tage[0].momente.map((m) => m.id)).toEqual(['a']);
+  });
+
+  // Gleiche Rand-Ursache wie oben, anderer Auslöser: ein unparsbares
+  // captured_at lässt Intl.DateTimeFormat beim FORMATIEREN werfen (Invalid
+  // Date), nicht beim Konstruieren.
+  test('ein unparsbares captured_at wirft nicht und kostet nur den betroffenen Moment', () => {
+    const gueltig = moment({ id: 'a', captured_at: '2026-08-01T09:00:00.000Z' });
+    const kaputt = moment({ id: 'b', captured_at: 'kein-datum' });
+    expect(() => gruppiereNachTagen([gueltig, kaputt], startDate)).not.toThrow();
+    const tage = gruppiereNachTagen([gueltig, kaputt], startDate);
+    expect(tage).toHaveLength(1);
+    expect(tage[0].momente.map((m) => m.id)).toEqual(['a']);
+  });
 });
 
 describe('ortDesTages', () => {
@@ -231,6 +303,16 @@ describe('ortDesTages', () => {
   test('null, wenn alle Momente ohne place_name sind', () => {
     const momente = [moment({ id: 'a', place_name: null }), moment({ id: 'b', place_name: null })];
     expect(ortDesTages(momente)).toBeNull();
+  });
+
+  // Ein leerer String ist genauso "kein Ort" wie null (`!!ort` filtert
+  // beide gleich heraus) — eigener Test, damit das nicht unbemerkt abweicht.
+  test('ein leerer place_name zählt nicht mit, wie null', () => {
+    const momente = [
+      moment({ id: 'a', captured_at: '2026-08-01T09:00:00.000Z', place_name: '' }),
+      moment({ id: 'b', captured_at: '2026-08-01T10:00:00.000Z', place_name: 'Oslo' }),
+    ];
+    expect(ortDesTages(momente)).toBe('Oslo');
   });
 
   test('leere Eingabe liefert null, keinen Fehler', () => {
