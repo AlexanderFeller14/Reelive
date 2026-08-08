@@ -391,6 +391,20 @@ export default function RecapPlayer() {
   // Für videoZuEnde (Wichtig 1/Zusatz-Verteidigung): ob die Zwischenkarte
   // gerade steht — siehe dort.
   const zwischenkarteRef = useRef(false);
+  // Fix-Runde 2 (Review-Fund): ob das Kommentar-Sheet gerade offen ist —
+  // ebenfalls für videoZuEnde, siehe dort. BEWUSST NICHT `stand.pausiert`
+  // im Allgemeinen (ein erster, breiterer Versuch wurde verworfen): die
+  // Halten-Geste (onPressIn) setzt `pausiert:true` GENAUSO, aber dort ist
+  // ein während des Haltens eintreffendes `playToEnd` explizit ERWÜNSCHT
+  // ("feuert playToEnd ausnahmsweise während einer Halten-Geste..." in
+  // player.test.tsx, Vertrag 4 aus playerLogic.ts: `weiterAutomatisch`
+  // MUSS auch dann weiterschalten und `pausiert` selbst zurücksetzen,
+  // sonst bliebe der NÄCHSTE Moment lautlos hängen). Ein Guard auf
+  // `stand.pausiert` allgemein hätte also GENAU diesen bereits getesteten,
+  // gewünschten Fall kaputt gemacht. Das Kommentar-Sheet ist strukturell
+  // anders: dort SOLL ein currently laufendes Video wirklich angehalten
+  // bleiben, bis das Sheet schliesst.
+  const kommentarOffenRef = useRef(false);
   // Schlüssel `${postId}:${emoji}` — verhindert, dass ein schneller
   // Doppeltipp auf dasselbe Emoji zwei sich widersprechende Anfragen lostritt
   // (Frage aus dem Task-12-Auftrag). Ein Ref statt ein State-Flag: Prüfen und
@@ -492,6 +506,7 @@ export default function RecapPlayer() {
   // Für videoZuEnde unten — direkt in der Render-Zeile aktuell gehalten
   // (gleiches Muster wie aktivIdRef, siehe dort).
   zwischenkarteRef.current = zwischenkarte;
+  kommentarOffenRef.current = kommentarOffen;
   kommentarMomentIdRef.current = kommentarMomentId;
 
   // Erstes (und einziges) useMemo dieser Codebase (Vertrag 1): `tage` hängt
@@ -657,6 +672,11 @@ export default function RecapPlayer() {
     const moment = aktivMoment;
     if (!moment) return;
     const momentId = moment.id;
+    // Fix-Runde 2 (Review-Fund): der VORHERIGE Wert, BEVOR er unten
+    // überschrieben wird — entscheidet, ob dies ein echter Momentwechsel
+    // ist oder ein Wiederöffnen DESSELBEN Moments (siehe
+    // `kommentarSendetLaeuft`-Reset weiter unten).
+    const vorherigerMomentId = kommentarMomentIdRef.current;
     // EAGER, synchron gesetzt — nicht erst über die Render-Zeile weiter
     // unten (`kommentarMomentIdRef.current = kommentarMomentId`). Löst
     // fetchKommentare unten schneller auf, als React den durch
@@ -669,15 +689,25 @@ export default function RecapPlayer() {
     setKommentarMomentId(momentId);
     setKommentarText('');
     setKommentarSendenFehler(null);
-    // Fix-Runde 1, Wichtig 3: eine noch laufende Sendung für den VORHERIGEN
-    // Moment (Sheet geschlossen, während schreibeKommentar noch unterwegs
-    // war) darf den Senden-Knopf dieser neuen Sitzung nicht für immer als
-    // "sendet gerade" zeigen — ihre eigene Antwort trifft ohnehin auf den
+    // Fix-Runde 1, Wichtig 3, korrigiert in Fix-Runde 2: NUR bei einem
+    // echten MOMENTWECHSEL zurücksetzen. Der ursprüngliche Fix (Runde 1)
+    // setzte bei JEDEM Öffnen zurück — auch beim Wiederöffnen DESSELBEN
+    // Moments, während schreibeKommentar für GENAU DIESEN Moment noch
+    // lief: Senden → Sheet schliessen, bevor die Antwort da ist → sofort
+    // wieder öffnen (derselbe Moment ist weiterhin aktiv) → der
+    // Senden-Knopf wäre wieder aktiv gewesen, OBWOHL die erste Anfrage noch
+    // läuft — ein zweiter Tipp hätte einen zweiten, überlappenden Versand
+    // ausgelöst. Vor Runde 1 war das nicht möglich (dort wurde nie
+    // zurückgesetzt), Runde 1 hat also eine neue Regression eingeführt.
+    // Ein Wechsel zu einem ANDEREN Moment ist dagegen eine echte neue
+    // Sitzung: die alte, noch laufende Sendung gehört zu einem jetzt
+    // irrelevanten Moment, ihre späte Antwort trifft ohnehin auf den
     // Stale-Guard in kommentarAbsenden (kommentarMomentIdRef zeigt dann
-    // schon hierher) und würde `setKommentarSendetLaeuft(false)` nie mehr
-    // erreichen. Ein frisches Öffnen ist eine frische Sitzung, die noch
-    // nichts gesendet hat.
-    setKommentarSendetLaeuft(false);
+    // schon hierher) und würde `setKommentarSendetLaeuft(false)` sonst nie
+    // mehr erreichen.
+    if (vorherigerMomentId !== momentId) {
+      setKommentarSendetLaeuft(false);
+    }
     setKommentare([]);
     setKommentareFehler(null);
     setKommentareLaden(true);
@@ -786,6 +816,18 @@ export default function RecapPlayer() {
     // eintrifft (Timing-Lücke zwischen Commit und tatsächlichem Pausieren),
     // darf sie nicht überholen.
     if (zwischenkarteRef.current) return;
+    // Fix-Runde 2 (Review-Fund): strukturell dieselbe Race wie bei der
+    // Zwischenkarte, hier für das Kommentar-Sheet. `oeffneKommentare` setzt
+    // `pausiert:true` SYNCHRON beim Öffnen, aber VideoMoments eigener
+    // Pause-Effekt (`player.pause()`) committet erst im NÄCHSTEN
+    // Effekt-Durchlauf (siehe VideoMoment oben, Deps `[pausiert, player]`)
+    // — trifft `playToEnd` GENAU in diesem schmalen Fenster ein, war
+    // `aktivIdRef` noch unverändert UND `zwischenkarteRef` false:
+    // `weiterAutomatischRef.current()` hätte den Player HINTER dem gerade
+    // geöffneten Sheet weitergeschaltet und `pausiert` sogar explizit
+    // wieder auf `false` gesetzt (Vertrag 4) — der Player liefe dann
+    // unsichtbar unter dem offenen Sheet weiter.
+    if (kommentarOffenRef.current) return;
     weiterAutomatischRef.current();
   }, []);
 
@@ -1060,7 +1102,7 @@ export default function RecapPlayer() {
           </View>
         </View>
 
-        <View style={styles.sozialBereich} pointerEvents="box-none">
+        <View testID="player-sozial-bereich" style={styles.sozialBereich} pointerEvents="box-none">
           {aktivMoment.caption && (
             <View testID="player-caption" style={styles.captionPille} pointerEvents="none">
               <Text style={[type.body, { color: cinema['text-1'] }]}>{aktivMoment.caption}</Text>
@@ -1311,12 +1353,12 @@ const styles = StyleSheet.create({
   // gleiches Prinzip wie beim tapZoneLinks/-Rechts-Kommentar unten), die
   // Karte deckt die Leiste also weiterhin vollständig ab, während sie steht.
   //
-  // NICHT über RNTL testbar: fireEvent.press sucht per testID und ruft den
-  // onPress-Handler direkt auf, unabhängig von echtem Hit-Testing/Stapelung
-  // — genau die Lücke, aus der dieser Fehler unbemerkt entstehen konnte
-  // (jeder bestehende Test blieb grün, obwohl das Feature auf einem echten
-  // Gerät tot war). Reisst diese Zusicherung beim nächsten Umbau wieder
-  // auf, bleibt sie ohne manuellen Gerätetest unsichtbar.
+  // Fix-Runde 2 (Review-Korrektur): entgegen einer früheren, FALSCHEN Notiz
+  // hier ist das sehr wohl testbar — player.test.tsx prüft `zIndex` direkt
+  // über `StyleSheet.flatten(...props.style)` (Muster aus der
+  // Task-11-Fixrunde für die Zwischenkarte, siehe dort), nicht über echtes
+  // Hit-Testing. Siehe "die Reaktionen/der Kommentar-Knopf liegen per zIndex
+  // über den Tipp-Zonen" in player.test.tsx.
   sozialBereich: {
     position: 'absolute',
     left: spacing.screen,

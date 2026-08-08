@@ -1032,6 +1032,23 @@ function unaufgeloest<T>(): { promise: Promise<T>; loese: (wert: T) => void } {
 }
 
 describe('Reaktionen (Task 12)', () => {
+  // Fix-Runde 2 (Review-Korrektur): entgegen einer früheren, falschen Notiz
+  // im Code IST das sehr wohl prüfbar — gleiches Muster wie der
+  // Zwischenkarten-zIndex-Test aus der Task-11-Fixrunde
+  // ("die Zwischenkarte liegt per zIndex über den Tipp-Zonen..."):
+  // `StyleSheet.flatten` auf die tatsächlichen Style-Props, kein
+  // Hit-Testing nötig.
+  test('die Reaktionen/der Kommentar-Knopf liegen per zIndex über den Tipp-Zonen, unabhängig von der Render-Reihenfolge im Baum', async () => {
+    (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
+    (holeVorrat as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+    await wrap();
+    const sozial = StyleSheet.flatten(screen.getByTestId('player-sozial-bereich').props.style);
+    const links = StyleSheet.flatten(screen.getByTestId('player-links').props.style);
+    const rechts = StyleSheet.flatten(screen.getByTestId('player-rechts').props.style);
+    expect(sozial.zIndex).toBeGreaterThan(links.zIndex ?? 0);
+    expect(sozial.zIndex).toBeGreaterThan(rechts.zIndex ?? 0);
+  });
+
   test('lädt die Reaktionen für ALLE Momente der Spielliste in einem einzigen Aufruf', async () => {
     (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
     (holeVorrat as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
@@ -1341,6 +1358,42 @@ describe('Kommentar-Sheet (Task 12)', () => {
     expect(screen.getByText('Senden')).toBeTruthy();
   });
 
+  // Review-Fund, Fix-Runde 2: der ursprüngliche Fix (Runde 1) hat bei JEDEM
+  // Öffnen zurückgesetzt — auch beim Wiederöffnen DESSELBEN Moments,
+  // während schreibeKommentar für GENAU DIESEN Moment noch läuft. Das war
+  // VOR Runde 1 gar nicht möglich (dort wurde nie zurückgesetzt) und damit
+  // eine neue Regression: der Senden-Knopf wäre wieder aktiv geworden,
+  // OBWOHL die erste Anfrage noch offen ist — ein zweiter Tipp hätte einen
+  // zweiten, überlappenden Versand ausgelöst.
+  test('eine hängende Sendung für DENSELBEN Moment bleibt beim Wiederöffnen erkennbar "sendet" — kein doppelter Versand möglich', async () => {
+    (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
+    (holeVorrat as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+    (fetchKommentare as jest.Mock).mockResolvedValue({ data: [], error: null });
+    const { promise } = unaufgeloest<{ error: string | null }>();
+    (schreibeKommentar as jest.Mock).mockReturnValue(promise); // bleibt für p1 hängen
+
+    await wrap(); // start=0 -> p1
+    await fireEvent.press(screen.getByTestId('player-zwischenkarte')); // Tag-1-Karte weg
+    await fireEvent.press(screen.getByTestId('player-kommentare-oeffnen')); // öffnet für p1
+    await act(async () => {});
+    await fireEvent.changeText(screen.getByTestId('kommentar-eingabe'), 'Hallo');
+    await fireEvent.press(screen.getByTestId('kommentar-senden')); // sendetLaeuft=true, hängt
+    expect(schreibeKommentar).toHaveBeenCalledTimes(1);
+
+    // Schliessen (Player bleibt bei p1) und SOFORT wieder öffnen — derselbe
+    // Moment, dieselbe noch laufende Sendung.
+    await fireEvent.press(screen.getByTestId('sheet-backdrop'));
+    await fireEvent.press(screen.getByTestId('player-kommentare-oeffnen'));
+    await act(async () => {});
+
+    // Der Knopf zeigt weiterhin den Spinner, nicht "Senden" — ein Tipp
+    // würde also keinen zweiten Versand auslösen (disabled bleibt aktiv).
+    expect(screen.queryByText('Senden')).toBeNull();
+    expect(
+      screen.getByTestId('kommentar-senden').props.accessibilityState.disabled
+    ).toBe(true);
+  });
+
   // Mutationsschutz: ein Mutant, der `pausiert: false` beim Öffnen entfernt
   // (Sheet öffnet, ohne den Player anzuhalten), liesse GENAU diesen Test
   // fallen — ohne ihn würde der obige Test nicht zwingend unterscheiden
@@ -1358,6 +1411,48 @@ describe('Kommentar-Sheet (Task 12)', () => {
 
     await fireEvent.press(screen.getByTestId('sheet-backdrop'));
     expect(mockVideoPlayer.play.mock.calls.length).toBeGreaterThan(spielVorherAnzahl);
+  });
+
+  // Review-Fund, Fix-Runde 2: strukturell dieselbe Race wie beim
+  // Zwischenkarten-Test oben ("ein Video unter der Zwischenkarte wird
+  // wirklich pausiert..."), hier für das Kommentar-Sheet. `oeffneKommentare`
+  // setzt `pausiert:true` synchron, VideoMoments echtes `player.pause()`
+  // committet aber erst im nächsten Effekt-Durchlauf — ein `playToEnd`, das
+  // GENAU in diesem Fenster eintrifft, darf den Player nicht HINTER dem
+  // gerade geöffneten Sheet weiterschalten.
+  test('ein playToEnd, das GENAU beim Öffnen des Sheets eintrifft, schaltet den Player nicht hinter dem Sheet weiter', async () => {
+    mockParams = { id: 't1', start: '1' }; // p2, Video
+    (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
+    (holeVorrat as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+    (fetchKommentare as jest.Mock).mockResolvedValue({ data: [], error: null });
+    await wrap();
+    expect(screen.getByTestId('player-video')).toBeTruthy();
+
+    await fireEvent.press(screen.getByTestId('player-kommentare-oeffnen'));
+    // Das Race-Fenster nachgestellt: playToEnd feuert, während das Sheet
+    // gerade offen ist.
+    await act(async () => {
+      mockListeners.playToEnd?.forEach((cb) => cb());
+    });
+    // Weiterhin p2 (nicht zu p3 gewechselt) — UND das Sheet ist weiterhin
+    // offen, der Player also nicht heimlich dahinter weitergelaufen.
+    expect(screen.getByTestId('player-video')).toBeTruthy();
+    expect(screen.getByTestId('sheet-panel')).toBeTruthy();
+
+    // Auch der Fallback-Timer schaltet nicht weiter, solange das Sheet
+    // offen bleibt.
+    await act(async () => {
+      jest.advanceTimersByTime(5000);
+    });
+    expect(screen.getByTestId('player-video')).toBeTruthy();
+
+    // Schliessen lässt den Player normal weiterlaufen — kein dauerhafter
+    // Stillstand.
+    await fireEvent.press(screen.getByTestId('sheet-backdrop'));
+    await act(async () => {
+      jest.advanceTimersByTime(3000); // dauerFuer(p2) = duration_s(3) * 1000
+    });
+    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: bild('p3').medium_url });
   });
 
   test('eine späte Antwort für einen längst verlassenen Moment überschreibt die Kommentare des NEUEN Moments nicht', async () => {
