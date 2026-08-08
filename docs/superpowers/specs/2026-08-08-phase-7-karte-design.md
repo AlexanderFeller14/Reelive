@@ -33,11 +33,14 @@ derselben Select-Policy wie alles andere am Moment — die Karte macht also nich
 sichtbar, was Mitglieder nicht ohnehin schon lesen dürfen. Sie zeigt nur, was
 längst da ist.
 
+Was die Phase durch den Entscheid R4 dennoch am Server ändert: `share-link`
+gibt zwei Spalten mehr aus. Keine Migration, keine Policy — die Function läuft
+mit `service_role` und wählt ihre Spalten selbst.
+
 Konkret nicht Teil dieser Phase:
 
 - keine neue Tabelle, keine neue Policy, keine neue Edge Function
 - kein zweiter Ortsdienst, kein eigenes Geocoding — `place_name` reicht
-- keine Karte auf der öffentlichen Teilen-Seite (§3, Rahmenentscheid R4)
 - keine Karte für eine laufende, noch versiegelte Reise (§3, R3)
 
 ---
@@ -72,12 +75,34 @@ hängt am Recap, nicht an der Reise. Serverseitig ist das ohnehin erzwungen
 (`posts_select_revealed_members`), der Client muss die Route trotzdem gar nicht
 erst anbieten.
 
-**R4 — Kein Kartenlink für Aussenstehende.**
-Der geteilte Recap (Phase 6) läuft im Browser und zeigt Fremden ohne Konto die
-Momente. Koordinaten sind etwas anderes als Bilder: sie sagen, wo jemand
-geschlafen hat. Die Teilen-Seite bekommt deshalb keine Karte — technisch fällt
-das ohnehin zusammen, weil `react-native-maps` im Web-Bundle nichts Brauchbares
-liefert.
+**R4 — Der geteilte Recap bekommt dieselbe Karte. Entscheid des Users,
+2026-08-08.**
+Der Entwurf sah das Gegenteil vor, mit dieser Begründung: der geteilte Recap
+läuft im Browser und zeigt Fremden ohne Konto die Momente; Koordinaten sind
+etwas anderes als Bilder, sie sagen, wo jemand geschlafen hat, und ein Link
+wandert weiter, als man denkt. Der User hat den Einwand gehört und
+**vollständig** entschieden — dieselbe Karte, ungerundet, für jeden mit dem
+Link. Das gilt.
+
+Was daran hängt, damit es niemanden später überrascht:
+
+- Die Edge Function `share-link` gibt `lat`/`lng` mit aus. Sie ist der einzige
+  Weg, auf dem Koordinaten an Aussenstehende gelangen — und läuft mit
+  `verify_jwt = false`. Der Widerruf eines Links entzieht damit auch die Orte;
+  eine zweite Sperre gibt es nicht.
+- `react-native-maps` liefert im Web-Bundle nichts Brauchbares. Die Karte
+  braucht deshalb eine zweite Umsetzung für Web (Leaflet mit
+  OpenStreetMap-Kacheln, inklusive der vorgeschriebenen Namensnennung) hinter
+  demselben Plattform-Schalter, den Phase 6 schon dreimal benutzt
+  (`*.web.ts`).
+- Der Teilen-Screen läuft auf **beiden** Plattformen: ein Reelive-Nutzer, der
+  einen geteilten Link auf dem Handy öffnet, landet nativ auf derselben Route.
+  Die Kartenfläche ist deshalb ohnehin zweimal nötig — App-Karte und geteilte
+  Karte teilen sie sich.
+
+**Nicht verhandelbar bleibt R3:** vor dem Reveal gibt es überhaupt keine
+Karte, auch keinen geteilten Link darauf. Ein Link auf eine versiegelte Reise
+wird von `share-link` schon heute abgewiesen.
 
 **R5 — Genauigkeit bleibt, wie sie aufgenommen wurde.**
 Kein Runden, kein Verschleiern für Mitglieder. Wer den Moment sehen darf, darf
@@ -103,6 +128,9 @@ Nachkommastelle.
 | K10 | Für eine versiegelte Reise ist die Karte nicht erreichbar — kein Einstieg, keine Route. |
 | K11 | Die Karte hält sich an DESIGN-LANGUAGE §1–§6; die Kartenkacheln selbst sind davon ausgenommen (R2). |
 | K12 | Reduced Motion schaltet die Kamerafahrten der Karte auf sofortiges Springen um. |
+| K13 | Der geteilte Recap zeigt dieselbe Karte, ohne Konto und im Browser (Entscheid R4). |
+| K14 | Die Web-Karte nennt die Quelle ihrer Kacheln, so wie deren Lizenz es verlangt. |
+| K15 | Ein widerrufener oder abgelaufener Link gibt auch keine Koordinaten mehr her. |
 
 ---
 
@@ -208,6 +236,28 @@ Erklärung und dem Weg zurück:
 > erlaubt sind. Für diese Reise war das nie der Fall.
 > [Zurück zur Übersicht]
 
+### 5.10 Die Karte im geteilten Recap (K13–K15)
+
+Der geteilte Player (Phase 6) bekommt denselben Einstieg wie die App: eine
+Segment-Zeile «Ansehen · Auf der Karte». Die Karte selbst ist dieselbe Fläche,
+dieselben Thumbnail-Nadeln, dieselbe Linie, dasselbe Moment-Sheet — nur der
+Knopf im Sheet heisst «Ab hier ansehen» und springt in den geteilten Player
+statt in den Recap-Player der App.
+
+Zwei Unterschiede, die aus der Umgebung kommen und nicht aus der Gestaltung:
+
+- **Im Browser trägt Leaflet die Karte**, nicht Apple Maps. Die Kacheln kommen
+  von OpenStreetMap und deren Lizenz verlangt eine sichtbare Namensnennung —
+  sie steht unten rechts auf der Karte und ist nicht wegzulassen (K14).
+- **Kein Tagesfilter.** Der geteilte Recap kennt keine Tagesgruppierung; die
+  Karte dort zeigt immer die ganze Reise.
+
+Der Widerruf eines Links entzieht auch die Orte (K15): die Koordinaten kommen
+ausschliesslich aus `share-link/aufloesen`, und die Function weist einen
+widerrufenen, abgelaufenen oder unbekannten Token schon heute mit derselben
+byte-gleichen Antwort ab. Es gibt keinen zweiten Weg, auf dem sie
+herausfinden.
+
 ---
 
 ## 6. Datenweg
@@ -222,6 +272,12 @@ und keinen zweiten Sortierweg.
 zwingend — zwischen `posts` und `profiles` gibt es zwei Wege, und PostgREST
 verweigert eine mehrdeutige Einbettung mit HTTP 300, ohne irgendwelche Daten zu
 liefern. Der Kommentar dazu steht in `recapApi.ts` und bleibt stehen.
+
+Für den geteilten Recap ist der Weg ein anderer und läuft über die Edge
+Function: `share-link/store.ts` holt die Momente-Seiten und muss `lat`/`lng`
+mit auswählen, `aufloesung.ts` reicht sie in `OeffentlicherMoment` durch. Beide
+Typen sind dort ausdrücklich als Vertrag beschrieben — wer eine Spalte
+hinzufügt, fasst beide an, sonst fällt sie stillschweigend heraus.
 
 Die Thumbnails kommen aus dem bestehenden `urlVorrat` (`holeVorrat(tripId)`),
 genau wie in der Übersicht — inklusive der Erneuerung kurz vor Ablauf.
@@ -266,4 +322,8 @@ auf `null`) macht K6 und K9 überhaupt prüfbar.
   Versiegelungsregeln.
 - **Offline-Kacheln** — die Karte ist ein Nachhinein-Werkzeug, sie darf Netz
   voraussetzen.
-- **Karte im geteilten Recap** — siehe R4.
+- **Kartenkacheln aus eigener Quelle.** Die Web-Karte nutzt die öffentlichen
+  OpenStreetMap-Kacheln. Deren Nutzungsrichtlinie ist für eine App dieser
+  Grösse in Ordnung, aber sie ist kein Dauerzustand für eine Reichweite, die
+  über den Freundeskreis hinausgeht — spätestens dann braucht es einen
+  eigenen Kachel-Anbieter.

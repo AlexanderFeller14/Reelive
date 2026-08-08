@@ -9,10 +9,12 @@
 Koordinaten als Thumbnail-Nadel sitzt, die Aufnahmereihenfolge als Linie
 sichtbar ist und ein Tipp in den Player an genau diese Stelle führt.
 
-**Architecture:** Vollständig clientseitig. Die Koordinaten liegen seit Phase 1
+**Architecture:** Fast vollständig clientseitig. Die Koordinaten liegen seit Phase 1
 in `posts.lat`/`posts.lng` und stehen unter derselben Select-Policy wie der
-Rest des Moments — es gibt keine Migration, keine Policy und keine Edge
-Function in dieser Phase. Alle Rechenarbeit (Punkte ziehen, Ausschnitt
+Rest des Moments — es gibt keine Migration und keine Policy in dieser Phase. Die einzige
+Serverarbeit kommt aus Entscheid R4: die bestehende Edge Function
+`share-link` gibt zwei Spalten mehr aus, damit der geteilte Recap dieselbe
+Karte zeigen kann. Alle Rechenarbeit (Punkte ziehen, Ausschnitt
 bestimmen, gruppieren) sitzt in reinen Modulen unter
 `mobile/src/features/karte/`, die ohne Karte und ohne React testbar sind; der
 Screen verdrahtet sie nur.
@@ -90,7 +92,9 @@ Vor dem Schreiben dieses Plans geprüft:
 | `mobile/src/features/karte/kartenPunkte.ts` | Aus `RecapMoment[]` die Punkte mit Ort ziehen, die ohne zählen, Spiellisten-Index mitführen |
 | `mobile/src/features/karte/ausschnitt.ts` | Aus n Punkten die Region, die alle zeigt (inkl. 180. Längengrad) |
 | `mobile/src/features/karte/gruppierung.ts` | Punkte nach Bildschirmabstand gruppieren |
-| `mobile/src/app/(tabs)/recap/[id]/karte.tsx` | Der Screen |
+| `mobile/src/features/karte/KartenFlaeche.tsx` | Die Kartenfläche nativ (react-native-maps) |
+| `mobile/src/features/karte/KartenFlaeche.web.tsx` | Dieselbe Fläche im Browser (Leaflet, OSM-Kacheln) |
+| `mobile/src/app/(tabs)/recap/[id]/karte.tsx` | Der Screen in der App |
 | `mobile/src/features/karte/__tests__/*.test.ts` | Je eine Testdatei pro reinem Modul |
 | `mobile/src/app/(tabs)/recap/__tests__/karte.test.tsx` | Screen-Tests |
 
@@ -101,7 +105,11 @@ Vor dem Schreiben dieses Plans geprüft:
 | `mobile/src/features/recap/types.ts` | `RecapMoment` bekommt `lat`/`lng` |
 | `mobile/src/features/recap/recapApi.ts` | `SPALTEN` bekommt `lat, lng` |
 | `mobile/src/app/(tabs)/recap/[id]/uebersicht.tsx` | Segment-Zeile «Nach Tagen / Auf der Karte» |
-| `mobile/package.json`, `mobile/app.json` | `react-native-maps` |
+| `mobile/package.json`, `mobile/app.json` | `react-native-maps`, `leaflet` |
+| `supabase/functions/share-link/store.ts` | `lat, lng` in die Momente-Abfrage |
+| `supabase/functions/share-link/aufloesung.ts` | `lat`/`lng` in `MomentZeile` und `OeffentlicherMoment` |
+| `supabase/functions/share-link/aufloesung_test.ts` | Deno-Tests für die zwei neuen Felder |
+| `mobile/src/app/teilen/[token].tsx` | Segment-Zeile und Karte im geteilten Recap |
 | `supabase/seed.sql` | Drei Momente ohne Ort |
 
 ---
@@ -1348,7 +1356,289 @@ git commit -- mobile/src/app/\(tabs\)/recap \
 
 ---
 
-### Task 13: Verifikation am laufenden System
+### Task 13: `share-link` gibt Koordinaten mit aus
+
+**Files:**
+- Modify: `supabase/functions/share-link/store.ts`
+- Modify: `supabase/functions/share-link/aufloesung.ts`
+- Modify: `supabase/functions/share-link/aufloesung_test.ts`
+
+**Interfaces:**
+- Produces: `OeffentlicherMoment.lat: number | null`, `.lng: number | null` —
+  Task 15 liest genau diese Felder.
+
+Dies ist der einzige Weg, auf dem Koordinaten an Menschen ohne Konto gelangen
+(Spec R4). Die Function laeuft mit `verify_jwt = false`; ihre Ablehnung ist die
+einzige Sperre.
+
+- [ ] **Schritt 1: Deno-Tests schreiben**
+
+In `supabase/functions/share-link/aufloesung_test.ts` bei den bestehenden
+`baueMedien`-Tests:
+
+```ts
+Deno.test('baueMedien reicht lat und lng durch', async () => {
+  const [moment] = await baueMedien(
+    [{ ...zeile, lat: 38.7139, lng: -9.1301 }],
+    async (key) => `https://signiert/${key}`,
+  );
+  assertEquals(moment.lat, 38.7139);
+  assertEquals(moment.lng, -9.1301);
+});
+
+// Der Normalfall, nicht der Sonderfall: ortBestimmen() liefert bewusst null,
+// wenn die Ortungsdienste nicht erlaubt sind.
+Deno.test('ein Moment ohne Ort behaelt null, statt zu verschwinden', async () => {
+  const [moment] = await baueMedien(
+    [{ ...zeile, lat: null, lng: null }],
+    async (key) => `https://signiert/${key}`,
+  );
+  assertEquals(moment.lat, null);
+  assertEquals(moment.lng, null);
+});
+```
+
+Und bei den `beurteileToken`-Tests eine Aussage zu K15 — sie prueft keine neue
+Logik, sondern nagelt fest, dass der Widerruf VOR dem Bauen der Antwort greift
+und es also gar keinen Pfad gibt, auf dem Koordinaten einen toten Link
+verlassen:
+
+```ts
+Deno.test('ein widerrufener Link kommt nie bis zu den Koordinaten', () => {
+  const urteil = beurteileToken({ ...linkZeile, revoked: true }, JETZT);
+  assertEquals(urteil.erlaubt, false);
+});
+```
+
+- [ ] **Schritt 2: Laufen lassen, Fehlschlag bestaetigen**
+
+Run: `cd supabase/functions && deno test --allow-env share-link/`
+Expected: FAIL — `lat` existiert auf `OeffentlicherMoment` nicht.
+
+- [ ] **Schritt 3: Typen erweitern**
+
+In `aufloesung.ts`, in `MomentZeile` nach `place_name`:
+
+```ts
+  place_name: string | null;
+  // Seit Phase 7 Teil der oeffentlichen Antwort (Spec R4, Entscheid des
+  // Users): der geteilte Recap zeigt dieselbe Karte wie die App. Das ist der
+  // einzige Weg, auf dem Koordinaten an Menschen ohne Konto gelangen.
+  lat: number | null;
+  lng: number | null;
+```
+
+Dasselbe Paar in `OeffentlicherMoment`. Der Kommentar ueber dem Typ nennt
+«genau die zehn Felder aus dem Interface-Vertrag» — daraus werden zwoelf, der
+Kommentar wird mitgezogen.
+
+- [ ] **Schritt 4: Projektion und Abfrage erweitern**
+
+In `baueMedien`, in der Projektion nach `place_name: zeile.place_name,`:
+
+```ts
+        lat: zeile.lat,
+        lng: zeile.lng,
+```
+
+In `store.ts` in `holeMomenteSeite` die Select-Liste — der lange Kommentar
+ueber der Abfrage bleibt unveraendert stehen, insbesondere die Begruendung des
+Fremdschluesselnamens:
+
+```ts
+  'id, type, media_ext, storage_key, thumb_key, captured_at, captured_tz, place_name, lat, lng, caption, duration_s, profiles!posts_author_id_fkey(display_name)',
+```
+
+und in der `map`-Projektion darunter dieselben zwei Zeilen.
+
+- [ ] **Schritt 5: Laufen lassen**
+
+Run: `cd supabase/functions && deno test --allow-env share-link/`
+Expected: PASS.
+
+- [ ] **Schritt 6: Gegen den laufenden Stack pruefen**
+
+```bash
+supabase functions serve --env-file supabase/functions/.env &
+TOKEN=$(docker exec supabase_db_reelive psql -U postgres -d postgres -tAc \
+  "select token from public.share_links where revoked = false limit 1;" | tr -d ' ')
+curl -s -X POST http://127.0.0.1:54321/functions/v1/share-link \
+  -H 'Content-Type: application/json' -d "{\"aktion\":\"aufloesen\",\"token\":\"$TOKEN\"}" \
+  | python3 -c "import sys,json; m=json.load(sys.stdin)['medien']; print(len(m), [ (x['lat'], x['lng']) for x in m[:3] ])"
+```
+Expected: die Koordinaten stehen in der Antwort, `null` bei den Momenten ohne Ort.
+
+- [ ] **Schritt 7: Commit**
+
+```bash
+git commit -- supabase/functions/share-link \
+  -m "feat(karte): share-link gibt Koordinaten mit aus"
+```
+
+---
+
+### Task 14: Die Kartenflaeche, zweimal — nativ und im Browser
+
+**Files:**
+- Create: `mobile/src/features/karte/KartenFlaeche.tsx`
+- Create: `mobile/src/features/karte/KartenFlaeche.web.tsx`
+- Test: `mobile/src/features/karte/__tests__/KartenFlaeche.test.tsx`
+- Modify: `mobile/package.json`
+
+**Interfaces:**
+- Produces:
+
+```ts
+export type KartenFlaecheProps = {
+  ausschnitt: Ausschnitt;
+  gruppen: Gruppe[];
+  linie: { latitude: number; longitude: number }[];
+  thumbFuer: (postId: string) => string | null;
+  aufGruppe: (gruppe: Gruppe) => void;
+  aufAusschnitt: (ausschnitt: Ausschnitt) => void;
+  reducedMotion: boolean;
+};
+```
+
+Der Plattform-Schalter ist derselbe, den Phase 6 dreimal benutzt: Metro waehlt
+`*.web.tsx` im Web-Bundle und `*.tsx` sonst, ohne dass ein Aufrufer davon
+weiss. Beide Fassungen halten denselben Vertrag — der Screen (Task 5–12) und
+der geteilte Player (Task 15) benutzen dieselbe Komponente.
+
+Dieser Task **extrahiert**, was die Tasks 5 bis 12 im Screen aufgebaut haben,
+und stellt ihm einen Zwilling fuer den Browser zur Seite. Der Screen benutzt
+danach `KartenFlaeche` statt `MapView` direkt; sein Verhalten aendert sich
+nicht, und seine Tests aus Task 5–12 muessen unveraendert gruen bleiben — genau
+das ist hier der Beweis, dass die Extraktion nichts verschoben hat.
+
+- [ ] **Schritt 1: Abhaengigkeiten**
+
+`react-native-maps` steht seit Task 5. Dazu kommt nur Leaflet fuer das
+Web-Bundle:
+
+```bash
+cd mobile && npm install leaflet && npm install --save-dev @types/leaflet
+```
+
+- [ ] **Schritt 2: Test schreiben**
+
+Der Test laeuft gegen die NATIVE Fassung (jest-expo aufloest `.tsx`), prueft
+also den Vertrag, nicht Leaflet:
+
+```tsx
+test('setzt eine Nadel je Gruppe', async () => {
+  await wrap(<KartenFlaeche {...basis} gruppen={[gruppeA, gruppeB]} />);
+  expect(screen.getAllByTestId(/^karte-nadel/)).toHaveLength(2);
+});
+
+test('meldet den Tipp auf eine Gruppe nach oben', async () => {
+  const aufGruppe = jest.fn();
+  await wrap(<KartenFlaeche {...basis} gruppen={[gruppeA]} aufGruppe={aufGruppe} />);
+  await fireEvent.press(screen.getByTestId(`karte-nadel-${gruppeA.anker.moment.id}`));
+  expect(aufGruppe).toHaveBeenCalledWith(gruppeA);
+});
+```
+
+- [ ] **Schritt 3: Laufen lassen, Fehlschlag bestaetigen**
+
+- [ ] **Schritt 4: Native Fassung**
+
+`MapView` + `Marker` je Gruppe (mit `KartenNadel` aus Task 6) + `Polyline`.
+`tracksViewChanges` wie in Task 6 beschrieben. `onRegionChangeComplete` ruft
+`aufAusschnitt`.
+
+- [ ] **Schritt 5: Web-Fassung**
+
+Leaflet imperativ an einem `div`-Ref. In einer `.web.tsx`-Datei sind echte
+DOM-Elemente erlaubt — React Native Web rendert ohnehin ins DOM.
+
+Verbindlich:
+
+- Kacheln von `https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png`
+- **Namensnennung ist Pflicht** (K14): `attribution: '© OpenStreetMap'` — die
+  Lizenz der Kacheln verlangt sie, und Leaflet blendet sie nur ein, wenn sie
+  gesetzt ist. Nicht wegoptimieren.
+- Nadeln als `L.divIcon` mit demselben runden Thumbnail wie nativ
+- `map.on('moveend', …)` ruft `aufAusschnitt`
+- Kamerafahrten ueber `map.flyTo` bzw. `map.setView` je nach `reducedMotion`
+- Leaflets CSS muss mit ins Bundle (`import 'leaflet/dist/leaflet.css'`),
+  sonst liegen die Kacheln als ungeordneter Bilderstapel uebereinander
+
+- [ ] **Schritt 6: Laufen lassen**
+
+Run: `cd mobile && npx jest && npx tsc --noEmit`
+
+- [ ] **Schritt 7: Commit**
+
+```bash
+git commit -- mobile/src/features/karte mobile/package.json mobile/package-lock.json \
+  -m "feat(karte): Kartenflaeche nativ und im Browser hinter einem Vertrag"
+```
+
+---
+
+### Task 15: Die Karte im geteilten Recap
+
+**Files:**
+- Modify: `mobile/src/app/teilen/[token].tsx`
+- Modify: `mobile/src/app/teilen/__tests__/*.test.tsx`
+
+- [ ] **Schritt 1: Tests schreiben**
+
+```ts
+test('der geteilte Recap bietet die Karte an', async () => {
+  await wrap(<GeteilterRecap />);
+  expect(await screen.findByText('Auf der Karte')).toBeTruthy();
+});
+
+test('die Karte zeigt die Momente mit Ort', async () => {
+  await wrap(<GeteilterRecap />);
+  await fireEvent.press(await screen.findByText('Auf der Karte'));
+  expect(await screen.findAllByTestId(/^karte-nadel/)).toHaveLength(2);
+});
+
+// Der Knopf heisst hier anders und fuehrt woanders hin: es gibt keinen
+// Recap-Player der App, sondern den geteilten Player auf derselben Seite.
+test('«Ab hier ansehen» springt im geteilten Player an die Stelle', async () => {
+  await wrap(<GeteilterRecap />);
+  await fireEvent.press(await screen.findByText('Auf der Karte'));
+  await fireEvent.press(screen.getByTestId('karte-nadel-p3'));
+  await fireEvent.press(screen.getByText('Ab hier ansehen'));
+  expect(screen.getByTestId('teilen-player')).toBeTruthy();
+  expect(screen.getByText('Fado im Hinterhof')).toBeTruthy();
+});
+
+test('ohne einen einzigen Ort gibt es keinen Karten-Einstieg', async () => {
+  await wrap(<GeteilterRecap />);
+  expect(screen.queryByText('Auf der Karte')).toBeNull();
+});
+```
+
+- [ ] **Schritt 2: Laufen lassen, Fehlschlag bestaetigen**
+
+- [ ] **Schritt 3: Umsetzen**
+
+Segment-Zeile «Ansehen · Auf der Karte» ueber dem Player; die Karte ersetzt
+den Player im selben Screen, statt zu navigieren (die Seite hat keine zweite
+Route und soll auch keine bekommen — ein geteilter Link ist EINE URL).
+
+Kein Tagesfilter (Spec §5.10). Der Sprung setzt den Index des geteilten
+Players, nicht `router.push`.
+
+- [ ] **Schritt 4: Laufen lassen**
+
+Run: `cd mobile && npx jest && npx tsc --noEmit`
+
+- [ ] **Schritt 5: Commit**
+
+```bash
+git commit -- mobile/src/app/teilen \
+  -m "feat(karte): Karte im geteilten Recap"
+```
+
+---
+
+### Task 16: Verifikation am laufenden System
 
 **Files:** keine — dieser Task schreibt einen Bericht, keinen Code.
 
@@ -1382,6 +1672,18 @@ Prüfen und je einen Screenshot ablegen:
 7. Tagesfilter auf Tag 2 → Nadeln und Linie dünnen aus (K8)
 8. «3 Momente ohne Ort» → Sheet, Kachel antippen, Player startet richtig (K6)
 9. Norwegen (laufend) öffnen → keine Segment-Zeile (K10)
+
+- [ ] **Schritt 2b: Den geteilten Recap prüfen** (Entscheid R4)
+
+Nativ per Deep Link und im Browser, mit einem frischen Token:
+
+10. `exp://<LAN-IP>:8081/--/teilen/<token>` → «Auf der Karte» ist da
+11. Karte zeigt dieselben Nadeln wie in der App (K13)
+12. «Ab hier ansehen» springt im geteilten Player an die Stelle
+13. Im Browser (`http://127.0.0.1:8081/teilen/<token>`): Leaflet-Karte lädt
+    Kacheln, **die Namensnennung «© OpenStreetMap» ist sichtbar** (K14)
+14. Link widerrufen, Seite neu laden → Ablehnung, keine Koordinaten in der
+    Antwort (K15) — mit `curl` gegenprüfen, nicht nur im UI
 
 - [ ] **Schritt 3: Gegenprobe in der Datenbank**
 
@@ -1419,6 +1721,9 @@ weglassen.
 | K10 | Kein Einstieg vor dem Reveal | 11 | `uebersicht.tsx` |
 | K11 | Design Language eingehalten | 6, 12 | `KartenNadel.tsx`, `karte.tsx` |
 | K12 | Reduced Motion | 7, 12 | `karte.tsx` (`zeige`) |
+| K13 | Karte im geteilten Recap | 13, 14, 15 | `store.ts`/`aufloesung.ts`, `KartenFlaeche.web.tsx`, `teilen/[token].tsx` |
+| K14 | Namensnennung der Kacheln | 14 | `KartenFlaeche.web.tsx` |
+| K15 | Widerrufener Link gibt keine Orte her | 13 | `aufloesung_test.ts` |
 
 ## Offene Punkte nach Phase 7
 
