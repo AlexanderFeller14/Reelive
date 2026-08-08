@@ -166,7 +166,22 @@ function FotoMoment({ url, onFehler }: { url: string; onFehler: () => void }) {
 // wegen fehlendem Netz nie lädt. `statusChange` mit status==='error' meldet
 // genau diesen Ladefehlschlag an den Elternteil (V10: einmal still neu
 // versuchen, bevor irgendetwas sichtbar wird).
-function VideoMoment({ url, onEnde, onFehler }: { url: string; onEnde: () => void; onFehler: () => void }) {
+//
+// `pausiert` steuert player.pause()/play() direkt: "Halten = Pause" darf sich
+// nicht auf das Einfrieren des Fortschrittsbalkens beschränken — sonst liefe
+// Bild UND Ton eines Videos unbeirrt weiter, während die Anzeige stillstünde.
+// Genau dieser Fall (gehalten, während das Video währenddessen zu Ende
+// liefe) ist auch der Grund, warum `weiterAutomatisch` `pausiert` beim
+// Vorschub explizit auf `false` setzt (Vertrag 4): ohne echtes player.pause()
+// könnte `playToEnd` sogar während einer Halten-Geste feuern.
+function VideoMoment({
+  url, pausiert, onEnde, onFehler,
+}: {
+  url: string;
+  pausiert: boolean;
+  onEnde: () => void;
+  onFehler: () => void;
+}) {
   const player = useVideoPlayer(url, (p) => {
     p.loop = false;
     p.play();
@@ -184,6 +199,11 @@ function VideoMoment({ url, onEnde, onFehler }: { url: string; onEnde: () => voi
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [player]);
 
+  useEffect(() => {
+    if (pausiert) player.pause();
+    else player.play();
+  }, [pausiert, player]);
+
   return (
     <VideoView
       testID="player-video"
@@ -197,18 +217,19 @@ function VideoMoment({ url, onEnde, onFehler }: { url: string; onEnde: () => voi
 }
 
 function MomentAnzeige({
-  moment, url, fehlgeschlagen, onVideoEnde, onFehler,
+  moment, url, fehlgeschlagen, pausiert, onVideoEnde, onFehler,
 }: {
   moment: RecapMoment;
   url: MedienUrl | undefined;
   fehlgeschlagen: boolean;
+  pausiert: boolean;
   onVideoEnde: () => void;
   onFehler: () => void;
 }) {
   // Kein Ladefehler bekannt und eine URL vorhanden: normal anzeigen.
   if (!fehlgeschlagen && url) {
     return moment.type === 'video' ? (
-      <VideoMoment url={url.medium_url} onEnde={onVideoEnde} onFehler={onFehler} />
+      <VideoMoment url={url.medium_url} pausiert={pausiert} onEnde={onVideoEnde} onFehler={onFehler} />
     ) : (
       <FotoMoment url={url.medium_url} onFehler={onFehler} />
     );
@@ -603,6 +624,7 @@ export default function RecapPlayer() {
           moment={aktivMoment}
           url={url}
           fehlgeschlagen={fehlgeschlagen.has(aktivMoment.id)}
+          pausiert={stand.pausiert}
           onVideoEnde={() => weiterAutomatischRef.current()}
           onFehler={() => beiLadefehler(aktivMoment.id)}
         />

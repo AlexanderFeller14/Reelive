@@ -47,6 +47,7 @@ let mockLastSource: unknown;
 const mockVideoPlayer = {
   loop: false,
   play: jest.fn(),
+  pause: jest.fn(),
   addListener: jest.fn((event: string, cb: (payload?: unknown) => void) => {
     mockListeners[event] = mockListeners[event] ?? [];
     mockListeners[event].push(cb);
@@ -344,6 +345,53 @@ describe('Video-Momente', () => {
       mockListeners.playToEnd?.forEach((cb) => cb());
     });
     expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: bild('p3').medium_url });
+  });
+
+  // "Halten = Pause" darf sich nicht auf den Fortschrittsbalken beschränken
+  // — sonst liefen Bild und Ton eines Videos unbeirrt weiter, während die
+  // Anzeige stillsteht. Ein Mutant, der `player.pause()`/`player.play()` aus
+  // VideoMoment entfernt, liesse diesen Test fallen.
+  test('Halten pausiert auch die tatsächliche Videowiedergabe, Loslassen setzt sie fort', async () => {
+    mockParams = { id: 't1', start: '1' }; // p2, Video
+    (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
+    (holeVorrat as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+    await wrap();
+    expect(mockVideoPlayer.pause).not.toHaveBeenCalled();
+
+    await fireEvent(screen.getByTestId('player-rechts'), 'pressIn');
+    expect(mockVideoPlayer.pause).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      jest.advanceTimersByTime(400); // lang genug für "Halten", nicht für "Tipp"
+    });
+    await fireEvent(screen.getByTestId('player-rechts'), 'pressOut');
+    // play() lief schon einmal beim Erzeugen des Players (Setup) — nach dem
+    // Loslassen kommt ein ZWEITER Aufruf hinzu, der das Fortsetzen ist.
+    expect(mockVideoPlayer.play.mock.calls.length).toBeGreaterThanOrEqual(2);
+  });
+
+  // Vertrag 4, Kernfall: OHNE ein echtes player.pause() könnte ein Video
+  // während einer Halten-Geste unbeirrt zu Ende laufen und `playToEnd`
+  // feuern — weiterAutomatisch MUSS dann trotzdem mit pausiert:false enden,
+  // sonst bliebe der NÄCHSTE Moment lautlos hängen (das war der explizite
+  // Auftrag: "Bei jedem programmatischen Weiterschalten musst du
+  // pausiert:false selbst setzen: Video-Ende, …").
+  test('feuert playToEnd ausnahmsweise während einer Halten-Geste, bleibt der nächste Moment nicht stumm stehen', async () => {
+    mockParams = { id: 't1', start: '1' }; // p2, Video
+    (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
+    (holeVorrat as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+    await wrap();
+    await fireEvent(screen.getByTestId('player-rechts'), 'pressIn'); // pausiert:true
+    await act(async () => {
+      mockListeners.playToEnd?.forEach((cb) => cb());
+    });
+    // p3 ist jetzt aktiv — der Auto-Vorschub-Timer für p3 muss laufen, sonst
+    // bliebe der Player stehen, obwohl niemand mehr hält.
+    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: bild('p3').medium_url });
+    await act(async () => {
+      jest.advanceTimersByTime(5000); // FOTO_DAUER_MS
+    });
+    expect(screen.getByTestId('player-zwischenkarte')).toBeTruthy(); // p3 -> p4, Tageswechsel
   });
 
   test('ein Video, das nicht lädt, zeigt nach einem stillen Neuversuch Thumbnail und Hinweis — Weitertippen bleibt möglich', async () => {
