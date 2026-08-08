@@ -62,9 +62,26 @@ function KinoPrimaerKnopf({
   );
 }
 
-// Aktiv füllt sich SOLIDE (`cinema['text-1']`, kein Blur nötig — dieselbe
-// Regel wie EmojiPille im nativen Player). Inaktiv bleibt die Pille
-// translucent + Blur (DESIGN-LANGUAGE §1/§4, Task 10).
+// Aktiv füllt sich SOLIDE mit `cinema['text-1']` — derselbe Ton, den
+// `KinoButton` (player.tsx) für "solide Fläche auf Kino-Hintergrund" nutzt,
+// kein neuer Wert. WICHTIG, anders als beim Vorbild EmojiPille (player.tsx):
+// EmojiPille füllt dieselbe Fläche mit einem Emoji, dessen Eigenfarben von
+// jedem Hintergrund abgesetzt bleiben — hier steht echter Text drauf, der
+// mit `cinema['text-1']` auf `cinema['text-1']` unsichtbar würde (Final-
+// Review Punkt 1). Der Text braucht deshalb die Gegenfarbe: `cinema['bg-0']`,
+// exakt wie `KinoButton` sie für sein eigenes Label auf derselben Füllung
+// verwendet (player.tsx: `{ color: cinema['bg-0'] }` auf
+// `backgroundColor: cinema['text-1']`).
+//
+// Inaktiv bleibt die Pille translucent + Blur (DESIGN-LANGUAGE §1/§4,
+// Task 10) — ABER: §1 reserviert dieses Rezept ausdrücklich für UI "auf
+// Fotos". Dieses Sheet liegt auf keinem Foto, sondern auf der deckenden
+// `cinema['bg-1']`-Fläche von Sheet.tsx — die Tönung `overlay-pille`
+// (`rgba(19,17,16,0.55)`) verschmilzt darauf fast unsichtbar mit dem
+// Untergrund (Final-Review Punkt 1, "Kontrast von etwa 5/255": beide Flächen
+// liegen im selben dunklen Farbraum). Ein 1-px-Rand in `cinema['text-2']`
+// zeichnet die Pillenform trotzdem nach — derselbe Token, den Sheet.tsx
+// bereits als Kino-Ersatz für `line-strong` (Grabber) verwendet, siehe dort.
 function AblaufPille({
   id, label, aktiv, onPress,
 }: {
@@ -83,7 +100,7 @@ function AblaufPille({
     >
       {aktiv ? (
         <View style={[styles.ablaufPille, styles.ablaufPilleAktiv]}>
-          <Text style={[type.secondary, { color: cinema['text-1'] }]}>{label}</Text>
+          <Text style={[type.secondary, { color: cinema['bg-0'] }]}>{label}</Text>
         </View>
       ) : (
         <Pille style={styles.ablaufPille}>
@@ -317,13 +334,25 @@ const styles = StyleSheet.create({
     backgroundColor: palette.accent,
   },
   ablaufReihe: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.s },
+  // Rand in `cinema['text-2']` (Begründung siehe Kommentar über AblaufPille):
+  // die translucente Pille allein verschwindet auf der deckenden
+  // Sheet-Fläche fast vollständig, der Rand zeichnet die Form nach. Auf der
+  // AKTIV-Variante (ablaufPilleAktiv, solide Füllung) fällt derselbe Rand
+  // kaum auf — schadet dort aber nichts, ein zweiter, auf `aktiv` bedingter
+  // Style wäre hier mehr Fläche für denselben Effekt.
   ablaufPille: {
     paddingHorizontal: spacing.base,
     paddingVertical: spacing.s,
     borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: cinema['text-2'],
   },
   ablaufPilleAktiv: { backgroundColor: cinema['text-1'] },
   aktionsReihe: { flexDirection: 'row', gap: spacing.s },
+  // Gleicher Rand-Grund wie ablaufPille: "Kopieren" ist die einzige weitere
+  // translucente `Pille` auf dieser Sheet-Fläche (Final-Review Punkt 1)
+  // — "Teilen" daneben (pilleKnopfAkzent) ist bereits eine solide
+  // `palette.accent`-Fläche und braucht keinen Rand.
   pilleKnopf: {
     flex: 1,
     flexDirection: 'row',
@@ -332,6 +361,8 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
     height: 52,
     borderRadius: radius.control,
+    borderWidth: 1,
+    borderColor: cinema['text-2'],
   },
   pilleKnopfAkzent: {
     flex: 1,
