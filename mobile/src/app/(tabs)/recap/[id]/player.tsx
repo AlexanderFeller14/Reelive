@@ -388,6 +388,9 @@ export default function RecapPlayer() {
   // scheitert der auch, gilt der Moment als endgültig fehlgeschlagen.
   const versuchtRef = useRef<Set<string>>(new Set());
   const aktivIdRef = useRef<string | undefined>(undefined);
+  // Für videoZuEnde (Wichtig 1/Zusatz-Verteidigung): ob die Zwischenkarte
+  // gerade steht — siehe dort.
+  const zwischenkarteRef = useRef(false);
   // Schlüssel `${postId}:${emoji}` — verhindert, dass ein schneller
   // Doppeltipp auf dasselbe Emoji zwei sich widersprechende Anfragen lostritt
   // (Frage aus dem Task-12-Auftrag). Ein Ref statt ein State-Flag: Prüfen und
@@ -431,6 +434,18 @@ export default function RecapPlayer() {
     setPendingAnzahl(momente.length - uploaded.length);
     setAusgelassenAnzahl(vorrat?.ausgelassen ?? 0);
     setSpielliste(mitBild);
+    // Klein (Review-Fund): ein frisches Laden ist ein frischer Anlauf — ein
+    // Moment, der beim VORHERIGEN Anlauf zweimal scheiterte, bekommt sonst
+    // nie wieder einen stillen Neuversuch und zeigt dauerhaft die
+    // Hinweispille, auch wenn das zugrunde liegende Problem (z.B. eine
+    // einzelne kaputte Signatur) längst behoben ist.
+    // Klein (Review-Fund): ein frisches Laden ist ein frischer Anlauf — ein
+    // Moment, der beim VORHERIGEN Anlauf zweimal scheiterte, bekommt sonst
+    // nie wieder einen stillen Neuversuch und zeigt dauerhaft die
+    // Hinweispille, auch wenn das zugrunde liegende Problem (z.B. eine
+    // einzelne kaputte Signatur) längst behoben ist.
+    versuchtRef.current.clear();
+    setFehlgeschlagen(new Set());
 
     if (mitBild.length === 0) {
       setPhase('leer');
@@ -474,6 +489,9 @@ export default function RecapPlayer() {
 
   const aktivMoment = spielliste[stand.index];
   aktivIdRef.current = aktivMoment?.id;
+  // Für videoZuEnde unten — direkt in der Render-Zeile aktuell gehalten
+  // (gleiches Muster wie aktivIdRef, siehe dort).
+  zwischenkarteRef.current = zwischenkarte;
   kommentarMomentIdRef.current = kommentarMomentId;
 
   // Erstes (und einziges) useMemo dieser Codebase (Vertrag 1): `tage` hängt
@@ -690,6 +708,27 @@ export default function RecapPlayer() {
   const weiterAutomatischRef = useRef(weiterAutomatisch);
   weiterAutomatischRef.current = weiterAutomatisch;
 
+  // Wichtig 2 (Review-Fund): dieselbe Stale-Guard wie beiLadefehler. Der
+  // `playToEnd`-Listener eines VideoMoment ist an dessen `player`-Instanz
+  // gebunden (Effekt-Deps `[player]`, siehe dort) und bleibt darum bis zum
+  // Unmount an genau DIESEN Moment gekoppelt — trifft das Event aus Native
+  // erst ein, NACHDEM der Player bereits auf den nächsten Moment committed
+  // hat (aber bevor React die Abmeldung des alten Listeners tatsächlich
+  // ausgeführt hat), darf es kein zweites Mal weiterschalten. Der
+  // verlässliche Schutz ist NICHT das Effekt-Cleanup (dessen Zeitpunkt
+  // relativ zu einem spät eintreffenden Native-Event nicht garantiert ist),
+  // sondern dieser explizite Abgleich mit dem tatsächlich aktiven Moment.
+  const videoZuEnde = useCallback((postId: string) => {
+    if (aktivIdRef.current !== postId) return;
+    // Zusätzliche Verteidigung zum physischen player.pause() (siehe
+    // VideoMoment oben): steht die Zwischenkarte, hat sie ihren eigenen
+    // Zeitgeber (ZWISCHENKARTE_DAUER_MS) — ein Event, das trotzdem
+    // eintrifft (Timing-Lücke zwischen Commit und tatsächlichem Pausieren),
+    // darf sie nicht überholen.
+    if (zwischenkarteRef.current) return;
+    weiterAutomatischRef.current();
+  }, []);
+
   // Auto-Vorschub: EIN Timer für Fotos UND Videos (dauerFuer liefert für
   // beide eine sinnvolle Dauer, siehe playerLogic.ts) — für ein Video ist das
   // zugleich der Rückfall, falls es nie lädt (Netz weg): der Timer schaltet
@@ -773,14 +812,23 @@ export default function RecapPlayer() {
           setGueltigBis(vorrat.gueltigBis);
         }
         // Vertrag 4: programmatische Erneuerung — pausiert muss explizit
-        // zurückgesetzt werden.
-        if (aktiv.current) setStand((s) => ({ ...s, pausiert: false }));
+        // zurückgesetzt werden. Zusätzliche Stale-Guard (gleiches Prinzip
+        // wie videoZuEnde/Wichtig 2): der Player kann inzwischen längst zu
+        // einem ANDEREN Moment weitergeschaltet haben (Tipp, Auto-Vorschub)
+        // — dessen eigenen, unabhängig gesetzten Pausiert-Zustand (z.B. ein
+        // neues Halten) darf diese verspätete Antwort nicht überschreiben.
+        if (aktiv.current && aktivIdRef.current === postId) {
+          setStand((s) => ({ ...s, pausiert: false }));
+        }
       })();
     },
     [tripId]
   );
 
   const onPressIn = () => {
+    // Neue Berührung — ein evtl. von der VORHERIGEN Berührung übernommener
+    // Wisch darf diese hier nicht mehr betreffen.
+    wischUebernommenRef.current = false;
     beruehrungStartRef.current = Date.now();
     const moment = spielliste[stand.index];
     if (!moment) return;
@@ -790,6 +838,13 @@ export default function RecapPlayer() {
   };
 
   const beendeBeruehrung = (seite: 'links' | 'rechts') => {
+    // Klein (Review-Fund): RN-Pressability feuert onPressOut auf einer
+    // Tipp-Zone AUCH DANN, wenn der PanResponder den Touch währenddessen per
+    // Responder-Terminierung übernommen hat (Beginn eines echten Wischs) —
+    // das ist kein echtes Loslassen. Ohne diese Sperre navigierte JEDER
+    // Wisch nach unten zusätzlich, und ein erfolgreicher Schliess-Wisch riefe
+    // schliessen() UND weiter()/zurueck() gleichzeitig.
+    if (wischUebernommenRef.current) return;
     const gehalten = Date.now() - beruehrungStartRef.current;
     if (gehalten < TAP_SCHWELLE_MS) {
       if (seite === 'rechts') {
@@ -802,6 +857,10 @@ export default function RecapPlayer() {
         setStand({ ...ergebnis, pausiert: false });
         return;
       }
+      // Klein (Review-Fund): V10 gilt in BEIDE Richtungen ("vor jedem
+      // Weiter" schliesst ein zurueck() nicht aus — auch dabei bleibt der
+      // Player sichtbar auf demselben Vorrat angewiesen).
+      void pruefeUndErneuereVorratImHintergrund();
       setStand({ ...zurueck(stand), pausiert: false });
       return;
     }
@@ -816,10 +875,20 @@ export default function RecapPlayer() {
   };
 
   const pan = useRef(new Animated.ValueXY()).current;
+  // Klein (Review-Fund): true, sobald der PanResponder den Touch tatsächlich
+  // übernommen hat (onPanResponderGrant feuert nur bei echter Übernahme,
+  // anders als das bloss ANFRAGENDE onMoveShouldSetPanResponderCapture) —
+  // beendeBeruehrung() liest das, um ein von RN-Pressability trotzdem
+  // ausgelöstes onPressOut als das zu erkennen, was es ist: kein Loslassen,
+  // sondern der Beginn eines Wischs.
+  const wischUebernommenRef = useRef(false);
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponderCapture: () => false,
       onMoveShouldSetPanResponderCapture: (_evt, g) => g.dy > 10 && Math.abs(g.dy) > Math.abs(g.dx),
+      onPanResponderGrant: () => {
+        wischUebernommenRef.current = true;
+      },
       onPanResponderMove: Animated.event([null, { dy: pan.y }], { useNativeDriver: false }),
       onPanResponderRelease: (_evt, g) => {
         if (g.dy > SCHLIESSEN_SCHWELLE_PX) {
@@ -902,8 +971,13 @@ export default function RecapPlayer() {
           moment={aktivMoment}
           url={url}
           fehlgeschlagen={fehlgeschlagen.has(aktivMoment.id)}
-          pausiert={stand.pausiert}
-          onVideoEnde={() => weiterAutomatischRef.current()}
+          // Wichtig 1 (Review-Fund): auch die Zwischenkarte muss das Video
+          // wirklich pausieren — sie ist vollflächig-opak, ohne diese
+          // Verknüpfung liefe ein Video darunter unbeirrt weiter (Bild UND
+          // Ton) und könnte sogar unter der Karte zu Ende laufen, sodass der
+          // Moment, den die Karte gerade ankündigt, nie gezeigt würde.
+          pausiert={stand.pausiert || zwischenkarte}
+          onVideoEnde={() => videoZuEnde(aktivMoment.id)}
           onFehler={() => beiLadefehler(aktivMoment.id)}
         />
 
@@ -928,7 +1002,7 @@ export default function RecapPlayer() {
 
         <View style={styles.sozialBereich} pointerEvents="box-none">
           {aktivMoment.caption && (
-            <View style={styles.captionPille} pointerEvents="none">
+            <View testID="player-caption" style={styles.captionPille} pointerEvents="none">
               <Text style={[type.body, { color: cinema['text-1'] }]}>{aktivMoment.caption}</Text>
             </View>
           )}
@@ -1099,10 +1173,17 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     backgroundColor: cinema['overlay-pill'],
   },
+  // Klein (Review-Fund): DESIGN-LANGUAGE §4 verlangt "rund, 32–44 px, 2 px
+  // weisser Ring" — 32 px (unteres Ende der Spanne, passend zur kompakten
+  // Kopf-Pille) mit 2 px Rand in `cinema['text-1']` (das hellste Kino-Token,
+  // der nächste verfügbare Ersatz für "weiss" innerhalb der festen
+  // Kino-Palette, die kein rohes #FFFFFF kennt).
   avatarKreis: {
-    width: 28,
-    height: 28,
+    width: 32,
+    height: 32,
     borderRadius: radius.pill,
+    borderWidth: 2,
+    borderColor: cinema['text-1'],
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: cinema['bg-1'],
@@ -1121,9 +1202,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.base,
     paddingVertical: spacing.s,
   },
-  tapZoneLinks: { position: 'absolute', top: 0, bottom: 0, left: 0, width: '50%' },
-  tapZoneRechts: { position: 'absolute', top: 0, bottom: 0, right: 0, width: '50%' },
-  schliessenWrap: { position: 'absolute', top: spacing.xl, right: spacing.screen },
+  // M5/Klein (Review-Fund): die Stapel-Reihenfolge hing bisher allein an der
+  // Render-Reihenfolge im JSX ("später gerendert = oben") — fragil, weil sie
+  // sich unbemerkt umkehren liess (ein RNTL-`fireEvent.press` prüft keine
+  // Geometrie/Stapelung, jede Verschiebung im Baum blieb also unbemerkt
+  // grün). Jetzt ein expliziter, von der Reihenfolge unabhängiger zIndex:
+  // Tipp-Zonen unten, die Zwischenkarte darüber (blockiert sie strukturell),
+  // die Schliessen-Pille ganz oben (bleibt auch WÄHREND der Karte bedienbar
+  // — sonst liesse sich der Player während der 1,5 s der Karte nicht
+  // verlassen).
+  tapZoneLinks: { position: 'absolute', top: 0, bottom: 0, left: 0, width: '50%', zIndex: 1 },
+  tapZoneRechts: { position: 'absolute', top: 0, bottom: 0, right: 0, width: '50%', zIndex: 1 },
+  schliessenWrap: { position: 'absolute', top: spacing.xl, right: spacing.screen, zIndex: 3 },
   schliessenPille: {
     width: 36,
     height: 36,
@@ -1149,6 +1239,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: spacing.xl,
     backgroundColor: cinema['bg-0'],
+    zIndex: 2,
   },
   sozialBereich: {
     position: 'absolute',

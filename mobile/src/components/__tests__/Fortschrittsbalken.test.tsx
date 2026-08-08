@@ -1,4 +1,4 @@
-import { Animated, Easing } from 'react-native';
+import { Animated, Easing, StyleSheet } from 'react-native';
 import { render, screen } from '@testing-library/react-native';
 import { Fortschrittsbalken } from '../Fortschrittsbalken';
 
@@ -83,4 +83,26 @@ test('ein Wechsel des aktiven Index startet eine neue Animation für das neue Se
   expect(timingSpy).toHaveBeenCalledTimes(2);
   // Nach dem Wechsel ist Segment 0 "voll", nicht mehr aktiv.
   expect(screen.getByTestId('fortschritt-voll-0')).toBeTruthy();
+});
+
+// M8 (Review-Fund): weder der Startwert der Animation noch die Füllrichtung
+// hatten einen eigenen Test — beides liess sich löschen, ohne dass etwas fiel.
+test('setzt den Startwert der Animation auf den korrekten Anteil (vergangenMs/dauerMs), bevor sie startet', async () => {
+  const setValueSpy = jest.spyOn(Animated.Value.prototype, 'setValue');
+  await render(<Fortschrittsbalken anzahl={2} aktivIndex={0} dauerMs={4000} vergangenMs={1000} pausiert={false} />);
+  expect(setValueSpy).toHaveBeenCalledWith(0.25);
+  setValueSpy.mockRestore();
+});
+
+test('ein Start-Anteil ausserhalb [0,1] (Verteidigungsfall) wird geklemmt', async () => {
+  const setValueSpy = jest.spyOn(Animated.Value.prototype, 'setValue');
+  await render(<Fortschrittsbalken anzahl={2} aktivIndex={0} dauerMs={1000} vergangenMs={5000} pausiert={false} />);
+  expect(setValueSpy).toHaveBeenCalledWith(1);
+  setValueSpy.mockRestore();
+});
+
+test('das aktive Segment füllt von links (transformOrigin: left), nicht mittig oder rechts', async () => {
+  await render(<Fortschrittsbalken anzahl={2} aktivIndex={0} dauerMs={4000} vergangenMs={0} pausiert={false} />);
+  const stil = StyleSheet.flatten(screen.getByTestId('fortschritt-aktiv').props.style);
+  expect(stil.transformOrigin).toBe('left');
 });
