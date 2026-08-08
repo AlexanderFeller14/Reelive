@@ -11,6 +11,12 @@ import type { KartenPunkt } from './typen';
 // verlassen. Der Grund ist nicht Bequemlichkeit: `index` muss in dieselbe
 // Reihenfolge zeigen, die der Player spielt, sonst startet er am falschen
 // Moment — und diese Reihenfolge ist per CLAUDE.md IMMER captured_at.
+//
+// zuKartenPunkten sortiert und zaehlt ausschliesslich ueber das, was es
+// hereinbekommt — die Filterung auf die Spielliste (uploaded.filter((m) =>
+// urls.has(m.id)), siehe player.tsx/uebersicht.tsx) ist Sache des Aufrufers.
+// Wer hier die rohe Momente-Liste hereingibt statt der Spielliste, bekommt
+// einen index, der nicht zum `start`-Parameter des Players passt.
 export function zuKartenPunkten(momente: RecapMoment[]): {
   punkte: KartenPunkt[];
   ohneOrt: RecapMoment[];

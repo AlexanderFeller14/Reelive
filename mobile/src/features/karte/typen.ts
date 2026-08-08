@@ -7,8 +7,13 @@ export type KartenPunkt = {
   moment: RecapMoment;
   lat: number;
   lng: number;
-  // Position in der sortierten Gesamtliste aller Momente der Reise. Genau
-  // dieser Wert geht als `start` an den Player.
+  // Position in der Liste, die zuKartenPunkten HEREINBEKOMMT — und die muss
+  // die Spielliste sein, dieselbe, die der Recap-Player aufbaut:
+  // uploaded.filter((m) => urls.has(m.id)) (player.tsx, uebersicht.tsx).
+  // Genau dieser Wert geht als `start` an den Player. Wer stattdessen die
+  // rohe Momente-Liste hereingibt, verschiebt mit jedem noch hochladenden
+  // Moment alles dahinter, und der Sprung landet beim falschen Moment —
+  // ohne dass es jemand merkt, ausser er zaehlt nach.
   index: number;
 };
 

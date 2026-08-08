@@ -44,6 +44,12 @@ test('eine halbe Koordinate ist keine Koordinate', () => {
   expect(ohneOrt.map((m) => m.id)).toEqual(['a']);
 });
 
+test('auch die andere halbe Koordinate ist keine Koordinate', () => {
+  const { punkte, ohneOrt } = zuKartenPunkten([moment({ id: 'a', lat: null, lng: -9.13 })]);
+  expect(punkte).toHaveLength(0);
+  expect(ohneOrt.map((m) => m.id)).toEqual(['a']);
+});
+
 test('leere Liste ergibt leere Ergebnisse', () => {
   expect(zuKartenPunkten([])).toEqual({ punkte: [], ohneOrt: [] });
 });
