@@ -6,6 +6,7 @@ import { Image } from 'expo-image';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { PressScale } from '@/components/PressScale';
 import { Fortschrittsbalken } from '@/components/Fortschrittsbalken';
+import { Pille } from '@/components/Pille';
 import { cinema, radius, spacing, type } from '@/theme/tokens';
 import { loeseTokenAuf, LINK_TOT_TEXT, type GeteiltesMoment } from '@/features/teilen/shareApi';
 import { sortiereMomente } from '@/features/recap/tage';
@@ -134,9 +135,9 @@ function AvatarInitiale({ name }: { name: string }) {
 
 function LadeHinweisPille({ text }: { text: string }) {
   return (
-    <View style={styles.ladeHinweisPille}>
+    <Pille style={styles.ladeHinweisPille}>
       <Text style={[type.secondary, { color: cinema['text-1'] }]}>{text}</Text>
-    </View>
+    </Pille>
   );
 }
 
@@ -505,20 +506,20 @@ export default function GeteilterRecapScreen() {
           pausiert={gestoppt}
         />
         <View style={styles.kopfReihe}>
-          <View style={styles.namePille}>
+          <Pille style={styles.namePille}>
             <AvatarInitiale name={aktivMoment.autor_name} />
             <Text style={[type.bodyMedium, { color: cinema['text-1'] }]}>{aktivMoment.autor_name}</Text>
-          </View>
-          <View style={styles.infoPille}>
+          </Pille>
+          <Pille style={styles.infoPille}>
             <Text style={[type.secondary, { color: cinema['text-1'] }]}>{ortZeitText}</Text>
-          </View>
+          </Pille>
         </View>
       </View>
 
       {aktivMoment.caption && (
-        <View testID="teilen-caption" style={styles.captionPille} pointerEvents="none">
+        <Pille testID="teilen-caption" style={styles.captionPille} pointerEvents="none">
           <Text style={[type.body, { color: cinema['text-1'] }]}>{aktivMoment.caption}</Text>
-        </View>
+        </Pille>
       )}
 
       <Pressable
@@ -578,13 +579,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.s,
     paddingVertical: spacing.xs,
     borderRadius: radius.pill,
-    backgroundColor: cinema['overlay-pill'],
   },
   infoPille: {
     paddingHorizontal: spacing.base,
     paddingVertical: spacing.xs,
     borderRadius: radius.pill,
-    backgroundColor: cinema['overlay-pill'],
   },
   avatarKreis: {
     width: 32,
@@ -609,7 +608,6 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
     maxWidth: '100%',
     borderRadius: radius.control,
-    backgroundColor: cinema['overlay-pill'],
     paddingHorizontal: spacing.base,
     paddingVertical: spacing.s,
   },
@@ -620,7 +618,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.base,
     paddingVertical: spacing.s,
     borderRadius: radius.pill,
-    backgroundColor: cinema['overlay-pill'],
   },
   zwischenkarte: {
     position: 'absolute',

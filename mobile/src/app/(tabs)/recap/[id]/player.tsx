@@ -20,6 +20,7 @@ import * as Linking from 'expo-linking';
 import { Download, MessageCircle, X } from 'lucide-react-native';
 import { PressScale } from '@/components/PressScale';
 import { Fortschrittsbalken } from '@/components/Fortschrittsbalken';
+import { Pille } from '@/components/Pille';
 import { Sheet } from '@/components/Sheet';
 import { Input } from '@/components/Input';
 import { cinema, motion, palette, radius, spacing, type } from '@/theme/tokens';
@@ -193,6 +194,10 @@ function TextLink({ label, onPress }: { label: string; onPress: () => void }) {
 // `cinema['text-1']` — derselbe Ton, den `KinoButton` bereits für "solide
 // Fläche auf Kino-Hintergrund" benutzt, kein neuer Wert. 44×44: minimales
 // Touch-Target (DESIGN-LANGUAGE v2 §8).
+// Aktiv (eigene Reaktion) füllt sich SOLIDE mit `cinema['text-1']` — keine
+// translucente Pille, also auch kein Blur: eine deckende Fläche hat nichts,
+// das durchscheinen könnte. Inaktiv bleibt die Pille translucent + Blur
+// (DESIGN-LANGUAGE §1/§4, Task 10).
 function EmojiPille({
   id, emoji, label, aktiv, onPress,
 }: {
@@ -210,9 +215,15 @@ function EmojiPille({
       accessibilityState={{ selected: aktiv }}
       onPress={onPress}
     >
-      <View style={[styles.emojiPille, aktiv && styles.emojiPilleAktiv]}>
-        <Text style={styles.emojiZeichen}>{emoji}</Text>
-      </View>
+      {aktiv ? (
+        <View style={[styles.emojiPille, styles.emojiPilleAktiv]}>
+          <Text style={styles.emojiZeichen}>{emoji}</Text>
+        </View>
+      ) : (
+        <Pille style={styles.emojiPille}>
+          <Text style={styles.emojiZeichen}>{emoji}</Text>
+        </Pille>
+      )}
     </PressScale>
   );
 }
@@ -223,13 +234,13 @@ function EmojiPille({
 function AndereReaktionenPille({ emojis }: { emojis: string[] }) {
   if (emojis.length === 0) return null;
   return (
-    <View
+    <Pille
       testID="player-reaktionen-andere"
       style={styles.andereReaktionenPille}
       accessibilityLabel={`Weitere Reaktionen: ${emojis.join(', ')}`}
     >
       <Text style={[type.secondary, { color: cinema['text-1'] }]}>{emojis.join(' ')}</Text>
-    </View>
+    </Pille>
   );
 }
 
@@ -255,9 +266,9 @@ function AvatarInitiale({ name }: { name: string }) {
 
 function LadeHinweisPille({ text }: { text: string }) {
   return (
-    <View style={styles.ladeHinweisPille}>
+    <Pille style={styles.ladeHinweisPille}>
       <Text style={[type.secondary, { color: cinema['text-1'] }]}>{text}</Text>
-    </View>
+    </Pille>
   );
 }
 
@@ -1329,21 +1340,21 @@ export default function RecapPlayer() {
             pausiert={gestoppt}
           />
           <View style={styles.kopfReihe}>
-            <View style={styles.namePille}>
+            <Pille style={styles.namePille}>
               <AvatarInitiale name={aktivMoment.autor_name} />
               <Text style={[type.bodyMedium, { color: cinema['text-1'] }]}>{aktivMoment.autor_name}</Text>
-            </View>
-            <View style={styles.infoPille}>
+            </Pille>
+            <Pille style={styles.infoPille}>
               <Text style={[type.secondary, { color: cinema['text-1'] }]}>{ortZeitText}</Text>
-            </View>
+            </Pille>
           </View>
         </View>
 
         <View testID="player-sozial-bereich" style={styles.sozialBereich} pointerEvents="box-none">
           {aktivMoment.caption && (
-            <View testID="player-caption" style={styles.captionPille} pointerEvents="none">
+            <Pille testID="player-caption" style={styles.captionPille} pointerEvents="none">
               <Text style={[type.body, { color: cinema['text-1'] }]}>{aktivMoment.caption}</Text>
-            </View>
+            </Pille>
           )}
           <AndereReaktionenPille emojis={andereEmojis} />
           <View style={styles.reaktionsReihe}>
@@ -1363,9 +1374,9 @@ export default function RecapPlayer() {
               accessibilityLabel="Kommentare öffnen"
               onPress={oeffneKommentare}
             >
-              <View style={styles.kommentarKnopf}>
+              <Pille style={styles.kommentarKnopf}>
                 <MessageCircle size={20} color={cinema['text-1']} strokeWidth={1.75} />
-              </View>
+              </Pille>
             </PressScale>
             {/* Nur sichtbar, wenn es für DIESEN Moment überhaupt eine URL
                 gibt (siehe MomentAnzeige) — ein Moment, der gerade nicht
@@ -1380,25 +1391,25 @@ export default function RecapPlayer() {
                   if (!exportLaeuft) void sichereAktuellenMoment();
                 }}
               >
-                <View style={styles.kommentarKnopf}>
+                <Pille style={styles.kommentarKnopf}>
                   {exportLaeuft ? (
                     <ActivityIndicator testID="player-sichern-laedt" color={cinema['text-1']} size="small" />
                   ) : (
                     <Download size={20} color={cinema['text-1']} strokeWidth={1.75} />
                   )}
-                </View>
+                </Pille>
               </PressScale>
             )}
           </View>
           {reaktionFehler && (
-            <View style={styles.reaktionFehlerPille}>
+            <Pille style={styles.reaktionFehlerPille}>
               <Text style={[type.secondary, { color: cinema['text-1'] }]}>{reaktionFehler}</Text>
-            </View>
+            </Pille>
           )}
           {exportHinweis && (
-            <View testID="player-export-hinweis" style={styles.reaktionFehlerPille}>
+            <Pille testID="player-export-hinweis" style={styles.reaktionFehlerPille}>
               <Text style={[type.secondary, { color: cinema['text-1'] }]}>{exportHinweis}</Text>
-            </View>
+            </Pille>
           )}
         </View>
 
@@ -1444,9 +1455,9 @@ export default function RecapPlayer() {
           onPress={schliessen}
           style={styles.schliessenWrap}
         >
-          <View style={styles.schliessenPille}>
+          <Pille style={styles.schliessenPille}>
             <X size={18} color={cinema['text-1']} strokeWidth={1.75} />
-          </View>
+          </Pille>
         </PressScale>
 
         {zwischenkarte && (
@@ -1605,13 +1616,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.s,
     paddingVertical: spacing.xs,
     borderRadius: radius.pill,
-    backgroundColor: cinema['overlay-pill'],
   },
   infoPille: {
     paddingHorizontal: spacing.base,
     paddingVertical: spacing.xs,
     borderRadius: radius.pill,
-    backgroundColor: cinema['overlay-pill'],
   },
   // Klein (Review-Fund): DESIGN-LANGUAGE §4 verlangt "rund, 32–44 px, 2 px
   // weisser Ring" — 32 px (unteres Ende der Spanne, passend zur kompakten
@@ -1638,7 +1647,6 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
     maxWidth: '100%',
     borderRadius: radius.control,
-    backgroundColor: cinema['overlay-pill'],
     paddingHorizontal: spacing.base,
     paddingVertical: spacing.s,
   },
@@ -1660,14 +1668,12 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: cinema['overlay-pill'],
   },
   ladeHinweisWrap: { flex: 1, alignItems: 'center', justifyContent: 'flex-end', paddingBottom: spacing.xxl },
   ladeHinweisPille: {
     paddingHorizontal: spacing.base,
     paddingVertical: spacing.s,
     borderRadius: radius.pill,
-    backgroundColor: cinema['overlay-pill'],
   },
   zwischenkarte: {
     position: 'absolute',
@@ -1717,7 +1723,6 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: cinema['overlay-pill'],
   },
   emojiPilleAktiv: { backgroundColor: cinema['text-1'] },
   emojiZeichen: { fontSize: 20 },
@@ -1727,21 +1732,18 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: cinema['overlay-pill'],
   },
   andereReaktionenPille: {
     alignSelf: 'flex-start',
     paddingHorizontal: spacing.base,
     paddingVertical: spacing.xs,
     borderRadius: radius.pill,
-    backgroundColor: cinema['overlay-pill'],
   },
   reaktionFehlerPille: {
     alignSelf: 'flex-start',
     paddingHorizontal: spacing.base,
     paddingVertical: spacing.xs,
     borderRadius: radius.pill,
-    backgroundColor: cinema['overlay-pill'],
   },
   kommentarListe: { maxHeight: 320 },
   kommentarZeile: {

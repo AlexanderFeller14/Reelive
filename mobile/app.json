@@ -56,9 +56,13 @@
           "photosPermission": "Reelive braucht Zugriff auf deine Fotobibliothek, um Momente aus dem Recap dort zu sichern.",
           "savePhotosPermission": "Reelive speichert Momente aus dem Recap in deiner Fotobibliothek.",
           "isAccessMediaLocationEnabled": false,
-          "granularPermissions": ["photo", "video"]
+          "granularPermissions": [
+            "photo",
+            "video"
+          ]
         }
-      ]
+      ],
+      "@sentry/react-native"
     ],
     "experiments": {
       "typedRoutes": true,

@@ -15,6 +15,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { setStatusBarStyle } from 'expo-status-bar';
 import { useVideoPlayer, VideoView } from 'expo-video';
+import { Pille } from '@/components/Pille';
 import { PressScale } from '@/components/PressScale';
 import { Versiegelung } from '@/components/Versiegelung';
 import { cinema, palette, radius, spacing, type } from '@/theme/tokens';
@@ -329,24 +330,26 @@ export default function PreviewScreen() {
         pointerEvents="none"
       />
 
-      <View style={styles.kopfPille}>
+      <Pille style={styles.kopfPille}>
         <Text style={[type.secondary, { color: cinema['text-1'] }]}>{ortZeitText}</Text>
-      </View>
+      </Pille>
 
       <Animated.View
         {...panResponder.panHandlers}
         style={[styles.captionWrap, { transform: pan.getTranslateTransform() }]}
       >
-        <TextInput
-          accessibilityLabel="Bildunterschrift"
-          value={caption}
-          onChangeText={(text) => setCaption(text.slice(0, CAPTION_MAX))}
-          placeholder="Schreib etwas dazu"
-          placeholderTextColor={cinema['text-2']}
-          maxLength={CAPTION_MAX}
-          multiline
-          style={[type.body, styles.captionInput, { color: cinema['text-1'] }]}
-        />
+        <Pille style={styles.captionPille}>
+          <TextInput
+            accessibilityLabel="Bildunterschrift"
+            value={caption}
+            onChangeText={(text) => setCaption(text.slice(0, CAPTION_MAX))}
+            placeholder="Schreib etwas dazu"
+            placeholderTextColor={cinema['text-2']}
+            maxLength={CAPTION_MAX}
+            multiline
+            style={[type.body, styles.captionInput, { color: cinema['text-1'] }]}
+          />
+        </Pille>
       </Animated.View>
 
       {sendeFehler && (
@@ -392,15 +395,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.base,
     paddingVertical: spacing.s,
     borderRadius: radius.pill,
-    backgroundColor: cinema['overlay-pill'],
   },
+  // Positionierung + Wisch-Transform bleiben auf dem äusseren Animated.View
+  // (panResponder braucht ein direktes Ziel für die Geste) — die eigentliche
+  // Pillen-Optik (Radius, Blur, Tönung, Innenabstand) sitzt eine Ebene
+  // tiefer auf `captionPille` (components/Pille.tsx), sonst liesse sich
+  // beides nicht trennen: `Pille` ist keine `Animated.View`.
   captionWrap: {
     position: 'absolute',
     left: spacing.screen,
     right: spacing.screen,
     bottom: 168,
+  },
+  captionPille: {
     borderRadius: radius.control,
-    backgroundColor: cinema['overlay-pill'],
     paddingHorizontal: spacing.base,
     paddingVertical: spacing.s,
   },

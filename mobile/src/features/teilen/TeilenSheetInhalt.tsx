@@ -15,6 +15,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Share, StyleSheet, Text, View } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import { Copy, Share2 } from 'lucide-react-native';
+import { Pille } from '@/components/Pille';
 import { PressScale } from '@/components/PressScale';
 import { cinema, palette, radius, spacing, type } from '@/theme/tokens';
 import { erstelleLink, holeAktivenLink, widerrufeLink, type AktiverLink } from './linkVerwaltenApi';
@@ -61,6 +62,9 @@ function KinoPrimaerKnopf({
   );
 }
 
+// Aktiv füllt sich SOLIDE (`cinema['text-1']`, kein Blur nötig — dieselbe
+// Regel wie EmojiPille im nativen Player). Inaktiv bleibt die Pille
+// translucent + Blur (DESIGN-LANGUAGE §1/§4, Task 10).
 function AblaufPille({
   id, label, aktiv, onPress,
 }: {
@@ -77,9 +81,15 @@ function AblaufPille({
       accessibilityState={{ selected: aktiv }}
       onPress={onPress}
     >
-      <View style={[styles.ablaufPille, aktiv && styles.ablaufPilleAktiv]}>
-        <Text style={[type.secondary, { color: cinema['text-1'] }]}>{label}</Text>
-      </View>
+      {aktiv ? (
+        <View style={[styles.ablaufPille, styles.ablaufPilleAktiv]}>
+          <Text style={[type.secondary, { color: cinema['text-1'] }]}>{label}</Text>
+        </View>
+      ) : (
+        <Pille style={styles.ablaufPille}>
+          <Text style={[type.secondary, { color: cinema['text-1'] }]}>{label}</Text>
+        </Pille>
+      )}
     </PressScale>
   );
 }
@@ -228,12 +238,12 @@ export function TeilenSheetInhalt({ tripId }: { tripId: string }) {
             accessibilityLabel="Link kopieren"
             onPress={() => void kopieren()}
           >
-            <View style={styles.pilleKnopf}>
+            <Pille style={styles.pilleKnopf}>
               <Copy size={18} color={cinema['text-1']} strokeWidth={1.75} />
               <Text style={[type.bodyMedium, { color: cinema['text-1'] }]}>
                 {kopiert ? 'Kopiert' : 'Kopieren'}
               </Text>
-            </View>
+            </Pille>
           </PressScale>
           <PressScale
             testID="teilen-teilen"
@@ -311,7 +321,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.base,
     paddingVertical: spacing.s,
     borderRadius: radius.pill,
-    backgroundColor: cinema['overlay-pill'],
   },
   ablaufPilleAktiv: { backgroundColor: cinema['text-1'] },
   aktionsReihe: { flexDirection: 'row', gap: spacing.s },
@@ -323,7 +332,6 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
     height: 52,
     borderRadius: radius.control,
-    backgroundColor: cinema['overlay-pill'],
   },
   pilleKnopfAkzent: {
     flex: 1,

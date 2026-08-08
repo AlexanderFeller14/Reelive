@@ -20,8 +20,16 @@ import { redeemInvite } from '@/features/trips/tripsApi';
 import { redeemPendingInvite } from '@/features/trips/joinFlow';
 import * as uploadWorker from '@/features/moments/uploadWorker';
 import { registrierePushToken } from '@/features/push/pushApi';
+import { initFehlermelder } from '@/lib/fehlermelder';
 
 void SplashScreen.preventAutoHideAsync();
+
+// Task 10, Phase 6: so früh wie möglich, auf Modulebene wie
+// preventAutoHideAsync() oben — nicht in einem Effect, der erst nach dem
+// ersten Render liefe. Blockiert den Start nicht: initFehlermelder() ist
+// synchron und ohne DSN (Alltag, siehe fehlermelder.ts) ein reiner
+// No-Op-Return, kein I/O.
+initFehlermelder();
 
 // Web-Hartsperre (siehe istWebGesperrt in guard.ts für die volle Begründung):
 // «Reelive gibt es als App» — freundlich, mit dem Wortzug-Platzhalter
