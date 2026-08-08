@@ -10,6 +10,7 @@
     "npm:@supabase/postgrest-js@2.112.2": "2.112.2",
     "npm:@supabase/realtime-js@2.112.2": "2.112.2",
     "npm:@supabase/storage-js@2.112.2": "2.112.2",
+    "npm:aws4fetch@1": "1.0.20",
     "npm:openai@^4.52.5": "4.104.0"
   },
   "jsr": {
@@ -102,6 +103,9 @@
     },
     "asynckit@0.4.0": {
       "integrity": "sha512-Oei9OH4tRh0YqU3GxhX79dM/mwVgvbZJaSNaRk+bshkj0S5cfHcgYakreBjrHwatXKbz+IoIdYLxrKim2MjW0Q=="
+    },
+    "aws4fetch@1.0.20": {
+      "integrity": "sha512-/djoAN709iY65ETD6LKCtyyEI04XIBP5xVvfmNxsEP0uJB5tyaGBztSryRr4HqMStr9R06PisQE7m9zDTXKu6g=="
     },
     "call-bind-apply-helpers@1.0.2": {
       "integrity": "sha512-Sp1ablJ0ivDkSzjcaJdxEunN5/XvksFJ2sMBFfq6x0ryhQV/2b/KwFe21cMpmHtPOSij8K99/wSfoEuTObmuMQ==",

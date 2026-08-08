@@ -29,9 +29,16 @@ import '@supabase/functions-js/edge-runtime.d.ts';
 import { sende } from './push.ts';
 import { fuehreRevealAus } from './reveal.ts';
 import { erstelleAdminClient, erstelleRevealStore } from './revealStore.ts';
+import { erstelleFehlermelder } from '../_shared/fehlermelder.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+
+// Spec §9 / Abschluss-Review Phase 6: ein schlanker Fehler-Melder über
+// `fetch`, ohne Paket (Begründung und Privacy-Regeln in
+// _shared/fehlermelder.ts). Ohne SENTRY_DSN ein vollständiger No-Op.
+const SENTRY_DSN = Deno.env.get('SENTRY_DSN') ?? '';
+const melde = erstelleFehlermelder(SENTRY_DSN, 'reveal-trip');
 
 type AnfrageBody = { trip_id?: unknown };
 
@@ -55,6 +62,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
   if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
     console.error('reveal-trip: SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY fehlen.');
+    await melde(new Error('reveal-trip: SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY fehlen.'));
     return fehler('Server nicht konfiguriert.', 500);
   }
 
@@ -87,6 +95,6 @@ Deno.serve(async (req: Request): Promise<Response> => {
   }
 
   const store = erstelleRevealStore(supabaseAdmin);
-  const ergebnis = await fuehreRevealAus(store, sende, tripId, anfragendeId);
+  const ergebnis = await fuehreRevealAus(store, sende, tripId, anfragendeId, melde);
   return json(ergebnis.body, ergebnis.status);
 });

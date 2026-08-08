@@ -25,6 +25,13 @@
 // erzeugen — deckt reveal_integration_test.ts gegen den echten Stack ab.
 
 import type { PushNachricht } from './push.ts';
+import type { MeldeFn } from '../_shared/fehlermelder.ts';
+
+// Ohne übergebenen Melder ein No-Op — Tests, die `fuehreRevealAus` mit den
+// bisherigen vier Argumenten aufrufen (reveal_test.ts), bleiben dadurch
+// unverändert lauffähig; index.ts übergibt den echten, aus SENTRY_DSN
+// gebauten Melder als fünftes Argument (Stil wie `sendeFn`).
+const KEIN_MELDER: MeldeFn = async () => {};
 
 export type TripStatus = 'active' | 'revealed' | 'archived';
 
@@ -153,15 +160,28 @@ export type RevealErgebnis = { status: number; body: Record<string, unknown> };
 // Wortgleich zur Vorfassung in Deno.serve (Fehlertexte, Status-Codes,
 // Reihenfolge, welcher Zweig den Push auslöst) — index.ts ruft das nur noch
 // auf und übersetzt das Ergebnis in eine Response.
+// `melde` ist das fünfte, optionale Argument (Stil wie `sendeFn`): index.ts
+// übergibt den echten, aus SENTRY_DSN gebauten Melder, Tests lassen es weg
+// (KEIN_MELDER) oder injizieren einen eigenen Fake, um zu belegen, DASS er an
+// den drei folgenden Stellen wirklich aufgerufen wird — nicht nur, dass ein
+// Melder existiert (siehe Punkt 2 des Abschluss-Reviews: "ein Fehler-Melder,
+// der keinen Aufrufer hat, ist wertlos"). Absichtlich NICHT in
+// `versendeRevealPush` verdrahtet: Ein Netzfehler gegen Expo, ein kaputtes
+// Ticket oder eine leere Empfängerliste sind dort laut Kommentar dort bereits
+// bewusst tolerierte, nicht-kritische Ausgänge — dieselbe Function würde sich
+// selbst widersprechen, meldete sie an Sentry, was sie im nächsten Atemzug als
+// "darf den Reveal nicht scheitern lassen" einstuft.
 export async function fuehreRevealAus(
   store: RevealStore,
   sendeFn: SendeFn,
   tripId: string,
   anfragendeId: string,
+  melde: MeldeFn = KEIN_MELDER,
 ): Promise<RevealErgebnis> {
   const { data: trip, error: tripError } = await store.holeTrip(tripId);
   if (tripError) {
     console.error('reveal-trip: trips-Select fehlgeschlagen', tripError);
+    await melde(tripError, { trip_id: tripId });
     return { status: 500, body: { fehler: 'Reise konnte nicht geladen werden.' } };
   }
   if (!trip) {
@@ -194,6 +214,7 @@ export async function fuehreRevealAus(
   const { data: aktualisiert, error: updateError } = await store.aktualisiereWennAktiv(tripId);
   if (updateError) {
     console.error('reveal-trip: trips-Update fehlgeschlagen', updateError);
+    await melde(updateError, { trip_id: tripId, user_id: anfragendeId });
     return { status: 500, body: { fehler: 'Reise konnte nicht abgeschlossen werden.' } };
   }
 
@@ -226,6 +247,9 @@ export async function fuehreRevealAus(
     const { data: nachgelesen, error: nachlesenError } = await store.holeRevealedAtNachlese(tripId);
     if (nachlesenError || !nachgelesen) {
       console.error('reveal-trip: Nachlesen nach paralellem Reveal fehlgeschlagen', nachlesenError);
+      await melde(nachlesenError ?? new Error('reveal-trip: Nachlesen nach parallelem Reveal ohne Zeile.'), {
+        trip_id: tripId,
+      });
       return { status: 500, body: { fehler: 'Reise konnte nicht abgeschlossen werden.' } };
     }
     revealedAt = nachgelesen.revealed_at;

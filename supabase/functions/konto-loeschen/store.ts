@@ -12,7 +12,31 @@
 //   - `loescheObjekte` blockweise, mit der (nachgemessenen) Eigenschaft, dass
 //     ein bereits gelöschter Schlüssel KEIN Fehler ist.
 //   - die Zählabfragen für den Dialog: sie müssen die Wahrheit sagen.
+//
+// ---------------------------------------------------------------------------
+// Warum `loescheObjekte` über das S3-Protokoll läuft, nicht über die
+// Supabase-Storage-API
+// ---------------------------------------------------------------------------
+// Bis zum Abschluss-Review von Phase 6 löschte diese Datei über
+// `supabaseAdmin.storage.from(bucket).remove(...)` — die einzige Stelle im
+// ganzen Repo, die den Speicher über die Storage-API statt über S3 anspricht.
+// media-urls und share-link signieren beide über `S3_ENDPOINT` (aws4fetch,
+// SigV4). README.md verspricht für den Wechsel auf Cloudflare R2, es
+// wechselten "nur Endpoint und Zugangsdaten" — ein Versprechen, das für diese
+// Function nicht galt: Ein deployter R2-Bucket ist der Storage-API gar nicht
+// bekannt (die kennt nur den lokalen Supabase-Storage-Dienst), also hätte
+// `remove()` dort entweder still nichts getroffen (unbekannte Schlüssel sind
+// laut demselben "kein Fehler"-Prinzip kein Fehlschlag) oder dauerhaft mit
+// einem Fehler geantwortet, je nachdem, ob der Storage-Dienst überhaupt noch
+// existiert. Beides hätte W6 ("ein gelöschtes Konto hinterlässt kein Objekt")
+// lokal grün und im echten Deployment lautlos falsch gemacht.
+//
+// Jetzt löscht auch diese Function über `S3_ENDPOINT` — mit denselben fünf
+// Umgebungsvariablen wie media-urls/share-link (siehe index.ts), über
+// dieselbe aws4fetch-Signierung. Der R2-Wechsel trifft damit wirklich nur
+// Endpoint und Zugangsdaten, für alle drei Functions gleichermassen.
 import { createClient } from 'jsr:@supabase/supabase-js@2';
+import type { AwsClient } from 'npm:aws4fetch@1';
 import type { PostZeile, SeitenErgebnis } from './ablauf.ts';
 
 export function erstelleAdminClient(supabaseUrl: string, serviceRoleKey: string) {
@@ -35,11 +59,14 @@ export function erstellePersonenClient(supabaseUrl: string, anonKey: string, jwt
 // sammleAlle hängt nicht daran, dass die beiden Zahlen gleich sind.
 export const POSTS_SEITENGROESSE = 1000;
 
-// Blockgrösse beim Löschen im Speicher. Die Storage-API nimmt eine Liste von
-// Pfaden entgegen; sehr lange Listen gehören trotzdem geteilt, damit ein
-// einzelner Aufruf nicht in ein Zeitlimit läuft und der Fortschritt zwischen
-// den Blöcken erhalten bleibt (ein zweiter Versuch überspringt dann, was schon
-// weg ist — siehe loescheObjekte).
+// Blockgrösse beim Löschen im Speicher. Anders als die Storage-API (ein
+// Aufruf, eine Liste von Pfaden) kennt das S3-Protokoll pro Objekt nur ein
+// einzelnes DELETE — `loescheObjekteBlockweise` schickt darum pro Block bis zu
+// OBJEKT_BLOCKGROESSE Anfragen NEBENEINANDER (Promise.all) los, statt alle
+// Schlüssel auf einmal: Ein einzelner Block bleibt damit innerhalb eines
+// Zeitlimits, und der Fortschritt zwischen den Blöcken bleibt erhalten — ein
+// zweiter Versuch nach einem Teilabbruch überspringt dann nur, was schon weg
+// ist (siehe loescheObjekteBlockweise).
 export const OBJEKT_BLOCKGROESSE = 200;
 
 export type TripZeile = { id: string; cover_key: string | null };
@@ -79,10 +106,94 @@ function idListe(ids: string[]): string {
   return `(${ids.join(',')})`;
 }
 
+// ---------------------------------------------------------------------------
+// Löschen im Speicher — über S3, ein DELETE pro Schlüssel
+// ---------------------------------------------------------------------------
+
+// Ergebnis EINES DELETE. `ok` ist die einzige Grösse, die
+// `loescheObjekteBlockweise` auswertet — `status`/`fehler` stehen nur für die
+// Fehlermeldung zur Verfügung, falls `ok` false ist.
+export type LoeschErgebnisEins = { ok: boolean; status: number; fehler?: unknown };
+export type LoescheEinsFn = (schluessel: string) => Promise<LoeschErgebnisEins>;
+
+// Die reine Blockierungs-/Kurzschluss-Logik, herausgelöst von der S3-Signierung
+// (Stil wie `sammleAlle` in ablauf.ts und `sende`/`inBloecke` in
+// reveal-trip/push.ts): eine injizierbare `loescheEins`-Funktion macht das
+// hier ohne echtes Netz testbar (siehe store_test.ts), die reale Signierung
+// steckt allein in `erstelleS3Loescher` weiter unten.
+//
+// Blockweise UND innerhalb eines Blocks parallel (Promise.all): Anders als die
+// vorige Storage-API-Fassung, die pro Block genau einen HTTP-Aufruf mit einer
+// Liste von Pfaden machte, kennt das S3-Protokoll nur ein DELETE pro Objekt.
+// Ohne Parallelität innerhalb eines Blocks würde eine Kontolöschung mit
+// hunderten Objekten spürbar langsamer als vorher — mit ihr bleibt die
+// Anzahl gleichzeitiger Anfragen durch OBJEKT_BLOCKGROESSE gedeckelt, genau
+// wie die vorige Fassung die Grösse einer einzelnen Storage-API-Anfrage
+// gedeckelt hat.
+export async function loescheObjekteBlockweise(
+  schluessel: string[],
+  loescheEins: LoescheEinsFn,
+  blockgroesse: number = OBJEKT_BLOCKGROESSE,
+): Promise<{ fehler: unknown }> {
+  for (let i = 0; i < schluessel.length; i += blockgroesse) {
+    const block = schluessel.slice(i, i + blockgroesse);
+    const ergebnisse = await Promise.all(block.map((key) => loescheEins(key)));
+    const fehlgeschlagen = ergebnisse.find((e) => !e.ok);
+    if (fehlgeschlagen) {
+      return {
+        fehler: fehlgeschlagen.fehler ?? new Error(`S3 DELETE fehlgeschlagen: HTTP ${fehlgeschlagen.status}`),
+      };
+    }
+  }
+  return { fehler: null };
+}
+
+// Der reale Adapter: signiert und schickt EIN S3-DELETE. `signQuery: true`
+// erzeugt dieselbe Art Anfrage wie `objektGroesse` in media-urls/index.ts (HEAD
+// über eine presignte URL) — nur mit Methode DELETE statt HEAD.
+//
+// Wichtig UND nachgemessen, dieselbe Eigenschaft wie vorher bei der
+// Storage-API: Ein Schlüssel, unter dem kein Objekt (mehr) liegt, ist KEIN
+// Fehler. S3-kompatible Object-Storages (AWS S3, Cloudflare R2, der lokale
+// Supabase-Storage-Dienst über sein S3-Gateway) beantworten DELETE auf einen
+// nicht (mehr) existierenden Schlüssel genauso wie auf einen existierenden —
+// mit einem Erfolgsstatus (typischerweise 204 No Content), nicht mit 404.
+// Daraus folgt zweierlei, wortgleich zur Vorfassung:
+//   1. Ein zweiter Löschversuch nach einem Teilabbruch läuft sauber durch.
+//      Genau darauf stützt sich ablauf.ts, wenn es bei einem Fehler im
+//      Speicherschritt lieber gar nichts in der Datenbank anfasst.
+//   2. «Kein Fehler» bedeutet NICHT «das Objekt existierte» — die einzige
+//      Instanz, die das beweisen kann, ist ein Test, der ein Objekt VORHER
+//      ablegt und NACHHER über einen unabhängigen Weg auf Abwesenheit prüft
+//      (konto_loeschen_integration_test.ts tut genau das über die
+//      Storage-REST-API, unabhängig vom S3-Pfad hier). Ein Test, der nur
+//      "kein Fehler zurückgekommen" prüft, bewiese nichts — das ist exakt die
+//      Falle, vor der Punkt 2 warnt: "weniger zurückbekommen als angefragt"
+//      darf nicht als Fehlschlag gelten, aber es beweist auch keinen Erfolg.
+export function erstelleS3Loescher(
+  aws: AwsClient,
+  s3Endpoint: string,
+  bucket: string,
+  fetchImpl: typeof fetch = fetch,
+): LoescheEinsFn {
+  return async (schluessel) => {
+    const url = new URL(`${s3Endpoint}/${bucket}/${schluessel}`);
+    try {
+      const signiert = await aws.sign(url.toString(), { method: 'DELETE', aws: { signQuery: true } });
+      const antwort = await fetchImpl(signiert);
+      await antwort.body?.cancel();
+      if (!antwort.ok) return { ok: false, status: antwort.status };
+      return { ok: true, status: antwort.status };
+    } catch (err) {
+      return { ok: false, status: 0, fehler: err };
+    }
+  };
+}
+
 export function erstelleKontoStore(
   supabaseAdmin: AdminClient,
   personenClient: AdminClient,
-  bucket: string,
+  loescheEins: LoescheEinsFn,
 ): KontoStore {
   return {
     async holeEigeneTrips(userId) {
@@ -202,22 +313,12 @@ export function erstelleKontoStore(
       };
     },
 
-    // Blockweise. Wichtig und nachgemessen: Ein Schlüssel, unter dem kein
-    // Objekt (mehr) liegt, ist KEIN Fehler — die Storage-API antwortet mit 200
-    // und lässt ihn schlicht aus der Ergebnisliste weg. Daraus folgt zweierlei:
-    //   1. Ein zweiter Löschversuch nach einem Teilabbruch läuft sauber durch.
-    //      Genau darauf stützt sich ablauf.ts, wenn es bei einem Fehler im
-    //      Speicherschritt lieber gar nichts in der Datenbank anfasst.
-    //   2. «Weniger zurückbekommen als angefragt» darf NICHT als Fehlschlag
-    //      gewertet werden — sonst schlüge jede Wiederholung fehl. Der einzige
-    //      verlässliche Anzeiger ist das error-Feld.
+    // Die eigentliche Logik (Blockung, Kurzschluss bei Fehlern) steht in
+    // loescheObjekteBlockweise oben — hier nur noch die Verdrahtung mit dem
+    // real signierenden `loescheEins`, das index.ts aus den S3-Umgebungs-
+    // variablen baut (erstelleS3Loescher).
     async loescheObjekte(schluessel) {
-      for (let i = 0; i < schluessel.length; i += OBJEKT_BLOCKGROESSE) {
-        const block = schluessel.slice(i, i + OBJEKT_BLOCKGROESSE);
-        const { error } = await supabaseAdmin.storage.from(bucket).remove(block);
-        if (error) return { fehler: error };
-      }
-      return { fehler: null };
+      return loescheObjekteBlockweise(schluessel, loescheEins);
     },
 
     // Die eigenen trip_members-Zeilen in FREMDEN Reisen — und zwar im Namen

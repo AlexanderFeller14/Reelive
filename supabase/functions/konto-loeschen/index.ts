@@ -58,17 +58,44 @@ import '@supabase/functions-js/edge-runtime.d.ts';
 // Das sind alle neun Tabellen in public. Was NICHT kaskadiert, weil es keinen
 // Fremdschlüssel gibt: storage.objects — die Objekte im Bucket. Genau die
 // räumt der Speicherschritt, und genau deshalb muss er zuerst laufen.
+import { AwsClient } from 'npm:aws4fetch@1';
 import { fuehreLoeschungAus, medienSchluessel, pfadGehoertUns, sammleAlle, type PostZeile, type Schritt } from './ablauf.ts';
-import { erstelleAdminClient, erstelleKontoStore, erstellePersonenClient } from './store.ts';
+import { erstelleAdminClient, erstelleKontoStore, erstellePersonenClient, erstelleS3Loescher } from './store.ts';
+import { erstelleFehlermelder } from '../_shared/fehlermelder.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
 const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
-// Derselbe Bucket wie in media-urls (supabase/config.toml,
-// [storage.buckets.media]). Hier über die Storage-API statt über das
-// S3-Protokoll: gelöscht wird mit dem Service-Role-Schlüssel, den die Function
-// ohnehin hat — dadurch braucht konto-loeschen keine S3-Zugangsdaten.
-const S3_BUCKET = Deno.env.get('S3_BUCKET') ?? 'media';
+// Dieselben fünf S3-Variablen wie media-urls/share-link (siehe dortige
+// index.ts) — seit dem Abschluss-Review von Phase 6 löscht auch diese
+// Function über das S3-Protokoll, nicht mehr über die Supabase-Storage-API
+// (die ausführliche Begründung steht in store.ts, Kopfkommentar). Derselbe
+// Bucket-Name wie in supabase/config.toml, [storage.buckets.media].
+const S3_ENDPOINT = (Deno.env.get('S3_ENDPOINT') ?? '').replace(/\/$/, '');
+const S3_REGION = Deno.env.get('S3_REGION') ?? '';
+const S3_BUCKET = Deno.env.get('S3_BUCKET') ?? '';
+const S3_ACCESS_KEY = Deno.env.get('S3_ACCESS_KEY') ?? '';
+const S3_SECRET_KEY = Deno.env.get('S3_SECRET_KEY') ?? '';
+
+function s3Client(): AwsClient {
+  return new AwsClient({
+    accessKeyId: S3_ACCESS_KEY,
+    secretAccessKey: S3_SECRET_KEY,
+    region: S3_REGION,
+    service: 's3',
+  });
+}
+
+function s3KonfigVollstaendig(): boolean {
+  return Boolean(S3_ENDPOINT && S3_REGION && S3_BUCKET && S3_ACCESS_KEY && S3_SECRET_KEY);
+}
+
+// Spec §9 / Task-Brief "abschluss-fix-server": ein schlanker Fehler-Melder
+// über `fetch`, ohne Paket (Begründung und Privacy-Regeln in
+// _shared/fehlermelder.ts). Ohne SENTRY_DSN ein vollständiger No-Op — der
+// heutige, unveränderte Zustand jeder lokalen Umgebung.
+const SENTRY_DSN = Deno.env.get('SENTRY_DSN') ?? '';
+const melde = erstelleFehlermelder(SENTRY_DSN, 'konto-loeschen');
 
 type AnfrageBody = { aktion?: unknown };
 
@@ -92,6 +119,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
   if (!SUPABASE_URL || !SERVICE_ROLE_KEY || !ANON_KEY) {
     console.error('konto-loeschen: SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY/SUPABASE_ANON_KEY fehlen.');
+    await melde(new Error('konto-loeschen: SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY/SUPABASE_ANON_KEY fehlen.'));
     return fehler('Server nicht konfiguriert.', 500);
   }
 
@@ -123,12 +151,18 @@ Deno.serve(async (req: Request): Promise<Response> => {
     return fehler('Unbekannte Aktion.', 400);
   }
 
+  // `loescheEins` wird unabhängig von der Aktion gebaut (billig — nur eine
+  // Closure, kein Netzaufruf), aber nur im `loeschen`-Pfad je aufgerufen.
+  // `zahlen` braucht keine S3-Konfiguration; die Prüfung darauf steht deshalb
+  // NICHT hier, sondern unten, unmittelbar vor dem Speicherschritt.
   const personenClient = erstellePersonenClient(SUPABASE_URL, ANON_KEY, jwt);
-  const store = erstelleKontoStore(supabaseAdmin, personenClient, S3_BUCKET);
+  const loescheEins = erstelleS3Loescher(s3Client(), S3_ENDPOINT, S3_BUCKET);
+  const store = erstelleKontoStore(supabaseAdmin, personenClient, loescheEins);
 
   const { data: eigeneTrips, error: tripsError } = await store.holeEigeneTrips(anfragendeId);
   if (tripsError) {
     console.error('konto-loeschen: trips-Select fehlgeschlagen', tripsError);
+    await melde(tripsError, { user_id: anfragendeId });
     return fehler('Dein Konto konnte nicht geprüft werden.', 500);
   }
   const trips = eigeneTrips ?? [];
@@ -141,6 +175,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     const { data: zahlen, error: zahlenError } = await store.zaehle(anfragendeId, eigeneTripIds);
     if (zahlenError || !zahlen) {
       console.error('konto-loeschen: Zählen fehlgeschlagen', zahlenError);
+      await melde(zahlenError, { user_id: anfragendeId });
       return fehler('Die Zahlen konnten nicht ermittelt werden.', 500);
     }
     return json(zahlen, 200);
@@ -149,6 +184,17 @@ Deno.serve(async (req: Request): Promise<Response> => {
   // -------------------------------------------------------------------------
   // loeschen
   // -------------------------------------------------------------------------
+  // Erst hier geprüft, nicht ganz oben: `zahlen` braucht keine S3-Konfiguration
+  // und soll deshalb auch funktionieren, wenn sie fehlt — nur `loeschen` löscht
+  // im Speicher. Ohne diese Prüfung würde ein fehlkonfiguriertes S3 erst tief
+  // in loescheObjekte als kryptischer "Invalid URL"-Fehler auffallen, statt
+  // hier als klare 500 (dasselbe Muster wie media-urls/share-link).
+  if (!s3KonfigVollstaendig()) {
+    console.error('konto-loeschen: S3-Umgebungsvariablen unvollständig.');
+    await melde(new Error('konto-loeschen: S3-Umgebungsvariablen unvollständig.'), { user_id: anfragendeId });
+    return fehler('Server nicht konfiguriert.', 500);
+  }
+
   // Schritt 1: ermitteln, was weggehört. VOLLSTÄNDIG, bevor irgendetwas
   // gelöscht wird — ein Moment, der hier durchrutscht, ist nach der Kaskade
   // nicht mehr auffindbar: sein Pfad leitet sich aus der posts-Zeile ab, und
@@ -159,6 +205,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
   );
   if (inEigenen.fehler) {
     console.error('konto-loeschen: posts-Select (eigene Reisen) fehlgeschlagen', inEigenen.fehler);
+    await melde(inEigenen.fehler, { user_id: anfragendeId });
     return fehler('Deine Reisen konnten nicht gelesen werden.', 500);
   }
 
@@ -167,6 +214,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
   );
   if (anderswo.fehler) {
     console.error('konto-loeschen: posts-Select (fremde Reisen) fehlgeschlagen', anderswo.fehler);
+    await melde(anderswo.fehler, { user_id: anfragendeId });
     return fehler('Deine Momente konnten nicht gelesen werden.', 500);
   }
 
@@ -175,6 +223,11 @@ Deno.serve(async (req: Request): Promise<Response> => {
   // Speicher, ohne dass irgendjemand ihren Pfad noch herleiten könnte.
   if (inEigenen.verloren > 0 || anderswo.verloren > 0) {
     console.error('konto-loeschen: beim Einsammeln der Momente sind Zeilen verlorengegangen.', {
+      user_id: anfragendeId,
+      in_eigenen_reisen: inEigenen.verloren,
+      anderswo: anderswo.verloren,
+    });
+    await melde(new Error('konto-loeschen: beim Einsammeln der Momente sind Zeilen verlorengegangen.'), {
       user_id: anfragendeId,
       in_eigenen_reisen: inEigenen.verloren,
       anderswo: anderswo.verloren,
@@ -205,6 +258,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
   const { data: avatarKey, error: avatarError } = await store.holeAvatarKey(anfragendeId);
   if (avatarError) {
     console.error('konto-loeschen: profiles-Select fehlgeschlagen', avatarError);
+    await melde(avatarError, { user_id: anfragendeId });
     return fehler('Dein Profil konnte nicht gelesen werden.', 500);
   }
   for (const kandidat of [avatarKey, ...trips.map((t) => t.cover_key)]) {
@@ -216,6 +270,14 @@ Deno.serve(async (req: Request): Promise<Response> => {
     console.error(
       'konto-loeschen: cover_key/avatar_key liegen ausserhalb der eigenen Präfixe und bleiben liegen.',
       { user_id: anfragendeId, pfade: ungeklaertePfade },
+    );
+    // Nur die ANZAHL geht an Sentry, nie die Pfade selbst — sie bleiben im
+    // Server-Log (siehe console.error oben). Ein Storage-Pfad ist kein
+    // Moment-Inhalt, aber auch kein Diagnosewert, den ein externer Dienst
+    // braucht; die Zahl allein genügt, um das Muster zu erkennen.
+    await melde(
+      new Error('konto-loeschen: cover_key/avatar_key liegen ausserhalb der eigenen Präfixe und bleiben liegen.'),
+      { user_id: anfragendeId, anzahl: ungeklaertePfade.length },
     );
   }
 
@@ -244,6 +306,16 @@ Deno.serve(async (req: Request): Promise<Response> => {
       schritt: ergebnis.gescheitertBei,
       datenbank_beruehrt: ergebnis.datenbankBeruehrt,
       fehler: ergebnis.fehler,
+    });
+    // Genau der Fall aus Punkt 1 des Abschluss-Reviews: scheitert der
+    // Speicherschritt (oder ein Datenbankschritt danach), bleibt W6/W7 sonst
+    // ausschliesslich im Server-Log sichtbar. `ergebnis.fehler` trägt hier die
+    // eigentliche Ursache; `melde()` liest daraus nur `.message` (siehe
+    // fehlermelder.ts) — nie die rohe Fehlerstruktur.
+    await melde(ergebnis.fehler, {
+      user_id: anfragendeId,
+      schritt: ergebnis.gescheitertBei,
+      datenbank_beruehrt: ergebnis.datenbankBeruehrt,
     });
     // Ein Text für beide Fälle: Ob die Datenbank schon angefasst wurde oder
     // nicht, ändert für die Person nichts an dem, was sie tun soll — es noch

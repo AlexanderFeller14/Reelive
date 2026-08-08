@@ -55,6 +55,7 @@ import {
 } from './aufloesung.ts';
 import { erstelleAdminClient, erstelleShareStore } from './store.ts';
 import { berechneAblauf, beurteileErstellen, beurteileWiderrufen } from './verwaltung.ts';
+import { erstelleFehlermelder } from '../_shared/fehlermelder.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
@@ -63,6 +64,12 @@ const S3_REGION = Deno.env.get('S3_REGION') ?? '';
 const S3_BUCKET = Deno.env.get('S3_BUCKET') ?? '';
 const S3_ACCESS_KEY = Deno.env.get('S3_ACCESS_KEY') ?? '';
 const S3_SECRET_KEY = Deno.env.get('S3_SECRET_KEY') ?? '';
+
+// Spec §9 / Abschluss-Review Phase 6: ein schlanker Fehler-Melder über
+// `fetch`, ohne Paket (Begründung und Privacy-Regeln in
+// _shared/fehlermelder.ts). Ohne SENTRY_DSN ein vollständiger No-Op.
+const SENTRY_DSN = Deno.env.get('SENTRY_DSN') ?? '';
+const melde = erstelleFehlermelder(SENTRY_DSN, 'share-link');
 
 // Basis des öffentlichen Web-Players (Route /teilen/[token], Plan Task 5).
 // Absichtlich ohne Standardwert: ein geratener Standard ergäbe eine Antwort,
@@ -157,6 +164,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
   if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
     console.error('share-link: SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY fehlen.');
+    await melde(new Error('share-link: SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY fehlen.'));
     return fehler('Server nicht konfiguriert.', 500);
   }
 
@@ -193,6 +201,10 @@ Deno.serve(async (req: Request): Promise<Response> => {
     const { zeile, reise, fehler: leseFehler } = await store.holeTokenMitReise(token);
     if (leseFehler) {
       console.error('share-link: share_links-Select fehlgeschlagen', leseFehler);
+      // Der Token selbst geht NICHT in den Bericht — er ist die Berechtigung
+      // für einen öffentlichen Recap, kein Diagnosewert (dieselbe Überlegung
+      // wie bei signierten S3-URLs im Kopfkommentar von fehlermelder.ts).
+      await melde(leseFehler);
       // Bewusst KEIN 500 mit eigenem Text: ein Datenbankfehler beim
       // Token-Lookup wäre sonst der einzige Weg, an dem sich ein Aufruf von
       // einem anderen unterscheiden liesse. Er wird geloggt und nach aussen
@@ -211,6 +223,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     if (!s3KonfigVollstaendig()) {
       console.error('share-link: S3-Umgebungsvariablen unvollständig.');
+      await melde(new Error('share-link: S3-Umgebungsvariablen unvollständig.'));
       return fehler('Server nicht konfiguriert.', 500);
     }
 
@@ -225,10 +238,15 @@ Deno.serve(async (req: Request): Promise<Response> => {
     );
     if (postsFehler) {
       console.error('share-link: posts-Select fehlgeschlagen', postsFehler);
+      await melde(postsFehler, { trip_id: tripId });
       return fehler('Momente konnten nicht geladen werden.', 500);
     }
     if (verloren > 0) {
       console.error('share-link: aufloesen hat weniger Momente eingesammelt als gezählt.', {
+        trip_id: tripId,
+        verloren,
+      });
+      await melde(new Error('share-link: aufloesen hat weniger Momente eingesammelt als gezählt.'), {
         trip_id: tripId,
         verloren,
       });
@@ -246,8 +264,22 @@ Deno.serve(async (req: Request): Promise<Response> => {
       const ergebnis = await baueMedien(tripId, zeilen, (key) => presignedGetUrl(aws, key));
       medien = ergebnis.medien;
       ausgelassen = ergebnis.ausgelassen + verloren;
+      // ergebnis.ausgelassen zählt NUR die storage_key-Abweichungen aus
+      // baueMedien (aufloesung.ts) — getrennt von `verloren`
+      // (Paginierungsverlust, oben bereits eigens gemeldet). Ein
+      // storage_key-Abgleich, der nicht passt, ist ein potenzielles
+      // Tampering- oder Bug-Signal (siehe Kommentar in aufloesung.ts) und
+      // bleibt bewusst ein einzelner, aggregierter Bericht statt einem pro
+      // Moment.
+      if (ergebnis.ausgelassen > 0) {
+        await melde(
+          new Error('share-link: öffentliche Momente wegen abweichendem Pfad ausgelassen.'),
+          { trip_id: tripId, anzahl: ergebnis.ausgelassen },
+        );
+      }
     } catch (err) {
       console.error('share-link: Signieren der Lese-URLs fehlgeschlagen', err);
+      await melde(err, { trip_id: tripId });
       return fehler('Signieren fehlgeschlagen.', 502);
     }
 
@@ -293,12 +325,14 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     if (!TEILEN_BASIS_URL) {
       console.error('share-link: TEILEN_BASIS_URL fehlt — ohne sie entsteht kein gültiger Link.');
+      await melde(new Error('share-link: TEILEN_BASIS_URL fehlt — ohne sie entsteht kein gültiger Link.'));
       return fehler('Server nicht konfiguriert.', 500);
     }
 
     const { data: trip, error: tripError } = await store.holeTripFuerErstellen(tripId);
     if (tripError) {
       console.error('share-link: trips-Select fehlgeschlagen', tripError);
+      await melde(tripError, { trip_id: tripId, user_id: anfragendeId });
       return fehler('Reise konnte nicht geladen werden.', 500);
     }
     // Die Service-Role schreibt an RLS vorbei (`rolbypassrls`) —
@@ -316,6 +350,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     const { token, error: insertError } = await store.legeLinkAn(tripId, ablauf.expiresAt);
     if (insertError || !token) {
       console.error('share-link: share_links-Insert fehlgeschlagen', insertError);
+      await melde(insertError, { trip_id: tripId, user_id: anfragendeId });
       return fehler('Link konnte nicht erstellt werden.', 500);
     }
 
@@ -334,6 +369,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
     const { data: besitzer, error: leseFehler } = await store.holeTokenBesitzer(token);
     if (leseFehler) {
       console.error('share-link: share_links-Select für widerrufen fehlgeschlagen', leseFehler);
+      // Auch hier NICHT der Token selbst im Bericht — siehe die Begründung
+      // beim `aufloesen`-Zweig oben.
+      await melde(leseFehler, { user_id: anfragendeId });
       return fehler('Link konnte nicht geladen werden.', 500);
     }
 
@@ -352,6 +390,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     const { error: updateError } = await store.widerrufeLink(token);
     if (updateError) {
       console.error('share-link: share_links-Update fehlgeschlagen', updateError);
+      await melde(updateError, { user_id: anfragendeId });
       return fehler('Link konnte nicht widerrufen werden.', 500);
     }
 

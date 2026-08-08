@@ -19,9 +19,9 @@
 // auch nur teilweise —, wird die Datenbank GAR NICHT angefasst. Ein Konto, das
 // noch existiert, ist besser als eines, dessen Medien verwaist im Speicher
 // liegen; und weil das Löschen im Speicher idempotent ist (ein bereits
-// gelöschter Schlüssel ist kein Fehler, nachgemessen gegen die Storage-API),
-// führt ein zweiter Versuch die Löschung sauber zu Ende, statt einen Rest
-// zurückzulassen.
+// gelöschter Schlüssel ist kein Fehler, nachgemessen gegen S3-kompatible
+// Object-Storage-APIs — siehe store.ts/erstelleS3Loescher), führt ein zweiter
+// Versuch die Löschung sauber zu Ende, statt einen Rest zurückzulassen.
 
 import { erwarteteSchluessel } from '../media-urls/keys.ts';
 
