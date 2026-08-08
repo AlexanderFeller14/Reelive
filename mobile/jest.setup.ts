@@ -14,3 +14,38 @@
 jest.mock('react-native-safe-area-context', () =>
   require('react-native-safe-area-context/jest/mock').default
 );
+
+// react-native-maps bringt native Views mit, die im Test-Environment nicht
+// existieren. Der Mock rendert stattdessen schlichte Views mit denselben
+// Props (inkl. testID) und denselben Kindern — genug, um zu pruefen, WELCHE
+// Nadeln der Screen setzt und mit welchem Ausschnitt er die Karte oeffnet,
+// ohne eine Karte zu rendern.
+//
+// Der Mock steht hier statt in der Testdatei, weil er kein Wissen ueber
+// einen einzelnen Screen enthaelt: er ist die Fehlstelle der nativen
+// Bibliothek, und die trifft jede Testdatei gleich (Kartenscreen heute,
+// KartenNadel und geteilte Karte spaeter).
+//
+// `animateToRegion`/`fitToCoordinates` haengen bewusst am imperativen Handle
+// statt am Prop-Objekt: der Screen ruft sie ueber ein ref auf, ein Mock ohne
+// sie liesse jede Kamerafahrt an einem `undefined is not a function`
+// scheitern statt an einer Zusicherung.
+jest.mock('react-native-maps', () => {
+  const ReactActual = require('react');
+  const { View } = require('react-native');
+  const Karte = ReactActual.forwardRef((props: Record<string, unknown>, ref: unknown) => {
+    ReactActual.useImperativeHandle(ref, () => ({
+      animateToRegion: jest.fn(),
+      fitToCoordinates: jest.fn(),
+      setNativeProps: jest.fn(),
+    }));
+    return ReactActual.createElement(View, props, props.children);
+  });
+  return {
+    __esModule: true,
+    default: Karte,
+    Marker: (props: Record<string, unknown>) => ReactActual.createElement(View, props, props.children),
+    Polyline: (props: Record<string, unknown>) => ReactActual.createElement(View, props),
+    PROVIDER_DEFAULT: undefined,
+  };
+});
