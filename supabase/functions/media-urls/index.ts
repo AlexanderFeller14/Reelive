@@ -37,6 +37,7 @@ import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { AwsClient } from 'npm:aws4fetch@1';
 import { erwarteteSchluessel } from './keys.ts';
 import { beurteileLesezugriff } from './lesenZugriff.ts';
+import { erstelleFehlermelder } from '../_shared/fehlermelder.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
@@ -45,6 +46,12 @@ const S3_REGION = Deno.env.get('S3_REGION') ?? '';
 const S3_BUCKET = Deno.env.get('S3_BUCKET') ?? '';
 const S3_ACCESS_KEY = Deno.env.get('S3_ACCESS_KEY') ?? '';
 const S3_SECRET_KEY = Deno.env.get('S3_SECRET_KEY') ?? '';
+
+// Spec §9 / Abschluss-Review Phase 6: ein schlanker Fehler-Melder über
+// `fetch`, ohne Paket (Begründung und Privacy-Regeln in
+// _shared/fehlermelder.ts). Ohne SENTRY_DSN ein vollständiger No-Op.
+const SENTRY_DSN = Deno.env.get('SENTRY_DSN') ?? '';
+const melde = erstelleFehlermelder(SENTRY_DSN, 'media-urls');
 
 // Presigned PUT-URLs bleiben knapp gültig — sie sollen genau einen
 // Upload-Versuch abdecken, keine Vorratshaltung von Signaturen. Der Client
@@ -195,6 +202,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
   if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
     console.error('media-urls: SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY fehlen.');
+    await melde(new Error('media-urls: SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY fehlen.'));
     return fehler('Server nicht konfiguriert.', 500);
   }
 
@@ -241,6 +249,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     if (tripError) {
       console.error('media-urls: trips-Select fehlgeschlagen', tripError);
+      await melde(tripError, { trip_id: tripId });
       return fehler('Reise konnte nicht geladen werden.', 500);
     }
     const tripRohdaten = trip as TripZeile | null;
@@ -268,6 +277,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
         .maybeSingle();
       if (mitgliedError) {
         console.error('media-urls: trip_members-Select fehlgeschlagen', mitgliedError);
+        await melde(mitgliedError, { trip_id: tripRohdaten.id, user_id: anfragendeId });
         // mitgliedschaft bleibt null: beurteileLesezugriff trifft für "keine
         // Zeile" und "Fehler beim Abfragen" dieselbe Entscheidung (403,
         // derselbe Text) — nur der Log-Seiteneffekt gehört hierher, nicht in
@@ -347,6 +357,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
       if (postsError) {
         console.error('media-urls: posts-Select für lesen fehlgeschlagen', postsError);
+        await melde(postsError, { trip_id: tripZeile.id });
         return fehler('Momente konnten nicht geladen werden.', 500);
       }
       if (gezaehlt === null) gezaehlt = count ?? null;
@@ -382,10 +393,16 @@ Deno.serve(async (req: Request): Promise<Response> => {
         gezaehlt,
         eingesammelt: postZeilen.length,
       });
+      await melde(new Error('media-urls: lesen hat weniger Momente eingesammelt als gezählt.'), {
+        trip_id: tripZeile.id,
+        gezaehlt,
+        eingesammelt: postZeilen.length,
+      });
     }
 
     if (!s3KonfigVollstaendig()) {
       console.error('media-urls: S3-Umgebungsvariablen unvollständig.');
+      await melde(new Error('media-urls: S3-Umgebungsvariablen unvollständig.'));
       return fehler('Server nicht konfiguriert.', 500);
     }
 
@@ -478,9 +495,27 @@ Deno.serve(async (req: Request): Promise<Response> => {
         }),
       );
       medien = eintraege.filter((eintrag): eintrag is MedienEintrag => eintrag !== null);
-      ausgelassen = (eintraege.length - medien.length) + beimSammelnVerloren;
+      // Die einzige Ursache für ein `null` in `eintraege` ist der
+      // storage_key-Abgleich oben (ein Signierfehler würde die ganze
+      // Promise.all-Kette werfen, nicht einzelne Einträge null setzen) — diese
+      // Differenz ist darum genau die Zahl der abweichenden Pfade, getrennt
+      // von `beimSammelnVerloren` (Paginierungsverlust, oben bereits eigens
+      // gemeldet). EIN gesammelter Bericht statt einem pro Moment: Der
+      // Kommentar oben begründet ausführlich, warum der Normalbetrieb still
+      // bleiben muss, damit ein echter Treffer nicht in Alarmrauschen
+      // untergeht — dieselbe Überlegung gilt für Sentry, nur zusätzlich mit
+      // realer Rate-Begrenzung eines externen Diensts im Blick.
+      const abweichend = eintraege.length - medien.length;
+      ausgelassen = abweichend + beimSammelnVerloren;
+      if (abweichend > 0) {
+        await melde(
+          new Error('media-urls: signierte Momente wegen abweichendem Pfad ausgelassen.'),
+          { trip_id: tripZeile.id, anzahl: abweichend },
+        );
+      }
     } catch (err) {
       console.error('media-urls: Signieren der Lese-URLs fehlgeschlagen', err);
+      await melde(err, { trip_id: tripZeile.id });
       return fehler('Signieren fehlgeschlagen.', 502);
     }
 
@@ -517,6 +552,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
   if (postError) {
     console.error('media-urls: posts-Select fehlgeschlagen', postError);
+    await melde(postError, { post_id: postId });
     return fehler('Moment konnte nicht geladen werden.', 500);
   }
   if (!post) {
@@ -551,6 +587,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
   if (!s3KonfigVollstaendig()) {
     console.error('media-urls: S3-Umgebungsvariablen unvollständig.');
+    await melde(new Error('media-urls: S3-Umgebungsvariablen unvollständig.'), { post_id: postZeile.id });
     return fehler('Server nicht konfiguriert.', 500);
   }
 
@@ -564,6 +601,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       return json({ medium_url, thumb_url }, 200);
     } catch (err) {
       console.error('media-urls: Signieren fehlgeschlagen', err);
+      await melde(err, { post_id: postZeile.id });
       return fehler('Signieren fehlgeschlagen.', 502);
     }
   }
@@ -580,6 +618,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     ]);
   } catch (err) {
     console.error('media-urls: Prüfung fehlgeschlagen', err);
+    await melde(err, { post_id: postZeile.id });
     return fehler('Prüfung fehlgeschlagen.', 502);
   }
 
@@ -605,6 +644,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
   if (updateError) {
     console.error('media-urls: Bestätigen fehlgeschlagen', updateError);
+    await melde(updateError, { post_id: postZeile.id });
     return fehler('Bestätigen fehlgeschlagen.', 500);
   }
 

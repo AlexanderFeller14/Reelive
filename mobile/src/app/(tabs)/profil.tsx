@@ -1,19 +1,70 @@
 import { useEffect, useState } from 'react';
-import { Switch, Text, View, StyleSheet } from 'react-native';
+import { ActivityIndicator, Switch, Text, View, StyleSheet } from 'react-native';
 import { Button } from '@/components/Button';
 import { Card } from '@/components/Card';
+import { PressScale } from '@/components/PressScale';
+import { Sheet } from '@/components/Sheet';
 import { useTheme } from '@/theme/ThemeProvider';
-import { spacing, type } from '@/theme/tokens';
+import { radius, spacing, type } from '@/theme/tokens';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { fetchOwnProfile, type Profile } from '@/features/auth/profileApi';
 import { signOut } from '@/features/auth/authApi';
 import { nurUeberWlan, setzeNurUeberWlan } from '@/features/moments/einstellungen';
+import { holeLoeschZahlen, loescheKonto, zahlenText, type LoeschZahlen } from '@/features/konto/kontoApi';
+
+// Task 9, Phase 6: der destruktive Bestätigungsknopf im Löschdialog. Kein
+// Filled-Button (DESIGN-LANGUAGE §4 kennt nur `accent` als Fläche für einen
+// Primär-Button — ein zweiter, fest verdrahteter Füllton hätte keine
+// Grundlage im Styleguide) — stattdessen dieselbe Outline-Archetype wie
+// `Button variant="secondary"`, nur in `danger` statt `text-1` eingefärbt.
+// Gleiche Begründung wie die bereits bestehenden danger-Textlinks
+// (TeilenSheetInhalt „Link deaktivieren", MeldungZeile „Moment entfernen").
+function GefahrKnopf({
+  label, onPress, disabled,
+}: {
+  label: string;
+  onPress: () => void;
+  disabled?: boolean;
+}) {
+  const { colors } = useTheme();
+  return (
+    <PressScale
+      testID="konto-endgueltig-loeschen"
+      accessibilityRole="button"
+      accessibilityState={{ disabled: !!disabled }}
+      onPress={() => {
+        if (!disabled) onPress();
+      }}
+    >
+      <View style={[styles.gefahrKnopf, { borderColor: colors.danger }]}>
+        {disabled ? (
+          <ActivityIndicator testID="konto-loeschen-laeuft" color={colors.danger} size="small" />
+        ) : (
+          <Text style={[type.bodyMedium, { color: colors.danger }]}>{label}</Text>
+        )}
+      </View>
+    </PressScale>
+  );
+}
 
 export default function ProfilScreen() {
   const { colors } = useTheme();
   const { userId } = useAuth();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [nurWlan, setNurWlan] = useState(false);
+
+  // Task 9: Konto-Löschung. `zahlenPhase`/`zahlen` trennen "noch nicht
+  // geladen" von "geladen" so scharf, dass der Bestätigungsknopf STRUKTURELL
+  // nicht existiert, bevor `zahlen` feststeht (Brief, wörtlich: "Ohne
+  // geladene Zahlen darf nicht bestätigt werden können.") — kein blosses
+  // `disabled`, das sich vergessen liesse, sondern ein fehlender Zweig im
+  // JSX (siehe Sheet unten).
+  const [loeschSheetSichtbar, setLoeschSheetSichtbar] = useState(false);
+  const [zahlenPhase, setZahlenPhase] = useState<'laedt' | 'bereit' | 'fehler'>('laedt');
+  const [zahlen, setZahlen] = useState<LoeschZahlen | null>(null);
+  const [zahlenFehler, setZahlenFehler] = useState<string | null>(null);
+  const [loeschtLaeuft, setLoeschtLaeuft] = useState(false);
+  const [loeschFehler, setLoeschFehler] = useState<string | null>(null);
 
   useEffect(() => {
     if (userId) void fetchOwnProfile(userId).then(setProfile);
@@ -32,6 +83,47 @@ export default function ProfilScreen() {
   const umschalten = (wert: boolean) => {
     setNurWlan(wert);
     void setzeNurUeberWlan(wert);
+  };
+
+  // Öffnet den Dialog und holt die Zahlen SOFORT — es gibt keinen Weg, den
+  // Dialog ohne diesen Aufruf zu öffnen, also auch keinen Weg, die
+  // Bestätigung zu sehen, bevor die Zahlen unterwegs sind.
+  const kontoLoeschenOeffnen = () => {
+    setLoeschSheetSichtbar(true);
+    setZahlenPhase('laedt');
+    setZahlen(null);
+    setZahlenFehler(null);
+    setLoeschFehler(null);
+    void holeLoeschZahlen().then(({ data, error }) => {
+      if (error || !data) {
+        setZahlenFehler(error ?? 'Die Zahlen konnten nicht ermittelt werden. Probier es gleich nochmal.');
+        setZahlenPhase('fehler');
+        return;
+      }
+      setZahlen(data);
+      setZahlenPhase('bereit');
+    });
+  };
+
+  const kontoLoeschenSchliessen = () => setLoeschSheetSichtbar(false);
+
+  // Nach Erfolg: abmelden und zurück auf den Welcome-Screen (Brief, wörtlich).
+  // signOut() räumt zusätzlich den Push-Token auf (RLS-Delete, das nach
+  // erfolgreicher Kontolöschung ohnehin auf 0 Zeilen trifft — kein Fehler,
+  // DELETE ist idempotent) und meldet lokal ab; die eigentliche Navigation
+  // übernimmt danach der globale Guard im Root-Layout (resolveRoute('signedOut')
+  // → '/welcome'), genau wie beim normalen «Abmelden»-Knopf unten — kein
+  // zweiter, redundanter router.replace() hier.
+  const kontoLoeschen = async () => {
+    setLoeschtLaeuft(true);
+    setLoeschFehler(null);
+    const { error } = await loescheKonto();
+    if (error) {
+      setLoeschtLaeuft(false);
+      setLoeschFehler(error);
+      return;
+    }
+    await signOut();
   };
 
   return (
@@ -58,6 +150,53 @@ export default function ProfilScreen() {
         />
       </Card>
       <Button variant="secondary" label="Abmelden" onPress={() => void signOut()} />
+
+      {/* Task 9: "unter allem anderen, in danger" (Brief, wörtlich) —
+          eigener Abstand, damit die destruktive Zone sich sichtbar vom
+          Rest absetzt, ohne eine zweite Fläche/Karte einzuführen. */}
+      <PressScale
+        testID="konto-loeschen-oeffnen"
+        accessibilityRole="button"
+        onPress={kontoLoeschenOeffnen}
+      >
+        <Text style={[type.bodyMedium, styles.kontoLoeschenText, { color: colors.danger }]}>
+          Konto löschen
+        </Text>
+      </PressScale>
+
+      <Sheet sichtbar={loeschSheetSichtbar} titel="Konto löschen?" onSchliessen={kontoLoeschenSchliessen}>
+        {zahlenPhase === 'laedt' && (
+          <View style={styles.zahlenLaedt}>
+            <ActivityIndicator testID="loeschen-zahlen-laedt" color={colors['text-1']} />
+          </View>
+        )}
+        {zahlenPhase === 'fehler' && (
+          <View style={{ gap: spacing.base }}>
+            <Text style={[type.body, { color: colors.danger }]}>{zahlenFehler}</Text>
+            <Button variant="secondary" label="Nochmal versuchen" onPress={kontoLoeschenOeffnen} />
+          </View>
+        )}
+        {/* Der Bestätigungsknopf existiert NUR in diesem Zweig — ohne
+            geladene Zahlen (Phasen 'laedt'/'fehler') gibt es ihn im Baum
+            schlicht nicht (Brief, siehe Kommentar am State oben). */}
+        {zahlenPhase === 'bereit' && zahlen && (
+          <View style={{ gap: spacing.base }}>
+            <Text style={[type.body, { color: colors['text-2'] }]}>{zahlenText(zahlen)}</Text>
+            {loeschFehler && <Text style={[type.body, { color: colors.danger }]}>{loeschFehler}</Text>}
+            <GefahrKnopf
+              label="Konto endgültig löschen"
+              onPress={() => void kontoLoeschen()}
+              disabled={loeschtLaeuft}
+            />
+            <Button
+              variant="secondary"
+              label="Abbrechen"
+              onPress={kontoLoeschenSchliessen}
+              disabled={loeschtLaeuft}
+            />
+          </View>
+        )}
+      </Sheet>
     </View>
   );
 }
@@ -66,4 +205,14 @@ const styles = StyleSheet.create({
   screen: { flex: 1, justifyContent: 'center', padding: spacing.screen, gap: spacing.l },
   zeile: { flexDirection: 'row', alignItems: 'center', gap: spacing.m },
   zeileText: { flex: 1, gap: spacing.xs },
+  kontoLoeschenText: { textDecorationLine: 'underline', textAlign: 'center' },
+  zahlenLaedt: { alignItems: 'center', paddingVertical: spacing.l },
+  gefahrKnopf: {
+    height: 52,
+    borderRadius: radius.control,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.l,
+  },
 });

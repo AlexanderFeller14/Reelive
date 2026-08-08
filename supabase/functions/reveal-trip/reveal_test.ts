@@ -22,6 +22,7 @@
 import { assertEquals, assertExists } from 'jsr:@std/assert';
 import { fuehreRevealAus, versendeRevealPush, type RevealStore, type SendeFn, type TripZeile } from './reveal.ts';
 import type { PushNachricht } from './push.ts';
+import type { FehlerKontext, MeldeFn } from '../_shared/fehlermelder.ts';
 
 const OWNER_ID = 'aaaaaaaa-1111-4111-8111-111111111111';
 const MEMBER_ID = 'bbbbbbbb-2222-4222-8222-222222222222';
@@ -109,6 +110,19 @@ function fakeSendeFn(tote: string[] = []): { fn: SendeFn; aufrufe: PushNachricht
   const fn: SendeFn = (nachrichten) => {
     aufrufe.push(nachrichten);
     return Promise.resolve(tote);
+  };
+  return { fn, aufrufe };
+}
+
+// Abschluss-Review Phase 6, Punkt 2: "ein Fehler-Melder, der keinen Aufrufer
+// hat, ist wertlos" — die folgenden Tests belegen nicht nur, dass
+// `fuehreRevealAus` ein fünftes Argument annimmt, sondern DASS es an genau
+// den drei DB-Fehlerpfaden aufgerufen wird (und an keinem anderen).
+function fakeMelde(): { fn: MeldeFn; aufrufe: Array<{ fehler: unknown; kontext?: FehlerKontext }> } {
+  const aufrufe: Array<{ fehler: unknown; kontext?: FehlerKontext }> = [];
+  const fn: MeldeFn = (fehler, kontext) => {
+    aufrufe.push({ fehler, kontext });
+    return Promise.resolve();
   };
   return { fn, aufrufe };
 }
@@ -297,9 +311,13 @@ Deno.test('fuehreRevealAus: ein Fehler beim Laden der Trip-Zeile liefert 500', a
     loescheTokens: () => Promise.resolve({ error: null }),
   };
   const { fn: sendeFn } = fakeSendeFn();
+  const { fn: melde, aufrufe: meldeAufrufe } = fakeMelde();
 
-  const ergebnis = await fuehreRevealAus(store, sendeFn, TRIP_ID, OWNER_ID);
+  const ergebnis = await fuehreRevealAus(store, sendeFn, TRIP_ID, OWNER_ID, melde);
   assertEquals(ergebnis, { status: 500, body: { fehler: 'Reise konnte nicht geladen werden.' } });
+  assertEquals(meldeAufrufe.length, 1);
+  assertEquals((meldeAufrufe[0].fehler as Error).message, 'DB weg');
+  assertEquals(meldeAufrufe[0].kontext, { trip_id: TRIP_ID });
 });
 
 Deno.test('fuehreRevealAus: ein Fehler beim CAS-Update liefert 500', async () => {
@@ -309,9 +327,12 @@ Deno.test('fuehreRevealAus: ein Fehler beim CAS-Update liefert 500', async () =>
     aktualisiereWennAktiv: () => Promise.resolve({ data: null, error: new Error('DB weg') }),
   };
   const { fn: sendeFn } = fakeSendeFn();
+  const { fn: melde, aufrufe: meldeAufrufe } = fakeMelde();
 
-  const ergebnis = await fuehreRevealAus(store, sendeFn, TRIP_ID, OWNER_ID);
+  const ergebnis = await fuehreRevealAus(store, sendeFn, TRIP_ID, OWNER_ID, melde);
   assertEquals(ergebnis, { status: 500, body: { fehler: 'Reise konnte nicht abgeschlossen werden.' } });
+  assertEquals(meldeAufrufe.length, 1);
+  assertEquals(meldeAufrufe[0].kontext, { trip_id: TRIP_ID, user_id: OWNER_ID });
 });
 
 Deno.test('fuehreRevealAus: ein Fehler beim Nachlesen im Verlierer-Zweig liefert 500', async () => {
@@ -327,9 +348,51 @@ Deno.test('fuehreRevealAus: ein Fehler beim Nachlesen im Verlierer-Zweig liefert
     holeRevealedAtNachlese: () => Promise.resolve({ data: null, error: new Error('DB weg') }),
   };
   const { fn: sendeFn } = fakeSendeFn();
+  const { fn: melde, aufrufe: meldeAufrufe } = fakeMelde();
 
-  const ergebnis = await fuehreRevealAus(store, sendeFn, TRIP_ID, OWNER_ID);
+  const ergebnis = await fuehreRevealAus(store, sendeFn, TRIP_ID, OWNER_ID, melde);
   assertEquals(ergebnis, { status: 500, body: { fehler: 'Reise konnte nicht abgeschlossen werden.' } });
+  assertEquals(meldeAufrufe.length, 1);
+  assertEquals(meldeAufrufe[0].kontext, { trip_id: TRIP_ID });
+});
+
+Deno.test('fuehreRevealAus: ohne übergebenen Melder bleibt alles wie zuvor (Default ist ein No-Op)', async () => {
+  const store: RevealStore = {
+    holeTrip: () => Promise.resolve({ data: null, error: new Error('DB weg') }),
+    aktualisiereWennAktiv: () => Promise.resolve({ data: null, error: null }),
+    holeRevealedAtNachlese: () => Promise.resolve({ data: null, error: null }),
+    holeMitglieder: () => Promise.resolve({ data: [], error: null }),
+    holeTokens: () => Promise.resolve({ data: [], error: null }),
+    loescheTokens: () => Promise.resolve({ error: null }),
+  };
+  const { fn: sendeFn } = fakeSendeFn();
+  // Kein fünftes Argument — muss weiterhin kompilieren und funktionieren.
+  const ergebnis = await fuehreRevealAus(store, sendeFn, TRIP_ID, OWNER_ID);
+  assertEquals(ergebnis, { status: 500, body: { fehler: 'Reise konnte nicht geladen werden.' } });
+});
+
+Deno.test('fuehreRevealAus: ein erfolgreicher Reveal ruft den Melder NICHT auf', async () => {
+  const zustand = neueFakeZustand('active');
+  const store = fakeStore(zustand, { holeMitglieder: 0, loescheTokens: [] });
+  const { fn: sendeFn } = fakeSendeFn();
+  const { fn: melde, aufrufe: meldeAufrufe } = fakeMelde();
+
+  const ergebnis = await fuehreRevealAus(store, sendeFn, TRIP_ID, OWNER_ID, melde);
+  assertEquals(ergebnis.status, 200);
+  assertEquals(meldeAufrufe.length, 0);
+});
+
+Deno.test('fuehreRevealAus: ein scheiternder Push-Versand ruft den Melder NICHT auf (bewusst tolerierter Ausgang)', async () => {
+  const zustand = neueFakeZustand('active');
+  const store = fakeStore(zustand, { holeMitglieder: 0, loescheTokens: [] });
+  const werfendeSendeFn: SendeFn = () => {
+    throw new Error('Netzwerk weg');
+  };
+  const { fn: melde, aufrufe: meldeAufrufe } = fakeMelde();
+
+  const ergebnis = await fuehreRevealAus(store, werfendeSendeFn, TRIP_ID, OWNER_ID, melde);
+  assertEquals(ergebnis.status, 200);
+  assertEquals(meldeAufrufe.length, 0);
 });
 
 // =============================================================================

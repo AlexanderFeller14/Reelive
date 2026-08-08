@@ -243,7 +243,13 @@ export async function alleJobs(): Promise<QueueJob[]> {
       if (job) {
         jobs.push(job);
       } else {
-        console.error('[queueDb] beschädigte Zeile übersprungen', zeile);
+        // NUR die id (Final-Review Punkt 3): `zeile` ist die volle
+        // SQLite-Zeile inkl. `caption`/`lat`/`lng`/`place_name` — das
+        // gehört nicht in einen Diagnose-Log, den Sentrys
+        // Konsolen-Breadcrumb (ohne DSN: gar niemand; siehe fehlermelder.ts)
+        // im Fehlerfall mitschneiden würde. Die id reicht, um die defekte
+        // Zeile in `upload_queue` gezielt nachzuschlagen.
+        console.error('[queueDb] beschädigte Zeile übersprungen', { id: zeile.id });
       }
     }
     return jobs;

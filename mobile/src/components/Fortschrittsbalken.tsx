@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { Animated, Easing, StyleSheet, View } from 'react-native';
+import { Pille } from '@/components/Pille';
 import { cinema, radius, spacing } from '@/theme/tokens';
 
 // DESIGN-LANGUAGE v2 §5: „linear ist verboten (Ausnahme: Fortschritt, der
@@ -61,7 +62,17 @@ export function Fortschrittsbalken({ anzahl, aktivIndex, dauerMs, vergangenMs, p
   return (
     <View style={styles.reihe} testID="fortschrittsbalken">
       {Array.from({ length: anzahl }).map((_, i) => (
-        <View key={i} style={styles.spur} testID={`fortschritt-segment-${i}`}>
+        // Task 10, Phase 6: eine eigene `Pille` (Blur + Tönung) PRO Segment,
+        // nicht eine einzige über die ganze Zeile — das erhält exakt die
+        // bestehende Optik (jedes Segment einzeln als abgerundete Pille mit
+        // sichtbarer Lücke dazwischen, DESIGN-LANGUAGE §4 "Pill-Control").
+        // Bekannter Kompromiss bei SEHR grossen `anzahl` (siehe Kommentar zu
+        // `aktivAnteil` oben, "hunderte Momente"): das sind dann ebenso
+        // viele native Blur-Ebenen nebeneinander — ein Performance-Effekt,
+        // der sich nur am Gerät beurteilen lässt (Spec §10), hier bewusst
+        // nicht vorab "optimiert" (eine gemeinsame Blur-Fläche würde die
+        // Lücken zwischen den Segmenten mittönen und die Optik ändern).
+        <Pille key={i} style={styles.spur} testID={`fortschritt-segment-${i}`}>
           {i < aktivIndex && <View testID={`fortschritt-voll-${i}`} style={styles.fuellungStatisch} />}
           {i === aktivIndex && (
             <Animated.View
@@ -72,7 +83,7 @@ export function Fortschrittsbalken({ anzahl, aktivIndex, dauerMs, vergangenMs, p
               ]}
             />
           )}
-        </View>
+        </Pille>
       ))}
     </View>
   );
@@ -84,8 +95,6 @@ const styles = StyleSheet.create({
     flex: 1,
     height: BALKEN_HOEHE,
     borderRadius: radius.pill,
-    backgroundColor: cinema['overlay-pill'],
-    overflow: 'hidden',
   },
   fuellungStatisch: { flex: 1, backgroundColor: cinema['text-1'] },
 });

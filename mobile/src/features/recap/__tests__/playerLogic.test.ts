@@ -457,6 +457,13 @@ describe('PauseGrund: mitGrund/ohneGrund/blockiertAutomatischenVorschub', () => 
     expect(blockiertAutomatischenVorschub(mitGrund(leer(), 'neuversuch'))).toBe(true);
   });
 
+  // Task 8, Phase 6: 'melden' blockiert genau wie 'kommentare' — ein
+  // offenes «Diesen Moment melden»-Sheet darf den Player nicht
+  // weiterschalten lassen.
+  test('blockiertAutomatischenVorschub ist true, wenn das Melden-Sheet offen ist', () => {
+    expect(blockiertAutomatischenVorschub(mitGrund(leer(), 'melden'))).toBe(true);
+  });
+
   // "halten" zusammen mit einem blockierenden Grund bleibt blockierend — die
   // Ausnahme gilt nur, wenn "halten" der EINZIGE Grund ist.
   test('blockiertAutomatischenVorschub bleibt true, wenn "halten" UND ein weiterer Grund gesetzt sind', () => {

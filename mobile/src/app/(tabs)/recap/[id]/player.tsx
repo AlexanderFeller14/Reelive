@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Animated,
   Easing,
   PanResponder,
@@ -15,9 +16,11 @@ import { setStatusBarStyle } from 'expo-status-bar';
 import { Image } from 'expo-image';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import * as Haptics from 'expo-haptics';
-import { MessageCircle, X } from 'lucide-react-native';
+import * as Linking from 'expo-linking';
+import { Download, MessageCircle, X } from 'lucide-react-native';
 import { PressScale } from '@/components/PressScale';
 import { Fortschrittsbalken } from '@/components/Fortschrittsbalken';
+import { Pille } from '@/components/Pille';
 import { Sheet } from '@/components/Sheet';
 import { Input } from '@/components/Input';
 import { cinema, motion, palette, radius, spacing, type } from '@/theme/tokens';
@@ -25,6 +28,8 @@ import { useReducedMotion } from '@/theme/useReducedMotion';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { fetchTrip } from '@/features/trips/tripsApi';
 import { fetchRecapMomente } from '@/features/recap/recapApi';
+import { sichereMomentInGalerie } from '@/features/recap/exportApi';
+import { meldeMoment, MELDEN_MAX_LAENGE } from '@/features/recap/meldenApi';
 import { gruppiereNachTagen } from '@/features/recap/tage';
 import type { Kommentar, Reaktion, RecapMoment, RecapTag } from '@/features/recap/types';
 import { holeVorrat, laeuftBaldAb, type MedienUrl } from '@/features/recap/urlVorrat';
@@ -59,6 +64,16 @@ const ZWISCHENKARTE_DAUER_MS = 1500;
 // darüber als "Halten" (pausiert nur und setzt beim Loslassen fort, ohne zu
 // navigieren) — Snapchat/Instagram-Story-Konvention, siehe Bericht.
 const TAP_SCHWELLE_MS = 250;
+// Task 8, Phase 6: langes Tippen öffnet «Diesen Moment melden». Bewusst
+// deutlich über TAP_SCHWELLE_MS (250 ms, das ist schon "halten" = pausieren)
+// — 500 ms ist der plattformübliche Wert für eine Long-Press-Geste
+// (iOS/Android-Konvention, von RN Pressable auch als Default für
+// `delayLongPress` verwendet) und lässt sich klar von einem blossen Halten
+// unterscheiden: WÄHREND der ersten 500 ms verhält sich eine Berührung exakt
+// wie bisher (pausiert, siehe onPressIn), erst danach kommt zusätzlich das
+// Melden-Sheet dazu. Kein Konflikt mit der bestehenden Gesten-Schicht nötig
+// — siehe Kommentar bei `onLongPress` an den Tipp-Zonen unten.
+const LANGES_TIPPEN_MS = 500;
 // Wisch nach unten weiter als diese Schwelle schliesst den Player.
 const SCHLIESSEN_SCHWELLE_PX = 120;
 // DESIGN-LANGUAGE §5: „hell → Kino = Fade durch Dunkel 350 ms" — der
@@ -179,6 +194,10 @@ function TextLink({ label, onPress }: { label: string; onPress: () => void }) {
 // `cinema['text-1']` — derselbe Ton, den `KinoButton` bereits für "solide
 // Fläche auf Kino-Hintergrund" benutzt, kein neuer Wert. 44×44: minimales
 // Touch-Target (DESIGN-LANGUAGE v2 §8).
+// Aktiv (eigene Reaktion) füllt sich SOLIDE mit `cinema['text-1']` — keine
+// translucente Pille, also auch kein Blur: eine deckende Fläche hat nichts,
+// das durchscheinen könnte. Inaktiv bleibt die Pille translucent + Blur
+// (DESIGN-LANGUAGE §1/§4, Task 10).
 function EmojiPille({
   id, emoji, label, aktiv, onPress,
 }: {
@@ -196,9 +215,15 @@ function EmojiPille({
       accessibilityState={{ selected: aktiv }}
       onPress={onPress}
     >
-      <View style={[styles.emojiPille, aktiv && styles.emojiPilleAktiv]}>
-        <Text style={styles.emojiZeichen}>{emoji}</Text>
-      </View>
+      {aktiv ? (
+        <View style={[styles.emojiPille, styles.emojiPilleAktiv]}>
+          <Text style={styles.emojiZeichen}>{emoji}</Text>
+        </View>
+      ) : (
+        <Pille style={styles.emojiPille}>
+          <Text style={styles.emojiZeichen}>{emoji}</Text>
+        </Pille>
+      )}
     </PressScale>
   );
 }
@@ -209,13 +234,13 @@ function EmojiPille({
 function AndereReaktionenPille({ emojis }: { emojis: string[] }) {
   if (emojis.length === 0) return null;
   return (
-    <View
+    <Pille
       testID="player-reaktionen-andere"
       style={styles.andereReaktionenPille}
       accessibilityLabel={`Weitere Reaktionen: ${emojis.join(', ')}`}
     >
       <Text style={[type.secondary, { color: cinema['text-1'] }]}>{emojis.join(' ')}</Text>
-    </View>
+    </Pille>
   );
 }
 
@@ -241,9 +266,9 @@ function AvatarInitiale({ name }: { name: string }) {
 
 function LadeHinweisPille({ text }: { text: string }) {
   return (
-    <View style={styles.ladeHinweisPille}>
+    <Pille style={styles.ladeHinweisPille}>
       <Text style={[type.secondary, { color: cinema['text-1'] }]}>{text}</Text>
-    </View>
+    </Pille>
   );
 }
 
@@ -388,6 +413,14 @@ export default function RecapPlayer() {
   const [reaktionen, setReaktionen] = useState<Record<string, Reaktion[]>>({});
   const [reaktionFehler, setReaktionFehler] = useState<string | null>(null);
 
+  // Task 7: «In Galerie sichern» für den GERADE aktiven Moment. Eigener
+  // Hinweistext statt Wiederverwendung von `reaktionFehler` — ein Erfolg
+  // ("gesichert.") ist kein Fehler, beide sollen aber nach demselben Muster
+  // (eine Pille unter der Reaktionsreihe, verschwindet beim Momentwechsel)
+  // behandelt werden.
+  const [exportLaeuft, setExportLaeuft] = useState(false);
+  const [exportHinweis, setExportHinweis] = useState<string | null>(null);
+
   const [kommentarMomentId, setKommentarMomentId] = useState<string | null>(null);
   const [kommentare, setKommentare] = useState<Kommentar[]>([]);
   const [kommentareLaden, setKommentareLaden] = useState(false);
@@ -395,6 +428,19 @@ export default function RecapPlayer() {
   const [kommentarText, setKommentarText] = useState('');
   const [kommentarSendetLaeuft, setKommentarSendetLaeuft] = useState(false);
   const [kommentarSendenFehler, setKommentarSendenFehler] = useState<string | null>(null);
+
+  // Task 8, Phase 6: «Diesen Moment melden», ausgelöst durch langes Tippen
+  // (siehe onLongPress an den Tipp-Zonen unten) — gleiches Zustandsmuster wie
+  // das Kommentar-Sheet direkt darüber. `meldenBestaetigt` schaltet den
+  // Sheet-Inhalt nach einem erfolgreichen Absenden auf die Bestätigung um
+  // (Brief: "Danach eine Bestätigung."); der Moment selbst bleibt in JEDEM
+  // Fall unverändert sichtbar — Melden entfernt nichts, das übernimmt
+  // ausschliesslich die Moderation im Reise-Detail.
+  const [meldenMomentId, setMeldenMomentId] = useState<string | null>(null);
+  const [meldenGrund, setMeldenGrund] = useState('');
+  const [meldenSendetLaeuft, setMeldenSendetLaeuft] = useState(false);
+  const [meldenSendenFehler, setMeldenSendenFehler] = useState<string | null>(null);
+  const [meldenBestaetigt, setMeldenBestaetigt] = useState(false);
 
   const aktiv = useRef(true);
   // Wandzeit, zu der das aktuelle Segment (bei fortschritt=0) begonnen hätte
@@ -433,6 +479,9 @@ export default function RecapPlayer() {
   // eintreffende Antwort (Sheet inzwischen für einen ANDEREN Moment neu
   // geöffnet) das dann aktuellere Ergebnis nicht überschreibt.
   const kommentarMomentIdRef = useRef<string | null>(null);
+  // Gleiches Stale-Guard-Prinzip wie kommentarMomentIdRef, für das
+  // Melden-Sheet.
+  const meldenMomentIdRef = useRef<string | null>(null);
 
   const laden = useCallback(async () => {
     setPhase('laedt');
@@ -539,11 +588,14 @@ export default function RecapPlayer() {
   // an der die Unterscheidung der Gründe bewusst NICHT mehr interessiert).
   const zwischenkarte = stand.pausiert.has('zwischenkarte');
   const kommentarOffen = stand.pausiert.has('kommentare');
+  // Task 8: dasselbe Prinzip, für das Melden-Sheet.
+  const meldenOffen = stand.pausiert.has('melden');
   const gestoppt = stand.pausiert.size > 0;
   // Für videoZuEnde unten — direkt in der Render-Zeile aktuell gehalten
   // (gleiches Muster wie aktivIdRef, siehe dort).
   pausiertRef.current = stand.pausiert;
   kommentarMomentIdRef.current = kommentarMomentId;
+  meldenMomentIdRef.current = meldenMomentId;
 
   // Erstes (und einziges) useMemo dieser Codebase (Vertrag 1): `tage` hängt
   // nur an der referenzstabilen `spielliste` + `startDate`, muss also nicht
@@ -582,9 +634,18 @@ export default function RecapPlayer() {
   }, [spielliste]);
 
   // Eine stehengebliebene Fehlermeldung vom vorherigen Moment darf nicht auf
-  // dem neuen weiterhängen.
+  // dem neuen weiterhängen. Gleiches gilt für den Export-Hinweis (Task 7) —
+  // ein "gesichert."-Text von Moment A darf nicht unter Moment B weiterstehen.
+  // `exportLaeuft` wird HIER ebenfalls zurückgesetzt (nicht nur am Ende von
+  // sichereAktuellenMoment): wechselt die Person WÄHREND eines laufenden
+  // Exports von Moment A zu Moment B, greift dort die Stale-Guard
+  // (aktivIdRef.current !== momentId) und lässt `exportLaeuft` NIE mehr auf
+  // false zurückfallen — ohne diesen Reset bliebe der Sichern-Knopf auf dem
+  // NEUEN, unbeteiligten Moment B fälschlich im Ladezustand hängen.
   useEffect(() => {
     setReaktionFehler(null);
+    setExportHinweis(null);
+    setExportLaeuft(false);
   }, [aktivMoment?.id]);
 
   const eigeneEmojis = useMemo(() => {
@@ -781,6 +842,39 @@ export default function RecapPlayer() {
     setStand((s) => ({ ...s, pausiert: ohneGrund(s.pausiert, 'kommentare') }));
   };
 
+  // Task 7: «In Galerie sichern» für den gerade aktiven Moment — exportApi
+  // sichert IMMER url.medium_url (volle Auflösung), nie das Thumbnail.
+  // Ohne Berechtigung: NIE ein stiller Fehlschlag (Brief, wörtlich) — ein
+  // Alert erklärt die Ursache und bietet den Weg in die Einstellungen an,
+  // statt nur eine kleine Pille zu zeigen, die leicht übersehen wird. Ein
+  // sonstiger Fehlschlag (Netzwerk, Galerie-Fehler) bekommt dieselbe kleine
+  // Hinweis-Pille wie `reaktionFehler` — sichtbares, aber nicht blockierendes
+  // Feedback, passend zur Schwere eines einzelnen fehlgeschlagenen Exports.
+  const sichereAktuellenMoment = async () => {
+    const moment = aktivMoment;
+    if (!moment) return;
+    const url = urls.get(moment.id);
+    if (!url) return;
+    const momentId = moment.id;
+    setExportLaeuft(true);
+    setExportHinweis(null);
+    const ergebnis = await sichereMomentInGalerie(moment, url);
+    if (!aktiv.current || aktivIdRef.current !== momentId) return;
+    setExportLaeuft(false);
+    if (!ergebnis.ok) {
+      if (ergebnis.grund === 'keine_berechtigung') {
+        Alert.alert('Kein Zugriff auf die Fotobibliothek', ergebnis.text, [
+          { text: 'Abbrechen', style: 'cancel' },
+          { text: 'Einstellungen öffnen', onPress: () => void Linking.openSettings() },
+        ]);
+        return;
+      }
+      setExportHinweis(ergebnis.text);
+      return;
+    }
+    setExportHinweis('In der Fotobibliothek gesichert.');
+  };
+
   const kommentarAbsenden = () => {
     const postId = kommentarMomentId;
     if (!postId || kommentarSendetLaeuft) return;
@@ -805,6 +899,57 @@ export default function RecapPlayer() {
         setKommentare(data);
         setKommentareFehler(ladeFehler);
       });
+    });
+  };
+
+  // Task 8, Phase 6: langes Tippen (siehe onLongPress an den Tipp-Zonen
+  // unten) ruft dies auf — gleiches Grundmuster wie oeffneKommentare: eigener
+  // State pro Moment, plus der strukturelle Pausier-Grund 'melden'. Anders
+  // als Kommentare braucht Melden keinen Ladezustand (nichts wird vorab
+  // geholt) — das Formular startet sofort leer. Bewusst OHNE eigene Haptik
+  // (anders als z.B. der Auslöser): DESIGN-LANGUAGE §5 kennt ein festes
+  // Vokabular an Anlässen, „Sheet öffnen" gehört nicht dazu — oeffneKommentare
+  // (dieselbe Geste-öffnet-Sheet-Handlung) hat aus demselben Grund ebenfalls
+  // keine.
+  const oeffneMelden = () => {
+    const moment = aktivMoment;
+    if (!moment) return;
+    const momentId = moment.id;
+    // Eager wie kommentarMomentIdRef (siehe dortiger Kommentar) — ein
+    // schnelles erneutes Öffnen darf nicht auf den alten Ref-Wert treffen.
+    meldenMomentIdRef.current = momentId;
+    setMeldenMomentId(momentId);
+    setMeldenGrund('');
+    setMeldenSendenFehler(null);
+    setMeldenBestaetigt(false);
+    setStand((s) => ({ ...s, pausiert: mitGrund(s.pausiert, 'melden') }));
+  };
+
+  const schliesseMelden = () => {
+    // Nimmt AUSSCHLIESSLICH den eigenen Grund zurück (gleiches Prinzip wie
+    // schliesseKommentare) — ein aus einem anderen Grund pausierter Player
+    // bleibt das auch nach dem Schliessen dieses Sheets.
+    setStand((s) => ({ ...s, pausiert: ohneGrund(s.pausiert, 'melden') }));
+  };
+
+  // Der Moment bleibt in JEDEM Fall unverändert sichtbar (Brief, wörtlich:
+  // "Melden ist kein Verstecken") — dieser Aufruf ändert nichts an
+  // spielliste/urls, nur den Sheet-Zustand selbst.
+  const meldenAbsenden = () => {
+    const postId = meldenMomentId;
+    if (!postId || meldenSendetLaeuft) return;
+    setMeldenSendetLaeuft(true);
+    setMeldenSendenFehler(null);
+    void meldeMoment(postId, meldenGrund).then(({ error }) => {
+      // Stale-Guard: das Sheet kann inzwischen für einen ANDEREN Moment neu
+      // geöffnet worden sein (gleiches Prinzip wie kommentarAbsenden).
+      if (!aktiv.current || meldenMomentIdRef.current !== postId) return;
+      setMeldenSendetLaeuft(false);
+      if (error) {
+        setMeldenSendenFehler(error);
+        return;
+      }
+      setMeldenBestaetigt(true);
     });
   };
 
@@ -1195,21 +1340,21 @@ export default function RecapPlayer() {
             pausiert={gestoppt}
           />
           <View style={styles.kopfReihe}>
-            <View style={styles.namePille}>
+            <Pille style={styles.namePille}>
               <AvatarInitiale name={aktivMoment.autor_name} />
               <Text style={[type.bodyMedium, { color: cinema['text-1'] }]}>{aktivMoment.autor_name}</Text>
-            </View>
-            <View style={styles.infoPille}>
+            </Pille>
+            <Pille style={styles.infoPille}>
               <Text style={[type.secondary, { color: cinema['text-1'] }]}>{ortZeitText}</Text>
-            </View>
+            </Pille>
           </View>
         </View>
 
         <View testID="player-sozial-bereich" style={styles.sozialBereich} pointerEvents="box-none">
           {aktivMoment.caption && (
-            <View testID="player-caption" style={styles.captionPille} pointerEvents="none">
+            <Pille testID="player-caption" style={styles.captionPille} pointerEvents="none">
               <Text style={[type.body, { color: cinema['text-1'] }]}>{aktivMoment.caption}</Text>
-            </View>
+            </Pille>
           )}
           <AndereReaktionenPille emojis={andereEmojis} />
           <View style={styles.reaktionsReihe}>
@@ -1229,18 +1374,59 @@ export default function RecapPlayer() {
               accessibilityLabel="Kommentare öffnen"
               onPress={oeffneKommentare}
             >
-              <View style={styles.kommentarKnopf}>
+              <Pille style={styles.kommentarKnopf}>
                 <MessageCircle size={20} color={cinema['text-1']} strokeWidth={1.75} />
-              </View>
+              </Pille>
             </PressScale>
+            {/* Nur sichtbar, wenn es für DIESEN Moment überhaupt eine URL
+                gibt (siehe MomentAnzeige) — ein Moment, der gerade nicht
+                lädt, hat nichts, das sich sichern liesse. */}
+            {url && (
+              <PressScale
+                testID="player-sichern"
+                accessibilityRole="button"
+                accessibilityLabel="In Galerie sichern"
+                accessibilityState={{ disabled: exportLaeuft }}
+                onPress={() => {
+                  if (!exportLaeuft) void sichereAktuellenMoment();
+                }}
+              >
+                <Pille style={styles.kommentarKnopf}>
+                  {exportLaeuft ? (
+                    <ActivityIndicator testID="player-sichern-laedt" color={cinema['text-1']} size="small" />
+                  ) : (
+                    <Download size={20} color={cinema['text-1']} strokeWidth={1.75} />
+                  )}
+                </Pille>
+              </PressScale>
+            )}
           </View>
           {reaktionFehler && (
-            <View style={styles.reaktionFehlerPille}>
+            <Pille style={styles.reaktionFehlerPille}>
               <Text style={[type.secondary, { color: cinema['text-1'] }]}>{reaktionFehler}</Text>
-            </View>
+            </Pille>
+          )}
+          {exportHinweis && (
+            <Pille testID="player-export-hinweis" style={styles.reaktionFehlerPille}>
+              <Text style={[type.secondary, { color: cinema['text-1'] }]}>{exportHinweis}</Text>
+            </Pille>
           )}
         </View>
 
+        {/* Task 8, Phase 6: `onLongPress`/`delayLongPress` hängen auf GENAU
+            derselben Pressable wie die bestehende Tipp-Navigation — kein
+            zusätzlicher, potenziell verdeckter Bedienbereich (der
+            zIndex-Bug aus Phase 5 entstand durch eine ZWEITE, konkurrierende
+            Fläche; hier gibt es keine zweite Fläche, nur einen zweiten
+            Event-Handler auf der bereits nachweislich obersten/erreichbaren
+            — siehe die zIndex-Tests unten). RN-Pressability liefert
+            onPressIn/onPressOut/onLongPress nebeneinander, ohne dass sie
+            sich gegenseitig unterdrücken: onPressIn pausiert weiterhin
+            SOFORT bei Berührungsbeginn (Halten = Pause, unverändert), erst
+            NACH LANGES_TIPPEN_MS kommt zusätzlich das Melden-Sheet dazu.
+            Löst die Berührung sich vorher (Tipp oder normales Halten unter
+            500 ms), feuert onLongPress nie — beendeBeruehrung entscheidet
+            wie bisher allein über die Haltedauer. */}
         <Pressable
           testID="player-links"
           accessibilityRole="button"
@@ -1248,6 +1434,8 @@ export default function RecapPlayer() {
           style={styles.tapZoneLinks}
           onPressIn={onPressIn}
           onPressOut={() => beendeBeruehrung('links')}
+          onLongPress={oeffneMelden}
+          delayLongPress={LANGES_TIPPEN_MS}
         />
         <Pressable
           testID="player-rechts"
@@ -1256,6 +1444,8 @@ export default function RecapPlayer() {
           style={styles.tapZoneRechts}
           onPressIn={onPressIn}
           onPressOut={() => beendeBeruehrung('rechts')}
+          onLongPress={oeffneMelden}
+          delayLongPress={LANGES_TIPPEN_MS}
         />
 
         <PressScale
@@ -1265,9 +1455,9 @@ export default function RecapPlayer() {
           onPress={schliessen}
           style={styles.schliessenWrap}
         >
-          <View style={styles.schliessenPille}>
+          <Pille style={styles.schliessenPille}>
             <X size={18} color={cinema['text-1']} strokeWidth={1.75} />
-          </View>
+          </Pille>
         </PressScale>
 
         {zwischenkarte && (
@@ -1339,6 +1529,58 @@ export default function RecapPlayer() {
           </PressScale>
         </View>
       </Sheet>
+
+      {/* Task 8, Phase 6: gleiches GESCHWISTER-Prinzip wie das Kommentar-
+          Sheet direkt darüber — über allem, inklusive der Tipp-Zonen. */}
+      <Sheet sichtbar={meldenOffen} titel="Diesen Moment melden" onSchliessen={schliesseMelden} kino>
+        {meldenBestaetigt ? (
+          <View style={{ gap: spacing.base }}>
+            <Text testID="melden-bestaetigung" style={[type.body, { color: cinema['text-1'] }]}>
+              Danke. Die Person, die diese Reise angelegt hat, sieht deine Meldung.
+            </Text>
+            <KinoButton label="Schliessen" onPress={schliesseMelden} />
+          </View>
+        ) : (
+          <View style={{ gap: spacing.base }}>
+            {/* Brief, wörtlich: "Der Moment bleibt sichtbar — Melden ist
+                kein Verstecken." Steht hier, BEVOR jemand abschickt, nicht
+                erst danach. */}
+            <Text style={[type.secondary, { color: cinema['text-2'] }]}>
+              Der Moment bleibt für alle sichtbar. Die Person, die diese Reise angelegt hat,
+              entscheidet, was als Nächstes passiert.
+            </Text>
+            <Input
+              testID="melden-grund"
+              label="Was stimmt nicht?"
+              value={meldenGrund}
+              onChangeText={setMeldenGrund}
+              error={meldenSendenFehler ?? undefined}
+              maxLength={MELDEN_MAX_LAENGE}
+              // Gleicher Grund wie beim Kommentar-Eingabefeld oben.
+              kino
+            />
+            <PressScale
+              testID="melden-senden"
+              accessibilityRole="button"
+              accessibilityLabel="Meldung senden"
+              disabled={meldenSendetLaeuft || meldenGrund.trim().length === 0}
+              accessibilityState={{ disabled: meldenSendetLaeuft || meldenGrund.trim().length === 0 }}
+              onPress={() => {
+                if (meldenGrund.trim().length === 0 || meldenSendetLaeuft) return;
+                meldenAbsenden();
+              }}
+            >
+              <View style={styles.kommentarSendenKnopf}>
+                {meldenSendetLaeuft ? (
+                  <ActivityIndicator color={palette['on-accent']} size="small" />
+                ) : (
+                  <Text style={[type.bodyMedium, { color: palette['on-accent'] }]}>Melden</Text>
+                )}
+              </View>
+            </PressScale>
+          </View>
+        )}
+      </Sheet>
     </View>
   );
 }
@@ -1374,13 +1616,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.s,
     paddingVertical: spacing.xs,
     borderRadius: radius.pill,
-    backgroundColor: cinema['overlay-pill'],
   },
   infoPille: {
     paddingHorizontal: spacing.base,
     paddingVertical: spacing.xs,
     borderRadius: radius.pill,
-    backgroundColor: cinema['overlay-pill'],
   },
   // Klein (Review-Fund): DESIGN-LANGUAGE §4 verlangt "rund, 32–44 px, 2 px
   // weisser Ring" — 32 px (unteres Ende der Spanne, passend zur kompakten
@@ -1407,7 +1647,6 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
     maxWidth: '100%',
     borderRadius: radius.control,
-    backgroundColor: cinema['overlay-pill'],
     paddingHorizontal: spacing.base,
     paddingVertical: spacing.s,
   },
@@ -1429,14 +1668,12 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: cinema['overlay-pill'],
   },
   ladeHinweisWrap: { flex: 1, alignItems: 'center', justifyContent: 'flex-end', paddingBottom: spacing.xxl },
   ladeHinweisPille: {
     paddingHorizontal: spacing.base,
     paddingVertical: spacing.s,
     borderRadius: radius.pill,
-    backgroundColor: cinema['overlay-pill'],
   },
   zwischenkarte: {
     position: 'absolute',
@@ -1486,7 +1723,6 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: cinema['overlay-pill'],
   },
   emojiPilleAktiv: { backgroundColor: cinema['text-1'] },
   emojiZeichen: { fontSize: 20 },
@@ -1496,21 +1732,18 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: cinema['overlay-pill'],
   },
   andereReaktionenPille: {
     alignSelf: 'flex-start',
     paddingHorizontal: spacing.base,
     paddingVertical: spacing.xs,
     borderRadius: radius.pill,
-    backgroundColor: cinema['overlay-pill'],
   },
   reaktionFehlerPille: {
     alignSelf: 'flex-start',
     paddingHorizontal: spacing.base,
     paddingVertical: spacing.xs,
     borderRadius: radius.pill,
-    backgroundColor: cinema['overlay-pill'],
   },
   kommentarListe: { maxHeight: 320 },
   kommentarZeile: {

@@ -6,6 +6,7 @@ import * as Linking from 'expo-linking';
 import { CameraView, useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
 import { SwitchCamera, Zap, ZapOff } from 'lucide-react-native';
 import { Ausloeser } from '@/components/Ausloeser';
+import { Pille } from '@/components/Pille';
 import { PressScale } from '@/components/PressScale';
 import { cinema, palette, radius, spacing, type } from '@/theme/tokens';
 import { fetchTrips } from '@/features/trips/tripsApi';
@@ -45,10 +46,9 @@ function LeererKinoScreen() {
 // nirgends vor (Final-Review, Important 7). Für ein gemeinsames Reisetagebuch
 // heisst keine Frontkamera: keine Gruppenbilder.
 //
-// Translucente Pille nach DESIGN-LANGUAGE §1/§4: `overlay-pill`, Radius 999.
-// Ohne echten Blur (expo-blur ist nicht installiert) — dieselbe bewusste
-// Einschränkung wie bei der Kopf-Pille, siehe dort. Icons: Lucide, Outline,
-// Stroke 1.75 (§4).
+// Translucente Pille nach DESIGN-LANGUAGE §1/§4: `overlay-pill` + Blur
+// (Task 10, Phase 6 — siehe components/Pille.tsx), Radius 999. Icons:
+// Lucide, Outline, Stroke 1.75 (§4).
 function PillenKnopf({
   label,
   onPress,
@@ -60,7 +60,7 @@ function PillenKnopf({
 }) {
   return (
     <PressScale accessibilityRole="button" accessibilityLabel={label} onPress={onPress}>
-      <View style={styles.steuerPille}>{children}</View>
+      <Pille style={styles.steuerPille}>{children}</Pille>
     </PressScale>
   );
 }
@@ -379,7 +379,7 @@ export default function AufnehmenScreen() {
         videoQuality="1080p"
       />
       <View style={styles.kopfZeile}>
-        <View style={styles.kopfPille}>
+        <Pille style={styles.kopfPille}>
           {/* numberOfLines: ein einzelnes langes Wort (Reisenamen sind frei
               wählbar) würde die geschrumpfte Pille sonst überlaufen statt
               gekürzt zu werden. */}
@@ -389,7 +389,7 @@ export default function AufnehmenScreen() {
           <Text style={[type.secondary, { color: cinema['text-2'] }]}>
             {momenteText(zaehler ?? reise.my_post_count)}
           </Text>
-        </View>
+        </Pille>
         <View style={styles.steuerung}>
           <PillenKnopf
             label="Kamera wechseln"
@@ -463,13 +463,13 @@ const styles = StyleSheet.create({
     gap: spacing.m,
   },
   // Pille auf der Kamera-Vorschau (DESIGN-LANGUAGE §1/§4): translucent, Radius
-  // 999. Ohne echten Blur (expo-blur ist nicht installiert) — siehe Bericht.
+  // 999, Blur über components/Pille.tsx (kein backgroundColor hier — das
+  // übernimmt die Pille-Komponente selbst).
   kopfPille: {
     flexShrink: 1,
     paddingHorizontal: spacing.base,
     paddingVertical: spacing.s,
     borderRadius: radius.pill,
-    backgroundColor: cinema['overlay-pill'],
   },
   // Kamera wechseln und Blitz (Spec §4): rechts oben, auf Höhe der Kopf-Pille,
   // untereinander im 4er-Raster (§3). flexShrink: 0 — schrumpfen soll die
@@ -482,7 +482,6 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: radius.pill,
-    backgroundColor: cinema['overlay-pill'],
     alignItems: 'center',
     justifyContent: 'center',
   },

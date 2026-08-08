@@ -1,8 +1,9 @@
 import { useCallback, useRef, useState } from 'react';
-import { Alert, ScrollView, Text, View, StyleSheet } from 'react-native';
+import { ActivityIndicator, Alert, ScrollView, Text, View, StyleSheet } from 'react-native';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import { Lock, X } from 'lucide-react-native';
+import { Image } from 'expo-image';
+import { Flag, Lock, X } from 'lucide-react-native';
 import { PressScale } from '@/components/PressScale';
 import { Avatar } from '@/components/Avatar';
 import { Badge } from '@/components/Badge';
@@ -21,6 +22,8 @@ import { wartendeAnzahl } from '@/features/moments/queueLogic';
 import type { QueueJob, VerworfenerMoment } from '@/features/moments/types';
 import { revealTrip } from '@/features/recap/recapApi';
 import { merkeRevealGesehen, revealGesehen } from '@/features/recap/gesehen';
+import { holeVorrat } from '@/features/recap/urlVorrat';
+import { entferneMoment, fetchMeldungen, verwirfMeldung, type Meldung } from '@/features/recap/meldenApi';
 
 // DESIGN-LANGUAGE §5: destruktive Dialoge kündigen sich haptisch an (warning).
 // Sparsam eingesetzt — nur die drei Dialoge dieses Screens. Ein fehlender
@@ -64,6 +67,84 @@ function wartendeMomenteBeruhigung(anzahl: number): string {
     : `Deine ${anzahl} wartenden Momente kommen noch durch — sie sind vor der Aufdeckung entstanden.`;
 }
 
+// Task 8, Phase 6: Moderation. Gleiche Singular/Plural-Konvention wie oben
+// («Ein Moment …», nicht «1 Moment …»).
+function meldungenText(anzahl: number): string {
+  return anzahl === 1 ? 'Ein gemeldeter Moment' : `${anzahl} gemeldete Momente`;
+}
+
+// Zeitpunkt DER MELDUNG (reports.created_at), in Gerätezeit — anders als
+// player.tsx/zeitInZone geht es hier nicht um den Moment selbst (dessen
+// captured_tz), sondern darum, WANN die Owner-Person meldete. Ein
+// unparsbarer Wert zeigt lieber nichts als abzustürzen (gleiches
+// Verteidigungsprinzip wie player.tsx/zeitInZone).
+function formatMeldezeit(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  try {
+    return new Intl.DateTimeFormat('de-DE', {
+      day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
+    }).format(d);
+  } catch {
+    return '';
+  }
+}
+
+// Eine Zeile der Moderationsliste: Vorschaubild, Grund, Zeitpunkt (Brief,
+// wörtlich), dazu die zwei Aktionen. `laeuft` deckt BEIDE Aktionen ab (eine
+// laufende Anfrage für diese Meldung, gleich welche) — ersetzt die
+// Aktionsreihe durch einen einzigen Ladeindikator, statt zu raten, welcher
+// der beiden Knöpfe ihn zeigen sollte.
+function MeldungZeile({
+  meldung, vorschauUrl, laeuft, fehler, onEntfernen, onVerwerfen,
+}: {
+  meldung: Meldung;
+  vorschauUrl: string | null;
+  laeuft: boolean;
+  fehler: string | undefined;
+  onEntfernen: () => void;
+  onVerwerfen: () => void;
+}) {
+  const { colors } = useTheme();
+  return (
+    <View testID={`meldung-${meldung.id}`} style={[styles.meldungZeile, { borderBottomColor: colors.line }]}>
+      <View style={styles.meldungKopf}>
+        {vorschauUrl ? (
+          <Image
+            testID={`meldung-vorschau-${meldung.id}`}
+            source={{ uri: vorschauUrl }}
+            style={[styles.meldungBild, { backgroundColor: colors['bg-1'] }]}
+            contentFit="cover"
+          />
+        ) : (
+          <View style={[styles.meldungBild, { backgroundColor: colors['bg-1'] }]} />
+        )}
+        <View style={styles.meldungText}>
+          <Text style={[type.body, { color: colors['text-1'] }]}>{meldung.reason}</Text>
+          <Text style={[type.secondary, { color: colors['text-2'] }]}>{formatMeldezeit(meldung.created_at)}</Text>
+        </View>
+      </View>
+      {fehler && <Text style={[type.secondary, { color: colors.danger }]}>{fehler}</Text>}
+      {laeuft ? (
+        <ActivityIndicator testID={`meldung-laedt-${meldung.id}`} color={colors['text-1']} />
+      ) : (
+        <View style={styles.meldungAktionen}>
+          <PressScale accessibilityRole="button" onPress={onVerwerfen}>
+            <Text style={[type.bodyMedium, styles.meldungAktionText, { color: colors['text-1'] }]}>
+              Meldung verwerfen
+            </Text>
+          </PressScale>
+          <PressScale accessibilityRole="button" onPress={onEntfernen}>
+            <Text style={[type.bodyMedium, styles.meldungAktionText, { color: colors.danger }]}>
+              Moment entfernen
+            </Text>
+          </PressScale>
+        </View>
+      )}
+    </View>
+  );
+}
+
 export default function ReiseDetail() {
   const { colors } = useTheme();
   const router = useRouter();
@@ -87,6 +168,26 @@ export default function ReiseDetail() {
   const [zaehler, setZaehler] = useState(0);
   const [wartend, setWartend] = useState(0);
   const [verworfen, setVerworfen] = useState<VerworfenerMoment[]>([]);
+  // Task 8, Phase 6: Melden und Moderation. `meldungenAnzahl` ist ein weicher
+  // Beiwert wie `zaehler`/`wartend` oben (RLS filtert für Nicht-Owner-Personen
+  // ohnehin auf null Zeilen, ein Fehler hier degradiert still auf 0 statt den
+  // ganzen Screen zu blockieren — siehe laden()). Die eigentliche Liste
+  // (`meldungen`) lädt ERST beim Öffnen des Sheets, mit eigenem Fehlerzustand,
+  // gleiches Prinzip wie TeilenSheetInhalt.
+  const [meldungenAnzahl, setMeldungenAnzahl] = useState(0);
+  const [moderationSichtbar, setModerationSichtbar] = useState(false);
+  const [moderationPhase, setModerationPhase] = useState<'laedt' | 'bereit' | 'fehler'>('laedt');
+  const [moderationFehler, setModerationFehler] = useState<string | null>(null);
+  const [meldungen, setMeldungen] = useState<Meldung[]>([]);
+  // post_id -> Vorschau-URL (Thumbnail aus demselben Vorrat wie der Player,
+  // holeVorrat/media-urls). `null` heisst "kein Thumbnail vorhanden", nicht
+  // "noch nicht geladen" — die Sheet-Phase trägt das Ladestadium bereits.
+  const [vorschauUrls, setVorschauUrls] = useState<Map<string, string | null>>(new Map());
+  // Die report_id der Meldung, für die GERADE eine Aktion läuft (verwerfen
+  // ODER entfernen, gleich welche) — deckt beide Knöpfe der Zeile ab, siehe
+  // MeldungZeile oben.
+  const [aktionLaeuftFuer, setAktionLaeuftFuer] = useState<string | null>(null);
+  const [aktionFehler, setAktionFehler] = useState<Record<string, string>>({});
   // Task 8: Bestätigungs-Sheet für «Reise abschliessen». revealFehler bleibt
   // eigens vom Lade-`fehler` oben getrennt — ein gescheiterter Reveal darf den
   // Screen nicht so behandeln, als wäre die Reise nicht mehr ladbar.
@@ -135,7 +236,7 @@ export default function ReiseDetail() {
   const aktiv = useRef(true);
 
   const laden = useCallback(async () => {
-    const [t, m, z, jobs, abgelehnt] = await Promise.all([
+    const [t, m, z, jobs, abgelehnt, meldungenErgebnis] = await Promise.all([
       fetchTrip(id),
       fetchMembers(id),
       // Anders als fetchTrip/fetchMembers sind eigenerZaehler und
@@ -155,6 +256,13 @@ export default function ReiseDetail() {
       userId
         ? queueDb.verworfene(id, userId).catch(() => KEINE_VERWORFENEN)
         : Promise.resolve(KEINE_VERWORFENEN),
+      // Task 8: ungefiltert nach Owner-Rolle aufgerufen — reports_select_owner
+      // (RLS) liefert einer Nicht-Owner-Person ohnehin still null Zeilen,
+      // kein Fehler. Der Einstiegspunkt unten rendert nur bei istOwner UND
+      // meldungenAnzahl > 0, ein falsch positiver Treffer ist also
+      // ausgeschlossen. fetchMeldungen wirft nie (gleicher Vertrag wie
+      // fetchTrip/fetchMembers), kein .catch() nötig.
+      fetchMeldungen(id),
     ]);
     if (!aktiv.current) return;
     setTrip(t.data);
@@ -164,6 +272,10 @@ export default function ReiseDetail() {
     setZaehler(z ?? t.data?.my_post_count ?? 0);
     setWartend(wartendeAnzahl(jobs.filter((job) => job.trip_id === id)));
     setVerworfen(abgelehnt);
+    // Ein Ladefehler degradiert still auf 0 (Beiwert-Prinzip, siehe
+    // Kommentar am State oben) — das offene Moderation-Sheet (falls gerade
+    // sichtbar) hat seinen EIGENEN, prominenten Fehlerzustand.
+    setMeldungenAnzahl(meldungenErgebnis.error ? 0 : meldungenErgebnis.data.length);
     setGeladen(true);
 
     // Reveal-Entdeckung (V6): keine Benachrichtigung, kein Deep-Link — nur
@@ -358,6 +470,91 @@ export default function ReiseDetail() {
     ]);
   };
 
+  // Task 8, Phase 6: öffnet das Moderations-Sheet und lädt die Liste FRISCH
+  // (nicht den bereits vorhandenen Zähler aus laden() — der könnte veraltet
+  // sein, z.B. nachdem eine andere Sitzung längst etwas erledigt hat).
+  // holeVorrat liefert die Vorschaubilder über denselben Vorrat wie der
+  // Player (media-urls) — ein Fehlschlag dort ist Beiwerk (leere/graue
+  // Vorschau statt eines blockierenden Fehlers): die eigentliche Liste
+  // (Grund, Zeitpunkt, Aktionen) bleibt davon unberührt.
+  const moderationOeffnen = () => {
+    setModerationSichtbar(true);
+    setModerationPhase('laedt');
+    setModerationFehler(null);
+    setAktionFehler({});
+    void Promise.all([fetchMeldungen(id), holeVorrat(id)]).then(([{ data: liste, error }, { vorrat }]) => {
+      if (!aktiv.current) return;
+      if (error) {
+        setModerationFehler(error);
+        setModerationPhase('fehler');
+        return;
+      }
+      setMeldungen(liste);
+      setMeldungenAnzahl(liste.length);
+      const urls = new Map<string, string | null>();
+      for (const m of liste) urls.set(m.post_id, vorrat?.urls.get(m.post_id)?.thumb_url ?? null);
+      setVorschauUrls(urls);
+      setModerationPhase('bereit');
+    });
+  };
+
+  const moderationSchliessen = () => setModerationSichtbar(false);
+
+  const meldungVerwerfen = (meldung: Meldung) => {
+    setAktionLaeuftFuer(meldung.id);
+    setAktionFehler((f) => {
+      if (!(meldung.id in f)) return f;
+      const naechste = { ...f };
+      delete naechste[meldung.id];
+      return naechste;
+    });
+    void verwirfMeldung(meldung.id).then(({ error }) => {
+      if (!aktiv.current) return;
+      setAktionLaeuftFuer(null);
+      if (error) {
+        setAktionFehler((f) => ({ ...f, [meldung.id]: error }));
+        return;
+      }
+      setMeldungen((liste) => liste.filter((m) => m.id !== meldung.id));
+      setMeldungenAnzahl((n) => Math.max(0, n - 1));
+    });
+  };
+
+  // Destruktiv (Alert.alert mit warnhaptik, gleiches Muster wie entfernen/
+  // verlassen/loeschen oben) — anders als «Meldung verwerfen» lässt sich
+  // dies nicht rückgängig machen: der Moment verschwindet für ALLE
+  // Mitreisenden, nicht nur aus der Moderationsliste.
+  const momentEntfernen = (meldung: Meldung) => {
+    warnhaptik();
+    Alert.alert(
+      'Moment entfernen?',
+      'Der Moment verschwindet für alle Mitreisenden. Das lässt sich nicht rückgängig machen.',
+      [
+        { text: 'Abbrechen', style: 'cancel' },
+        {
+          text: 'Entfernen',
+          style: 'destructive',
+          onPress: () => {
+            setAktionLaeuftFuer(meldung.id);
+            void entferneMoment(meldung.post_id).then(({ error }) => {
+              if (!aktiv.current) return;
+              setAktionLaeuftFuer(null);
+              if (error) {
+                setAktionFehler((f) => ({ ...f, [meldung.id]: error }));
+                return;
+              }
+              // reports.post_id -> posts ist ON DELETE CASCADE (siehe
+              // meldenApi.ts) — die Meldung ist serverseitig bereits mit
+              // verschwunden. Die Liste hier zieht clientseitig sofort nach.
+              setMeldungen((liste) => liste.filter((m) => m.id !== meldung.id));
+              setMeldungenAnzahl((n) => Math.max(0, n - 1));
+            });
+          },
+        },
+      ]
+    );
+  };
+
   return (
     // Fragment statt eines einzelnen Wurzelelements: das Sheet muss als
     // GESCHWISTER der ScrollView stehen, nicht als deren Kind — innerhalb der
@@ -425,6 +622,23 @@ export default function ReiseDetail() {
           ))}
           <Button variant="secondary" label="Verstanden" onPress={verworfeneQuittieren} />
         </View>
+      )}
+
+      {/* Task 8, Phase 6: nur für die Owner-Person, nur solange es etwas zu
+          bearbeiten gibt — dieselbe Sichtbarkeitsregel wie verworfenBox
+          oben (kein leerer Hinweis über nichts). */}
+      {istOwner && meldungenAnzahl > 0 && (
+        <PressScale
+          testID="moderation-oeffnen"
+          accessibilityRole="button"
+          accessibilityLabel={meldungenText(meldungenAnzahl)}
+          onPress={moderationOeffnen}
+        >
+          <View style={[styles.meldungenBox, { backgroundColor: colors['bg-1'] }]}>
+            <Flag size={20} color={colors['text-1']} strokeWidth={1.75} />
+            <Text style={[type.bodyMedium, { color: colors['text-1'] }]}>{meldungenText(meldungenAnzahl)}</Text>
+          </View>
+        </PressScale>
       )}
 
       <View style={{ gap: spacing.m }}>
@@ -520,6 +734,34 @@ export default function ReiseDetail() {
       <Button variant="secondary" label="Abbrechen" onPress={abschliessenSchliessen} disabled={revealLaedt} />
     </Sheet>
 
+    {/* Task 8, Phase 6: gleiches GESCHWISTER-Prinzip wie das Sheet oben. */}
+    <Sheet sichtbar={moderationSichtbar} titel="Gemeldete Momente" onSchliessen={moderationSchliessen}>
+      {moderationPhase === 'laedt' ? (
+        <ActivityIndicator testID="moderation-laedt" color={colors['text-1']} />
+      ) : moderationPhase === 'fehler' ? (
+        <View style={{ gap: spacing.base }}>
+          <Text style={[type.body, { color: colors.danger }]}>{moderationFehler}</Text>
+          <Button variant="secondary" label="Nochmal versuchen" onPress={moderationOeffnen} />
+        </View>
+      ) : meldungen.length === 0 ? (
+        <Text style={[type.secondary, { color: colors['text-2'] }]}>Keine offenen Meldungen mehr.</Text>
+      ) : (
+        <ScrollView testID="moderation-liste" style={styles.moderationListe}>
+          {meldungen.map((m) => (
+            <MeldungZeile
+              key={m.id}
+              meldung={m}
+              vorschauUrl={vorschauUrls.get(m.post_id) ?? null}
+              laeuft={aktionLaeuftFuer === m.id}
+              fehler={aktionFehler[m.id]}
+              onVerwerfen={() => meldungVerwerfen(m)}
+              onEntfernen={() => momentEntfernen(m)}
+            />
+          ))}
+        </ScrollView>
+      )}
+    </Sheet>
+
     {/* Wie das Sheet: GESCHWISTER der ScrollView, nicht ihr Kind — ihr
         StyleSheet.absoluteFill soll den ganzen Bildschirm decken, nicht nur
         die (potenziell höhere, scrollbare) Inhaltsfläche. */}
@@ -535,4 +777,23 @@ const styles = StyleSheet.create({
   // Abgesetzte Fläche statt Schatten (DESIGN-LANGUAGE §3: ein Schatten heisst
   // «schwebt»). Radius 12 wie jede andere Fläche dieser Grösse.
   verworfenBox: { borderRadius: radius.control, padding: spacing.base, gap: spacing.m },
+  // Task 8, Phase 6: Moderation.
+  meldungenBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.m,
+    borderRadius: radius.control,
+    padding: spacing.base,
+  },
+  moderationListe: { maxHeight: 420 },
+  // borderBottomColor kommt inline aus useTheme() (siehe MeldungZeile) — ein
+  // Hairline-Ton ist ein Farbwert und gehört wie jeder andere Farbwert dieser
+  // Codebase nicht fest in ein statisches StyleSheet (DESIGN-LANGUAGE §9:
+  // „Nirgends feste Hex-Werte im Code — alles über Tokens").
+  meldungZeile: { gap: spacing.s, paddingVertical: spacing.base, borderBottomWidth: 1 },
+  meldungKopf: { flexDirection: 'row', gap: spacing.m },
+  meldungBild: { width: 56, height: 56, borderRadius: radius.control },
+  meldungText: { flex: 1, gap: spacing.xs },
+  meldungAktionen: { flexDirection: 'row', gap: spacing.l },
+  meldungAktionText: { textDecorationLine: 'underline' },
 });
