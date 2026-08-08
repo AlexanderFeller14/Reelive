@@ -8,9 +8,11 @@
     "scheme": "reelive",
     "userInterfaceStyle": "light",
     "ios": {
-      "icon": "./assets/expo.icon"
+      "icon": "./assets/expo.icon",
+      "bundleIdentifier": "com.reelive.app"
     },
     "android": {
+      "package": "com.reelive.app",
       "adaptiveIcon": {
         "backgroundColor": "#131110",
         "foregroundImage": "./assets/images/android-icon-foreground.png",

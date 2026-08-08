@@ -57,3 +57,94 @@ npm test               # Jest
 
 Login lokal: Testnummern `+41 79 000 00 01` / `…02`, Code jeweils `123456`
 (supabase/config.toml → [auth.sms.test_otp]).
+
+## Vor dem ersten Build
+
+Alles bis hier läuft ohne fremde Konten. Ein echter Build (Dev-Build, TestFlight/Internal
+Testing, Store-Einreichung) hängt an Konten und Zugangsdaten, die nur der Auftraggeber hat —
+diese Reihenfolge einhalten, jeder Schritt setzt den vorigen voraus:
+
+1. **Expo-Konto** anlegen (expo.dev), dann im Ordner `mobile/`: `npx eas login` und
+   `npx eas init` — letzteres trägt `extra.eas.projectId` in `mobile/app.json` ein (fehlt
+   heute bewusst: eine erfundene Projekt-ID wäre falsch und liesse sich nicht durch einen
+   Kommentar entschärfen).
+2. **Apple Developer Program** (99 $/Jahr) und **Google Play Console** (25 $ einmalig)
+   einrichten. Erst danach lassen sich die Platzhalter in `mobile/app.json` ersetzen:
+   - `ios.bundleIdentifier` / `android.package` stehen aktuell auf `com.reelive.app` —
+     ein Platzhalter, **kein** reservierter Wert. Sobald der Auftraggeber die endgültige
+     Kennung entschieden hat (typischerweise an die eigene Domain angelehnt), hier ersetzen.
+     **Wichtig:** beide Werte sind nach der ersten Store-Einreichung praktisch unveränderlich
+     — vor dem ersten echten Build entscheiden, nicht danach.
+   - Berechtigungstexte für Kamera, Mikrofon, Ort und Fotobibliothek stehen bereits in den
+     `plugins`-Einträgen (`expo-camera`, `expo-location`, `expo-media-library`). Für
+     **Benachrichtigungen** gibt es bewusst keinen weiteren Eintrag: Weder iOS noch Android
+     kennen für die Push-Berechtigung einen mit Camera/Location/Fotos vergleichbaren
+     konfigurierbaren Text — das System zeigt dort einen festen eigenen Dialog. `expo-notifications`
+     bleibt darum ohne Konfigurationsobjekt in den `plugins`.
+   - **`ios.associatedDomains` / `android.intentFilters`** (Universal Links / App Links, damit
+     ein geteilter `/teilen/<token>`-Link die App statt des Browsers öffnet) stehen **nicht**
+     in `mobile/app.json` — die Datei ist reines JSON ohne Kommentare, ein inaktiver Platzhalter
+     wäre entweder unsichtbar (auskommentiert = in JSON gar nicht ausdrückbar) oder aktiv
+     falsch (eine erfundene Domain erzeugt bereits beim Build eine echte, nur eben nutzlose
+     Capability). Die Vorlage lebt deshalb hier, zum Eintragen sobald eine Domain feststeht:
+
+     ```json
+     // mobile/app.json → expo.ios
+     "associatedDomains": ["applinks:DEINE-DOMAIN.tld"]
+
+     // mobile/app.json → expo.android
+     "intentFilters": [
+       {
+         "action": "VIEW",
+         "autoVerify": true,
+         "data": [{ "scheme": "https", "host": "DEINE-DOMAIN.tld", "pathPrefix": "/teilen" }],
+         "category": ["BROWSABLE", "DEFAULT"]
+       }
+     ]
+     ```
+
+     Zusätzlich verlangt iOS unter `https://DEINE-DOMAIN.tld/.well-known/apple-app-site-association`
+     und Android unter `https://DEINE-DOMAIN.tld/.well-known/assetlinks.json` je eine von der
+     Domain selbst ausgelieferte Datei — Teil des Domain-Setups, nicht dieses Repos.
+3. **`mobile/eas.json` füllen** — die drei Profile (`development`, `preview`, `production`)
+   stehen mit den Standard-Feldern für EAS Build bereits da, aber ohne Zugangsdaten:
+   - `development` baut mit `developmentClient: true` — dafür muss zuerst
+     `npx expo install expo-dev-client` laufen (heute nicht installiert, die App läuft bislang
+     ausschliesslich in Expo Go, siehe `mobile/AGENTS.md`-Vorgeschichte). Ohne dieses Paket
+     bricht `eas build --profile development` mit einer klaren Fehlermeldung ab.
+   - `submit.production` ist bewusst leer (`{}`) statt mit erfundenen Werten gefüllt: `eas
+     submit` verlangt `ios.appleId`, `ios.ascAppId`, `ios.appleTeamId` (aus App Store Connect)
+     bzw. `android.serviceAccountKeyPath` (JSON-Schlüssel eines Play-Console-Dienstkontos,
+     **nie** eingecheckt) — beide entstehen erst mit den Konten aus Schritt 2 und lassen sich
+     danach entweder hier eintragen oder interaktiv beim ersten `eas submit` angeben.
+4. **R2-Zugangsdaten in die Function-Umgebung.** Der Code spricht seit Phase 4 S3-kompatibel;
+   für ein echtes Deployment wechseln nur Endpoint und Zugangsdaten. Ein Cloudflare-R2-Bucket
+   anlegen, dann `S3_ENDPOINT`/`S3_REGION`/`S3_ACCESS_KEY`/`S3_SECRET_KEY`/`S3_BUCKET` **nicht**
+   in `supabase/functions/.env` (nur lokal, Docker), sondern über `supabase secrets set` für
+   das deployte Projekt setzen — siehe die ausführlichen Kommentare in
+   `supabase/functions/.env.example` für die Bedeutung jedes Werts.
+5. **Sentry-DSN.** Ein Sentry-Projekt anlegen, DSN aus dessen Einstellungen kopieren, als
+   `EXPO_PUBLIC_SENTRY_DSN` in `mobile/.env` (bzw. die EAS-Build-Umgebung) eintragen — siehe
+   Kommentar in `mobile/.env.example`. Ohne diese Variable bleibt `initFehlermelder()` ein
+   vollständiger No-Op (`mobile/src/lib/fehlermelder.ts`), das ist der aktuelle, gewollte
+   Zustand. Für den natives Source-Map-Upload beim Build erwartet das in `mobile/app.json`
+   bereits eingetragene `@sentry/react-native`-Plugin ausserdem `SENTRY_ORG`/`SENTRY_PROJECT`/
+   `SENTRY_AUTH_TOKEN` als Umgebungsvariablen (fehlen sie, warnt `expo export`/`expo start`
+   nur beim Build — die App selbst bleibt davon unberührt).
+
+**Zwei Umgebungsvariablen aus Phase 6 müssen von Hand synchron gehalten werden** — es gibt
+keine automatische Ableitung der einen aus der anderen:
+
+| Variable | Wo | Wofür |
+|---|---|---|
+| `TEILEN_BASIS_URL` | `supabase/functions/.env` (serverseitig, Function `share-link`) | Baut die fertige Teilen-URL bei `aktion: 'erstellen'` |
+| `EXPO_PUBLIC_TEILEN_BASIS_URL` | `mobile/.env` (clientseitig) | Zeigt den Link eines bereits bestehenden Teilen-Links erneut an, ohne ihn neu zu erzeugen |
+
+Beide müssen auf dieselbe Basis-URL zeigen (siehe Kommentare in den jeweiligen `.env.example`).
+Weichen sie voneinander ab, zeigt "Recap teilen" für einen bestehenden Link eine andere
+Adresse, als die Function beim Erstellen ausgegeben hat — kein Sicherheitsproblem (der Token
+im Link ist die eigentliche Berechtigung), aber ein verwirrender Anzeigefehler.
+
+**Datenschutz:** `docs/datenschutz-entwurf.md` ist ein Entwurf, keine veröffentlichungsfertige
+Erklärung — vor der ersten Einreichung ausfüllen, prüfen lassen und unter einer festen URL
+veröffentlichen (Pflichtfeld in App Store Connect und Google Play Console).
