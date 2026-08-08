@@ -10,3 +10,7 @@ node_modules/
 
 # Claude Code: lokale Einstellungen und Agenten-Worktrees
 .claude/
+
+# Superpowers: SDD-Arbeitsbereich und Worktrees
+.superpowers/
+.worktrees/
