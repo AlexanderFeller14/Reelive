@@ -2,18 +2,21 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Animated, ScrollView, Text, View, StyleSheet } from 'react-native';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { Image } from 'expo-image';
-import { ChevronLeft } from 'lucide-react-native';
+import { ChevronLeft, Share2 } from 'lucide-react-native';
 import { PressScale } from '@/components/PressScale';
 import { Button } from '@/components/Button';
+import { Sheet } from '@/components/Sheet';
 import { useTheme } from '@/theme/ThemeProvider';
 import { useReducedMotion } from '@/theme/useReducedMotion';
 import { motion, radius, spacing, type } from '@/theme/tokens';
+import { useAuth } from '@/features/auth/AuthProvider';
 import { fetchTrip } from '@/features/trips/tripsApi';
 import type { Trip } from '@/features/trips/types';
 import { fetchRecapMomente } from '@/features/recap/recapApi';
 import { gruppiereNachTagen } from '@/features/recap/tage';
 import type { RecapMoment, RecapTag } from '@/features/recap/types';
 import { holeVorrat, type MedienUrl, type Vorrat } from '@/features/recap/urlVorrat';
+import { TeilenSheetInhalt } from '@/features/teilen/TeilenSheetInhalt';
 
 // Nur der Tag selbst — nicht der Wochentag, den will hier niemand wissen.
 const MONATE_LANG = [
@@ -159,9 +162,15 @@ export default function RecapUebersicht() {
   const { colors } = useTheme();
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
+  const { userId } = useAuth();
   const [trip, setTrip] = useState<Trip | null>(null);
   const [momente, setMomente] = useState<RecapMoment[]>([]);
   const [vorrat, setVorrat] = useState<Vorrat | null>(null);
+  // Task-6-Brief: «Recap teilen» erscheint nur für die Owner-Person und nur
+  // bei status==='revealed' — die UI blendet nur aus, share-link/index.ts
+  // (Aktion 'erstellen') prüft beides server-seitig noch einmal
+  // (CLAUDE.md-Eckpfeiler: die Versiegelung wird serverseitig erzwungen).
+  const [teilenOffen, setTeilenOffen] = useState(false);
   // Gleiche Dreiteilung wie überall sonst im Projekt: `geladen` trennt «lädt
   // noch» von «fertig», `fehler` bündelt den ersten Fehlschlag der drei
   // parallelen Abrufe (Reise, Momente, Vorrat) — Priorität Reise vor Vorrat
@@ -216,11 +225,27 @@ export default function RecapUebersicht() {
 
   if (!geladen) return <SkelettScreen />;
 
+  // `trip` ist an dieser Stelle noch nicht auf null geprüft (kopf wird auch
+  // im "Reise gibt es nicht mehr"-Zweig unten wiederverwendet) — `trip &&`
+  // lässt den Teilen-Knopf dort automatisch weg, ohne einen zweiten `kopf`
+  // pflegen zu müssen.
+  const kannTeilen = !!trip && trip.owner_id === userId && trip.status === 'revealed';
+
   const kopf = (
     <View style={styles.kopfzeile}>
       <PressScale accessibilityRole="button" accessibilityLabel="Zurück" onPress={zurueck}>
         <ChevronLeft size={24} color={colors['text-1']} strokeWidth={1.75} />
       </PressScale>
+      {kannTeilen && (
+        <PressScale
+          testID="uebersicht-teilen-oeffnen"
+          accessibilityRole="button"
+          accessibilityLabel="Recap teilen"
+          onPress={() => setTeilenOffen(true)}
+        >
+          <Share2 size={22} color={colors['text-1']} strokeWidth={1.75} />
+        </PressScale>
+      )}
     </View>
   );
 
@@ -285,13 +310,25 @@ export default function RecapUebersicht() {
           </View>
         )}
       </ScrollView>
+
+      {/* Geschwister des ScrollView, nicht sein Kind (gleiches Muster wie das
+          Kommentar-Sheet in player.tsx) — muss über allem liegen. Nur
+          gemountet, wenn `kannTeilen` je true war (die Sheet-Komponente
+          selbst rendert bei `sichtbar=false` ohnehin `null`, siehe Sheet.tsx)
+          — für eine Person ohne Teilen-Recht existiert damit erst gar kein
+          Weg, sie zu öffnen. */}
+      {kannTeilen && (
+        <Sheet sichtbar={teilenOffen} titel="Recap teilen" onSchliessen={() => setTeilenOffen(false)} kino>
+          <TeilenSheetInhalt tripId={id} />
+        </Sheet>
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   inhalt: { padding: spacing.screen, paddingTop: spacing.xl, paddingBottom: spacing.xxl, gap: spacing.m },
-  kopfzeile: { flexDirection: 'row', alignItems: 'center' },
+  kopfzeile: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   // Drei Spalten. Lücke explizit `spacing.xs` über `columnGap`/`rowGap` —
   // NICHT über `justifyContent: 'space-between'` (Review Task 10, Minor):
   // das liess die Lücke aus dem verbleibenden Rest-Raum entstehen, je nach

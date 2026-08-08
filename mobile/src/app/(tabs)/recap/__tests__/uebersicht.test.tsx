@@ -31,6 +31,24 @@ jest.mock('expo-image', () => {
 jest.mock('@/features/trips/tripsApi', () => ({ fetchTrip: jest.fn() }));
 jest.mock('@/features/recap/recapApi', () => ({ fetchRecapMomente: jest.fn() }));
 jest.mock('@/features/recap/urlVorrat', () => ({ holeVorrat: jest.fn() }));
+// Task 6: mutierbar, damit einzelne Tests die Owner-Rolle wechseln können
+// (gleiches Muster wie reise/__tests__/detail.test.tsx, mockAuth.userId).
+const mockAuth = { userId: 'u1' };
+jest.mock('@/features/auth/AuthProvider', () => ({ useAuth: () => mockAuth }));
+// TeilenSheetInhalt hat ihre eigene, vollständige Testdatei
+// (features/teilen/__tests__/TeilenSheetInhalt.test.tsx) — hier nur ein
+// Platzhalter, der belegt, DASS und MIT WELCHER tripId sie gemountet wird,
+// ohne die Supabase-Aufrufkette dieser Datei über den Import-Graph
+// mitzuziehen (sie ist hier ungemockt und würde beim Modul-Load werfen,
+// siehe @/lib/supabase).
+jest.mock('@/features/teilen/TeilenSheetInhalt', () => {
+  const ReactActual = require('react');
+  const { Text } = require('react-native');
+  return {
+    TeilenSheetInhalt: ({ tripId }: { tripId: string }) =>
+      ReactActual.createElement(Text, { testID: 'mock-teilen-sheet-inhalt' }, tripId),
+  };
+});
 
 import RecapUebersicht from '../[id]/uebersicht';
 import { fetchTrip } from '@/features/trips/tripsApi';
@@ -93,6 +111,7 @@ const wrap = () => render(<ThemeProvider><RecapUebersicht /></ThemeProvider>);
 beforeEach(() => {
   jest.clearAllMocks();
   mockKannZurueck = true;
+  mockAuth.userId = 'u1';
   (fetchTrip as jest.Mock).mockResolvedValue({ data: trip, error: null });
 });
 
@@ -307,4 +326,82 @@ test('ohne Rückweg im Stapel führt der Zurück-Pfeil per replace zur Liste', a
   await fireEvent.press(screen.getByLabelText('Zurück'));
   expect(mockReplace).toHaveBeenCalledWith('/recap');
   expect(mockBack).not.toHaveBeenCalled();
+});
+
+// Task 6: «Recap teilen» — nur Owner-Person, nur bei status==='revealed'
+// (Brief, wörtlich). `trip` (Fixture oben) ist bereits status:'revealed',
+// owner_id:'u1'; mockAuth.userId startet ebenfalls bei 'u1' (beforeEach).
+describe('«Recap teilen»: nur Owner-Person, nur bei revealed', () => {
+  const leererLadeErfolg = () => {
+    (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: [], error: null });
+    (holeVorrat as jest.Mock).mockResolvedValue({
+      vorrat: { urls: new Map(), gueltigBis: Date.now() + 999_999, ausgelassen: 0 },
+      error: null,
+      grund: null,
+    });
+  };
+
+  test('die Owner-Person sieht den Teilen-Knopf bei einer aufgedeckten Reise', async () => {
+    leererLadeErfolg();
+    await wrap();
+    await screen.findByText('Lissabon Städtetrip');
+    expect(screen.getByTestId('uebersicht-teilen-oeffnen')).toBeTruthy();
+  });
+
+  test('ein Tipp auf den Teilen-Knopf öffnet das Sheet mit TeilenSheetInhalt für diese Reise', async () => {
+    leererLadeErfolg();
+    await wrap();
+    await screen.findByText('Lissabon Städtetrip');
+    expect(screen.queryByTestId('mock-teilen-sheet-inhalt')).toBeNull();
+    await fireEvent.press(screen.getByTestId('uebersicht-teilen-oeffnen'));
+    const inhalt = await screen.findByTestId('mock-teilen-sheet-inhalt');
+    expect(inhalt).toHaveTextContent('t1');
+  });
+
+  test('ein Wisch/Tipp auf den Hintergrund schliesst das Sheet wieder', async () => {
+    leererLadeErfolg();
+    await wrap();
+    await screen.findByText('Lissabon Städtetrip');
+    await fireEvent.press(screen.getByTestId('uebersicht-teilen-oeffnen'));
+    await screen.findByTestId('mock-teilen-sheet-inhalt');
+    await fireEvent.press(screen.getByTestId('sheet-backdrop'));
+    expect(screen.queryByTestId('mock-teilen-sheet-inhalt')).toBeNull();
+  });
+
+  test('eine NICHT-Owner-Person sieht den Teilen-Knopf nicht', async () => {
+    mockAuth.userId = 'jemand-anders';
+    leererLadeErfolg();
+    await wrap();
+    await screen.findByText('Lissabon Städtetrip');
+    expect(screen.queryByTestId('uebersicht-teilen-oeffnen')).toBeNull();
+  });
+
+  // status==='active' kommt in der Praxis für diesen Screen kaum vor (der
+  // Recap ist bis zum Reveal versiegelt) — die Sichtbarkeitsregel gilt
+  // trotzdem unabhängig davon, ob die Function das später ohnehin ablehnen
+  // würde: die UI blendet aus, bevor überhaupt ein Aufruf stattfindet.
+  test('bei status "active" (noch nicht aufgedeckt) fehlt der Teilen-Knopf, selbst für die Owner-Person', async () => {
+    (fetchTrip as jest.Mock).mockResolvedValue({ data: { ...trip, status: 'active' as const }, error: null });
+    leererLadeErfolg();
+    await wrap();
+    await screen.findByText('Lissabon Städtetrip');
+    expect(screen.queryByTestId('uebersicht-teilen-oeffnen')).toBeNull();
+  });
+
+  // Brief, wörtlich: "nur bei status==='revealed'" — bewusst OHNE Ausnahme
+  // für 'archived', obwohl ein bereits bestehender Link auf einer
+  // archivierten Reise laut Server-Policy weiterhin widerrufbar bliebe
+  // (supabase/migrations/20260808130000_share_links_widerruf_archiviert.sql).
+  // Das ist eine echte Lücke (siehe Bericht, "Bedenken"): sobald eine Reise
+  // archiviert, verschwindet in DIESER App-Version der einzige Weg, einen
+  // zuvor erstellten Link noch zu widerrufen — nicht Teil dieses Tasks, hier
+  // nur als Zusicherung festgehalten, dass die Gating-Regel exakt dem Brief
+  // folgt und nicht heimlich grosszügiger ist.
+  test('bei status "archived" fehlt der Teilen-Knopf ebenfalls — auch für die Owner-Person', async () => {
+    (fetchTrip as jest.Mock).mockResolvedValue({ data: { ...trip, status: 'archived' as const }, error: null });
+    leererLadeErfolg();
+    await wrap();
+    await screen.findByText('Lissabon Städtetrip');
+    expect(screen.queryByTestId('uebersicht-teilen-oeffnen')).toBeNull();
+  });
 });
