@@ -502,3 +502,17 @@ enabled = true
 verify_jwt = false
 import_map = "./functions/share-link/deno.json"
 entrypoint = "./functions/share-link/index.ts"
+
+# konto-loeschen (Phase 6) — Store-Pflicht und Datenschutz-Zusage.
+[functions.konto-loeschen]
+enabled = true
+# Zurück auf true, anders als bei share-link direkt darüber: Diese Function hat
+# keinen anonymen Pfad. Ein Konto kann ausschliesslich sich selbst löschen, die
+# Identität kommt aus dem JWT, und der Body trägt gar keinen Parameter, über den
+# eine fremde hereinkäme. Das Gateway ist damit wieder die erste von zwei
+# Hürden; dahinter prüft der Handler zusätzlich selbst
+# (supabaseAdmin.auth.getUser), denn der Anon-Key allein ist ein gültiges JWT
+# ohne dahinterstehende Person.
+verify_jwt = true
+import_map = "./functions/konto-loeschen/deno.json"
+entrypoint = "./functions/konto-loeschen/index.ts"
