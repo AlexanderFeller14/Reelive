@@ -31,15 +31,19 @@ sonstige Anfragen nach Art. 15 ff. DSGVO / Art. 25 ff. CH-DSG.
 
 Reelive ist ein gemeinsames Reisetagebuch für geschlossene Gruppen — es gibt kein offenes
 Nutzerverzeichnis, keine Suche, kein öffentliches Profil ausser dem, was ein bewusst geteilter
-Recap-Link zeigt (siehe §3.6).
+Recap-Link zeigt (siehe §3.7).
 
 ### 3.1 Telefonnummer
 
 Anmeldung läuft ausschliesslich per SMS-Einmalcode (Supabase Auth,
 `supabase.auth.signInWithOtp`/`verifyOtp`). Die Telefonnummer wird von Supabase Auth verwaltet
 (Tabelle `auth.users`, nicht Teil des von uns kontrollierten `public`-Schemas) und für den
-Versand des Codes an einen SMS-Anbieter weitergereicht (welcher Anbieter, hängt von der
-Supabase-Projektkonfiguration ab — **TODO(Auftraggeber)**, sobald ein echtes Projekt existiert).
+Versand des Codes an einen SMS-Anbieter weitergereicht. **Lokal** steht dafür in
+`supabase/config.toml` ein Twilio-Block — mit Dummy-Zugangsdaten, nie tatsächlich kontaktiert,
+weil `[auth.sms.test_otp]` die dort hinterlegten Testnummern vorher abfängt (siehe die
+Kommentare in der Datei). Für das **echte, gehostete Projekt** ist der Anbieter offen —
+**TODO(Auftraggeber)**, sobald es existiert; der lokale Dummy-Block darf dafür nie übernommen
+werden.
 
 ### 3.2 Profil
 
@@ -51,7 +55,26 @@ Das Schema sieht ein Profilbild vor (`profiles.avatar_key`) — **aktuell schrei
 App diese Spalte**, es gibt noch keinen Upload-Weg dafür. Sobald einer entsteht, gehört diese
 Erklärung entsprechend erweitert.
 
-### 3.3 Momente — Fotos/Videos samt Ort und Zeit
+### 3.3 Reise
+
+Jede angelegte Reise (`public.trips`) speichert **Reisename**, **Zeitraum** (Start- und
+Enddatum), einen zufälligen **Einladungscode** (für den Beitritt weiterer Personen) und einen
+Status (aktiv/aufgedeckt/archiviert). Das Schema sieht ein Cover-Bild vor (`trips.cover_key`)
+— wie bei `profiles.avatar_key` (§3.2) schreibt aktuell kein Teil der App diese Spalte. Ebenso
+ungenutzt: `trips.plan` — im Schema vorhanden, aber von keiner Stelle im Code gelesen oder
+geschrieben (Datenminimierung wäre hier: die Spalte entfernen, solange sie nichts trägt).
+
+Für jede Mitgliedschaft (`public.trip_members`) wird zusätzlich **wann** eine Person
+beigetreten ist (`joined_at`) und ihre **Rolle** (`owner`/`member`) gespeichert — zusammen mit
+den Momenten (§3.4) und der Mitgliederliste ergibt das ein Bild von „wer war wann mit wem
+unterwegs".
+
+**Reisename und Zeitraum sind die einzigen Reise-Daten, die auch OHNE Konto sichtbar werden**
+— über einen geteilten Recap-Link (§3.7); Einladungscode und Mitgliederliste werden dabei
+**nicht** mitgegeben. Der Reisename geht ausserdem in den Text der
+Reveal-Push-Benachrichtigung (§3.6, §5).
+
+### 3.4 Momente — Fotos/Videos samt Ort und Zeit
 
 Jeder eingesendete Moment (`public.posts`) speichert:
 
@@ -62,35 +85,56 @@ Jeder eingesendete Moment (`public.posts`) speichert:
   Server,
 - **Ort** (`lat`, `lng`, `place_name`), **nur** wenn beim Aufnehmen die Standortberechtigung
   erteilt wurde — ohne Berechtigung wird der Moment ohne Ort eingesendet, nie blockiert
-  (`mobile/src/features/moments/ortUndZeit.ts`),
+  (`mobile/src/features/moments/ortUndZeit.ts`). Für `place_name` gehen die Koordinaten dabei
+  **zusätzlich** an den plattformeigenen Geocoding-Dienst — auf iOS Apple, auf Android Google
+  (`Location.reverseGeocodeAsync`, `expo-location`) — **bevor** der Moment überhaupt bei
+  Supabase ankommt. Apple/Google sind für diese Anfrage **eigenständige** Verantwortliche, kein
+  von uns beauftragter Auftragsverarbeiter (anders als die Anbieter in §5): Der Ort bleibt
+  entgegen einer möglichen Lesart NICHT nur zwischen Gerät und Supabase,
 - eine optionale, selbst verfasste **Bildunterschrift** (bis 120 Zeichen).
 
-### 3.4 Interaktionen innerhalb einer Reise
+### 3.5 Interaktionen innerhalb einer Reise
 
-- **Reaktionen** (`public.reactions`): ein Emoji pro Person und Moment.
+- **Reaktionen** (`public.reactions`): Emoji-Reaktionen auf einen Moment. Der Primärschlüssel
+  ist `(post_id, user_id, emoji)`, **nicht** `(post_id, user_id)` — eine Person kann auf
+  denselben Moment mehrere unterschiedliche Emojis gleichzeitig setzen (dasselbe Emoji nur
+  einmal), nicht nur eines.
 - **Kommentare** (`public.comments`): Freitext bis 500 Zeichen, an eine Person und einen
   Moment gebunden.
 - **Meldungen** (`public.reports`): meldet jemand einen Moment (Moderations-Funktion), wird
   Grund (1–500 Zeichen), meldende Person und Zeitpunkt gespeichert — sichtbar **nur** für die
-  Person, die die Reise angelegt hat.
+  Person, die die Reise angelegt hat. Setzt die Owner-Person eine Meldung als erledigt, hält
+  `reports.erledigt_am` zusätzlich fest, wann das war (siehe §6 zur Aufbewahrung danach).
 
-### 3.5 Push-Benachrichtigungen
+**Rein technische Begleitspalten, oben aus Lesbarkeit nicht einzeln aufgeführt** — sie ändern
+nichts an den erhobenen Kategorien, gehören aber vollständigkeitshalber genannt:
+`posts.created_at` (Server-Ankunftszeit — **nicht** dieselbe Spalte wie `captured_at` oben, für
+die Recap-Sortierung zählt ausschliesslich Letztere), `posts.duration_s`/`posts.media_ext`
+(technische Video-Metadaten), `posts.upload_status`, sowie je ein `created_at` bei
+`reactions`, `comments` und `share_links`.
+
+### 3.6 Push-Benachrichtigungen
 
 Mit Erlaubnis registriert die App ein **Expo-Push-Token** je Geräteinstallation
 (`public.push_tokens`: Token, Plattform `ios`/`android`, Zeitpunkt) — genutzt für genau eine
 Benachrichtigung: "Euer Recap von «…» ist bereit!", sobald eine Reise abgeschlossen wird. Der
 Versand läuft über Expos Push-Dienst (siehe §5).
 
-### 3.6 Geteilte Recap-Links
+### 3.7 Geteilte Recap-Links
 
 Die Person, die eine Reise angelegt hat, kann für eine abgeschlossene Reise einen **Link**
 erzeugen (`public.share_links`: zufälliger Token, optionales Ablaufdatum, Widerrufs-Status).
-**Wer diesen Link hat, sieht — ohne eigenes Konto und ohne Anmeldung — den gesamten Recap:**
-alle Fotos/Videos, Autorennamen, Zeitpunkt, Ort und Bildunterschrift jedes Moments. Reaktionen,
-Kommentare, die Mitgliederliste und der Einladungscode der Reise werden **nicht** mitgegeben.
-Der Link lässt sich jederzeit widerrufen (`mobile/src/features/teilen/`).
+**Wer diesen Link hat, sieht — ohne eigenes Konto und ohne Anmeldung —** den **Reisenamen und
+den Zeitraum** der Reise (§3.3) **sowie den gesamten Recap:** alle Fotos/Videos, Autorennamen,
+Zeitpunkt, Ort und Bildunterschrift jedes Moments. Reaktionen, Kommentare, die Mitgliederliste
+und der Einladungscode der Reise werden **nicht** mitgegeben.
 
-### 3.7 Was Reelive NICHT tut
+Der Link lässt sich jederzeit widerrufen (`mobile/src/features/teilen/`) — ein Widerruf setzt
+nur `revoked = true`, **löscht die Zeile aber nicht**. Ein widerrufener oder abgelaufener Link
+bleibt damit unbefristet in `share_links` gespeichert, auch wenn er niemandem mehr etwas zeigt
+(siehe §6, dort fehlt bisher eine Löschfrist dafür).
+
+### 3.8 Was Reelive NICHT tut
 
 - Kein Tracking, keine Analytics, keine Werbe-ID, kein Fingerprinting.
 - Kein Zugriff auf die Fotobibliothek ausser für zwei bewusste, von der Person ausgelöste
@@ -125,20 +169,34 @@ gemeldeter Inhalte. Keine Zweitverwertung.
   `supabase/functions/.env.example`). **Noch nicht im Einsatz**, solange kein Produktions-Bucket
   eingerichtet ist.
 - **Expo** (`exp.host`) — Zustellung der Push-Benachrichtigung; erhält den Push-Token sowie
-  Titel/Text der Nachricht (der Reisename, siehe §3.5).
+  Titel/Text der Nachricht (der Reisename, siehe §3.6).
 - **Sentry** — **nur, wenn `EXPO_PUBLIC_SENTRY_DSN` gesetzt ist** (siehe
   `mobile/src/lib/fehlermelder.ts`, `mobile/.env.example`). Ohne DSN erhält Sentry nichts, gar
-  keine Verbindung wird aufgebaut. Sobald ein DSN gesetzt wird, erhält Sentry Absturz-/Fehler-
-  informationen samt technischem Kontext (Gerätetyp, App-Version, Stack-Trace) — **kein**
-  Moment-Inhalt, keine Telefonnummer, kein Nachrichtentext, es sei denn, ein künftiger Aufrufer
-  von `meldeFehler(fehler, kontext)` übergibt das versehentlich als `kontext`.
+  keine Verbindung wird aufgebaut. Sobald ein DSN gesetzt wird, greift **automatisch** Sentrys
+  eigener Absturz-/Fehler-Handler — der real genutzte Pfad ist nicht ein künftiger, expliziter
+  `meldeFehler(...)`-Aufruf im App-Code, sondern dieser automatische Handler: jede unabgefangene
+  Ausnahme meldet sich von selbst, sobald `init()` gelaufen ist. Übertragen werden
+  Absturz-/Fehlerinformationen samt technischem Kontext (Gerätetyp, App-Version, Stack-Trace)
+  sowie eine kurze Ereignis-Chronik ("Breadcrumbs") direkt davor. Sentrys
+  Standard-Breadcrumbs würden dabei jede aufgerufene Netzwerk-URL und jeden
+  `console.error`-Aufruf mitschneiden — darunter die **signierten, zeitlich befristet
+  gültigen S3-Lese-URLs** aus `media-urls` (Zugangsdaten auf private Fotos/Videos) und
+  Moment-Felder (`caption`, `lat`, `lng`, `place_name`), die einzelne Stellen zu
+  Diagnosezwecken loggen. `initFehlermelder()` schaltet diese beiden Breadcrumb-Kategorien
+  deshalb bewusst ab (`console: false, xhr: false`), bevor `init()` überhaupt läuft. Kein
+  Moment-Inhalt, keine Telefonnummer, kein Nachrichtentext — verbleibendes Risiko: ein
+  künftiger Aufrufer von `meldeFehler(fehler, kontext)`, der so etwas versehentlich als
+  `kontext` übergibt; dagegen gibt es keinen automatischen Schutz, nur Code-Review.
 - **SMS-Anbieter** für den Versand des Einmalcodes (Supabase Auth verwaltet das, konkreter
   Anbieter hängt vom Projekt ab, siehe §3.1).
 
-Der Betrieb von Servern in der EU (Supabase Frankfurt) spricht für eine DSGVO-konforme
-Auftragsverarbeitung; Cloudflare/Expo/Sentry sind global tätige US-Anbieter — eine
-Übermittlung in Drittländer ist damit nicht ausgeschlossen und muss von der Rechtsberatung
-bewertet werden (Standardvertragsklauseln o.ä.).
+**TODO(Auftraggeber):** Der folgende Satz gilt nur, sofern die Hosting-Region beim Anlegen des
+gehosteten Supabase-Projekts tatsächlich auf EU (Frankfurt) fällt — das Projekt existiert
+bisher nicht, die Region ist oben (Supabase-Zeile) bewusst als **Projektvorgabe** markiert und
+steht im Repo nirgends verbindlich fest. Der Betrieb von Servern in der EU (Supabase Frankfurt)
+spricht für eine DSGVO-konforme Auftragsverarbeitung; Cloudflare/Expo/Sentry sind global tätige
+US-Anbieter — eine Übermittlung in Drittländer ist damit ohnehin nicht ausgeschlossen und muss
+von der Rechtsberatung bewertet werden (Standardvertragsklauseln o.ä.).
 
 ## 6. Speicherdauer und Löschung
 
@@ -160,12 +218,22 @@ App, `mobile/src/features/konto/`) löst die Edge Function `konto-loeschen` aus:
 
 Eine Löschung ist **endgültig und nicht widerrufbar**.
 
+**TODO(Auftraggeber/Rechtsberatung):** Konkrete **Aufbewahrungsfristen** fehlen hier noch —
+"Speicherdauer" ist ein Pflichtfeld einer Datenschutzerklärung, dieser Abschnitt beschreibt
+bisher nur den Löschweg, keine Fristen. Mindestens zu klären:
+- eine erledigte Meldung (`reports.erledigt_am`, gesetzt, aber die Zeile bleibt unbefristet
+  bestehen),
+- ein widerrufener oder abgelaufener Teilen-Link (`share_links` wird beim Widerruf nur als
+  `revoked` markiert, nie gelöscht — §3.7),
+- eine Reise, die nie versiegelt wird, und ein Moment, dessen Upload dauerhaft `pending`
+  bleibt (kein automatischer Aufräumprozess dafür im Code).
+
 ## 7. Rechte der betroffenen Person
 
 **TODO(Auftraggeber/Rechtsberatung):** vollständige, rechtssichere Formulierung der Rechte auf
 Auskunft, Berichtigung, Löschung, Einschränkung, Datenübertragbarkeit und Widerspruch sowie das
 Beschwerderecht bei einer Aufsichtsbehörde. In der App bereits umgesetzt: Löschung des eigenen
-Kontos samt Daten (§6) und Widerruf eines geteilten Links (§3.6) sind jederzeit selbst möglich,
+Kontos samt Daten (§6) und Widerruf eines geteilten Links (§3.7) sind jederzeit selbst möglich,
 ohne Anfrage an den Verantwortlichen.
 
 ## 8. Minderjährige
@@ -180,6 +248,9 @@ festlegen.
 
 ## 10. Wo diese Erklärung erreichbar ist
 
-**TODO(Auftraggeber):** feste, öffentlich erreichbare URL unter der eigenen Domain (siehe
-`ios.associatedDomains`/`android.intentFilters`-Vorlage in `mobile/app.json`) — Pflichtangabe
-in App Store Connect und Google Play Console.
+**TODO(Auftraggeber):** feste, öffentlich erreichbare URL unter der eigenen Domain. Sobald diese
+Domain feststeht, gehört sie auch in die `ios.associatedDomains`/`android.intentFilters`-Vorlage
+aus `README.md` (Abschnitt „Vor dem ersten Build") eingetragen — **nicht** in
+`mobile/app.json`: dort stehen diese Werte laut README bewusst noch nicht (ein erfundener
+Domain-Wert wäre falsch). Feste URL selbst ist Pflichtangabe in App Store Connect und Google
+Play Console.
