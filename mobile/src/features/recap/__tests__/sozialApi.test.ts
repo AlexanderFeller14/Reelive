@@ -35,8 +35,9 @@ function reaktionenKette(ergebnis: { data: unknown; error: unknown }) {
 }
 
 // reactions: .upsert(values, options)
+type UpsertOptionen = { onConflict?: string; ignoreDuplicates?: boolean };
 function upsertKette(ergebnis: { error: unknown }) {
-  const upsert = jest.fn(async () => ergebnis);
+  const upsert = jest.fn(async (_values: unknown, _options: UpsertOptionen) => ergebnis);
   mockFrom.mockReturnValue({ upsert });
   return { upsert };
 }
