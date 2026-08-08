@@ -16,6 +16,23 @@ import { sende, type PushNachricht } from './push.ts';
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
 
+// Fabrik statt eines direkten `createClient(...)`-Aufrufs weiter unten: nur
+// so lässt sich der Rückgabetyp sauber benennen. `ReturnType<typeof
+// createClient>` allein (ohne die Fabrik) inferiert an dieser Stelle einen
+// ANDEREN Typ als der tatsächliche Aufruf `createClient(SUPABASE_URL,
+// SERVICE_ROLE_KEY)` weiter unten — createClient hat interdependente
+// generische Default-Typparameter, und `typeof createClient` referenziert
+// die allgemeine Funktionssignatur, nicht die an einer konkreten Aufrufstelle
+// inferierten Defaults (in der ersten Fassung dieser Function schlug
+// `deno check` deshalb fehl, siehe task-2-report.md). Mit der Fabrik ist
+// `AdminClient` per Konstruktion exakt der Typ, den `erstelleAdminClient()`
+// zurückgibt — dieselbe Inferenz, kein zweiter Referenzpunkt, der abweichen
+// könnte.
+function erstelleAdminClient() {
+  return createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
+}
+type AdminClient = ReturnType<typeof erstelleAdminClient>;
+
 type TripStatus = 'active' | 'revealed' | 'archived';
 
 type TripZeile = {
@@ -41,6 +58,76 @@ function fehler(nachricht: string, status: number): Response {
   return json({ fehler: nachricht }, status);
 }
 
+// Schickt die Reveal-Benachrichtigung an alle Mitglieder der Reise ausser der
+// auslösenden Person und löscht Tokens, die Expo als abgemeldet meldet.
+//
+// WICHTIG: Der Aufrufer ruft das NUR im Gewinner-Zweig des CAS-Updates auf
+// (siehe Deno.serve unten). Ein paralleler Aufruf, der den Statuswechsel
+// selbst nicht ausgelöst hat (0 betroffene Zeilen, Nachlese-Zweig), darf den
+// Push nicht ein zweites Mal verschicken — genau dieser Doppel-Versand war
+// ein Review-Fund an der vorherigen, inline im try/catch nach dem
+// if/else-Block platzierten Fassung.
+//
+// Wird komplett try/catch-umschlossen aufgerufen: der Statuswechsel ist zu
+// diesem Zeitpunkt bereits geschehen und bleibt die Wahrheit, ein Fehler
+// hier darf die Antwort an die Owner-Person nicht mehr verändern.
+async function versendeRevealPush(
+  supabaseAdmin: AdminClient,
+  trip: TripZeile,
+  ausloesendeId: string,
+): Promise<void> {
+  const { data: mitglieder, error: mitgliederError } = await supabaseAdmin
+    .from('trip_members')
+    .select('user_id')
+    .eq('trip_id', trip.id)
+    .neq('user_id', ausloesendeId);
+
+  if (mitgliederError) {
+    console.error('reveal-trip: trip_members-Select fehlgeschlagen', mitgliederError);
+    return;
+  }
+  const empfaengerIds = (mitglieder ?? []).map((m) => (m as { user_id: string }).user_id);
+  if (empfaengerIds.length === 0) return;
+
+  const { data: tokenZeilen, error: tokenError } = await supabaseAdmin
+    .from('push_tokens')
+    .select('token')
+    .in('user_id', empfaengerIds);
+
+  if (tokenError) {
+    console.error('reveal-trip: push_tokens-Select fehlgeschlagen', tokenError);
+    return;
+  }
+  const tokens = (tokenZeilen ?? []) as Array<{ token: string }>;
+  if (tokens.length === 0) return;
+
+  const nachrichten: PushNachricht[] = tokens.map((t) => ({
+    to: t.token,
+    title: `✈️ Euer Recap von «${trip.name}» ist bereit!`,
+    body: `✈️ Euer Recap von «${trip.name}» ist bereit!`,
+    data: { trip_id: trip.id },
+  }));
+
+  const tote = await sende(nachrichten);
+  if (tote.length === 0) return;
+
+  // Zusätzlich auf `empfaengerIds` eingeschränkt (Review-Minor): die
+  // Ticket->Token-Zuordnung in push.ts ist rein positionsbasiert (Ticket i
+  // gehört zu Nachricht i). Käme von Expo je ein versetzter `data`-Block
+  // zurück, dürfte ein fälschlich als DeviceNotRegistered gelesenes Token
+  // NIE ausserhalb des gerade angeschriebenen Empfängerkreises löschen —
+  // die Einschränkung begrenzt den Schaden auf genau diesen Kreis, statt
+  // als Service-Role über die ganze Tabelle zu laufen.
+  const { error: deleteError } = await supabaseAdmin
+    .from('push_tokens')
+    .delete()
+    .in('token', tote)
+    .in('user_id', empfaengerIds);
+  if (deleteError) {
+    console.error('reveal-trip: Aufräumen abgemeldeter push_tokens fehlgeschlagen', deleteError);
+  }
+}
+
 Deno.serve(async (req: Request): Promise<Response> => {
   if (req.method !== 'POST') {
     return fehler('Nur POST erlaubt.', 405);
@@ -51,7 +138,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     return fehler('Server nicht konfiguriert.', 500);
   }
 
-  const supabaseAdmin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
+  const supabaseAdmin = erstelleAdminClient();
 
   // Identität kommt ausschliesslich aus dem JWT im Authorization-Header —
   // nie aus dem Body. Der Body enthält nur trip_id.
@@ -119,12 +206,21 @@ Deno.serve(async (req: Request): Promise<Response> => {
   // rufe im Request-Body entgegennimmt). Am lokalen Stack verifiziert: zwei
   // PATCH-Aufrufe im Abstand mehrerer Sekunden liefern unterschiedliche,
   // dem jeweiligen Ausführungszeitpunkt entsprechende Werte — der Zeitstempel
-  // kommt also wirklich aus der Datenbank, nie aus Deno. Das ist entscheidend
-  // für die Nachzügler-Regel (posts_insert_member,
+  // kommt also wirklich aus der Datenbank, nie aus Deno. Das ist relevant für
+  // die Nachzügler-Regel (posts_insert_member,
   // supabase/migrations/20260803090300_sealing_rls.sql), die
-  // `captured_at <= t.revealed_at` vergleicht: beide Seiten müssen aus
-  // derselben Uhr stammen, sonst öffnet oder schliesst eine Zeitverschiebung
-  // zwischen Deno-Host und DB-Server das Nachzügler-Fenster falsch.
+  // `captured_at <= t.revealed_at` vergleicht — ABER `captured_at` ist
+  // Gerätezeit: der Client setzt die Spalte selbst beim Insert (Spalten-Grant
+  // in supabase/migrations/20260803090600_role_hardening.sql, Abschnitt 2).
+  // Der Vergleich läuft also so oder so Gerätezeit gegen Serverzeit — dieses
+  // grössere, prinzipiell unvermeidbare Delta beseitigt `now` nicht. Was
+  // `now` beseitigt, ist die zusätzliche, kleinere Verschiebung, die
+  // entstünde, WÜRDE Deno selbst einen Zeitstempel berechnen (z. B. `new
+  // Date().toISOString()`) und ihn als Literal in dieselbe Spalte schreiben:
+  // dann hinge revealed_at zusätzlich von der Uhr des Deno-Hosts ab, die von
+  // der DB-Server-Uhr abweichen kann. `now` sorgt dafür, dass revealed_at
+  // ausschliesslich von EINER Uhr abhängt — der des DB-Servers, derselben,
+  // die auch bestimmt, wann ein `captured_at`-Wert als Nachzügler gilt.
   const { data: aktualisiert, error: updateError } = await supabaseAdmin
     .from('trips')
     .update({ status: 'revealed', revealed_at: 'now' })
@@ -140,13 +236,31 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
   let revealedAt: string | null;
   if (aktualisiert) {
-    // Wir haben den Statuswechsel ausgelöst.
+    // Wir haben den Statuswechsel ausgelöst — und nur deshalb auch den Push.
+    // Der Versand steht bewusst INNERHALB dieses Zweigs (Review-Fund an der
+    // Vorfassung, siehe task-2-report.md): stünde er nach dem if/else, würde
+    // auch der Verlierer eines Rennens (unten, 0 betroffene Zeilen) ihn
+    // erneut auslösen und dieselbe Benachrichtigung ein zweites Mal an alle
+    // Mitglieder verschicken, obwohl sein eigener Aufruf gar nichts
+    // geändert hat.
     revealedAt = (aktualisiert as { revealed_at: string }).revealed_at;
+
+    // Der Statuswechsel ist die Wahrheit, die Benachrichtigung nur die
+    // Botschaft: ein Netzfehler gegen Expo, ein kaputtes Ticket oder eine
+    // leere Empfängerliste dürfen den Reveal nicht scheitern lassen — die
+    // Antwort an die Owner-Person bleibt 200 mit dem bereits ermittelten
+    // revealedAt, unabhängig vom Ausgang des Versands.
+    try {
+      await versendeRevealPush(supabaseAdmin, tripZeile, anfragendeId);
+    } catch (err) {
+      console.error('reveal-trip: Push-Versand fehlgeschlagen', err);
+    }
   } else {
     // 0 betroffene Zeilen: ein paralleler Aufruf war schneller und hat den
     // Status bereits von 'active' auf 'revealed' gedreht (die WHERE-Bedingung
     // status='active' griff dadurch nicht mehr). Das ist kein Fehler — die
     // Reise IST jetzt revealed, wir lesen nur nach, mit welchem Zeitstempel.
+    // KEIN Push hier: der Gewinner-Zweig oben hat ihn bereits verschickt.
     const { data: nachgelesen, error: nachlesenError } = await supabaseAdmin
       .from('trips')
       .select('revealed_at')
@@ -157,63 +271,6 @@ Deno.serve(async (req: Request): Promise<Response> => {
       return fehler('Reise konnte nicht abgeschlossen werden.', 500);
     }
     revealedAt = (nachgelesen as { revealed_at: string | null }).revealed_at;
-  }
-
-  // Der Statuswechsel ist die Wahrheit, die Benachrichtigung nur die
-  // Botschaft: ein Netzfehler gegen Expo, ein kaputtes Ticket oder eine
-  // leere Empfängerliste dürfen den Reveal nicht scheitern lassen. Darum
-  // liegt der gesamte Versand — vom Lesen der Mitglieder bis zum Löschen
-  // toter Tokens — in diesem einen try/catch, statt in einer eigenen
-  // Funktion (die den service_role-Client als Parameter bräuchte und dabei
-  // an einer generischen Typinferenz von supabase-js scheitert, siehe
-  // `deno check`-Fehler in der Entwicklungshistorie dieser Function).
-  try {
-    const { data: mitglieder, error: mitgliederError } = await supabaseAdmin
-      .from('trip_members')
-      .select('user_id')
-      .eq('trip_id', tripZeile.id)
-      .neq('user_id', anfragendeId);
-
-    if (mitgliederError) {
-      console.error('reveal-trip: trip_members-Select fehlgeschlagen', mitgliederError);
-    } else {
-      const empfaengerIds = (mitglieder ?? []).map((m) => (m as { user_id: string }).user_id);
-
-      if (empfaengerIds.length > 0) {
-        const { data: tokenZeilen, error: tokenError } = await supabaseAdmin
-          .from('push_tokens')
-          .select('token')
-          .in('user_id', empfaengerIds);
-
-        if (tokenError) {
-          console.error('reveal-trip: push_tokens-Select fehlgeschlagen', tokenError);
-        } else {
-          const tokens = (tokenZeilen ?? []) as Array<{ token: string }>;
-
-          if (tokens.length > 0) {
-            const nachrichten: PushNachricht[] = tokens.map((t) => ({
-              to: t.token,
-              title: `✈️ Euer Recap von «${tripZeile.name}» ist bereit!`,
-              body: `✈️ Euer Recap von «${tripZeile.name}» ist bereit!`,
-              data: { trip_id: tripZeile.id },
-            }));
-
-            const tote = await sende(nachrichten);
-            if (tote.length > 0) {
-              const { error: deleteError } = await supabaseAdmin
-                .from('push_tokens')
-                .delete()
-                .in('token', tote);
-              if (deleteError) {
-                console.error('reveal-trip: Aufräumen abgemeldeter push_tokens fehlgeschlagen', deleteError);
-              }
-            }
-          }
-        }
-      }
-    }
-  } catch (err) {
-    console.error('reveal-trip: Push-Versand fehlgeschlagen', err);
   }
 
   return json({ ok: true, revealed_at: revealedAt }, 200);
