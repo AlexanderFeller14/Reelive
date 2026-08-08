@@ -73,3 +73,17 @@ test('die Schwelle ist in Bildschirmpunkten und einstellbar', () => {
   expect(gruppiere(punkte, AUSSCHNITT, BREITE, HOEHE, 4)).toHaveLength(2);
   expect(gruppiere(punkte, AUSSCHNITT, BREITE, HOEHE, GRUPPEN_ABSTAND_PT)).toHaveLength(1);
 });
+
+// Ein gewickelter Ausschnitt, wie ihn ausschnittFuer fuer eine Reise ueber die
+// Datumsgrenze liefert. Vorher schoss der oestliche Punkt ins Millionenfache
+// und wurde nie gruppiert.
+test('ueber die Datumsgrenze hinweg wird richtig gruppiert', () => {
+  const gewickelt: Ausschnitt = {
+    latitude: -17.85, longitude: -180, latitudeDelta: 0.2, longitudeDelta: 0.2,
+  };
+  const gruppen = gruppiere(
+    [punkt('west', -17.85, 179.999), punkt('ost', -17.85, -179.999)],
+    gewickelt, BREITE, HOEHE
+  );
+  expect(gruppen).toHaveLength(1);
+});

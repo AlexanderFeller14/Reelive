@@ -19,8 +19,14 @@ function aufBildschirm(
 ): Bildpunkt {
   const westen = ausschnitt.longitude - ausschnitt.longitudeDelta / 2;
   const norden = ausschnitt.latitude + ausschnitt.latitudeDelta / 2;
+  // Der Versatz nach Osten, auf einen vollen Umlauf normiert. Ohne das
+  // schiesst ein Punkt oestlich der Datumsgrenze ins Millionenfache: fuer
+  // einen gewickelten Ausschnitt (longitude -180) ist `westen` -180.014, und
+  // 179.99 minus -180.014 ergibt 360.004 statt 0.004. Die Schwesterfunktion
+  // ausschnittFuer faengt diesen Fall schon ab — hier fehlte er.
+  const versatz = (((punkt.lng - westen) % 360) + 360) % 360;
   return {
-    x: ((punkt.lng - westen) / ausschnitt.longitudeDelta) * breite,
+    x: (versatz / ausschnitt.longitudeDelta) * breite,
     y: ((norden - punkt.lat) / ausschnitt.latitudeDelta) * hoehe,
   };
 }
