@@ -35,9 +35,11 @@ function laengenSpanne(lngs: number[]): { mitte: number; spanne: number } {
 
   const west = sortiert[nachLuecke];
   const spanne = 360 - groessteLuecke;
-  // +540 statt +180 vor dem Modulo: der Zwischenwert kann negativ werden, und
-  // JavaScripts % behaelt bei negativen Zahlen das Vorzeichen.
-  const mitte = ((west + spanne / 2 + 540) % 360) - 180;
+  // +180 vor dem Modulo bringt den Wert in [0, 360), danach zurueck auf
+  // [-180, 180). Dass die Summe nie negativ wird, garantiert der Ausstieg
+  // oben: `west` liegt in [-180, 180] und `spanne` ist danach strikt groesser
+  // als null, also ist west + spanne/2 + 180 > 0.
+  const mitte = ((west + spanne / 2 + 180) % 360) - 180;
   return { mitte, spanne };
 }
 

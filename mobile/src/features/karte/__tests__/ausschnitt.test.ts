@@ -49,3 +49,13 @@ test('der Mittelpunkt bleibt im gueltigen Bereich', () => {
   expect(a.longitude).toBeGreaterThanOrEqual(-180);
   expect(a.longitude).toBeLessThanOrEqual(180);
 });
+
+// Drei Punkte, zwei gleich grosse Luecken (je 170 Grad): der Kern des
+// Verfahrens. Die kleinste einschliessende Spanne ist 190 Grad, und bei
+// Gleichstand gewinnt die zuerst gefundene Luecke — das Ergebnis muss
+// deterministisch sein, nicht nur irgendein gueltiges.
+test('drei Punkte mit gleich grossen Luecken ergeben ein festes Ergebnis', () => {
+  const a = ausschnittFuer([punkt(0, -170), punkt(0, 0), punkt(0, 170)])!;
+  expect(a.longitude).toBeCloseTo(95, 5);
+  expect(a.longitudeDelta).toBeCloseTo(190 * 1.4, 5);
+});
