@@ -60,6 +60,20 @@ const UPLOAD_URL_GUELTIGKEIT_SEKUNDEN = 600;
 // Function — und die fragt Status und Mitgliedschaft neu.
 const LESE_URL_GUELTIGKEIT_SEKUNDEN = 3600;
 
+// Seitengrösse beim Einsammeln der Momente. Orientiert an max_rows aus
+// supabase/config.toml (1000): grösser hat keine Wirkung, weil PostgREST dort
+// ohnehin kappt, kleiner kostet nur Round-Trips. Die Richtigkeit der Schleife
+// hängt aber NICHT daran, dass die beiden Zahlen gleich sind — siehe dort.
+//
+// Zur Grössenordnung, damit sie jemand bewusst entschieden hat: Eine Reise mit
+// 1000 fertigen Momenten bedeutet 2000 Signaturen und rund ein Megabyte JSON
+// pro Aufruf. Das ist ungefähr die Obergrenze dessen, was diese Antwort in
+// einem Stück tragen sollte. Wird das je der Normalfall, gehört ein Fenster in
+// die Aktion (Task 6 hält den Vorrat auf Client-Seite ohnehin schon) — aber
+// ein Fenster ist eine Entscheidung mit einem Parameter und einer Anzeige für
+// die App, kein stiller Abschnitt bei genau 1000.
+const POSTS_SEITENGROESSE = 1000;
+
 type TripStatus = 'active' | 'revealed' | 'archived';
 
 type TripZeile = {
@@ -267,19 +281,66 @@ Deno.serve(async (req: Request): Promise<Response> => {
     // Kriterium für eine stabile Sortierung bei gleicher Zeit (Global
     // Constraint: nie nach created_at).
     //
+    // Geblättert, und das ist keine Vorsicht auf Vorrat: PostgREST kappt jede
+    // Antwort bei max_rows (supabase/config.toml, 1000) — ohne Fehler, ohne
+    // Hinweis im Ergebnis, ohne dass supabase-js etwas davon merkt. Ein
+    // einzelner Select würde einer Reise mit mehr als 1000 Momenten
+    // stillschweigend den Rest des Recaps abschneiden, ausgerechnet bei der
+    // Antwort, auf die das ganze Produkt hinausläuft. Es wird darum gezählt
+    // und geblättert, bis eine Seite nicht mehr voll ist.
+    //
     // `type` und `media_ext` kommen mit, weil der Pfad hier NEU abgeleitet
     // wird statt aus storage_key übernommen — siehe unten.
-    const { data: postZeilen, error: postsError } = await supabaseAdmin
-      .from('posts')
-      .select('id, type, media_ext, storage_key, thumb_key')
-      .eq('trip_id', tripZeile.id)
-      .eq('upload_status', 'uploaded')
-      .order('captured_at', { ascending: true })
-      .order('id', { ascending: true });
+    const postZeilen: MedienZeile[] = [];
+    let gezaehlt: number | null = null;
+    for (;;) {
+      // Der Versatz ist immer «so viele habe ich schon». Bewusst nicht
+      // Seitennummer × Seitengrösse: dann hinge die Richtigkeit daran, dass
+      // eine volle Seite auch wirklich POSTS_SEITENGROESSE Zeilen bringt —
+      // also daran, dass max_rows in config.toml genau diesen Wert hat. Wird
+      // es dort je kleiner gesetzt, blättert diese Schleife trotzdem korrekt
+      // weiter, statt bei der ersten kürzeren Seite abzubrechen.
+      const von = postZeilen.length;
+      const { data, error: postsError, count } = await supabaseAdmin
+        .from('posts')
+        // Gezählt wird nur beim ersten Durchgang: der count ist eine eigene
+        // Aggregation, und ihn pro Seite zu wiederholen kostet ohne Nutzen.
+        .select('id, type, media_ext, storage_key, thumb_key', gezaehlt === null ? { count: 'exact' } : undefined)
+        .eq('trip_id', tripZeile.id)
+        .eq('upload_status', 'uploaded')
+        .order('captured_at', { ascending: true })
+        .order('id', { ascending: true })
+        .range(von, von + POSTS_SEITENGROESSE - 1);
 
-    if (postsError) {
-      console.error('media-urls: posts-Select für lesen fehlgeschlagen', postsError);
-      return fehler('Momente konnten nicht geladen werden.', 500);
+      if (postsError) {
+        console.error('media-urls: posts-Select für lesen fehlgeschlagen', postsError);
+        return fehler('Momente konnten nicht geladen werden.', 500);
+      }
+      if (gezaehlt === null) gezaehlt = count ?? null;
+
+      const seitenZeilen = (data ?? []) as MedienZeile[];
+      postZeilen.push(...seitenZeilen);
+
+      // Leere Seite: mehr gibt es nicht. Diese Bedingung beendet die Schleife
+      // auch dann, wenn die Zählung fehlt — und sie terminiert sicher, weil
+      // jeder andere Durchgang den Versatz um mindestens eine Zeile schiebt.
+      if (seitenZeilen.length === 0) break;
+      // Vollzählig laut Zählung des ersten Durchgangs. Spart den sonst
+      // nötigen letzten, leeren Abruf.
+      if (gezaehlt !== null && postZeilen.length >= gezaehlt) break;
+    }
+
+    // Quergeprüft gegen die Zählung: Kommen am Ende weniger Zeilen zusammen,
+    // als die erste Seite versprochen hat, ist unterwegs etwas verlorengegangen
+    // — etwa ein Nachzügler-Insert, der die Seitengrenzen verschoben hat. Die
+    // Antwort geht trotzdem raus (ein unvollständiger Recap ist besser als
+    // gar keiner), aber die Lücke steht im Log statt niemandem aufzufallen.
+    if (gezaehlt !== null && postZeilen.length < gezaehlt) {
+      console.error('media-urls: lesen hat weniger Momente eingesammelt als gezählt.', {
+        trip_id: tripZeile.id,
+        gezaehlt,
+        eingesammelt: postZeilen.length,
+      });
     }
 
     if (!s3KonfigVollstaendig()) {
@@ -296,28 +357,33 @@ Deno.serve(async (req: Request): Promise<Response> => {
     let medien: MedienEintrag[];
     try {
       const aws = s3Client();
-      medien = await Promise.all(
-        ((postZeilen ?? []) as MedienZeile[]).map(async (zeile) => {
+      const eintraege = await Promise.all(
+        postZeilen.map(async (zeile): Promise<MedienEintrag | null> => {
           // Der signierte Pfad wird abgeleitet (keys.ts), nicht aus
           // storage_key übernommen. Beide sind heute identisch: `confirm`
           // schreibt genau diese abgeleiteten Werte in die Zeile, und
           // upload_status kann kein Client setzen (Spalten-Grant in
           // supabase/migrations/20260803090600_role_hardening.sql, dazu kein
-          // UPDATE-Recht auf posts). Eine Zeile mit upload_status='uploaded'
-          // trägt deshalb server-abgeleitete Schlüssel — belegt in
-          // confirm_integration_test.ts.
+          // UPDATE-Recht auf posts). Beides ist in pgTAP festgenagelt:
+          // supabase/tests/07_role_hardening_test.sql (Insert mit
+          // upload_status → 42501) und supabase/tests/12_upload_status_test.sql
+          // (Update auf upload_status → 42501). Eine Zeile mit
+          // upload_status='uploaded' trägt deshalb server-abgeleitete
+          // Schlüssel — zusätzlich belegt in confirm_integration_test.ts.
           //
-          // Trotzdem wird hier abgeleitet, denn diese Zusicherung liegt in
-          // einer anderen Datei: sie hängt an einem Spalten-Grant und einem
-          // fehlenden UPDATE-Recht. Ein späterer Import-Job mit
-          // Service-Role oder eine gelockerte Migration würde sie aufheben,
-          // ohne dass hier irgendetwas rot wird — und dann signierte diese
-          // Function einen client-gewählten Pfad. storage_key ist der
-          // EINZIGE Bestandteil des Pfades, den je ein Client geschrieben
-          // hat; ihn nicht zu benutzen macht den Leseweg unabhängig von
-          // allem ausserhalb dieser Datei. tripZeile.id statt der Spalte
-          // trip_id: nach dieser Reise wurde gefiltert, ein Objekt einer
-          // anderen Reise kann so gar nicht erst adressiert werden.
+          // Trotzdem wird hier abgeleitet, denn die Zusicherung wird
+          // anderswo gehalten: von einem Spalten-Grant, einem fehlenden
+          // UPDATE-Recht und den beiden pgTAP-Dateien, die sie bewachen.
+          // Eine Migration, die den Grant für ein späteres Feature lockert,
+          // lässt zwar jene Tests fallen — aber wer sie dann anpasst, sieht
+          // dieser Function nicht an, dass er ihr gerade die Grundlage
+          // entzieht. Ein Import-Job mit Service-Role umginge sie ganz.
+          // storage_key ist der EINZIGE Bestandteil des Pfades, den je ein
+          // Client geschrieben hat; ihn nicht zu benutzen macht den Leseweg
+          // unabhängig von allem ausserhalb dieser Datei. tripZeile.id statt
+          // der Spalte trip_id: nach dieser Reise wurde gefiltert, ein
+          // Objekt einer anderen Reise kann so gar nicht erst adressiert
+          // werden.
           const abgeleitet = erwarteteSchluessel(
             tripZeile.id,
             zeile.id,
@@ -325,32 +391,46 @@ Deno.serve(async (req: Request): Promise<Response> => {
             zeile.media_ext,
           );
 
-          // Stolperdraht: heute unerreichbar, deshalb ein Log und kein
-          // Sonderfall. Weicht der gespeicherte Pfad ab, ist genau die
-          // Zusicherung oben gebrochen — sichtbar, bevor jemand sie sucht.
+          // Weicht der gespeicherte Pfad von der Ableitung ab, fällt der
+          // Eintrag heraus — samt Log. Zwei Dinge können das auslösen, und
+          // für beide ist Auslassen die richtige Antwort: eine
+          // untergeschobene Zeile (die darf erst recht keine URL bekommen)
+          // oder eine Zeile aus einem anderen Schlüsselschema (dann liegen
+          // die Bytes woanders, und die abgeleitete URL zeigte ins Nichts —
+          // eine kaputte Kachel statt einer ehrlichen Lücke).
+          //
+          // Dass hier ausgelassen und nicht nur geloggt wird, hat einen
+          // zweiten Grund: Ein Alarm, der im Normalbetrieb mitläuft, wird
+          // gelernt zu überlesen, und ein echter Treffer geht darin unter.
+          // Der Normalbetrieb muss deshalb still sein — supabase/seed.sql
+          // schreibt seine Schlüssel seit Phase 5 im selben Schema.
           if (zeile.storage_key !== abgeleitet.storage_key) {
             console.error(
-              'media-urls: storage_key weicht vom abgeleiteten Pfad ab, signiert wird der abgeleitete.',
+              'media-urls: storage_key weicht vom abgeleiteten Pfad ab, Moment wird ausgelassen.',
               { post_id: zeile.id, gespeichert: zeile.storage_key, abgeleitet: abgeleitet.storage_key },
             );
+            return null;
           }
 
           const eintrag: MedienEintrag = {
             post_id: zeile.id,
             medium_url: await presignedGetUrl(aws, abgeleitet.storage_key),
           };
-          // thumb_key ist nullable und sagt hier nur EINES: ob es überhaupt
-          // ein Thumbnail gibt. Ohne diese Abfrage entstünde bei null eine
-          // Signatur auf den Pfad ".../null" — eine gültige URL auf ein
-          // Objekt, das es nicht gibt. Der Eintrag lässt thumb_url dann
+          // thumb_key ist nullable und wird hier nur als Ja/Nein gelesen: ob
+          // es überhaupt ein Thumbnail gibt. Ohne diese Abfrage entstünde bei
+          // null eine Signatur auf den Pfad ".../null" — eine gültige URL auf
+          // ein Objekt, das es nicht gibt. Der Eintrag lässt thumb_url dann
           // weg, damit die App den Fall sieht statt ihn zu laden. Der Pfad
-          // selbst kommt auch hier aus der Ableitung.
+          // kommt auch hier aus der Ableitung und nie aus der Spalte: ein
+          // Thumbnail ist der Inhalt eines Moments in klein, für die
+          // Versiegelung also nichts Geringeres als das Medium selbst.
           if (zeile.thumb_key) {
             eintrag.thumb_url = await presignedGetUrl(aws, abgeleitet.thumb_key);
           }
           return eintrag;
         }),
       );
+      medien = eintraege.filter((eintrag): eintrag is MedienEintrag => eintrag !== null);
     } catch (err) {
       console.error('media-urls: Signieren der Lese-URLs fehlgeschlagen', err);
       return fehler('Signieren fehlgeschlagen.', 502);

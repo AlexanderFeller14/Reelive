@@ -100,6 +100,10 @@ on conflict (trip_id, user_id) do nothing;
 -- storage_key/thumb_key zeigen auf noch nicht existierende R2-Objekte
 -- (Upload kommt in Phase 4). upload_status bleibt darum ehrlich 'pending',
 -- ausser wo ein fertiger Upload simuliert werden soll.
+--
+-- Die Schlüssel stehen hier sprechend ('trips/norwegen/001.jpg'), damit die
+-- Seed-Daten lesbar bleiben; ans echte Ablageschema zieht sie das UPDATE am
+-- Ende dieses Abschnitts. Warum das nötig ist, steht dort.
 
 -- Norwegen (versiegelt) — bewusst durcheinander eingesendet, damit auffällt,
 -- wenn irgendwo nach created_at statt nach captured_at sortiert wird.
@@ -144,6 +148,35 @@ insert into public.posts (trip_id, author_id, type, media_ext, storage_key, thum
   ('aaaaaaaa-0000-4000-8000-000000000003', '55555555-5555-4555-8555-555555555555', 'photo', 'jpg', 'trips/sardinien/004.jpg', 'trips/sardinien/004_t.jpg', null, null, '2025-09-14 18:22:00+02', 'Europe/Rome', 39.2238, 9.1217, 'Cagliari', 'uploaded', '2025-09-14 21:47:00+02'),
   ('aaaaaaaa-0000-4000-8000-000000000003', '11111111-1111-4111-8111-111111111111', 'photo', 'jpg', 'trips/sardinien/005.jpg', 'trips/sardinien/005_t.jpg', null, 'Zwei Wochen, 400 Kilometer, ein Reifen', '2025-09-20 10:05:00+02', 'Europe/Rome', 40.9265, 9.4986, 'Olbia', 'uploaded', '2025-09-20 10:12:00+02')
 on conflict do nothing;
+
+-- ---------------------------------------------------------------------------
+-- Schlüssel ans echte Ablageschema ziehen
+-- ---------------------------------------------------------------------------
+-- Das echte Schema ist 'trips/<trip_id>/<post_id>.<ext>' bzw. '…_t.jpg' —
+-- siehe supabase/functions/media-urls/keys.ts, dieselbe Ableitung, die `sign`,
+-- `confirm` und seit Phase 5 auch `lesen` benutzen. `lesen` leitet den Pfad
+-- selbst ab und lässt jeden Moment aus, dessen gespeicherter storage_key
+-- abweicht (sonst stellte es URLs auf Objekte aus, die es nie geben kann).
+-- Mit den sprechenden Pfaden von oben wäre die Lissabon-Filmrolle im Recap
+-- also schlicht leer, und jeder Aufruf schriebe zwölf Fehlerzeilen ins Log —
+-- die lokale Verifikation von Phase 5 liefe ins Leere und der Stolperdraht der
+-- Function wäre wertlos, weil er im Normalbetrieb dauernd schrillt.
+--
+-- Die Bytes fehlen im Bucket weiterhin (Seed lädt nichts hoch): ein GET auf
+-- eine dieser URLs gibt 404. Das ist unverändert und in Ordnung — es geht hier
+-- um den Pfad, nicht um den Inhalt.
+update public.posts set
+  storage_key = 'trips/' || trip_id || '/' || id || '.'
+    || coalesce(media_ext, case type when 'video' then 'mp4' else 'jpg' end),
+  thumb_key = case
+    when thumb_key is null then null
+    else 'trips/' || trip_id || '/' || id || '_t.jpg'
+  end
+where trip_id in (
+  'aaaaaaaa-0000-4000-8000-000000000001',
+  'aaaaaaaa-0000-4000-8000-000000000002',
+  'aaaaaaaa-0000-4000-8000-000000000003'
+);
 
 -- ===========================================================================
 -- Reaktionen & Kommentare — nur auf einer aufgedeckten Reise möglich
