@@ -76,6 +76,22 @@ jest.mock('@/features/recap/gesehen', () => ({
   revealGesehen: jest.fn(),
   merkeRevealGesehen: jest.fn(),
 }));
+// expo-image ist ein natives View — im Test reicht ein einfacher Platzhalter
+// (gleiches Muster wie uebersicht.test.tsx), der alle Props durchreicht.
+jest.mock('expo-image', () => {
+  const ReactActual = require('react');
+  const { View } = require('react-native');
+  return { Image: (props: object) => ReactActual.createElement(View, props) };
+});
+// Task 8, Phase 6: meldenApi hat ihre eigene, vollständige Testdatei
+// (features/recap/__tests__/meldenApi.test.ts) — hier nur Spione. urlVorrat
+// liefert hier nur die Vorschau-Thumbnails für die Moderationsliste.
+jest.mock('@/features/recap/meldenApi', () => ({
+  fetchMeldungen: jest.fn(),
+  verwirfMeldung: jest.fn(),
+  entferneMoment: jest.fn(),
+}));
+jest.mock('@/features/recap/urlVorrat', () => ({ holeVorrat: jest.fn() }));
 // Die Inszenierung selbst (Haptik, Timing, prefers-reduced-motion) ist in
 // RevealInszenierung.test.tsx abgesichert. Hier steht ein steuerbarer
 // Platzhalter: sichtbar rendert einen drückbaren Testknoten, ein Druck darauf
@@ -103,6 +119,8 @@ import { eigenerZaehler } from '@/features/moments/zaehler';
 import * as queueDb from '@/features/moments/queueDb';
 import { revealTrip } from '@/features/recap/recapApi';
 import { revealGesehen, merkeRevealGesehen } from '@/features/recap/gesehen';
+import { fetchMeldungen, verwirfMeldung, entferneMoment } from '@/features/recap/meldenApi';
+import { holeVorrat } from '@/features/recap/urlVorrat';
 
 const trip = {
   id: 't1', name: 'Norwegen mit dem Camper', start_date: '2026-08-01', end_date: '2026-08-14',
@@ -158,6 +176,11 @@ beforeEach(() => {
   // Tests, die explizit die Inszenierung wollen, überschreiben das mit `false`.
   (revealGesehen as jest.Mock).mockResolvedValue(true);
   (merkeRevealGesehen as jest.Mock).mockResolvedValue(undefined);
+  // Task 8, Phase 6: Default ohne offene Meldungen — die meisten bestehenden
+  // Tests in dieser Datei beschäftigen sich nicht mit Moderation. Tests, die
+  // das explizit wollen, überschreiben das mit eigenen Daten.
+  (fetchMeldungen as jest.Mock).mockResolvedValue({ data: [], error: null });
+  (holeVorrat as jest.Mock).mockResolvedValue({ vorrat: { urls: new Map(), gueltigBis: 0, ausgelassen: 0 }, error: null, grund: null });
 });
 
 test('zeigt Name, Zeitraum und Mitglieder', async () => {
@@ -831,5 +854,164 @@ test('«Recap starten» verwendet die tatsächliche Reise-Kennung, nicht fest ve
   expect(mockPush).toHaveBeenCalledWith({
     pathname: '/recap/[id]/uebersicht',
     params: { id: 'reise-xyz' },
+  });
+});
+
+// Task 8, Phase 6: Melden und Moderation.
+describe('Moderation (Task 8)', () => {
+  const meldungFixture = {
+    id: 'r1', post_id: 'p1', reason: 'Unpassend', created_at: '2026-08-05T09:30:00.000Z',
+  };
+  const erwarteteZeit = new Intl.DateTimeFormat('de-DE', {
+    day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
+  }).format(new Date(meldungFixture.created_at));
+
+  test('ohne offene Meldungen zeigt der Screen gar keinen Einstiegspunkt', async () => {
+    await wrap();
+    await screen.findByText('Norwegen mit dem Camper');
+    expect(screen.queryByTestId('moderation-oeffnen')).toBeNull();
+  });
+
+  test('die Owner-Person sieht «N gemeldete Momente» — ein Mitglied ohne Owner-Rolle NICHT, selbst mit denselben Daten', async () => {
+    (fetchMeldungen as jest.Mock).mockResolvedValue({ data: [meldungFixture], error: null });
+    await wrap();
+    expect(await screen.findByText('Ein gemeldeter Moment')).toBeTruthy();
+
+    mockAuth.userId = 'u2'; // Jonas, kein Owner
+    await wrap();
+    await screen.findByText('Norwegen mit dem Camper');
+    expect(screen.queryByTestId('moderation-oeffnen')).toBeNull();
+  });
+
+  test('der Singular/Plural-Text folgt der Anzahl', async () => {
+    (fetchMeldungen as jest.Mock).mockResolvedValue({
+      data: [meldungFixture, { ...meldungFixture, id: 'r2', post_id: 'p2' }],
+      error: null,
+    });
+    await wrap();
+    expect(await screen.findByText('2 gemeldete Momente')).toBeTruthy();
+  });
+
+  test('Tippen öffnet die Liste mit Vorschaubild, Grund und Zeitpunkt', async () => {
+    (fetchMeldungen as jest.Mock).mockResolvedValue({ data: [meldungFixture], error: null });
+    (holeVorrat as jest.Mock).mockResolvedValue({
+      vorrat: {
+        urls: new Map([['p1', { post_id: 'p1', medium_url: 'https://cdn.example/p1.jpg', thumb_url: 'https://cdn.example/p1-thumb.jpg' }]]),
+        gueltigBis: Date.now() + 999_999,
+        ausgelassen: 0,
+      },
+      error: null,
+      grund: null,
+    });
+    await wrap();
+    await fireEvent.press(await screen.findByText('Ein gemeldeter Moment'));
+    await screen.findByTestId('meldung-r1');
+
+    expect(screen.getByText('Unpassend')).toBeTruthy();
+    expect(screen.getByText(erwarteteZeit)).toBeTruthy();
+    expect(screen.getByTestId('meldung-vorschau-r1').props.source).toEqual({
+      uri: 'https://cdn.example/p1-thumb.jpg',
+    });
+  });
+
+  test('ohne Thumbnail im Vorrat erscheint eine leere Fläche statt eines kaputten Bildes', async () => {
+    (fetchMeldungen as jest.Mock).mockResolvedValue({ data: [meldungFixture], error: null });
+    (holeVorrat as jest.Mock).mockResolvedValue({
+      vorrat: { urls: new Map(), gueltigBis: Date.now() + 999_999, ausgelassen: 0 },
+      error: null,
+      grund: null,
+    });
+    await wrap();
+    await fireEvent.press(await screen.findByText('Ein gemeldeter Moment'));
+    await screen.findByTestId('meldung-r1');
+    expect(screen.queryByTestId('meldung-vorschau-r1')).toBeNull();
+  });
+
+  test('ein Ladefehler der Liste zeigt die Ursache mit Retry, keine leere Liste', async () => {
+    (fetchMeldungen as jest.Mock)
+      .mockResolvedValueOnce({ data: [meldungFixture], error: null }) // Startzähler
+      .mockResolvedValueOnce({ data: null as unknown as [], error: 'Die Meldungen konnten nicht geladen werden. Probier es gleich nochmal.' });
+    await wrap();
+    await fireEvent.press(await screen.findByText('Ein gemeldeter Moment'));
+    expect(
+      await screen.findByText('Die Meldungen konnten nicht geladen werden. Probier es gleich nochmal.')
+    ).toBeTruthy();
+    expect(screen.queryByTestId('meldung-r1')).toBeNull();
+  });
+
+  test('«Meldung verwerfen» entfernt die Zeile und verringert den Zähler — der Moment selbst bleibt unberührt (kein entferneMoment-Aufruf)', async () => {
+    (fetchMeldungen as jest.Mock).mockResolvedValue({ data: [meldungFixture], error: null });
+    (verwirfMeldung as jest.Mock).mockResolvedValue({ error: null });
+    await wrap();
+    await fireEvent.press(await screen.findByText('Ein gemeldeter Moment'));
+    await screen.findByTestId('meldung-r1');
+
+    await fireEvent.press(screen.getByText('Meldung verwerfen'));
+    expect(verwirfMeldung).toHaveBeenCalledWith('r1');
+    expect(entferneMoment).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.queryByTestId('meldung-r1')).toBeNull());
+    expect(screen.getByText('Keine offenen Meldungen mehr.')).toBeTruthy();
+    // Der Einstiegspunkt verschwindet, weil die Anzahl jetzt 0 ist.
+    expect(screen.queryByTestId('moderation-oeffnen')).toBeNull();
+  });
+
+  test('ein Fehlschlag beim Verwerfen zeigt die Ursache an GENAU dieser Zeile, die Liste bleibt bestehen', async () => {
+    (fetchMeldungen as jest.Mock).mockResolvedValue({ data: [meldungFixture], error: null });
+    (verwirfMeldung as jest.Mock).mockResolvedValue({
+      error: 'Die Meldung konnte nicht verworfen werden. Probier es gleich nochmal.',
+    });
+    await wrap();
+    await fireEvent.press(await screen.findByText('Ein gemeldeter Moment'));
+    await screen.findByTestId('meldung-r1');
+    await fireEvent.press(screen.getByText('Meldung verwerfen'));
+    expect(
+      await screen.findByText('Die Meldung konnte nicht verworfen werden. Probier es gleich nochmal.')
+    ).toBeTruthy();
+    expect(screen.getByTestId('meldung-r1')).toBeTruthy();
+  });
+
+  // Alert.alert ist global gemockt (siehe Dateikopf) und ruft den
+  // destruktiven Knopf sofort auf — «Moment entfernen» braucht darum keine
+  // separate Bestätigungs-Simulation, exakt wie loeschen()/entfernen() oben.
+  test('«Moment entfernen» fragt destruktiv nach (warning-Haptik) und entfernt danach den Moment UND die Zeile', async () => {
+    (fetchMeldungen as jest.Mock).mockResolvedValue({ data: [meldungFixture], error: null });
+    (entferneMoment as jest.Mock).mockResolvedValue({ error: null });
+    await wrap();
+    await fireEvent.press(await screen.findByText('Ein gemeldeter Moment'));
+    await screen.findByTestId('meldung-r1');
+
+    await fireEvent.press(screen.getByText('Moment entfernen'));
+    expect(Haptics.notificationAsync).toHaveBeenCalledWith('warning');
+    expect(entferneMoment).toHaveBeenCalledWith('p1');
+    await waitFor(() => expect(screen.queryByTestId('meldung-r1')).toBeNull());
+    expect(screen.getByText('Keine offenen Meldungen mehr.')).toBeTruthy();
+  });
+
+  test('ein Fehlschlag beim Entfernen zeigt die Ursache an GENAU dieser Zeile, die Liste bleibt bestehen', async () => {
+    (fetchMeldungen as jest.Mock).mockResolvedValue({ data: [meldungFixture], error: null });
+    (entferneMoment as jest.Mock).mockResolvedValue({
+      error: 'Der Moment konnte nicht entfernt werden. Probier es gleich nochmal.',
+    });
+    await wrap();
+    await fireEvent.press(await screen.findByText('Ein gemeldeter Moment'));
+    await screen.findByTestId('meldung-r1');
+    await fireEvent.press(screen.getByText('Moment entfernen'));
+    expect(
+      await screen.findByText('Der Moment konnte nicht entfernt werden. Probier es gleich nochmal.')
+    ).toBeTruthy();
+    expect(screen.getByTestId('meldung-r1')).toBeTruthy();
+  });
+
+  test('das Öffnen lädt die Liste FRISCH — nicht den beim ersten Laden gesehenen Stand', async () => {
+    (fetchMeldungen as jest.Mock)
+      .mockResolvedValueOnce({ data: [meldungFixture], error: null }) // beim ersten laden()
+      .mockResolvedValueOnce({
+        data: [meldungFixture, { ...meldungFixture, id: 'r2', post_id: 'p2', reason: 'Zweite Meldung' }],
+        error: null,
+      });
+    await wrap();
+    await fireEvent.press(await screen.findByText('Ein gemeldeter Moment'));
+    expect(await screen.findByText('Zweite Meldung')).toBeTruthy();
+    expect(fetchMeldungen).toHaveBeenCalledTimes(2);
   });
 });

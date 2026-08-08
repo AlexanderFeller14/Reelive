@@ -179,6 +179,15 @@ jest.mock('@/features/recap/exportApi', () => ({ sichereMomentInGalerie: jest.fn
 const mockOpenSettings = jest.fn(() => Promise.resolve());
 jest.mock('expo-linking', () => ({ openSettings: () => mockOpenSettings() }));
 
+// Task 8: meldenApi hat ihre eigene, vollständige Testdatei
+// (features/recap/__tests__/meldenApi.test.ts) — hier nur ein Spion auf
+// `meldeMoment`, der Player ruft nichts anderes daraus auf. `MELDEN_MAX_LAENGE`
+// bleibt echt (reine Konstante, exportiert für die Input-`maxLength`-Prop).
+jest.mock('@/features/recap/meldenApi', () => ({
+  ...jest.requireActual('@/features/recap/meldenApi'),
+  meldeMoment: jest.fn(),
+}));
+
 import RecapPlayer from '../[id]/player';
 import { fetchTrip } from '@/features/trips/tripsApi';
 import { fetchRecapMomente } from '@/features/recap/recapApi';
@@ -188,6 +197,7 @@ import {
 } from '@/features/recap/sozialApi';
 import type { RecapMoment } from '@/features/recap/types';
 import { sichereMomentInGalerie } from '@/features/recap/exportApi';
+import { meldeMoment } from '@/features/recap/meldenApi';
 
 const trip = {
   id: 't1', name: 'Lissabon Städtetrip', start_date: '2026-08-10', end_date: '2026-08-14',
@@ -245,6 +255,10 @@ beforeEach(() => {
   // aus — ein Default hier hält den Rest der Suite unverändert grün.
   (fetchReaktionen as jest.Mock).mockResolvedValue({ data: {}, error: null });
   (fetchKommentare as jest.Mock).mockResolvedValue({ data: [], error: null });
+  // Task 8: Default für Tests ausserhalb des Melden-Blocks, die zufällig ein
+  // langes Tippen auslösen könnten (keiner tut das, aber gleiches
+  // Vorsichtsprinzip wie bei fetchReaktionen/fetchKommentare oben).
+  (meldeMoment as jest.Mock).mockResolvedValue({ error: null });
 });
 
 describe('Laden & Randfälle', () => {
@@ -1831,5 +1845,189 @@ describe('«In Galerie sichern»', () => {
     await fireEvent.press(screen.getByTestId('player-sichern'));
     await act(async () => {});
     expect(sichereMomentInGalerie).toHaveBeenCalledTimes(2);
+  });
+});
+
+// Task 8, Phase 6: Melden und Moderation. "Auf dem Gerät wirklich
+// erreichbar" (Vorlage: der zIndex-Test aus Phase 5, siehe "Tages-
+// Zwischenkarte"/"Reaktionen" oben) heisst hier etwas anderes als dort: in
+// Phase 5 lag eine ZWEITE, konkurrierende Fläche versehentlich UNTER den
+// Tipp-Zonen — ein reines fireEvent.press-Rendertest sah das nie, weil es
+// keine Geometrie/Stapelung prüft. Für das lange Tippen gibt es keine zweite
+// Fläche: `onLongPress` hängt an GENAU denselben Pressable-Knoten
+// (`player-links`/`player-rechts`), die bereits onPressIn/onPressOut tragen
+// und die die zIndex-Tests oben als vordersten, tatsächlich Berührungen
+// empfangenden Layer in ihrer Bildschirmhälfte nachweisen — es gibt also
+// keine neue Stapelfrage zu beweisen. Jeder Test unten feuert das Ereignis
+// deshalb bewusst auf genau diesem, bereits als erreichbar erwiesenen
+// Knoten (nicht auf einer neuen, separat einzuführenden Testkomponente).
+describe('Melden (Task 8)', () => {
+  test('ein langes Tippen auf die Tipp-Zone öffnet das Melden-Sheet und pausiert den Player', async () => {
+    (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
+    (holeVorrat as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+    await wrap();
+
+    await fireEvent(screen.getByTestId('player-rechts'), 'longPress');
+    await act(async () => {});
+    expect(screen.getByText('Diesen Moment melden')).toBeTruthy();
+    expect(screen.getByTestId('melden-grund')).toBeTruthy();
+
+    // Pausiert: selbst nach Ablauf der vollen Fotodauer bleibt p1 stehen.
+    await act(async () => {
+      jest.advanceTimersByTime(5000);
+    });
+    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: bild('p1').medium_url });
+  });
+
+  test('das lange Tippen funktioniert von der LINKEN wie von der RECHTEN Tipp-Zone aus', async () => {
+    (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
+    (holeVorrat as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+    await wrap();
+    await fireEvent(screen.getByTestId('player-links'), 'longPress');
+    await act(async () => {});
+    expect(screen.getByTestId('melden-grund')).toBeTruthy();
+  });
+
+  // Brief, wörtlich: "Der Moment bleibt sichtbar — Melden ist kein
+  // Verstecken." Weder das Öffnen des Sheets noch ein erfolgreiches Senden
+  // (siehe weiter unten) dürfen `spielliste`/`urls` anfassen.
+  test('der Moment bleibt sichtbar, während das Melden-Sheet offen ist', async () => {
+    (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
+    (holeVorrat as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+    await wrap();
+    await fireEvent(screen.getByTestId('player-rechts'), 'longPress');
+    await act(async () => {});
+    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: bild('p1').medium_url });
+  });
+
+  test('der Senden-Knopf bleibt deaktiviert, solange kein Grund eingetragen ist — auch bei reinen Leerzeichen', async () => {
+    (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
+    (holeVorrat as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+    await wrap();
+    await fireEvent(screen.getByTestId('player-rechts'), 'longPress');
+    await act(async () => {});
+    expect(screen.getByTestId('melden-senden').props.accessibilityState.disabled).toBe(true);
+
+    await fireEvent.changeText(screen.getByTestId('melden-grund'), '   ');
+    expect(screen.getByTestId('melden-senden').props.accessibilityState.disabled).toBe(true);
+
+    await fireEvent.changeText(screen.getByTestId('melden-grund'), 'Unpassend');
+    expect(screen.getByTestId('melden-senden').props.accessibilityState.disabled).toBe(false);
+  });
+
+  test('Erfolg: sendet den Grund für den AKTIVEN Moment und zeigt danach eine Bestätigung', async () => {
+    (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
+    (holeVorrat as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+    await wrap();
+    await fireEvent(screen.getByTestId('player-rechts'), 'longPress');
+    await act(async () => {});
+    await fireEvent.changeText(screen.getByTestId('melden-grund'), 'Sieht komisch aus');
+    await fireEvent.press(screen.getByTestId('melden-senden'));
+    await act(async () => {});
+
+    expect(meldeMoment).toHaveBeenCalledWith('p1', 'Sieht komisch aus');
+    expect(screen.getByTestId('melden-bestaetigung')).toBeTruthy();
+    expect(screen.queryByTestId('melden-grund')).toBeNull();
+    // Weiterhin derselbe Moment — die Bestätigung ersetzt nur den
+    // Sheet-Inhalt, nicht den Player dahinter.
+    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: bild('p1').medium_url });
+  });
+
+  test('ein Fehlschlag zeigt die Ursache am Formular, ohne die Bestätigung zu zeigen — das Sheet bleibt bedienbar', async () => {
+    (meldeMoment as jest.Mock).mockResolvedValue({
+      error: 'Deine Meldung konnte nicht gesendet werden. Probier es gleich nochmal.',
+    });
+    (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
+    (holeVorrat as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+    await wrap();
+    await fireEvent(screen.getByTestId('player-rechts'), 'longPress');
+    await act(async () => {});
+    await fireEvent.changeText(screen.getByTestId('melden-grund'), 'Sieht komisch aus');
+    await fireEvent.press(screen.getByTestId('melden-senden'));
+    await act(async () => {});
+
+    expect(
+      screen.getByText('Deine Meldung konnte nicht gesendet werden. Probier es gleich nochmal.')
+    ).toBeTruthy();
+    expect(screen.queryByTestId('melden-bestaetigung')).toBeNull();
+    expect(screen.getByTestId('melden-grund')).toBeTruthy();
+  });
+
+  test('ein zweiter Tipp auf Senden, während die erste Anfrage noch läuft, löst KEINEN zweiten Aufruf aus', async () => {
+    let aufloesen!: (wert: { error: null }) => void;
+    (meldeMoment as jest.Mock).mockReturnValue(new Promise((resolve) => { aufloesen = resolve; }));
+    (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
+    (holeVorrat as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+    await wrap();
+    await fireEvent(screen.getByTestId('player-rechts'), 'longPress');
+    await act(async () => {});
+    await fireEvent.changeText(screen.getByTestId('melden-grund'), 'Sieht komisch aus');
+    await fireEvent.press(screen.getByTestId('melden-senden')); // sendetLaeuft=true, hängt
+    await act(async () => {});
+    await fireEvent.press(screen.getByTestId('melden-senden'));
+    await act(async () => {
+      aufloesen({ error: null });
+    });
+    expect(meldeMoment).toHaveBeenCalledTimes(1);
+  });
+
+  // Schliessen (Sheet-Backdrop-Tipp) setzt den Pausier-Grund zurück — der
+  // Auto-Vorschub läuft danach normal weiter (gleiches Prinzip wie der
+  // erste Kommentar-Sheet-Test oben). start='1' (p2, Video) wie im
+  // Kommentar-Test dort — am ALLERERSTEN Moment (index 0) steht zusätzlich
+  // die Tages-Zwischenkarte (eigener, unabhängiger Pausier-Grund), die die
+  // Prüfung sonst verfälschen würde.
+  test('Schliessen setzt den Pausier-Grund zurück — der Auto-Vorschub läuft danach normal weiter', async () => {
+    mockParams = { id: 't1', start: '1' }; // p2 (Video) — kein Tageswechsel zu p3
+    (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
+    (holeVorrat as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+    await wrap();
+    await fireEvent(screen.getByTestId('player-rechts'), 'longPress');
+    await act(async () => {});
+    await fireEvent.press(screen.getByTestId('sheet-backdrop'));
+    await act(async () => {
+      jest.advanceTimersByTime(3000); // dauerFuer(p2) = max(1000, 3*1000) = 3000ms
+    });
+    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: bild('p3').medium_url });
+  });
+
+  // Stale-Guard (gleiches Prinzip wie kommentarAbsenden): eine spät
+  // eintreffende Antwort für einen längst verlassenen Moment darf eine NEU
+  // geöffnete Sitzung für einen ANDEREN Moment nicht fälschlich als
+  // "bestätigt" zeigen.
+  test('eine hängende Meldung für einen verlassenen Moment zeigt ihre späte Antwort NICHT auf einer neu geöffneten Sitzung', async () => {
+    let aufloesenErsteAnfrage!: (wert: { error: null }) => void;
+    (meldeMoment as jest.Mock).mockImplementationOnce(
+      () => new Promise((resolve) => { aufloesenErsteAnfrage = resolve; })
+    );
+    (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
+    (holeVorrat as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+    await wrap();
+
+    // Öffnet für p1, sendet — hängt.
+    await fireEvent(screen.getByTestId('player-rechts'), 'longPress');
+    await act(async () => {});
+    await fireEvent.changeText(screen.getByTestId('melden-grund'), 'Erstes');
+    await fireEvent.press(screen.getByTestId('melden-senden'));
+    await act(async () => {});
+
+    // Schliessen, ohne auf die Antwort zu warten, weiter zu p2, erneut öffnen
+    // (frische Sitzung, noch nichts abgeschickt).
+    await fireEvent.press(screen.getByTestId('sheet-backdrop'));
+    await fireEvent(screen.getByTestId('player-rechts'), 'pressIn');
+    await fireEvent(screen.getByTestId('player-rechts'), 'pressOut');
+    await act(async () => {});
+    await fireEvent(screen.getByTestId('player-rechts'), 'longPress');
+    await act(async () => {});
+    expect(screen.getByTestId('melden-grund')).toBeTruthy(); // frisches, leeres Formular für p2
+
+    // Die alte, hängende Antwort für p1 trifft jetzt ein.
+    await act(async () => {
+      aufloesenErsteAnfrage({ error: null });
+    });
+    // Die neue Sitzung (p2) bleibt unberührt: keine fälschliche Bestätigung,
+    // das Formular ist weiterhin da.
+    expect(screen.queryByTestId('melden-bestaetigung')).toBeNull();
+    expect(screen.getByTestId('melden-grund')).toBeTruthy();
   });
 });

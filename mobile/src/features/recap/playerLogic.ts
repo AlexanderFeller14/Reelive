@@ -18,7 +18,11 @@ import { gruppiereNachTagen } from './tage';
 // gesetzt hat (mitGrund/ohneGrund unten) — ein zurückgenommener Grund, den
 // eine andere Stelle längst selbst schon entfernt hat, ist ein sicheres
 // No-Op, kein Fehler. Der Player läuft, sobald das Set leer ist.
-export type PauseGrund = 'halten' | 'kommentare' | 'zwischenkarte' | 'neuversuch';
+// Task 8, Phase 6: 'melden' kam dazu — dasselbe Prinzip wie 'kommentare', ein
+// eigener, unabhängig zurücknehmbarer Grund für das «Diesen Moment melden»-
+// Sheet, kein zweiter, separat geführter Boolean daneben (siehe player.tsx,
+// oeffneMelden/schliesseMelden).
+export type PauseGrund = 'halten' | 'kommentare' | 'zwischenkarte' | 'neuversuch' | 'melden';
 
 export type PlayerStand = { index: number; pausiert: ReadonlySet<PauseGrund>; fortschritt: number };
 
