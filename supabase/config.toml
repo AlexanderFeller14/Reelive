@@ -467,3 +467,38 @@ enabled = true
 verify_jwt = true
 import_map = "./functions/reveal-trip/deno.json"
 entrypoint = "./functions/reveal-trip/index.ts"
+
+# share-link (Phase 6) — der zweite Leseweg auf Medien und der erste OHNE jede
+# Anmeldung.
+[functions.share-link]
+enabled = true
+# ============================================================================
+# ACHTUNG: Diese Function ist die EINZIGE mit verify_jwt = false. Warum, und
+# was daran hängt:
+# ============================================================================
+# media-urls und reveal-trip stehen oben mit verify_jwt = true — dort ist das
+# Gateway die erste von zwei Hürden, und der Handler prüft die Identität
+# danach noch einmal selbst.
+#
+# Hier geht das nicht. Die Aktion `aufloesen` ist der Weg, über den jemand
+# OHNE Konto einen geteilten Recap anschaut: kein JWT, kein Anon-Key, nichts
+# (Spec §4, W5 — «Wer den Link hat, braucht kein Konto»). Das Gateway muss
+# also durchlassen, und weil verify_jwt für die ganze Function gilt und nicht
+# pro Aktion, fällt die Gateway-Hürde damit für ALLE drei Aktionen weg.
+#
+# Folge, die nicht verhandelbar ist: `erstellen` und `widerrufen` prüfen das
+# JWT SELBST (supabaseAdmin.auth.getUser in index.ts). Bei den beiden anderen
+# Functions ist dieselbe Prüfung eine zweite Absicherung; hier ist sie die
+# einzige. Wer sie entfernt, hinter eine Bedingung stellt oder einen neuen
+# Zweig oberhalb von ihr einhängt, macht das Erstellen und Widerrufen von
+# Share-Links für jeden Anonymen aufrufbar. index.ts ist deshalb so gebaut,
+# dass `aufloesen` ganz oben abzweigt und alles darunter unbedingt durch die
+# Identitätsprüfung läuft.
+#
+# Was den öffentlichen Zweig trägt, ist stattdessen der Token selbst
+# (32 Hex-Zeichen aus gen_random_bytes(16), also 2^128 Möglichkeiten) plus die
+# Prüfkette in functions/share-link/aufloesung.ts. Deren vier Ablehnungen sind
+# byte-gleich, damit die Function kein Orakel wird.
+verify_jwt = false
+import_map = "./functions/share-link/deno.json"
+entrypoint = "./functions/share-link/index.ts"
