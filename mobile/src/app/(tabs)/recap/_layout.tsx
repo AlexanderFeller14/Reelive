@@ -14,6 +14,12 @@ import { cinema } from '@/theme/tokens';
 // Der Player blendet innen zusätzlich einen dunklen Overlay aus; ohne die
 // Routen-Ebene hier bliebe darunter aber der weisse Stack-Grund stehen und der
 // Wechsel begänne hell.
+//
+// Phase-5-Final-Review, Punkt 5: der Player ist Vollbild — die Tab-Bar
+// bleibt bewusst NICHT sichtbar, wenn diese Route aktiv ist. `tabBarStyle`
+// gehört dem Tabs-Navigator, nicht diesem verschachtelten Stack — die
+// Abschaltung sitzt darum in `(tabs)/_layout.tsx` (dort per `useSegments()`),
+// nicht hier.
 export default function RecapStackLayout() {
   const { colors } = useTheme();
   return (
