@@ -119,6 +119,19 @@ const VORRAT_OHNE_THUMB = {
   ]),
 };
 
+// Ein Vorrat, wie ihn eine ältere Function liefern kann: `medium_url` fehlt
+// ganz. `MedienUrl` verspricht dort einen `string` — urlVorrat.ts übernimmt das
+// Feld aber ungeprüft aus der Antwort (Zeile 141), der Typ lügt also. Genau
+// deshalb steht die Umgehung hier als Cast: sie bildet nach, was zur Laufzeit
+// ankommt, nicht was der Typ behauptet.
+const VORRAT_OHNE_JEDES_BILD = {
+  ...VORRAT_OK,
+  urls: new Map<string, MedienUrl>([
+    ...VORRAT_OK.urls,
+    ['p1', { post_id: 'p1', thumb_url: null } as unknown as MedienUrl],
+  ]),
+};
+
 const wrap = () => render(<ThemeProvider><RecapKarte /></ThemeProvider>);
 
 function ladeErfolg(momente = VOLLSTAENDIG, vorrat = VORRAT_OK) {
@@ -195,6 +208,34 @@ test('fehlt das Thumbnail, nimmt die Nadel das mittlere Bild', async () => {
   await wrap();
   const nadel = await screen.findByTestId('karte-nadel-p1');
   expect(within(nadel).getByTestId('nadel-bild').props.source.uri).toBe(bild('p1').medium_url);
+});
+
+// Fixrunde 1, Punkt 3: fehlt in der Antwort der Function auch `medium_url`,
+// hat die Nadel keine Bildquelle. Sie darf dann nicht als «lädt noch» dastehen
+// und für immer bei jedem Frame neu gezeichnet werden — es kommt nichts mehr.
+test('ohne jede Bildquelle zeigt die Nadel keinen Bildknoten', async () => {
+  ladeErfolg(VOLLSTAENDIG, VORRAT_OHNE_JEDES_BILD);
+  await wrap();
+  const nadel = await screen.findByTestId('karte-nadel-p1');
+  expect(within(nadel).queryByTestId('nadel-bild')).toBeNull();
+  expect(within(nadel).getByTestId('nadel-skelett')).toBeTruthy();
+});
+
+test('ohne jede Bildquelle hoert die Nadel trotzdem auf, sich zu zeichnen', async () => {
+  ladeErfolg(VOLLSTAENDIG, VORRAT_OHNE_JEDES_BILD);
+  await wrap();
+  const nadel = await screen.findByTestId('karte-nadel-p1');
+  expect(nadel.props.tracksViewChanges).toBe(false);
+});
+
+// Fixrunde 1, Punkt 5: der Marker wird gerastert — was in der Nadel steht, ist
+// für VoiceOver danach nicht mehr erreichbar. Die Beschriftung muss am Marker
+// hängen, den der Screen setzt.
+test('jede Nadel traegt eine Beschriftung fuer VoiceOver', async () => {
+  ladeErfolg();
+  await wrap();
+  const nadel = await screen.findByTestId('karte-nadel-p1');
+  expect(nadel.props.accessibilityLabel).toBe('Moment von Lea um 10:00 öffnen');
 });
 
 // DER Punkt, an dem dieser Screen technisch kippt (Spec §5.4, Task-6-Brief):

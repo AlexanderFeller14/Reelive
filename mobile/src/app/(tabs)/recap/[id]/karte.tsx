@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
-import MapView, { Marker, Polyline, type Region } from 'react-native-maps';
+import MapView, { Polyline, type Region } from 'react-native-maps';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { ChevronLeft } from 'lucide-react-native';
-import { KartenNadel } from '@/components/KartenNadel';
+import { KartenNadelMarker } from '@/components/KartenNadel';
 import { Pille } from '@/components/Pille';
 import { PressScale } from '@/components/PressScale';
 import { meldeFehler } from '@/lib/fehlermelder';
@@ -21,6 +21,17 @@ import type { Ausschnitt, KartenPunkt } from '@/features/karte/typen';
 // Grund neu rechnen.
 const KEINE_URLS: ReadonlyMap<string, MedienUrl> = new Map();
 
+// Eine URL, mit der sich tatsächlich ein Bild laden lässt — oder `null`.
+//
+// `MedienUrl.medium_url` ist als `string` typisiert, wird in urlVorrat.ts aber
+// ungeprüft aus der Antwort der Function übernommen. Fehlt das Feld dort (App
+// und Function werden getrennt ausgerollt — derselbe Grund, aus dem `ausgelassen`
+// weich gelesen wird), lügt der Typ, und ohne diese Prüfung ginge ein
+// `undefined` als Bildquelle an die Nadel.
+function brauchbareUrl(wert: string | null | undefined): string | null {
+  return typeof wert === 'string' && wert.length > 0 ? wert : null;
+}
+
 // Das Bild der Nadel. `thumb_url` fehlt, wenn `media-urls` für den Moment
 // keinen `thumb_key` hatte (siehe supabase/functions/media-urls/index.ts) —
 // dann trägt das mittlere Bild die Nadel, genau wie in uebersicht.tsx. Ohne
@@ -28,44 +39,7 @@ const KEINE_URLS: ReadonlyMap<string, MedienUrl> = new Map();
 function nadelBild(urls: ReadonlyMap<string, MedienUrl>, momentId: string): string | null {
   const url = urls.get(momentId);
   if (!url) return null;
-  return url.thumb_url ?? url.medium_url;
-}
-
-// Eine Nadel samt ihrem Marker — als eigene Komponente, weil `bereit` zu
-// GENAU EINER Nadel gehört. Läge der Zustand als Menge im Screen, zöge jedes
-// eintreffende Bild ein Rendern aller Nadeln nach sich.
-//
-// `tracksViewChanges` ist die Stelle, an der dieser Screen technisch kippt.
-// Der Wert sagt react-native-maps, ob es die Nadel weiter nachzeichnen soll:
-//
-// - dauerhaft `true`: jede Nadel wird bei jedem Frame neu gerendert; ab einer
-//   Handvoll Nadeln ruckelt die Karte sichtbar.
-// - dauerhaft `false`: die Nadel friert in dem Zustand ein, den sie beim
-//   ersten Zeichnen hatte. Das Bild kommt aber erst danach aus dem Netz —
-//   stehen bliebe also der leere Kreis, für immer.
-//
-// Deshalb: nachzeichnen, bis das Bild steht, und ab da nicht mehr. Wann es
-// steht, weiss nur die Nadel selbst (`onBereit`).
-function NadelMarker({ punkt, thumbUrl }: { punkt: KartenPunkt; thumbUrl: string | null }) {
-  const [bereit, setBereit] = useState(false);
-  const merkeBereit = useCallback(() => setBereit(true), []);
-
-  // Eine neue URL ist ein neues Bild (der Vorrat erneuert seine Signaturen,
-  // bevor sie ablaufen): bis es geladen ist, muss die Nadel wieder
-  // nachgezeichnet werden.
-  useEffect(() => {
-    setBereit(false);
-  }, [thumbUrl]);
-
-  return (
-    <Marker
-      testID={`karte-nadel-${punkt.moment.id}`}
-      coordinate={{ latitude: punkt.lat, longitude: punkt.lng }}
-      tracksViewChanges={!bereit}
-    >
-      <KartenNadel moment={punkt.moment} thumbUrl={thumbUrl} onBereit={merkeBereit} />
-    </Marker>
-  );
+  return brauchbareUrl(url.thumb_url) ?? brauchbareUrl(url.medium_url);
 }
 
 // Die Karte als zweite Lesart desselben Recaps (Spec §5.2): dieselbe Ebene
@@ -198,7 +172,7 @@ export default function RecapKarte() {
           )}
 
           {punkte.map((p) => (
-            <NadelMarker key={p.moment.id} punkt={p} thumbUrl={nadelBild(urls, p.moment.id)} />
+            <KartenNadelMarker key={p.moment.id} punkt={p} thumbUrl={nadelBild(urls, p.moment.id)} />
           ))}
         </MapView>
       )}

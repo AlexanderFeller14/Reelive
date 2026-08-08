@@ -1,6 +1,8 @@
 import { render, screen, fireEvent } from '@testing-library/react-native';
+import { Animated } from 'react-native';
 import { ThemeProvider } from '@/theme/ThemeProvider';
 import type { RecapMoment } from '@/features/recap/types';
+import type { KartenPunkt } from '@/features/karte/typen';
 
 // expo-image ist ein natives View — im Test reicht ein Platzhalter, der alle
 // Props (`source`, `testID`, `onLoad`, `onError`) durchreicht. Gleiches Muster
@@ -13,7 +15,30 @@ jest.mock('expo-image', () => {
   return { Image: (props: object) => ReactActual.createElement(View, props) };
 });
 
-import { KartenNadel } from '../KartenNadel';
+// Eigener Maps-Mock statt des globalen aus jest.setup.ts: er schreibt JEDEN
+// Wert mit, den `tracksViewChanges` je hatte. Der Umweg ist nötig, weil der
+// Wert nach einer Prop-Änderung nur für EINEN Commit auf `true` steht — genau
+// den einen, der die Nadel neu zeichnen lässt. React spielt Render und Effekt
+// innerhalb desselben `act()` ab; im Endzustand steht wieder `false`, und ein
+// Test, der nur den Endzustand liest, könnte «springt wieder an» gar nicht
+// von «ist nie angesprungen» unterscheiden.
+const mockTracksVerlauf: unknown[] = [];
+jest.mock('react-native-maps', () => {
+  const ReactActual = require('react');
+  const { View } = require('react-native');
+  return {
+    __esModule: true,
+    default: (props: Record<string, unknown>) => ReactActual.createElement(View, props, props.children),
+    Marker: (props: Record<string, unknown>) => {
+      mockTracksVerlauf.push(props.tracksViewChanges);
+      return ReactActual.createElement(View, props, props.children);
+    },
+    Polyline: (props: Record<string, unknown>) => ReactActual.createElement(View, props),
+    PROVIDER_DEFAULT: undefined,
+  };
+});
+
+import { KartenNadel, KartenNadelMarker } from '../KartenNadel';
 
 function moment(overrides: Partial<RecapMoment> = {}): RecapMoment {
   return {
@@ -27,25 +52,69 @@ function moment(overrides: Partial<RecapMoment> = {}): RecapMoment {
 const fotoMoment = moment();
 const videoMoment = moment({ id: 'p2', type: 'video', duration_s: 12 });
 
+const punkt: KartenPunkt = { moment: fotoMoment, lat: 38.71, lng: -9.14, index: 0 };
+const videoPunkt: KartenPunkt = { moment: videoMoment, lat: 38.71, lng: -9.14, index: 0 };
+
 const wrap = (ui: React.ReactElement) => render(<ThemeProvider>{ui}</ThemeProvider>);
+const huelle = (ui: React.ReactElement) => <ThemeProvider>{ui}</ThemeProvider>;
+
+// Nimmt den mitgeschriebenen Verlauf heraus und leert ihn — so bezieht sich
+// jede Zusicherung auf genau den Abschnitt seit dem letzten Aufruf.
+function tracksSeitDann(): unknown[] {
+  return mockTracksVerlauf.splice(0);
+}
+
+// Der Puls lässt sich nicht am gerenderten Wert ablesen: `Animated` flacht die
+// Opazität auf eine Zahl ab und rührt sie unter `useNativeDriver` in Jest nie
+// wieder an. Beobachtbar ist nur, OB eine Schleife gestartet wurde — und genau
+// das unterscheidet den pulsenden Skeleton von einer stillen Fläche.
+let pulsSpion: jest.SpyInstance;
+
+beforeEach(() => {
+  mockTracksVerlauf.length = 0;
+  pulsSpion = jest.spyOn(Animated, 'loop');
+});
+
+afterEach(() => {
+  jest.restoreAllMocks();
+});
 
 test('zeigt das Thumbnail des Moments', async () => {
   await wrap(<KartenNadel moment={fotoMoment} thumbUrl="https://x/t.jpg" />);
   expect(screen.getByTestId('nadel-bild').props.source.uri).toBe('https://x/t.jpg');
 });
 
-test('ohne Thumbnail steht ein Skeleton-Kreis', async () => {
+// Fixrunde 1, Punkt 1: DAS ist der Zustand, den man auf langsamer Verbindung
+// wirklich sieht — die URL ist längst da, das Bild noch nicht. Vorher hing der
+// Skeleton an der fehlenden URL und war damit im Produktivpfad unerreichbar:
+// der Screen setzt eine Nadel nur für Momente, die im Vorrat stehen.
+test('solange das Bild laedt, pulst der Skeleton unter ihm', async () => {
+  await wrap(<KartenNadel moment={fotoMoment} thumbUrl="https://x/t.jpg" />);
+  expect(screen.getByTestId('nadel-skelett')).toBeTruthy();
+  expect(screen.getByTestId('nadel-bild')).toBeTruthy();
+  expect(pulsSpion).toHaveBeenCalled();
+});
+
+test('nach dem Laden ist der Skeleton weg', async () => {
+  await wrap(<KartenNadel moment={fotoMoment} thumbUrl="https://x/t.jpg" />);
+  await fireEvent(screen.getByTestId('nadel-bild'), 'load');
+  expect(screen.queryByTestId('nadel-skelett')).toBeNull();
+});
+
+test('eine neue Bildquelle bringt den Skeleton zurueck', async () => {
+  const { rerender } = await wrap(<KartenNadel moment={fotoMoment} thumbUrl="https://x/t.jpg" />);
+  await fireEvent(screen.getByTestId('nadel-bild'), 'load');
+  await rerender(huelle(<KartenNadel moment={fotoMoment} thumbUrl="https://x/neu.jpg" />));
+  expect(screen.getByTestId('nadel-skelett')).toBeTruthy();
+});
+
+// Ohne Bildquelle wartet die Nadel auf nichts. Sie zeigt denselben Kreis, aber
+// ohne Puls: ein Pulsieren verspräche, dass gleich etwas kommt.
+test('ohne Bildquelle steht ein stiller Kreis', async () => {
   await wrap(<KartenNadel moment={fotoMoment} thumbUrl={null} />);
   expect(screen.getByTestId('nadel-skelett')).toBeTruthy();
   expect(screen.queryByTestId('nadel-bild')).toBeNull();
-});
-
-// Gegenprobe zum Test darüber: sobald das Bild da ist, hat der Skeleton nichts
-// mehr zu suchen — sonst pulste er unter dem Thumbnail weiter und hielte die
-// Nadel für immer in Bewegung (siehe onBereit-Tests unten).
-test('mit Thumbnail steht kein Skeleton mehr', async () => {
-  await wrap(<KartenNadel moment={fotoMoment} thumbUrl="https://x/t.jpg" />);
-  expect(screen.queryByTestId('nadel-skelett')).toBeNull();
+  expect(pulsSpion).not.toHaveBeenCalled();
 });
 
 test('ein Video traegt zusaetzlich das Play-Zeichen', async () => {
@@ -68,9 +137,6 @@ test('eine Gruppe von einem zeigt keine Zahl', async () => {
   expect(screen.queryByText('1')).toBeNull();
 });
 
-// Die Nadel steht in einem Marker, der sie nur so lange nachzeichnet, wie
-// `tracksViewChanges` es erlaubt (karte.tsx). Sie ist die einzige Stelle, die
-// weiss, WANN ihr Bild wirklich steht — darum meldet sie es.
 test('meldet sich fertig, sobald das Bild geladen ist', async () => {
   const onBereit = jest.fn();
   await wrap(<KartenNadel moment={fotoMoment} thumbUrl="https://x/t.jpg" onBereit={onBereit} />);
@@ -81,8 +147,7 @@ test('meldet sich fertig, sobald das Bild geladen ist', async () => {
 
 // Ein Bild, das nicht kommt (abgelaufene URL, kein Netz), darf die Nadel nicht
 // in ewiger Nachzeichnung stehen lassen — die kostet bei jeder Nadel jeden
-// Frame. Nach dem Fehlschlag ändert sich am Aussehen nichts mehr, also ist die
-// Nadel genauso fertig wie nach einem geladenen Bild.
+// Frame. Nach dem Fehlschlag ändert sich am Aussehen nichts mehr.
 test('meldet sich fertig, wenn das Bild scheitert', async () => {
   const onBereit = jest.fn();
   await wrap(<KartenNadel moment={fotoMoment} thumbUrl="https://x/t.jpg" onBereit={onBereit} />);
@@ -90,11 +155,78 @@ test('meldet sich fertig, wenn das Bild scheitert', async () => {
   expect(onBereit).toHaveBeenCalled();
 });
 
-// Solange gar keine URL da ist, ist die Nadel NICHT fertig: der Skeleton pulst,
-// und der Marker muss sie weiter nachzeichnen, sonst friert der pulsende Kreis
-// im ersten Frame ein und wird nie zum Bild.
-test('ohne Thumbnail meldet sie sich nicht fertig', async () => {
+// Fixrunde 1, Punkt 3: ohne Bildquelle steht das Aussehen sofort fest — es
+// kommt nichts mehr, auf das zu warten wäre. Meldete sie sich hier nicht,
+// zeichnete der Marker sie für immer bei jedem Frame neu.
+test('ohne Bildquelle ist die Nadel sofort fertig', async () => {
   const onBereit = jest.fn();
   await wrap(<KartenNadel moment={fotoMoment} thumbUrl={null} onBereit={onBereit} />);
-  expect(onBereit).not.toHaveBeenCalled();
+  expect(onBereit).toHaveBeenCalled();
+});
+
+// ---------------------------------------------------------------------------
+// KartenNadelMarker: wann darf die Nadel aufhören, sich zu zeichnen?
+// ---------------------------------------------------------------------------
+
+test('die Nadel wird nachgezeichnet, bis ihr Bild steht — und danach nicht mehr', async () => {
+  await wrap(<KartenNadelMarker punkt={punkt} thumbUrl="https://x/t.jpg" />);
+  expect(tracksSeitDann().at(-1)).toBe(true);
+  await fireEvent(screen.getByTestId('nadel-bild'), 'load');
+  expect(tracksSeitDann().at(-1)).toBe(false);
+});
+
+// Fixrunde 1, Punkt 2: `bereit` hing nur am Bild. Task 7 übergibt
+// `anzahl={gruppe.punkte.length}`, und die ändert sich beim Zoomen, während
+// der Anker-Moment — und damit das Bild — derselbe bleibt. Ohne diese
+// Zusicherung bliebe die Zähler-Pille auf «4» stehen, obwohl die Gruppe längst
+// zwei Nadeln sind.
+test('eine geaenderte Anzahl laesst die Nadel wieder nachzeichnen', async () => {
+  const { rerender } = await wrap(
+    <KartenNadelMarker punkt={punkt} thumbUrl="https://x/t.jpg" anzahl={4} />
+  );
+  await fireEvent(screen.getByTestId('nadel-bild'), 'load');
+  expect(tracksSeitDann().at(-1)).toBe(false);
+
+  await rerender(huelle(<KartenNadelMarker punkt={punkt} thumbUrl="https://x/t.jpg" anzahl={2} />));
+  const verlauf = tracksSeitDann();
+  expect(verlauf).toContain(true); // sprang wieder an — die neue Zahl wird gezeichnet
+  expect(verlauf.at(-1)).toBe(false); // und beruhigt sich wieder
+});
+
+// Fixrunde 1, Punkt 4: der Reset bei URL-Wechsel war unbelegt — man konnte ihn
+// ersatzlos entfernen, ohne dass etwas rot wurde.
+test('eine neue Bildquelle laesst die Nadel wieder nachzeichnen', async () => {
+  const { rerender } = await wrap(<KartenNadelMarker punkt={punkt} thumbUrl="https://x/t.jpg" />);
+  await fireEvent(screen.getByTestId('nadel-bild'), 'load');
+  expect(tracksSeitDann().at(-1)).toBe(false);
+
+  await rerender(huelle(<KartenNadelMarker punkt={punkt} thumbUrl="https://x/neu.jpg" />));
+  // Bleibt an, bis auch das neue Bild steht — nicht nur für einen Commit.
+  expect(tracksSeitDann().at(-1)).toBe(true);
+  await fireEvent(screen.getByTestId('nadel-bild'), 'load');
+  expect(tracksSeitDann().at(-1)).toBe(false);
+});
+
+test('ein geaenderter Momenttyp laesst die Nadel wieder nachzeichnen', async () => {
+  const { rerender } = await wrap(<KartenNadelMarker punkt={punkt} thumbUrl="https://x/t.jpg" />);
+  await fireEvent(screen.getByTestId('nadel-bild'), 'load');
+  expect(tracksSeitDann().at(-1)).toBe(false);
+
+  await rerender(huelle(<KartenNadelMarker punkt={videoPunkt} thumbUrl="https://x/t.jpg" />));
+  const verlauf = tracksSeitDann();
+  expect(verlauf).toContain(true); // das Play-Zeichen muss noch aufs Bild
+  expect(verlauf.at(-1)).toBe(false);
+});
+
+// Fixrunde 1, Punkt 5: nach dem Rastern des Marker-Views ist die Nadel für
+// VoiceOver ein einziges Element — was innen steht, ist dann nicht mehr
+// erreichbar. Die Beschriftung muss deshalb am Marker hängen.
+test('die einzelne Nadel nennt Autor und Uhrzeit', async () => {
+  await wrap(<KartenNadelMarker punkt={punkt} thumbUrl="https://x/t.jpg" />);
+  expect(screen.getByLabelText('Moment von Lea um 10:00 öffnen')).toBeTruthy();
+});
+
+test('eine Gruppe nennt ihre Anzahl statt eines einzelnen Moments', async () => {
+  await wrap(<KartenNadelMarker punkt={punkt} thumbUrl="https://x/t.jpg" anzahl={4} />);
+  expect(screen.getByLabelText('4 Momente an diesem Ort öffnen')).toBeTruthy();
 });
