@@ -56,6 +56,28 @@ test('eine andere Route im selben Tab (recap/[id]/uebersicht) behält die Tab-Ba
   expect(letzteScreenOptions?.tabBarStyle?.display).not.toBe('none');
 });
 
+// Task 11 (Phase 7): die Karte bekommt die Ausnahme des Players ausdrücklich
+// NICHT. Spec §5.3 «Die Karte füllt den Screen» meint den fehlenden eigenen
+// Kopf («Darüber liegen genau drei Dinge»), nicht die Navigation der App —
+// derselbe Absatz stellt die Karte ausdrücklich neben den Player: «Der Screen
+// ist hell, nicht Kino: er zeigt keine Medien im Vollbild, sondern ist ein
+// Werkzeug zum Finden.» Und Spec §5.1 nennt sie «eine Sicht auf DIESEN Recap,
+// kein eigener Bereich der App» — genau das, was die stehende Tab-Bar zeigt.
+//
+// Der handfeste Teil: karte.tsx setzt seine untere Leiste («N Momente ohne
+// Ort») auf `bottom: spacing.screen` und begründet den Wert dort damit, dass
+// die Tab-Leiste NICHT zu dieser Fläche gehört. Ein `useUnterkante` gibt es im
+// Projekt nicht (nur `useOberkante`) — ohne Tab-Bar rutschte die Pille auf
+// Geräten mit Home-Indikator in dessen Streifen.
+//
+// Dieser Test hält die Entscheidung fest, statt sie stumm zu lassen: wer sie
+// umdreht, muss hier vorbei und die Unterkante der Karte mitnehmen.
+test('die Karte (recap/[id]/karte) behält die Tab-Bar — sie ist kein Vollbild-Medienscreen', async () => {
+  mockUseSegments.mockReturnValue(['(tabs)', 'recap', '[id]', 'karte']);
+  await render(<TabsLayout />);
+  expect(letzteScreenOptions?.tabBarStyle?.display).not.toBe('none');
+});
+
 // Gegenprobe in die andere Richtung: ein "player"-Segment ausserhalb von
 // recap/[id]/ (z.B. läge zufällig ein gleichnamiges Segment in einem
 // anderen Tab) darf die Tab-Bar NICHT abschalten — der Vergleich prüft alle

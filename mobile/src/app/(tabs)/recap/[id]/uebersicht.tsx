@@ -295,6 +295,10 @@ export default function RecapUebersicht() {
     else router.replace('/recap');
   };
 
+  const zurKarte = () => {
+    router.push({ pathname: '/recap/[id]/karte', params: { id } });
+  };
+
   const zumPlayer = (index: number) => {
     // Task 11 hat die Route angelegt und die Typen wurden neu erzeugt — der
     // frühere Cast auf `Href` (Übergangslösung, solange die Route fehlte) ist
@@ -354,6 +358,24 @@ export default function RecapUebersicht() {
   // Teilen, Brief) — nur ausgeblendet, wenn es buchstäblich nichts zu
   // sichern gibt.
   const kannExportieren = !!trip && mitBild.length > 0;
+  // Spec K10/R3: für eine noch versiegelte Reise gibt es die Segment-Zeile
+  // nicht. Eine Karte der laufenden Reise würde verraten, wo die anderen
+  // gerade waren — und genau das ist die Versiegelung. Serverseitig ist es
+  // ohnehin erzwungen (`posts_select_revealed_members` lässt Mitglieder erst
+  // bei status in ('revealed','archived') lesen), der Client darf den Weg
+  // trotzdem gar nicht erst anbieten.
+  //
+  // Als Positivliste geschrieben, nicht als `!== 'active'` (so stand es im
+  // Task-Brief, siehe Bericht): beides ist heute dasselbe, weil `TripStatus`
+  // genau diese drei Werte kennt. Käme je ein vierter dazu, entschiede die
+  // Schreibweise darüber, was er beim Übersehen erbt — bei `!==` die Karte,
+  // hier ihr Fehlen. Für die Versiegelung ist «im Zweifel zu» die einzige
+  // vertretbare Voreinstellung, und diese Zeile spiegelt damit wörtlich die
+  // Bedingung der Server-Policy.
+  //
+  // Kein Owner-Vorbehalt wie beim Teilen: jedes Mitglied liest denselben
+  // Recap, die Karte ist bloss eine zweite Lesart davon.
+  const kannKarte = !!trip && (trip.status === 'revealed' || trip.status === 'archived');
 
   const kopf = (
     <View style={styles.kopfzeile}>
@@ -414,6 +436,56 @@ export default function RecapUebersicht() {
         {kopf}
         <Text style={[type.h1, { color: colors['text-1'] }]}>{trip.name}</Text>
 
+        {/* Die beiden Lesarten dieses Recaps (Spec §5.1) — als Segment-Zeile
+            aus zwei Pillen (Radius 999), ausdrücklich NICHT als zweite
+            Tab-Bar: die untere bleibt bei vier Einträgen (DESIGN-LANGUAGE §4),
+            und die Karte ist eine Sicht auf DIESEN Recap, kein eigener Bereich
+            der App.
+
+            Sie steht unter dem H1, nicht zwischen Kopfzeile und H1: die Zeile
+            schaltet um, was DARUNTER steht, und getrennt vom Titel läse sie
+            sich als Teil der Kopf-Chrome statt als Wahl über den Inhalt. Der
+            Abstand kommt aus dem `gap` von `styles.inhalt` (12) — 4er-Raster,
+            ohne zweiten Wert daneben.
+
+            Hell, nicht translucent: die `Pille`-Komponente ist für eine
+            Fremdfläche gemacht (DESIGN-LANGUAGE §1, «auf Fotos»), hier liegt
+            reines Weiss darunter. */}
+        {kannKarte && (
+          <View style={styles.segmentZeile}>
+            {/* Die aktive Hälfte ist bewusst KEIN Knopf: sie zeigt, wo man
+                gerade ist, und ein Tipp darauf täte nichts. Ein Press-Feedback
+                (PressScale) wäre dann eine Zusage, die niemand einlöst — die
+                Regel «Scale statt Opacity» (§5) gilt für Dinge, die auf einen
+                Tipp auch reagieren. `accessible` bündelt Pille und Text zu
+                einem Element, damit VoiceOver den Stand als eine Auskunft
+                vorliest statt als losen Text neben einem Knopf. */}
+            <View
+              accessible
+              accessibilityRole="text"
+              accessibilityLabel="Nach Tagen, aktuelle Ansicht"
+              testID="uebersicht-segment-tage"
+              style={[styles.segmentPille, { backgroundColor: colors['bg-1'] }]}
+            >
+              <Text style={[type.bodyMedium, { color: colors['text-1'] }]}>Nach Tagen</Text>
+            </View>
+            <PressScale
+              accessibilityRole="button"
+              testID="uebersicht-segment-karte"
+              onPress={zurKarte}
+            >
+              <View
+                style={[
+                  styles.segmentPille,
+                  { backgroundColor: colors['bg-0'], borderWidth: StyleSheet.hairlineWidth, borderColor: colors.line },
+                ]}
+              >
+                <Text style={[type.bodyMedium, { color: colors['text-2'] }]}>Auf der Karte</Text>
+              </View>
+            </PressScale>
+          </View>
+        )}
+
         {fehler ? (
           <View style={{ gap: spacing.l, marginTop: spacing.xl }}>
             <Text style={[type.body, { color: colors.danger }]}>{fehler}</Text>
@@ -472,6 +544,21 @@ const styles = StyleSheet.create({
   inhalt: { padding: spacing.screen, paddingTop: spacing.xl, paddingBottom: spacing.xxl, gap: spacing.m },
   kopfzeile: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   kopfAktionen: { flexDirection: 'row', alignItems: 'center', gap: spacing.base },
+  // Zwei Pillen nebeneinander, linksbündig (DESIGN-LANGUAGE §7: Text ist
+  // linksbündig) — keine über die volle Breite gestreckte Leiste: gestreckt
+  // sähe sie aus wie eine zweite Tab-Bar, und genau das soll sie nicht sein
+  // (Spec §5.1). Abstand aus dem 4er-Raster.
+  segmentZeile: { flexDirection: 'row', alignItems: 'center', gap: spacing.s },
+  // Radius 999 (DESIGN-LANGUAGE §3, der Pillen-Wert). Höhe 44 wie die Pillen
+  // auf der Karte selbst — der Wert ist eine Grösse, kein Abstand, das
+  // 4er-Raster gilt für Abstände (§3), sonst hätten weder Button 52 noch
+  // Input 56 Bestand.
+  segmentPille: {
+    height: 44,
+    justifyContent: 'center',
+    paddingHorizontal: spacing.base,
+    borderRadius: radius.pill,
+  },
   // Drei Spalten. Lücke explizit `spacing.xs` über `columnGap`/`rowGap` —
   // NICHT über `justifyContent: 'space-between'` (Review Task 10, Minor):
   // das liess die Lücke aus dem verbleibenden Rest-Raum entstehen, je nach
