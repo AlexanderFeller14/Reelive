@@ -55,6 +55,7 @@ const gueltigeAntwort = {
     },
   ],
   gueltig_bis: '2026-08-08T13:00:00.000Z',
+  ausgelassen: 2,
 };
 
 describe('loeseTokenAuf: Erfolg', () => {
@@ -119,6 +120,31 @@ describe('loeseTokenAuf: Erfolg', () => {
     const { data } = await loeseTokenAuf('tok123');
     expect(data?.medien[1].thumb_url).toBeNull();
     expect(Object.prototype.hasOwnProperty.call(data!.medien[1], 'thumb_url')).toBe(true);
+  });
+
+  // `ausgelassen` sind Momente, für die die Function keine URL herausgeben
+  // konnte — sie fehlen in `medien`. Ohne diese Zahl fehlten sie SPURLOS, und
+  // die geteilte Seite behauptete, sie zeige die ganze Reise (Abschluss-
+  // Review, Finding 2).
+  test('ausgelassene Momente werden mitgelesen', async () => {
+    mockInvoke.mockResolvedValueOnce({ data: gueltigeAntwort, error: null });
+    const { data } = await loeseTokenAuf('tok123');
+    expect(data?.ausgelassen).toBe(2);
+  });
+
+  // Additiv und deshalb NICHT Teil der Formprüfung: eine ältere Function ohne
+  // das Feld darf keine tote Seite ergeben. 0 heisst «nichts ausgelassen» —
+  // derselbe Zustand, den es vor dem Feld überall gab.
+  test.each([
+    ['fehlendes Feld', {}],
+    ['Text statt Zahl', { ausgelassen: 'zwei' }],
+    ['NaN', { ausgelassen: NaN }],
+  ])('eine Antwort mit %s zaehlt als «nichts ausgelassen», nicht als Fehler', async (_name, kaputt) => {
+    const { ausgelassen: _weg, ...ohneFeld } = gueltigeAntwort;
+    mockInvoke.mockResolvedValueOnce({ data: { ...ohneFeld, ...kaputt }, error: null });
+    const { data, error } = await loeseTokenAuf('tok123');
+    expect(error).toBeNull();
+    expect(data?.ausgelassen).toBe(0);
   });
 
   test('eine leere Filmrolle liefert einen GeteilterRecap mit leerem medien-Array, keinen Fehler', async () => {

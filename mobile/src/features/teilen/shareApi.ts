@@ -37,6 +37,12 @@ export type GeteilterRecap = {
   reise: { name: string; start_date: string; end_date: string };
   medien: GeteiltesMoment[];
   gueltigBis: number;
+  // Momente, für die die Function keine URL herausgeben konnte (kaputtes oder
+  // fehlendes Objekt, Signierfehler, Verlust beim Blättern). Sie fehlen in
+  // `medien` — ohne diese Zahl fehlten sie SPURLOS, und die geteilte Seite
+  // behauptete, sie zeige die ganze Reise. Sie steht in der Antwort immer da,
+  // auch als 0 (share-link/aufloesung.ts, `baueAufloesungsAntwort`).
+  ausgelassen: number;
 };
 
 // Gleiches Muster wie recapApi.ts/urlVorrat.ts/tripsApi.ts: Gelesen<T> ist
@@ -91,6 +97,7 @@ type AufloeseAntwort = {
   reise: { name: string; start_date: string; end_date: string };
   medien: MedienEintrag[];
   gueltig_bis: string;
+  ausgelassen: number;
 };
 
 // Eine Koordinate, die sich rechnen lässt — oder `null`.
@@ -150,7 +157,19 @@ export async function loeseTokenAuf(token: string): Promise<Gelesen<GeteilterRec
   }));
 
   return {
-    data: { reise: { name: reise.name, start_date: reise.start_date, end_date: reise.end_date }, medien, gueltigBis },
+    data: {
+      reise: { name: reise.name, start_date: reise.start_date, end_date: reise.end_date },
+      medien,
+      gueltigBis,
+      // Weich gelesen und NICHT Teil der Formprüfung oben: das Feld ist rein
+      // additiv (siehe `baueAufloesungsAntwort`), und eine ältere Function
+      // ohne es darf keine tote Seite ergeben. Fehlt es, wird nichts
+      // behauptet — 0 heisst «nichts ausgelassen», und das ist derselbe
+      // Zustand, den es vor diesem Feld überall gab.
+      ausgelassen: typeof antwort.ausgelassen === 'number' && Number.isFinite(antwort.ausgelassen)
+        ? antwort.ausgelassen
+        : 0,
+    },
     error: null,
   };
 }

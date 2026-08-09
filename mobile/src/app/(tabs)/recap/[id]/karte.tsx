@@ -15,7 +15,7 @@ import { Check, ChevronDown, ChevronLeft } from 'lucide-react-native';
 import { Button } from '@/components/Button';
 import { Pille } from '@/components/Pille';
 import { PressScale } from '@/components/PressScale';
-import { Sheet } from '@/components/Sheet';
+import { Sheet, SHEET_SCROLL_ANTEIL } from '@/components/Sheet';
 import { meldeFehler } from '@/lib/fehlermelder';
 import { useTheme } from '@/theme/ThemeProvider';
 import { cinema, motion, radius, spacing, type } from '@/theme/tokens';
@@ -29,7 +29,8 @@ import { holeVorrat, type MedienUrl } from '@/features/recap/urlVorrat';
 import { fetchTrip } from '@/features/trips/tripsApi';
 import { ausschnittFuer } from '@/features/karte/ausschnitt';
 import { KartenFlaeche } from '@/features/karte/KartenFlaeche';
-import { aufEinemFleck, gruppiere } from '@/features/karte/gruppierung';
+import { gruppiere } from '@/features/karte/gruppierung';
+import { zoomAussichtslos, zoomZiel, type ZoomVersuch } from '@/features/karte/gruppenTipp';
 import { zuKartenPunkten } from '@/features/karte/kartenPunkte';
 import type {
   Ausschnitt,
@@ -106,22 +107,6 @@ function sheetBild(urls: ReadonlyMap<string, MedienUrl>, momentId: string): stri
   return brauchbareUrl(url.medium_url) ?? brauchbareUrl(url.thumb_url);
 }
 
-// Wie viel Fensterhöhe der scrollende Teil eines Sheets höchstens einnimmt.
-//
-// Ohne eine Obergrenze wäre die ScrollView wirkungslos: sie wüchse mit ihrem
-// Inhalt, und `Sheet` schnitte den Überhang hart ab (Sheet.tsx: `maxHeight`
-// 85 % plus `overflow: 'hidden'`). Genau so verschwänden ab dem siebten
-// Moment auf einem Fleck die letzten Einträge — und die sind auf keinem
-// anderen Weg erreichbar, denn Zoomen hilft dort per Definition nicht. Der
-// Ausweg aus der Sackgasse wäre selbst eine.
-//
-// Die Hälfte lässt unter der 85-%-Grenze des Sheets genug für Griff, Titel,
-// den angehefteten Knopf und das Fusspolster — auch auf dem kleinsten Gerät
-// (667 pt: 334 + 44 + 16 + 52 + 32 = 478 von 567 möglichen). Exportiert,
-// damit karte.test.tsx denselben Anteil prüft, statt eine zweite Zahl zu
-// raten (gleiches Vorgehen wie MAX_HOEHE_ANTEIL in Sheet.tsx).
-export const SHEET_SCROLL_ANTEIL = 0.5;
-
 // Der scrollende Bereich eines Sheets. Beide Sheets dieses Screens benutzen
 // ihn: die Liste einer Gruppe, weil sie beliebig lang werden kann, und der
 // einzelne Moment, weil Bild (3:2), Ort und Caption bei grosser Systemschrift
@@ -168,6 +153,24 @@ function ohneOrtText(anzahl: number): string {
   return `${anzahl} ${anzahl === 1 ? 'Moment' : 'Momente'} ohne Ort`;
 }
 
+// Was diese Karte NICHT zeigt, in Worten. Wortgleich zu uebersicht.tsx (dort
+// modulprivat): dieselbe Reise soll auf beiden Screens dieselben zwei Sätze
+// für dieselben zwei Lagen sagen. Singular/Plural wie überall im Projekt —
+// die Zahl bleibt auch im Singular stehen.
+//
+// Sie sind ausdrücklich NICHT dasselbe wie «N Momente ohne Ort»: dort geht es
+// um Momente, die auf dieser Karte keine Nadel bekommen können, in Übersicht
+// und Recap aber vollständig da sind. Hier geht es um Momente, die diese Reise
+// gerade überhaupt nicht hergibt — die eine Gruppe kommt noch, die andere
+// liess sich nicht laden.
+function unterwegsText(anzahl: number): string {
+  return `${anzahl} ${anzahl === 1 ? 'Moment ist' : 'Momente sind'} noch unterwegs.`;
+}
+
+function ohneBildText(anzahl: number): string {
+  return `${anzahl} ${anzahl === 1 ? 'Moment liess' : 'Momente liessen'} sich gerade nicht laden. Schau später nochmal rein.`;
+}
+
 // Ein Moment, den keine Nadel tragen kann — mit seinem Platz in der
 // Spielliste. Genau dieser Wert geht als `start` an den Player, exakt wie
 // `KartenPunkt.index` (typen.ts): nie die Stelle innerhalb dieser Liste hier,
@@ -191,6 +194,17 @@ type Ladestand = {
   phase: Phase;
   punkte: KartenPunkt[];
   ohneOrt: OhneOrt[];
+  // Momente, die diese Karte ueberhaupt nicht zeigt — weder als Nadel noch in
+  // der Leiste «N Momente ohne Ort». Sie fallen im Ladeweg unten aus der
+  // Spielliste heraus, und ohne diese beiden Zahlen taeten sie das spurlos:
+  // eine Reise mit 15 Momenten zeigte 11 Nadeln, sagte «3 Momente ohne Ort»,
+  // und der fehlende Rest waere von aussen nicht zu erklaeren.
+  //
+  // Getrennt gehalten, weil es zwei verschiedene Lagen mit zwei verschiedenen
+  // Aussichten sind — genau wie in uebersicht.tsx: `unterwegs` kommt noch,
+  // `ohneBild` liess sich gerade nicht laden.
+  unterwegs: number;
+  ohneBild: number;
   fehlerText: string | null;
 };
 
@@ -575,6 +589,11 @@ export default function RecapKarte() {
   const oben = useOberkante(spacing.screen);
   const reducedMotion = useReducedMotion();
   const karte = useRef<KartenFlaecheHandle>(null);
+  // Der letzte Zoom-Versuch auf eine Gruppe — die Grundlage dafür, ob ein
+  // weiterer noch etwas ausrichtet (features/karte/gruppenTipp.ts). Ein Ref
+  // und kein State: der Wert ändert nichts am Bild, er beantwortet nur die
+  // nächste Frage.
+  const letzterZoom = useRef<ZoomVersuch | null>(null);
   // Die Fläche, auf der gruppiert wird. Die Karte liegt als absoluteFill über
   // dem ganzen Screen, das Fenster ist also ihr Mass. In der Höhe fehlt die
   // Tab-Bar; das verschiebt die 40-Punkte-Schwelle um wenige Prozent und
@@ -602,6 +621,8 @@ export default function RecapKarte() {
     phase: 'laedt',
     punkte: KEINE_PUNKTE,
     ohneOrt: KEINE_OHNE_ORT,
+    unterwegs: 0,
+    ohneBild: 0,
     fehlerText: null,
   }));
   // Nur für den Knopf im Fehlerzweig. Ein zweiter Anlauf setzt die Phase
@@ -704,8 +725,16 @@ export default function RecapKarte() {
   const sichtbarerStand: Ladestand =
     ladestand.tripId === id
       ? ladestand
-      : { tripId: id, phase: 'laedt', punkte: KEINE_PUNKTE, ohneOrt: KEINE_OHNE_ORT, fehlerText: null };
-  const { phase, punkte, ohneOrt, fehlerText } = sichtbarerStand;
+      : {
+          tripId: id,
+          phase: 'laedt',
+          punkte: KEINE_PUNKTE,
+          ohneOrt: KEINE_OHNE_ORT,
+          unterwegs: 0,
+          ohneBild: 0,
+          fehlerText: null,
+        };
+  const { phase, punkte, ohneOrt, unterwegs, ohneBild, fehlerText } = sichtbarerStand;
   // Aus demselben Grund abgeleitet wie oben — und hier zusätzlich für den
   // Unterschied zwischen «kein Moment hat einen Ort» und «es gibt gar keine
   // Momente» gebraucht (siehe die beiden Leer-Zweige unten).
@@ -738,6 +767,11 @@ export default function RecapKarte() {
     anlauf.current.gilt = false;
     const meiner = { gilt: true };
     anlauf.current = meiner;
+    // Der gemerkte Zoom-Versuch gehoert zu den Nadeln, die gleich ersetzt
+    // werden. Eine Post-id kommt zwar in keiner zweiten Reise vor, der
+    // Vergleich ginge also ohnehin ins Leere — stehen bleiben soll er
+    // trotzdem nicht.
+    letzterZoom.current = null;
     try {
       const [momente, vorratErgebnis] = await Promise.all([fetchRecapMomente(id), holeVorrat(id)]);
       if (!meiner.gilt) return;
@@ -763,6 +797,8 @@ export default function RecapKarte() {
           phase: 'fehler',
           punkte: KEINE_PUNKTE,
           ohneOrt: KEINE_OHNE_ORT,
+          unterwegs: 0,
+          ohneBild: 0,
           fehlerText: fehler,
         });
         return;
@@ -795,6 +831,11 @@ export default function RecapKarte() {
         phase: 'fertig',
         punkte: p,
         ohneOrt: ohneOrtMitIndex(mitBild, o),
+        // Die Filterung darueber bleibt, wie sie ist — `punkt.index` muss zur
+        // Spielliste passen, sonst startet der Player am falschen Moment. Was
+        // fehlte, ist die Auskunft darueber, WAS dabei herausfaellt.
+        unterwegs: momente.data.length - uploaded.length,
+        ohneBild: uploaded.length - mitBild.length,
         fehlerText: null,
       });
     } catch (wurf: unknown) {
@@ -813,6 +854,8 @@ export default function RecapKarte() {
         phase: 'fehler',
         punkte: KEINE_PUNKTE,
         ohneOrt: KEINE_OHNE_ORT,
+        unterwegs: 0,
+        ohneBild: 0,
         fehlerText: WURF_TEXT,
       });
     }
@@ -1018,6 +1061,7 @@ export default function RecapKarte() {
     stand.current = { ausschnitt };
   }, [ausschnitt]);
 
+
   // Ein Tipp auf eine Gruppe fährt in sie hinein, solange das etwas ausrichtet
   // (Spec §5.5): wer auf der Karte sucht, will die Karte benutzen. Erst wo
   // Zoomen nichts mehr bringt, öffnet sich das Sheet — siehe unten.
@@ -1029,24 +1073,33 @@ export default function RecapKarte() {
     (gruppe: Gruppe) => {
       const { ausschnitt: sichtbar } = stand.current;
 
+      // Unerreichbar, aber für den Typ nötig: `gruppen` wird nur berechnet,
+      // wenn `ausschnitt` steht (siehe useMemo oben). Ohne Ausschnitt gäbe es
+      // also gar keine Nadel, die getippt werden könnte.
+      if (!sichtbar) return;
+
       // Ins Sheet führt EINE Frage: richtet Zoomen hier überhaupt noch etwas
-      // aus? Sie deckt beide Fälle ab, in denen die Antwort nein ist —
+      // aus? Sie deckt alle Fälle ab, in denen die Antwort nein ist —
       //
       // - den häufigen: eine einzelne Nadel. Ein Punkt liegt trivialerweise
       //   auf einem Fleck, und dort steht der Moment selbst (Spec §5.7). Die
       //   Karte bewegt sich dabei NICHT: der Moment soll nicht unter dem Sheet
       //   wegrutschen, während man ihn liest.
       // - den seltenen: eine Gruppe, deren Momente alle auf derselben
-      //   Koordinate liegen. Sie fällt durch keine Zoomstufe auseinander
-      //   (Begründung in gruppierung.ts); ohne diesen Ausweg tippte man ins
-      //   Leere (Task-8-Brief, Schritt 2b), stattdessen listet das Sheet sie
-      //   auf.
+      //   Koordinate liegen. Sie fällt durch keine Zoomstufe auseinander.
+      // - und den, der bis zur Merge-Fixrunde fehlte: eine Gruppe, die zwar
+      //   verschiedene Koordinaten hat, aber so eng beieinander, dass die
+      //   letzte Zoomstufe der Karte sie nicht mehr trennt. Bei drei bis acht
+      //   Metern GPS-Versatz ist das der Normalfall, nicht der Ausnahmefall.
+      //
+      // Beantwortet wird sie in features/karte/gruppenTipp.ts — gemeinsam mit
+      // dem geteilten Recap (teilen/[token].tsx), samt der vollen Begründung.
       //
       // Bewusst nicht zusätzlich `punkte.length === 1` davorgesetzt: die
       // Abfrage wäre vom Rest gedeckt und liesse sich ersatzlos streichen,
       // ohne dass eine Zusicherung fiele — genau die Art Bedingung, die
       // später niemand mehr prüfen kann.
-      if (aufEinemFleck(gruppe)) {
+      if (zoomAussichtslos(gruppe, sichtbar, letzterZoom.current)) {
         // Wie in `oeffneTagesfilter`: es ist immer höchstens EIN Sheet offen
         // (Begründung dort) — und deshalb werden BEIDE anderen geräumt, nicht
         // nur das der Momente ohne Ort. Bis zur §9-Durchsicht (Task 12) fehlte
@@ -1070,13 +1123,15 @@ export default function RecapKarte() {
         return;
       }
 
-      // Unerreichbar, aber für den Typ nötig: `gruppen` wird nur berechnet,
-      // wenn `ausschnitt` steht (siehe useMemo oben). Ohne Ausschnitt gäbe es
-      // also gar keine Nadel, die getippt werden könnte.
-      if (!sichtbar) return;
+      const ziel = zoomZiel(gruppe, sichtbar);
+      // Unerreichbar (eine Gruppe hat mindestens einen Punkt), aber der Typ
+      // von `ausschnittFuer` verlangt die Behandlung.
+      if (!ziel) return;
 
-      const umfasst = ausschnittFuer(gruppe.punkte);
-      if (!umfasst) return;
+      // Was diese Fahrt VERSUCHT hat — die Grundlage der Antwort beim nächsten
+      // Tipp auf dieselbe Gruppe. Bleibt der sichtbare Ausschnitt danach
+      // derselbe, hat die Karte ihre letzte Zoomstufe erreicht.
+      letzterZoom.current = { ankerId: gruppe.anker.moment.id, vorher: sichtbar };
 
       // DESIGN-LANGUAGE §5 nennt für «Zoom» selection-Haptik — dieselbe
       // Meldung wie beim Tab-Wechsel. Sie gehört an den Zoom selbst, nicht in
@@ -1086,19 +1141,7 @@ export default function RecapKarte() {
       // gleiches Muster wie player.tsx.
       void Haptics.selectionAsync().catch(() => {});
 
-      zeige({
-        ...umfasst,
-        // Die Fahrt geht immer HINEIN, nie hinaus. `ausschnittFuer` hat eine
-        // Mindestspanne von rund 1,1 km — sie ist für den Erststart gedacht,
-        // damit ein einzelner Moment nicht maximal herangezoomt wird. Liegen
-        // die Momente einer Gruppe enger beieinander, ist ihr Ergebnis WEITER
-        // als das, was gerade zu sehen ist, und der Tipp zoomte hinaus. Die
-        // halbe sichtbare Spanne ist die Antwort auf beides: nie hinaus, und
-        // immer sichtbar hinein — auch bei Momenten auf derselben Koordinate,
-        // die keine Zoomstufe trennen kann.
-        latitudeDelta: Math.min(umfasst.latitudeDelta, sichtbar.latitudeDelta / 2),
-        longitudeDelta: Math.min(umfasst.longitudeDelta, sichtbar.longitudeDelta / 2),
-      });
+      zeige(ziel);
     },
     [zeige, id]
   );
@@ -1124,6 +1167,14 @@ export default function RecapKarte() {
     },
     [router, id]
   );
+
+  // Die Sätze über das, was diese Karte gar nicht hergibt. Als Liste, weil
+  // beide Lagen gleichzeitig vorkommen können — und ohne useMemo: zwei Zahlen
+  // zu vergleichen kostet weniger als der Vergleich, der das Ergebnis
+  // aufheben würde.
+  const fehlenGanz: string[] = [];
+  if (unterwegs > 0) fehlenGanz.push(unterwegsText(unterwegs));
+  if (ohneBild > 0) fehlenGanz.push(ohneBildText(ohneBild));
 
   // Was die Pille zeigt und was VoiceOver ansagt — eine Quelle für beides.
   const filterStand = gewaehlterTag ? `Tag ${gewaehlterTag.nummer}` : 'Alle Tage';
@@ -1353,28 +1404,46 @@ export default function RecapKarte() {
           Momente alle ohne Ort sind, steht gar nicht erst zur Wahl (siehe
           `waehlbareTage`). Eine mitgefilterte Leiste liesse genau diese
           Momente auf keinem Weg mehr erreichbar. */}
-      {ohneOrt.length > 0 && (
+      {(ohneOrt.length > 0 || fehlenGanz.length > 0) && (
         // Die Zentrierung trägt ein eigener Rahmen, nicht die PressScale
         // selbst: die zöge sich über die volle Breite und finge damit jeden
         // Tipp links und rechts der Pille ab — auf einer Karte wäre das ein
         // 44 Punkte hohes Band, in dem sich nicht mehr schieben liesse.
         // `box-none` lässt Tipps durch den Rahmen hindurch, nur die Pille
         // selbst nimmt sie an.
-        <View style={styles.ohneOrt} pointerEvents="box-none">
-          <PressScale
-            testID="karte-ohne-ort"
-            accessibilityRole="button"
-            // Die Pille zeigt die Zahl, das Label sagt zusätzlich, was ein
-            // Tipp tut — wortgleich zur Nadel einer unteilbaren Gruppe.
-            accessibilityLabel={`${ohneOrtText(ohneOrt.length)} ansehen`}
-            onPress={oeffneOhneOrt}
-          >
-            <Pille style={styles.ohneOrtPille}>
-              <Text style={[type.bodyMedium, { color: cinema['text-1'] }]}>
-                {ohneOrtText(ohneOrt.length)}
-              </Text>
+        <View style={styles.leiste} pointerEvents="box-none">
+          {/* Die Momente, die diese Karte gar nicht hergibt (Fixrunde nach dem
+              Abschluss-Review). Rein informativ und deshalb `pointerEvents:
+              none`: einen Weg zu ihnen gibt es von hier aus nicht — sie stehen
+              in keiner Spielliste, also führt auch kein Index zu ihnen. Ohne
+              diese Zeile stimmte die Rechnung auf dem Screen nicht mehr:
+              Nadeln plus «N Momente ohne Ort» ergäben weniger als die Reise
+              hat, und niemand sähe warum. */}
+          {fehlenGanz.length > 0 && (
+            <Pille testID="karte-fehlen-ganz" style={styles.fehlenPille} pointerEvents="none">
+              {fehlenGanz.map((satz) => (
+                <Text key={satz} style={[type.secondary, { color: cinema['text-1'] }]}>
+                  {satz}
+                </Text>
+              ))}
             </Pille>
-          </PressScale>
+          )}
+          {ohneOrt.length > 0 && (
+            <PressScale
+              testID="karte-ohne-ort"
+              accessibilityRole="button"
+              // Die Pille zeigt die Zahl, das Label sagt zusätzlich, was ein
+              // Tipp tut — wortgleich zur Nadel einer unteilbaren Gruppe.
+              accessibilityLabel={`${ohneOrtText(ohneOrt.length)} ansehen`}
+              onPress={oeffneOhneOrt}
+            >
+              <Pille style={styles.ohneOrtPille}>
+                <Text style={[type.bodyMedium, { color: cinema['text-1'] }]}>
+                  {ohneOrtText(ohneOrt.length)}
+                </Text>
+              </Pille>
+            </PressScale>
+          )}
         </View>
       )}
 
@@ -1512,7 +1581,22 @@ const styles = StyleSheet.create({
   // gehörte sie zu einer von beiden. Der Abstand nach unten ist der
   // Screen-Rand (DESIGN-LANGUAGE §3); die Tab-Leiste darunter gehört nicht zu
   // dieser Fläche, der Screen endet über ihr.
-  ohneOrt: { position: 'absolute', left: 0, right: 0, bottom: spacing.screen, alignItems: 'center' },
+  leiste: {
+    position: 'absolute',
+    left: spacing.screen,
+    right: spacing.screen,
+    bottom: spacing.screen,
+    alignItems: 'center',
+    gap: spacing.s,
+  },
+  // Mehrzeilig und ohne feste Höhe, anders als die Pillen daneben: hier stehen
+  // ganze Sätze, keine Beschriftung.
+  fehlenPille: {
+    paddingHorizontal: spacing.base,
+    paddingVertical: spacing.s,
+    borderRadius: radius.control,
+    gap: spacing.xs,
+  },
   // Dieselbe Höhe und dasselbe Innenmass wie die Filter-Pille gegenüber.
   ohneOrtPille: {
     height: 44,

@@ -115,8 +115,15 @@ const p3 = moment({
   post_id: 'p3', captured_at: '2026-08-11T09:00:00.000Z', place_name: null,
 });
 
-function erfolg(medien: GeteilterRecap['medien'], reiseOverrides: Partial<GeteilterRecap['reise']> = {}) {
-  return { data: { reise: reise(reiseOverrides), medien, gueltigBis: Date.now() + 3600_000 }, error: null };
+function erfolg(
+  medien: GeteilterRecap['medien'],
+  reiseOverrides: Partial<GeteilterRecap['reise']> = {},
+  ausgelassen = 0
+) {
+  return {
+    data: { reise: reise(reiseOverrides), medien, gueltigBis: Date.now() + 3600_000, ausgelassen },
+    error: null,
+  };
 }
 
 // Gleiches Muster wie player.test.tsx (dortiges `wrap()`): render() ist unter
@@ -574,10 +581,12 @@ describe('Die Karte im geteilten Recap (Spec §5.10)', () => {
     expect(screen.getByText('Lea')).toBeTruthy();
   });
 
-  // Und dieselbe Bremse für die Tages-Zwischenkarte: ihre 1,5 Sekunden
-  // liefen hinter der Karte ungesehen ab, und der Tag wäre beim Zurückkommen
-  // bereits angesagt, ohne dass ihn jemand gelesen hat.
-  test('die Tages-Zwischenkarte wartet, solange die Karte offen ist', async () => {
+  // Und dasselbe für die Tages-Zwischenkarte, auf einem anderen Weg: sie
+  // WARTET nicht hinter der Karte, sie wird verworfen und beim Zurückkommen
+  // neu aufgesetzt (`ansicht` steht in den Abhängigkeiten ihres Effekts).
+  // Sichtbar ist dasselbe — der Tag ist beim Zurückkommen nicht schon
+  // angesagt, ohne dass ihn jemand gelesen hat.
+  test('die Tages-Zwischenkarte beginnt nach der Karte von vorn', async () => {
     mockLoeseTokenAuf.mockResolvedValueOnce(erfolg([q1, q2, q3]));
     await bereit();
     expect(screen.getByTestId('teilen-zwischenkarte')).toBeTruthy();
@@ -598,6 +607,118 @@ describe('Die Karte im geteilten Recap (Spec §5.10)', () => {
 
     await fireEvent.press(screen.getByText('Ansehen'));
     expect(mockSetStatusBarStyle).toHaveBeenLastCalledWith('light');
+  });
+
+  // Finding 3 des Abschluss-Reviews: die Segment-Zeile liegt per zIndex ÜBER
+  // dem Sheet und ist damit auch bei offenem Sheet antippbar (gewollt — der
+  // Weg zurück darf von nichts verdeckt werden). Räumt «Ansehen» das Sheet
+  // nicht mit ab, öffnet die Karte beim nächsten Mal mit einem Sheet, das
+  // niemand angetippt hat. Über «Ab hier ansehen» war dieser Weg zu, über die
+  // Segment-Zeile stand er offen.
+  test('«Ansehen» räumt ein offenes Moment-Sheet mit ab', async () => {
+    await aufDerKarte();
+    await fireEvent.press(screen.getByTestId('karte-nadel-q3'));
+    expect(screen.getByText('Ab hier ansehen')).toBeTruthy();
+
+    await fireEvent.press(screen.getByText('Ansehen'));
+    expect(screen.getByTestId('teilen-bereit')).toBeTruthy();
+
+    await fireEvent.press(screen.getByText('Auf der Karte'));
+    expect(screen.getByTestId('teilen-karte')).toBeTruthy();
+    expect(screen.queryByText('Ab hier ansehen')).toBeNull();
+    expect(screen.queryByTestId('sheet-root')).toBeNull();
+  });
+
+  // Finding 1: die Karte hat eine letzte Zoomstufe. Bleibt der sichtbare
+  // Ausschnitt nach einem Gruppen-Tipp derselbe, richtet ein weiterer nichts
+  // aus — dann gehört der Gruppe das Sheet, obwohl ihre Koordinaten
+  // verschieden sind. Im Testlauf meldet die Karte von sich aus nie einen
+  // neuen Ausschnitt; sie steht also genau so still wie am Anschlag.
+  test('bewegt ein Gruppen-Tipp die Kamera nicht, öffnet der nächste das Sheet', async () => {
+    const g1 = moment({
+      post_id: 'g1', autor_name: 'Lea', captured_at: '2026-08-10T09:00:00.000Z',
+      place_name: 'Alfama', lat: 38.7139, lng: -9.1301,
+    });
+    const g2 = moment({
+      post_id: 'g2', autor_name: 'Jonas', captured_at: '2026-08-10T10:00:00.000Z',
+      place_name: 'Alfama', caption: 'Fünf Meter weiter', lat: 38.71408, lng: -9.1301,
+    });
+    const g3 = moment({
+      post_id: 'g3', captured_at: '2026-08-10T11:00:00.000Z', place_name: 'Belém',
+      lat: 38.7, lng: -9.2,
+    });
+    await aufDerKarte([g1, g2, g3]);
+
+    await fireEvent.press(screen.getByTestId('karte-nadel-g1'));
+    expect(screen.queryByTestId('teilen-gruppe-liste')).toBeNull(); // erst fahren
+
+    await fireEvent.press(screen.getByTestId('karte-nadel-g1'));
+    expect(screen.getByText('2 Momente an diesem Ort')).toBeTruthy();
+    expect(screen.getByTestId('teilen-gruppe-eintrag-g2')).toBeTruthy();
+  });
+
+  // Und die Gegenprobe, die den Zoom-Weg am Leben hält: hat sich der
+  // Ausschnitt zwischen den beiden Tipps geändert, kann die Kamera noch etwas
+  // ausrichten — dann gibt es weiterhin kein Sheet.
+  test('hat sich der Ausschnitt bewegt, zoomt auch der zweite Tipp weiter', async () => {
+    const g1 = moment({
+      post_id: 'g1', captured_at: '2026-08-10T09:00:00.000Z',
+      place_name: 'Alfama', lat: 38.7139, lng: -9.1301,
+    });
+    const g2 = moment({
+      post_id: 'g2', captured_at: '2026-08-10T10:00:00.000Z',
+      place_name: 'Alfama', lat: 38.71408, lng: -9.1301,
+    });
+    const g3 = moment({
+      post_id: 'g3', captured_at: '2026-08-10T11:00:00.000Z', place_name: 'Belém',
+      lat: 38.7, lng: -9.2,
+    });
+    await aufDerKarte([g1, g2, g3]);
+
+    await fireEvent.press(screen.getByTestId('karte-nadel-g1'));
+    // Die Karte meldet einen deutlich engeren Ausschnitt — sie IST gefahren.
+    await fireEvent(screen.getByTestId('karte-flaeche'), 'regionChangeComplete', {
+      latitude: 38.71399,
+      longitude: -9.1301,
+      latitudeDelta: 0.0006,
+      longitudeDelta: 0.0006,
+    });
+
+    await fireEvent.press(screen.getByTestId('karte-nadel-g1'));
+    expect(screen.queryByTestId('teilen-gruppe-liste')).toBeNull();
+    expect(screen.queryByText(/an diesem Ort/)).toBeNull();
+  });
+
+  // Finding 2: was die Function gar nicht herausgeben konnte, fehlt im Player
+  // UND auf der Karte. Ohne diesen Satz behauptete die Seite, sie zeige die
+  // ganze Reise.
+  const AUSGELASSEN_SATZ = '2 Momente liessen sich gerade nicht laden. Schau später nochmal rein.';
+
+  test('ausgelassene Momente werden auf der Karte benannt', async () => {
+    mockLoeseTokenAuf.mockResolvedValueOnce(erfolg([q1, q2, q3], {}, 2));
+    await bereit();
+    await fireEvent.press(await screen.findByText('Auf der Karte'));
+    expect(screen.getByTestId('teilen-ausgelassen')).toBeTruthy();
+    expect(screen.getByText(AUSGELASSEN_SATZ)).toBeTruthy();
+  });
+
+  // «Das war der Recap» ist die zweite Stelle, an der eine unvollständige
+  // Filmrolle es sagen muss: dort behauptet die Seite, alles gezeigt zu haben.
+  test('ausgelassene Momente stehen auch im Abspann', async () => {
+    mockLoeseTokenAuf.mockResolvedValueOnce(erfolg([q1, q2, q3], {}, 2));
+    await bereit();
+    for (let i = 0; i < 3; i++) {
+      await fireEvent(screen.getByTestId('teilen-rechts'), 'pressIn');
+      await fireEvent(screen.getByTestId('teilen-rechts'), 'pressOut');
+    }
+    expect(screen.getByTestId('teilen-ende')).toBeTruthy();
+    expect(screen.getByText(AUSGELASSEN_SATZ)).toBeTruthy();
+  });
+
+  test('ohne ausgelassene Momente behauptet nichts das Gegenteil', async () => {
+    await aufDerKarte();
+    expect(screen.queryByTestId('teilen-ausgelassen')).toBeNull();
+    expect(screen.queryByText(/liessen sich gerade nicht laden/)).toBeNull();
   });
 
   test('ein Tipp auf eine Gruppe, die sich trennen lässt, fährt hinein statt ein Sheet zu öffnen', async () => {

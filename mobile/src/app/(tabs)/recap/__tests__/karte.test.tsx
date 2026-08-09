@@ -118,7 +118,8 @@ jest.mock('react-native-maps', () => {
   };
 });
 
-import RecapKarte, { SHEET_SCROLL_ANTEIL } from '../[id]/karte';
+import RecapKarte from '../[id]/karte';
+import { SHEET_SCROLL_ANTEIL } from '@/components/Sheet';
 import { fetchRecapMomente } from '@/features/recap/recapApi';
 import { holeVorrat } from '@/features/recap/urlVorrat';
 import { meldeFehler } from '@/lib/fehlermelder';
@@ -851,6 +852,68 @@ test('eine Gruppe, die sich aufzoomen laesst, oeffnet KEIN Sheet', async () => {
 
   expect(screen.queryByText(/an diesem Ort/)).toBeNull();
   expect(screen.queryByText('Im Recap ansehen')).toBeNull();
+});
+
+// ---------------------------------------------------------------------------
+// Abschluss-Review, Finding 1: die Karte hat eine letzte Zoomstufe
+// ---------------------------------------------------------------------------
+//
+// `aufEinemFleck` (bitgleiche Koordinaten) deckte nur den seltenen Fall ab.
+// Der häufige: zwei Aufnahmen am selben Ort liegen durch GPS-Versatz drei bis
+// acht Meter auseinander — bei Leaflets Zoomstufe 19 sind das weniger als die
+// 40 Bildschirmpunkte, ab denen zwei Nadeln getrennt gezeichnet werden. Die
+// Gruppe fiel durch keine Zoomstufe auseinander, und der Tipp lief beliebig
+// oft ins Leere. Die Antwort kennt keine Zahl, sondern beobachtet: hat sich
+// der Ausschnitt bewegt?
+//
+// Im Testlauf meldet die gemockte Karte von sich aus nie einen neuen
+// Ausschnitt — sie steht damit genau so still wie am Anschlag.
+test('bewegt ein Gruppen-Tipp die Kamera nicht, oeffnet der naechste das Sheet', async () => {
+  ladeErfolg(NAH_BEIEINANDER);
+  await wrap();
+  await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
+  expect(screen.queryByText(/an diesem Ort/)).toBeNull(); // erst fahren
+
+  await fireEvent.press(screen.getByTestId('karte-nadel-p1'));
+  expect(screen.getByText('2 Momente an diesem Ort')).toBeTruthy();
+  expect(screen.getAllByTestId(/^gruppe-eintrag/)).toHaveLength(2);
+});
+
+// Die Gegenprobe, die den Zoom-Weg am Leben hält: hat sich der Ausschnitt
+// zwischen den beiden Tipps geändert, kann die Kamera noch etwas ausrichten —
+// dann gibt es weiterhin kein Sheet, sondern eine zweite Fahrt.
+test('hat sich der Ausschnitt bewegt, zoomt auch der zweite Tipp weiter', async () => {
+  ladeErfolg(NAH_BEIEINANDER);
+  await wrap();
+  await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
+  await fireEvent(screen.getByTestId('karte-flaeche'), 'regionChangeComplete', MITTEL);
+
+  await fireEvent.press(screen.getByTestId('karte-nadel-p1'));
+  expect(screen.queryByText(/an diesem Ort/)).toBeNull();
+  expect(mockAnimateToRegion).toHaveBeenCalledTimes(2);
+});
+
+// Eine andere Gruppe liegt woanders: dorthin kann die Kamera fahren, auch wenn
+// die Zoomstufe am Anschlag ist — die MITTE bewegt sich. Ein stehen
+// gebliebener Versuch darf sie nicht mit ins Sheet reissen.
+test('ein festgefahrener Versuch blockiert eine ANDERE Gruppe nicht', async () => {
+  // Zwei Gruppen: p1/p2 dicht beieinander in Lissabon, p6/p7 dicht beieinander
+  // rund einen Kilometer weiter.
+  const m6 = moment({ id: 'p6', captured_at: '2026-08-10T19:00:00.000Z', lat: 38.7201, lng: -9.1301 });
+  const m7 = moment({ id: 'p7', captured_at: '2026-08-10T19:30:00.000Z', lat: 38.72012, lng: -9.1301 });
+  ladeErfolg([m1, m2Nah, m6, m7], {
+    ...VORRAT_OK,
+    urls: new Map([['p1', bild('p1')], ['p2', bild('p2')], ['p6', bild('p6')], ['p7', bild('p7')]]),
+    ausgelassen: 0,
+  });
+  await wrap();
+  await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
+  // Die Karte steht (kein regionChangeComplete) — der Versuch auf p1 ist
+  // festgefahren. Der Tipp auf die andere Gruppe muss trotzdem fahren.
+  await fireEvent.press(screen.getByTestId('karte-nadel-p6'));
+
+  expect(screen.queryByText(/an diesem Ort/)).toBeNull();
+  expect(mockAnimateToRegion).toHaveBeenCalledTimes(2);
 });
 
 // ---------------------------------------------------------------------------
@@ -1656,6 +1719,50 @@ test('ohne solche Momente gibt es keine Leiste', async () => {
   await wrap();
   await screen.findByTestId('karte-nadel-p1');
   expect(screen.queryByText(/ohne Ort/)).toBeNull();
+});
+
+// ---------------------------------------------------------------------------
+// Abschluss-Review, Finding 2: Momente, die diese Karte GAR NICHT hergibt
+// ---------------------------------------------------------------------------
+//
+// Der Ladeweg filtert auf `uploaded && urls.has` — und das bleibt so, denn
+// `punkt.index` muss zur Spielliste passen. Wer dabei herausfällt, bekam aber
+// weder eine Nadel noch einen Platz in «N Momente ohne Ort»: die Rechnung auf
+// dem Screen ging nicht auf, und niemand konnte sehen, warum.
+//
+// VOLLSTAENDIG enthält genau einen von jeder Sorte: p4 lädt noch hoch, p5 hat
+// eine Koordinate, aber keine URL im Vorrat.
+test('Momente, die noch hochladen, werden benannt statt still zu fehlen', async () => {
+  ladeErfolg();
+  await wrap();
+  expect(await screen.findByText('1 Moment ist noch unterwegs.')).toBeTruthy();
+});
+
+test('Momente ohne Bild-URL werden benannt statt still zu fehlen', async () => {
+  ladeErfolg();
+  await wrap();
+  expect(
+    await screen.findByText('1 Moment liess sich gerade nicht laden. Schau später nochmal rein.')
+  ).toBeTruthy();
+});
+
+// Die Auskunft ist KEIN Knopf: zu diesen Momenten führt von der Karte aus kein
+// Weg — sie stehen in keiner Spielliste, also zeigt auch kein Index auf sie.
+test('die Auskunft über fehlende Momente faengt keinen Tipp ab', async () => {
+  ladeErfolg();
+  await wrap();
+  expect(
+    (await screen.findByTestId('karte-fehlen-ganz')).props.pointerEvents
+  ).toBe('none');
+});
+
+test('eine vollstaendige Reise behauptet nichts dergleichen', async () => {
+  ladeErfolg(NAH_BEIEINANDER, { ...VORRAT_OK, ausgelassen: 0 });
+  await wrap();
+  await screen.findByTestId('karte-nadel-p1');
+  expect(screen.queryByTestId('karte-fehlen-ganz')).toBeNull();
+  expect(screen.queryByText(/noch unterwegs/)).toBeNull();
+  expect(screen.queryByText(/nicht laden/)).toBeNull();
 });
 
 test('die Leiste oeffnet ein Sheet mit einer Kachel je Moment ohne Ort', async () => {
