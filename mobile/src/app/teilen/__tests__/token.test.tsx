@@ -62,6 +62,17 @@ jest.mock('@/features/teilen/shareApi', () => ({
   LINK_TOT_TEXT: 'Dieser Link funktioniert nicht mehr.',
 }));
 
+// DESIGN-LANGUAGE §5: «Haptik: selection (Tabs, Zoom)» — der Gruppen-Zoom der
+// Karte meldet sie. Muster wie in player.test.tsx/karte.test.tsx: das native
+// Modul gibt es im Testlauf nicht.
+const mockHaptik = jest.fn(() => Promise.resolve());
+jest.mock('expo-haptics', () => ({ selectionAsync: () => mockHaptik() }));
+// Steuerbar wie in karte.test.tsx: ohne das liesse sich der Sprung-Zweig der
+// Kamera gar nicht erreichen — AccessibilityInfo meldet im Testlauf immer
+// «keine Reduktion».
+let mockReduziert = false;
+jest.mock('@/theme/useReducedMotion', () => ({ useReducedMotion: () => mockReduziert }));
+
 import GeteilterRecapScreen from '../[token]';
 import { loeseTokenAuf } from '@/features/teilen/shareApi';
 import type { GeteilterRecap } from '@/features/teilen/shareApi';
@@ -71,6 +82,7 @@ const mockLoeseTokenAuf = loeseTokenAuf as jest.MockedFunction<typeof loeseToken
 beforeEach(() => {
   jest.clearAllMocks();
   mockToken = 'tok123';
+  mockReduziert = false;
   for (const key of Object.keys(mockListeners)) delete mockListeners[key];
   mockLastSource = undefined;
 });
@@ -79,10 +91,14 @@ function reise(overrides: Partial<GeteilterRecap['reise']> = {}) {
   return { name: 'Lissabon Städtetrip', start_date: '2026-08-10', end_date: '2026-08-14', ...overrides };
 }
 
+// Ohne Koordinaten als Vorgabe: die Momente der bestehenden Blöcke prüfen den
+// Player, und ein Recap ohne einen einzigen Ort hat keinen Karten-Einstieg
+// (Spec K9) — sie bleiben damit genau die Story, die sie vorher waren.
 function moment(overrides: Partial<GeteilterRecap['medien'][number]> = {}): GeteilterRecap['medien'][number] {
   return {
     post_id: 'p0', autor_name: 'Lea', type: 'photo', duration_s: null, caption: null,
     captured_at: '2026-08-10T09:00:00.000Z', captured_tz: 'Europe/Zurich', place_name: 'Lissabon',
+    lat: null, lng: null,
     medium_url: 'https://s3/p0', thumb_url: null,
     ...overrides,
   };
@@ -329,6 +345,286 @@ describe('Tages-Zwischenkarte', () => {
     expect(links.zIndex).toBe(1);
     expect(rechts.zIndex).toBe(1);
     expect(karte.zIndex).toBeGreaterThan(links.zIndex as number);
+  });
+});
+
+describe('Die Karte im geteilten Recap (Spec §5.10)', () => {
+  // Wie lange die Tages-Zwischenkarte steht (ZWISCHENKARTE_DAUER_MS im
+  // Screen) — dieselbe Zahl wie in den Blöcken darüber, hier benannt, weil
+  // zwei Tests unten sie brauchen.
+  const ZWISCHENKARTE_MS = 1500;
+
+  // Drei Momente an EINEM Reisetag, damit keine Tages-Zwischenkarte über dem
+  // Sprungziel steht: q1 mit Ort (Index 0), q2 OHNE Ort (Index 1), q3 mit Ort
+  // (Index 2).
+  //
+  // Der Moment ohne Ort in der Mitte ist die Pointe dieser Aufstellung: er
+  // bekommt keine Nadel, zählt in der Spielliste aber mit. Wer den Player mit
+  // der Stelle innerhalb der NADELN startet, landet bei q3 also auf Index 1 —
+  // und damit auf q2. Genau diesen Fehler nagelt der Sprung-Test unten fest.
+  const q1 = moment({
+    post_id: 'q1', autor_name: 'Lea', captured_at: '2026-08-10T09:00:00.000Z',
+    place_name: 'Alfama', lat: 38.7139, lng: -9.1301, thumb_url: 'https://s3/q1-thumb',
+  });
+  const q2 = moment({
+    post_id: 'q2', autor_name: 'Jonas', captured_at: '2026-08-10T10:00:00.000Z',
+    place_name: null, caption: 'Im Zug',
+  });
+  const q3 = moment({
+    post_id: 'q3', autor_name: 'Mira', captured_at: '2026-08-10T11:00:00.000Z',
+    place_name: 'Bairro Alto', caption: 'Fado im Hinterhof', lat: 38.75, lng: -9.16,
+  });
+
+  async function aufDerKarte(medien = [q1, q2, q3]) {
+    mockLoeseTokenAuf.mockResolvedValueOnce(erfolg(medien));
+    await bereit();
+    await fireEvent.press(await screen.findByText('Auf der Karte'));
+  }
+
+  test('der geteilte Recap bietet die Karte an', async () => {
+    mockLoeseTokenAuf.mockResolvedValueOnce(erfolg([q1, q2, q3]));
+    await bereit();
+    expect(await screen.findByText('Auf der Karte')).toBeTruthy();
+    // Beide Beschriftungen stehen immer da — die aktive Hälfte sagt nur, wo
+    // man gerade ist.
+    expect(screen.getByText('Ansehen')).toBeTruthy();
+    expect(screen.getByTestId('teilen-bereit')).toBeTruthy();
+  });
+
+  test('ohne einen einzigen Ort gibt es keinen Karten-Einstieg', async () => {
+    mockLoeseTokenAuf.mockResolvedValueOnce(erfolg([p1, p2, p3]));
+    await bereit();
+    expect(screen.queryByText('Auf der Karte')).toBeNull();
+    expect(screen.queryByText('Ansehen')).toBeNull();
+  });
+
+  test('die Karte ersetzt den Player im selben Screen, «Ansehen» holt ihn zurück', async () => {
+    await aufDerKarte();
+    expect(screen.getByTestId('teilen-karte')).toBeTruthy();
+    // Der Player ist WEG, nicht bloss verdeckt: eine zweite Route gibt es
+    // nicht (der expo-router-Mock oben bietet gar keinen `router` an — ein
+    // `router.push` in diesem Screen liesse den Test hier abstürzen).
+    expect(screen.queryByTestId('teilen-bereit')).toBeNull();
+
+    await fireEvent.press(screen.getByText('Ansehen'));
+    expect(screen.getByTestId('teilen-bereit')).toBeTruthy();
+    // Und die Fläche ist abgebaut, nicht versteckt (siehe Begründung im
+    // Screen: eine unsichtbare Leaflet-Karte baut sich auf 0 × 0 auf).
+    expect(screen.queryByTestId('karte-flaeche')).toBeNull();
+  });
+
+  test('die Karte zeigt die Momente mit Ort — und nur die', async () => {
+    await aufDerKarte();
+    expect(await screen.findAllByTestId(/^karte-nadel/)).toHaveLength(2);
+    expect(screen.getByTestId('karte-nadel-q1')).toBeTruthy();
+    expect(screen.getByTestId('karte-nadel-q3')).toBeTruthy();
+    expect(screen.queryByTestId('karte-nadel-q2')).toBeNull();
+  });
+
+  test('sie öffnet mit einem Ausschnitt, in dem beide Momente liegen (K2)', async () => {
+    await aufDerKarte();
+    const region = screen.getByTestId('karte-flaeche').props.initialRegion;
+    const nord = region.latitude + region.latitudeDelta / 2;
+    const sued = region.latitude - region.latitudeDelta / 2;
+    const ost = region.longitude + region.longitudeDelta / 2;
+    const west = region.longitude - region.longitudeDelta / 2;
+    for (const m of [q1, q3]) {
+      expect(m.lat!).toBeGreaterThan(sued);
+      expect(m.lat!).toBeLessThan(nord);
+      expect(m.lng!).toBeGreaterThan(west);
+      expect(m.lng!).toBeLessThan(ost);
+    }
+  });
+
+  test('die Linie verbindet die Momente in Aufnahmereihenfolge (K3)', async () => {
+    await aufDerKarte();
+    expect(screen.getByTestId('karte-linie').props.coordinates).toEqual([
+      { latitude: q1.lat, longitude: q1.lng },
+      { latitude: q3.lat, longitude: q3.lng },
+    ]);
+  });
+
+  test('auf der Karte gibt es keinen Tagesfilter (Spec §5.10)', async () => {
+    await aufDerKarte();
+    expect(screen.queryByText('Alle Tage')).toBeNull();
+    expect(screen.queryByText('Tag 1')).toBeNull();
+  });
+
+  test('die Momente ohne Ort werden benannt, statt still zu fehlen (K6)', async () => {
+    await aufDerKarte();
+    expect(screen.getByText('1 Moment ohne Ort — er läuft im Recap mit.')).toBeTruthy();
+  });
+
+  // Der Kern des Tasks: der Sprung führt auf GENAU den angetippten Moment,
+  // gezählt in die Liste, die der geteilte Player spielt.
+  test('«Ab hier ansehen» springt im geteilten Player an genau diese Stelle', async () => {
+    await aufDerKarte();
+    await fireEvent.press(screen.getByTestId('karte-nadel-q3'));
+    expect(screen.getByText('Bairro Alto')).toBeTruthy(); // das Sheet steht offen
+
+    await fireEvent.press(screen.getByText('Ab hier ansehen'));
+
+    expect(screen.getByTestId('teilen-bereit')).toBeTruthy();
+    expect(screen.getByText('Fado im Hinterhof')).toBeTruthy();
+    expect(screen.getByText('Mira')).toBeTruthy();
+    // Und der Index nachgezählt, nicht bloss «irgendetwas ist passiert»: der
+    // Fortschrittsbalken füllt genau die Segmente VOR dem aktiven ganz aus,
+    // zwei volle heissen also Index 2. Zählte der Sprung in die Nadel-Liste
+    // (q1, q3), stünde hier eine 1 — und der Player liefe bei q2 los.
+    expect(screen.getAllByTestId(/^fortschritt-voll-/)).toHaveLength(2);
+  });
+
+  // Nicht im Test darüber mitgeprüft, und zwar aus einem Grund, der beim
+  // ersten Versuch durchgerutscht ist: nach dem Sprung ist die Kartenansicht
+  // ohnehin nicht mehr im Baum, ein `queryByText('Ab hier ansehen')` wäre
+  // dort auch dann null, wenn das Sheet gar nie geschlossen würde. Sichtbar
+  // wird ein offen gebliebenes Sheet erst beim ZURÜCKKOMMEN — dann läge es
+  // über der Karte, ohne dass jemand eine Nadel angetippt hat.
+  test('die Karte öffnet ohne das Sheet von vorhin', async () => {
+    await aufDerKarte();
+    await fireEvent.press(screen.getByTestId('karte-nadel-q3'));
+    await fireEvent.press(screen.getByText('Ab hier ansehen'));
+    expect(screen.getByTestId('teilen-bereit')).toBeTruthy();
+
+    await fireEvent.press(screen.getByText('Auf der Karte'));
+    expect(screen.getByTestId('teilen-karte')).toBeTruthy();
+    expect(screen.queryByText('Ab hier ansehen')).toBeNull();
+    expect(screen.queryByTestId('sheet-root')).toBeNull();
+  });
+
+  test('der Sprung startet neu und nicht mitten im Abspann', async () => {
+    mockLoeseTokenAuf.mockResolvedValueOnce(erfolg([q1, q2, q3]));
+    await bereit();
+    // Bis ans Ende durchtippen: drei Momente, also dreimal rechts — der
+    // dritte Tipp führt vom letzten Moment auf den Abspann.
+    for (let i = 0; i < 3; i++) {
+      await fireEvent(screen.getByTestId('teilen-rechts'), 'pressIn');
+      await fireEvent(screen.getByTestId('teilen-rechts'), 'pressOut');
+    }
+    expect(screen.getByTestId('teilen-ende')).toBeTruthy();
+
+    // Die Karte bleibt aus dem Abspann heraus erreichbar.
+    await fireEvent.press(screen.getByText('Auf der Karte'));
+    await fireEvent.press(screen.getByTestId('karte-nadel-q1'));
+    await fireEvent.press(screen.getByText('Ab hier ansehen'));
+    expect(screen.getByTestId('teilen-bereit')).toBeTruthy();
+    expect(screen.getByText('Lea')).toBeTruthy();
+    expect(screen.getByText(/Alfama · \d{2}:\d{2}/)).toBeTruthy();
+    // Index 0: vor dem aktiven Segment ist keines voll.
+    expect(screen.queryAllByTestId(/^fortschritt-voll-/)).toHaveLength(0);
+  });
+
+  test('Momente auf derselben Koordinate öffnen die Liste, jeder Eintrag führt an seine eigene Stelle', async () => {
+    // s1 und s2 liegen bitgleich aufeinander — keine Zoomstufe trennt sie
+    // (features/karte/gruppierung.ts), sie teilen sich eine Nadel.
+    const s1 = moment({
+      post_id: 's1', autor_name: 'Lea', captured_at: '2026-08-10T09:00:00.000Z',
+      place_name: 'Alfama', lat: 38.7139, lng: -9.1301,
+    });
+    const s2 = moment({
+      post_id: 's2', autor_name: 'Jonas', captured_at: '2026-08-10T10:00:00.000Z',
+      place_name: 'Alfama', caption: 'Direkt daneben', lat: 38.7139, lng: -9.1301,
+    });
+    const s3 = moment({
+      post_id: 's3', autor_name: 'Mira', captured_at: '2026-08-10T11:00:00.000Z', place_name: null,
+    });
+    await aufDerKarte([s1, s2, s3]);
+
+    expect(await screen.findAllByTestId(/^karte-nadel/)).toHaveLength(1);
+    await fireEvent.press(screen.getByTestId('karte-nadel-s1'));
+    expect(screen.getByText('2 Momente an diesem Ort')).toBeTruthy();
+    // Kein Primär-Button in dieser Liste (DESIGN-LANGUAGE §4): den trägt das
+    // Sheet des einzelnen Moments.
+    expect(screen.queryByText('Ab hier ansehen')).toBeNull();
+
+    await fireEvent.press(screen.getByTestId('teilen-gruppe-eintrag-s2'));
+    expect(screen.getByTestId('teilen-bereit')).toBeTruthy();
+    expect(screen.getByText('Direkt daneben')).toBeTruthy();
+    expect(screen.getAllByTestId(/^fortschritt-voll-/)).toHaveLength(1);
+  });
+
+  // Der Player bleibt beim Umschalten als ZUSTAND bestehen — nur seine
+  // Ansicht ist weg. Ohne eine Bremse liefe seine Uhr hinter der Karte
+  // weiter, und wer eine halbe Minute auf der Karte sucht, käme an einer
+  // ganz anderen Stelle wieder heraus.
+  test('die Story läuft nicht hinter der offenen Karte weiter', async () => {
+    mockLoeseTokenAuf.mockResolvedValueOnce(erfolg([q1, q2, q3]));
+    await bereit();
+    // Die Zwischenkarte des allerersten Moments ZUERST wegwarten: solange sie
+    // steht, ist der Player ohnehin pausiert, und ein ausbleibender Vorschub
+    // liesse sich nicht der Karte zuschreiben (genau daran ist die erste
+    // Fassung dieses Tests vorbeigelaufen — die Mutation überlebte).
+    await act(async () => {
+      jest.advanceTimersByTime(ZWISCHENKARTE_MS);
+    });
+    expect(screen.queryByTestId('teilen-zwischenkarte')).toBeNull();
+
+    await fireEvent.press(screen.getByText('Auf der Karte'));
+    // Weit mehr als die Foto-Dauer (5000 ms) — und mehr, als alle drei
+    // Momente zusammen bräuchten.
+    await act(async () => {
+      jest.advanceTimersByTime(30_000);
+    });
+    expect(screen.getByTestId('teilen-karte')).toBeTruthy();
+
+    await fireEvent.press(screen.getByText('Ansehen'));
+    expect(screen.getByTestId('teilen-bereit')).toBeTruthy();
+    // Noch immer beim ersten Moment, nicht im Abspann.
+    expect(screen.queryAllByTestId(/^fortschritt-voll-/)).toHaveLength(0);
+    expect(screen.getByText('Lea')).toBeTruthy();
+  });
+
+  // Und dieselbe Bremse für die Tages-Zwischenkarte: ihre 1,5 Sekunden
+  // liefen hinter der Karte ungesehen ab, und der Tag wäre beim Zurückkommen
+  // bereits angesagt, ohne dass ihn jemand gelesen hat.
+  test('die Tages-Zwischenkarte wartet, solange die Karte offen ist', async () => {
+    mockLoeseTokenAuf.mockResolvedValueOnce(erfolg([q1, q2, q3]));
+    await bereit();
+    expect(screen.getByTestId('teilen-zwischenkarte')).toBeTruthy();
+
+    await fireEvent.press(screen.getByText('Auf der Karte'));
+    await act(async () => {
+      jest.advanceTimersByTime(ZWISCHENKARTE_MS * 4);
+    });
+    await fireEvent.press(screen.getByText('Ansehen'));
+    expect(screen.getByTestId('teilen-zwischenkarte')).toBeTruthy();
+  });
+
+  // DESIGN-LANGUAGE §1: Kino nur auf den Medien-Screens. Unter der
+  // Statusleiste liegen auf der Karte helle Kacheln.
+  test('die Statusleiste wird auf der Karte dunkel und im Player wieder hell', async () => {
+    await aufDerKarte();
+    expect(mockSetStatusBarStyle).toHaveBeenLastCalledWith('dark');
+
+    await fireEvent.press(screen.getByText('Ansehen'));
+    expect(mockSetStatusBarStyle).toHaveBeenLastCalledWith('light');
+  });
+
+  test('ein Tipp auf eine Gruppe, die sich trennen lässt, fährt hinein statt ein Sheet zu öffnen', async () => {
+    // Zwei Momente, die auf DIESEM Ausschnitt zusammenfallen (rund 20 Meter
+    // auseinander, die Karte zeigt gut 4 Kilometer) — aber nicht auf
+    // derselben Koordinate liegen.
+    const g1 = moment({
+      post_id: 'g1', captured_at: '2026-08-10T09:00:00.000Z', place_name: 'Alfama',
+      lat: 38.7139, lng: -9.1301,
+    });
+    const g2 = moment({
+      post_id: 'g2', captured_at: '2026-08-10T10:00:00.000Z', place_name: 'Alfama',
+      lat: 38.71408, lng: -9.1301,
+    });
+    const g3 = moment({
+      post_id: 'g3', captured_at: '2026-08-10T11:00:00.000Z', place_name: 'Belém',
+      lat: 38.7, lng: -9.2,
+    });
+    await aufDerKarte([g1, g2, g3]);
+    expect(await screen.findAllByTestId(/^karte-nadel/)).toHaveLength(2);
+
+    await fireEvent.press(screen.getByTestId('karte-nadel-g1'));
+    // Kein Sheet — die Karte fährt hinein (Spec §5.5), und meldet das per
+    // selection-Haptik (DESIGN-LANGUAGE §5).
+    expect(screen.queryByText('Ab hier ansehen')).toBeNull();
+    expect(screen.queryByTestId('teilen-gruppe-liste')).toBeNull();
+    expect(mockHaptik).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -1,13 +1,36 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
+import {
+  ActivityIndicator,
+  Animated,
+  Easing,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
+} from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import { setStatusBarStyle } from 'expo-status-bar';
 import { Image } from 'expo-image';
 import { useVideoPlayer, VideoView } from 'expo-video';
+import * as Haptics from 'expo-haptics';
+import { Button } from '@/components/Button';
 import { PressScale } from '@/components/PressScale';
 import { Fortschrittsbalken } from '@/components/Fortschrittsbalken';
 import { Pille } from '@/components/Pille';
-import { cinema, radius, spacing, type } from '@/theme/tokens';
+import { Sheet } from '@/components/Sheet';
+import { useTheme } from '@/theme/ThemeProvider';
+import { cinema, motion, radius, spacing, type } from '@/theme/tokens';
+import { useReducedMotion } from '@/theme/useReducedMotion';
 import { loeseTokenAuf, LINK_TOT_TEXT, type GeteiltesMoment } from '@/features/teilen/shareApi';
 import { sortiereMomente } from '@/features/recap/tage';
 import {
@@ -23,6 +46,17 @@ import {
 } from '@/features/recap/playerLogic';
 import { gruppiereNachTagen } from '@/features/recap/tage';
 import type { RecapMoment, RecapTag } from '@/features/recap/types';
+import { zeitInZone } from '@/features/recap/uhrzeit';
+import { ausschnittFuer } from '@/features/karte/ausschnitt';
+import { KartenFlaeche } from '@/features/karte/KartenFlaeche';
+import { aufEinemFleck, gruppiere } from '@/features/karte/gruppierung';
+import { zuKartenPunkten } from '@/features/karte/kartenPunkte';
+import type {
+  Ausschnitt,
+  Gruppe,
+  KartenFlaecheHandle,
+  KartenPunkt,
+} from '@/features/karte/typen';
 
 // Öffentlicher, schreibgeschützter Web-Player (Task-5-Brief, Spec §5.2):
 // zeigt dieselbe Story wie mobile/src/app/(tabs)/recap/[id]/player.tsx —
@@ -54,22 +88,57 @@ import type { RecapMoment, RecapTag } from '@/features/recap/types';
 //   still-nachsignierender Hintergrundaufruf wäre zusätzliche Komplexität
 //   für einen Anwendungsfall (eine typischerweise binnen Minuten
 //   durchgespielte Story), den der Task-Auftrag nicht verlangt.
+//
+// Seit Task 15 trägt derselbe Screen die ZWEITE Lesart des Recaps: die Karte
+// (Spec §5.10). Sie ersetzt den Player, statt eine eigene Route zu bekommen —
+// ein geteilter Link ist EINE URL, und eine zweite Route wäre eine, die
+// niemand teilen kann und die ohne Vorgeschichte aufgerufen würde. Die
+// Kartenfläche selbst ist dieselbe wie in der App (features/karte/
+// KartenFlaeche.tsx nativ, .web.tsx im Browser); dieser Screen liefert ihr
+// Nadeln, Linie und Kamera und entscheidet, was ein Tipp auslöst.
 const VORLADEN_ANZAHL = 3;
 const ZWISCHENKARTE_DAUER_MS = 1500;
 const TAP_SCHWELLE_MS = 250;
 
+// Die beiden Lesarten (Spec §5.10, wortgleiche Segment-Zeile wie in der
+// Übersicht der App — dort «Nach Tagen · Auf der Karte»). Beide
+// Beschriftungen stehen immer da; nur welche Hälfte der Knopf ist, wechselt.
+const ANSEHEN_LABEL = 'Ansehen';
+const KARTE_LABEL = 'Auf der Karte';
+// Der Knopf im Moment-Sheet heisst hier anders als in der App («Im Recap
+// ansehen»): es gibt keinen Recap-Player, in den gesprungen würde, sondern
+// den geteilten Player auf DIESEM Screen (Spec §5.10).
+const AB_HIER_LABEL = 'Ab hier ansehen';
+// Höhe der Segment-Zeile (36 + 2 × 4 Polster) — dieselben 44 Punkte wie jede
+// andere Pille dieses Projekts. Als Konstante, weil der Kopfbereich des
+// Players darunter rutscht, sobald es die Zeile gibt.
+const SEGMENT_HOEHE = 44;
+// DESIGN-LANGUAGE §5: «Listen = Stagger 40 ms» / «prefers-reduced-motion:
+// alles wird zu 200-ms-Fades». Gleiche Werte wie in recap/[id]/karte.tsx.
+const STAGGER_MS = 40;
+const REDUZIERTE_DAUER_MS = 200;
+// Wie viel Fensterhöhe der scrollende Teil eines Sheets höchstens einnimmt —
+// gleicher Anteil und gleiche Begründung wie in recap/[id]/karte.tsx: `Sheet`
+// deckelt sich selbst bei 85 % und schneidet den Überhang hart ab
+// (`overflow: hidden`), ein ungedeckelter Inhalt verlöre also seine letzten
+// Zeilen ersatzlos.
+const SHEET_SCROLL_ANTEIL = 0.5;
+
 type LadePhase = 'laedt' | 'fehler' | 'leer' | 'bereit' | 'ende';
 type MedienLink = { medium_url: string; thumb_url: string | null };
 
-// Bildet die schareApi-Antwort auf die RecapMoment-Form ab, damit
-// dauerFuer/gruppiereNachTagen/tagWechselt/sortiereMomente UNVERÄNDERT
-// wiederverwendbar bleiben (sie sind auf RecapMoment[] typisiert). Die
-// hier aufgefüllten Felder (id, trip_id, author_id, lat, lng,
+// Bildet die shareApi-Antwort auf die RecapMoment-Form ab, damit
+// dauerFuer/gruppiereNachTagen/tagWechselt/sortiereMomente/zuKartenPunkten
+// UNVERÄNDERT wiederverwendbar bleiben (sie sind auf RecapMoment[]
+// typisiert). Die hier aufgefüllten Felder (trip_id, author_id,
 // upload_status) liest KEINE der wiederverwendeten Funktionen jemals — id
-// dient nur als stabiler Schlüssel (aus post_id), die übrigen sind reine
-// Platzhalter, um die Form zu erfüllen. GeteiltesMoment führt lat/lng
-// (noch) nicht mit — die Karte auf dieser Seite ist ein eigener, späterer
-// Task.
+// dient als stabiler Schlüssel (aus post_id), die übrigen sind reine
+// Platzhalter, um die Form zu erfüllen.
+//
+// lat/lng werden seit Task 15 DURCHGEREICHT statt auf null gesetzt: sie sind
+// die Grundlage der Karte auf dieser Seite (Spec §5.10). shareApi.ts prüft
+// sie beim Lesen auf eine endliche Zahl, hier kommt also entweder eine
+// brauchbare Koordinate an oder `null`.
 function zuRecapMoment(m: GeteiltesMoment): RecapMoment {
   return {
     id: m.post_id,
@@ -81,17 +150,22 @@ function zuRecapMoment(m: GeteiltesMoment): RecapMoment {
     captured_at: m.captured_at,
     captured_tz: m.captured_tz,
     place_name: m.place_name,
-    lat: null,
-    lng: null,
+    lat: m.lat,
+    lng: m.lng,
     upload_status: 'uploaded',
     autor_name: m.autor_name,
   };
 }
 
-// Gleiche Formatierungen wie im nativen Player (player.tsx) — bewusst als
-// eigene, kleine Kopie statt eines Imports: player.tsx exportiert diese
-// Hilfsfunktionen nicht, und dieser Screen darf laut Auftrag nur seine
-// eigenen Dateien anfassen, nicht player.tsx umbauen, um sie zu exportieren.
+// Das Tagesdatum der Zwischenkarte, gleiche Formatierung wie im nativen
+// Player (player.tsx) — als eigene, kleine Kopie: player.tsx exportiert die
+// Hilfsfunktion nicht, und dieser Screen baut sie nicht dort um.
+//
+// Die Uhrzeit lag bis Task 15 ebenso als Kopie hier. Sie kommt jetzt aus
+// features/recap/uhrzeit.ts — das ist die Stelle, an die dieser Kommentar
+// dort verweist («die beiden Screens umzustellen ist eine mechanische
+// Nachfolgearbeit»), und die Datei liegt seit der Karte ohnehin im Modulgraph
+// dieses Screens (features/karte/nadel.ts baut ihre Beschriftung daraus).
 const MONATE_LANG = [
   'Januar', 'Februar', 'März', 'April', 'Mai', 'Juni',
   'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember',
@@ -106,17 +180,18 @@ function tagesueberschrift(tag: RecapTag): string {
   teile.push(formatTagesdatum(tag.datum));
   return teile.join(' · ');
 }
-function zeitInZone(capturedAt: string, capturedTz: string): string {
-  try {
-    return new Intl.DateTimeFormat('de-DE', {
-      timeZone: capturedTz,
-      hour: '2-digit',
-      minute: '2-digit',
-    }).format(new Date(capturedAt));
-  } catch {
-    const d = new Date(capturedAt);
-    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-  }
+
+// «Mira · 14:32» — Autor und die Uhrzeit VON DAMALS VOR ORT (`captured_tz`),
+// wortgleich zum Moment-Sheet der App-Karte (recap/[id]/karte.tsx).
+function autorUndZeit(moment: RecapMoment): string {
+  return `${moment.autor_name} · ${zeitInZone(moment.captured_at, moment.captured_tz)}`;
+}
+
+// Was VoiceOver zu einem einzelnen Moment sagt — wortgleich an der Nadel
+// (features/karte/nadel.ts) und in der Gruppenliste: derselbe Moment,
+// derselbe Weg.
+function momentLabel(moment: RecapMoment): string {
+  return `Moment von ${moment.autor_name} um ${zeitInZone(moment.captured_at, moment.captured_tz)} öffnen`;
 }
 
 function KinoButton({ label, onPress }: { label: string; onPress: () => void }) {
@@ -253,6 +328,294 @@ function MomentAnzeige({
   );
 }
 
+// ---------------------------------------------------------------------------
+// Die Karte (Spec §5.10)
+// ---------------------------------------------------------------------------
+
+// Eine URL, mit der sich tatsächlich ein Bild laden lässt — oder `null`.
+//
+// `MedienLink.medium_url` ist als `string` typisiert, wird in shareApi.ts aber
+// ungeprüft aus der Antwort der Function übernommen (geprüft wird dort die
+// FORM der Antwort, nicht jedes Feld jedes Moments). Fehlt das Feld, lügt der
+// Typ, und ohne diese Prüfung ginge ein `undefined` als Bildquelle an die
+// Nadel. Gleiche Absicherung und gleicher Grund wie in recap/[id]/karte.tsx.
+function brauchbareUrl(wert: string | null | undefined): string | null {
+  return typeof wert === 'string' && wert.length > 0 ? wert : null;
+}
+
+// Das Bild einer Nadel: klein reicht, `thumb_url` zuerst. Fehlt es (die
+// Function hatte für diesen Moment keinen `thumb_key`), trägt das mittlere
+// Bild die Nadel — sonst bliebe für solche Momente für immer die leere
+// Fläche stehen. Gleiche Regel und gleiche Reihenfolge wie in
+// recap/[id]/karte.tsx.
+function nadelBild(urls: ReadonlyMap<string, MedienLink>, momentId: string): string | null {
+  const url = urls.get(momentId);
+  if (!url) return null;
+  return brauchbareUrl(url.thumb_url) ?? brauchbareUrl(url.medium_url);
+}
+
+// Das Bild IM SHEET ist gross (3:2, Spec §5.7) — dafür ist das mittlere Bild
+// gedacht, nicht das 44 Punkte breite Nadel-Thumbnail. Die Reihenfolge ist
+// deshalb genau umgekehrt zu `nadelBild`.
+function sheetBild(urls: ReadonlyMap<string, MedienLink>, momentId: string): string | null {
+  const url = urls.get(momentId);
+  if (!url) return null;
+  return brauchbareUrl(url.medium_url) ?? brauchbareUrl(url.thumb_url);
+}
+
+// Singular/Plural wie überall im Projekt: die Zahl bleibt auch im Singular
+// stehen.
+function ohneOrtText(anzahl: number): string {
+  const wort = anzahl === 1 ? 'Moment' : 'Momente';
+  const nachsatz = anzahl === 1 ? 'er läuft' : 'sie laufen';
+  return `${anzahl} ${wort} ohne Ort — ${nachsatz} im Recap mit.`;
+}
+
+// Eine Hälfte der Segment-Zeile.
+//
+// Die AKTIVE Hälfte ist bewusst KEIN Knopf: sie zeigt, wo man gerade ist, und
+// ein Tipp darauf täte nichts — ein Press-Feedback wäre eine Zusage, die
+// niemand einlöst (gleiche Entscheidung wie in uebersicht.tsx). `accessible`
+// bündelt Fläche und Text zu einem Element, damit VoiceOver den Stand als
+// eine Auskunft vorliest statt als losen Text neben einem Knopf.
+//
+// Farben anders als in der Übersicht der App, aus einem Grund, der nicht
+// Geschmack ist: dort liegt die Zeile auf Weiss, hier auf einer FREMDFLÄCHE
+// (Foto oder Kartenkacheln). DESIGN-LANGUAGE §1 lässt darauf ausschliesslich
+// die translucente Pille zu — die trägt deshalb die Spur, und die aktive
+// Hälfte darin ist die helle Fläche des KinoButtons. Der passive Text steht
+// in `cinema.text-1` und nicht in `text-2` (§4, Tab-Bar): §4 beschreibt die
+// Tab-Leiste auf `bg-0`; hier ist der Untergrund halbdurchsichtig über einer
+// hellen Karte, und der schwächere Ton wäre dort nicht mehr sicher lesbar.
+// Den Unterschied trägt die Füllung, nicht die Textfarbe.
+function SegmentHaelfte({
+  label, aktiv, testID, onPress,
+}: {
+  label: string;
+  aktiv: boolean;
+  testID: string;
+  onPress: () => void;
+}) {
+  if (aktiv) {
+    return (
+      <View
+        accessible
+        accessibilityRole="text"
+        accessibilityLabel={`${label}, aktuelle Ansicht`}
+        testID={testID}
+        style={styles.segmentAktiv}
+      >
+        <Text style={[type.bodyMedium, { color: cinema['bg-0'] }]}>{label}</Text>
+      </View>
+    );
+  }
+  return (
+    <PressScale accessibilityRole="button" testID={testID} onPress={onPress}>
+      <View style={styles.segmentPassiv}>
+        <Text style={[type.bodyMedium, { color: cinema['text-1'] }]}>{label}</Text>
+      </View>
+    </PressScale>
+  );
+}
+
+// Der Einstieg in die Karte und der Weg zurück — EIN Element für beides, an
+// EINER Stelle, in beiden Ansichten. Es steht bewusst ganz oben und nicht im
+// Kopfbereich des Players: der Kopf gehört dem Player (Fortschritt, Autor,
+// Ort/Zeit), diese Zeile gehört dem Screen. Und sie darf beim Umschalten
+// nicht springen — sonst müsste man den Weg zurück suchen, statt ihn dort zu
+// finden, wo man ihn gerade angetippt hat.
+// `onWechsel` ohne Argument, obwohl es zwei Hälften gibt: die AKTIVE ist kein
+// Knopf (siehe oben), es kann also immer nur die andere gedrückt werden — der
+// Wechsel hat kein Ziel zu wählen. Ein `onWechsel(true|false)` läge nur
+// scheinbar näher und wäre an beiden Aufrufstellen ein ignoriertes Argument.
+function SegmentZeile({ aufKarte, onWechsel }: { aufKarte: boolean; onWechsel: () => void }) {
+  return (
+    // `box-none`: der Rahmen zieht sich über die volle Breite und dürfte
+    // links und rechts der Pille keinen Tipp abfangen — im Player liegt
+    // darunter die Tipp-Zone, auf der Karte die Karte selbst.
+    <View style={styles.segmentZeile} pointerEvents="box-none">
+      <Pille style={styles.segmentSpur}>
+        <SegmentHaelfte
+          label={ANSEHEN_LABEL}
+          aktiv={!aufKarte}
+          testID="teilen-segment-ansehen"
+          onPress={onWechsel}
+        />
+        <SegmentHaelfte
+          label={KARTE_LABEL}
+          aktiv={aufKarte}
+          testID="teilen-segment-karte"
+          onPress={onWechsel}
+        />
+      </Pille>
+    </View>
+  );
+}
+
+// Der scrollende Bereich eines Sheets — siehe SHEET_SCROLL_ANTEIL. Der
+// Primär-Knopf steht AUSSERHALB davon und bleibt stehen, während der Inhalt
+// darüber scrollt: bei grosser Systemschrift reichen Bild (3:2), Ort und
+// Caption sonst über die Unterkante hinaus, und «Ab hier ansehen» wäre nicht
+// mehr zu erreichen.
+function SheetScroll({ testID, children }: { testID: string; children: ReactNode }) {
+  const { height: fensterHoehe } = useWindowDimensions();
+  return (
+    <ScrollView
+      testID={testID}
+      style={{ maxHeight: fensterHoehe * SHEET_SCROLL_ANTEIL }}
+      // Den Abstand zwischen den Kindern hält sonst `Sheet` selbst — innerhalb
+      // der ScrollView gilt er nicht mehr, also steht er hier, mit demselben Wert.
+      contentContainerStyle={styles.scrollInhalt}
+    >
+      {children}
+    </ScrollView>
+  );
+}
+
+// Eine Zeile, die sich einblendet (DESIGN-LANGUAGE §5: Listen = Stagger
+// 40 ms). Eigene Komponente, weil jede Zeile ihren eigenen Animated.Value
+// braucht.
+function Einblendung({ stelle, children }: { stelle: number; children: ReactNode }) {
+  const reducedMotion = useReducedMotion();
+  const [opacity] = useState(() => new Animated.Value(0));
+
+  useEffect(() => {
+    // §5: mit Reduced Motion wird alles zu einem 200-ms-Fade — die Zeilen
+    // erscheinen dann gemeinsam, ohne Staffelung. Nur `opacity` wird bewegt,
+    // die Animation läuft also auf dem UI-Thread.
+    Animated.timing(opacity, {
+      toValue: 1,
+      duration: reducedMotion ? REDUZIERTE_DAUER_MS : motion.duration.base,
+      delay: reducedMotion ? 0 : stelle * STAGGER_MS,
+      easing: Easing.bezier(...motion.easeSmooth),
+      useNativeDriver: true,
+    }).start();
+  }, [opacity, reducedMotion, stelle]);
+
+  return <Animated.View style={{ opacity }}>{children}</Animated.View>;
+}
+
+// Der einzelne Moment im Sheet (Spec §5.7): Bild 3:2 mit Radius 24
+// (DESIGN-LANGUAGE §3), darunter Autor/Uhrzeit, Ort und Caption — und EIN
+// Primär-Button (§4: genau einer pro Screen; die Gruppenliste unten hat
+// deshalb keinen).
+//
+// Ein HELLES Sheet, obwohl der Player dieses Screens Kino ist: es öffnet über
+// der Karte, und die ist wie in der App ein helles Werkzeug zum Finden, kein
+// Medien-Vollbild (Spec §5.3). Derselbe Moment sieht damit im geteilten Recap
+// aus wie in der App.
+function MomentSheetInhalt({
+  punkt, bildUrl, onAbHier,
+}: {
+  punkt: KartenPunkt;
+  bildUrl: string | null;
+  onAbHier: (punkt: KartenPunkt) => void;
+}) {
+  const { colors } = useTheme();
+  const { moment } = punkt;
+  return (
+    <>
+      <SheetScroll testID="teilen-moment-inhalt">
+        <View style={[styles.sheetBild, { backgroundColor: colors['bg-1'] }]}>
+          {/* Ohne brauchbare URL bleibt die ruhige bg-1-Fläche stehen — kein
+              Puls: es kommt nichts mehr. */}
+          {bildUrl !== null && (
+            <Image
+              testID="teilen-sheet-bild"
+              source={{ uri: bildUrl }}
+              style={StyleSheet.absoluteFill}
+              contentFit="cover"
+              transition={motion.duration.fast}
+            />
+          )}
+        </View>
+        <View style={styles.sheetText}>
+          <Text style={[type.secondary, { color: colors['text-2'] }]}>{autorUndZeit(moment)}</Text>
+          {moment.place_name ? (
+            <Text style={[type.bodyMedium, { color: colors['text-1'] }]}>{moment.place_name}</Text>
+          ) : null}
+          {moment.caption ? (
+            <Text style={[type.body, { color: colors['text-1'] }]}>{moment.caption}</Text>
+          ) : null}
+        </View>
+      </SheetScroll>
+      <Button variant="primary" label={AB_HIER_LABEL} onPress={() => onAbHier(punkt)} />
+    </>
+  );
+}
+
+// Eine Zeile der Gruppenliste.
+function GruppenEintrag({
+  punkt, thumbUrl, stelle, onAbHier,
+}: {
+  punkt: KartenPunkt;
+  thumbUrl: string | null;
+  stelle: number;
+  onAbHier: (punkt: KartenPunkt) => void;
+}) {
+  const { colors } = useTheme();
+  const { moment } = punkt;
+  return (
+    <Einblendung stelle={stelle}>
+      <PressScale
+        scaleTo={0.98}
+        accessibilityRole="button"
+        accessibilityLabel={momentLabel(moment)}
+        testID={`teilen-gruppe-eintrag-${moment.id}`}
+        onPress={() => onAbHier(punkt)}
+      >
+        <View style={styles.eintrag}>
+          {/* Klein und quadratisch: Radius 12 ist der Thumbnail-Wert
+              (DESIGN-LANGUAGE §3), 24 gehört dem grossen Bild oben. */}
+          <View style={[styles.eintragBild, { backgroundColor: colors['bg-1'] }]}>
+            {thumbUrl !== null && (
+              <Image source={{ uri: thumbUrl }} style={StyleSheet.absoluteFill} contentFit="cover" />
+            )}
+          </View>
+          <View style={styles.eintragText}>
+            <Text style={[type.bodyMedium, { color: colors['text-1'] }]}>{autorUndZeit(moment)}</Text>
+            {moment.caption ? (
+              <Text numberOfLines={1} style={[type.secondary, { color: colors['text-2'] }]}>
+                {moment.caption}
+              </Text>
+            ) : null}
+          </View>
+        </View>
+      </PressScale>
+    </Einblendung>
+  );
+}
+
+// Die Momente einer Gruppe, die sich nicht auseinanderzoomen lässt
+// (features/karte/gruppierung.ts, `aufEinemFleck`). Jeder Eintrag führt über
+// denselben Weg in den Player wie ein einzelner Moment — und keiner davon ist
+// ein Primär-Button: es gibt genau einen pro Screen, und den trägt das
+// Moment-Sheet.
+function GruppenSheetInhalt({
+  punkte, urls, onAbHier,
+}: {
+  punkte: KartenPunkt[];
+  urls: ReadonlyMap<string, MedienLink>;
+  onAbHier: (punkt: KartenPunkt) => void;
+}) {
+  return (
+    // Die Liste scrollt: auf einem Fleck können beliebig viele Momente
+    // liegen, und Zoomen hilft dort per Definition nicht — abgeschnittene
+    // Einträge wären auf keinem anderen Weg mehr erreichbar.
+    <SheetScroll testID="teilen-gruppe-liste">
+      {punkte.map((p, stelle) => (
+        <GruppenEintrag
+          key={p.moment.id}
+          punkt={p}
+          thumbUrl={nadelBild(urls, p.moment.id)}
+          stelle={stelle}
+          onAbHier={onAbHier}
+        />
+      ))}
+    </SheetScroll>
+  );
+}
+
 export default function GeteilterRecapScreen() {
   const { token } = useLocalSearchParams<{ token: string }>();
 
@@ -267,16 +630,49 @@ export default function GeteilterRecapScreen() {
   const [urls, setUrls] = useState<Map<string, MedienLink>>(new Map());
   const [stand, setStand] = useState<PlayerStand>({ index: 0, pausiert: new Set(), fortschritt: 0 });
   const [fehlgeschlagen, setFehlgeschlagen] = useState<Set<string>>(new Set());
+  // Welche der beiden Lesarten gerade zu sehen ist (Spec §5.10). Kein
+  // `router.push`: der geteilte Recap ist EINE URL und bekommt keine zweite
+  // Route.
+  const [ansicht, setAnsicht] = useState<'player' | 'karte'>('player');
+  // Der zuletzt GEMELDETE Kartenausschnitt, oder `null` für «die Karte hat
+  // noch nichts gemeldet». Er ist die Grundlage der Gruppierung (sie rechnet
+  // in Bildschirmpunkten und braucht den aktuellen Zoom) — und zugleich der
+  // Ausschnitt, mit dem die Karte beim nächsten Mal öffnet, siehe unten.
+  const [ausschnitt, setAusschnitt] = useState<Ausschnitt | null>(null);
+  // Was das Moment-Sheet gerade zeigt, oder `null` für «keines offen». EIN
+  // Zustand für beide Fälle, weil sie dieselbe Frage beantworten («welche
+  // Momente stecken hinter dieser Nadel») und sich gegenseitig ausschliessen:
+  // ein Punkt ist der einzelne Moment (Spec §5.7), mehrere sind die Liste
+  // einer Gruppe, die sich nicht auseinanderzoomen lässt.
+  const [sheet, setSheet] = useState<KartenPunkt[] | null>(null);
 
   const aktiv = useRef(true);
   const segmentStartRef = useRef(0);
   const beruehrungStartRef = useRef(0);
   const aktivIdRef = useRef<string | undefined>(undefined);
   const pausiertRef = useRef<ReadonlySet<PauseGrund>>(new Set());
+  const karte = useRef<KartenFlaecheHandle>(null);
+
+  const reducedMotion = useReducedMotion();
+  // Die Fläche, auf der gruppiert wird: die Karte liegt als absoluteFill über
+  // dem ganzen Screen, das Fenster ist also ihr Mass (gleiche Überlegung wie
+  // in recap/[id]/karte.tsx).
+  const { width: breite, height: hoehe } = useWindowDimensions();
 
   const laden = useCallback(async () => {
     setPhase('laedt');
     setFehlerText(null);
+    // Alles, was zur VORHERIGEN Auflösung gehört, geht hier weg. Der Screen
+    // bleibt bei einem Wechsel des Tokens gemountet (dieselbe Route, anderer
+    // Parameter), und ein stehen gebliebenes Sheet trüge danach einen Moment
+    // der vorherigen Reise — sein Knopf setzte den Player auf einen Index,
+    // der in der neuen Reise auf einen ganz anderen Moment zeigt. Sichtbar
+    // wäre das ohnehin nicht (die Phase steht ab dieser Zeile auf 'laedt',
+    // und die zeigt nur den Ladeindikator) — der Zustand soll trotzdem
+    // eindeutig sein, statt an der Reihenfolge der Zweige unten zu hängen.
+    setAnsicht('player');
+    setSheet(null);
+    setAusschnitt(null);
     const { data, error } = await loeseTokenAuf(token);
     if (!aktiv.current) return;
 
@@ -312,12 +708,17 @@ export default function GeteilterRecapScreen() {
     };
   }, [laden]);
 
-  // Medien-Screen (DESIGN-LANGUAGE v2 §1): feste Kino-Statusleiste — einmalig
-  // beim Mount, kein useFocusEffect nötig (es gibt keine Geschwister-Route,
-  // zu der man zurückkehren könnte, siehe Kopf-Kommentar).
+  // Die Statusleiste folgt der Ansicht, nicht dem Screen.
+  //
+  // Der Player ist ein Medien-Screen und damit Kino (DESIGN-LANGUAGE v2 §1) —
+  // helle Schrift. Die Karte ist es nicht: unter der Statusleiste liegen dann
+  // Kartenkacheln, und die sind hell (Spec §5.3). Eine hell gelassene Uhrzeit
+  // wäre dort schlicht nicht mehr zu lesen. Kein useFocusEffect nötig — es
+  // gibt keine Geschwister-Route, zu der man zurückkehren könnte (siehe
+  // Kopf-Kommentar).
   useEffect(() => {
-    setStatusBarStyle('light');
-  }, []);
+    setStatusBarStyle(ansicht === 'karte' ? 'dark' : 'light');
+  }, [ansicht]);
 
   const aktivMoment = spielliste[stand.index];
   aktivIdRef.current = aktivMoment?.id;
@@ -330,6 +731,164 @@ export default function GeteilterRecapScreen() {
     if (!aktivMoment) return null;
     return tage.find((t) => t.momente.some((m) => m.id === aktivMoment.id)) ?? null;
   }, [tage, aktivMoment]);
+
+  // -------------------------------------------------------------------------
+  // Die Karte (Spec §5.10)
+  // -------------------------------------------------------------------------
+
+  // Nadeln und Nicht-Nadeln, aus GENAU DER LISTE, die der Player spielt.
+  //
+  // Das ist die eine Stelle, an der ein Fehler still bliebe: `punkt.index`
+  // zählt in die Liste, die `zuKartenPunkten` hereinbekommt (typen.ts), und
+  // genau dieser Wert setzt unten den Index des geteilten Players. `spielliste`
+  // ist diese Liste — sie IST der Player (`spielliste[stand.index]` oben).
+  // Eine andere Liste hereinzugeben (etwa `data.medien` in Antwortreihenfolge)
+  // liesse die Nadeln weiterhin auf ihren Koordinaten sitzen, und der Sprung
+  // landete beim falschen Moment; auffallen würde das nur beim Nachzählen.
+  //
+  // `zuKartenPunkten` sortiert selbst noch einmal über `sortiereMomente` —
+  // dieselbe totale Ordnung, mit der `laden()` die Spielliste gebaut hat
+  // (captured_at, id als zweites Kriterium). Zweimal angewandt kommt
+  // zwangsläufig dieselbe Reihenfolge heraus, die Indizes zeigen also
+  // nachweislich in die Spielliste.
+  const { punkte, ohneOrt } = useMemo(() => zuKartenPunkten(spielliste), [spielliste]);
+
+  // Der Ausschnitt, in dem ALLE Momente mit Ort zu sehen sind (Spec K2) —
+  // `null`, wenn keiner einen hat. Genau daran hängt, ob es die Karte
+  // überhaupt gibt.
+  const startAusschnitt = useMemo(() => ausschnittFuer(punkte), [punkte]);
+
+  // Womit die Karte öffnet UND worauf gruppiert wird.
+  //
+  // Die Fläche wird beim Umschalten auf den Player ABGEBAUT und beim
+  // Zurückschalten neu gemountet — nicht bloss versteckt. Zwei Gründe:
+  //
+  // - `initialerAusschnitt` wirkt nur beim Mounten (typen.ts). Eine dauerhaft
+  //   gemountete Fläche müsste ihre Kamera über `zeige` nachgeführt bekommen;
+  //   so fallen «wann die Karte sichtbar wird» und «wann der Ausschnitt gilt»
+  //   von selbst zusammen, und es gibt keinen zweiten Weg, auf dem die Kamera
+  //   gesetzt wird.
+  // - Im Browser baut Leaflet die Karte in einen DOM-Knoten und rechnet den
+  //   Zoom aus dessen GRÖSSE (`fitBounds` → `getBoundsZoom`,
+  //   KartenFlaeche.web.tsx). Eine versteckte Fläche hat die Grösse 0 × 0, und
+  //   die Fassung ruft nirgends `invalidateSize()` — «gemountet, aber
+  //   unsichtbar» ist dort also gar keine Möglichkeit, sondern eine Karte, die
+  //   auf einer sinnlosen Zoomstufe aufgeht.
+  //
+  // Damit die Karte beim Zurückschalten trotzdem nicht in die Ausgangslage
+  // zurückspringt, öffnet sie mit dem zuletzt gemeldeten Ausschnitt. Beim
+  // ersten Mal gibt es keinen — dann zeigt sie alles.
+  const sichtbarerAusschnitt = ausschnitt ?? startAusschnitt;
+
+  // Die Reise als Linie (Spec K3/§5.6). `punkte` kommt aus `zuKartenPunkten`
+  // bereits nach `captured_at` sortiert — hier wird bewusst NICHT noch einmal
+  // sortiert: die Linie zeigt, in welcher Reihenfolge aufgenommen wurde, nie,
+  // in welcher hochgeladen wurde.
+  const linie = useMemo(
+    () => punkte.map((p) => ({ latitude: p.lat, longitude: p.lng })),
+    [punkte]
+  );
+
+  // Nadeln, die einander sonst verdecken, teilen sich eine (Spec §5.5).
+  // Gruppiert wird nach dem Abstand auf DEM GERADE SICHTBAREN Ausschnitt —
+  // beim Hineinzoomen fällt eine Gruppe damit von selbst auseinander.
+  const gruppen = useMemo(
+    () => (sichtbarerAusschnitt ? gruppiere(punkte, sichtbarerAusschnitt, breite, hoehe) : []),
+    [punkte, sichtbarerAusschnitt, breite, hoehe]
+  );
+
+  // Das Bild einer Nadel — als Nachschlagefunktion statt als fertige Liste:
+  // die Fläche fragt für den Anker jeder Gruppe nach, und welche Gruppen es
+  // gibt, weiss sie selbst besser als dieser Screen.
+  const thumbFuer = useCallback((postId: string) => nadelBild(urls, postId), [urls]);
+
+  const merkeAusschnitt = useCallback((sichtbar: Ausschnitt) => setAusschnitt(sichtbar), []);
+
+  // Die Kamera bewegt DIE FLÄCHE, nicht dieser Screen. Dort sitzt auch die
+  // Reduced-Motion-Weiche — sie gehört zur Technik der jeweiligen Karte
+  // (animateToRegion/setRegion nativ, flyTo/setView im Browser).
+  const zeige = useCallback((ziel: Ausschnitt) => karte.current?.zeige(ziel), []);
+
+  // Was ein Tipp auf eine Gruppe zusätzlich wissen muss — in einem Ref statt
+  // in den Abhängigkeiten von `aufGruppe`. Hinge die Funktion am Ausschnitt,
+  // bekäme jede Nadel bei JEDER Kartenbewegung ein neues `onPress`, und das
+  // `memo` am Marker (KartenNadel.tsx) wäre wirkungslos.
+  //
+  // `useLayoutEffect`, nicht `useEffect`: ein passiver Effekt läuft erst NACH
+  // dem Commit, und in dem Fenster dazwischen läse ein Tipp noch den alten
+  // Stand — die Karte kommt aus einer Fahrt, und der Tipp auf die eben
+  // erschienene Nadel rechnete mit dem Zoom von davor.
+  const kartenStand = useRef<Ausschnitt | null>(sichtbarerAusschnitt);
+  useLayoutEffect(() => {
+    kartenStand.current = sichtbarerAusschnitt;
+  }, [sichtbarerAusschnitt]);
+
+  // Ein Tipp auf eine Gruppe fährt in sie hinein, solange das etwas ausrichtet
+  // (Spec §5.5): wer auf der Karte sucht, will die Karte benutzen. Erst wo
+  // Zoomen nichts mehr bringt — eine einzelne Nadel, oder mehrere Momente auf
+  // exakt derselben Koordinate —, öffnet sich das Sheet. Wortgleich zu
+  // recap/[id]/karte.tsx, samt der Begründung dort.
+  const aufGruppe = useCallback(
+    (gruppe: Gruppe) => {
+      const sichtbar = kartenStand.current;
+
+      if (aufEinemFleck(gruppe)) {
+        setSheet(gruppe.punkte);
+        return;
+      }
+
+      // Unerreichbar, aber für den Typ nötig: `gruppen` wird nur berechnet,
+      // wenn der Ausschnitt steht — ohne ihn gäbe es gar keine Nadel.
+      if (!sichtbar) return;
+
+      const umfasst = ausschnittFuer(gruppe.punkte);
+      if (!umfasst) return;
+
+      // DESIGN-LANGUAGE §5 nennt für «Zoom» selection-Haptik. `.catch`, weil
+      // ein abgelehntes Promise aus einem nativen Modul sonst als unbehandelte
+      // Ablehnung zählt — im Browser gibt es keine Haptik, dort ist der Aufruf
+      // ein No-Op.
+      void Haptics.selectionAsync().catch(() => {});
+
+      zeige({
+        ...umfasst,
+        // Die Fahrt geht immer HINEIN, nie hinaus: `ausschnittFuer` hat eine
+        // Mindestspanne, die für den Erststart gedacht ist und enger liegende
+        // Gruppen sonst hinauszoomen liesse.
+        latitudeDelta: Math.min(umfasst.latitudeDelta, sichtbar.latitudeDelta / 2),
+        longitudeDelta: Math.min(umfasst.longitudeDelta, sichtbar.longitudeDelta / 2),
+      });
+    },
+    [zeige]
+  );
+
+  // «Ab hier ansehen» (Spec §5.10). KEIN `router.push`: der geteilte Recap ist
+  // EINE URL, der Player steht auf demselben Screen — der Sprung setzt also
+  // seinen Index und schaltet die Ansicht um.
+  //
+  // Das Sheet geht dabei zu, anders als in der App: dort schiebt sich der
+  // Player als eigene Route darüber und das offene Sheet bleibt für den
+  // Rückweg stehen. Hier läge es über dem Player, den es gerade gestartet hat.
+  //
+  // `eintrag.index` zählt über die SPIELLISTE (siehe `punkte` oben) — nie die
+  // Stelle innerhalb von `punkte` (die überspringt jeden Moment ohne Ort) und
+  // nie die innerhalb der Gruppe: beide sässen scheinbar richtig und starteten
+  // den Player beim falschen Moment.
+  const abHier = useCallback((eintrag: KartenPunkt) => {
+    setStand({ index: eintrag.index, pausiert: new Set(), fortschritt: 0 });
+    // Auch aus der Ende-Phase heraus: die Karte ist von dort erreichbar, und
+    // «Ab hier ansehen» soll dann wieder abspielen, nicht auf dem Abspann
+    // stehen bleiben.
+    setPhase('bereit');
+    setSheet(null);
+    setAnsicht('player');
+  }, []);
+
+  // Ob es die Karte auf dieser Seite überhaupt gibt (Spec K9): ohne einen
+  // einzigen Ort führte der Einstieg auf eine leere Fläche über dem Atlantik.
+  // Anders als in der App braucht es dafür keinen erklärenden Leer-Screen —
+  // der Einstieg entsteht schlicht nicht, und der Player steht ungestört da.
+  const kannKarte = sichtbarerAusschnitt !== null;
 
   const weiterAutomatisch = useCallback(() => {
     const ergebnis = weiter(stand, spielliste.length);
@@ -355,8 +914,14 @@ export default function GeteilterRecapScreen() {
   // Auto-Vorschub: EIN Timer für Fotos UND Videos (dauerFuer liefert für
   // beide eine sinnvolle Dauer) — für ein Video zugleich der Rückfall, falls
   // es nie lädt.
+  //
+  // `ansicht` steht in der Bedingung, seit der Screen die Karte trägt: der
+  // Player bleibt beim Umschalten als ZUSTAND bestehen (nur seine Ansicht ist
+  // weg), und ohne diese Zeile liefe die Story hinter der offenen Karte
+  // weiter. Wer eine halbe Minute auf der Karte sucht, käme auf «Ansehen»
+  // sechs Momente später wieder heraus — oder im Abspann.
   useEffect(() => {
-    if (phase !== 'bereit' || stand.pausiert.size > 0) return;
+    if (phase !== 'bereit' || ansicht !== 'player' || stand.pausiert.size > 0) return;
     const moment = spielliste[stand.index];
     if (!moment) return;
     const dauer = dauerFuer(moment);
@@ -364,10 +929,22 @@ export default function GeteilterRecapScreen() {
     segmentStartRef.current = Date.now() - stand.fortschritt;
     const timer = setTimeout(() => weiterAutomatischRef.current(), rest);
     return () => clearTimeout(timer);
-  }, [phase, stand.pausiert, stand.index, stand.fortschritt, spielliste]);
+  }, [phase, ansicht, stand.pausiert, stand.index, stand.fortschritt, spielliste]);
 
   // Tages-Zwischenkarte: erscheint VOR dem ersten Moment eines neuen Tages
   // und steht 1,5 s, bevor sie selbst weiterschaltet.
+  //
+  // `ansicht` steht in den Abhängigkeiten, obwohl der Effekt sie nirgends
+  // liest — und das ist keine Nachlässigkeit, sondern die Zusicherung selbst:
+  // die Ansage ist eine Ansage des PLAYERS. Läuft ihre Frist ab, während die
+  // Karte offen ist, wäre der Tag beim Zurückkommen bereits angesagt, ohne
+  // dass ihn jemand gelesen hat. So läuft der Effekt bei jedem Wechsel der
+  // Ansicht neu und beginnt die anderthalb Sekunden von vorn.
+  //
+  // Ein zusätzliches `ansicht !== 'player'` im Rumpf stand hier kurz und ist
+  // wieder rausgeflogen: es war nachweislich nicht zu beobachten (der Effekt
+  // baut den Stand beim Zurückkommen ohnehin neu auf) — genau die Art
+  // Bedingung, die später niemand mehr prüfen kann.
   useEffect(() => {
     if (phase !== 'bereit') return;
     if (!tagWechselt(spielliste, startDate, stand.index)) {
@@ -379,7 +956,7 @@ export default function GeteilterRecapScreen() {
       setStand((s) => ({ ...s, pausiert: ohneGrund(s.pausiert, 'zwischenkarte') }));
     }, ZWISCHENKARTE_DAUER_MS);
     return () => clearTimeout(timer);
-  }, [phase, spielliste, startDate, stand.index]);
+  }, [phase, ansicht, spielliste, startDate, stand.index]);
 
   // Vorladen der nächsten drei Fotos (Videos werden nicht vorgeladen, wie im
   // nativen Player — expo-video puffert selbst beim Mounten).
@@ -467,6 +1044,80 @@ export default function GeteilterRecapScreen() {
     );
   }
 
+  // Die Karte steht VOR der Ende-Phase: sie ist von dort aus erreichbar (die
+  // Segment-Zeile steht auch über dem Abspann), und wer sie öffnet, will sie
+  // sehen und nicht «Das war der Recap». `sichtbarerAusschnitt` ist die
+  // einzige Bedingung — sie ist zugleich die, die der Typ verlangt, und die,
+  // die den Einstieg überhaupt erst entstehen lässt (`kannKarte`).
+  if (ansicht === 'karte' && sichtbarerAusschnitt) {
+    return (
+      // KEINE Kino-Fläche darunter: die Karte ist wie in der App ein helles
+      // Werkzeug zum Finden, kein Medien-Vollbild (Spec §5.3). Die Kacheln
+      // bringen ihre eigenen Farben mit — sie sind Inhalt wie ein Foto, nicht
+      // Interface (Entscheid R2); bindend bleibt, was DARAUF liegt.
+      <View testID="teilen-karte" style={styles.flaeche}>
+        <KartenFlaeche
+          ref={karte}
+          initialerAusschnitt={sichtbarerAusschnitt}
+          gruppen={gruppen}
+          linie={linie}
+          thumbFuer={thumbFuer}
+          aufGruppe={aufGruppe}
+          aufAusschnitt={merkeAusschnitt}
+          reducedMotion={reducedMotion}
+        />
+
+        {/* Die Momente, die keine Nadel tragen können (Spec K6). Eine Karte,
+            auf der drei Momente einfach fehlen, ohne dass es jemand erfährt,
+            lügt über die Reise.
+            Anders als in der App eine reine AUSKUNFT ohne Sheet: dort ist die
+            Karte ein eigener Screen, und ohne die Kachel-Liste wären diese
+            Momente von dort aus gar nicht zu erreichen. Hier liegt der Weg zu
+            ihnen eine Pillenbreite daneben — «Ansehen» spielt die ganze
+            Reise, diese Momente eingeschlossen. Deshalb `pointerEvents:
+            none`: die Zeile sagt etwas, sie verspricht nichts. */}
+        {ohneOrt.length > 0 && (
+          <View style={styles.ohneOrt} pointerEvents="none">
+            <Pille style={styles.ohneOrtPille}>
+              <Text style={[type.secondary, { color: cinema['text-1'] }]}>
+                {ohneOrtText(ohneOrt.length)}
+              </Text>
+            </Pille>
+          </View>
+        )}
+
+        {/* Erst gemountet, wenn es etwas zu zeigen gibt: `Sheet` bringt seine
+            Eintrittsanimation im Effekt mit (spring-ui, DESIGN-LANGUAGE §4),
+            ein frisch gemountetes öffnet damit jedes Mal von unten. */}
+        {sheet !== null && (
+          <Sheet
+            sichtbar
+            // Die Liste bekommt eine Überschrift, der einzelne Moment nicht:
+            // dort ist das Bild der Kopf (Spec §5.7). Mehr als ein Punkt
+            // heisst hier immer «alle auf derselben Koordinate» — «an diesem
+            // Ort» ist also wörtlich wahr.
+            titel={sheet.length > 1 ? `${sheet.length} Momente an diesem Ort` : undefined}
+            onSchliessen={() => setSheet(null)}
+          >
+            {sheet.length === 1 ? (
+              <MomentSheetInhalt
+                punkt={sheet[0]}
+                bildUrl={sheetBild(urls, sheet[0].moment.id)}
+                onAbHier={abHier}
+              />
+            ) : (
+              <GruppenSheetInhalt punkte={sheet} urls={urls} onAbHier={abHier} />
+            )}
+          </Sheet>
+        )}
+
+        {/* Zuletzt im Baum und mit dem höchsten zIndex: der Weg zurück in den
+            Player darf von nichts verdeckt werden. */}
+        <SegmentZeile aufKarte onWechsel={() => setAnsicht('player')} />
+      </View>
+    );
+  }
+
   if (phase === 'ende') {
     return (
       <View testID="teilen-ende" style={[styles.screen, styles.mitte]}>
@@ -477,6 +1128,9 @@ export default function GeteilterRecapScreen() {
           <KinoButton label="Nochmal ansehen" onPress={nochmalAnsehen} />
         </View>
         <Fussleiste />
+        {kannKarte && (
+          <SegmentZeile aufKarte={false} onWechsel={() => setAnsicht('karte')} />
+        )}
       </View>
     );
   }
@@ -501,7 +1155,17 @@ export default function GeteilterRecapScreen() {
         onFehler={() => beiLadefehler(aktivMoment.id)}
       />
 
-      <View style={styles.kopfBereich} pointerEvents="none">
+      {/* Der Kopf des PLAYERS rutscht unter die Segment-Zeile, sobald es sie
+          gibt: die Zeile gehört dem Screen und steht deshalb oben, der
+          Fortschritt und die Auskunft zum Moment gehören dem Player und
+          stehen darunter. Ohne Karte bleibt alles, wo es war. */}
+      <View
+        style={[
+          styles.kopfBereich,
+          { top: kannKarte ? spacing.xl + SEGMENT_HOEHE + spacing.base : spacing.xl },
+        ]}
+        pointerEvents="none"
+      >
         <Fortschrittsbalken
           anzahl={spielliste.length}
           aktivIndex={stand.index}
@@ -552,12 +1216,23 @@ export default function GeteilterRecapScreen() {
       )}
 
       <Fussleiste />
+
+      {/* Zuletzt im Baum und mit dem höchsten zIndex — auch über der
+          Tages-Zwischenkarte: der Wechsel auf die Karte soll nicht davon
+          abhängen, ob gerade ein Tag anbricht. */}
+      {kannKarte && (
+        <SegmentZeile aufKarte={false} onWechsel={() => setAnsicht('karte')} />
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: cinema['bg-0'] },
+  // Die Kartenansicht — ohne Kino-Hintergrund: darunter liegen die Kacheln,
+  // und in der kurzen Spanne, bis sie da sind, soll kein schwarzer Kinosaal
+  // aufblitzen (Spec §5.3: die Karte ist hell).
+  flaeche: { flex: 1 },
   mitte: { alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.screen },
   zentrierterText: { color: cinema['text-1'], textAlign: 'center' },
   kinoButton: {
@@ -568,9 +1243,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.l,
     backgroundColor: cinema['text-1'],
   },
+  // `top` kommt aus dem JSX: der Kopf des Players rutscht unter die
+  // Segment-Zeile, sobald diese Reise eine Karte hat.
   kopfBereich: {
     position: 'absolute',
-    top: spacing.xl,
     left: spacing.screen,
     right: spacing.screen,
     gap: spacing.base,
@@ -643,4 +1319,61 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 2,
   },
+
+  // --- Die Karte (Spec §5.10) ---------------------------------------------
+
+  // zIndex 3: über den Tipp-Zonen (1) UND über der Tages-Zwischenkarte (2).
+  // Die Segment-Zeile ist der einzige Weg zwischen den beiden Lesarten — sie
+  // darf von nichts verdeckt werden, was der Player gerade einblendet.
+  segmentZeile: { position: 'absolute', top: spacing.xl, left: 0, right: 0, alignItems: 'center', zIndex: 3 },
+  // Die Spur trägt das Polster, die Hälften darin ihre eigene Höhe: 36 + 2 × 4
+  // ergibt die 44 Punkte, die auch Zurück-, Filter- und Namens-Pille haben.
+  segmentSpur: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    padding: spacing.xs,
+    borderRadius: radius.pill,
+  },
+  segmentAktiv: {
+    height: 36,
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.base,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: cinema['text-1'],
+  },
+  segmentPassiv: {
+    height: 36,
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.base,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  // Die Auskunft über die Momente ohne Ort, mittig unten — dieselbe Stelle wie
+  // die Leiste der App-Karte. Der Abstand nach unten ist der Screen-Rand
+  // (DESIGN-LANGUAGE §3); die Namensnennung der Kacheln sitzt im Browser
+  // darunter rechts (K14) und kommt sich mit einer zentrierten Pille nicht in
+  // die Quere.
+  ohneOrt: { position: 'absolute', left: spacing.screen, right: spacing.screen, bottom: spacing.screen, alignItems: 'center' },
+  ohneOrtPille: {
+    justifyContent: 'center',
+    paddingHorizontal: spacing.base,
+    paddingVertical: spacing.s,
+    borderRadius: radius.pill,
+  },
+  // Spec §5.7: Bild in 3:2, Radius 24 (DESIGN-LANGUAGE §3, der Cover-Wert).
+  sheetBild: { width: '100%', aspectRatio: 3 / 2, borderRadius: radius.card, overflow: 'hidden' },
+  // Enger als der Abstand, den das Sheet zwischen seinen Kindern hält: die
+  // drei Zeilen gehören zusammen (4er-Raster, §3).
+  sheetText: { gap: spacing.xs },
+  // Derselbe Abstand, den `Sheet` zwischen seinen eigenen Kindern hält — er
+  // gilt innerhalb der ScrollView nicht mehr weiter.
+  scrollInhalt: { gap: spacing.base },
+  eintrag: { flexDirection: 'row', alignItems: 'center', gap: spacing.m },
+  eintragBild: { width: 56, height: 56, borderRadius: radius.control, overflow: 'hidden' },
+  // `flex: 1` nimmt den Rest der Zeile — ohne das schöbe eine lange Caption
+  // die Zeile über den Rand hinaus, statt in `numberOfLines` abgeschnitten zu
+  // werden.
+  eintragText: { flex: 1, gap: spacing.xs },
 });

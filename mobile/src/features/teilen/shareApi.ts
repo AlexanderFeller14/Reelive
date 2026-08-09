@@ -23,6 +23,12 @@ export type GeteiltesMoment = {
   place_name: string | null;
   caption: string | null;
   duration_s: number | null;
+  // Koordinaten der Aufnahme (Spec R4/K13, seit Task 13 in der Antwort der
+  // Function). `null` ist der Normalfall und kein Fehler — dieselbe Bedeutung
+  // wie in RecapMoment: ohne erlaubte Ortungsdienste, drinnen oder nach einer
+  // Zeitüberschreitung wird der Moment ohne Ort eingesendet.
+  lat: number | null;
+  lng: number | null;
   medium_url: string;
   thumb_url: string | null;
 };
@@ -73,6 +79,11 @@ type MedienEintrag = {
   place_name: string | null;
   caption: string | null;
   duration_s: number | null;
+  // Nicht optional, sondern `number | null` — genau so beschreibt es
+  // `OeffentlicherMoment` in supabase/functions/share-link/aufloesung.ts.
+  // Gelesen wird trotzdem defensiv (siehe `zahlOderNull`).
+  lat: number | null;
+  lng: number | null;
   medium_url: string;
   thumb_url?: string; // nur gesetzt, wenn ein Thumbnail existiert (Vertrag, siehe media-urls-Vorbild)
 };
@@ -81,6 +92,20 @@ type AufloeseAntwort = {
   medien: MedienEintrag[];
   gueltig_bis: string;
 };
+
+// Eine Koordinate, die sich rechnen lässt — oder `null`.
+//
+// `?? null` reichte hier NICHT, und der Unterschied ist nicht theoretisch: App
+// und Edge Function werden getrennt ausgerollt (derselbe Grund, aus dem
+// `thumb_url` weich gelesen wird). Antwortet eine ältere Function ohne die
+// beiden Felder, ist `m.lat` `undefined` — und `undefined ?? null` ergäbe zwar
+// `null`, aber ein `m.lat` mit einem String oder NaN darin käme ungeprüft
+// durch. `zuKartenPunkten` prüft flussabwärts ausschliesslich auf `=== null`
+// (features/karte/kartenPunkte.ts); alles andere gilt dort als gültige
+// Koordinate und setzte eine Nadel auf eine Position, die es nicht gibt.
+function zahlOderNull(wert: unknown): number | null {
+  return typeof wert === 'number' && Number.isFinite(wert) ? wert : null;
+}
 
 export async function loeseTokenAuf(token: string): Promise<Gelesen<GeteilterRecap | null>> {
   const { data, error } = await supabase.functions.invoke('share-link', {
@@ -118,6 +143,8 @@ export async function loeseTokenAuf(token: string): Promise<Gelesen<GeteilterRec
     place_name: m.place_name,
     caption: m.caption,
     duration_s: m.duration_s,
+    lat: zahlOderNull(m.lat),
+    lng: zahlOderNull(m.lng),
     medium_url: m.medium_url,
     thumb_url: m.thumb_url ?? null,
   }));

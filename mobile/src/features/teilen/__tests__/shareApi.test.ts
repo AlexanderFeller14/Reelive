@@ -44,12 +44,14 @@ const gueltigeAntwort = {
     {
       post_id: 'p1', autor_name: 'Lea', type: 'photo', captured_at: '2026-08-10T09:00:00.000Z',
       captured_tz: 'Europe/Zurich', place_name: 'Lissabon', caption: 'Schön hier',
-      duration_s: null, medium_url: 'https://s3/p1', thumb_url: 'https://s3/p1-thumb',
+      duration_s: null, lat: 38.7139, lng: -9.1301,
+      medium_url: 'https://s3/p1', thumb_url: 'https://s3/p1-thumb',
     },
     {
       post_id: 'p2', autor_name: 'Jonas', type: 'video', captured_at: '2026-08-10T10:00:00.000Z',
       captured_tz: 'Europe/Zurich', place_name: null, caption: null,
-      duration_s: 8, medium_url: 'https://s3/p2', // kein Thumbnail: Feld fehlt ganz
+      duration_s: 8, lat: null, lng: null,
+      medium_url: 'https://s3/p2', // kein Thumbnail: Feld fehlt ganz
     },
   ],
   gueltig_bis: '2026-08-08T13:00:00.000Z',
@@ -69,8 +71,43 @@ describe('loeseTokenAuf: Erfolg', () => {
     expect(data?.medien[0]).toEqual({
       post_id: 'p1', autor_name: 'Lea', type: 'photo', captured_at: '2026-08-10T09:00:00.000Z',
       captured_tz: 'Europe/Zurich', place_name: 'Lissabon', caption: 'Schön hier',
-      duration_s: null, medium_url: 'https://s3/p1', thumb_url: 'https://s3/p1-thumb',
+      duration_s: null, lat: 38.7139, lng: -9.1301,
+      medium_url: 'https://s3/p1', thumb_url: 'https://s3/p1-thumb',
     });
+  });
+
+  // Die Koordinaten sind seit Phase 7 Teil der Antwort (Spec R4/K13) und die
+  // Grundlage der Karte im geteilten Recap. `null` ist der Normalfall und kein
+  // Fehler — ein Moment ohne erlaubte Ortungsdienste hat schlicht keinen Ort.
+  test('lat/lng gehen unverändert durch, auch als null', async () => {
+    mockInvoke.mockResolvedValueOnce({ data: gueltigeAntwort, error: null });
+    const { data } = await loeseTokenAuf('tok123');
+    expect(data?.medien[0].lat).toBe(38.7139);
+    expect(data?.medien[0].lng).toBe(-9.1301);
+    expect(data?.medien[1].lat).toBeNull();
+    expect(data?.medien[1].lng).toBeNull();
+  });
+
+  // Und die Gegenprobe zur Formprüfung: eine ältere Function ohne die beiden
+  // Felder (App und Function werden getrennt ausgerollt) darf keine Nadel auf
+  // eine Position setzen, die es nicht gibt. `zuKartenPunkten` prüft
+  // flussabwärts nur auf `=== null` — alles andere gälte dort als gültige
+  // Koordinate.
+  test.each([
+    ['fehlende Felder', {}],
+    ['NaN', { lat: NaN, lng: NaN }],
+    ['Text statt Zahl', { lat: '38.7', lng: '-9.1' }],
+  ])('eine Koordinate, mit der sich nicht rechnen lässt (%s), wird zu null', async (_name, kaputt) => {
+    mockInvoke.mockResolvedValueOnce({
+      data: {
+        ...gueltigeAntwort,
+        medien: [{ ...gueltigeAntwort.medien[0], lat: undefined, lng: undefined, ...kaputt }],
+      },
+      error: null,
+    });
+    const { data } = await loeseTokenAuf('tok123');
+    expect(data?.medien[0].lat).toBeNull();
+    expect(data?.medien[0].lng).toBeNull();
   });
 
   // Fehlendes thumb_url wird zu null, nicht zu undefined — GeteiltesMoment.
