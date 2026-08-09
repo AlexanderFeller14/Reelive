@@ -38,6 +38,12 @@ jest.mock('react-native-maps', () => {
   };
 });
 
+// Steuerbar wie in recap/__tests__/karte.test.tsx: AccessibilityInfo meldet im
+// Testlauf immer «keine Reduktion», die Weiche im Skelett-Kreis wäre aus
+// Test-Sicht sonst toter Code.
+let mockReduziert = false;
+jest.mock('@/theme/useReducedMotion', () => ({ useReducedMotion: () => mockReduziert }));
+
 import { KartenNadel, KartenNadelMarker } from '../KartenNadel';
 
 function moment(overrides: Partial<RecapMoment> = {}): RecapMoment {
@@ -72,6 +78,7 @@ let pulsSpion: jest.SpyInstance;
 
 beforeEach(() => {
   mockTracksVerlauf.length = 0;
+  mockReduziert = false;
   pulsSpion = jest.spyOn(Animated, 'loop');
 });
 
@@ -114,6 +121,20 @@ test('ohne Bildquelle steht ein stiller Kreis', async () => {
   await wrap(<KartenNadel moment={fotoMoment} thumbUrl={null} />);
   expect(screen.getByTestId('nadel-skelett')).toBeTruthy();
   expect(screen.queryByTestId('nadel-bild')).toBeNull();
+  expect(pulsSpion).not.toHaveBeenCalled();
+});
+
+// DESIGN-LANGUAGE §5/§9: «prefers-reduced-motion» gilt für JEDE Bewegung, nicht
+// nur für die Kamerafahrten des Kartenscreens. Der Puls unter der Nadel ist die
+// eine Bewegung dieser Komponente, und sie läuft ohne jedes Zutun — bis zur
+// §9-Durchsicht (Task 12) hielt sie keine Zusicherung.
+//
+// Sichtbar bleibt der Kreis trotzdem: «keine Bewegung» heisst nicht «keine
+// Auskunft, dass hier ein Bild unterwegs ist».
+test('mit Reduced Motion steht der Kreis still, statt zu pulsen', async () => {
+  mockReduziert = true;
+  await wrap(<KartenNadel moment={fotoMoment} thumbUrl="https://x/t.jpg" />);
+  expect(screen.getByTestId('nadel-skelett')).toBeTruthy();
   expect(pulsSpion).not.toHaveBeenCalled();
 });
 

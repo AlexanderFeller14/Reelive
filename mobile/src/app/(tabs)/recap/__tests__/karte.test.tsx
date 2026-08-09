@@ -1,5 +1,12 @@
 import { useLayoutEffect } from 'react';
-import { Animated, Dimensions, StyleSheet, useWindowDimensions } from 'react-native';
+import {
+  Animated,
+  Dimensions,
+  StyleSheet,
+  useWindowDimensions,
+  type StyleProp,
+  type ViewStyle,
+} from 'react-native';
 import { act, render, screen, fireEvent, within } from '@testing-library/react-native';
 import { ThemeProvider } from '@/theme/ThemeProvider';
 import { motion, palette } from '@/theme/tokens';
@@ -2090,4 +2097,176 @@ test('ohne Luecke steht die Zeile nicht da', async () => {
   expect(screen.getByTestId('tag-eintrag-1')).toBeTruthy();
   expect(screen.getByTestId('tag-eintrag-2')).toBeTruthy();
   expect(screen.queryByText(/stehen nicht zur Wahl/)).toBeNull();
+});
+
+// ---------------------------------------------------------------------------
+// Task 12: die Review-Checkliste aus DESIGN-LANGUAGE §9
+// ---------------------------------------------------------------------------
+
+// §9, Punkt 6: «Genau ein Primär-Button pro Screen» — §7 verbietet ausdrücklich
+// mehr als einen. Das lässt sich am Quelltext nicht abzählen: dieser Screen hat
+// NEUN sichtbare Zustände, und jeder rendert einen anderen Baum — lädt, Fehler,
+// die beiden Leer-Fälle, die Karte selbst und die Karte noch einmal mit jedem
+// der vier Sheets. Ein Blick in die JSX zeigt nur, wo `Button` steht, nicht,
+// welche davon gleichzeitig auf dem Schirm sind.
+//
+// Erkannt wird der Primär-Button an seiner Signatur aus components/Button.tsx:
+// eine `accent`-Fläche in Höhe 52. Nicht an der Beschriftung — die liesse sich
+// ändern, ohne dass hier etwas auffiele. Nicht an der Farbe allein: die
+// Zähler-Pille der Nadel trägt dieselbe (KartenNadel.tsx), aber Höhe 20. Und
+// nicht an der Höhe allein: der Sekundär-Button ist ebenfalls 52 hoch, nur auf
+// `bg-0`. Erst beides zusammen ist «primär».
+type Knoten = ReturnType<typeof screen.queryAllByRole>[number];
+
+function traegtAkzentflaeche(knoten: Knoten): boolean {
+  return (
+    knoten.queryAll((kind) => {
+      const stil = StyleSheet.flatten(kind.props.style as StyleProp<ViewStyle>) as
+        | ViewStyle
+        | undefined;
+      return stil?.backgroundColor === palette.accent && stil?.height === 52;
+    }).length > 0
+  );
+}
+
+function primaerKnoepfe(): unknown[] {
+  return screen
+    .queryAllByRole('button')
+    .filter(traegtAkzentflaeche)
+    .map((knopf) => knopf.props.accessibilityLabel);
+}
+
+function haengenderLadeweg() {
+  (fetchRecapMomente as jest.Mock).mockReturnValue(new Promise(() => {}));
+  (holeVorrat as jest.Mock).mockReturnValue(new Promise(() => {}));
+}
+
+test('§9: der Ladezustand traegt keinen Primaer-Button', async () => {
+  haengenderLadeweg();
+  await wrap();
+  expect(screen.getByTestId('karte-skelett')).toBeTruthy();
+  expect(primaerKnoepfe()).toEqual([]);
+});
+
+test('§9: der Fehler-Zustand traegt genau einen Primaer-Button', async () => {
+  (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: [], error: null });
+  (holeVorrat as jest.Mock).mockResolvedValue({
+    vorrat: null, error: 'Kein Zugriff auf diese Reise.', grund: 'kein_zugriff',
+  });
+  await wrap();
+  await screen.findByText('Kein Zugriff auf diese Reise.');
+  expect(primaerKnoepfe()).toEqual(['Nochmal versuchen']);
+});
+
+test('§9: die leere Reise traegt genau einen Primaer-Button', async () => {
+  ladeErfolg([]);
+  await wrap();
+  await screen.findByText('Diese Reise ist leer geblieben.');
+  expect(primaerKnoepfe()).toEqual(['Zurück zur Übersicht']);
+});
+
+test('§9: die Reise ohne Orte traegt genau einen Primaer-Button', async () => {
+  ladeErfolg([m3]);
+  await wrap();
+  await screen.findByText('Diese Reise hat keine Orte');
+  expect(primaerKnoepfe()).toEqual(['Zurück zur Übersicht']);
+});
+
+// Die Karte selbst hat KEINEN: sie ist ein Werkzeug zum Finden, keine
+// Entscheidung. Rückweg, Tagesfilter und die Leiste der Momente ohne Ort sind
+// translucente Pillen (§1), kein Knopf darunter trägt eine accent-Fläche.
+test('§9: die Karte selbst traegt keinen Primaer-Button', async () => {
+  ladeErfolg(MIT_TAGEN, VORRAT_TAGE);
+  await wrap();
+  await screen.findByTestId('karte-nadel-p1');
+  expect(primaerKnoepfe()).toEqual([]);
+});
+
+test('§9: mit offenem Moment-Sheet ist es genau einer', async () => {
+  ladeErfolg(MIT_TAGEN, VORRAT_TAGE);
+  await wrap();
+  await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
+  expect(primaerKnoepfe()).toEqual(['Im Recap ansehen']);
+});
+
+// Die drei übrigen Sheets bringen bewusst keinen mit — sonst stünden zwei
+// gleichzeitig da, sobald eines davon über der Karte liegt.
+test('§9: das Gruppen-Sheet bringt keinen zweiten dazu', async () => {
+  ladeErfolg(AUF_EINEM_FLECK);
+  await wrap();
+  await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
+  expect(screen.getByTestId('gruppe-liste')).toBeTruthy();
+  expect(primaerKnoepfe()).toEqual([]);
+});
+
+test('§9: das Tages-Sheet bringt keinen zweiten dazu', async () => {
+  ladeErfolg(MIT_TAGEN, VORRAT_TAGE);
+  await wrap();
+  await screen.findByTestId('karte-tagesfilter');
+  await oeffneTagesfilter();
+  expect(screen.getByTestId('tag-eintrag-alle')).toBeTruthy();
+  expect(primaerKnoepfe()).toEqual([]);
+});
+
+test('§9: das Sheet der Momente ohne Ort bringt keinen zweiten dazu', async () => {
+  ladeErfolg(DREI_OHNE_ORT, VORRAT_DREI);
+  await wrap();
+  await screen.findByText('3 Momente ohne Ort');
+  await oeffneOhneOrt();
+  expect(screen.getAllByTestId(/^ohne-ort-kachel/)).toHaveLength(3);
+  expect(primaerKnoepfe()).toEqual([]);
+});
+
+// Der eine Verstoss, den die §9-Durchsicht gefunden hat — die Gegenrichtung zu
+// «der Tagesfilter schliesst ein offenes Moment-Sheet».
+//
+// `oeffneTagesfilter` räumt das Moment-Sheet weg und begründet das ausdrücklich
+// damit, dass der Zustand eindeutig sein soll, STATT an der Trefferreihenfolge
+// der Backdrops zu hängen. `aufNadel` räumte dagegen nur das Sheet der Momente
+// ohne Ort und liess das Tages-Sheet stehen: zwei Sheets gleichzeitig, also
+// zwei Backdrops (`backdrop`, tokens.ts — rgba(0,0,0,0.4)) übereinander, die
+// zusammen auf rund 0.64 abdunkeln. Diesen Wert gibt kein Token her (§9,
+// Punkt 3), und dazu lägen zwei `shadow-3`-Panels aufeinander, von denen ein
+// Wisch nur das obere schliesst (§9, Punkt 5).
+test('§9: ein Tipp auf eine Nadel schliesst ein offenes Tages-Sheet', async () => {
+  ladeErfolg(MIT_TAGEN, VORRAT_TAGE);
+  await wrap();
+  await screen.findByTestId('karte-nadel-p1');
+  await oeffneTagesfilter();
+  expect(screen.getByTestId('tag-eintrag-alle')).toBeTruthy();
+
+  await fireEvent.press(screen.getByTestId('karte-nadel-p1'));
+
+  expect(screen.getByText('Im Recap ansehen')).toBeTruthy();
+  expect(screen.queryByTestId('tag-eintrag-alle')).toBeNull();
+  // Die eigentliche Zusicherung: EIN Panel, nicht zwei.
+  expect(screen.getAllByTestId('sheet-panel')).toHaveLength(1);
+});
+
+// §9, Punkt 8: «prefers-reduced-motion respektiert» — und zwar überall, nicht
+// nur bei der Kamera. Der Skelett-Puls ist die einzige Bewegung dieses Screens,
+// die ohne jedes Zutun läuft, und bis Task 12 hielt sie keine Zusicherung.
+//
+// Ablesbar ist sie nur daran, OB eine Schleife startet: `Animated` flacht die
+// Opazität unter `useNativeDriver` in Jest auf eine Zahl ab und rührt sie nie
+// wieder an (gleiche Begründung wie in components/__tests__/KartenNadel.test.tsx).
+test('§9: das Skelett pulst, solange die Karte laedt', async () => {
+  const spion = jest.spyOn(Animated, 'loop');
+  haengenderLadeweg();
+  await wrap();
+  expect(screen.getByTestId('karte-skelett')).toBeTruthy();
+  expect(spion).toHaveBeenCalled();
+  spion.mockRestore();
+});
+
+test('§9: mit Reduced Motion steht das Skelett still, statt zu pulsen', async () => {
+  const spion = jest.spyOn(Animated, 'loop');
+  mockReduziert = true;
+  haengenderLadeweg();
+  await wrap();
+  // Sichtbar bleibt es trotzdem — «keine Bewegung» heisst nicht «keine
+  // Auskunft, dass hier etwas lädt».
+  expect(screen.getByTestId('karte-skelett')).toBeTruthy();
+  expect(spion).not.toHaveBeenCalled();
+  spion.mockRestore();
 });

@@ -1054,7 +1054,23 @@ export default function RecapKarte() {
       // später niemand mehr prüfen kann.
       if (aufEinemFleck(gruppe)) {
         // Wie in `oeffneTagesfilter`: es ist immer höchstens EIN Sheet offen
-        // (Begründung dort).
+        // (Begründung dort) — und deshalb werden BEIDE anderen geräumt, nicht
+        // nur das der Momente ohne Ort. Bis zur §9-Durchsicht (Task 12) fehlte
+        // `setTageSheet(null)` hier, und die Zusicherung galt nur in eine
+        // Richtung: der Tagesfilter machte das Moment-Sheet zu, der Tipp auf
+        // eine Nadel liess das Tages-Sheet stehen.
+        //
+        // Zwei offene Sheets sind nicht bloss unordentlich: jedes bringt einen
+        // eigenen Backdrop mit (`backdrop`, tokens.ts — rgba(0,0,0,0.4)), zwei
+        // davon übereinander dunkeln auf rund 0.64 ab. Dieser Wert stammt aus
+        // keinem Token mehr (DESIGN-LANGUAGE §9), und dazu lägen zwei
+        // `shadow-3`-Panels aufeinander, von denen ein Wisch nur das obere
+        // schliesst. Dass der Backdrop des Tages-Sheets diesen Tipp auf dem
+        // Gerät ohnehin abfängt, ist genau das Argument, das
+        // `oeffneTagesfilter` für die Gegenrichtung ausdrücklich NICHT gelten
+        // lässt: der Zustand soll eindeutig sein, statt an der
+        // Trefferreihenfolge zu hängen.
+        setTageSheet(null);
         setOhneOrtSheet(null);
         setSheet({ tripId: id, punkte: gruppe.punkte });
         return;
