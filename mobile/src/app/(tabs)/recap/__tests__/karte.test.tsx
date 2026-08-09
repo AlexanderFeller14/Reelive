@@ -23,6 +23,10 @@ jest.mock('expo-router', () => ({
 }));
 jest.mock('@/features/recap/recapApi', () => ({ fetchRecapMomente: jest.fn() }));
 jest.mock('@/features/recap/urlVorrat', () => ({ holeVorrat: jest.fn() }));
+// Ab Task 9 im Spiel: der Tagesfilter braucht `trips.start_date`, weil die
+// Tagesnummern ab DEM zählen (tage.ts) — dieselbe Quelle wie in uebersicht.tsx
+// und player.tsx. Ohne den Mock ginge die Abfrage an den echten Supabase-Client.
+jest.mock('@/features/trips/tripsApi', () => ({ fetchTrip: jest.fn() }));
 // expo-image ist ein natives View — im Test reicht ein Platzhalter, der alle
 // Props (`source`, `testID`, `onLoad`) durchreicht. Gleiches Muster wie in
 // uebersicht.test.tsx; ohne den Mock scheitert schon das Laden des Moduls
@@ -103,11 +107,17 @@ jest.mock('react-native-maps', () => {
 import RecapKarte, { SHEET_SCROLL_ANTEIL } from '../[id]/karte';
 import { fetchRecapMomente } from '@/features/recap/recapApi';
 import { holeVorrat } from '@/features/recap/urlVorrat';
+import { fetchTrip } from '@/features/trips/tripsApi';
 import { zuKartenPunkten } from '@/features/karte/kartenPunkte';
+import type { Trip } from '@/features/trips/types';
 
 function moment(overrides: Partial<{
   id: string;
   captured_at: string;
+  // Ab Task 9 im Spiel: die Tagesgrenze richtet sich nach captured_tz DES
+  // MOMENTS (tage.ts) — ohne einen eigenen Wert lässt sich eine Reise über die
+  // Datumsgrenze nicht nachstellen.
+  captured_tz: string;
   lat: number | null;
   lng: number | null;
   upload_status: 'pending' | 'uploaded';
@@ -222,7 +232,16 @@ const VORRAT_OHNE_JEDES_BILD = {
 
 const wrap = () => render(<ThemeProvider><RecapKarte /></ThemeProvider>);
 
-function ladeErfolg(momente = VOLLSTAENDIG, vorrat = VORRAT_OK) {
+// Die Reise, aus der die Tagesnummern gezählt werden. `start_date` ist der
+// einzige Wert, den dieser Screen davon braucht — der Rest steht hier nur,
+// weil `Trip` ihn verlangt.
+const REISE: Trip = {
+  id: 't1', name: 'Lissabon Städtetrip', start_date: '2026-08-10', end_date: '2026-08-14',
+  status: 'revealed', owner_id: 'u1', member_names: [], member_count: 1, my_post_count: 0,
+};
+
+function ladeErfolg(momente = VOLLSTAENDIG, vorrat = VORRAT_OK, reise: Partial<Trip> = {}) {
+  (fetchTrip as jest.Mock).mockResolvedValue({ data: { ...REISE, ...reise }, error: null });
   (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: momente, error: null });
   (holeVorrat as jest.Mock).mockResolvedValue({ vorrat, error: null, grund: null });
 }
@@ -239,6 +258,12 @@ function tracksSeitDann(id: string): unknown[] {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  // Ein Grundstand für die Reise-Abfrage, den jeder Test überschreiben kann:
+  // `clearAllMocks` löscht nur die Aufrufe, nicht die zuletzt gesetzte
+  // Implementierung — ohne diese Zeile erbte ein Test, der `ladeErfolg` nicht
+  // ruft (der Wurf-Test unten), die Reise des vorherigen und hinge damit an
+  // der Reihenfolge der Tests.
+  (fetchTrip as jest.Mock).mockResolvedValue({ data: REISE, error: null });
   mockKannZurueck = true;
   mockId = 't1';
   mockReduziert = false;
@@ -1037,4 +1062,376 @@ test('ohne jede Bildquelle zeigt das Sheet keinen Bildknoten', async () => {
   await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
   expect(screen.queryByTestId('sheet-bild')).toBeNull();
   expect(screen.getByText('Mira · 14:32')).toBeTruthy();
+});
+
+// ---------------------------------------------------------------------------
+// Task 9: der Tagesfilter
+// ---------------------------------------------------------------------------
+
+// Ein Moment am ZWEITEN Reisetag, weit genug entfernt, dass er keine Gruppe
+// mit p1/p2 bildet. Damit hat die Reise zwei Tage mit Nadeln — die
+// Voraussetzung dafür, dass ein Filter überhaupt etwas zu unterscheiden hat.
+const tag2M = moment({ id: 'p6', captured_at: '2026-08-11T10:00:00.000Z', lat: 38.75, lng: -9.1 });
+
+// Spielliste (uploaded ∩ Vorrats-URL), chronologisch: p3 (ohne Ort, Stelle 0),
+// p1 (Stelle 1), p2 (Stelle 2), p6 (Stelle 3). p5 fällt ohne URL heraus, p4
+// lädt noch. Auf der Karte liegen also drei Nadeln: p1 und p2 an Tag 1, p6 an
+// Tag 2.
+const MIT_TAGEN = [ohneUrlM, ohneOrtFrueh, mitAllem, m2, tag2M, pendingM];
+const VORRAT_TAGE = {
+  ...VORRAT_OK,
+  urls: new Map<string, MedienUrl>([...VORRAT_OK.urls, ['p6', bild('p6')]]),
+};
+
+async function oeffneTagesfilter() {
+  await fireEvent.press(screen.getByTestId('karte-tagesfilter'));
+}
+
+// Der Filter zeigt beim Öffnen der Karte die ganze Reise (Task-9-Brief).
+test('der Filter zeigt zunaechst alle Tage', async () => {
+  ladeErfolg(MIT_TAGEN, VORRAT_TAGE);
+  await wrap();
+  expect(await screen.findByText('Alle Tage')).toBeTruthy();
+});
+
+test('ein gewaehlter Tag duennt die Nadeln aus', async () => {
+  ladeErfolg(MIT_TAGEN, VORRAT_TAGE);
+  await wrap();
+  expect(await screen.findAllByTestId(/^karte-nadel/)).toHaveLength(3);
+
+  await oeffneTagesfilter();
+  await fireEvent.press(screen.getByTestId('tag-eintrag-2'));
+
+  expect(screen.getAllByTestId(/^karte-nadel/)).toHaveLength(1);
+  expect(screen.getByTestId('karte-nadel-p6')).toBeTruthy();
+  // Die Pille zeigt den aktuellen Stand, nicht mehr «Alle Tage».
+  expect(screen.getByText('Tag 2')).toBeTruthy();
+});
+
+// DER Test dieses Tasks. `punkt.index` zählt in die UNGEFILTERTE Spielliste
+// und geht als `start` an den Player — der Tagesfilter darf ihn nicht
+// anfassen. Wer erst die Momente filtert und dann `zuKartenPunkten` auf dem
+// Rest ruft, bekommt einen Index INNERHALB des Tages: p6 stünde dort auf 0,
+// innerhalb der gefilterten Nadeln ebenfalls auf 0, innerhalb aller Nadeln auf
+// 2 und in der rohen Momente-Liste auf 4. Nur die 3 kann aus der richtigen
+// Zählung fallen — und die Nadel sitzt in JEDEM dieser Fälle richtig, der
+// Fehler wäre also nur durch Nachzählen im Player zu sehen.
+test('ein gewaehlter Tag aendert den Index in die Spielliste nicht', async () => {
+  ladeErfolg(MIT_TAGEN, VORRAT_TAGE);
+  await wrap();
+  await screen.findByTestId('karte-nadel-p6');
+
+  await oeffneTagesfilter();
+  await fireEvent.press(screen.getByTestId('tag-eintrag-2'));
+  await fireEvent.press(screen.getByTestId('karte-nadel-p6'));
+  await fireEvent.press(screen.getByText('Im Recap ansehen'));
+
+  expect(mockPush).toHaveBeenCalledWith({
+    pathname: '/recap/[id]/player',
+    params: { id: 't1', start: '3' },
+  });
+});
+
+// Die Gegenprobe ohne den Umweg über den Player: `zuKartenPunkten` sieht die
+// GANZE Spielliste, und zwar genau einmal. Gefiltert wird danach, auf den
+// fertigen Punkten.
+test('gefiltert wird nach zuKartenPunkten, nicht davor', async () => {
+  ladeErfolg(MIT_TAGEN, VORRAT_TAGE);
+  await wrap();
+  await screen.findByTestId('karte-nadel-p6');
+
+  await oeffneTagesfilter();
+  await fireEvent.press(screen.getByTestId('tag-eintrag-2'));
+
+  expect(zuKartenPunkten).toHaveBeenCalledTimes(1);
+  expect(zuKartenPunkten).toHaveBeenCalledWith([ohneOrtFrueh, mitAllem, m2, tag2M]);
+});
+
+// Der gewählte Tag ändert Nadeln UND Linie: eine Linie, die weiterhin zum
+// nächsten Tag weiterzeichnet, behauptete eine Bewegung, die an diesem Tag
+// nicht stattgefunden hat.
+test('ein gewaehlter Tag kuerzt auch die Linie', async () => {
+  ladeErfolg(MIT_TAGEN, VORRAT_TAGE);
+  await wrap();
+  expect((await screen.findByTestId('karte-linie')).props.coordinates).toHaveLength(3);
+
+  await oeffneTagesfilter();
+  await fireEvent.press(screen.getByTestId('tag-eintrag-1'));
+
+  expect(screen.getByTestId('karte-linie').props.coordinates).toEqual([
+    { latitude: 38.71, longitude: -9.14 },
+    { latitude: 38.72, longitude: -9.13 },
+  ]);
+});
+
+// Und der Ausschnitt zieht mit — über dieselbe Funktion, über die auch der
+// Gruppen-Zoom fährt (`zeige`). Ein Tag, dessen Momente ausserhalb des
+// sichtbaren Ausschnitts liegen, wäre sonst eine leere Karte.
+test('ein gewaehlter Tag rueckt den Ausschnitt auf seine Momente', async () => {
+  ladeErfolg(MIT_TAGEN, VORRAT_TAGE);
+  await wrap();
+  await screen.findByTestId('karte-nadel-p6');
+
+  await oeffneTagesfilter();
+  await fireEvent.press(screen.getByTestId('tag-eintrag-2'));
+
+  expect(mockAnimateToRegion).toHaveBeenCalledTimes(1);
+  const [ziel, dauer] = mockAnimateToRegion.mock.calls[0];
+  expect(ziel.latitude).toBeCloseTo(38.75, 4);
+  expect(ziel.longitude).toBeCloseTo(-9.1, 4);
+  expect(dauer).toBe(motion.duration.base);
+});
+
+// DESIGN-LANGUAGE §5: mit Reduced Motion wird gesprungen statt gefahren. Der
+// Beweis, dass der Filter wirklich durch `zeige` geht und nicht an ihm vorbei
+// — eine zweite Kamerabewegung neben `zeige` hätte diese Weiche nicht.
+test('mit Reduced Motion springt der Ausschnitt auf den gewaehlten Tag', async () => {
+  mockReduziert = true;
+  ladeErfolg(MIT_TAGEN, VORRAT_TAGE);
+  await wrap();
+  await screen.findByTestId('karte-nadel-p6');
+
+  await oeffneTagesfilter();
+  await fireEvent.press(screen.getByTestId('tag-eintrag-2'));
+
+  expect(mockAnimateToRegion).not.toHaveBeenCalled();
+  expect(mockSetRegion).toHaveBeenCalledTimes(1);
+  const [ziel] = mockSetRegion.mock.calls[0];
+  expect(ziel.latitude).toBeCloseTo(38.75, 4);
+  expect(ziel.longitude).toBeCloseTo(-9.1, 4);
+});
+
+// DESIGN-LANGUAGE §5 nennt selection-Haptik für Tabs und Zoom — die Wahl
+// eines Tages ist beides zugleich: eine Auswahl, die die Kamera bewegt.
+test('die Wahl eines Tages meldet sich mit selection-Haptik', async () => {
+  ladeErfolg(MIT_TAGEN, VORRAT_TAGE);
+  await wrap();
+  await screen.findByTestId('karte-nadel-p6');
+
+  await oeffneTagesfilter();
+  await fireEvent.press(screen.getByTestId('tag-eintrag-2'));
+
+  expect(mockHaptik).toHaveBeenCalledTimes(1);
+});
+
+// Der Weg zurück muss genauso vollständig sein wie der Weg hinein: Nadeln,
+// Linie und Ausschnitt.
+test('«Alle Tage» bringt die ganze Reise zurueck', async () => {
+  ladeErfolg(MIT_TAGEN, VORRAT_TAGE);
+  await wrap();
+  await screen.findByTestId('karte-nadel-p6');
+
+  await oeffneTagesfilter();
+  await fireEvent.press(screen.getByTestId('tag-eintrag-2'));
+  await oeffneTagesfilter();
+  await fireEvent.press(screen.getByTestId('tag-eintrag-alle'));
+
+  expect(screen.getAllByTestId(/^karte-nadel/)).toHaveLength(3);
+  expect(screen.getByText('Alle Tage')).toBeTruthy();
+  // Zwei Fahrten: hinein in Tag 2, wieder heraus auf die ganze Reise.
+  expect(mockAnimateToRegion).toHaveBeenCalledTimes(2);
+  const [ziel] = mockAnimateToRegion.mock.calls[1];
+  expect(ziel.latitude).toBeCloseTo(38.73, 4);
+  expect(ziel.longitude).toBeCloseTo(-9.12, 4);
+});
+
+// Die Tagesnummern kommen aus `trips.start_date` — genau wie in uebersicht.tsx
+// und player.tsx. Wer sie stattdessen ab dem ersten Moment zählte, zeigte
+// dieselbe Reise an zwei Stellen mit verschiedenen Tagen.
+test('die Tagesnummern zaehlen ab dem Startdatum der Reise', async () => {
+  ladeErfolg(MIT_TAGEN, VORRAT_TAGE, { start_date: '2026-08-08' });
+  await wrap();
+  await screen.findByTestId('karte-nadel-p6');
+
+  await oeffneTagesfilter();
+  expect(screen.getByTestId('tag-eintrag-3')).toBeTruthy();
+  expect(screen.getByTestId('tag-eintrag-4')).toBeTruthy();
+  expect(screen.queryByTestId('tag-eintrag-1')).toBeNull();
+});
+
+// Ostwärts über die Datumsgrenze: `gruppiereNachTagen` schreibt die höchste
+// bisher vergebene Tagesnummer monoton fort (tage.ts, Important 1). Ein
+// weggelassener Moment kann die Nummern DAHINTER also verschieben — wer nur
+// die Momente MIT Ort hineingäbe, bekäme für ost1 die Nummer 2 statt 3, und
+// die Karte zeigte andere Tage als die Übersicht.
+//
+// ost0 (Lissabon, 10.08.) ist Tag 1. ostOhneOrt liegt lokal am 12.08.
+// (Asia/Tokyo) und zieht die laufende Nummer auf 3, obwohl er keine Nadel
+// bekommt. ost1 ist chronologisch später, lokal aber erst der 11.08.
+// (America/Los_Angeles) — er landet dadurch in Tag 3, nicht in Tag 2.
+const ost0 = moment({ id: 'o0', captured_at: '2026-08-10T09:00:00.000Z', lat: 38.71, lng: -9.14 });
+const ostOhneOrt = moment({
+  id: 'o1', captured_at: '2026-08-11T23:30:00.000Z', captured_tz: 'Asia/Tokyo', lat: null, lng: null,
+});
+const ost1 = moment({
+  id: 'o2', captured_at: '2026-08-12T01:00:00.000Z', captured_tz: 'America/Los_Angeles',
+  lat: 38.75, lng: -9.1,
+});
+const OSTWAERTS = [ost0, ostOhneOrt, ost1];
+const VORRAT_OSTWAERTS = {
+  ...VORRAT_OK,
+  urls: new Map<string, MedienUrl>([['o0', bild('o0')], ['o1', bild('o1')], ['o2', bild('o2')]]),
+};
+
+test('die Tagesnummern zaehlen ueber die ganze Spielliste, nicht nur ueber die Momente mit Ort', async () => {
+  ladeErfolg(OSTWAERTS, VORRAT_OSTWAERTS);
+  await wrap();
+  await screen.findByTestId('karte-nadel-o2');
+
+  await oeffneTagesfilter();
+  expect(screen.getByTestId('tag-eintrag-3')).toBeTruthy();
+  expect(screen.queryByTestId('tag-eintrag-2')).toBeNull();
+});
+
+// Ein Tag, dessen Momente alle ohne Ort sind, führte auf eine leere Karte
+// ohne Erklärung — eine Sackgasse im Filter. p3 (11.08., ohne Ort) ist genau
+// so ein Tag.
+const OHNE_ORT_DAZWISCHEN = [
+  moment({ id: 'q1', captured_at: '2026-08-10T09:00:00.000Z', lat: 38.71, lng: -9.14 }),
+  moment({ id: 'q2', captured_at: '2026-08-11T09:00:00.000Z', lat: null, lng: null }),
+  moment({ id: 'q3', captured_at: '2026-08-12T09:00:00.000Z', lat: 38.75, lng: -9.1 }),
+];
+const VORRAT_OHNE_ORT_DAZWISCHEN = {
+  ...VORRAT_OK,
+  urls: new Map<string, MedienUrl>([['q1', bild('q1')], ['q2', bild('q2')], ['q3', bild('q3')]]),
+};
+
+test('ein Tag ohne Momente auf der Karte steht nicht zur Wahl', async () => {
+  ladeErfolg(OHNE_ORT_DAZWISCHEN, VORRAT_OHNE_ORT_DAZWISCHEN);
+  await wrap();
+  await screen.findByTestId('karte-nadel-q3');
+
+  await oeffneTagesfilter();
+  expect(screen.getByTestId('tag-eintrag-1')).toBeTruthy();
+  expect(screen.getByTestId('tag-eintrag-3')).toBeTruthy();
+  expect(screen.queryByTestId('tag-eintrag-2')).toBeNull();
+});
+
+// Ein Filter mit genau einer Wahl ist keiner: «Alle Tage» und «Tag 1» zeigten
+// dasselbe. VOLLSTAENDIG hat Nadeln nur an Tag 1 (p3 am zweiten Tag hat
+// keinen Ort).
+test('eine Reise mit Nadeln an einem einzigen Tag zeigt keinen Tagesfilter', async () => {
+  ladeErfolg();
+  await wrap();
+  await screen.findByTestId('karte-nadel-p1');
+  expect(screen.queryByTestId('karte-tagesfilter')).toBeNull();
+});
+
+// Der Tagesfilter ist Beiwerk — die Karte selbst hängt nicht an der
+// Reise-Abfrage. Fällt nur sie aus, fehlt der Filter, nicht die Reise.
+test('ohne Reise-Daten bleibt die Karte stehen, nur ohne Tagesfilter', async () => {
+  ladeErfolg(MIT_TAGEN, VORRAT_TAGE);
+  (fetchTrip as jest.Mock).mockResolvedValue({ data: null, error: 'Diese Reise konnte nicht geladen werden.' });
+  await wrap();
+
+  expect(await screen.findAllByTestId(/^karte-nadel/)).toHaveLength(3);
+  expect(screen.queryByTestId('karte-tagesfilter')).toBeNull();
+});
+
+// DESIGN-LANGUAGE §4: genau EIN Primär-Button pro Screen. Den trägt das
+// Moment-Sheet («Im Recap ansehen») — der Tagesfilter macht es deshalb zu,
+// statt sich darüberzulegen. (Auf dem Gerät fängt der Backdrop des offenen
+// Sheets den Tipp ohnehin ab; hier steht, dass der Zustand danach eindeutig
+// ist.)
+test('der Tagesfilter schliesst ein offenes Moment-Sheet', async () => {
+  ladeErfolg(MIT_TAGEN, VORRAT_TAGE);
+  await wrap();
+  await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
+  expect(screen.getByText('Im Recap ansehen')).toBeTruthy();
+
+  await oeffneTagesfilter();
+  expect(screen.queryByText('Im Recap ansehen')).toBeNull();
+  expect(screen.getByTestId('tag-eintrag-alle')).toBeTruthy();
+});
+
+// Ein Filterstand gehört zu der Reise, in der er gewählt wurde. Bliebe er
+// stehen, öffnete die NÄCHSTE Reise vorgefiltert auf einen Tag, den niemand
+// gewählt hat — und weil die Tagesnummer dort zufällig existiert, sähe das
+// aus wie eine Reise mit nur einem Moment.
+test('ein Wechsel der Reise setzt den Tagesfilter zurueck', async () => {
+  ladeErfolg(MIT_TAGEN, VORRAT_TAGE);
+  const { rerender } = await wrap();
+  await oeffneTagesfilter();
+  await fireEvent.press(screen.getByTestId('tag-eintrag-2'));
+  expect(screen.getAllByTestId(/^karte-nadel/)).toHaveLength(1);
+
+  mockId = 't2';
+  ladeErfolg(MIT_TAGEN, VORRAT_TAGE);
+  await rerender(<ThemeProvider><RecapKarte /></ThemeProvider>);
+
+  expect(screen.getByText('Alle Tage')).toBeTruthy();
+  expect(screen.getAllByTestId(/^karte-nadel/)).toHaveLength(3);
+});
+
+// Eine lange Reise hat viele Tage — dieselbe Sackgasse wie bei der
+// Gruppenliste: `Sheet` deckelt auf 85 % Fensterhöhe und schneidet den
+// Überhang hart ab (`overflow: 'hidden'`). Die letzten Tage wären dann auf
+// keinem Weg mehr wählbar.
+const VIELE_TAGE = Array.from({ length: 12 }, (_, i) =>
+  moment({
+    id: `v${i}`,
+    captured_at: `2026-08-${String(10 + i).padStart(2, '0')}T09:00:00.000Z`,
+    lat: 38.71 + i * 0.01,
+    lng: -9.14 + i * 0.01,
+  })
+);
+const VORRAT_VIELE_TAGE = {
+  ...VORRAT_OK,
+  urls: new Map<string, MedienUrl>(
+    Array.from({ length: 12 }, (_, i) => [`v${i}`, bild(`v${i}`)] as const)
+  ),
+};
+
+test('die Tagesliste scrollt, statt ihre letzten Tage abzuschneiden', async () => {
+  ladeErfolg(VIELE_TAGE, VORRAT_VIELE_TAGE);
+  await wrap();
+  await screen.findByTestId('karte-nadel-v0');
+
+  await oeffneTagesfilter();
+  const liste = screen.getByTestId('tage-liste');
+  expect(liste.type).toBe('RCTScrollView');
+  expect(StyleSheet.flatten(liste.props.style).maxHeight).toBe(
+    Dimensions.get('window').height * SHEET_SCROLL_ANTEIL
+  );
+  // Zwölf Tage plus «Alle Tage».
+  expect(within(liste).getAllByTestId(/^tag-eintrag/)).toHaveLength(13);
+  expect(within(liste).getByTestId('tag-eintrag-12')).toBeTruthy();
+});
+
+// DESIGN-LANGUAGE §5: «Listen = Stagger 40 ms» — dieselbe Regel wie für die
+// Gruppenliste, also dieselbe Mechanik.
+test('die Zeilen der Tagesliste erscheinen gestaffelt', async () => {
+  const spion = jest.spyOn(Animated, 'timing');
+  ladeErfolg(MIT_TAGEN, VORRAT_TAGE);
+  await wrap();
+  await screen.findByTestId('karte-nadel-p6');
+
+  await oeffneTagesfilter();
+  // «Alle Tage», Tag 1, Tag 2.
+  expect(staggerVerzoegerungen()).toEqual([0, 40, 80]);
+  spion.mockRestore();
+});
+
+test('mit Reduced Motion erscheinen die Zeilen der Tagesliste ohne Staffelung', async () => {
+  const spion = jest.spyOn(Animated, 'timing');
+  mockReduziert = true;
+  ladeErfolg(MIT_TAGEN, VORRAT_TAGE);
+  await wrap();
+  await screen.findByTestId('karte-nadel-p6');
+
+  await oeffneTagesfilter();
+  expect(staggerVerzoegerungen()).toEqual([0, 0, 0]);
+  spion.mockRestore();
+});
+
+// Die Pille ist auf der Karte der einzige Hinweis auf den Filterstand — für
+// VoiceOver muss sie sagen, was sie zeigt UND was ein Tipp tut.
+test('der Tagesfilter sagt per VoiceOver, welcher Tag gerade gilt', async () => {
+  ladeErfolg(MIT_TAGEN, VORRAT_TAGE);
+  await wrap();
+  expect(await screen.findByLabelText('Reisetag wählen, aktuell Alle Tage')).toBeTruthy();
+
+  await oeffneTagesfilter();
+  await fireEvent.press(screen.getByTestId('tag-eintrag-2'));
+  expect(screen.getByLabelText('Reisetag wählen, aktuell Tag 2')).toBeTruthy();
 });

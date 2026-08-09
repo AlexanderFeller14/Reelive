@@ -12,7 +12,7 @@ import MapView, { Polyline, type Region } from 'react-native-maps';
 import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import { ChevronLeft } from 'lucide-react-native';
+import { Check, ChevronDown, ChevronLeft } from 'lucide-react-native';
 import { Button } from '@/components/Button';
 import { KartenNadelMarker } from '@/components/KartenNadel';
 import { Pille } from '@/components/Pille';
@@ -24,9 +24,11 @@ import { cinema, motion, radius, spacing, type } from '@/theme/tokens';
 import { useOberkante } from '@/theme/useOberkante';
 import { useReducedMotion } from '@/theme/useReducedMotion';
 import { fetchRecapMomente } from '@/features/recap/recapApi';
-import type { RecapMoment } from '@/features/recap/types';
+import { gruppiereNachTagen } from '@/features/recap/tage';
+import type { RecapMoment, RecapTag } from '@/features/recap/types';
 import { zeitInZone } from '@/features/recap/uhrzeit';
 import { holeVorrat, type MedienUrl } from '@/features/recap/urlVorrat';
+import { fetchTrip } from '@/features/trips/tripsApi';
 import { ausschnittFuer } from '@/features/karte/ausschnitt';
 import { aufEinemFleck, gruppiere } from '@/features/karte/gruppierung';
 import { zuKartenPunkten } from '@/features/karte/kartenPunkte';
@@ -123,6 +125,52 @@ function autorUndZeit(moment: RecapMoment): string {
   return `${moment.autor_name} · ${zeitInZone(moment.captured_at, moment.captured_tz)}`;
 }
 
+// Der Tagesfilter — und zwar auf den FERTIGEN Kartenpunkten, nie auf den
+// Momenten davor.
+//
+// Das ist die eine Stelle, an der dieser Filter still falsch werden könnte:
+// `punkt.index` zählt in die ungefilterte Spielliste und geht als `start` an
+// den Player (siehe typen.ts und `zumPlayer` unten). Würde erst die
+// Momente-Liste auf einen Tag eingedampft und `zuKartenPunkten` dann auf dem
+// Rest gerufen, zählte der Index plötzlich INNERHALB des Tages statt in die
+// Reise. Die Nadeln sässen weiterhin auf ihren Koordinaten, alles sähe richtig
+// aus — und der Sprung landete beim falschen Moment.
+function punkteAmTag(punkte: KartenPunkt[], tag: RecapTag | null): KartenPunkt[] {
+  if (!tag) return punkte;
+  const ids = new Set(tag.momente.map((m) => m.id));
+  return punkte.filter((p) => ids.has(p.moment.id));
+}
+
+// Die Tage, zwischen denen sich auf dieser Karte überhaupt wählen lässt.
+//
+// Gruppiert wird über die GANZE Spielliste, nicht nur über die Momente mit
+// Ort: `gruppiereNachTagen` schreibt die höchste bisher vergebene Tagesnummer
+// monoton fort (tage.ts, Important 1), ein weggelassener Moment kann die
+// Nummern dahinter also verschieben. uebersicht.tsx und player.tsx rechnen
+// mit genau dieser Liste — und dieselbe Reise, die an zwei Stellen
+// verschiedene Tagesnummern zeigt, wäre ein Fehler, den von aussen niemand
+// erklären könnte.
+//
+// Angeboten wird davon nur, was auf der Karte auch etwas bewirkt: ein Tag,
+// dessen Momente alle ohne Ort sind, führte auf eine leere Karte ohne jede
+// Erklärung — eine Sackgasse im Filter, aus der nur der Rückweg auf «Alle
+// Tage» hilft.
+//
+// Ohne `startDate` (die Reise-Abfrage ist ausgefallen) gibt es keine
+// Tagesnummern und folglich keinen Filter — die Karte selbst bleibt davon
+// unberührt.
+function waehlbareTage(
+  spielliste: RecapMoment[],
+  startDate: string | null,
+  punkte: KartenPunkt[]
+): RecapTag[] {
+  if (startDate === null) return [];
+  const mitOrt = new Set(punkte.map((p) => p.moment.id));
+  return gruppiereNachTagen(spielliste, startDate).filter((tag) =>
+    tag.momente.some((m) => mitOrt.has(m.id))
+  );
+}
+
 // Der einzelne Moment im Sheet (Spec §5.7): Bild 3:2 mit Radius 24
 // (DESIGN-LANGUAGE §3), darunter Autor/Uhrzeit, Ort und Caption — und EIN
 // Primär-Button (§4: genau einer pro Screen; die Liste unten hat deshalb
@@ -201,25 +249,18 @@ function GruppenSheetInhalt({
   );
 }
 
-// Eine Zeile der Liste. Eigene Komponente, weil jede ihre eigene Einblendung
-// mitbringt: DESIGN-LANGUAGE §5 verlangt für Listen einen Stagger von 40 ms,
-// und der braucht pro Zeile einen eigenen Animated.Value.
-function GruppenEintrag({
-  punkt, thumbUrl, stelle, onAnsehen,
-}: {
-  punkt: KartenPunkt;
-  thumbUrl: string | null;
-  stelle: number;
-  onAnsehen: (punkt: KartenPunkt) => void;
-}) {
-  const { colors } = useTheme();
+// Eine Zeile, die sich einblendet. Eigene Komponente, weil jede Zeile ihren
+// eigenen Animated.Value braucht: DESIGN-LANGUAGE §5 verlangt für Listen einen
+// Stagger von 40 ms, und der ist pro Zeile eine eigene Verzögerung. Beide
+// Listen dieses Screens (die Momente einer Gruppe und die Reisetage) benutzen
+// sie — zwei Kopien liefen irgendwann in verschiedenen Rhythmen.
+function Einblendung({ stelle, children }: { stelle: number; children: ReactNode }) {
   const reducedMotion = useReducedMotion();
   // `useState` mit Initialisierer statt `useRef(...).current` wie in den
   // Nachbardateien: beides erzeugt den Wert genau einmal, aber das Lesen eines
   // Refs beim Rendern ist ein Lint-Fehler (react-hooks/refs) — hier neu
   // geschriebener Code, also gleich in der Form, die stehen bleiben kann.
   const [opacity] = useState(() => new Animated.Value(0));
-  const { moment } = punkt;
 
   useEffect(() => {
     // §5: mit Reduced Motion wird alles zu einem 200-ms-Fade — die Zeilen
@@ -234,8 +275,23 @@ function GruppenEintrag({
     }).start();
   }, [opacity, reducedMotion, stelle]);
 
+  return <Animated.View style={{ opacity }}>{children}</Animated.View>;
+}
+
+// Eine Zeile der Gruppenliste.
+function GruppenEintrag({
+  punkt, thumbUrl, stelle, onAnsehen,
+}: {
+  punkt: KartenPunkt;
+  thumbUrl: string | null;
+  stelle: number;
+  onAnsehen: (punkt: KartenPunkt) => void;
+}) {
+  const { colors } = useTheme();
+  const { moment } = punkt;
+
   return (
-    <Animated.View style={{ opacity }}>
+    <Einblendung stelle={stelle}>
       <PressScale
         scaleTo={0.98}
         accessibilityRole="button"
@@ -263,7 +319,55 @@ function GruppenEintrag({
           </View>
         </View>
       </PressScale>
-    </Animated.View>
+    </Einblendung>
+  );
+}
+
+// Eine Zeile der Tagesliste (Task-9-Brief): «Alle Tage» oder ein einzelner
+// Reisetag. Kein Primär-Button — DESIGN-LANGUAGE §4 lässt genau einen pro
+// Screen zu, und den trägt das Moment-Sheet («Im Recap ansehen»).
+//
+// Der Haken markiert den Stand, den die Pille oben zeigt: in einer Liste, die
+// länger ist als das Sheet, ist er die einzige Stelle, an der beim Scrollen
+// noch zu sehen ist, was gerade gilt. `accessibilityState.selected` sagt
+// VoiceOver dasselbe, was der Haken zeigt.
+function TagEintrag({
+  beschriftung, ort, aktiv, stelle, testID, onWaehlen,
+}: {
+  beschriftung: string;
+  ort?: string | null;
+  aktiv: boolean;
+  stelle: number;
+  testID: string;
+  onWaehlen: () => void;
+}) {
+  const { colors } = useTheme();
+  return (
+    <Einblendung stelle={stelle}>
+      <PressScale
+        scaleTo={0.98}
+        accessibilityRole="button"
+        accessibilityState={{ selected: aktiv }}
+        testID={testID}
+        onPress={onWaehlen}
+      >
+        <View style={styles.eintrag}>
+          <View style={styles.eintragText}>
+            <Text style={[type.bodyMedium, { color: colors['text-1'] }]}>{beschriftung}</Text>
+            {/* Der Ort des Tages steht nur da, wenn es einen gibt
+                (tage.ortDesTages liefert sonst null) — kein erfundener
+                Platzhalter. Er ist auf einer KARTE die eigentlich nützliche
+                Auskunft: «Tag 3» sagt wenig, «Lissabon» sehr viel. */}
+            {ort ? (
+              <Text numberOfLines={1} style={[type.secondary, { color: colors['text-2'] }]}>
+                {ort}
+              </Text>
+            ) : null}
+          </View>
+          {aktiv && <Check size={20} color={colors.accent} strokeWidth={1.75} />}
+        </View>
+      </PressScale>
+    </Einblendung>
   );
 }
 
@@ -310,6 +414,16 @@ export default function RecapKarte() {
   // Moment der VORHERIGEN Reise — sein Knopf schickte den Player mit deren
   // Index in die neue, wo dieselbe Zahl auf einen ganz anderen Moment zeigt.
   const [sheet, setSheet] = useState<{ tripId: string; punkte: KartenPunkt[] } | null>(null);
+  // Die wählbaren Reisetage (siehe `waehlbareTage`) — einmal beim Laden
+  // gerechnet, nicht bei jedem Rendern: sie hängen nur an den geladenen Daten,
+  // und dieser Screen rendert bei JEDER Kartenbewegung neu.
+  const [tage, setTage] = useState<RecapTag[]>([]);
+  // Der gewählte Tag, mit der Reise, in der er gewählt wurde — aus demselben
+  // Grund wie beim Sheet oben: der Screen bleibt bei einem Wechsel der id
+  // gemountet, und ein stehen gebliebener Filterstand öffnete die NÄCHSTE
+  // Reise vorgefiltert auf einen Tag, den niemand gewählt hat.
+  const [tagWahl, setTagWahl] = useState<{ tripId: string; nummer: number } | null>(null);
+  const [tageOffen, setTageOffen] = useState(false);
 
   // Zurückgesetzt BEIM RENDERN — das dokumentierte React-Muster für «Zustand
   // beim Wechsel einer Prop verwerfen». React verwirft die Ausgabe dieses
@@ -327,12 +441,23 @@ export default function RecapKarte() {
   // Kein zusätzlicher Vergleich beim Ableiten: er wäre nie zu beobachten, weil
   // die Ausgabe dieses Durchlaufs ohnehin verworfen wird.
   if (sheet !== null && sheet.tripId !== id) setSheet(null);
+  // Aus demselben Grund und auf demselben Weg: eine Tageswahl der vorherigen
+  // Reise ist in der neuen keine Wahl mehr, sondern ein Filter, den niemand
+  // gesetzt hat — und weil die Tagesnummer in der neuen Reise oft schlicht
+  // existiert, sähe das nicht nach einem Fehler aus, sondern nach einer Reise
+  // mit auffällig wenigen Momenten.
+  if (tagWahl !== null && tagWahl.tripId !== id) setTagWahl(null);
   const sheetPunkte = sheet?.punkte ?? null;
 
   useEffect(() => {
     let aktiv = true;
-    void Promise.all([fetchRecapMomente(id), holeVorrat(id)])
-      .then(([momente, { vorrat }]) => {
+    // `fetchTrip` kommt allein wegen `start_date` mit: die Tagesnummern zählen
+    // ab dem Startdatum DER REISE (tage.ts), nicht ab dem ersten Moment —
+    // uebersicht.tsx und player.tsx lesen es an derselben Stelle. Ohne diese
+    // Abfrage müsste dieser Screen die Tage aus den Momenten heraus raten und
+    // zeigte für dieselbe Reise andere Nummern als die Übersicht.
+    void Promise.all([fetchTrip(id), fetchRecapMomente(id), holeVorrat(id)])
+      .then(([{ data: reise }, momente, { vorrat }]) => {
         if (!aktiv) return;
         // DIE Stelle, an der ein Fehler still bliebe: die Karte muss dieselbe
         // Liste zählen wie der Player. `punkt.index` geht später als `start`
@@ -356,6 +481,11 @@ export default function RecapKarte() {
         setUrls(vorratUrls);
         setPunkte(p);
         setAusschnitt(ausschnittFuer(p));
+        // Fällt allein die Reise-Abfrage aus (oder gibt es die Reise nicht
+        // mehr), bleibt die Karte stehen und nur der Filter fehlt: er ist
+        // Beiwerk, die Nadeln sind der Screen. Dieselbe Abwägung wie bei
+        // `loadCounts` in tripsApi.ts.
+        setTage(waehlbareTage(mitBild, reise?.start_date ?? null, p));
       })
       // fetchRecapMomente und holeVorrat geben Fehler als WERT zurück statt
       // zu werfen — aber "wirft normalerweise nicht" ist keine Zusicherung,
@@ -379,6 +509,7 @@ export default function RecapKarte() {
         setUrls(KEINE_URLS);
         setPunkte([]);
         setAusschnitt(null);
+        setTage([]);
       });
     return () => {
       aktiv = false;
@@ -390,6 +521,22 @@ export default function RecapKarte() {
   // braucht dafür den aktuellen Zoom, nicht den anfänglichen.
   const merkeAusschnitt = useCallback((region: Region) => setAusschnitt(region), []);
 
+  // Der gewählte Tag als Objekt statt als blosse Nummer — und aus `tage`
+  // heraus gesucht, nicht aus `tagWahl` heraus geglaubt: nach einem
+  // Neuladen kann der gewählte Tag verschwunden sein (ein Moment ist
+  // dazugekommen und hat die Nummerierung verschoben, oder der letzte Moment
+  // dieses Tages hat seinen Ort verloren). Wird er nicht mehr gefunden, gilt
+  // wieder «Alle Tage» — Pille, Nadeln, Linie und Ausschnitt leiten ALLE aus
+  // diesem einen Wert ab und können deshalb gar nicht auseinanderlaufen.
+  const gewaehlterTag = useMemo(
+    () => tage.find((t) => t.nummer === tagWahl?.nummer) ?? null,
+    [tage, tagWahl]
+  );
+
+  // Was die Karte zeigt. Gefiltert wird auf den FERTIGEN Punkten — siehe
+  // `punkteAmTag`: der Index darin zeigt weiterhin in die ganze Reise.
+  const sichtbarePunkte = useMemo(() => punkteAmTag(punkte, gewaehlterTag), [punkte, gewaehlterTag]);
+
   // Die Linie der Reise (Spec K3/§5.6). `punkte` kommt aus zuKartenPunkten
   // bereits nach `captured_at` sortiert — hier wird bewusst NICHT noch einmal
   // sortiert: die Linie zeigt, in welcher Reihenfolge aufgenommen wurde, nie,
@@ -398,9 +545,13 @@ export default function RecapKarte() {
   // `useMemo` ist hier nicht Feinschliff: `merkeAusschnitt` lässt den Screen
   // bei jeder Kartenbewegung neu rendern, und ein bei jedem Rendern neues
   // Koordinaten-Array schickte die Polyline jedes Mal erneut über die Brücke.
+  // Über `sichtbarePunkte`, nicht über `punkte`: eine Linie, die bei einem
+  // gewählten Tag weiter zum nächsten zeichnete, behauptete eine Bewegung, die
+  // an diesem Tag nicht stattgefunden hat. An der Sortierung ändert das
+  // nichts — `punkteAmTag` filtert nur, es sortiert nicht um.
   const linie = useMemo(
-    () => punkte.map((p) => ({ latitude: p.lat, longitude: p.lng })),
-    [punkte]
+    () => sichtbarePunkte.map((p) => ({ latitude: p.lat, longitude: p.lng })),
+    [sichtbarePunkte]
   );
 
   // Nadeln, die einander sonst verdecken, teilen sich eine (Spec §5.5).
@@ -417,8 +568,8 @@ export default function RecapKarte() {
   // Nadeln: die hängen an ihrem Schlüssel und ihren Props und blieben auch
   // ohne das Memo stehen.
   const gruppen = useMemo(
-    () => (ausschnitt ? gruppiere(punkte, ausschnitt, breite, hoehe) : []),
-    [punkte, ausschnitt, breite, hoehe]
+    () => (ausschnitt ? gruppiere(sichtbarePunkte, ausschnitt, breite, hoehe) : []),
+    [sichtbarePunkte, ausschnitt, breite, hoehe]
   );
 
   // DIE eine Stelle, an der sich die Kamera dieses Screens bewegt (Spec K12):
@@ -552,6 +703,46 @@ export default function RecapKarte() {
     [router, id]
   );
 
+  // Was die Pille zeigt und was VoiceOver ansagt — eine Quelle für beides.
+  const filterStand = gewaehlterTag ? `Tag ${gewaehlterTag.nummer}` : 'Alle Tage';
+
+  const oeffneTagesfilter = () => {
+    // DESIGN-LANGUAGE §4: genau EIN Primär-Button pro Screen. Den trägt das
+    // Moment-Sheet; zwei offene Sheets hätten zwei. Auf dem Gerät fängt der
+    // Backdrop des offenen Sheets diesen Tipp ohnehin ab — dass der Zustand
+    // hier trotzdem eindeutig gemacht wird, kostet nichts und macht die
+    // Zusicherung prüfbar, statt sie der Trefferreihenfolge zu überlassen.
+    setSheet(null);
+    setTageOffen(true);
+  };
+
+  const waehleTag = (tag: RecapTag | null) => {
+    setTageOffen(false);
+    setTagWahl(tag ? { tripId: id, nummer: tag.nummer } : null);
+
+    // Der gewählte Tag ändert Nadeln UND Linie UND Ausschnitt: ein Tag, dessen
+    // Momente ausserhalb des sichtbaren Ausschnitts liegen, wäre sonst eine
+    // leere Karte, und die Wahl sähe aus wie ein Fehler.
+    //
+    // `punkteAmTag` mit dem NEUEN Tag statt mit `sichtbarePunkte`: der State
+    // steht in dieser Zeile noch auf dem alten Stand, React rendert erst
+    // danach neu.
+    const ziel = ausschnittFuer(punkteAmTag(punkte, tag));
+    // Unerreichbar, solange die Liste stimmt: `waehlbareTage` bietet nur Tage
+    // an, die mindestens eine Nadel haben, und «Alle Tage» gibt es nur, wenn
+    // überhaupt Nadeln da sind. Ohne Ziel bleibt die Kamera stehen — ein
+    // Sprung nach `null` wäre ein Sprung in den Atlantik.
+    if (!ziel) return;
+
+    // DESIGN-LANGUAGE §5 nennt selection-Haptik für Tabs und Zoom. Die Wahl
+    // eines Tages ist beides zugleich: eine Auswahl, die die Kamera bewegt.
+    // Sie steht hier und nicht in `zeige`, weil der Gruppen-Zoom seine eigene
+    // Meldung schon mitbringt (siehe `aufNadel`).
+    void Haptics.selectionAsync().catch(() => {});
+
+    zeige(ziel);
+  };
+
   const zurueck = () => {
     if (router.canGoBack()) router.back();
     // Ohne Rückweg (Deep Link direkt auf die Karte) führt der Weg auf die
@@ -622,6 +813,66 @@ export default function RecapKarte() {
         </Pille>
       </PressScale>
 
+      {/* Der Tagesfilter, gegenüber dem Rückweg (Task-9-Brief: oben rechts).
+          Wie dort eine translucente Pille mit Blur — sie liegt auf der
+          Kartenfläche (DESIGN-LANGUAGE §1).
+
+          Erst ab zwei wählbaren Tagen: bei nur einem zeigten «Alle Tage» und
+          «Tag 1» dieselben Nadeln, und eine Pille, die nichts unterscheidet,
+          ist kein Filter, sondern eine Behauptung. Bei null Tagen (keine
+          Nadeln, oder die Reise-Abfrage ist ausgefallen) gibt es ohnehin
+          nichts zu wählen. */}
+      {tage.length > 1 && (
+        <PressScale
+          testID="karte-tagesfilter"
+          accessibilityRole="button"
+          // Sagt beides: was ein Tipp tut und was gerade gilt. Die Pille selbst
+          // zeigt nur den Stand — ohne diese Ergänzung wüsste per VoiceOver
+          // niemand, dass sich dahinter eine Wahl öffnet.
+          accessibilityLabel={`Reisetag wählen, aktuell ${filterStand}`}
+          onPress={oeffneTagesfilter}
+          style={[styles.tagesfilter, { top: oben }]}
+        >
+          <Pille style={styles.tagesfilterPille}>
+            <Text style={[type.bodyMedium, { color: cinema['text-1'] }]}>{filterStand}</Text>
+            <ChevronDown size={18} color={cinema['text-1']} strokeWidth={1.75} />
+          </Pille>
+        </PressScale>
+      )}
+
+      {/* Wie beim Moment-Sheet erst gemountet, wenn es offen sein soll: `Sheet`
+          bringt seine Eintrittsanimation im Effekt mit. */}
+      {tageOffen && (
+        <Sheet sichtbar titel="Reisetage" onSchliessen={() => setTageOffen(false)}>
+          {/* Scrollt und ist gedeckelt, aus demselben Grund wie die
+              Gruppenliste: eine lange Reise hat viele Tage, und `Sheet`
+              schnitte den Überhang hart ab (85 % Fensterhöhe, `overflow:
+              hidden`) — die letzten Tage wären dann auf keinem Weg mehr
+              wählbar. */}
+          <SheetScroll testID="tage-liste">
+            <TagEintrag
+              testID="tag-eintrag-alle"
+              beschriftung="Alle Tage"
+              aktiv={gewaehlterTag === null}
+              stelle={0}
+              onWaehlen={() => waehleTag(null)}
+            />
+            {tage.map((tag, stelle) => (
+              <TagEintrag
+                key={tag.nummer}
+                testID={`tag-eintrag-${tag.nummer}`}
+                beschriftung={`Tag ${tag.nummer}`}
+                ort={tag.ort}
+                aktiv={gewaehlterTag?.nummer === tag.nummer}
+                // Um eins versetzt: «Alle Tage» ist die erste Zeile.
+                stelle={stelle + 1}
+                onWaehlen={() => waehleTag(tag)}
+              />
+            ))}
+          </SheetScroll>
+        </Sheet>
+      )}
+
       {/* Erst gemountet, wenn es etwas zu zeigen gibt: `Sheet` bringt seine
           Eintrittsanimation im Effekt mit (spring-ui, DESIGN-LANGUAGE §4), und
           ein frisch gemountetes Sheet öffnet damit jedes Mal von unten. Die
@@ -662,6 +913,17 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  tagesfilter: { position: 'absolute', right: spacing.screen },
+  // Dieselbe Höhe wie die Zurück-Pille gegenüber, damit beide auf einer Linie
+  // sitzen. Abstände aus dem 4er-Raster (DESIGN-LANGUAGE §3).
+  tagesfilterPille: {
+    height: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.s,
+    paddingHorizontal: spacing.base,
+    borderRadius: radius.pill,
   },
   // Spec §5.7: Bild in 3:2, Radius 24 (DESIGN-LANGUAGE §3, der Cover-Wert).
   // `overflow: hidden` beschneidet das Bild auf diesen Radius; einen Schatten
