@@ -2,6 +2,7 @@ import { render, screen, fireEvent, within } from '@testing-library/react-native
 import { ThemeProvider } from '@/theme/ThemeProvider';
 import { motion, palette } from '@/theme/tokens';
 import type { MedienUrl } from '@/features/recap/urlVorrat';
+import type { Ausschnitt } from '@/features/karte/typen';
 
 const mockPush = jest.fn();
 const mockReplace = jest.fn();
@@ -44,6 +45,10 @@ jest.mock('@/features/karte/kartenPunkte', () => {
 // «keine Reduktion», und die Weiche wäre aus Test-Sicht toter Code.
 let mockReduziert = false;
 jest.mock('@/theme/useReducedMotion', () => ({ useReducedMotion: () => mockReduziert }));
+// DESIGN-LANGUAGE §5: «Haptik: selection (Tabs, Zoom)». Muster wie in
+// player.test.tsx — das native Modul gibt es im Testlauf nicht.
+const mockHaptik = jest.fn(() => Promise.resolve());
+jest.mock('expo-haptics', () => ({ selectionAsync: () => mockHaptik() }));
 // Eigener Maps-Mock statt des globalen aus jest.setup.ts — aus zwei Gründen,
 // die beide am imperativen Handle hängen:
 //
@@ -389,6 +394,17 @@ test('faellt die Gruppe auseinander, wird ihre Nadel neu gezeichnet', async () =
   expect(verlauf.at(-1)).toBe(false); // und beruhigt sich wieder
 });
 
+// Mitte der Gruppe, und enger als der Ausschnitt, aus dem heraus getippt wurde
+// (0.01° — die Mindestspanne von ausschnittFuer). Als Funktion, damit BEIDE
+// Zweige von `zeige` wirklich dieselben Zusicherungen tragen: ein Sprung, der
+// nur «irgendwohin» springt, ist kein erfüllter Reduced-Motion-Fall.
+function erwarteZielAufDerGruppe(ziel: Ausschnitt) {
+  expect(ziel.latitude).toBeCloseTo(38.71005, 4);
+  expect(ziel.longitude).toBeCloseTo(-9.14005, 4);
+  expect(ziel.latitudeDelta).toBeLessThan(0.01);
+  expect(ziel.longitudeDelta).toBeLessThan(0.01);
+}
+
 // Spec §5.5: wer auf der Karte sucht, will die Karte benutzen — ein Tipp auf
 // eine Gruppe fährt hinein, statt ein Sheet zu öffnen.
 test('ein Tipp auf eine Gruppe faehrt in sie hinein', async () => {
@@ -398,13 +414,27 @@ test('ein Tipp auf eine Gruppe faehrt in sie hinein', async () => {
 
   expect(mockAnimateToRegion).toHaveBeenCalledTimes(1);
   const [ziel, dauer] = mockAnimateToRegion.mock.calls[0];
-  // Mitte der Gruppe, und enger als der Ausschnitt, aus dem heraus getippt
-  // wurde (0.01° — die Mindestspanne von ausschnittFuer).
-  expect(ziel.latitude).toBeCloseTo(38.71005, 4);
-  expect(ziel.longitude).toBeCloseTo(-9.14005, 4);
-  expect(ziel.latitudeDelta).toBeLessThan(0.01);
-  expect(ziel.longitudeDelta).toBeLessThan(0.01);
+  erwarteZielAufDerGruppe(ziel);
   expect(dauer).toBe(motion.duration.base);
+});
+
+// DESIGN-LANGUAGE §5 nennt für «Zoom» ausdrücklich selection-Haptik — dieselbe
+// Meldung, die die Tab-Leiste gibt. Der Gruppen-Zoom ist der eine Zoom, den
+// dieser Screen selbst auslöst.
+test('ein Tipp auf eine Gruppe meldet sich mit selection-Haptik', async () => {
+  ladeErfolg(NAH_BEIEINANDER);
+  await wrap();
+  await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
+  expect(mockHaptik).toHaveBeenCalledTimes(1);
+});
+
+// Und nur dann: eine einzelne Nadel löst keinen Zoom aus, also klopft auch
+// nichts. Das Moment-Sheet (Task 8) bringt seine eigene Regel mit.
+test('ein Tipp auf eine einzelne Nadel klopft nicht', async () => {
+  ladeErfolg();
+  await wrap();
+  await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
+  expect(mockHaptik).not.toHaveBeenCalled();
 });
 
 // `ausschnittFuer` hat eine Mindestspanne von rund 1,1 km — sie ist für den
@@ -445,6 +475,34 @@ test('mit Reduced Motion springt die Karte, statt zu fahren', async () => {
   await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
   expect(mockAnimateToRegion).not.toHaveBeenCalled();
   expect(mockSetRegion).toHaveBeenCalledTimes(1);
+});
+
+// «Springt» allein ist keine Zusicherung: ein Sprung auf 0/0 wäre auch einer.
+// Der Sprung muss dasselbe Ziel treffen wie die Fahrt — sonst landet die Karte
+// ausgerechnet auf dem Pfad im Atlantik, den von Hand am seltensten jemand
+// sieht.
+test('der Sprung trifft dasselbe Ziel wie die Fahrt', async () => {
+  mockReduziert = true;
+  ladeErfolg(NAH_BEIEINANDER);
+  await wrap();
+  await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
+  const [ziel] = mockSetRegion.mock.calls[0];
+  erwarteZielAufDerGruppe(ziel);
+});
+
+// Auch der Sprung geht nicht hinaus — die Begrenzung sitzt vor `zeige`, gilt
+// also für beide Zweige. Ohne diesen Test bliebe das eine Behauptung.
+test('auch mit Reduced Motion wird nie hinausgezoomt', async () => {
+  mockReduziert = true;
+  ladeErfolg(NAH_BEIEINANDER);
+  await wrap();
+  await screen.findByTestId('karte-nadel-p1');
+  await fireEvent(screen.getByTestId('karte-flaeche'), 'regionChangeComplete', MITTEL);
+
+  await fireEvent.press(screen.getByTestId('karte-nadel-p1'));
+  const [ziel] = mockSetRegion.mock.calls[0];
+  expect(ziel.latitudeDelta).toBeLessThan(MITTEL.latitudeDelta);
+  expect(ziel.longitudeDelta).toBeLessThan(MITTEL.longitudeDelta);
 });
 
 // K3: die Linie zeigt die Reise als Bewegung — in der Reihenfolge der

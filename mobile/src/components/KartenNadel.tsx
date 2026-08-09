@@ -184,8 +184,14 @@ export function KartenNadel({ moment, thumbUrl, anzahl = 1, onBereit }: NadelPro
 // Marker, nicht in die Nadel. Form wie in uebersicht.tsx («Moment 3 öffnen»),
 // nur mit dem, was hier bekannt ist: Autor und Uhrzeit — und für eine Gruppe
 // ihre Anzahl statt eines einzelnen Moments.
+//
+// Für die Gruppe nennt das Label die Aktion, die der Tipp WIRKLICH auslöst: er
+// zoomt hinein (Spec §5.5), er öffnet nichts. Wer sich per VoiceOver ansagen
+// lässt, was ein Element tut, bekommt sonst ein Versprechen, das die Karte
+// nicht einlöst. «An diesem Ort» wäre dazu gelogen: gruppiert wird nach 40
+// BILDSCHIRMpunkten, und die sind bei einem Kontinent-Ausschnitt über 150 km.
 function nadelBeschriftung(moment: RecapMoment, anzahl: number): string {
-  if (anzahl > 1) return `${anzahl} Momente an diesem Ort öffnen`;
+  if (anzahl > 1) return `Auf ${anzahl} Momente heranzoomen`;
   const uhrzeit = zeitInZone(moment.captured_at, moment.captured_tz);
   return `Moment von ${moment.autor_name} um ${uhrzeit} öffnen`;
 }

@@ -26,18 +26,26 @@ jest.mock('react-native-safe-area-context', () =>
 // Bibliothek, und die trifft jede Testdatei gleich (Kartenscreen heute,
 // KartenNadel und geteilte Karte spaeter).
 //
-// `animateToRegion`/`fitToCoordinates` haengen bewusst am imperativen Handle
-// statt am Prop-Objekt: der Screen ruft sie ueber ein ref auf, ein Mock ohne
-// sie liesse jede Kamerafahrt an einem `undefined is not a function`
-// scheitern statt an einer Zusicherung.
+// `animateToRegion`/`setRegion`/`fitToCoordinates` haengen bewusst am
+// imperativen Handle statt am Prop-Objekt: der Screen ruft sie ueber ein ref
+// auf, ein Mock ohne sie liesse jede Kamerafahrt an einem `undefined is not a
+// function` scheitern statt an einer Zusicherung.
+//
+// `setRegion` ist der Sprung (Reduced Motion, DESIGN-LANGUAGE §5).
+// `setNativeProps` steht hier bewusst NICHT, obwohl MapView die Methode hat:
+// sie reicht an `this.map` weiter, und dieses Ref wird in react-native-maps
+// 1.27.2 an kein Element gehaengt (`ref={this.map}` kommt nirgends vor) —
+// der Aufruf ist auf dem Geraet ein stiller No-op. Ein Mock, der sie anboete,
+// beglaubigte eine Kamerabewegung, die nie stattfindet: gruener Test, stehende
+// Karte.
 jest.mock('react-native-maps', () => {
   const ReactActual = require('react');
   const { View } = require('react-native');
   const Karte = ReactActual.forwardRef((props: Record<string, unknown>, ref: unknown) => {
     ReactActual.useImperativeHandle(ref, () => ({
       animateToRegion: jest.fn(),
+      setRegion: jest.fn(),
       fitToCoordinates: jest.fn(),
-      setNativeProps: jest.fn(),
     }));
     return ReactActual.createElement(View, props, props.children);
   });

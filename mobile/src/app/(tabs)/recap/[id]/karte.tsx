@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, useWindowDimensions, View } from 'react-native';
 import MapView, { Polyline, type Region } from 'react-native-maps';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import * as Haptics from 'expo-haptics';
 import { ChevronLeft } from 'lucide-react-native';
 import { KartenNadelMarker } from '@/components/KartenNadel';
 import { Pille } from '@/components/Pille';
@@ -155,12 +156,14 @@ export default function RecapKarte() {
   // darum steht `ausschnitt` in den Abhängigkeiten und nicht bloss der
   // Anfangswert: beim Hineinzoomen fällt eine Gruppe von selbst auseinander.
   //
-  // `useMemo` ist hier so wenig Feinschliff wie bei `linie`: `gruppiere`
-  // vergleicht jeden Punkt mit jeder bisherigen Gruppe, und der Screen rendert
-  // bei jeder Kartenbewegung neu — dazu bei jedem Zustand, der mit der Karte
-  // nichts zu tun hat (die eintreffenden Bild-URLs heute, das Moment-Sheet in
-  // Task 8). Ohne die Bindung an genau diese vier Werte liefe die Rechnung bei
-  // jedem einzelnen Rendern mit, und jede Nadel bekäme frisch gebaute Gruppen.
+  // `useMemo` bindet die Rechnung an genau die vier Werte, die ihr Ergebnis
+  // bestimmen. `gruppiere` vergleicht jeden Punkt mit jeder bisherigen Gruppe,
+  // und der Screen rendert bei jeder Kartenbewegung neu — dazu bei jedem
+  // Zustand, der mit der Karte nichts zu tun hat (die eintreffenden Bild-URLs
+  // heute, das Moment-Sheet in Task 8). Ohne die Bindung liefe sie bei jedem
+  // dieser Renders mit. Gespart wird die RECHNUNG, nicht ein Neuaufbau der
+  // Nadeln: die hängen an ihrem Schlüssel und ihren Props und blieben auch
+  // ohne das Memo stehen.
   const gruppen = useMemo(
     () => (ausschnitt ? gruppiere(punkte, ausschnitt, breite, hoehe) : []),
     [punkte, ausschnitt, breite, hoehe]
@@ -177,9 +180,16 @@ export default function RecapKarte() {
   const zeige = useCallback(
     (ziel: Ausschnitt) => {
       // DESIGN-LANGUAGE §5: mit Reduced Motion wird gesprungen statt gefahren.
-      // `setRegion` ist der Sprung — react-native-maps setzt die Region intern
-      // mit Dauer 0. Der Umweg über `setNativeProps` wäre keiner: MapView ist
-      // eine zusammengesetzte Komponente und hat die Methode gar nicht.
+      // `setRegion` ist der Sprung — es ruft intern `animateToRegion` mit
+      // Dauer 0 auf dem Fabric-Handle auf (MapView.tsx:863-867).
+      //
+      // NICHT `setNativeProps`, obwohl MapView die Methode hat und sie
+      // typprüft: sie reicht an `this.map` weiter, und dieses Ref wird in
+      // 1.27.2 an KEIN Element gehängt (`ref={this.map}` kommt nirgends vor,
+      // nur `ref={this.fabricMap}`). `this.map.current` ist damit immer null,
+      // der Aufruf ein stiller No-op. Kein Absturz, der auffiele — eine Kamera,
+      // die einfach stehen bleibt, und zwar nur für die, die Reduced Motion
+      // eingeschaltet haben.
       if (reducedMotion) karte.current?.setRegion(ziel);
       else karte.current?.animateToRegion(ziel, motion.duration.base);
     },
@@ -192,8 +202,16 @@ export default function RecapKarte() {
   // `onPress`; das `memo` am Marker (KartenNadel.tsx) wäre wirkungslos, und
   // jede Nadel schickte ihre Koordinate erneut über die Brücke, obwohl sich an
   // ihr nichts geändert hat.
+  //
+  // `useLayoutEffect`, nicht `useEffect`: ein passiver Effekt läuft erst NACH
+  // dem Commit, und in dem Fenster dazwischen liest ein Tipp noch den alten
+  // Stand. Das ist kein theoretischer Fall — die Karte kommt aus einer Fahrt,
+  // die Gruppe ist gerade zerfallen, und wer sofort auf die neu erschienene
+  // Nadel tippt, wird in den alten Gruppen nicht gefunden (dort war sie
+  // Mitglied, kein Anker). Heute fiele der Tipp nur still aus; ab Task 8 wäre
+  // es ein verschlucktes Moment-Sheet.
   const stand = useRef<{ gruppen: Gruppe[]; ausschnitt: Ausschnitt | null }>({ gruppen, ausschnitt });
-  useEffect(() => {
+  useLayoutEffect(() => {
     stand.current = { gruppen, ausschnitt };
   }, [gruppen, ausschnitt]);
 
@@ -211,6 +229,15 @@ export default function RecapKarte() {
 
       const umfasst = ausschnittFuer(gruppe.punkte);
       if (!umfasst) return;
+
+      // DESIGN-LANGUAGE §5 nennt für «Zoom» selection-Haptik — dieselbe
+      // Meldung wie beim Tab-Wechsel. Sie gehört an den Zoom selbst, nicht in
+      // `zeige`: der Tagesfilter (Task 9) fährt aus einem anderen Anlass und
+      // bringt seine eigene Regel mit. `.catch`, weil ein abgelehntes Promise
+      // aus einem nativen Modul sonst als unbehandelte Ablehnung zählt —
+      // gleiches Muster wie player.tsx.
+      void Haptics.selectionAsync().catch(() => {});
+
       zeige({
         ...umfasst,
         // Die Fahrt geht immer HINEIN, nie hinaus. `ausschnittFuer` hat eine

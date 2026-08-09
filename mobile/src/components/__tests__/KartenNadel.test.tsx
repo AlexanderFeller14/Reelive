@@ -226,7 +226,11 @@ test('die einzelne Nadel nennt Autor und Uhrzeit', async () => {
   expect(screen.getByLabelText('Moment von Lea um 10:00 öffnen')).toBeTruthy();
 });
 
-test('eine Gruppe nennt ihre Anzahl statt eines einzelnen Moments', async () => {
+// Das Label muss die Aktion nennen, die der Tipp WIRKLICH auslöst. Seit Task 7
+// zoomt ein Tipp auf eine Gruppe hinein (Spec §5.5) — geöffnet wird nichts.
+// «an diesem Ort» wäre zusätzlich gelogen: gruppiert wird nach 40
+// Bildschirmpunkten, und die sind bei einem Kontinent-Ausschnitt über 150 km.
+test('eine Gruppe nennt, was der Tipp tut: heranzoomen', async () => {
   await wrap(<KartenNadelMarker punkt={punkt} thumbUrl="https://x/t.jpg" anzahl={4} />);
-  expect(screen.getByLabelText('4 Momente an diesem Ort öffnen')).toBeTruthy();
+  expect(screen.getByLabelText('Auf 4 Momente heranzoomen')).toBeTruthy();
 });
