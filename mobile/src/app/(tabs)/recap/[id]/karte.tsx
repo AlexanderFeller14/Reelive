@@ -8,13 +8,11 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
-import MapView, { Polyline, type Region } from 'react-native-maps';
 import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { Check, ChevronDown, ChevronLeft } from 'lucide-react-native';
 import { Button } from '@/components/Button';
-import { KartenNadelMarker } from '@/components/KartenNadel';
 import { Pille } from '@/components/Pille';
 import { PressScale } from '@/components/PressScale';
 import { Sheet } from '@/components/Sheet';
@@ -30,9 +28,15 @@ import { zeitInZone } from '@/features/recap/uhrzeit';
 import { holeVorrat, type MedienUrl } from '@/features/recap/urlVorrat';
 import { fetchTrip } from '@/features/trips/tripsApi';
 import { ausschnittFuer } from '@/features/karte/ausschnitt';
+import { KartenFlaeche } from '@/features/karte/KartenFlaeche';
 import { aufEinemFleck, gruppiere } from '@/features/karte/gruppierung';
 import { zuKartenPunkten } from '@/features/karte/kartenPunkte';
-import type { Ausschnitt, Gruppe, KartenPunkt } from '@/features/karte/typen';
+import type {
+  Ausschnitt,
+  Gruppe,
+  KartenFlaecheHandle,
+  KartenPunkt,
+} from '@/features/karte/typen';
 
 // Eine feste leere Map statt `new Map()` bei jedem Zurücksetzen: der Wert geht
 // als Abhängigkeit in die Nadeln, und eine jedes Mal neue Map liesse sie ohne
@@ -570,7 +574,7 @@ export default function RecapKarte() {
   // schiebt useOberkante sie ohnehin darunter.
   const oben = useOberkante(spacing.screen);
   const reducedMotion = useReducedMotion();
-  const karte = useRef<MapView>(null);
+  const karte = useRef<KartenFlaecheHandle>(null);
   // Die Fläche, auf der gruppiert wird. Die Karte liegt als absoluteFill über
   // dem ganzen Screen, das Fenster ist also ihr Mass. In der Höhe fehlt die
   // Tab-Bar; das verschiebt die 40-Punkte-Schwelle um wenige Prozent und
@@ -902,7 +906,7 @@ export default function RecapKarte() {
   // Der sichtbare Ausschnitt wandert bei jeder Kartenbewegung in den State:
   // Task 7 gruppiert Nadeln nach ihrem Abstand in BILDSCHIRMpunkten und
   // braucht dafür den aktuellen Zoom, nicht den anfänglichen.
-  const merkeAusschnitt = useCallback((region: Region) => setAusschnitt(region), []);
+  const merkeAusschnitt = useCallback((sichtbar: Ausschnitt) => setAusschnitt(sichtbar), []);
 
   // Die wählbaren Tage — erst, wenn BEIDE Hälften zur gerade angezeigten Reise
   // gehören. Die Ladewege laufen unabhängig, es gibt also ein Fenster, in dem
@@ -977,63 +981,53 @@ export default function RecapKarte() {
     [sichtbarePunkte, ausschnitt, breite, hoehe]
   );
 
-  // DIE eine Stelle, an der sich die Kamera dieses Screens bewegt (Spec K12):
-  // der Gruppen-Zoom heute, der Tagesfilter in Task 9. Zwei Wege liefen
-  // garantiert auseinander — und an einem von beiden fehlte irgendwann die
-  // Reduced-Motion-Weiche.
+  // Das Bild einer Nadel — als Nachschlagefunktion statt als fertige Liste:
+  // die Fläche fragt für den Anker jeder Gruppe nach, und welche Gruppen es
+  // gibt, weiss sie selbst besser als dieser Screen. `useCallback` bindet sie
+  // an den Vorrat, nicht an jedes Rendern: der Screen rendert bei jeder
+  // Kartenbewegung neu, die URLs ändern sich einmal pro Ladevorgang.
+  const thumbFuer = useCallback((postId: string) => nadelBild(urls, postId), [urls]);
+
+  // Die Kamera bewegt DIE FLÄCHE, nicht dieser Screen: `zeige` ist seit Task
+  // 14 das imperative Handle von `KartenFlaeche` (features/karte/typen.ts).
+  // Dort sitzt auch die Reduced-Motion-Weiche — sie gehört zur Technik der
+  // jeweiligen Karte (animateToRegion/setRegion nativ, flyTo/setView im
+  // Browser), nicht zum Screen. Für diesen Screen bleibt es DIE eine Stelle,
+  // über die jede Kamerabewegung geht (Spec K12): der Gruppen-Zoom und der
+  // Tagesfilter rufen beide hierher.
   //
   // Der Erststart geht bewusst NICHT hier durch: die Karte wird überhaupt erst
-  // gemountet, wenn der Ausschnitt feststeht, und öffnet mit `initialRegion`
-  // direkt dort. Es gibt nichts, wovon aus gefahren würde.
-  const zeige = useCallback(
-    (ziel: Ausschnitt) => {
-      // DESIGN-LANGUAGE §5: mit Reduced Motion wird gesprungen statt gefahren.
-      // `setRegion` ist der Sprung — es ruft intern `animateToRegion` mit
-      // Dauer 0 auf dem Fabric-Handle auf (MapView.tsx:863-867).
-      //
-      // NICHT `setNativeProps`, obwohl MapView die Methode hat und sie
-      // typprüft: sie reicht an `this.map` weiter, und dieses Ref wird in
-      // 1.27.2 an KEIN Element gehängt (`ref={this.map}` kommt nirgends vor,
-      // nur `ref={this.fabricMap}`). `this.map.current` ist damit immer null,
-      // der Aufruf ein stiller No-op. Kein Absturz, der auffiele — eine Kamera,
-      // die einfach stehen bleibt, und zwar nur für die, die Reduced Motion
-      // eingeschaltet haben.
-      if (reducedMotion) karte.current?.setRegion(ziel);
-      else karte.current?.animateToRegion(ziel, motion.duration.base);
-    },
-    [reducedMotion]
-  );
+  // gemountet, wenn der Ausschnitt feststeht, und öffnet direkt dort. Es gibt
+  // nichts, wovon aus gefahren würde.
+  const zeige = useCallback((ziel: Ausschnitt) => karte.current?.zeige(ziel), []);
 
-  // Was ein Tipp auf eine Nadel wissen muss — in einem Ref statt in den
-  // Abhängigkeiten von `aufNadel`. Hinge die Funktion an `gruppen` und
-  // `ausschnitt`, bekäme jede Nadel bei JEDER Kartenbewegung ein neues
-  // `onPress`; das `memo` am Marker (KartenNadel.tsx) wäre wirkungslos, und
-  // jede Nadel schickte ihre Koordinate erneut über die Brücke, obwohl sich an
-  // ihr nichts geändert hat.
+  // Was ein Tipp auf eine Gruppe zusätzlich wissen muss — in einem Ref statt in
+  // den Abhängigkeiten von `aufGruppe`. Hinge die Funktion an `ausschnitt`,
+  // bekäme jede Nadel bei JEDER Kartenbewegung ein neues `onPress` (die Fläche
+  // reicht `aufGruppe` an alle Nadeln durch); das `memo` am Marker
+  // (KartenNadel.tsx) wäre wirkungslos, und jede Nadel schickte ihre Koordinate
+  // erneut über die Brücke, obwohl sich an ihr nichts geändert hat.
   //
   // `useLayoutEffect`, nicht `useEffect`: ein passiver Effekt läuft erst NACH
   // dem Commit, und in dem Fenster dazwischen liest ein Tipp noch den alten
-  // Stand. Das ist kein theoretischer Fall — die Karte kommt aus einer Fahrt,
-  // die Gruppe ist gerade zerfallen, und wer sofort auf die neu erschienene
-  // Nadel tippt, wird in den alten Gruppen nicht gefunden (dort war sie
-  // Mitglied, kein Anker) — und das Moment-Sheet bliebe aus, ohne dass
-  // irgendwo ein Fehler entstünde. Festgenagelt in karte.test.tsx («ein Tipp
-  // unmittelbar nach dem Zerfall einer Gruppe wird nicht verschluckt»): dort
-  // tippt ein Nachbar aus seinem eigenen Layout-Effekt heraus, also genau in
-  // dem Fenster zwischen Commit und passivem Effekt.
-  const stand = useRef<{ gruppen: Gruppe[]; ausschnitt: Ausschnitt | null }>({ gruppen, ausschnitt });
+  // Stand. Dieselbe Überlegung steht in KartenFlaeche.tsx an dem Ref, das die
+  // GRUPPEN hält — dort ist sie in karte.test.tsx festgenagelt («ein Tipp
+  // unmittelbar nach dem Zerfall einer Gruppe wird nicht verschluckt»).
+  const stand = useRef<{ ausschnitt: Ausschnitt | null }>({ ausschnitt });
   useLayoutEffect(() => {
-    stand.current = { gruppen, ausschnitt };
-  }, [gruppen, ausschnitt]);
+    stand.current = { ausschnitt };
+  }, [ausschnitt]);
 
   // Ein Tipp auf eine Gruppe fährt in sie hinein, solange das etwas ausrichtet
   // (Spec §5.5): wer auf der Karte sucht, will die Karte benutzen. Erst wo
   // Zoomen nichts mehr bringt, öffnet sich das Sheet — siehe unten.
-  const aufNadel = useCallback(
-    (anker: KartenPunkt) => {
-      const { gruppen: aktuelle, ausschnitt: sichtbar } = stand.current;
-      const gruppe = aktuelle.find((g) => g.anker === anker);
-      if (!gruppe) return;
+  //
+  // WELCHE Gruppe getippt wurde, hat die Fläche bereits beantwortet: der Marker
+  // meldet ihr den Anker, sie sucht die Gruppe in ihrem eigenen Stand
+  // (KartenFlaeche.tsx). Hier steht nur noch, was daraus folgt.
+  const aufGruppe = useCallback(
+    (gruppe: Gruppe) => {
+      const { ausschnitt: sichtbar } = stand.current;
 
       // Ins Sheet führt EINE Frage: richtet Zoomen hier überhaupt noch etwas
       // aus? Sie deckt beide Fälle ab, in denen die Antwort nein ist —
@@ -1077,9 +1071,8 @@ export default function RecapKarte() {
       }
 
       // Unerreichbar, aber für den Typ nötig: `gruppen` wird nur berechnet,
-      // wenn `ausschnitt` steht (siehe useMemo oben), und beide gehen im
-      // selben Zug in `stand`. Ohne Ausschnitt gäbe es also gar keine Nadel,
-      // die getippt werden könnte.
+      // wenn `ausschnitt` steht (siehe useMemo oben). Ohne Ausschnitt gäbe es
+      // also gar keine Nadel, die getippt werden könnte.
       if (!sichtbar) return;
 
       const umfasst = ausschnittFuer(gruppe.punkte);
@@ -1290,43 +1283,16 @@ export default function RecapKarte() {
           berechnet, deren Zahl den Leer-Zustand oben abgefangen hat. Die
           Abfrage bleibt trotzdem stehen, weil der Typ sie verlangt. */}
       {ausschnitt && (
-        <MapView
+        <KartenFlaeche
           ref={karte}
-          testID="karte-flaeche"
-          style={StyleSheet.absoluteFill}
-          initialRegion={ausschnitt}
-          onRegionChangeComplete={merkeAusschnitt}
-        >
-          {/* Die Linie steht VOR den Nadeln im Baum, damit sie unter ihnen
-              liegt. Unter zwei Punkten gibt es nichts zu verbinden. */}
-          {linie.length > 1 && (
-            <Polyline
-              testID="karte-linie"
-              coordinates={linie}
-              strokeColor={colors.accent}
-              strokeWidth={3}
-            />
-          )}
-
-          {/* Der Schlüssel hängt am Anker, nicht am Inhalt der Gruppe: beim
-              Zoomen ändert sich die Zusammensetzung laufend, und ein Schlüssel
-              aus ihr heraus hängte jedes Mal eine neue Nadel an die Karte,
-              statt die vorhandene weiterzuzeichnen. */}
-          {gruppen.map((g) => (
-            <KartenNadelMarker
-              key={g.anker.moment.id}
-              punkt={g.anker}
-              thumbUrl={nadelBild(urls, g.anker.moment.id)}
-              anzahl={g.punkte.length}
-              // Dieselbe Auskunft, die `aufNadel` benutzt — damit das Label
-              // für VoiceOver nennt, was der Tipp WIRKLICH tut: heranzoomen
-              // oder das Sheet öffnen. Eine zweite eigene Regel hier liefe
-              // irgendwann gegen die dort.
-              unteilbar={aufEinemFleck(g)}
-              onPress={aufNadel}
-            />
-          ))}
-        </MapView>
+          ausschnitt={ausschnitt}
+          gruppen={gruppen}
+          linie={linie}
+          thumbFuer={thumbFuer}
+          aufGruppe={aufGruppe}
+          aufAusschnitt={merkeAusschnitt}
+          reducedMotion={reducedMotion}
+        />
       )}
 
       {/* Die Karte hat keinen eigenen Kopf, sie soll gross sein (Spec §5.3)

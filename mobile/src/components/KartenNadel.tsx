@@ -8,7 +8,7 @@ import { useTheme } from '@/theme/ThemeProvider';
 import { useReducedMotion } from '@/theme/useReducedMotion';
 import { cinema, motion, radius, shadow, spacing, type } from '@/theme/tokens';
 import type { RecapMoment } from '@/features/recap/types';
-import { zeitInZone } from '@/features/recap/uhrzeit';
+import { nadelAbbild, nadelBeschriftung } from '@/features/karte/nadel';
 import type { KartenPunkt } from '@/features/karte/typen';
 
 // Die Nadel auf der Recap-Karte (Spec §5.4): keine Stecknadel, sondern das
@@ -21,6 +21,11 @@ import type { KartenPunkt } from '@/features/karte/typen';
 // und entscheidet, wann es aufhören darf, sich zu zeichnen. Diese Entscheidung
 // hängt daran, WAS die Nadel gerade zeigt — sie zu trennen hiesse, dieselbe
 // Frage an zwei Orten zu beantworten.
+//
+// `nadelAbbild` und `nadelBeschriftung` liegen seit Task 14 plattformfrei in
+// features/karte/nadel.ts: die Browser-Fassung der Kartenfläche baut ihre
+// Nadeln aus DOM statt aus Marker-Views, braucht aber dieselben zwei Regeln —
+// und kann diese Datei nicht importieren, weil sie react-native-maps mitzieht.
 
 // 44 px inklusive Ring, wie der grösste Avatar (§4). Der Ring liegt als
 // `borderWidth` INNEN, genau wie in Avatar.tsx.
@@ -45,15 +50,6 @@ type NadelProps = {
    */
   onBereit?: () => void;
 };
-
-// Alles, was das Aussehen der Nadel bestimmt, als EIN Wert. Beide Komponenten
-// bilden ihn mit dieser Funktion: die Nadel, um zu wissen, wann sie ihren
-// Fertig-Stand neu melden muss, und der Marker, um zu wissen, ob der gemeldete
-// Stand noch der aktuelle ist. Zwei getrennte Formeln liefen früher oder
-// später auseinander — und die Karte zeigte ein Bild, das nicht mehr gilt.
-function nadelAbbild(moment: RecapMoment, thumbUrl: string | null, anzahl: number): string {
-  return `${moment.type}|${anzahl}|${thumbUrl ?? ''}`;
-}
 
 // Der Kreis unter dem Bild. `puls` unterscheidet die beiden Gründe, aus denen
 // er zu sehen ist:
@@ -177,31 +173,6 @@ export function KartenNadel({ moment, thumbUrl, anzahl = 1, onBereit }: NadelPro
       )}
     </View>
   );
-}
-
-// Nach dem Rastern ist die Nadel für VoiceOver EIN Element — was innen steht,
-// ist dann nicht mehr erreichbar. Die Beschriftung gehört deshalb an den
-// Marker, nicht in die Nadel. Form wie in uebersicht.tsx («Moment 3 öffnen»),
-// nur mit dem, was hier bekannt ist: Autor und Uhrzeit — und für eine Gruppe
-// ihre Anzahl statt eines einzelnen Moments.
-//
-// Für die Gruppe nennt das Label die Aktion, die der Tipp WIRKLICH auslöst: er
-// zoomt hinein (Spec §5.5), er öffnet nichts. Wer sich per VoiceOver ansagen
-// lässt, was ein Element tut, bekommt sonst ein Versprechen, das die Karte
-// nicht einlöst. «An diesem Ort» wäre dazu gelogen: gruppiert wird nach 40
-// BILDSCHIRMpunkten, und die sind bei einem Kontinent-Ausschnitt über 150 km.
-//
-// `unteilbar` ist die eine Gruppe, für die das nicht gilt: liegen alle
-// Momente auf exakt derselben Koordinate, trennt sie keine Zoomstufe
-// (features/karte/gruppierung.ts, `aufEinemFleck`) — dort öffnet der Tipp das
-// Sheet mit der Liste (Spec §5.7). «An diesem Ort» ist hier, anders als bei
-// einer nach Bildschirmpunkten gebildeten Gruppe, wörtlich wahr.
-function nadelBeschriftung(moment: RecapMoment, anzahl: number, unteilbar: boolean): string {
-  if (anzahl > 1) {
-    return unteilbar ? `${anzahl} Momente an diesem Ort ansehen` : `Auf ${anzahl} Momente heranzoomen`;
-  }
-  const uhrzeit = zeitInZone(moment.captured_at, moment.captured_tz);
-  return `Moment von ${moment.autor_name} um ${uhrzeit} öffnen`;
 }
 
 type MarkerProps = {
