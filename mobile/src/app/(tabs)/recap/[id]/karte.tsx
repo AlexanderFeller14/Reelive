@@ -155,16 +155,11 @@ function punkteAmTag(punkte: KartenPunkt[], tag: RecapTag | null): KartenPunkt[]
 // dessen Momente alle ohne Ort sind, führte auf eine leere Karte ohne jede
 // Erklärung — eine Sackgasse im Filter, aus der nur der Rückweg auf «Alle
 // Tage» hilft.
-//
-// Ohne `startDate` (die Reise-Abfrage ist ausgefallen) gibt es keine
-// Tagesnummern und folglich keinen Filter — die Karte selbst bleibt davon
-// unberührt.
 function waehlbareTage(
   spielliste: RecapMoment[],
-  startDate: string | null,
+  startDate: string,
   punkte: KartenPunkt[]
 ): RecapTag[] {
-  if (startDate === null) return [];
   const mitOrt = new Set(punkte.map((p) => p.moment.id));
   return gruppiereNachTagen(spielliste, startDate).filter((tag) =>
     tag.momente.some((m) => mitOrt.has(m.id))
@@ -414,16 +409,29 @@ export default function RecapKarte() {
   // Moment der VORHERIGEN Reise — sein Knopf schickte den Player mit deren
   // Index in die neue, wo dieselbe Zahl auf einen ganz anderen Moment zeigt.
   const [sheet, setSheet] = useState<{ tripId: string; punkte: KartenPunkt[] } | null>(null);
-  // Die wählbaren Reisetage (siehe `waehlbareTage`) — einmal beim Laden
-  // gerechnet, nicht bei jedem Rendern: sie hängen nur an den geladenen Daten,
-  // und dieser Screen rendert bei JEDER Kartenbewegung neu.
-  const [tage, setTage] = useState<RecapTag[]>([]);
+  // Die beiden Hälften, aus denen die Tagesnummern entstehen — jede mit der
+  // Reise, aus der sie stammt. Sie kommen aus ZWEI getrennten Abfragen (siehe
+  // die Ladewege unten), und eine Mischung aus zwei Reisen ergäbe Nummern, die
+  // es in keiner der beiden gibt: das Startdatum der einen, die Momente der
+  // anderen.
+  //
+  // Die Spielliste liegt hier zusätzlich zu `punkte`, weil sie die Momente
+  // OHNE Ort mitträgt — `waehlbareTage` braucht sie für die Nummerierung
+  // (Begründung dort).
+  const [spielliste, setSpielliste] = useState<{ tripId: string; momente: RecapMoment[] } | null>(null);
+  const [reiseStart, setReiseStart] = useState<{ tripId: string; startDate: string } | null>(null);
   // Der gewählte Tag, mit der Reise, in der er gewählt wurde — aus demselben
   // Grund wie beim Sheet oben: der Screen bleibt bei einem Wechsel der id
   // gemountet, und ein stehen gebliebener Filterstand öffnete die NÄCHSTE
   // Reise vorgefiltert auf einen Tag, den niemand gewählt hat.
   const [tagWahl, setTagWahl] = useState<{ tripId: string; nummer: number } | null>(null);
-  const [tageOffen, setTageOffen] = useState(false);
+  // Das offene Tages-Sheet trägt seine Reise aus demselben Grund wie `sheet`
+  // — und aus einem eigenen, schärferen: es listet die Tage DER REISE, aus der
+  // es geöffnet wurde. Bliebe es bei einem Wechsel stehen, würde ein Tipp auf
+  // «Tag 3» die neue Reise auf einen Tag filtern, den niemand in ihr gewählt
+  // hat — und `waehleTag` schriebe dabei die NEUE id in die Wahl, der Wächter
+  // unten käme also nie zum Zug.
+  const [tageSheet, setTageSheet] = useState<{ tripId: string } | null>(null);
 
   // Zurückgesetzt BEIM RENDERN — das dokumentierte React-Muster für «Zustand
   // beim Wechsel einer Prop verwerfen». React verwirft die Ausgabe dieses
@@ -447,17 +455,14 @@ export default function RecapKarte() {
   // existiert, sähe das nicht nach einem Fehler aus, sondern nach einer Reise
   // mit auffällig wenigen Momenten.
   if (tagWahl !== null && tagWahl.tripId !== id) setTagWahl(null);
+  if (tageSheet !== null && tageSheet.tripId !== id) setTageSheet(null);
   const sheetPunkte = sheet?.punkte ?? null;
+  const tageOffen = tageSheet !== null;
 
   useEffect(() => {
     let aktiv = true;
-    // `fetchTrip` kommt allein wegen `start_date` mit: die Tagesnummern zählen
-    // ab dem Startdatum DER REISE (tage.ts), nicht ab dem ersten Moment —
-    // uebersicht.tsx und player.tsx lesen es an derselben Stelle. Ohne diese
-    // Abfrage müsste dieser Screen die Tage aus den Momenten heraus raten und
-    // zeigte für dieselbe Reise andere Nummern als die Übersicht.
-    void Promise.all([fetchTrip(id), fetchRecapMomente(id), holeVorrat(id)])
-      .then(([{ data: reise }, momente, { vorrat }]) => {
+    void Promise.all([fetchRecapMomente(id), holeVorrat(id)])
+      .then(([momente, { vorrat }]) => {
         if (!aktiv) return;
         // DIE Stelle, an der ein Fehler still bliebe: die Karte muss dieselbe
         // Liste zählen wie der Player. `punkt.index` geht später als `start`
@@ -481,11 +486,7 @@ export default function RecapKarte() {
         setUrls(vorratUrls);
         setPunkte(p);
         setAusschnitt(ausschnittFuer(p));
-        // Fällt allein die Reise-Abfrage aus (oder gibt es die Reise nicht
-        // mehr), bleibt die Karte stehen und nur der Filter fehlt: er ist
-        // Beiwerk, die Nadeln sind der Screen. Dieselbe Abwägung wie bei
-        // `loadCounts` in tripsApi.ts.
-        setTage(waehlbareTage(mitBild, reise?.start_date ?? null, p));
+        setSpielliste({ tripId: id, momente: mitBild });
       })
       // fetchRecapMomente und holeVorrat geben Fehler als WERT zurück statt
       // zu werfen — aber "wirft normalerweise nicht" ist keine Zusicherung,
@@ -509,7 +510,46 @@ export default function RecapKarte() {
         setUrls(KEINE_URLS);
         setPunkte([]);
         setAusschnitt(null);
-        setTage([]);
+        setSpielliste(null);
+      });
+    return () => {
+      aktiv = false;
+    };
+  }, [id]);
+
+  // Die Reise wird GETRENNT geladen, nicht im `Promise.all` oben.
+  //
+  // Gebraucht wird von ihr allein `start_date`: die Tagesnummern zählen ab dem
+  // Startdatum DER REISE (tage.ts), nicht ab dem ersten Moment — uebersicht.tsx
+  // und player.tsx lesen es an derselben Stelle. Ohne diese Abfrage müsste
+  // dieser Screen die Tage aus den Momenten heraus raten und zeigte für
+  // dieselbe Reise andere Nummern als die Übersicht.
+  //
+  // Aber: der Filter ist Beiwerk, die Nadeln SIND der Screen — und in einem
+  // gemeinsamen `Promise.all` wäre das nur für den Fehlerpfad wahr, nicht für
+  // den Zeitpfad. Bis der Ausschnitt steht, wird die Karte gar nicht erst
+  // gemountet; die Nadeln hingen also an einer Abfrage, die für sie nichts
+  // beiträgt. Und `fetchTrip` ist nicht eine Abfrage, sondern zwei: es wartet
+  // intern auf die rpc `my_post_counts` mit (tripsApi.ts) — ein hängender
+  // Momente-Zähler liesse bei sonst intaktem Netz eine leere Fläche stehen,
+  // obwohl Momente und URLs längst da sind.
+  useEffect(() => {
+    let aktiv = true;
+    void fetchTrip(id)
+      .then(({ data: reise }) => {
+        if (!aktiv) return;
+        // Kein `start_date` (Ladefehler, oder es gibt die Reise nicht mehr):
+        // dann fehlt der Filter, und sonst nichts. Den zurückgegebenen
+        // Fehlertext sichtbar zu machen ist Sache von Task 10, der den
+        // Ladeweg ohnehin umbaut.
+        setReiseStart(reise ? { tripId: id, startDate: reise.start_date } : null);
+      })
+      // Gleicher Grund wie beim Ladeweg darüber: `fetchTrip` gibt Fehler als
+      // WERT zurück, aber «wirft normalerweise nicht» trägt keine Kette.
+      .catch((fehler: unknown) => {
+        if (!aktiv) return;
+        meldeFehler(fehler, { screen: 'recap/karte', tripId: id });
+        setReiseStart(null);
       });
     return () => {
       aktiv = false;
@@ -520,6 +560,20 @@ export default function RecapKarte() {
   // Task 7 gruppiert Nadeln nach ihrem Abstand in BILDSCHIRMpunkten und
   // braucht dafür den aktuellen Zoom, nicht den anfänglichen.
   const merkeAusschnitt = useCallback((region: Region) => setAusschnitt(region), []);
+
+  // Die wählbaren Tage — erst, wenn BEIDE Hälften zur gerade angezeigten Reise
+  // gehören. Die Ladewege laufen unabhängig, es gibt also ein Fenster, in dem
+  // das Startdatum der neuen Reise schon da ist und die Momente noch die der
+  // vorherigen sind; die Nummern daraus gäbe es in keiner der beiden Reisen.
+  //
+  // `useMemo` und nicht ein State im Ladeweg: die Rechnung hängt an genau
+  // diesen drei geladenen Werten, und die ändern sich einmal pro Ladevorgang —
+  // dieser Screen rendert aber bei jeder Kartenbewegung neu.
+  const tage = useMemo(() => {
+    if (spielliste === null || spielliste.tripId !== id) return [];
+    if (reiseStart === null || reiseStart.tripId !== id) return [];
+    return waehlbareTage(spielliste.momente, reiseStart.startDate, punkte);
+  }, [spielliste, reiseStart, punkte, id]);
 
   // Der gewählte Tag als Objekt statt als blosse Nummer — und aus `tage`
   // heraus gesucht, nicht aus `tagWahl` heraus geglaubt: nach einem
@@ -707,17 +761,26 @@ export default function RecapKarte() {
   const filterStand = gewaehlterTag ? `Tag ${gewaehlterTag.nummer}` : 'Alle Tage';
 
   const oeffneTagesfilter = () => {
-    // DESIGN-LANGUAGE §4: genau EIN Primär-Button pro Screen. Den trägt das
-    // Moment-Sheet; zwei offene Sheets hätten zwei. Auf dem Gerät fängt der
-    // Backdrop des offenen Sheets diesen Tipp ohnehin ab — dass der Zustand
-    // hier trotzdem eindeutig gemacht wird, kostet nichts und macht die
-    // Zusicherung prüfbar, statt sie der Trefferreihenfolge zu überlassen.
+    // KEINE gestapelten Sheets: `Sheet` bringt jeweils einen eigenen Backdrop
+    // über den ganzen Screen mit (Sheet.tsx), zwei übereinander ergäben eine
+    // doppelt abgedunkelte Karte — und ein Wisch nach unten schlösse nur das
+    // obere und liesse ein Panel zurück, das niemand mehr erwartet.
+    //
+    // (Nicht der Grund: die Zahl der Primär-Buttons. Die Tagesliste hat per
+    // Konstruktion keinen, zwei offene Sheets hätten also weiterhin genau
+    // einen — DESIGN-LANGUAGE §4 ist hier nicht verletzt und trägt diese
+    // Entscheidung nicht.)
+    //
+    // Auf dem Gerät fängt der Backdrop des offenen Moment-Sheets diesen Tipp
+    // ohnehin ab; dass der Zustand hier trotzdem eindeutig gemacht wird,
+    // kostet nichts und macht die Zusicherung prüfbar, statt sie der
+    // Trefferreihenfolge zu überlassen.
     setSheet(null);
-    setTageOffen(true);
+    setTageSheet({ tripId: id });
   };
 
   const waehleTag = (tag: RecapTag | null) => {
-    setTageOffen(false);
+    setTageSheet(null);
     setTagWahl(tag ? { tripId: id, nummer: tag.nummer } : null);
 
     // Der gewählte Tag ändert Nadeln UND Linie UND Ausschnitt: ein Tag, dessen
@@ -843,7 +906,7 @@ export default function RecapKarte() {
       {/* Wie beim Moment-Sheet erst gemountet, wenn es offen sein soll: `Sheet`
           bringt seine Eintrittsanimation im Effekt mit. */}
       {tageOffen && (
-        <Sheet sichtbar titel="Reisetage" onSchliessen={() => setTageOffen(false)}>
+        <Sheet sichtbar titel="Reisetage" onSchliessen={() => setTageSheet(null)}>
           {/* Scrollt und ist gedeckelt, aus demselben Grund wie die
               Gruppenliste: eine lange Reise hat viele Tage, und `Sheet`
               schnitte den Überhang hart ab (85 % Fensterhöhe, `overflow:

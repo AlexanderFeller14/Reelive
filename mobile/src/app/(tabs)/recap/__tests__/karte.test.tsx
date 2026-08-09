@@ -1002,11 +1002,24 @@ test('nach t1 → t2 → t1 oeffnet sich kein Sheet von selbst', async () => {
 // Verzögerungen, mit denen die Zeilen starten — `Animated` flacht die Opazität
 // im Testlauf auf eine Zahl ab und rührt sie unter `useNativeDriver` nie
 // wieder an (gleiche Einschränkung wie in KartenNadel.test.tsx).
-function staggerVerzoegerungen(): unknown[] {
+// Nur die Zeilen-Einblendungen: `Sheet` animiert selbst mit, setzt dabei aber
+// kein `delay` — daran lassen sich die Listenzeilen von allem anderen trennen.
+function zeilenAnimationen(): { delay?: number; duration?: number }[] {
   return (Animated.timing as unknown as jest.Mock).mock.calls
-    .map(([, konfig]) => konfig as { delay?: number })
-    .filter((konfig) => konfig.delay !== undefined)
-    .map((konfig) => konfig.delay);
+    .map(([, konfig]) => konfig as { delay?: number; duration?: number })
+    .filter((konfig) => konfig.delay !== undefined);
+}
+
+function staggerVerzoegerungen(): unknown[] {
+  return zeilenAnimationen().map((konfig) => konfig.delay);
+}
+
+// DESIGN-LANGUAGE §5: «prefers-reduced-motion: alles wird zu 200-ms-Fades».
+// Bewusst die nackte Zahl statt der (modulprivaten) Konstante aus karte.tsx:
+// gegen sich selbst geprüft, wäre jeder Wert richtig — 200 steht in der
+// Design-Sprache, und nur das ist die Zusicherung.
+function staggerDauern(): unknown[] {
+  return zeilenAnimationen().map((konfig) => konfig.duration);
 }
 
 test('die Zeilen der Gruppenliste erscheinen gestaffelt', async () => {
@@ -1016,12 +1029,15 @@ test('die Zeilen der Gruppenliste erscheinen gestaffelt', async () => {
   await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
 
   expect(staggerVerzoegerungen()).toEqual([0, 40]);
+  expect(staggerDauern()).toEqual([motion.duration.base, motion.duration.base]);
   spion.mockRestore();
 });
 
 // §5: «prefers-reduced-motion: alles wird zu 200-ms-Fades» — dann erscheinen
-// die Zeilen gemeinsam, ohne Staffelung.
-test('mit Reduced Motion erscheinen die Zeilen ohne Staffelung', async () => {
+// die Zeilen gemeinsam, ohne Staffelung, und der Fade dauert 200 ms. Ohne die
+// zweite Zusicherung wäre «wird zu einem 200-ms-Fade» eine Behauptung: die
+// Verzögerung allein sagt nichts über die Dauer.
+test('mit Reduced Motion erscheinen die Zeilen ohne Staffelung, in 200 ms', async () => {
   const spion = jest.spyOn(Animated, 'timing');
   mockReduziert = true;
   ladeErfolg(AUF_EINEM_FLECK);
@@ -1029,6 +1045,7 @@ test('mit Reduced Motion erscheinen die Zeilen ohne Staffelung', async () => {
   await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
 
   expect(staggerVerzoegerungen()).toEqual([0, 0]);
+  expect(staggerDauern()).toEqual([200, 200]);
   spion.mockRestore();
 });
 
@@ -1077,7 +1094,13 @@ const tag2M = moment({ id: 'p6', captured_at: '2026-08-11T10:00:00.000Z', lat: 3
 // p1 (Stelle 1), p2 (Stelle 2), p6 (Stelle 3). p5 fällt ohne URL heraus, p4
 // lädt noch. Auf der Karte liegen also drei Nadeln: p1 und p2 an Tag 1, p6 an
 // Tag 2.
-const MIT_TAGEN = [ohneUrlM, ohneOrtFrueh, mitAllem, m2, tag2M, pendingM];
+//
+// Wie VOLLSTAENDIG bereits chronologisch sortiert — so liefert
+// `fetchRecapMomente` sie. p4 (10.08., 20:00) steht deshalb VOR p6 (11.08.),
+// obwohl er ohnehin herausfällt: eine Fixture, die etwas Falsches über die
+// API behauptet, ist ein Test, der eines Tages aus dem falschen Grund grün
+// bleibt.
+const MIT_TAGEN = [ohneUrlM, ohneOrtFrueh, mitAllem, m2, pendingM, tag2M];
 const VORRAT_TAGE = {
   ...VORRAT_OK,
   urls: new Map<string, MedienUrl>([...VORRAT_OK.urls, ['p6', bild('p6')]]),
@@ -1409,10 +1432,13 @@ test('die Zeilen der Tagesliste erscheinen gestaffelt', async () => {
   await oeffneTagesfilter();
   // «Alle Tage», Tag 1, Tag 2.
   expect(staggerVerzoegerungen()).toEqual([0, 40, 80]);
+  expect(staggerDauern()).toEqual([
+    motion.duration.base, motion.duration.base, motion.duration.base,
+  ]);
   spion.mockRestore();
 });
 
-test('mit Reduced Motion erscheinen die Zeilen der Tagesliste ohne Staffelung', async () => {
+test('mit Reduced Motion erscheinen die Zeilen der Tagesliste ohne Staffelung, in 200 ms', async () => {
   const spion = jest.spyOn(Animated, 'timing');
   mockReduziert = true;
   ladeErfolg(MIT_TAGEN, VORRAT_TAGE);
@@ -1421,7 +1447,88 @@ test('mit Reduced Motion erscheinen die Zeilen der Tagesliste ohne Staffelung', 
 
   await oeffneTagesfilter();
   expect(staggerVerzoegerungen()).toEqual([0, 0, 0]);
+  expect(staggerDauern()).toEqual([200, 200, 200]);
   spion.mockRestore();
+});
+
+// Fixrunde 1, Punkt 1: der Filter ist Beiwerk, die Nadeln SIND der Screen —
+// und das muss auch für die ZEIT gelten, nicht nur für den Fehlerfall. Lägen
+// alle drei Abfragen in einem `Promise.all`, hinge die Karte an einer, die für
+// ihren Inhalt nichts beiträgt: bis der Ausschnitt steht, wird die `MapView`
+// gar nicht erst gemountet. `fetchTrip` ist dabei nicht eine Abfrage, sondern
+// zwei — es wartet intern auf die rpc `my_post_counts` mit (tripsApi.ts).
+test('die Nadeln stehen, bevor die Reise-Abfrage zurueck ist', async () => {
+  ladeErfolg(MIT_TAGEN, VORRAT_TAGE);
+  let reiseAufloesen: (wert: { data: Trip | null; error: string | null }) => void = () => {};
+  (fetchTrip as jest.Mock).mockReturnValue(
+    new Promise<{ data: Trip | null; error: string | null }>((aufloesen) => {
+      reiseAufloesen = aufloesen;
+    })
+  );
+  await wrap();
+
+  // Karte, Nadeln und Linie stehen, obwohl die Reise-Abfrage noch offen ist.
+  expect(await screen.findAllByTestId(/^karte-nadel/)).toHaveLength(3);
+  expect(screen.getByTestId('karte-linie')).toBeTruthy();
+  // Nur der Filter fehlt noch — ohne Startdatum gibt es keine Tagesnummern.
+  expect(screen.queryByTestId('karte-tagesfilter')).toBeNull();
+
+  // Und er kommt nach, sobald die Reise da ist.
+  await act(async () => {
+    reiseAufloesen({ data: REISE, error: null });
+  });
+  expect(screen.getByTestId('karte-tagesfilter')).toBeTruthy();
+  expect(screen.getByText('Alle Tage')).toBeTruthy();
+});
+
+// Fixrunde 1, Punkt 2: dasselbe Wächter-Muster wie bei `sheet` und `tagWahl`,
+// und hier mit einer eigenen Schärfe — das offene Sheet listet die Tage DER
+// REISE, aus der es geöffnet wurde. Bliebe es stehen, filterte ein Tipp auf
+// «Tag 2» die NEUE Reise auf einen Tag, den in ihr niemand gewählt hat; die
+// Wahl schriebe dabei die neue id mit, der Wächter für `tagWahl` käme also nie
+// zum Zug. Und `zeige` führe auf den Ausschnitt eines fremden Tages.
+test('ein Wechsel der Reise laesst kein offenes Tages-Sheet der vorherigen stehen', async () => {
+  ladeErfolg(MIT_TAGEN, VORRAT_TAGE);
+  const { rerender } = await wrap();
+  await oeffneTagesfilter();
+  expect(screen.getByTestId('tag-eintrag-2')).toBeTruthy();
+
+  mockId = 't2';
+  ladeErfolg(MIT_TAGEN, VORRAT_TAGE);
+  await rerender(<ThemeProvider><RecapKarte /></ThemeProvider>);
+
+  // Kein Eintrag mehr, den man drücken könnte — und damit keine Filterung, die
+  // von der vorherigen Reise herüberreicht.
+  expect(screen.queryByTestId('tag-eintrag-2')).toBeNull();
+  expect(screen.getAllByTestId(/^karte-nadel/)).toHaveLength(3);
+  expect(mockAnimateToRegion).not.toHaveBeenCalled();
+});
+
+// Die Kehrseite der getrennten Ladewege (Punkt 1): sie kommen unabhängig
+// zurück, und beim Wechsel der Reise gibt es ein Fenster, in dem das
+// Startdatum schon zur NEUEN Reise gehört und die Momente noch zur alten. Die
+// Tagesnummern daraus gäbe es in keiner der beiden — der Filter bleibt
+// deshalb weg, bis beide Hälften zur selben Reise gehören.
+test('ein halber Reisewechsel mischt keine Tagesnummern', async () => {
+  ladeErfolg(MIT_TAGEN, VORRAT_TAGE);
+  const { rerender } = await wrap();
+  await screen.findByTestId('karte-tagesfilter');
+
+  mockId = 't2';
+  // Die Reise antwortet sofort und mit einem ANDEREN Startdatum, die Momente
+  // von t2 bleiben aus.
+  (fetchTrip as jest.Mock).mockResolvedValue({
+    data: { ...REISE, id: 't2', start_date: '2026-08-08' }, error: null,
+  });
+  (fetchRecapMomente as jest.Mock).mockReturnValue(new Promise(() => {}));
+  (holeVorrat as jest.Mock).mockReturnValue(new Promise(() => {}));
+  await rerender(<ThemeProvider><RecapKarte /></ThemeProvider>);
+
+  // Die Nadeln von t1 stehen noch — sie werden erst ersetzt, wenn t2s Momente
+  // da sind. Ein Filter steht dort aber nicht, denn er könnte nur aus einer
+  // Mischung entstehen.
+  expect(screen.getAllByTestId(/^karte-nadel/)).toHaveLength(3);
+  expect(screen.queryByTestId('karte-tagesfilter')).toBeNull();
 });
 
 // Die Pille ist auf der Karte der einzige Hinweis auf den Filterstand — für
