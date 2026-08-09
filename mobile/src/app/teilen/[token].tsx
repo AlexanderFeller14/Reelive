@@ -371,11 +371,12 @@ function ausgelassenText(anzahl: number): string {
 }
 
 // Singular/Plural wie überall im Projekt: die Zahl bleibt auch im Singular
-// stehen.
+// stehen. Der Nachsatz ist ein eigener Satz und beginnt darum gross — die
+// UI-Sprache kennt keine Gedankenstriche (DESIGN-LANGUAGE §6).
 function ohneOrtText(anzahl: number): string {
   const wort = anzahl === 1 ? 'Moment' : 'Momente';
-  const nachsatz = anzahl === 1 ? 'er läuft' : 'sie laufen';
-  return `${anzahl} ${wort} ohne Ort — ${nachsatz} im Recap mit.`;
+  const nachsatz = anzahl === 1 ? 'Er läuft' : 'Sie laufen';
+  return `${anzahl} ${wort} ohne Ort. ${nachsatz} im Recap mit.`;
 }
 
 // Eine Hälfte der Segment-Zeile.

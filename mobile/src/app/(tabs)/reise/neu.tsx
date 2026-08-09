@@ -51,7 +51,7 @@ export default function NeueReise() {
     <View style={[styles.screen, { backgroundColor: colors['bg-0'], paddingTop: oben }]}>
       <Text style={[type.h1, { color: colors['text-1'] }]}>Neue Reise</Text>
       <Text style={[type.secondary, { color: colors['text-2'] }]}>
-        Name und Zeitraum reichen — Freunde lädst du gleich danach ein.
+        Name und Zeitraum reichen. Freunde lädst du gleich danach ein.
       </Text>
       <Input label="Name der Reise" value={name} onChangeText={setName} error={nameFehler} placeholder="Norwegen mit dem Camper" autoFocus />
       <Input label="Beginn" value={beginn} onChangeText={setBeginn} error={beginnFehler} keyboardType="numbers-and-punctuation" placeholder="01.08.2026" />

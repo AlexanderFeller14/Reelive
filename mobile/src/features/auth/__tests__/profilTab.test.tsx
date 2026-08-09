@@ -56,7 +56,7 @@ test('zeigt den WLAN-Schalter mit Erklärung, was er bewirkt', async () => {
   await render(<ThemeProvider><ProfilScreen /></ThemeProvider>);
   expect(await screen.findByText('Nur über WLAN einsenden')).toBeTruthy();
   expect(
-    screen.getByText('Spart mobile Daten — deine Momente warten, bis du wieder im WLAN bist.')
+    screen.getByText('Spart mobile Daten. Deine Momente warten, bis du wieder im WLAN bist.')
   ).toBeTruthy();
   expect(screen.getByLabelText('Nur über WLAN einsenden').props.value).toBe(false);
 });

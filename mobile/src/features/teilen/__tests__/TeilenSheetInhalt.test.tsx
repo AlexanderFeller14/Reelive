@@ -85,7 +85,7 @@ describe('Kein Link: Ehrlichkeits-Hinweis, Ablauf-Auswahl, Erstellen', () => {
     await wrap();
     expect(
       await screen.findByText(
-        'Wer diesen Link hat, sieht den ganzen Recap — alle Momente aller Mitreisenden, auch ohne eigenes Konto.'
+        'Wer diesen Link hat, sieht den ganzen Recap: alle Momente aller Mitreisenden samt den Orten, an denen sie entstanden sind, auch ohne eigenes Konto.'
       )
     ).toBeTruthy();
     // Noch kein Link erstellt — die Erstellen-Aktion selbst ist sichtbar,
@@ -158,7 +158,7 @@ describe('Bestehender Link: anzeigen statt neu erzeugen', () => {
     await wrap();
     expect(
       await screen.findByText(
-        'Wer diesen Link hat, sieht den ganzen Recap — alle Momente aller Mitreisenden, auch ohne eigenes Konto.'
+        'Wer diesen Link hat, sieht den ganzen Recap: alle Momente aller Mitreisenden samt den Orten, an denen sie entstanden sind, auch ohne eigenes Konto.'
       )
     ).toBeTruthy();
   });

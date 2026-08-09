@@ -5,7 +5,7 @@ export type Profile = { id: string; username: string; display_name: string };
 export function validateUsername(username: string): string | null {
   return /^[a-z0-9_]{3,20}$/.test(username)
     ? null
-    : 'Mindestens 3 Zeichen — Kleinbuchstaben, Zahlen und _.';
+    : 'Mindestens 3 Zeichen: Kleinbuchstaben, Zahlen und _.';
 }
 
 export function validateDisplayName(displayName: string): string | null {
@@ -28,7 +28,7 @@ export async function createProfile(
     .insert({ id: userId, username, display_name: displayName.trim() });
   if (!error) return { error: null, feld: null };
   if (error.code === '23505') {
-    return { error: 'Dieser Username ist vergeben — probier einen anderen.', feld: 'username' };
+    return { error: 'Dieser Username ist vergeben, probier einen anderen.', feld: 'username' };
   }
   return { error: 'Das Profil konnte nicht gespeichert werden. Probier es gleich nochmal.', feld: null };
 }

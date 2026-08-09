@@ -62,7 +62,7 @@ const WURF_TEXT = 'Die Karte konnte nicht geladen werden. Probier es gleich noch
 // sondern die Auskunft, warum hier nichts ist.
 const LEER_TITEL = 'Diese Reise hat keine Orte';
 const LEER_ERKLAERUNG =
-  'Momente bekommen ihren Ort beim Einsenden — nur, wenn die Ortungsdienste erlaubt sind. Für diese Reise war das nie der Fall.';
+  'Momente bekommen ihren Ort beim Einsenden, aber nur, wenn die Ortungsdienste erlaubt sind. Für diese Reise war das nie der Fall.';
 
 // Und der andere leere Fall: es gibt überhaupt keine Momente zu zeigen.
 // Wortgleich zu uebersicht.tsx und player.tsx — dieselbe Reise soll auf allen

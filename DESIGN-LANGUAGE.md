@@ -150,6 +150,16 @@ auf dich.»
 Buttons sagen, was passiert («Einsenden», «Reise abschliessen»). Fehler erklären
 Ursache und Lösung, ohne Entschuldigung. Leere Screens laden zum Handeln ein.
 
+**Keine Gedankenstriche in sichtbarem Text.** Was ein Gedankenstrich trennen
+würde, trennt ein Komma, ein Doppelpunkt oder ein Punkt: «Mindestens 3 Zeichen:
+Kleinbuchstaben, Zahlen und _.» statt «Mindestens 3 Zeichen — Kleinbuchstaben …».
+Wird daraus ein eigener Satz, beginnt er gross. Gilt für jeden Text, den ein
+Nutzer sieht, inklusive Fehlermeldungen und Vorlese-Beschriftungen; für
+Code-Kommentare gilt sie nicht.
+
+Ausgenommen ist der **Bis-Strich in Bereichen**, weil er dort kein Satzzeichen
+ist, sondern «bis» bedeutet: «1.–14. Aug 2026», «1–40 Zeichen». Der bleibt.
+
 ## 7. Verbote (Anti-AI-Look)
 
 - ❌ Gradients auf Flächen, Buttons oder Text (einzige Ausnahme: Foto-Scrims, §1)
@@ -194,3 +204,4 @@ gelten die Regeln ohne weiteres Zutun.
 - [ ] Press-Feedback als Scale per Spring, Zähler mit Digit-Roll, `tabular-nums`?
 - [ ] `prefers-reduced-motion` respektiert?
 - [ ] Copy: Vokabular-Tabelle eingehalten, Du-Form, sentence case?
+- [ ] Kein Gedankenstrich in sichtbarem Text?

@@ -29,7 +29,7 @@ const ABLAUF_OPTIONEN: { id: string; label: string; tage: number | null }[] = [
 ];
 
 const DISCLOSURE_TEXT =
-  'Wer diesen Link hat, sieht den ganzen Recap — alle Momente aller Mitreisenden, auch ohne eigenes Konto.';
+  'Wer diesen Link hat, sieht den ganzen Recap: alle Momente aller Mitreisenden samt den Orten, an denen sie entstanden sind, auch ohne eigenes Konto.';
 const LADEFEHLER = 'Der Teilen-Link konnte nicht geladen werden. Probier es gleich nochmal.';
 
 type Phase = 'laedt' | 'kein_link' | 'link_aktiv' | 'fehler';

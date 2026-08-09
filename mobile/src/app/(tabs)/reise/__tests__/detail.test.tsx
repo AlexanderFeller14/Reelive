@@ -571,7 +571,7 @@ test('Sheet zeigt die persönliche Wartenden-Zeile im Plural, wenn mehrere eigen
   await wrap();
   await fireEvent.press(await screen.findByText('Reise abschliessen'));
   expect(
-    await screen.findByText('Deine 3 wartenden Momente kommen noch durch — sie sind vor der Aufdeckung entstanden.')
+    await screen.findByText('Deine 3 wartenden Momente kommen noch durch, sie sind vor der Aufdeckung entstanden.')
   ).toBeTruthy();
 });
 
@@ -583,7 +583,7 @@ test('Sheet zeigt die persönliche Wartenden-Zeile im Singular, wenn genau ein e
   await wrap();
   await fireEvent.press(await screen.findByText('Reise abschliessen'));
   expect(
-    await screen.findByText('Dein wartender Moment kommt noch durch — er ist vor der Aufdeckung entstanden.')
+    await screen.findByText('Dein wartender Moment kommt noch durch, er ist vor der Aufdeckung entstanden.')
   ).toBeTruthy();
 });
 

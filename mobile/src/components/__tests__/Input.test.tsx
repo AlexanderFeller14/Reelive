@@ -8,7 +8,7 @@ const wrap = (ui: React.ReactElement) => render(<ThemeProvider>{ui}</ThemeProvid
 
 test('reicht Eingaben durch und zeigt Fehler', async () => {
   const onChangeText = jest.fn();
-  await wrap(<Input label="Username" value="" onChangeText={onChangeText} error="Dieser Username ist vergeben — probier einen anderen." />);
+  await wrap(<Input label="Username" value="" onChangeText={onChangeText} error="Dieser Username ist vergeben, probier einen anderen." />);
   fireEvent.changeText(screen.getByLabelText('Username'), 'lea');
   expect(onChangeText).toHaveBeenCalledWith('lea');
   expect(screen.getByText(/vergeben/)).toBeTruthy();

@@ -138,7 +138,7 @@ export default function ProfilScreen() {
         <View style={styles.zeileText}>
           <Text style={[type.bodyMedium, { color: colors['text-1'] }]}>Nur über WLAN einsenden</Text>
           <Text style={[type.secondary, { color: colors['text-2'] }]}>
-            Spart mobile Daten — deine Momente warten, bis du wieder im WLAN bist.
+            Spart mobile Daten. Deine Momente warten, bis du wieder im WLAN bist.
           </Text>
         </View>
         <Switch

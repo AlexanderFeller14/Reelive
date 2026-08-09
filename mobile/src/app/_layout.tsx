@@ -48,7 +48,7 @@ function WebNurAppSeite() {
       </Text>
       <Text style={[type.body, styles.webSperreText, { color: colors['text-2'] }]}>
         Diese Seite lässt sich nur in der Reelive-App öffnen. Hast du einen geteilten
-        Recap-Link bekommen, öffne genau den — der funktioniert auch hier im Browser.
+        Recap-Link bekommen, öffne genau den. Der funktioniert auch hier im Browser.
       </Text>
     </View>
   );

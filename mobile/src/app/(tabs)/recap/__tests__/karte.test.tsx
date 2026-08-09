@@ -2031,7 +2031,7 @@ test('hat kein Moment einen Ort, erklaert der Screen das', async () => {
   expect(await screen.findByText('Diese Reise hat keine Orte')).toBeTruthy();
   expect(
     screen.getByText(
-      'Momente bekommen ihren Ort beim Einsenden — nur, wenn die Ortungsdienste erlaubt sind. Für diese Reise war das nie der Fall.'
+      'Momente bekommen ihren Ort beim Einsenden, aber nur, wenn die Ortungsdienste erlaubt sind. Für diese Reise war das nie der Fall.'
     )
   ).toBeTruthy();
   expect(screen.queryByTestId(/^karte-nadel/)).toBeNull();

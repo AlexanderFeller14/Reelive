@@ -459,7 +459,7 @@ describe('Die Karte im geteilten Recap (Spec §5.10)', () => {
 
   test('die Momente ohne Ort werden benannt, statt still zu fehlen (K6)', async () => {
     await aufDerKarte();
-    expect(screen.getByText('1 Moment ohne Ort — er läuft im Recap mit.')).toBeTruthy();
+    expect(screen.getByText('1 Moment ohne Ort. Er läuft im Recap mit.')).toBeTruthy();
   });
 
   // Der Kern des Tasks: der Sprung führt auf GENAU den angetippten Moment,

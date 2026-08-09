@@ -8,9 +8,9 @@ import { validateUsername, validateDisplayName, createProfile } from '../profile
 test.each([
   ['lea', null],
   ['lea_2026', null],
-  ['ab', 'Mindestens 3 Zeichen — Kleinbuchstaben, Zahlen und _.'],
-  ['Lea', 'Mindestens 3 Zeichen — Kleinbuchstaben, Zahlen und _.'],
-  ['a'.repeat(21), 'Mindestens 3 Zeichen — Kleinbuchstaben, Zahlen und _.'],
+  ['ab', 'Mindestens 3 Zeichen: Kleinbuchstaben, Zahlen und _.'],
+  ['Lea', 'Mindestens 3 Zeichen: Kleinbuchstaben, Zahlen und _.'],
+  ['a'.repeat(21), 'Mindestens 3 Zeichen: Kleinbuchstaben, Zahlen und _.'],
 ])('validateUsername(%s) → %s', (input, expected) => {
   expect(validateUsername(input)).toBe(expected);
 });
@@ -26,7 +26,7 @@ test.each([
 test('createProfile mappt Unique-Verletzung auf Inline-Fehler', async () => {
   mockInsert.mockResolvedValueOnce({ error: { code: '23505', message: 'duplicate key' } });
   const { error } = await createProfile('uid-1', 'lea', 'Lea');
-  expect(error).toBe('Dieser Username ist vergeben — probier einen anderen.');
+  expect(error).toBe('Dieser Username ist vergeben, probier einen anderen.');
 });
 
 test('createProfile: Erfolg → error null', async () => {
@@ -43,7 +43,7 @@ test('createProfile: Erfolg → error null', async () => {
 test('createProfile weist den vergebenen Username dem Username-Feld zu', async () => {
   mockInsert.mockResolvedValueOnce({ error: { code: '23505', message: 'duplicate key' } });
   await expect(createProfile('uid-1', 'lea', 'Lea')).resolves.toEqual({
-    error: 'Dieser Username ist vergeben — probier einen anderen.',
+    error: 'Dieser Username ist vergeben, probier einen anderen.',
     feld: 'username',
   });
 });

@@ -63,8 +63,8 @@ function verworfenTitel(anzahl: number): string {
 // Formulierung steht schon in postsApi.ts/uploadWorker.ts/VERWORFEN_GRUND).
 function wartendeMomenteBeruhigung(anzahl: number): string {
   return anzahl === 1
-    ? 'Dein wartender Moment kommt noch durch — er ist vor der Aufdeckung entstanden.'
-    : `Deine ${anzahl} wartenden Momente kommen noch durch — sie sind vor der Aufdeckung entstanden.`;
+    ? 'Dein wartender Moment kommt noch durch, er ist vor der Aufdeckung entstanden.'
+    : `Deine ${anzahl} wartenden Momente kommen noch durch, sie sind vor der Aufdeckung entstanden.`;
 }
 
 // Task 8, Phase 6: Moderation. Gleiche Singular/Plural-Konvention wie oben
@@ -601,7 +601,7 @@ export default function ReiseDetail() {
       <View style={{ gap: spacing.xs }}>
         <Text style={[type.display, { color: colors['text-1'] }]}>{String(zaehler)}</Text>
         <Text style={[type.body, { color: colors['text-2'] }]}>
-          Momente eingefangen — bis zum Recap versiegelt.
+          Momente eingefangen, bis zum Recap versiegelt.
         </Text>
         {wartend > 0 && (
           <Text style={[type.secondary, { color: colors['text-2'] }]}>{wartendText(wartend)}</Text>

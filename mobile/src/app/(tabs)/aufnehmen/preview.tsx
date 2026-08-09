@@ -35,7 +35,7 @@ const OHNE_REISE_MELDUNG =
 // wie OHNE_REISE_MELDUNG (Task-13-Fix-Runde-2).
 const OHNE_SITZUNG_MELDUNG = 'Du bist nicht angemeldet. Melde dich an und probier es nochmal.';
 const SENDEN_FEHLGESCHLAGEN_MELDUNG =
-  'Der Moment konnte nicht gesichert werden — oft, weil kein Speicherplatz mehr frei ist. Räum etwas Platz frei und versuch es nochmal.';
+  'Der Moment konnte nicht gesichert werden, oft weil kein Speicherplatz mehr frei ist. Räum etwas Platz frei und versuch es nochmal.';
 
 function zweistellig(n: number): string {
   return String(n).padStart(2, '0');

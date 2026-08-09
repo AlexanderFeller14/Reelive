@@ -83,7 +83,7 @@ function KeineReiseScreen({ onAnlegen }: { onAnlegen: () => void }) {
     <View style={[styles.screen, styles.mitte]}>
       <Text style={[type.h2, styles.titel]}>Keine laufende Reise</Text>
       <Text style={[type.body, styles.text, { marginTop: spacing.s }]}>
-        Leg deine erste Reise an oder tritt einer per Einladungslink bei — sobald sie läuft,
+        Leg deine erste Reise an oder tritt einer per Einladungslink bei. Sobald sie läuft,
         fängt hier deine Kamera an.
       </Text>
       <View style={{ marginTop: spacing.xl }}>

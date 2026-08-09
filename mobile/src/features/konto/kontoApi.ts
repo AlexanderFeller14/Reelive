@@ -129,7 +129,7 @@ function eigeneReisenSatz(z: LoeschZahlen): string {
   const verb = z.eigene_reisen === 1 ? 'verschwindet' : 'verschwinden';
   return (
     `${z.eigene_reisen} ${reiseWort} mit insgesamt ${z.momente_in_eigenen_reisen} ${momentWort} von ` +
-    `${z.betroffene_personen} ${personenWort} ${verb} unwiederbringlich — auch für alle anderen.`
+    `${z.betroffene_personen} ${personenWort} ${verb} unwiederbringlich, auch für alle anderen.`
   );
 }
 
