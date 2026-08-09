@@ -25,7 +25,7 @@ import type {
 // Tagen nichts; sie zeigt, was man ihr gibt, und meldet, was passiert.
 export const KartenFlaeche = forwardRef<KartenFlaecheHandle, KartenFlaecheProps>(
   function KartenFlaeche(
-    { ausschnitt, gruppen, linie, thumbFuer, aufGruppe, aufAusschnitt, reducedMotion },
+    { initialerAusschnitt, gruppen, linie, thumbFuer, aufGruppe, aufAusschnitt, reducedMotion },
     ref
   ) {
     const { colors } = useTheme();
@@ -100,7 +100,7 @@ export const KartenFlaeche = forwardRef<KartenFlaecheHandle, KartenFlaecheProps>
         ref={karte}
         testID="karte-flaeche"
         style={StyleSheet.absoluteFill}
-        initialRegion={ausschnitt}
+        initialRegion={initialerAusschnitt}
         onRegionChangeComplete={aufAusschnitt}
       >
         {/* Die Linie steht VOR den Nadeln im Baum, damit sie unter ihnen

@@ -1,12 +1,18 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
-import L from 'leaflet';
+import type * as Leaflet from 'leaflet';
 // Leaflets eigenes Stylesheet MUSS ins Bundle: es positioniert die Kachel-,
 // Overlay- und Marker-Ebenen absolut zueinander. Ohne es liegen die Kacheln
 // als ungeordneter Bilderstapel übereinander und keine Nadel sitzt auf ihrer
-// Koordinate. (Im Testlauf ersetzt jest.cssStub.js die Datei — dort wird nicht
-// gemalt, sondern gemessen.)
+// Koordinate.
+//
+// Im Testlauf tritt jest.leafletCss.js an seine Stelle (Jest hat keinen
+// Transformer für CSS). Der Stub ist nicht bloss leer: er hinterlässt eine
+// Spur, an der KartenFlaeche.web.test.tsx festhält, DASS diese Zeile hier
+// steht — ohne sie wäre die einzige verbindliche Vorgabe des Briefs, die man
+// spurlos löschen kann.
 import 'leaflet/dist/leaflet.css';
-import { cinema, motion, palette, radius, spacing } from '@/theme/tokens';
+import { useTheme } from '@/theme/ThemeProvider';
+import { cinema, motion, radius, spacing, type ColorTokens } from '@/theme/tokens';
 import { aufEinemFleck } from '@/features/karte/gruppierung';
 import { nadelAbbild, nadelBeschriftung } from '@/features/karte/nadel';
 import type { RecapMoment } from '@/features/recap/types';
@@ -33,12 +39,20 @@ import type {
 // sich nicht deklarativ rendern. React hält deshalb nur die Hülle, alles
 // andere hängt an Effekten, die die Karte auf den Stand der Props bringen.
 
-// Spec K14 und die Lizenz der Kacheln: die Namensnennung ist Pflicht. Leaflet
-// blendet den Hinweis NUR ein, wenn `attribution` gesetzt ist — wer den Wert
-// wegoptimiert, verletzt die Bedingungen, unter denen OpenStreetMap seine
-// Kacheln ausliefert. Festgenagelt in KartenFlaeche.web.test.tsx.
 export const KACHEL_URL = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
-export const KACHEL_NAMENSNENNUNG = '© OpenStreetMap';
+
+// Spec K14 und die Lizenz der Kacheln: die Namensnennung ist Pflicht.
+//
+// Und zwar GENAU diese. Die Attributionsrichtlinie der OpenStreetMap
+// Foundation verlangt den Wortlaut «© OpenStreetMap contributors» MIT Link auf
+// openstreetmap.org/copyright — «© OpenStreetMap» allein erfüllt sie nicht,
+// weder der fehlende Zusatz noch der fehlende Link. Leaflet nimmt HTML und
+// blendet den Hinweis NUR ein, wenn `attribution` gesetzt ist; wer ihn
+// wegoptimiert oder kürzt, verletzt die Bedingungen, unter denen die Kacheln
+// ausgeliefert werden. Festgenagelt in KartenFlaeche.web.test.tsx, samt Link.
+export const KACHEL_NAMENSNENNUNG =
+  '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+
 // OpenStreetMap liefert Kacheln bis Zoomstufe 19; Leaflets Vorgabe für einen
 // TileLayer ist 18. Ohne diese Zeile bliebe die letzte Stufe ungenutzt —
 // ausgerechnet die, in der eine Gruppe auf einem Häuserblock auseinanderfällt.
@@ -69,9 +83,52 @@ const SCHATTEN_S2 = '0 6px 16px rgba(0,0,0,0.12)';
 // Einsetzung; nichts hiervon stammt aus Daten.
 const PLAY_SVG = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="${cinema['text-1']}" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="6 3 20 12 6 21 6 3"></polygon></svg>`;
 
+// Stile setzen, aber getippt.
+//
+// `Object.assign(el.style, { … })` prüft die Namen NICHT: `borderRadus`
+// übersetzt sauber und tut nichts. Bei einem Dutzend Stilblöcken wäre das die
+// einzige Stelle dieser Datei, an der «strict» nichts abfängt. Ein Parameter
+// vom Typ `Partial<CSSStyleDeclaration>` bringt für ein Objektliteral die
+// Prüfung auf überzählige Eigenschaften mit — der Tippfehler wird ein
+// Übersetzungsfehler.
+function stile(element: HTMLElement, werte: Partial<CSSStyleDeclaration>): void {
+  Object.assign(element.style, werte);
+}
+
+// Leaflet wird erst beim Aufbau der Karte geladen, nicht beim Laden dieses
+// Moduls — und das ist keine Sparmassnahme, sondern die Bedingung dafür, dass
+// die App überhaupt fürs Web baut.
+//
+// `app.json` setzt `web.output: "static"`: expo-router rendert jede Route beim
+// Export in NODE vor. Leaflet 1.9 greift auf Modulebene auf `document`,
+// `navigator` und `window` zu (dist/leaflet-src.js: `var style =
+// document.documentElement.style`, `parseInt(/WebKit\/([0-9]+)|$/.exec(
+// navigator.userAgent)…`, zuletzt `window.L = exports`) — in beiden Builds,
+// UMD wie ESM. Ein Modulebene-Import liess `npx expo export -p web` mit
+// «ReferenceError: window is not defined» abbrechen; nachgemessen, nicht
+// vermutet.
+//
+// `require` in einer Funktion statt `await import(…)`: Metros Modulsystem ist
+// CommonJS, der Aufruf ist synchron. Ein dynamischer Import machte den
+// Aufbau-Effekt asynchron — und damit bräuchte es einen Zustand, der die
+// Nadel- und Linien-Effekte danach noch einmal anstösst, plus einen Wächter
+// für den Fall, dass der Screen vor dem Auflösen wieder verlassen wird.
+// Effekte laufen im Browser, nie in Node: hier zu laden reicht vollkommen.
+// Gleiches Muster und gleicher Grund wie `ladeSentry()` in lib/fehlermelder.ts.
+//
+// Leaflets Stylesheet bleibt oben auf Modulebene: es ist reiner Text, den
+// Metro einsammelt, und muss in den <head> der exportierten Seite.
+type LeafletModul = typeof import('leaflet');
+function ladeLeaflet(): LeafletModul {
+  // Genau hier ist `require` die Absicht, nicht die Bequemlichkeit: ein
+  // `import` oben lüde das Modul beim Laden dieser Datei — siehe oben.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  return require('leaflet');
+}
+
 // Ausschnitt → Leaflet-Grenzen. `Ausschnitt` beschreibt Mitte und Spanne,
 // Leaflet rechnet mit Süd-West- und Nord-Ost-Ecke.
-function grenzenFuer(a: Ausschnitt): L.LatLngBounds {
+function grenzenFuer(L: LeafletModul, a: Ausschnitt): Leaflet.LatLngBounds {
   return L.latLngBounds(
     [a.latitude - a.latitudeDelta / 2, a.longitude - a.longitudeDelta / 2],
     [a.latitude + a.latitudeDelta / 2, a.longitude + a.longitudeDelta / 2]
@@ -85,7 +142,7 @@ function grenzenFuer(a: Ausschnitt): L.LatLngBounds {
 // richtig so: die Differenz Ost minus West bleibt dadurch die wahre Spanne
 // (statt 350 statt 10 zu ergeben), und `gruppierung.aufBildschirm` rechnet den
 // Versatz ohnehin modulo 360.
-function ausschnittVon(karte: L.Map): Ausschnitt {
+function ausschnittVon(karte: Leaflet.Map): Ausschnitt {
   const grenzen = karte.getBounds();
   const mitte = grenzen.getCenter();
   return {
@@ -96,15 +153,34 @@ function ausschnittVon(karte: L.Map): Ausschnitt {
   };
 }
 
+// Eine Kamerafahrt. DESIGN-LANGUAGE §5: mit Reduced Motion wird gesprungen
+// statt gefahren — dieselbe Weiche wie nativ (animateToRegion/setRegion).
+//
+// Über Mitte und Zoom statt über `fitBounds`: `flyTo` fährt so, und beide
+// Zweige sollen nachweislich dasselbe Ziel treffen.
+function fahre(L: LeafletModul, karte: Leaflet.Map, ziel: Ausschnitt, reduziert: boolean): void {
+  const grenzen = grenzenFuer(L, ziel);
+  const zoom = karte.getBoundsZoom(grenzen);
+  const mitte = grenzen.getCenter();
+  if (reduziert) karte.setView(mitte, zoom, { animate: false });
+  // Leaflet rechnet Dauern in Sekunden, die Tokens in Millisekunden.
+  else karte.flyTo(mitte, zoom, { duration: motion.duration.base / 1000 });
+}
+
 // Die Nadel als DOM-Baum statt als HTML-Text.
 //
 // `L.divIcon` nimmt beides — aber ein Text hiesse, die Bild-URL in ein
 // `src="…"` zu kleben. Signierte URLs kommen vom Server, und ein
 // Anführungszeichen darin bräche aus dem Attribut aus. Mit `createElement` und
 // `setAttribute` stellt sich die Frage gar nicht erst.
-function nadelElement(moment: RecapMoment, thumbUrl: string | null, anzahl: number): HTMLElement {
+function nadelElement(
+  moment: RecapMoment,
+  thumbUrl: string | null,
+  anzahl: number,
+  farben: ColorTokens
+): HTMLElement {
   const aussen = document.createElement('div');
-  Object.assign(aussen.style, {
+  stile(aussen, {
     width: `${KACHEL_MASS}px`,
     height: `${KACHEL_MASS}px`,
     display: 'flex',
@@ -113,24 +189,24 @@ function nadelElement(moment: RecapMoment, thumbUrl: string | null, anzahl: numb
   });
 
   const rahmen = document.createElement('div');
-  Object.assign(rahmen.style, {
+  stile(rahmen, {
     position: 'relative',
     boxSizing: 'border-box',
     width: `${GROESSE}px`,
     height: `${GROESSE}px`,
     borderRadius: `${radius.pill}px`,
-    border: `${RING}px solid ${palette['bg-0']}`,
+    border: `${RING}px solid ${farben['bg-0']}`,
     // Ohne brauchbare URL bleibt diese ruhige bg-1-Fläche stehen — wie bei
     // einem Avatar ohne Bild. Kein Puls: im Browser lädt das Bild ohne den
     // Umweg über eine Brücke, und ein Skelett für zwei Frames wäre Unruhe
     // ohne Auskunft.
-    background: palette['bg-1'],
+    background: farben['bg-1'],
     boxShadow: SCHATTEN_S2,
   });
   aussen.appendChild(rahmen);
 
   const beschnitt = document.createElement('div');
-  Object.assign(beschnitt.style, {
+  stile(beschnitt, {
     position: 'absolute',
     inset: '0',
     borderRadius: `${radius.pill}px`,
@@ -141,24 +217,24 @@ function nadelElement(moment: RecapMoment, thumbUrl: string | null, anzahl: numb
   if (thumbUrl !== null) {
     const bild = document.createElement('img');
     bild.setAttribute('src', thumbUrl);
-    // Die Nadel trägt ihre Beschriftung aussen (siehe `angleiche`) — ein
+    // Die Nadel trägt ihre Beschriftung aussen (siehe unten am Element) — ein
     // zweiter Text am Bild läse sich per Screenreader doppelt vor.
     bild.setAttribute('alt', '');
-    Object.assign(bild.style, { width: '100%', height: '100%', objectFit: 'cover', display: 'block' });
+    stile(bild, { width: '100%', height: '100%', objectFit: 'cover', display: 'block' });
     beschnitt.appendChild(bild);
   }
 
   if (moment.type === 'video') {
-    const pille = document.createElement('div');
-    Object.assign(pille.style, {
+    const mitte = document.createElement('div');
+    stile(mitte, {
       position: 'absolute',
       inset: '0',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
     });
-    const kreis = document.createElement('div');
-    Object.assign(kreis.style, {
+    const pille = document.createElement('div');
+    stile(pille, {
       width: `${VIDEO_PILLE}px`,
       height: `${VIDEO_PILLE}px`,
       borderRadius: `${radius.pill}px`,
@@ -169,16 +245,16 @@ function nadelElement(moment: RecapMoment, thumbUrl: string | null, anzahl: numb
       alignItems: 'center',
       justifyContent: 'center',
     });
-    kreis.innerHTML = PLAY_SVG;
-    pille.appendChild(kreis);
-    beschnitt.appendChild(pille);
+    pille.innerHTML = PLAY_SVG;
+    mitte.appendChild(pille);
+    beschnitt.appendChild(mitte);
   }
 
   // Zähler-Pille der Gruppe (Spec §5.5). Eine Gruppe von einem ist keine
   // Gruppe — sie trägt keine «1».
   if (anzahl > 1) {
     const zaehler = document.createElement('div');
-    Object.assign(zaehler.style, {
+    stile(zaehler, {
       position: 'absolute',
       top: '0',
       right: '0',
@@ -187,8 +263,8 @@ function nadelElement(moment: RecapMoment, thumbUrl: string | null, anzahl: numb
       height: `${ZAEHLER}px`,
       padding: `0 ${spacing.xs}px`,
       borderRadius: `${radius.pill}px`,
-      background: palette.accent,
-      color: palette['on-accent'],
+      background: farben.accent,
+      color: farben['on-accent'],
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
@@ -206,9 +282,15 @@ function nadelElement(moment: RecapMoment, thumbUrl: string | null, anzahl: numb
   return aussen;
 }
 
-function nadelIcon(moment: RecapMoment, thumbUrl: string | null, anzahl: number): L.DivIcon {
+function nadelIcon(
+  L: LeafletModul,
+  moment: RecapMoment,
+  thumbUrl: string | null,
+  anzahl: number,
+  farben: ColorTokens
+): Leaflet.DivIcon {
   return L.divIcon({
-    html: nadelElement(moment, thumbUrl, anzahl),
+    html: nadelElement(moment, thumbUrl, anzahl, farben),
     // Leaflets eigene Klasse bringt einen weissen Kasten mit Rand mit — die
     // Nadel bringt ihr Aussehen selbst mit.
     className: '',
@@ -221,39 +303,56 @@ function nadelIcon(moment: RecapMoment, thumbUrl: string | null, anzahl: number)
 
 // Was von einer gesetzten Nadel gemerkt wird: ihr Marker, das Abbild, für das
 // ihr Icon gebaut wurde, und die Gruppe, die sie GERADE darstellt.
-type Nadel = { marker: L.Marker; abbild: string; gruppe: Gruppe };
+type Nadel = { marker: Leaflet.Marker; abbild: string; gruppe: Gruppe };
 
 export const KartenFlaeche = forwardRef<KartenFlaecheHandle, KartenFlaecheProps>(
   function KartenFlaeche(
-    { ausschnitt, gruppen, linie, thumbFuer, aufGruppe, aufAusschnitt, reducedMotion },
+    { initialerAusschnitt, gruppen, linie, thumbFuer, aufGruppe, aufAusschnitt, reducedMotion },
     ref
   ) {
+    const { colors } = useTheme();
     const huelle = useRef<HTMLDivElement | null>(null);
-    const karte = useRef<L.Map | null>(null);
+    // Das Leaflet-Modul selbst, geladen im Aufbau unten (siehe `ladeLeaflet`).
+    // Es steht damit ab demselben Augenblick zur Verfügung wie `karte` — die
+    // Effekte darunter prüfen beides gemeinsam.
+    const leaflet = useRef<LeafletModul | null>(null);
+    const karte = useRef<Leaflet.Map | null>(null);
     const nadeln = useRef(new Map<string, Nadel>());
-    const weg = useRef<L.Polyline | null>(null);
+    const weg = useRef<Leaflet.Polyline | null>(null);
 
-    // Die beiden Rückmeldungen liegen in Refs, weil ihre Empfänger EINMAL an
-    // Leaflet gebunden werden (`map.on`, `marker.on`) und dort dann Jahre
-    // stehen bleiben. Ohne die Refs meldete ein Klick an die Funktion aus dem
-    // Rendern, in dem die Nadel gesetzt wurde — beim Kartenscreen wäre das ein
-    // `aufGruppe` mit der Reise-id von damals.
+    // Was die Fläche zur Laufzeit vom Aufrufer wissen muss, an EINER Stelle.
+    //
+    // In einem Ref, weil die Empfänger EINMAL an Leaflet gebunden werden
+    // (`map.on`, `marker.on`) und dort dann stehen bleiben. Ohne das meldete
+    // ein Klick an die Funktion aus dem Rendern, in dem die Nadel gesetzt
+    // wurde — beim Kartenscreen wäre das ein `aufGruppe` mit der Reise-id von
+    // damals.
     //
     // Nachgeführt im Effekt und nicht beim Rendern: ein Ref beim Rendern zu
     // beschreiben ist derselbe Verstoss wie es dort zu lesen
     // (react-hooks/refs). Ein Klick kommt frühestens nach dem Commit, der
     // Effekt ist also immer früher dran.
-    const meldeAusschnitt = useRef(aufAusschnitt);
-    const meldeGruppe = useRef(aufGruppe);
+    const jetzt = useRef({ aufAusschnitt, aufGruppe, reducedMotion });
     useEffect(() => {
-      meldeAusschnitt.current = aufAusschnitt;
-      meldeGruppe.current = aufGruppe;
-    }, [aufAusschnitt, aufGruppe]);
+      jetzt.current = { aufAusschnitt, aufGruppe, reducedMotion };
+    }, [aufAusschnitt, aufGruppe, reducedMotion]);
 
-    // Der Ausschnitt, mit dem die Karte ÖFFNET. Danach führt sie ihre Kamera
-    // selbst (siehe `zeige`) — ein Prop, das sie bei jeder Änderung nachzöge,
-    // führe der eigenen Meldung hinterher und ergäbe eine Schleife.
-    const erster = useRef(ausschnitt);
+    // Der Ausschnitt, mit dem die Karte ÖFFNET — festgehalten beim ersten
+    // Rendern. Der Prop heisst nicht umsonst `initialerAusschnitt`: eine
+    // Karte, die ihm bei jeder Änderung nachzöge, führe ihrer eigenen Meldung
+    // hinterher.
+    const erster = useRef(initialerAusschnitt);
+
+    // Ein `zeige`, das VOR dem Aufbau kam.
+    //
+    // `useImperativeHandle` ist ein Layout-Effekt, der Aufbau unten ein
+    // passiver — dazwischen liegt ein Fenster, in dem das Handle steht, die
+    // Karte aber noch nicht. Ein Aufrufer, der aus seinem eigenen
+    // `useLayoutEffect` direkt nach dem Mounten fährt (der geteilte Player
+    // springt auf den Moment aus dem Link), fiele genau hinein, und der Befehl
+    // wäre still verschluckt. Nativ gibt es dieses Fenster nicht: dort steht
+    // das MapView-Ref bereits im Commit. Also gemerkt und nachgeholt.
+    const offenesZiel = useRef<Ausschnitt | null>(null);
 
     // Karte aufbauen — genau einmal.
     useEffect(() => {
@@ -266,6 +365,9 @@ export const KartenFlaeche = forwardRef<KartenFlaecheHandle, KartenFlaecheProps>
       // gefüllt und geleert — die Variable zeigt also auf dieselbe.
       const gesetzte = nadeln.current;
 
+      const L = ladeLeaflet();
+      leaflet.current = L;
+
       const instanz = L.map(behaelter, {
         // Keine +/−-Knöpfe: sie sind Leaflets eigenes Chrome (weisser Kasten
         // mit Rand) und lägen auf der Kartenfläche, wo DESIGN-LANGUAGE §1 nur
@@ -274,25 +376,43 @@ export const KartenFlaeche = forwardRef<KartenFlaecheHandle, KartenFlaecheProps>
         // keine. Gezoomt wird mit Rad, Geste, Doppelklick und Tastatur.
         zoomControl: false,
       });
-      instanz.fitBounds(grenzenFuer(erster.current), { animate: false });
+
+      // Der Listener hängt VOR der ersten Fahrt, und das ist keine Kosmetik.
+      //
+      // Leaflet feuert `moveend` synchron aus `_resetView` — auch beim
+      // allerersten `setView`. Genau diese Meldung ist die wichtigste von
+      // allen: `fitBounds` rastet auf eine GANZE Zoomstufe und zeigt damit
+      // regelmässig spürbar mehr als angefordert. Ginge sie verloren,
+      // gruppierte der Screen bis zur ersten Bewegung von Hand mit dem
+      // ANGEFORDERTEN statt dem SICHTBAREN Delta: `aufBildschirm` rechnete zu
+      // viele Bildschirmpunkte pro Grad, und Nadeln, die einander auf dem
+      // Schirm verdecken, bekämen keine gemeinsame Gruppe. Nativ korrigiert
+      // `onRegionChangeComplete` denselben Unterschied nach dem Layout.
+      instanz.on('moveend', () => jetzt.current.aufAusschnitt(ausschnittVon(instanz)));
+
+      instanz.fitBounds(grenzenFuer(L, erster.current), { animate: false });
 
       L.tileLayer(KACHEL_URL, {
         attribution: KACHEL_NAMENSNENNUNG,
         maxZoom: MAX_ZOOM,
       }).addTo(instanz);
 
-      // `moveend` ist Leaflets `onRegionChangeComplete`: die Karte steht still
-      // und zeigt DAS hier. Der Screen gruppiert daraufhin neu — er misst
-      // Abstände in Bildschirmpunkten und braucht dafür den aktuellen Zoom.
-      instanz.on('moveend', () => meldeAusschnitt.current(ausschnittVon(instanz)));
-
       karte.current = instanz;
+
+      // Nachgeholt, was im Fenster zwischen Handle und Aufbau angefordert
+      // wurde (siehe `offenesZiel`). Über denselben Weg wie jede andere Fahrt,
+      // damit auch hier die Reduced-Motion-Weiche gilt.
+      const nachzuholen = offenesZiel.current;
+      offenesZiel.current = null;
+      if (nachzuholen) fahre(L, instanz, nachzuholen, jetzt.current.reducedMotion);
+
       return () => {
         // Ohne `remove()` bleiben Kachel-Anfragen, Resize- und
         // Fenster-Listener hängen — die Karte wäre aus dem Baum, ihre
         // Bildstrecke liefe weiter.
         instanz.remove();
         karte.current = null;
+        leaflet.current = null;
         // Die Marker sind mit der Karte weg — die Buchführung darüber muss
         // mit, sonst hielte ein zweiter Aufbau Nadeln für gesetzt, die es
         // nicht mehr gibt.
@@ -301,26 +421,24 @@ export const KartenFlaeche = forwardRef<KartenFlaecheHandle, KartenFlaecheProps>
       };
     }, []);
 
-    // Kamerafahrten — dieselbe Weiche wie nativ (DESIGN-LANGUAGE §5): mit
-    // Reduced Motion wird gesprungen statt gefahren.
+    // Kamerafahrten. Deps leer, das Handle also unveränderlich: was `zeige`
+    // gerade tun soll, steht im Ref oben — ein Handle, das bei jeder Änderung
+    // von `reducedMotion` neu entsteht, zwänge jeden Aufrufer, es erneut
+    // abzugreifen.
     useImperativeHandle(
       ref,
       () => ({
         zeige: (ziel: Ausschnitt) => {
           const instanz = karte.current;
-          if (!instanz) return;
-          const grenzen = grenzenFuer(ziel);
-          // Über den Zoom, der diese Grenzen fasst, statt über `fitBounds`:
-          // `flyTo` fährt mit Mitte und Zoom, und beide Zweige sollen
-          // nachweislich dasselbe Ziel treffen.
-          const zoom = instanz.getBoundsZoom(grenzen);
-          const mitte = grenzen.getCenter();
-          if (reducedMotion) instanz.setView(mitte, zoom, { animate: false });
-          // Leaflet rechnet Dauern in Sekunden, die Tokens in Millisekunden.
-          else instanz.flyTo(mitte, zoom, { duration: motion.duration.base / 1000 });
+          const L = leaflet.current;
+          if (!instanz || !L) {
+            offenesZiel.current = ziel;
+            return;
+          }
+          fahre(L, instanz, ziel, jetzt.current.reducedMotion);
         },
       }),
-      [reducedMotion]
+      []
     );
 
     // Nadeln auf den Stand bringen: was neu ist, kommt dazu, was fehlt, geht
@@ -334,7 +452,8 @@ export const KartenFlaeche = forwardRef<KartenFlaecheHandle, KartenFlaecheProps>
     // dieselbe Formel wie nativ).
     useEffect(() => {
       const instanz = karte.current;
-      if (!instanz) return;
+      const L = leaflet.current;
+      if (!instanz || !L) return;
       const vorhanden = nadeln.current;
       const gesehen = new Set<string>();
 
@@ -350,7 +469,7 @@ export const KartenFlaeche = forwardRef<KartenFlaecheHandle, KartenFlaecheProps>
         let nadel = vorhanden.get(id);
         if (!nadel) {
           const marker = L.marker([anker.lat, anker.lng], {
-            icon: nadelIcon(anker.moment, thumbUrl, anzahl),
+            icon: nadelIcon(L, anker.moment, thumbUrl, anzahl, colors),
             // Nach dem Zusammenfassen ist die Nadel EIN Element — sie muss
             // auch ohne Maus erreichbar sein. Leaflet setzt dafür `tabindex`
             // und löst bei Enter dasselbe `click` aus.
@@ -362,13 +481,13 @@ export const KartenFlaeche = forwardRef<KartenFlaecheHandle, KartenFlaecheProps>
           // Zoomen stehen, seine Gruppe wechselt darunter laufend. Eine
           // Closure auf die Gruppe von damals meldete später eine, die es
           // nicht mehr gibt.
-          marker.on('click', () => meldeGruppe.current(eintrag.gruppe));
+          marker.on('click', () => jetzt.current.aufGruppe(eintrag.gruppe));
           marker.addTo(instanz);
           vorhanden.set(id, nadel);
         } else {
           nadel.gruppe = gruppe;
           if (nadel.abbild !== abbild) {
-            nadel.marker.setIcon(nadelIcon(anker.moment, thumbUrl, anzahl));
+            nadel.marker.setIcon(nadelIcon(L, anker.moment, thumbUrl, anzahl, colors));
             nadel.abbild = abbild;
           }
         }
@@ -390,7 +509,7 @@ export const KartenFlaeche = forwardRef<KartenFlaecheHandle, KartenFlaecheProps>
         nadel.marker.remove();
         vorhanden.delete(id);
       }
-    }, [gruppen, thumbFuer]);
+    }, [gruppen, thumbFuer, colors]);
 
     // Die Reise als Linie (Spec K3/§5.6). Sie liegt in Leaflets `overlayPane`
     // und damit von selbst UNTER den Nadeln (`markerPane`) — die native
@@ -398,8 +517,9 @@ export const KartenFlaeche = forwardRef<KartenFlaecheHandle, KartenFlaecheProps>
     // Punkten gibt es nichts zu verbinden.
     useEffect(() => {
       const instanz = karte.current;
-      if (!instanz) return;
-      const punkte: L.LatLngExpression[] = linie.map((p) => [p.latitude, p.longitude]);
+      const L = leaflet.current;
+      if (!instanz || !L) return;
+      const punkte: Leaflet.LatLngExpression[] = linie.map((p) => [p.latitude, p.longitude]);
 
       if (punkte.length < 2) {
         weg.current?.remove();
@@ -408,10 +528,11 @@ export const KartenFlaeche = forwardRef<KartenFlaecheHandle, KartenFlaecheProps>
       }
       if (weg.current) {
         weg.current.setLatLngs(punkte);
+        weg.current.setStyle({ color: colors.accent });
         return;
       }
-      weg.current = L.polyline(punkte, { color: palette.accent, weight: 3 }).addTo(instanz);
-    }, [linie]);
+      weg.current = L.polyline(punkte, { color: colors.accent, weight: 3 }).addTo(instanz);
+    }, [linie, colors]);
 
     // Die Hülle füllt den Screen, wie `StyleSheet.absoluteFill` nativ. Leaflet
     // schreibt sein eigenes DOM hinein — React fasst sie nach dem Mounten

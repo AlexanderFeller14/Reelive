@@ -44,11 +44,18 @@ export type Gruppe = {
 // dort waere eine Einladung, spaeter einen Wert nachzuziehen.
 export type KartenFlaecheProps = {
   /**
-   * Der Ausschnitt, MIT DEM die Karte oeffnet. Danach fuehrt sie ihre Kamera
-   * selbst: wo sie steht, meldet `aufAusschnitt`, und wohin sie fahren soll,
-   * sagt `zeige` am Handle unten.
+   * Der Ausschnitt, MIT DEM die Karte oeffnet — und nur der. Spaetere
+   * Aenderungen dieses Props bewegen nichts mehr: danach fuehrt die Flaeche
+   * ihre Kamera selbst. Wo sie steht, meldet `aufAusschnitt`; wohin sie fahren
+   * soll, sagt `zeige` am Handle unten.
+   *
+   * Der Name sagt das, weil ein Kommentar es nicht verhindern kann: hiesse er
+   * `ausschnitt`, waere «ich setze ihn neu, dann faehrt sie hin» die
+   * naheliegende Annahme — und sie ist falsch. Der Kartenscreen kommt heute
+   * nur deshalb durch, weil er bei einem Reisewechsel auf `null` geht und die
+   * Flaeche neu mountet.
    */
-  ausschnitt: Ausschnitt;
+  initialerAusschnitt: Ausschnitt;
   gruppen: Gruppe[];
   linie: { latitude: number; longitude: number }[];
   /** Bild-URL fuer die Nadel eines Moments; `null`, wenn es keine gibt. */
@@ -65,6 +72,12 @@ export type KartenFlaecheProps = {
 // zweimal fahren (zweimal auf dieselbe Gruppe getippt), und ein Prop mit
 // gleichem Wert loeste beim zweiten Mal nichts aus. Deshalb ein imperatives
 // Handle statt eines `ziel`-Props — beide Fassungen bieten es an.
+//
+// Der Befehl gilt ab dem Mounten, auch aus einem `useLayoutEffect` des
+// Aufrufers heraus: die Web-Fassung baut ihre Karte in einem passiven Effekt
+// auf und holt ein frueher gekommenes Ziel nach, statt es zu verschlucken
+// (Begruendung dort). Der geteilte Player braucht genau das — er springt beim
+// Oeffnen auf den Moment aus dem Link.
 export type KartenFlaecheHandle = {
   zeige: (ziel: Ausschnitt) => void;
 };

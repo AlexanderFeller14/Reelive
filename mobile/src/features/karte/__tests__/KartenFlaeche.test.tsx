@@ -90,7 +90,7 @@ const AUSSCHNITT: Ausschnitt = {
 };
 
 const basis: KartenFlaecheProps = {
-  ausschnitt: AUSSCHNITT,
+  initialerAusschnitt: AUSSCHNITT,
   gruppen: [],
   linie: [],
   thumbFuer: () => null,
@@ -259,18 +259,47 @@ test('der Sprung trifft dasselbe Ziel wie die Fahrt', async () => {
 });
 
 // Die Fläche bewegt ihre Kamera NUR auf Zuruf. Ein Nachziehen an den
-// `ausschnitt`-Prop führte der eigenen Meldung hinterher: jede Bewegung meldet
-// einen neuen Ausschnitt nach oben, der von dort zurückkäme — und die Karte
-// führe endlos hinter sich her.
+// `initialerAusschnitt`-Prop führte der eigenen Meldung hinterher: jede
+// Bewegung meldet einen neuen Ausschnitt nach oben, der von dort zurückkäme —
+// und die Karte führe endlos hinter sich her. Genau deshalb heisst der Prop
+// so, wie er heisst.
 test('ein neuer Ausschnitt-Prop bewegt die Kamera nicht von selbst', async () => {
   const { rerender } = await wrap({ gruppen: [gruppeA] });
   await rerender(
     <ThemeProvider>
-      <KartenFlaeche {...basis} gruppen={[gruppeA]} ausschnitt={ZIEL} />
+      <KartenFlaeche {...basis} gruppen={[gruppeA]} initialerAusschnitt={ZIEL} />
     </ThemeProvider>
   );
   expect(mockAnimateToRegion).not.toHaveBeenCalled();
   expect(mockSetRegion).not.toHaveBeenCalled();
+});
+
+// Ein `zeige` aus dem Layout-Effekt des Aufrufers, unmittelbar nach dem
+// Mounten. Genau so wird der geteilte Player (Task 15) die Fläche benutzen: er
+// springt beim Öffnen auf den Moment aus dem Link, ohne auf eine Nutzeraktion
+// zu warten.
+//
+// Nativ ist das Ref des MapView bereits im Commit gesetzt, der Befehl kommt
+// also durch. Die Browser-Fassung baut ihre Karte in einem PASSIVEN Effekt auf
+// und verschluckte den Befehl ohne Vorkehrung — dieselbe Zusicherung steht
+// deshalb wortgleich in KartenFlaeche.web.test.tsx.
+function FruehesZiel({ handle }: { handle: React.RefObject<KartenFlaecheHandle | null> }) {
+  useLayoutEffect(() => {
+    handle.current?.zeige(ZIEL);
+  }, [handle]);
+  return null;
+}
+
+test('ein zeige() aus dem Layout-Effekt des Aufrufers geht nicht verloren', async () => {
+  const handle = createRef<KartenFlaecheHandle>();
+  await render(
+    <ThemeProvider>
+      <KartenFlaeche {...basis} gruppen={[gruppeA]} ref={handle} />
+      <FruehesZiel handle={handle} />
+    </ThemeProvider>
+  );
+  expect(mockAnimateToRegion).toHaveBeenCalledTimes(1);
+  expect(mockAnimateToRegion).toHaveBeenCalledWith(ZIEL, motion.duration.base);
 });
 
 // ---------------------------------------------------------------------------

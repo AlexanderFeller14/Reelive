@@ -79,7 +79,7 @@
     ],
     "moduleNameMapper": {
       "^lucide-react-native$": "<rootDir>/node_modules/lucide-react-native/dist/cjs/lucide-react-native.js",
-      "\\.css$": "<rootDir>/jest.cssStub.js"
+      "^leaflet/dist/leaflet.css$": "<rootDir>/jest.leafletCss.js"
     },
     "setupFilesAfterEnv": [
       "<rootDir>/jest.setup.ts"

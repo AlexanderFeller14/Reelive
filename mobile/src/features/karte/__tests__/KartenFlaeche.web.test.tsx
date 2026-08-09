@@ -1,7 +1,7 @@
 /**
  * @jest-environment jsdom
  */
-import { act, createRef, type Ref } from 'react';
+import { act, createRef, useLayoutEffect, type Ref, type RefObject } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import L from 'leaflet';
 import { motion, palette } from '@/theme/tokens';
@@ -53,7 +53,7 @@ const ZIEL: Ausschnitt = {
 };
 
 const basis: KartenFlaecheProps = {
-  ausschnitt: AUSSCHNITT,
+  initialerAusschnitt: AUSSCHNITT,
   gruppen: [],
   linie: [],
   thumbFuer: () => null,
@@ -81,7 +81,7 @@ beforeAll(() => {
 
 let wurzel: Root | null = null;
 let behaelter: HTMLDivElement | null = null;
-let kartenSpion: jest.SpyInstance<L.Map>;
+let kartenSpion: jest.SpyInstance<L.Map, Parameters<typeof L.map>>;
 
 // Die Leaflet-Instanz, die die Komponente erzeugt hat. Sie gibt sie nach aussen
 // nicht heraus (sie ist ein Detail ihrer Technik) — für den Test ist sie der
@@ -165,6 +165,22 @@ test('die Karte nennt OpenStreetMap sichtbar', async () => {
   );
 });
 
+// Und zwar so, wie die Attributionsrichtlinie der OpenStreetMap Foundation es
+// verlangt: der Wortlaut «© OpenStreetMap contributors» MIT Link auf
+// openstreetmap.org/copyright. «© OpenStreetMap» allein erfüllt sie nicht —
+// weder der fehlende Zusatz noch der fehlende Link. K14 verspricht die
+// Lizenzerfüllung, nicht einen Zeichenstring.
+test('die Namensnennung erfuellt die Bedingungen der Lizenz', async () => {
+  const host = await zeichne();
+  const hinweis = host.querySelector('.leaflet-control-attribution');
+  expect(hinweis?.textContent).toContain('© OpenStreetMap contributors');
+  const link = hinweis?.querySelector<HTMLAnchorElement>(
+    'a[href="https://www.openstreetmap.org/copyright"]'
+  );
+  expect(link).not.toBeNull();
+  expect(link?.textContent).toBe('OpenStreetMap');
+});
+
 test('die Kacheln kommen von OpenStreetMap', async () => {
   const kacheln = jest.spyOn(L, 'tileLayer');
   await zeichne();
@@ -172,6 +188,21 @@ test('die Kacheln kommen von OpenStreetMap', async () => {
   expect(kacheln.mock.calls[0][0]).toBe(KACHEL_URL);
   expect(KACHEL_URL).toContain('tile.openstreetmap.org');
   expect(kacheln.mock.calls[0][1]?.attribution).toBe(KACHEL_NAMENSNENNUNG);
+});
+
+// Leaflets eigenes Stylesheet MUSS ins Bundle — ohne es liegen die Kacheln als
+// ungeordneter Bilderstapel übereinander und keine Nadel sitzt auf ihrer
+// Koordinate. Das ist die einzige verbindliche Vorgabe dieser Fassung, deren
+// Ausfall sich in keinem Test zeigt: `moduleNameMapper` ersetzt die Datei, und
+// ein leerer Ersatz macht das Fehlen des Imports unsichtbar.
+//
+// Der Ersatz (jest.leafletCss.js) hinterlässt deshalb eine Spur. Sie steht
+// genau dann, wenn `import 'leaflet/dist/leaflet.css'` in der Fassung steht —
+// diese Testdatei importiert die Fassung oben und sonst nichts, was das
+// Stylesheet zöge.
+test('Leaflets Stylesheet ist im Bundle', () => {
+  const spur = (globalThis as { __leafletCssImportiert?: boolean }).__leafletCssImportiert;
+  expect(spur).toBe(true);
 });
 
 // ---------------------------------------------------------------------------
@@ -195,6 +226,39 @@ test('oeffnet mit dem uebergebenen Ausschnitt', async () => {
   ).toBe(true);
 });
 
+// Der ERSTE Ausschnitt muss auch gemeldet werden, nicht erst der zweite.
+//
+// `fitBounds` rastet auf eine ganze Zoomstufe und zeigt damit regelmässig
+// spürbar mehr als angefordert. Bleibt diese eine Meldung aus, gruppiert der
+// Screen bis zur ersten Bewegung von Hand mit dem ANGEFORDERTEN statt dem
+// SICHTBAREN Delta — `aufBildschirm` rechnet zu viele Bildschirmpunkte pro
+// Grad, und Nadeln, die einander auf dem Schirm verdecken, bekommen keine
+// gemeinsame Gruppe. Nativ korrigiert `onRegionChangeComplete` denselben
+// Unterschied nach dem Layout.
+//
+// Leaflet feuert `moveend` synchron aus dem ersten `setView` — die Meldung
+// geht nur dann verloren, wenn der Listener erst NACH `fitBounds` hängt. Genau
+// deshalb steht hier kein `mockClear()` vor der Zusicherung.
+test('meldet schon den Ausschnitt, mit dem sie oeffnet', async () => {
+  const aufAusschnitt = jest.fn<void, [Ausschnitt]>();
+  await zeichne({ gruppen: [gruppeA], aufAusschnitt });
+
+  expect(aufAusschnitt).toHaveBeenCalled();
+  const gemeldet = aufAusschnitt.mock.calls[0][0];
+  const grenzen = karteInstanz().getBounds();
+  expect(gemeldet.latitudeDelta).toBeCloseTo(grenzen.getNorth() - grenzen.getSouth(), 9);
+  expect(gemeldet.longitudeDelta).toBeCloseTo(grenzen.getEast() - grenzen.getWest(), 9);
+});
+
+// Und die Gegenprobe, die zeigt, warum die Meldung oben nötig ist: `fitBounds`
+// zeigt tatsächlich mehr als angefordert. Ohne diesen Unterschied wäre der
+// Test darüber eine Behauptung ohne Gegenstand.
+test('der sichtbare Ausschnitt ist weiter als der angeforderte', async () => {
+  await zeichne({ gruppen: [gruppeA] });
+  const grenzen = karteInstanz().getBounds();
+  expect(grenzen.getNorth() - grenzen.getSouth()).toBeGreaterThan(AUSSCHNITT.latitudeDelta);
+});
+
 // `moveend` ist Leaflets `onRegionChangeComplete`: die Karte steht still und
 // zeigt DAS hier. Ohne diese Meldung gruppierte der Screen für immer nach dem
 // Zoom, mit dem die Karte geöffnet wurde — eine Gruppe fiele durch kein
@@ -202,14 +266,14 @@ test('oeffnet mit dem uebergebenen Ausschnitt', async () => {
 test('meldet den Ausschnitt, sobald die Karte stillsteht', async () => {
   const aufAusschnitt = jest.fn<void, [Ausschnitt]>();
   await zeichne({ gruppen: [gruppeA], aufAusschnitt });
-  aufAusschnitt.mockClear();
+  const bisher = aufAusschnitt.mock.calls.length;
 
   const karte = karteInstanz();
   await act(async () => {
     karte.setZoom(karte.getZoom() + 2, { animate: false });
   });
 
-  expect(aufAusschnitt).toHaveBeenCalled();
+  expect(aufAusschnitt.mock.calls.length).toBeGreaterThan(bisher);
 });
 
 // Und die Meldung beschreibt, was WIRKLICH zu sehen ist: Mitte und Spannen
@@ -379,6 +443,42 @@ test('mit Reduced Motion springt zeige(), statt zu fahren', async () => {
   expect(flug).not.toHaveBeenCalled();
   expect(sprung).toHaveBeenCalledTimes(1);
   expect(sprung.mock.calls[0][2]?.animate).toBe(false);
+});
+
+// Ein `zeige` aus dem Layout-Effekt des Aufrufers, unmittelbar nach dem
+// Mounten. Genau so wird der geteilte Player (Task 15) die Fläche benutzen: er
+// springt beim Öffnen auf den Moment aus dem Link, ohne auf eine Nutzeraktion
+// zu warten.
+//
+// `useImperativeHandle` ist ein Layout-Effekt, der Kartenaufbau hier ein
+// passiver — dazwischen steht das Handle, aber noch keine Karte. Ohne
+// Vorkehrung wäre der Befehl STILL verschluckt, und zwar nur im Browser: nativ
+// ist das MapView-Ref bereits im Commit gesetzt. Dieselbe Zusicherung steht
+// deshalb wortgleich in KartenFlaeche.test.tsx.
+function FruehesZiel({ handle }: { handle: RefObject<KartenFlaecheHandle | null> }) {
+  useLayoutEffect(() => {
+    handle.current?.zeige(ZIEL);
+  }, [handle]);
+  return null;
+}
+
+test('ein zeige() aus dem Layout-Effekt des Aufrufers geht nicht verloren', async () => {
+  const handle = createRef<KartenFlaecheHandle>();
+  behaelter = document.createElement('div');
+  document.body.appendChild(behaelter);
+  wurzel = createRoot(behaelter);
+  await act(async () => {
+    wurzel?.render(
+      <>
+        <KartenFlaeche {...basis} gruppen={[gruppeA]} reducedMotion ref={handle} />
+        <FruehesZiel handle={handle} />
+      </>
+    );
+  });
+
+  const mitte = karteInstanz().getCenter();
+  expect(mitte.lat).toBeCloseTo(ZIEL.latitude, 6);
+  expect(mitte.lng).toBeCloseTo(ZIEL.longitude, 6);
 });
 
 // «Springt» allein ist keine Zusicherung: ein Sprung auf 0/0 wäre auch einer.

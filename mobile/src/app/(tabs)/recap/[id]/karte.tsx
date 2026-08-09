@@ -1285,7 +1285,7 @@ export default function RecapKarte() {
       {ausschnitt && (
         <KartenFlaeche
           ref={karte}
-          ausschnitt={ausschnitt}
+          initialerAusschnitt={ausschnitt}
           gruppen={gruppen}
           linie={linie}
           thumbFuer={thumbFuer}

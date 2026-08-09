@@ -2111,11 +2111,25 @@ test('ohne Luecke steht die Zeile nicht da', async () => {
 // welche davon gleichzeitig auf dem Schirm sind.
 //
 // Erkannt wird der Primär-Button an seiner Signatur aus components/Button.tsx:
-// eine `accent`-Fläche in Höhe 52. Nicht an der Beschriftung — die liesse sich
+// eine randlose Fläche in Höhe 52 in einer der drei Farben, die ein
+// Primär-Button annehmen kann. Nicht an der Beschriftung — die liesse sich
 // ändern, ohne dass hier etwas auffiele. Nicht an der Farbe allein: die
-// Zähler-Pille der Nadel trägt dieselbe (KartenNadel.tsx), aber Höhe 20. Und
-// nicht an der Höhe allein: der Sekundär-Button ist ebenfalls 52 hoch, nur auf
-// `bg-0`. Erst beides zusammen ist «primär».
+// Zähler-Pille der Nadel trägt `accent` ebenfalls (KartenNadel.tsx), aber Höhe
+// 20. Und nicht an der Höhe allein: der Sekundär-Button ist ebenfalls 52 hoch.
+//
+// Die DREI Farben, nicht nur `accent` (Task-12-Nachtrag): `Button.tsx` färbt
+// die Fläche bei `pressed` in `accent-pressed` und bei `blocked` (disabled
+// ODER loading) in `bg-1`. Ein LADENDER Primär-Button — «Nochmal versuchen»
+// während des zweiten Anlaufs — wurde damit gar nicht erkannt, und die
+// Zusicherung «genau einer pro Screen» trug für den Zustand nicht, in dem sie
+// am ehesten kippt. Der Rand grenzt gegen den Sekundär-Button ab: der trägt
+// `bg-0`/`bg-1` und IMMER `borderWidth: 1`, der Primär-Button nie einen.
+const PRIMAER_FLAECHEN: readonly (string | undefined)[] = [
+  palette.accent,
+  palette['accent-pressed'],
+  palette['bg-1'],
+];
+
 type Knoten = ReturnType<typeof screen.queryAllByRole>[number];
 
 function traegtAkzentflaeche(knoten: Knoten): boolean {
@@ -2124,7 +2138,9 @@ function traegtAkzentflaeche(knoten: Knoten): boolean {
       const stil = StyleSheet.flatten(kind.props.style as StyleProp<ViewStyle>) as
         | ViewStyle
         | undefined;
-      return stil?.backgroundColor === palette.accent && stil?.height === 52;
+      if (stil?.height !== 52) return false;
+      if (stil.borderWidth) return false;
+      return PRIMAER_FLAECHEN.includes(stil.backgroundColor as string | undefined);
     }).length > 0
   );
 }
@@ -2155,6 +2171,27 @@ test('§9: der Fehler-Zustand traegt genau einen Primaer-Button', async () => {
   });
   await wrap();
   await screen.findByText('Kein Zugriff auf diese Reise.');
+  expect(primaerKnoepfe()).toEqual(['Nochmal versuchen']);
+});
+
+// Und derselbe Knopf, WÄHREND er lädt. `Button.tsx` färbt die Fläche bei
+// `blocked` (disabled oder loading) auf `bg-1` — bis zu diesem Nachtrag erkannte
+// der Detektor oben ihn dann nicht mehr, und die Zusicherung «genau einer pro
+// Screen» galt ausgerechnet für den Zustand nicht, in dem ein zweiter Knopf
+// dazukäme, ohne dass es auffiele.
+test('§9: auch ein ladender Primaer-Button zaehlt als Primaer-Button', async () => {
+  (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: [], error: null });
+  (holeVorrat as jest.Mock).mockResolvedValue({
+    vorrat: null, error: 'Kein Zugriff auf diese Reise.', grund: 'kein_zugriff',
+  });
+  await wrap();
+  await screen.findByText('Kein Zugriff auf diese Reise.');
+
+  // Der zweite Anlauf hängt: der Knopf bleibt im Ladezustand stehen.
+  haengenderLadeweg();
+  await fireEvent.press(screen.getByLabelText('Nochmal versuchen'));
+
+  expect(screen.getByTestId('button-loading')).toBeTruthy();
   expect(primaerKnoepfe()).toEqual(['Nochmal versuchen']);
 });
 
