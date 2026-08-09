@@ -4,6 +4,7 @@ import { act, render, screen, fireEvent, within } from '@testing-library/react-n
 import { ThemeProvider } from '@/theme/ThemeProvider';
 import { motion, palette } from '@/theme/tokens';
 import type { MedienUrl } from '@/features/recap/urlVorrat';
+import type { RecapMoment } from '@/features/recap/types';
 import type { Ausschnitt } from '@/features/karte/typen';
 
 const mockPush = jest.fn();
@@ -1520,28 +1521,49 @@ test('ein Wechsel der Reise laesst kein offenes Tages-Sheet der vorherigen stehe
 // Die Kehrseite der getrennten Ladewege (Punkt 1): sie kommen unabhängig
 // zurück, und beim Wechsel der Reise gibt es ein Fenster, in dem das
 // Startdatum schon zur NEUEN Reise gehört und die Momente noch zur alten. Die
-// Tagesnummern daraus gäbe es in keiner der beiden — der Filter bleibt
-// deshalb weg, bis beide Hälften zur selben Reise gehören.
-test('ein halber Reisewechsel mischt keine Tagesnummern', async () => {
+// Tagesnummern daraus gäbe es in keiner der beiden.
+//
+// Fixrunde 1: bis dahin blieben in diesem Fenster die NADELN von t1 stehen,
+// und nur der Filter fiel weg. Das war dieselbe Lücke wie beim Sheet — ein
+// Tipp auf eine solche Nadel öffnete ein Sheet, das bereits `tripId: t2`
+// trägt, der Wächter griff also nicht mehr, und «Im Recap ansehen» schickte
+// den Player mit t1s Index in t2. Der Ladestand ist jetzt gestempelt: gehört
+// er zu einer anderen Reise, ist DIESE hier schlicht noch nicht geladen.
+test('ein halber Reisewechsel zeigt weder Nadeln noch Tagesnummern der vorherigen Reise', async () => {
   ladeErfolg(MIT_TAGEN, VORRAT_TAGE);
   const { rerender } = await wrap();
   await screen.findByTestId('karte-tagesfilter');
 
   mockId = 't2';
   // Die Reise antwortet sofort und mit einem ANDEREN Startdatum, die Momente
-  // von t2 bleiben aus.
+  // von t2 bleiben zunächst aus.
+  let momenteAufloesen: (wert: { data: RecapMoment[]; error: string | null }) => void = () => {};
   (fetchTrip as jest.Mock).mockResolvedValue({
     data: { ...REISE, id: 't2', start_date: '2026-08-08' }, error: null,
   });
-  (fetchRecapMomente as jest.Mock).mockReturnValue(new Promise(() => {}));
-  (holeVorrat as jest.Mock).mockReturnValue(new Promise(() => {}));
+  (fetchRecapMomente as jest.Mock).mockReturnValue(
+    new Promise<{ data: RecapMoment[]; error: string | null }>((aufloesen) => {
+      momenteAufloesen = aufloesen;
+    })
+  );
+  (holeVorrat as jest.Mock).mockResolvedValue({ vorrat: VORRAT_TAGE, error: null, grund: null });
   await rerender(<ThemeProvider><RecapKarte /></ThemeProvider>);
 
-  // Die Nadeln von t1 stehen noch — sie werden erst ersetzt, wenn t2s Momente
-  // da sind. Ein Filter steht dort aber nicht, denn er könnte nur aus einer
-  // Mischung entstehen.
-  expect(screen.getAllByTestId(/^karte-nadel/)).toHaveLength(3);
+  // Nichts von t1 ist mehr zu sehen — kein Filter, der nur aus einer Mischung
+  // entstehen könnte, und keine Nadel, die in den Player von t2 führte.
+  expect(screen.queryAllByTestId(/^karte-nadel/)).toHaveLength(0);
   expect(screen.queryByTestId('karte-tagesfilter')).toBeNull();
+  expect(screen.getByTestId('karte-skelett')).toBeTruthy();
+
+  // Und sobald t2s Momente da sind, zählen die Tage ab DESSEN Startdatum
+  // (08.08.): dieselben Momente ergeben Tag 3 und Tag 4, nicht Tag 1 und 2.
+  await act(async () => {
+    momenteAufloesen({ data: MIT_TAGEN, error: null });
+  });
+  await fireEvent.press(screen.getByTestId('karte-tagesfilter'));
+  expect(screen.getByTestId('tag-eintrag-3')).toBeTruthy();
+  expect(screen.getByTestId('tag-eintrag-4')).toBeTruthy();
+  expect(screen.queryByTestId('tag-eintrag-1')).toBeNull();
 });
 
 // Die Pille ist auf der Karte der einzige Hinweis auf den Filterstand — für
@@ -1820,6 +1842,19 @@ test('vor der ersten Antwort steht ein Skelett — nicht die Erklaerung', async 
   expect(screen.queryByTestId('karte-flaeche')).toBeNull();
 });
 
+// Fixrunde 1, Important 2: weder `urlVorrat.ts` noch `recapApi.ts` kennen
+// Timeout oder AbortController. Hängt eine der beiden, ist das Skelett ohne
+// Rückweg eine Sackgasse — die Karte ist, anders als die Übersicht, keine
+// Tab-Wurzel, sondern per `push` erreicht.
+test('auch im Ladezustand fuehrt ein Weg zurueck', async () => {
+  (fetchRecapMomente as jest.Mock).mockReturnValue(new Promise(() => {}));
+  (holeVorrat as jest.Mock).mockReturnValue(new Promise(() => {}));
+  await wrap();
+
+  await fireEvent.press(screen.getByLabelText('Zurück'));
+  expect(mockBack).toHaveBeenCalled();
+});
+
 test('ein Ladefehler nennt seinen Grund, statt wie eine Reise ohne Orte auszusehen', async () => {
   (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: [], error: null });
   (holeVorrat as jest.Mock).mockResolvedValue({
@@ -1888,6 +1923,41 @@ test('hat kein Moment einen Ort, erklaert der Screen das', async () => {
   expect(screen.queryByTestId(/^karte-nadel/)).toBeNull();
 });
 
+// Fixrunde 1, Important 3: «kein Moment hat einen Ort» und «es gibt gar keine
+// Momente» sind nicht dasselbe. Eine Reise, in der niemand eingesendet hat,
+// bekäme sonst den Satz über die Ortungsdienste zu lesen — eine Behauptung
+// über etwas, das nie stattgefunden hat.
+test('eine Reise ohne jeden Moment redet nicht von Ortungsdiensten', async () => {
+  ladeErfolg([]);
+  await wrap();
+
+  expect(await screen.findByText('Diese Reise ist leer geblieben.')).toBeTruthy();
+  expect(screen.queryByText('Diese Reise hat keine Orte')).toBeNull();
+  expect(screen.queryByText(/Ortungsdienste/)).toBeNull();
+  expect(screen.queryByTestId('karte-flaeche')).toBeNull();
+});
+
+// Die Gegenprobe: sobald es Momente gibt, die nur keinen Ort haben, gilt
+// wieder Spec §5.9.
+test('eine Reise mit Momenten ohne Ort redet nicht von einer leeren Reise', async () => {
+  ladeErfolg([m3]);
+  await wrap();
+
+  expect(await screen.findByText('Diese Reise hat keine Orte')).toBeTruthy();
+  expect(screen.queryByText('Diese Reise ist leer geblieben.')).toBeNull();
+});
+
+// Ein Moment, der noch hochlädt, ist für die Karte kein Moment: er steht
+// nicht in der Spielliste. Der Screen darf ihn also nicht als «hat keine
+// Orte» ausgeben, obwohl er sogar Koordinaten trägt.
+test('eine Reise, deren Momente alle noch unterwegs sind, gilt als leer', async () => {
+  ladeErfolg([pendingM]);
+  await wrap();
+
+  expect(await screen.findByText('Diese Reise ist leer geblieben.')).toBeTruthy();
+  expect(screen.queryByText('Diese Reise hat keine Orte')).toBeNull();
+});
+
 // DESIGN-LANGUAGE §4: genau EIN Primär-Button pro Screen — und §7: nie mehr
 // als einer. Im Leer-Zustand ist er der einzige Bedienelement überhaupt, das
 // lässt sich hier vollständig nachzählen statt bloss behaupten.
@@ -1906,6 +1976,65 @@ test('der eine Knopf des Leer-Zustands fuehrt zurueck', async () => {
   await wrap();
   await fireEvent.press(await screen.findByText('Zurück zur Übersicht'));
   expect(mockBack).toHaveBeenCalled();
+});
+
+// ---------------------------------------------------------------------------
+// Fixrunde 1: der Ladestand gehört zu EINER Reise
+// ---------------------------------------------------------------------------
+//
+// `phase`, `punkte` und `ohneOrt` waren die einzigen States dieser Datei ohne
+// Reise-Stempel. Der Screen bleibt beim Wechsel der id gemountet, und die
+// neuen Momente brauchen ihre Zeit — in genau diesem Fenster stand der
+// Ladestand von t1 über t2. Nicht einen Frame lang, sondern die volle
+// Ladedauer.
+
+// Startet t1, wechselt auf t2 und lässt dessen Momente offen. Zurück kommt
+// der Zustand GENAU in diesem Fenster.
+async function wechsleAufHaengendesT2(rerender: (baum: React.ReactElement) => Promise<void>) {
+  mockId = 't2';
+  (fetchTrip as jest.Mock).mockResolvedValue({ data: { ...REISE, id: 't2' }, error: null });
+  (fetchRecapMomente as jest.Mock).mockReturnValue(new Promise(() => {}));
+  (holeVorrat as jest.Mock).mockReturnValue(new Promise(() => {}));
+  await rerender(<ThemeProvider><RecapKarte /></ThemeProvider>);
+}
+
+test('der Leer-Zustand von t1 steht nicht ueber t2', async () => {
+  ladeErfolg([m3]);
+  const { rerender } = await wrap();
+  await screen.findByText('Diese Reise hat keine Orte');
+
+  await wechsleAufHaengendesT2(rerender);
+
+  expect(screen.queryByText('Diese Reise hat keine Orte')).toBeNull();
+  expect(screen.getByTestId('karte-skelett')).toBeTruthy();
+});
+
+test('der Fehler von t1 steht nicht ueber t2', async () => {
+  (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: [], error: 'Kein Zugriff auf diese Reise.' });
+  (holeVorrat as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+  const { rerender } = await wrap();
+  await screen.findByText('Kein Zugriff auf diese Reise.');
+
+  await wechsleAufHaengendesT2(rerender);
+
+  expect(screen.queryByText('Kein Zugriff auf diese Reise.')).toBeNull();
+  expect(screen.queryByText('Nochmal versuchen')).toBeNull();
+  expect(screen.getByTestId('karte-skelett')).toBeTruthy();
+});
+
+// Der gefährlichste der drei: die Leiste von t1 über t2 ist nicht nur falsch
+// beschriftet. Ein jetzt geöffnetes Sheet trägt bereits `tripId: t2`, der
+// Wächter greift also nicht — und eine Kachel schickte den Player mit t1s
+// Index in t2.
+test('die Leiste von t1 steht nicht ueber t2', async () => {
+  ladeErfolg();
+  const { rerender } = await wrap();
+  await screen.findByText('1 Moment ohne Ort');
+
+  await wechsleAufHaengendesT2(rerender);
+
+  expect(screen.queryByText(/ohne Ort/)).toBeNull();
+  expect(screen.getByTestId('karte-skelett')).toBeTruthy();
 });
 
 // ---------------------------------------------------------------------------

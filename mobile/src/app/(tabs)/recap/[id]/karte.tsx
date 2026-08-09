@@ -59,6 +59,11 @@ const LEER_TITEL = 'Diese Reise hat keine Orte';
 const LEER_ERKLAERUNG =
   'Momente bekommen ihren Ort beim Einsenden — nur, wenn die Ortungsdienste erlaubt sind. Für diese Reise war das nie der Fall.';
 
+// Und der andere leere Fall: es gibt überhaupt keine Momente zu zeigen.
+// Wortgleich zu uebersicht.tsx und player.tsx — dieselbe Reise soll auf allen
+// drei Screens dasselbe sagen.
+const LEER_OHNE_MOMENTE = 'Diese Reise ist leer geblieben.';
+
 // Die eine Zeile, die die Lücke in den Tagesnummern erklärt. `waehlbareTage`
 // lässt Tage weg, an denen kein Moment einen Ort hat — die Übersicht zeigt
 // sie trotzdem, der Filter springt hier also z.B. von Tag 1 auf Tag 3. Ohne
@@ -173,11 +178,25 @@ type OhneOrt = { moment: RecapMoment; index: number };
 // Netz weg) und «geladen, aber kein einziger Moment hat einen Ort». Bis Task
 // 10 war das dieselbe weisse Fläche mit einer Zurück-Pille.
 //
-// Bewusst KEIN Rücksprung auf 'laedt' beim Wechsel der Reise-id: der Screen
-// zeigt die Nadeln der vorherigen Reise, bis die neuen da sind (festgehalten
-// in karte.test.tsx, «ein halber Reisewechsel mischt keine Tagesnummern») —
-// ein Skelett an ihrer Stelle wäre ein Rückschritt, kein Fortschritt.
 type Phase = 'laedt' | 'fehler' | 'fertig';
+
+// Das Ergebnis EINES Ladevorgangs, mit der Reise, zu der es gehört.
+// Begründung für den Stempel steht an der State-Deklaration.
+type Ladestand = {
+  tripId: string;
+  phase: Phase;
+  punkte: KartenPunkt[];
+  ohneOrt: OhneOrt[];
+  fehlerText: string | null;
+};
+
+// Feste leere Listen statt `[]` bei jedem Ableiten — gleicher Grund wie bei
+// KEINE_URLS oben: die Werte gehen als Abhängigkeit in `sichtbarePunkte`,
+// `linie` und `gruppen`, und ein bei jedem Rendern neues Array liesse sie
+// ohne Grund neu rechnen.
+const KEINE_PUNKTE: KartenPunkt[] = [];
+const KEINE_OHNE_ORT: OhneOrt[] = [];
+const KEINE_MOMENTE: RecapMoment[] = [];
 
 // Der Tagesfilter — und zwar auf den FERTIGEN Kartenpunkten, nie auf den
 // Momenten davor.
@@ -484,10 +503,13 @@ function OhneOrtKachel({
 // Karte füllt sie später ebenso (Spec §5.3), es gibt daneben nichts, was ein
 // kleinerer Block andeuten könnte.
 //
-// Bewusst ohne Bedienelemente: der Zustand dauert einen Wimpernschlag, und
-// die Tab-Leiste bleibt die ganze Zeit erreichbar (der Kartenscreen liegt in
-// `(tabs)`). Gleiches Vorgehen wie SkelettScreen in uebersicht.tsx.
-function KartenSkelett() {
+// MIT Rückweg, anders als SkelettScreen in uebersicht.tsx: die Übersicht ist
+// eine Tab-Wurzel, die Karte ein per `push` erreichter Screen. Weder
+// `urlVorrat.ts` noch `recapApi.ts` kennen Timeout oder AbortController —
+// hängt eine der beiden Abfragen, bliebe hier sonst dauerhaft ein pulsender
+// grauer Block stehen, aus dem nur die Tab-Leiste führt (Fixrunde 1,
+// Important 2).
+function KartenSkelett({ oben, onZurueck }: { oben: number; onZurueck: () => void }) {
   const { colors } = useTheme();
   const reducedMotion = useReducedMotion();
   const [opacity] = useState(() => new Animated.Value(0.6));
@@ -510,10 +532,24 @@ function KartenSkelett() {
   }, [opacity, reducedMotion]);
 
   return (
-    <Animated.View
-      testID="karte-skelett"
-      style={[styles.flaeche, { backgroundColor: colors['bg-1'], opacity }]}
-    />
+    <View style={[styles.flaeche, { backgroundColor: colors['bg-0'] }]}>
+      <Animated.View
+        testID="karte-skelett"
+        style={[StyleSheet.absoluteFill, { backgroundColor: colors['bg-1'], opacity }]}
+      />
+      {/* Derselbe Pfeil wie im Fehlerzweig, an derselben Stelle wie die
+          Zurück-Pille der fertigen Karte — und nicht die Pille selbst: unter
+          ihr liegt kein Foto und keine Karte, sondern eine helle bg-1-Fläche
+          (DESIGN-LANGUAGE §1). */}
+      <PressScale
+        accessibilityRole="button"
+        accessibilityLabel="Zurück"
+        onPress={onZurueck}
+        style={[styles.zurueckHell, { top: oben }]}
+      >
+        <ChevronLeft size={24} color={colors['text-1']} strokeWidth={1.75} />
+      </PressScale>
+    </View>
   );
 }
 
@@ -543,13 +579,27 @@ export default function RecapKarte() {
   // mit sich — und der projizierte JEDEN Moment auf dieselbe Stelle.
   const { width: breite, height: hoehe } = useWindowDimensions();
 
-  const [punkte, setPunkte] = useState<KartenPunkt[]>([]);
-  // Die Momente, die keine Nadel bekommen können (Spec §5.8). Sie liegen
-  // neben `punkte` und nicht in ihnen: die Leiste unten nennt ihre Zahl, und
-  // ohne sie fehlten sie auf der Karte, ohne dass es jemand merkte.
-  const [ohneOrt, setOhneOrt] = useState<OhneOrt[]>([]);
-  const [phase, setPhase] = useState<Phase>('laedt');
-  const [fehlerText, setFehlerText] = useState<string | null>(null);
+  // Alles, was aus EINEM Ladevorgang der Momente stammt — in EINEM State und
+  // mit der Reise, zu der es gehört (Fixrunde 1, Important 1).
+  //
+  // Zusammen, weil es zusammen entsteht und zusammen ungültig wird: eine
+  // Phase ohne die zugehörigen Punkte (oder umgekehrt) gibt es nie.
+  //
+  // Mit Stempel, weil der Screen bei einem Wechsel der Reise-id gemountet
+  // bleibt — und ohne ihn stand der Ladestand von t1 über t2, nicht einen
+  // Frame lang, sondern die volle Ladedauer der neuen Reise: «Diese Reise hat
+  // keine Orte» über einer Reise voller Orte, t1s Fehlertext samt «Nochmal
+  // versuchen» über t2, t1s Leiste mit t1s Momenten. Und t1s Nadeln: ein
+  // Tipp darauf öffnete ein Sheet, das bereits `tripId: t2` trägt — der
+  // Wächter unten greift dann nicht mehr, und «Im Recap ansehen» schickte
+  // den Player mit t1s Index in t2.
+  const [ladestand, setLadestand] = useState<Ladestand>(() => ({
+    tripId: id,
+    phase: 'laedt',
+    punkte: KEINE_PUNKTE,
+    ohneOrt: KEINE_OHNE_ORT,
+    fehlerText: null,
+  }));
   // Nur für den Knopf im Fehlerzweig. Ein zweiter Anlauf setzt die Phase
   // bewusst NICHT auf 'laedt' zurück: der Fehlertext soll stehen bleiben,
   // solange der neue Versuch läuft — sonst blitzt zwischen zwei Fehlschlägen
@@ -627,6 +677,37 @@ export default function RecapKarte() {
   const tageOffen = tageSheet !== null;
   const ohneOrtOffen = ohneOrtSheet !== null;
 
+  // Der Ladestand wird ABGELEITET statt beim Rendern zurückgesetzt — anders
+  // als die vier Sheets/Filter darüber, und aus einem Grund, der nur für
+  // geladene Daten gilt: bei t1 → t2 → t1 ist t1s Stand wieder der richtige.
+  // Ein Zurücksetzen verwürfe ihn und zeigte für die Dauer eines erneuten
+  // Ladevorgangs ein Skelett über einer Karte, die längst stimmt. Bei einem
+  // Sheet ist es umgekehrt — dort öffnete sich sonst von selbst eines, das
+  // niemand angetippt hat (Begründung oben).
+  //
+  // Gehört der Stand zu einer anderen Reise, ist diese hier schlicht noch
+  // nicht geladen: 'laedt'. Genau das, was der Screen beim ersten Öffnen
+  // auch zeigt.
+  // EINE Bedingung für alle vier Werte, nicht vier einzelne. Vier wären zu
+  // dritt nicht prüfbar: schon die Phase allein schickt den Screen ins
+  // Skelett und kehrt vor jedem anderen Zweig zurück, ein zusätzlicher Test
+  // an `punkte` oder `ohneOrt` liesse sich also ersatzlos streichen, ohne
+  // dass eine Zusicherung fiele — genau die Art Bedingung, die später niemand
+  // mehr prüfen kann (gleiche Überlegung wie bei `aufEinemFleck` in
+  // `aufNadel`). So getrennt kann es einen halben Stand aber gar nicht geben:
+  // entweder gilt der ganze Ladestand, oder es gilt der eines Screens, der
+  // noch nichts geladen hat.
+  const sichtbarerStand: Ladestand =
+    ladestand.tripId === id
+      ? ladestand
+      : { tripId: id, phase: 'laedt', punkte: KEINE_PUNKTE, ohneOrt: KEINE_OHNE_ORT, fehlerText: null };
+  const { phase, punkte, ohneOrt, fehlerText } = sichtbarerStand;
+  // Aus demselben Grund abgeleitet wie oben — und hier zusätzlich für den
+  // Unterschied zwischen «kein Moment hat einen Ort» und «es gibt gar keine
+  // Momente» gebraucht (siehe die beiden Leer-Zweige unten).
+  const spiellisteJetzt =
+    spielliste !== null && spielliste.tripId === id ? spielliste.momente : KEINE_MOMENTE;
+
   // Der Ladeanlauf, dessen Antwort noch zählt.
   //
   // Ein eigenes Objekt je Anlauf und nicht mehr das frühere `aktiv`-Flag:
@@ -636,15 +717,12 @@ export default function RecapKarte() {
   // die langsamere der beiden Antworten überschriebe sonst die neuere.
   const anlauf = useRef({ gilt: true });
 
-  // Was von der vorherigen Reise (oder dem vorherigen Anlauf) stehen bliebe,
-  // wenn ein Ladeversuch scheitert. Beim ERSTEN Laden ist das derselbe
-  // Zustand wie der Anfangszustand — bei einem Wechsel der Reise-id aber
-  // nicht: dort dürfen die Nadeln der vorherigen Reise nicht über einer
-  // Erklärung stehen bleiben, zu der sie nicht gehören.
+  // Die drei ungestempelten Nebenzustände eines Ladevorgangs — sie gehören
+  // nach einem Fehlschlag geräumt. `punkte` und `ohneOrt` stehen bewusst
+  // NICHT hier: die trägt der `Ladestand`, und der wird im selben Zug mit dem
+  // Fehler gesetzt.
   const leereKarte = useCallback(() => {
     setUrls(KEINE_URLS);
-    setPunkte([]);
-    setOhneOrt([]);
     setAusschnitt(null);
     setSpielliste(null);
   }, []);
@@ -676,8 +754,13 @@ export default function RecapKarte() {
       const fehler = vorratErgebnis.error ?? momente.error;
       if (fehler !== null) {
         leereKarte();
-        setFehlerText(fehler);
-        setPhase('fehler');
+        setLadestand({
+          tripId: id,
+          phase: 'fehler',
+          punkte: KEINE_PUNKTE,
+          ohneOrt: KEINE_OHNE_ORT,
+          fehlerText: fehler,
+        });
         return;
       }
 
@@ -701,12 +784,15 @@ export default function RecapKarte() {
       const mitBild = uploaded.filter((m) => vorratUrls.has(m.id));
       const { punkte: p, ohneOrt: o } = zuKartenPunkten(mitBild);
       setUrls(vorratUrls);
-      setPunkte(p);
-      setOhneOrt(ohneOrtMitIndex(mitBild, o));
       setAusschnitt(ausschnittFuer(p));
       setSpielliste({ tripId: id, momente: mitBild });
-      setFehlerText(null);
-      setPhase('fertig');
+      setLadestand({
+        tripId: id,
+        phase: 'fertig',
+        punkte: p,
+        ohneOrt: ohneOrtMitIndex(mitBild, o),
+        fehlerText: null,
+      });
     } catch (wurf: unknown) {
       // fetchRecapMomente und holeVorrat geben Fehler als WERT zurück statt
       // zu werfen — aber "wirft normalerweise nicht" ist keine Zusicherung,
@@ -716,14 +802,26 @@ export default function RecapKarte() {
       // geht zusätzlich an den Fehlermelder (ohne DSN ein No-Op, siehe
       // lib/fehlermelder.ts), weil nur er die technische Ursache kennt.
       if (!meiner.gilt) return;
-      meldeFehler(wurf, { screen: 'recap/karte', tripId: id });
+      meldeFehler(wurf, { screen: 'recap/karte', tripId: id, ladeweg: 'momente' });
       leereKarte();
-      setFehlerText(WURF_TEXT);
-      setPhase('fehler');
+      setLadestand({
+        tripId: id,
+        phase: 'fehler',
+        punkte: KEINE_PUNKTE,
+        ohneOrt: KEINE_OHNE_ORT,
+        fehlerText: WURF_TEXT,
+      });
     }
   }, [id, leereKarte]);
 
   useEffect(() => {
+    // `laden` setzt seinen Zustand erst NACH dem ersten `await` (die Zeilen
+    // davor berühren nur ein Ref) — die kaskadierenden Renders, vor denen die
+    // Regel warnt, gibt es hier also nicht. Der Ladeweg muss ein
+    // `useCallback` sein, damit «Nochmal versuchen» ihn wiederverwenden kann,
+    // statt eine zweite Kopie desselben Wegs zu pflegen. Gleiche Stelle und
+    // gleicher Grund in player.tsx und uebersicht.tsx.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void laden();
     // Den gerade gestarteten Anlauf HIER festhalten, nicht erst im Cleanup:
     // `laden` hängt ihn synchron ein, bevor es zum ersten Mal wartet (siehe
@@ -790,7 +888,10 @@ export default function RecapKarte() {
       // WERT zurück, aber «wirft normalerweise nicht» trägt keine Kette.
       .catch((fehler: unknown) => {
         if (!aktiv) return;
-        meldeFehler(fehler, { screen: 'recap/karte', tripId: id });
+        // Mit `ladeweg` wie der Wert-Pfad darüber: ohne ihn wäre ein
+        // werfendes `fetchTrip` im Fehlermelder nicht von einem werfenden
+        // `fetchRecapMomente` zu unterscheiden.
+        meldeFehler(fehler, { screen: 'recap/karte', tripId: id, ladeweg: 'reise' });
         setReiseStart(null);
       });
     return () => {
@@ -812,10 +913,10 @@ export default function RecapKarte() {
   // diesen drei geladenen Werten, und die ändern sich einmal pro Ladevorgang —
   // dieser Screen rendert aber bei jeder Kartenbewegung neu.
   const alleTage = useMemo(() => {
-    if (spielliste === null || spielliste.tripId !== id) return [];
+    if (spiellisteJetzt.length === 0) return [];
     if (reiseStart === null || reiseStart.tripId !== id) return [];
-    return gruppiereNachTagen(spielliste.momente, reiseStart.startDate);
-  }, [spielliste, reiseStart, id]);
+    return gruppiereNachTagen(spiellisteJetzt, reiseStart.startDate);
+  }, [spiellisteJetzt, reiseStart, id]);
 
   const tage = useMemo(() => waehlbareTage(alleTage, punkte), [alleTage, punkte]);
 
@@ -994,8 +1095,11 @@ export default function RecapKarte() {
   );
 
   // Der Weg in den Player (Spec §5.7) — für ALLE drei Sheets dieses Screens
-  // derselbe, deshalb nimmt er nur den Index entgegen und nicht einen der
-  // beiden Eintragstypen. `index` zählt über die SPIELLISTE, die der Ladeweg
+  // derselbe. Die Union statt eines blossen `{ index: number }`: sonst passte
+  // JEDE Zahl namens `index` hierher, auch eine Stelle innerhalb von
+  // `ohneOrt` oder innerhalb einer Gruppe. Der Typ ist an dieser einen Stelle
+  // der letzte Hinweis zur Übersetzungszeit darauf, woher der Wert stammen
+  // darf. `index` zählt über die SPIELLISTE, die der Ladeweg
   // oben filtert — dieselbe, die der Player aufbaut, und `parseStartIndex`
   // zählt dort in genau sie (player.tsx:503-527). Nie der Index innerhalb von
   // `punkte` (der überspringt die Momente ohne Ort), nie der innerhalb der
@@ -1006,7 +1110,7 @@ export default function RecapKarte() {
   // des Übergangs in den Player wegblitzen zu lassen — und wer zurückkommt,
   // findet die Stelle wieder, an der er war.
   const zumPlayer = useCallback(
-    (eintrag: { index: number }) => {
+    (eintrag: KartenPunkt | OhneOrt) => {
       router.push({ pathname: '/recap/[id]/player', params: { id, start: String(eintrag.index) } });
     },
     [router, id]
@@ -1083,7 +1187,7 @@ export default function RecapKarte() {
   // und `ausschnitt = null` enden.
   // ---------------------------------------------------------------------
 
-  if (phase === 'laedt') return <KartenSkelett />;
+  if (phase === 'laedt') return <KartenSkelett oben={oben} onZurueck={zurueck} />;
 
   if (phase === 'fehler') {
     return (
@@ -1110,6 +1214,27 @@ export default function RecapKarte() {
             onPress={() => void nochmal()}
             loading={nochmalLaeuft}
           />
+        </View>
+      </View>
+    );
+  }
+
+  // «Es gibt gar keine Momente» ist NICHT «kein Moment hat einen Ort»
+  // (Fixrunde 1, Important 3). Eine Reise, in der niemand eingesendet hat —
+  // oder in der alle Uploads noch unterwegs sind —, bekäme sonst den Satz
+  // über die Ortungsdienste zu lesen: eine Behauptung über etwas, das nie
+  // stattgefunden hat.
+  //
+  // Wortgleich zu uebersicht.tsx und player.tsx (Phase 'leer'), damit
+  // dieselbe Reise auf allen drei Screens dasselbe sagt. Ohne zweite Zeile:
+  // ob die Momente noch kommen oder nie kamen, weiss dieser Screen nicht, und
+  // eine Vermutung wäre wieder eine Behauptung.
+  if (spiellisteJetzt.length === 0) {
+    return (
+      <View style={[styles.flaeche, { backgroundColor: colors['bg-0'] }]}>
+        <View style={[styles.textScreen, { paddingTop: oben }]}>
+          <Text style={[type.h1, { color: colors['text-1'] }]}>{LEER_OHNE_MOMENTE}</Text>
+          <Button variant="primary" label="Zurück zur Übersicht" onPress={zurueck} />
         </View>
       </View>
     );
@@ -1375,6 +1500,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  // Der Rückweg auf einer hellen Fläche (Skelett): dieselbe Stelle wie die
+  // Zurück-Pille der fertigen Karte, nur ohne Pille darunter.
+  zurueckHell: { position: 'absolute', left: spacing.screen },
   tagesfilter: { position: 'absolute', right: spacing.screen },
   // Dieselbe Höhe wie die Zurück-Pille gegenüber, damit beide auf einer Linie
   // sitzen. Abstände aus dem 4er-Raster (DESIGN-LANGUAGE §3).
