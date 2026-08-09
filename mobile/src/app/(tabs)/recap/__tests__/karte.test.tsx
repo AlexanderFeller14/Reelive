@@ -1,5 +1,5 @@
 import { useLayoutEffect } from 'react';
-import { Dimensions, useWindowDimensions } from 'react-native';
+import { Animated, Dimensions, StyleSheet, useWindowDimensions } from 'react-native';
 import { act, render, screen, fireEvent, within } from '@testing-library/react-native';
 import { ThemeProvider } from '@/theme/ThemeProvider';
 import { motion, palette } from '@/theme/tokens';
@@ -100,7 +100,7 @@ jest.mock('react-native-maps', () => {
   };
 });
 
-import RecapKarte from '../[id]/karte';
+import RecapKarte, { SHEET_SCROLL_ANTEIL } from '../[id]/karte';
 import { fetchRecapMomente } from '@/features/recap/recapApi';
 import { holeVorrat } from '@/features/recap/urlVorrat';
 import { zuKartenPunkten } from '@/features/karte/kartenPunkte';
@@ -865,4 +865,176 @@ test('ein Tipp unmittelbar nach dem Zerfall einer Gruppe wird nicht verschluckt'
 
   expect(screen.getByTestId('karte-nadel-p2')).toBeTruthy();
   expect(screen.getByText('Lea · 19:00')).toBeTruthy();
+});
+
+// ---------------------------------------------------------------------------
+// Fixrunde 1: die Sackgasse im Ausweg, und der Wächter, der nur versteckte
+// ---------------------------------------------------------------------------
+
+// Zwölf Momente auf EXAKT derselben Koordinate. Das ist kein konstruierter
+// Randfall: `ortBestimmen` fragt ohne Optionen nach der Position
+// (features/moments/ortUndZeit.ts), und zwei Aufnahmen kurz nacheinander
+// bekommen dort regelmässig denselben Fix bitgleich zurück — deshalb gibt es
+// dieses Sheet überhaupt.
+//
+// Die Liste ist 87 + 72·N Punkte hoch; ohne Scroll-Bereich schneidet `Sheet`
+// (85 % Fensterhöhe, `overflow: 'hidden'`) ab dem siebten Eintrag ab. Die
+// abgeschnittenen Momente wären auf KEINEM Weg mehr erreichbar, denn Zoomen
+// hilft auf einem Fleck per Definition nicht.
+const VIELE_AUF_EINEM_FLECK = [
+  ohneUrlM,
+  ohneOrtFrueh,
+  ...Array.from({ length: 12 }, (_, i) =>
+    moment({
+      id: `f${i}`,
+      captured_at: `2026-08-10T${String(9 + i).padStart(2, '0')}:00:00.000Z`,
+      lat: 38.71,
+      lng: -9.14,
+    })
+  ),
+];
+const VORRAT_VIELE = {
+  ...VORRAT_OK,
+  urls: new Map<string, MedienUrl>([
+    ...VORRAT_OK.urls,
+    ...Array.from({ length: 12 }, (_, i) => [`f${i}`, bild(`f${i}`)] as const),
+  ]),
+};
+
+test('die Gruppenliste scrollt, statt ihre letzten Momente abzuschneiden', async () => {
+  ladeErfolg(VIELE_AUF_EINEM_FLECK, VORRAT_VIELE);
+  await wrap();
+  await fireEvent.press(await screen.findByTestId('karte-nadel-f0'));
+
+  const liste = screen.getByTestId('gruppe-liste');
+  // Ein blosses View mit derselben testID wäre keine Rettung — nur eine
+  // Scroll-Fläche macht Einträge unterhalb der Kante erreichbar.
+  expect(liste.type).toBe('RCTScrollView');
+  // Und sie braucht eine Obergrenze: ohne die wüchse sie mit ihrem Inhalt,
+  // und `Sheet` schnitte den Überhang genauso ab wie vorher.
+  expect(StyleSheet.flatten(liste.props.style).maxHeight).toBe(
+    Dimensions.get('window').height * SHEET_SCROLL_ANTEIL
+  );
+  expect(within(liste).getAllByTestId(/^gruppe-eintrag/)).toHaveLength(12);
+});
+
+// Und der letzte führt an seinen eigenen Platz — er ist nicht bloss da,
+// sondern vollständig bedienbar. f11 steht in der Spielliste an Stelle 12
+// (p3 ohne Ort davor, p5 ohne URL fällt heraus).
+test('auch der letzte Eintrag einer langen Liste fuehrt in den Player', async () => {
+  ladeErfolg(VIELE_AUF_EINEM_FLECK, VORRAT_VIELE);
+  await wrap();
+  await fireEvent.press(await screen.findByTestId('karte-nadel-f0'));
+  await fireEvent.press(within(screen.getByTestId('gruppe-liste')).getByTestId('gruppe-eintrag-f11'));
+
+  expect(mockPush).toHaveBeenCalledWith({
+    pathname: '/recap/[id]/player',
+    params: { id: 't1', start: '12' },
+  });
+});
+
+// Derselbe Mechanismus trifft das Einzel-Sheet: Bild (3:2), Ort und Caption
+// werden bei grosser Systemschrift zusammen höher als das Sheet. Der
+// Primär-Button muss deshalb AUSSERHALB des scrollenden Teils stehen —
+// scrollte er mit, wäre er als Erstes weg.
+test('im Moment-Sheet scrollt der Inhalt, der Knopf bleibt stehen', async () => {
+  ladeErfolg(MIT_SHEET_DATEN);
+  await wrap();
+  await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
+
+  const inhalt = screen.getByTestId('moment-inhalt');
+  expect(inhalt.type).toBe('RCTScrollView');
+  expect(within(inhalt).getByTestId('sheet-bild')).toBeTruthy();
+  expect(within(inhalt).getByText('Angekommen, 28 Grad im Mai')).toBeTruthy();
+  expect(within(inhalt).queryByLabelText('Im Recap ansehen')).toBeNull();
+  expect(screen.getByLabelText('Im Recap ansehen')).toBeTruthy();
+});
+
+// Der Wächter aus Task 8 versteckte das Sheet nur, statt es zu löschen. Beim
+// Rücksprung t1 → t2 → t1 auf DERSELBEN gemounteten Instanz passte die
+// Reise-id wieder — und ein Sheet öffnete sich samt Eintrittsanimation, das
+// niemand angetippt hat. Sein Index stammte aus dem früheren Ladevorgang und
+// konnte inzwischen auf einen anderen Moment zeigen.
+test('nach t1 → t2 → t1 oeffnet sich kein Sheet von selbst', async () => {
+  ladeErfolg(MIT_SHEET_DATEN);
+  const { rerender } = await wrap();
+  await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
+  expect(screen.getByText('Im Recap ansehen')).toBeTruthy();
+
+  mockId = 't2';
+  ladeErfolg([m1]);
+  await rerender(<ThemeProvider><RecapKarte /></ThemeProvider>);
+  expect(screen.queryByText('Im Recap ansehen')).toBeNull();
+
+  mockId = 't1';
+  ladeErfolg(MIT_SHEET_DATEN);
+  await rerender(<ThemeProvider><RecapKarte /></ThemeProvider>);
+  expect(screen.queryByText('Im Recap ansehen')).toBeNull();
+  expect(screen.queryByText('Angekommen, 28 Grad im Mai')).toBeNull();
+});
+
+// DESIGN-LANGUAGE §5: «Listen = Stagger 40 ms». Ablesbar nur an den
+// Verzögerungen, mit denen die Zeilen starten — `Animated` flacht die Opazität
+// im Testlauf auf eine Zahl ab und rührt sie unter `useNativeDriver` nie
+// wieder an (gleiche Einschränkung wie in KartenNadel.test.tsx).
+function staggerVerzoegerungen(): unknown[] {
+  return (Animated.timing as unknown as jest.Mock).mock.calls
+    .map(([, konfig]) => konfig as { delay?: number })
+    .filter((konfig) => konfig.delay !== undefined)
+    .map((konfig) => konfig.delay);
+}
+
+test('die Zeilen der Gruppenliste erscheinen gestaffelt', async () => {
+  const spion = jest.spyOn(Animated, 'timing');
+  ladeErfolg(AUF_EINEM_FLECK);
+  await wrap();
+  await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
+
+  expect(staggerVerzoegerungen()).toEqual([0, 40]);
+  spion.mockRestore();
+});
+
+// §5: «prefers-reduced-motion: alles wird zu 200-ms-Fades» — dann erscheinen
+// die Zeilen gemeinsam, ohne Staffelung.
+test('mit Reduced Motion erscheinen die Zeilen ohne Staffelung', async () => {
+  const spion = jest.spyOn(Animated, 'timing');
+  mockReduziert = true;
+  ladeErfolg(AUF_EINEM_FLECK);
+  await wrap();
+  await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
+
+  expect(staggerVerzoegerungen()).toEqual([0, 0]);
+  spion.mockRestore();
+});
+
+// Fixrunde 1, Punkt 3: zwei Zweige, die bisher keine Zusicherung hielt.
+//
+// `media-urls` lässt je nach Moment die eine oder die andere URL weg (siehe
+// dessen index.ts). Fehlt das mittlere Bild, nimmt das Sheet das Thumbnail —
+// ohne diesen Ausweg bliebe die Fläche für solche Momente leer, obwohl ein
+// Bild vorliegt.
+const VORRAT_OHNE_MEDIUM = {
+  ...VORRAT_OK,
+  urls: new Map<string, MedienUrl>([
+    ...VORRAT_OK.urls,
+    ['p1', { post_id: 'p1', thumb_url: bild('p1').thumb_url } as unknown as MedienUrl],
+  ]),
+};
+
+test('fehlt das mittlere Bild, zeigt das Sheet das Thumbnail', async () => {
+  ladeErfolg(MIT_SHEET_DATEN, VORRAT_OHNE_MEDIUM);
+  await wrap();
+  await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
+  expect(screen.getByTestId('sheet-bild').props.source.uri).toBe(bild('p1').thumb_url);
+});
+
+// Und ohne jede Bildquelle steht dort gar kein Bildknoten, sondern die ruhige
+// bg-1-Fläche: eine `Image` mit `uri: null` wäre auf dem Gerät ein leerer
+// Kasten, der auf etwas wartet, das nicht mehr kommt.
+test('ohne jede Bildquelle zeigt das Sheet keinen Bildknoten', async () => {
+  ladeErfolg(MIT_SHEET_DATEN, VORRAT_OHNE_JEDES_BILD);
+  await wrap();
+  await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
+  expect(screen.queryByTestId('sheet-bild')).toBeNull();
+  expect(screen.getByText('Mira · 14:32')).toBeTruthy();
 });

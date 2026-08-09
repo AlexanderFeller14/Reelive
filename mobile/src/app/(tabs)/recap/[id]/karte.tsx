@@ -1,5 +1,13 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import {
+  Animated,
+  Easing,
+  ScrollView,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
+} from 'react-native';
 import MapView, { Polyline, type Region } from 'react-native-maps';
 import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -28,6 +36,13 @@ import type { Ausschnitt, Gruppe, KartenPunkt } from '@/features/karte/typen';
 // als Abhängigkeit in die Nadeln, und eine jedes Mal neue Map liesse sie ohne
 // Grund neu rechnen.
 const KEINE_URLS: ReadonlyMap<string, MedienUrl> = new Map();
+
+// DESIGN-LANGUAGE §5: «Listen = Stagger 40 ms» — die Zeilen der Gruppenliste
+// erscheinen nacheinander, nicht als Block.
+const STAGGER_MS = 40;
+// §5: «prefers-reduced-motion: alles wird zu 200-ms-Fades». Derselbe Wert wie
+// in Sheet.tsx (dort modulprivat).
+const REDUZIERTE_DAUER_MS = 200;
 
 // Eine URL, mit der sich tatsächlich ein Bild laden lässt — oder `null`.
 //
@@ -61,6 +76,44 @@ function sheetBild(urls: ReadonlyMap<string, MedienUrl>, momentId: string): stri
   return brauchbareUrl(url.medium_url) ?? brauchbareUrl(url.thumb_url);
 }
 
+// Wie viel Fensterhöhe der scrollende Teil eines Sheets höchstens einnimmt.
+//
+// Ohne eine Obergrenze wäre die ScrollView wirkungslos: sie wüchse mit ihrem
+// Inhalt, und `Sheet` schnitte den Überhang hart ab (Sheet.tsx: `maxHeight`
+// 85 % plus `overflow: 'hidden'`). Genau so verschwänden ab dem siebten
+// Moment auf einem Fleck die letzten Einträge — und die sind auf keinem
+// anderen Weg erreichbar, denn Zoomen hilft dort per Definition nicht. Der
+// Ausweg aus der Sackgasse wäre selbst eine.
+//
+// Die Hälfte lässt unter der 85-%-Grenze des Sheets genug für Griff, Titel,
+// den angehefteten Knopf und das Fusspolster — auch auf dem kleinsten Gerät
+// (667 pt: 334 + 44 + 16 + 52 + 32 = 478 von 567 möglichen). Exportiert,
+// damit karte.test.tsx denselben Anteil prüft, statt eine zweite Zahl zu
+// raten (gleiches Vorgehen wie MAX_HOEHE_ANTEIL in Sheet.tsx).
+export const SHEET_SCROLL_ANTEIL = 0.5;
+
+// Der scrollende Bereich eines Sheets. Beide Sheets dieses Screens benutzen
+// ihn: die Liste einer Gruppe, weil sie beliebig lang werden kann, und der
+// einzelne Moment, weil Bild (3:2), Ort und Caption bei grosser Systemschrift
+// zusammen höher werden als das Sheet — dort bliebe sonst ausgerechnet der
+// Primär-Button unerreichbar. Er steht deshalb AUSSERHALB dieses Bereichs
+// und bleibt stehen, während der Inhalt darüber scrollt.
+function SheetScroll({ testID, children }: { testID: string; children: ReactNode }) {
+  const { height: fensterHoehe } = useWindowDimensions();
+  return (
+    <ScrollView
+      testID={testID}
+      style={{ maxHeight: fensterHoehe * SHEET_SCROLL_ANTEIL }}
+      // Den Abstand zwischen den Kindern hielt vorher `Sheet` selbst
+      // (styles.inhalt, `gap`) — innerhalb der ScrollView gilt er nicht mehr,
+      // also steht er hier, mit demselben Wert.
+      contentContainerStyle={styles.scrollInhalt}
+    >
+      {children}
+    </ScrollView>
+  );
+}
+
 // «Mira · 14:32» (Spec §5.7). Die Uhrzeit läuft über dieselbe Formatierung wie
 // im Player und an der Nadel (features/recap/uhrzeit.ts): sie zeigt die Zeit
 // in `captured_tz` — die Uhrzeit von damals vor Ort, nicht die auf die
@@ -85,29 +138,34 @@ function MomentSheetInhalt({
   const { moment } = punkt;
   return (
     <>
-      <View style={[styles.sheetBild, { backgroundColor: colors['bg-1'] }]}>
-        {/* Ohne brauchbare URL bleibt die ruhige bg-1-Fläche stehen — kein
-            Puls: es kommt nichts mehr (gleiche Unterscheidung wie im
-            Nadel-Skelett, KartenNadel.tsx). */}
-        {bildUrl !== null && (
-          <Image
-            testID="sheet-bild"
-            source={{ uri: bildUrl }}
-            style={StyleSheet.absoluteFill}
-            contentFit="cover"
-            transition={motion.duration.fast}
-          />
-        )}
-      </View>
-      <View style={styles.sheetText}>
-        <Text style={[type.secondary, { color: colors['text-2'] }]}>{autorUndZeit(moment)}</Text>
-        {moment.place_name ? (
-          <Text style={[type.bodyMedium, { color: colors['text-1'] }]}>{moment.place_name}</Text>
-        ) : null}
-        {moment.caption ? (
-          <Text style={[type.body, { color: colors['text-1'] }]}>{moment.caption}</Text>
-        ) : null}
-      </View>
+      {/* Bild und Text scrollen, der Knopf bleibt: bei grosser Systemschrift
+          reichen Bild (3:2), Ort und Caption sonst über die Unterkante des
+          Sheets hinaus, und «Im Recap ansehen» wäre nicht mehr zu erreichen. */}
+      <SheetScroll testID="moment-inhalt">
+        <View style={[styles.sheetBild, { backgroundColor: colors['bg-1'] }]}>
+          {/* Ohne brauchbare URL bleibt die ruhige bg-1-Fläche stehen — kein
+              Puls: es kommt nichts mehr (gleiche Unterscheidung wie im
+              Nadel-Skelett, KartenNadel.tsx). */}
+          {bildUrl !== null && (
+            <Image
+              testID="sheet-bild"
+              source={{ uri: bildUrl }}
+              style={StyleSheet.absoluteFill}
+              contentFit="cover"
+              transition={motion.duration.fast}
+            />
+          )}
+        </View>
+        <View style={styles.sheetText}>
+          <Text style={[type.secondary, { color: colors['text-2'] }]}>{autorUndZeit(moment)}</Text>
+          {moment.place_name ? (
+            <Text style={[type.bodyMedium, { color: colors['text-1'] }]}>{moment.place_name}</Text>
+          ) : null}
+          {moment.caption ? (
+            <Text style={[type.body, { color: colors['text-1'] }]}>{moment.caption}</Text>
+          ) : null}
+        </View>
+      </SheetScroll>
       <Button variant="primary" label="Im Recap ansehen" onPress={() => onAnsehen(punkt)} />
     </>
   );
@@ -124,43 +182,88 @@ function GruppenSheetInhalt({
   urls: ReadonlyMap<string, MedienUrl>;
   onAnsehen: (punkt: KartenPunkt) => void;
 }) {
-  const { colors } = useTheme();
   return (
-    <>
-      {punkte.map((p) => {
-        const thumb = nadelBild(urls, p.moment.id);
-        return (
-          <PressScale
-            key={p.moment.id}
-            scaleTo={0.98}
-            accessibilityRole="button"
-            // Wortgleich zur Beschriftung der einzelnen Nadel
-            // (KartenNadel.tsx): derselbe Moment, derselbe Weg.
-            accessibilityLabel={`Moment von ${p.moment.autor_name} um ${zeitInZone(p.moment.captured_at, p.moment.captured_tz)} öffnen`}
-            testID={`gruppe-eintrag-${p.moment.id}`}
-            onPress={() => onAnsehen(p)}
-          >
-            <View style={styles.eintrag}>
-              {/* Klein und quadratisch: Radius 12 ist der Thumbnail-Wert
-                  (DESIGN-LANGUAGE §3), 24 gehört dem grossen Bild oben. */}
-              <View style={[styles.eintragBild, { backgroundColor: colors['bg-1'] }]}>
-                {thumb !== null && (
-                  <Image source={{ uri: thumb }} style={StyleSheet.absoluteFill} contentFit="cover" />
-                )}
-              </View>
-              <View style={styles.eintragText}>
-                <Text style={[type.bodyMedium, { color: colors['text-1'] }]}>{autorUndZeit(p.moment)}</Text>
-                {p.moment.caption ? (
-                  <Text numberOfLines={1} style={[type.secondary, { color: colors['text-2'] }]}>
-                    {p.moment.caption}
-                  </Text>
-                ) : null}
-              </View>
-            </View>
-          </PressScale>
-        );
-      })}
-    </>
+    // Die Liste scrollt (siehe SheetScroll): auf einem Fleck können beliebig
+    // viele Momente liegen — `ortBestimmen` fragt ohne Optionen nach der
+    // Position (features/moments/ortUndZeit.ts), und zwei Aufnahmen kurz
+    // nacheinander bekommen regelmässig denselben Fix bitgleich zurück.
+    <SheetScroll testID="gruppe-liste">
+      {punkte.map((p, stelle) => (
+        <GruppenEintrag
+          key={p.moment.id}
+          punkt={p}
+          thumbUrl={nadelBild(urls, p.moment.id)}
+          stelle={stelle}
+          onAnsehen={onAnsehen}
+        />
+      ))}
+    </SheetScroll>
+  );
+}
+
+// Eine Zeile der Liste. Eigene Komponente, weil jede ihre eigene Einblendung
+// mitbringt: DESIGN-LANGUAGE §5 verlangt für Listen einen Stagger von 40 ms,
+// und der braucht pro Zeile einen eigenen Animated.Value.
+function GruppenEintrag({
+  punkt, thumbUrl, stelle, onAnsehen,
+}: {
+  punkt: KartenPunkt;
+  thumbUrl: string | null;
+  stelle: number;
+  onAnsehen: (punkt: KartenPunkt) => void;
+}) {
+  const { colors } = useTheme();
+  const reducedMotion = useReducedMotion();
+  // `useState` mit Initialisierer statt `useRef(...).current` wie in den
+  // Nachbardateien: beides erzeugt den Wert genau einmal, aber das Lesen eines
+  // Refs beim Rendern ist ein Lint-Fehler (react-hooks/refs) — hier neu
+  // geschriebener Code, also gleich in der Form, die stehen bleiben kann.
+  const [opacity] = useState(() => new Animated.Value(0));
+  const { moment } = punkt;
+
+  useEffect(() => {
+    // §5: mit Reduced Motion wird alles zu einem 200-ms-Fade — die Zeilen
+    // erscheinen dann gemeinsam, ohne Staffelung. Nur `opacity` wird bewegt,
+    // also läuft die Animation auf dem UI-Thread.
+    Animated.timing(opacity, {
+      toValue: 1,
+      duration: reducedMotion ? REDUZIERTE_DAUER_MS : motion.duration.base,
+      delay: reducedMotion ? 0 : stelle * STAGGER_MS,
+      easing: Easing.bezier(...motion.easeSmooth),
+      useNativeDriver: true,
+    }).start();
+  }, [opacity, reducedMotion, stelle]);
+
+  return (
+    <Animated.View style={{ opacity }}>
+      <PressScale
+        scaleTo={0.98}
+        accessibilityRole="button"
+        // Wortgleich zur Beschriftung der einzelnen Nadel
+        // (KartenNadel.tsx): derselbe Moment, derselbe Weg.
+        accessibilityLabel={`Moment von ${moment.autor_name} um ${zeitInZone(moment.captured_at, moment.captured_tz)} öffnen`}
+        testID={`gruppe-eintrag-${moment.id}`}
+        onPress={() => onAnsehen(punkt)}
+      >
+        <View style={styles.eintrag}>
+          {/* Klein und quadratisch: Radius 12 ist der Thumbnail-Wert
+              (DESIGN-LANGUAGE §3), 24 gehört dem grossen Bild oben. */}
+          <View style={[styles.eintragBild, { backgroundColor: colors['bg-1'] }]}>
+            {thumbUrl !== null && (
+              <Image source={{ uri: thumbUrl }} style={StyleSheet.absoluteFill} contentFit="cover" />
+            )}
+          </View>
+          <View style={styles.eintragText}>
+            <Text style={[type.bodyMedium, { color: colors['text-1'] }]}>{autorUndZeit(moment)}</Text>
+            {moment.caption ? (
+              <Text numberOfLines={1} style={[type.secondary, { color: colors['text-2'] }]}>
+                {moment.caption}
+              </Text>
+            ) : null}
+          </View>
+        </View>
+      </PressScale>
+    </Animated.View>
   );
 }
 
@@ -206,11 +309,25 @@ export default function RecapKarte() {
   // Zustände leert), und ein stehen gebliebenes Sheet zeigte danach einen
   // Moment der VORHERIGEN Reise — sein Knopf schickte den Player mit deren
   // Index in die neue, wo dieselbe Zahl auf einen ganz anderen Moment zeigt.
-  // Abgeleitet statt im Ladeweg zurückgesetzt: ein `setState` im Effektkörper
-  // löst eine zweite Renderrunde aus (react-hooks/set-state-in-effect), und
-  // eines im `.then()` käme zu spät — das falsche Sheet stünde bis dahin da.
   const [sheet, setSheet] = useState<{ tripId: string; punkte: KartenPunkt[] } | null>(null);
-  const sheetPunkte = sheet !== null && sheet.tripId === id ? sheet.punkte : null;
+
+  // Zurückgesetzt BEIM RENDERN — das dokumentierte React-Muster für «Zustand
+  // beim Wechsel einer Prop verwerfen». React verwirft die Ausgabe dieses
+  // Durchlaufs und rendert sofort neu, es wird also nie ein fremdes Sheet
+  // sichtbar.
+  //
+  // Ein `setState` im Effektkörper wäre ein Lint-Verstoss
+  // (react-hooks/set-state-in-effect) und eines im `.then()` käme zu spät.
+  // Und bloss zu VERSTECKEN (den Zustand stehen lassen und beim Ableiten
+  // vergleichen) reicht nicht: bei t1 → t2 → t1 auf derselben Instanz passte
+  // die Reise-id wieder, und ein Sheet öffnete sich mitsamt seiner
+  // Eintrittsanimation, das niemand angetippt hat — mit einem Index aus dem
+  // früheren Ladevorgang, der inzwischen auf einen anderen Moment zeigen kann.
+  //
+  // Kein zusätzlicher Vergleich beim Ableiten: er wäre nie zu beobachten, weil
+  // die Ausgabe dieses Durchlaufs ohnehin verworfen wird.
+  if (sheet !== null && sheet.tripId !== id) setSheet(null);
+  const sheetPunkte = sheet?.punkte ?? null;
 
   useEffect(() => {
     let aktiv = true;
@@ -553,6 +670,9 @@ const styles = StyleSheet.create({
   // Enger als der Abstand, den das Sheet zwischen seinen Kindern hält: die
   // drei Zeilen gehören zusammen (4er-Raster, §3).
   sheetText: { gap: spacing.xs },
+  // Derselbe Abstand, den `Sheet` zwischen seinen eigenen Kindern hält — er
+  // gilt innerhalb der ScrollView nicht mehr weiter.
+  scrollInhalt: { gap: spacing.base },
   eintrag: { flexDirection: 'row', alignItems: 'center', gap: spacing.m },
   eintragBild: { width: 56, height: 56, borderRadius: radius.control, overflow: 'hidden' },
   // `flex: 1` nimmt den Rest der Zeile — ohne das schöbe eine lange Caption
