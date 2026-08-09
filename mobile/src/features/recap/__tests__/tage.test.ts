@@ -14,6 +14,8 @@ function moment(overrides: Partial<RecapMoment>): RecapMoment {
     captured_at: '2026-08-01T10:00:00.000Z',
     captured_tz: 'Europe/Zurich',
     place_name: null,
+    lat: null,
+    lng: null,
     upload_status: 'uploaded',
     autor_name: 'Lea',
     ...overrides,

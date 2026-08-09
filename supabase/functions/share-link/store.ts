@@ -73,6 +73,11 @@ type PostMitProfil = {
   captured_at: string;
   captured_tz: string;
   place_name: string | null;
+  // double precision in Postgres (20260803090100_content_tables.sql), also
+  // number in JSON — und nullable, weil ein Moment ohne Ortsfreigabe der
+  // Normalfall ist.
+  lat: number | null;
+  lng: number | null;
   caption: string | null;
   duration_s: number | null;
   profiles: { display_name: string } | null;
@@ -154,7 +159,7 @@ export function erstelleShareStore(supabaseAdmin: AdminClient): ShareStore {
       const { data, error, count } = await supabaseAdmin
         .from('posts')
         .select(
-          'id, type, media_ext, storage_key, thumb_key, captured_at, captured_tz, place_name, caption, duration_s, profiles!posts_author_id_fkey(display_name)',
+          'id, type, media_ext, storage_key, thumb_key, captured_at, captured_tz, place_name, lat, lng, caption, duration_s, profiles!posts_author_id_fkey(display_name)',
           mitZaehlung ? { count: 'exact' } : undefined,
         )
         .eq('trip_id', tripId)
@@ -175,6 +180,8 @@ export function erstelleShareStore(supabaseAdmin: AdminClient): ShareStore {
         captured_at: z.captured_at,
         captured_tz: z.captured_tz,
         place_name: z.place_name,
+        lat: z.lat,
+        lng: z.lng,
         caption: z.caption,
         duration_s: z.duration_s,
         autor_name: z.profiles?.display_name ?? null,

@@ -39,6 +39,27 @@ const WISCH_GESCHWINDIGKEIT_SCHWELLE = 0.5;
 // denselben Anteil prüft statt eine zweite, potenziell abweichende Zahl zu raten.
 export const MAX_HOEHE_ANTEIL = 0.85;
 
+// Wie viel Fensterhöhe der SCROLLENDE Teil eines Sheet-Inhalts höchstens
+// einnimmt.
+//
+// Der Wert steht hier und nicht bei einem der Screens, weil er aus DIESER
+// Datei folgt: das Panel oben deckelt sich bei 85 % und schneidet den Überhang
+// hart ab (`overflow: hidden`). Ein Inhalt, der ungedeckelt mitwächst, verliert
+// dadurch seine letzten Zeilen ersatzlos — bei einer Liste von Momenten auf
+// einem Fleck ausgerechnet die, die auf keinem anderen Weg erreichbar sind.
+//
+// Die Hälfte lässt unter der 85-%-Grenze genug für Griff, Titel, einen
+// angehefteten Knopf und das Fusspolster — auch auf dem kleinsten Gerät
+// (667 pt: 334 + 44 + 16 + 52 + 32 = 478 von 567 möglichen).
+//
+// Benutzt von recap/[id]/karte.tsx und teilen/[token].tsx. Bis zur
+// Merge-Fixrunde stand die Zahl zweimal da; der Screen exportierte sie
+// ausdrücklich, «statt eine zweite Zahl zu raten» — der geteilte Recap kann
+// ihn aber nicht importieren, ohne recapApi/urlVorrat/tripsApi in seinen
+// Modulgraph zu ziehen (teilen/__tests__/modulgraph.test.ts verbietet genau
+// das). Also dorthin, wo die Begründung ohnehin herkommt.
+export const SHEET_SCROLL_ANTEIL = 0.5;
+
 // Reine Entscheidung, ohne PanResponder/Animated drumherum — so bleibt sie ohne
 // simulierte Touch-Events direkt testbar (gleiches Prinzip wie queueLogic.ts:
 // Entscheidung von Mechanik getrennt).

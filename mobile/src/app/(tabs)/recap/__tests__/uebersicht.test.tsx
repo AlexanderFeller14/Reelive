@@ -117,6 +117,20 @@ const VORRAT_OK = {
 
 const wrap = () => render(<ThemeProvider><RecapUebersicht /></ThemeProvider>);
 
+// Ein Ladeweg, der sauber durchläuft, aber nichts Sichtbares liefert — für
+// alle Tests, in denen es nicht um die Kacheln geht, sondern um das, was
+// unabhängig von ihnen im Kopf des Screens steht (Teilen-Knopf, Segment-Zeile).
+// Modulweit statt zweimal lokal: zwei Kopien liefen irgendwann auseinander,
+// und beide Blöcke wollen exakt denselben Zustand.
+const leererLadeErfolg = () => {
+  (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: [], error: null });
+  (holeVorrat as jest.Mock).mockResolvedValue({
+    vorrat: { urls: new Map(), gueltigBis: Date.now() + 999_999, ausgelassen: 0 },
+    error: null,
+    grund: null,
+  });
+};
+
 beforeEach(() => {
   jest.clearAllMocks();
   mockKannZurueck = true;
@@ -341,15 +355,6 @@ test('ohne Rückweg im Stapel führt der Zurück-Pfeil per replace zur Liste', a
 // (Brief, wörtlich). `trip` (Fixture oben) ist bereits status:'revealed',
 // owner_id:'u1'; mockAuth.userId startet ebenfalls bei 'u1' (beforeEach).
 describe('«Recap teilen»: nur Owner-Person, nur bei revealed', () => {
-  const leererLadeErfolg = () => {
-    (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: [], error: null });
-    (holeVorrat as jest.Mock).mockResolvedValue({
-      vorrat: { urls: new Map(), gueltigBis: Date.now() + 999_999, ausgelassen: 0 },
-      error: null,
-      grund: null,
-    });
-  };
-
   test('die Owner-Person sieht den Teilen-Knopf bei einer aufgedeckten Reise', async () => {
     leererLadeErfolg();
     await wrap();
@@ -560,5 +565,69 @@ describe('«Alle sichern»', () => {
     expect(screen.queryByTestId('export-bilanz')).toBeNull();
     // Kein zweiter Aufruf durch das Schliessen selbst ausgelöst.
     expect(sichereAlleInGalerie).toHaveBeenCalledTimes(1);
+  });
+});
+
+// Task 11 / Spec §5.1: die Segment-Zeile ist der EINZIGE Ort, an dem die Karte
+// überhaupt auftaucht — es gibt keinen Tab, keinen zweiten Knopf, keinen
+// anderen Weg dorthin. Damit entscheidet allein diese Zeile darüber, ob die
+// Karte erreichbar ist.
+describe('Segment-Zeile «Nach Tagen» / «Auf der Karte»', () => {
+  test('eine aufgedeckte Reise bietet beide Lesarten an', async () => {
+    leererLadeErfolg();
+    await wrap();
+    expect(await screen.findByText('Auf der Karte')).toBeTruthy();
+    expect(screen.getByText('Nach Tagen')).toBeTruthy();
+  });
+
+  test('ein Tipp führt zur Karte DIESER Reise', async () => {
+    leererLadeErfolg();
+    await wrap();
+    await fireEvent.press(await screen.findByText('Auf der Karte'));
+    expect(mockPush).toHaveBeenCalledWith({
+      pathname: '/recap/[id]/karte',
+      params: { id: 't1' },
+    });
+  });
+
+  // DER Kernfall dieses Tasks (Spec K10, R3): eine Karte der laufenden Reise
+  // würde verraten, wo die anderen gerade waren — genau das, was die
+  // Versiegelung verhindert. Serverseitig ist es erzwungen
+  // (`posts_select_revealed_members` lässt Mitglieder erst bei status in
+  // ('revealed','archived') lesen), der Client darf den Weg trotzdem gar nicht
+  // erst anbieten.
+  test('eine noch versiegelte Reise (status "active") bietet die Karte nicht an', async () => {
+    (fetchTrip as jest.Mock).mockResolvedValue({ data: { ...trip, status: 'active' as const }, error: null });
+    leererLadeErfolg();
+    await wrap();
+    await screen.findByText('Lissabon Städtetrip');
+    expect(screen.queryByText('Auf der Karte')).toBeNull();
+    // Und zwar fehlt die ganze ZEILE, nicht bloss die zweite Pille (Spec §5.1,
+    // wörtlich: «gibt es die Zeile nicht»): eine einzelne, unangetastete
+    // «Nach Tagen»-Pille wäre ein Segment-Control mit genau einem Segment —
+    // sie behauptete eine Wahl, die es hier nicht gibt.
+    expect(screen.queryByText('Nach Tagen')).toBeNull();
+  });
+
+  // Spec §5.1, wörtlich: «Für `revealed` und `archived` gibt es sie.» Eine
+  // archivierte Reise ist aufgedeckt und bleibt es — sie zu archivieren nimmt
+  // niemandem das Recht, den eigenen Recap zu lesen (dieselbe Grenze zieht die
+  // Server-Policy: status in ('revealed','archived')).
+  test('eine archivierte Reise bietet die Karte weiterhin an', async () => {
+    (fetchTrip as jest.Mock).mockResolvedValue({ data: { ...trip, status: 'archived' as const }, error: null });
+    leererLadeErfolg();
+    await wrap();
+    expect(await screen.findByText('Auf der Karte')).toBeTruthy();
+    expect(screen.getByText('Nach Tagen')).toBeTruthy();
+  });
+
+  // Die Zeile hängt an der Reise, nicht an der Owner-Rolle (anders als
+  // «Recap teilen» darüber): jedes Mitglied liest denselben Recap, und die
+  // Karte ist nur eine zweite Lesart davon.
+  test('auch eine NICHT-Owner-Person sieht die Karte', async () => {
+    mockAuth.userId = 'jemand-anders';
+    leererLadeErfolg();
+    await wrap();
+    expect(await screen.findByText('Auf der Karte')).toBeTruthy();
   });
 });

@@ -221,6 +221,8 @@ type AufloesungsAntwort = {
     captured_at: string;
     captured_tz: string;
     place_name: string | null;
+    lat: number | null;
+    lng: number | null;
     caption: string | null;
     duration_s: number | null;
     medium_url: string;
@@ -266,6 +268,12 @@ Deno.test({
             captured_at: '2026-01-01T08:00:00+01:00',
             captured_tz: 'Europe/Zurich',
             place_name: 'Zürich',
+            // A trägt Koordinaten, C (weiter unten) nicht — damit zeigt EIN
+            // Durchgang beide Richtungen: dass lat/lng wirklich aus der
+            // Select-Liste kommen, und dass ein Moment ohne Ort trotzdem in
+            // der Filmrolle steht.
+            lat: 47.3769,
+            lng: 8.5417,
             caption: 'Der erste Moment',
           }),
         }),
@@ -410,6 +418,16 @@ Deno.test({
       assertEquals(eintragA.place_name, 'Zürich');
       assertEquals(eintragA.captured_tz, 'Europe/Zurich');
       assertEquals(eintragA.duration_s, null);
+      // Spec R4: der geteilte Recap zeigt dieselbe Karte wie die App. Nur
+      // hier lässt sich prüfen, dass die zwei Spalten die echte
+      // PostgREST-Abfrage überhaupt verlassen — aufloesung_test.ts sieht die
+      // Select-Liste nicht.
+      assertEquals(eintragA.lat, 47.3769);
+      assertEquals(eintragA.lng, 8.5417);
+      // Und C, ohne Ortsfreigabe eingesendet: null, aber vorhanden. Ein
+      // Moment ohne Ort darf nicht aus dem Recap fallen.
+      assertEquals(antwort.medien[1].lat, null);
+      assertEquals(antwort.medien[1].lng, null);
       assertEquals(antwort.medien[1].thumb_url, null);
       assertFalse(antwort.medien[1].medium_url.includes('null'));
 

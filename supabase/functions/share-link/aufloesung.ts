@@ -164,6 +164,17 @@ export type MomentZeile = {
   captured_at: string;
   captured_tz: string;
   place_name: string | null;
+  // Seit Phase 7 Teil der öffentlichen Antwort (Spec R4, Entscheid des
+  // Users): der geteilte Recap zeigt dieselbe Karte wie die App. Das ist der
+  // einzige Weg, auf dem Koordinaten an Menschen ohne Konto gelangen — sie
+  // gehen nur hinter einem bestandenen `beurteileToken` heraus.
+  //
+  // Beide Spalten sind nullable, und `null` ist der NORMALFALL, kein Fehler:
+  // ortBestimmen() liefert bewusst nichts, wenn die Ortungsdienste nicht
+  // erlaubt sind, drinnen kein Fix zustande kommt oder die Frist abläuft. Der
+  // Moment wird trotzdem eingesendet und muss darum auch hier stehen bleiben.
+  lat: number | null;
+  lng: number | null;
   caption: string | null;
   duration_s: number | null;
   // Schon aus dem PostgREST-Embed geflacht (store.ts). Der Autorenname gehört
@@ -245,10 +256,12 @@ export type OeffentlicheReise = {
   end_date: string;
 };
 
-// Genau die zehn Felder aus dem Interface-Vertrag (Plan Task 2). thumb_url ist
-// hier `string | null` und nicht optional wie in media-urls: ein Feld, das nur
-// manchmal auftaucht, wird beim Bauen des Players übersehen und fehlt dann
-// genau dann, wenn es gebraucht wird.
+// Genau die zwölf Felder aus dem Interface-Vertrag (Plan Task 2, seit Phase 7
+// um lat/lng erweitert). thumb_url ist hier `string | null` und nicht optional
+// wie in media-urls: ein Feld, das nur manchmal auftaucht, wird beim Bauen des
+// Players übersehen und fehlt dann genau dann, wenn es gebraucht wird. Aus
+// demselben Grund sind auch lat/lng nicht optional, sondern `number | null` —
+// «kein Ort» ist eine Aussage, «Feld fehlt» ist keine.
 export type OeffentlicherMoment = {
   post_id: string;
   autor_name: string;
@@ -256,6 +269,8 @@ export type OeffentlicherMoment = {
   captured_at: string;
   captured_tz: string;
   place_name: string | null;
+  lat: number | null;
+  lng: number | null;
   caption: string | null;
   duration_s: number | null;
   medium_url: string;
@@ -332,6 +347,12 @@ export async function baueMedien(
         captured_at: zeile.captured_at,
         captured_tz: zeile.captured_tz,
         place_name: zeile.place_name,
+        // Unverändert durchgereicht, auch als null. Kein `?? 0` und kein
+        // Auslassen des Moments: eine 0/0-Koordinate setzte eine Nadel in den
+        // Golf von Guinea, ein Auslassen liesse den Moment aus der Filmrolle
+        // verschwinden. Die Karte lässt die Nadel weg, nicht den Moment.
+        lat: zeile.lat,
+        lng: zeile.lng,
         caption: zeile.caption,
         duration_s: zeile.duration_s,
         medium_url: await signiere(abgeleitet.storage_key),

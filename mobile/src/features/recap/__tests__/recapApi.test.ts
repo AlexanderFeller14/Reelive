@@ -67,6 +67,27 @@ describe('fetchRecapMomente', () => {
     expect(eq).toHaveBeenCalledWith('trip_id', 't1');
   });
 
+  test('fetchRecapMomente fragt lat und lng mit ab', async () => {
+    const { select } = postsKette({ data: [], error: null });
+    await fetchRecapMomente('t1');
+    const spalten = select.mock.calls[0][0] as string;
+    expect(spalten).toContain('lat');
+    expect(spalten).toContain('lng');
+    // Der Fremdschlüsselname bleibt zwingend — ohne ihn liefert PostgREST
+    // HTTP 300 und der gesamte Recap ist leer (siehe Kommentar in recapApi.ts).
+    expect(spalten).toContain('profiles!posts_author_id_fkey(display_name)');
+  });
+
+  test('fetchRecapMomente reicht lat/lng durch', async () => {
+    postsKette({
+      data: [zeile({ place_name: 'Alfama', lat: 38.7139, lng: -9.1301 })],
+      error: null,
+    });
+    const { data } = await fetchRecapMomente('t1');
+    expect(data[0].lat).toBe(38.7139);
+    expect(data[0].lng).toBe(-9.1301);
+  });
+
   test('sortiert das Ergebnis über tage.sortiereMomente — nicht bloss über die DB-Reihenfolge', async () => {
     postsKette({
       data: [

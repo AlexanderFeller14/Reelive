@@ -25,6 +25,10 @@
 //   5. Die Antwort trägt GENAU die Felder des Vertrags. Reaktionen,
 //      Kommentare, Mitglieder, invite_code und author_id sind nicht dabei,
 //      auch dann nicht, wenn sie in den Eingabezeilen stehen.
+//   6. Seit Phase 7 gehören lat/lng dazu (Spec R4): sie gehen unverändert
+//      durch, `null` bleibt `null`, und ein Moment ohne Ort verschwindet
+//      nicht. Dass sie NUR hinter einem bestandenen Urteil herausgehen,
+//      hängt an Punkt 1 — deshalb steht dort die Aussage dazu.
 
 import { assert, assertEquals, assertFalse } from 'jsr:@std/assert';
 import {
@@ -188,6 +192,21 @@ Deno.test('aufloesen: eine Token-Zeile ohne Reise wird abgelehnt statt durchgela
   assertEquals(alsHttpAntwort(beurteileToken(gueltigeZeile(), null, JETZT)), alsHttpAntwort(LINK_ABLEHNUNG));
 });
 
+Deno.test('aufloesen: ein widerrufener Link kommt nie bis zu den Koordinaten', () => {
+  // K15. Prüft keine neue Logik, sondern nagelt die REIHENFOLGE fest: seit
+  // Phase 7 tragen die Momente lat/lng (Spec R4), und dies ist der einzige
+  // Weg, auf dem Koordinaten an Menschen ohne Konto gelangen. baueMedien —
+  // und damit jede Koordinate — läuft erst, wenn dieses Urteil `erlaubt`
+  // sagt; ein negatives Urteil lässt in index.ts gar keinen Pfad zur Abfrage
+  // der Momente offen. Widerruf ist der Fall, der zählt: er trifft einen
+  // Link, der die Koordinaten gestern noch zeigen DURFTE.
+  const urteil = beurteileToken(gueltigeZeile({ revoked: true }), REVEALED, JETZT);
+  assertEquals(urteil.erlaubt, false);
+  // Und die Ablehnung bleibt die eine byte-gleiche: dass der Link einmal galt,
+  // steht nicht in der Antwort.
+  assertEquals(alsHttpAntwort(urteil), alsHttpAntwort(LINK_ABLEHNUNG));
+});
+
 // ===========================================================================
 // 3. Blättern über die max_rows-Grenze
 // ===========================================================================
@@ -202,6 +221,12 @@ function momentZeile(id: string, ueberschreibe: Partial<MomentZeile> = {}): Mome
     captured_at: '2026-05-08T08:00:00Z',
     captured_tz: 'Europe/Lisbon',
     place_name: 'Lissabon',
+    // Ohne Ort ist die Grundstellung, nicht der Ausnahmefall: ortBestimmen()
+    // liefert bewusst null, wenn die Ortungsdienste nicht erlaubt sind,
+    // drinnen kein Fix zustande kommt oder die Frist abläuft. Wer Koordinaten
+    // braucht, setzt sie in seinem Testfall ausdrücklich.
+    lat: null,
+    lng: null,
     caption: null,
     duration_s: null,
     autor_name: 'Mira',
@@ -390,6 +415,35 @@ Deno.test('baueMedien: die Endung kommt aus media_ext der Zeile (iOS .mov, Andro
   assertEquals(medien[0].duration_s, 12);
 });
 
+Deno.test('baueMedien: lat und lng gehen unverändert durch', async () => {
+  // Seit Phase 7 zeigt der geteilte Recap dieselbe Karte wie die App (Spec
+  // R4). Geprüft wird der Wert, nicht nur die Anwesenheit des Feldes: eine
+  // vertauschte oder gerundete Koordinate setzt eine Nadel an den falschen
+  // Ort, und ein negativer Längengrad (Lissabon liegt westlich von
+  // Greenwich) ist der Fall, in dem ein Vorzeichenfehler auffiele.
+  const zeile = momentZeile('cccccccc-0000-4000-8000-000000000005', { lat: 38.7139, lng: -9.1301 });
+  const signierer = protokollierenderSignierer();
+  const { medien, ausgelassen } = await baueMedien(TRIP_ID, [zeile], signierer.fn);
+  assertEquals(ausgelassen, 0);
+  assertEquals(medien[0].lat, 38.7139);
+  assertEquals(medien[0].lng, -9.1301);
+});
+
+Deno.test('baueMedien: ein Moment ohne Ort behält null, statt zu verschwinden', async () => {
+  // Der Normalfall, nicht der Sonderfall: ortBestimmen() liefert bewusst
+  // null, wenn die Ortungsdienste nicht erlaubt sind. Der Moment wird
+  // trotzdem eingesendet — und muss darum auch im geteilten Recap stehen.
+  // Ein `filter` auf gesetzte Koordinaten wäre stiller Datenverlust; die
+  // Karte lässt die Nadel weg, die Filmrolle nicht den Moment.
+  const zeile = momentZeile('cccccccc-0000-4000-8000-000000000006', { lat: null, lng: null });
+  const signierer = protokollierenderSignierer();
+  const { medien, ausgelassen } = await baueMedien(TRIP_ID, [zeile], signierer.fn);
+  assertEquals(ausgelassen, 0);
+  assertEquals(medien.length, 1);
+  assertEquals(medien[0].lat, null);
+  assertEquals(medien[0].lng, null);
+});
+
 // ===========================================================================
 // 5. Die Antwortform — der Beleg für das, was NICHT herausgeht
 // ===========================================================================
@@ -459,12 +513,17 @@ Deno.test('die Antwort von aufloesen trägt genau die Felder des Vertrags', asyn
 
   assertEquals(Object.keys(antwort).sort(), ['ausgelassen', 'gueltig_bis', 'medien', 'reise']);
   assertEquals(Object.keys(antwort.reise).sort(), ['end_date', 'name', 'start_date']);
+  // Zwölf Felder seit Phase 7 (vorher zehn): lat und lng sind dazugekommen.
+  // Diese Liste ist die Stelle, an der eine unbeabsichtigt hinzugefügte
+  // Spalte auffällt — auch eine, die harmlos aussieht.
   assertEquals(Object.keys(antwort.medien[0]).sort(), [
     'autor_name',
     'caption',
     'captured_at',
     'captured_tz',
     'duration_s',
+    'lat',
+    'lng',
     'medium_url',
     'place_name',
     'post_id',
