@@ -234,3 +234,14 @@ test('eine Gruppe nennt, was der Tipp tut: heranzoomen', async () => {
   await wrap(<KartenNadelMarker punkt={punkt} thumbUrl="https://x/t.jpg" anzahl={4} />);
   expect(screen.getByLabelText('Auf 4 Momente heranzoomen')).toBeTruthy();
 });
+
+// Und die eine Gruppe, für die das nicht gilt: liegen alle Momente auf exakt
+// derselben Koordinate, trennt sie keine Zoomstufe (features/karte/
+// gruppierung.ts, `aufEinemFleck`) — der Kartenscreen öffnet dort das Sheet
+// mit der Liste. Ohne diese Weiche verspräche das Label einen Zoom, den die
+// Karte nicht einlösen kann, und zwar ausgerechnet denen, die nur das Label
+// haben.
+test('eine Gruppe auf einem Fleck nennt, was der Tipp DORT tut: ansehen', async () => {
+  await wrap(<KartenNadelMarker punkt={punkt} thumbUrl="https://x/t.jpg" anzahl={2} unteilbar />);
+  expect(screen.getByLabelText('2 Momente an diesem Ort ansehen')).toBeTruthy();
+});

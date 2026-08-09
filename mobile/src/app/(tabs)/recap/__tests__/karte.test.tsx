@@ -1,4 +1,6 @@
-import { render, screen, fireEvent, within } from '@testing-library/react-native';
+import { useLayoutEffect } from 'react';
+import { Dimensions, useWindowDimensions } from 'react-native';
+import { act, render, screen, fireEvent, within } from '@testing-library/react-native';
 import { ThemeProvider } from '@/theme/ThemeProvider';
 import { motion, palette } from '@/theme/tokens';
 import type { MedienUrl } from '@/features/recap/urlVorrat';
@@ -11,9 +13,13 @@ const mockBack = jest.fn();
 // von zurueck() überhaupt erreichen — mit einem hart auf `true` verdrahteten
 // canGoBack bliebe er toter Code aus Test-Sicht.
 let mockKannZurueck = true;
+// Ebenfalls steuerbar: der Screen bleibt bei einem Wechsel der Reise gemountet
+// (dieselbe Route, andere id), und was von der vorherigen Reise stehen bleibt,
+// lässt sich nur mit einer wechselnden id prüfen.
+let mockId = 't1';
 jest.mock('expo-router', () => ({
   useRouter: () => ({ push: mockPush, replace: mockReplace, back: mockBack, canGoBack: () => mockKannZurueck }),
-  useLocalSearchParams: () => ({ id: 't1' }),
+  useLocalSearchParams: () => ({ id: mockId }),
 }));
 jest.mock('@/features/recap/recapApi', () => ({ fetchRecapMomente: jest.fn() }));
 jest.mock('@/features/recap/urlVorrat', () => ({ holeVorrat: jest.fn() }));
@@ -64,6 +70,10 @@ jest.mock('expo-haptics', () => ({ selectionAsync: () => mockHaptik() }));
 const mockAnimateToRegion = jest.fn();
 const mockSetRegion = jest.fn();
 const mockTracksVerlauf: { id: unknown; tracks: unknown }[] = [];
+// Der Tipp jeder Nadel, gemerkt beim RENDERN. Der letzte Test dieser Datei
+// braucht ihn, um genau zwischen Commit und passivem Effekt zu tippen — was
+// über `fireEvent` nicht geht, weil dessen `act()` beides zusammen abspielt.
+const mockPressen = new Map<string, () => void>();
 jest.mock('react-native-maps', () => {
   const ReactActual = require('react');
   const { View } = require('react-native');
@@ -80,6 +90,9 @@ jest.mock('react-native-maps', () => {
     default: Karte,
     Marker: (props: Record<string, unknown>) => {
       mockTracksVerlauf.push({ id: props.testID, tracks: props.tracksViewChanges });
+      if (typeof props.onPress === 'function') {
+        mockPressen.set(String(props.testID), props.onPress as () => void);
+      }
       return ReactActual.createElement(View, props, props.children);
     },
     Polyline: (props: Record<string, unknown>) => ReactActual.createElement(View, props),
@@ -98,6 +111,11 @@ function moment(overrides: Partial<{
   lat: number | null;
   lng: number | null;
   upload_status: 'pending' | 'uploaded';
+  // Ab Task 8 im Spiel: das Moment-Sheet zeigt Autor, Ort und Caption an
+  // (Spec §5.7), und jedes der drei muss sich einzeln setzen lassen.
+  autor_name: string;
+  place_name: string | null;
+  caption: string | null;
 }>) {
   return {
     id: 'p0', trip_id: 't1', author_id: 'u1', type: 'photo' as const, duration_s: null, caption: null,
@@ -222,8 +240,15 @@ function tracksSeitDann(id: string): unknown[] {
 beforeEach(() => {
   jest.clearAllMocks();
   mockKannZurueck = true;
+  mockId = 't1';
   mockReduziert = false;
   mockTracksVerlauf.length = 0;
+  mockPressen.clear();
+  // Die Fenstergrösse ist modulweiter Zustand — der letzte Test unten ändert
+  // sie. Ohne dieses Zurücksetzen rechneten alle Tests nach ihm mit einem
+  // anderen Bildschirm, und die Abstände in Bildschirmpunkten (auf denen die
+  // ganze Gruppierung beruht) stimmten nicht mehr.
+  Dimensions.set({ window: URSPRUNGS_FENSTER, screen: URSPRUNGS_SCHIRM });
 });
 
 test('setzt eine Nadel je Moment mit Ort', async () => {
@@ -604,4 +629,240 @@ test('ohne Rückweg im Stapel führt der Zurück-Pfeil auf die Übersicht dieser
   await fireEvent.press(await screen.findByLabelText('Zurück'));
   expect(mockReplace).toHaveBeenCalledWith({ pathname: '/recap/[id]/uebersicht', params: { id: 't1' } });
   expect(mockBack).not.toHaveBeenCalled();
+});
+
+// ---------------------------------------------------------------------------
+// Task 8: das Moment-Sheet und der Sprung in den Player
+// ---------------------------------------------------------------------------
+
+// Ein Moment mit allem, was das Sheet zeigt (Spec §5.7). 13:32 UTC sind in
+// Europe/Lisbon 14:32 — die Uhrzeit muss also aus `captured_tz` kommen und
+// nicht aus der Zeitzone des Testrechners (die ergäbe 15:32 in Zürich, 13:32
+// in UTC). Dieselbe Formatierung wie Player und Nadel: features/recap/uhrzeit.
+const mitAllem = moment({
+  id: 'p1',
+  autor_name: 'Mira',
+  captured_at: '2026-08-10T13:32:00.000Z',
+  place_name: 'Miradouro da Senhora do Monte',
+  caption: 'Angekommen, 28 Grad im Mai',
+});
+
+// Ein Moment OHNE Ort, chronologisch VOR den beiden mit Ort — und das ist der
+// ganze Zweck dieser Zeile. Ohne ihn zählten die Spielliste (in die `start`
+// zeigt) und `punkte` (die Nadeln) zufällig gleich, und kein Test könnte
+// sehen, in welche der beiden Listen der Index gebildet wurde. Mit ihm sind
+// sie um genau eins verschoben: p1 steht in der Spielliste an Stelle 1 und in
+// `punkte` an Stelle 0, p2 an Stelle 2 bzw. 1.
+//
+// p5 (uploaded, ohne URL) und p4 (pending) bleiben in der Liste, damit der
+// Index auch gegen die ROHE Momente-Liste abgegrenzt ist: dort stünde p2 an
+// Stelle 3.
+const ohneOrtFrueh = moment({ id: 'p3', captured_at: '2026-08-10T08:00:00.000Z', lat: null, lng: null });
+const MIT_SHEET_DATEN = [ohneUrlM, ohneOrtFrueh, mitAllem, m2, pendingM];
+
+// Zwei Momente auf EXAKT derselben Koordinate (Task-8-Brief, Schritt 2b). Sie
+// fallen durch keine Zoomstufe auseinander: der Abstand auf dem Bildschirm ist
+// ihre Ausdehnung geteilt durch die sichtbare Spanne, und null bleibt null.
+// Ohne einen Ausweg tippt man hier ins Leere.
+const m2Aufeinander = moment({ id: 'p2', captured_at: '2026-08-10T18:00:00.000Z', lat: 38.71, lng: -9.14 });
+const AUF_EINEM_FLECK = [ohneUrlM, ohneOrtFrueh, mitAllem, m2Aufeinander, pendingM];
+
+test('ein Tipp auf eine einzelne Nadel zeigt den Moment', async () => {
+  ladeErfolg(MIT_SHEET_DATEN);
+  await wrap();
+  await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
+
+  expect(screen.getByText('Angekommen, 28 Grad im Mai')).toBeTruthy();
+  expect(screen.getByText('Miradouro da Senhora do Monte')).toBeTruthy();
+  // Zugleich der Beweis für die Uhrzeit: 14:32 gibt es nur in `captured_tz`.
+  expect(screen.getByText('Mira · 14:32')).toBeTruthy();
+});
+
+// Das Sheet zeigt das Bild gross (3:2, Spec §5.7) — dort gehört das mittlere
+// Bild hin, nicht das 44 Punkte breite Nadel-Thumbnail. Nur an der URL ist zu
+// sehen, welches von beiden genommen wurde.
+test('das Sheet zeigt das mittlere Bild, nicht das Nadel-Thumbnail', async () => {
+  ladeErfolg(MIT_SHEET_DATEN);
+  await wrap();
+  await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
+  expect(screen.getByTestId('sheet-bild').props.source.uri).toBe(bild('p1').medium_url);
+});
+
+// DER wichtigste Test dieses Plans: `start` ist ein INDEX in die sortierte
+// SPIELLISTE des Players (uploaded ∩ Vorrats-URL, player.tsx:503-527), nicht
+// in die Nadeln und nicht in die rohe Momente-Liste. Zeigt er auf den falschen
+// Wert, startet der Player beim falschen Moment — und niemand merkt es, ausser
+// er zählt nach.
+//
+// p2 steht in der Spielliste an Stelle 2, in `punkte` an Stelle 1, in der
+// rohen Liste an Stelle 3. Die 2 ist damit die einzige Zahl, die aus der
+// richtigen Zählung fallen kann.
+test('«Im Recap ansehen» startet den Player bei genau diesem Moment', async () => {
+  ladeErfolg(MIT_SHEET_DATEN);
+  await wrap();
+  await fireEvent.press(await screen.findByTestId('karte-nadel-p2'));
+  await fireEvent.press(screen.getByText('Im Recap ansehen'));
+
+  expect(mockPush).toHaveBeenCalledWith({
+    pathname: '/recap/[id]/player',
+    params: { id: 't1', start: '2' },
+  });
+});
+
+test('das Sheet schliesst, ohne den Screen zu verlassen', async () => {
+  ladeErfolg(MIT_SHEET_DATEN);
+  await wrap();
+  await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
+  await fireEvent.press(screen.getByLabelText('Schliessen'));
+
+  expect(screen.queryByText('Im Recap ansehen')).toBeNull();
+  expect(mockPush).not.toHaveBeenCalled();
+  // Die Karte steht noch da, mit ihren Nadeln — geschlossen wird das Sheet,
+  // nicht der Screen.
+  expect(screen.getByTestId('karte-nadel-p1')).toBeTruthy();
+});
+
+// Schritt 2b: der Ausweg für Gruppen, die sich nicht auflösen lassen.
+test('eine Gruppe, die sich nicht aufzoomen laesst, oeffnet doch ein Sheet', async () => {
+  ladeErfolg(AUF_EINEM_FLECK);
+  await wrap();
+  await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
+
+  expect(screen.getByText('2 Momente an diesem Ort')).toBeTruthy();
+  expect(screen.getAllByTestId(/^gruppe-eintrag/)).toHaveLength(2);
+});
+
+// Die Regel bleibt «erst zoomen»: eine Kamerafahrt, die nichts ausrichtet, ist
+// keine Zutat zum Sheet, sondern ein Ruckler ins Leere — und die
+// selection-Haptik gehört zum Zoom, nicht zum Sheet.
+test('eine Gruppe auf einem Fleck faehrt nicht ins Leere, bevor das Sheet kommt', async () => {
+  ladeErfolg(AUF_EINEM_FLECK);
+  await wrap();
+  await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
+
+  expect(mockAnimateToRegion).not.toHaveBeenCalled();
+  expect(mockSetRegion).not.toHaveBeenCalled();
+  expect(mockHaptik).not.toHaveBeenCalled();
+});
+
+// Jeder Eintrag führt über DENSELBEN Index-Weg in den Player wie ein einzelner
+// Moment (Task-8-Brief, Schritt 2b). Der Index innerhalb der Gruppe wäre hier
+// 1, der in `punkte` ebenfalls 1 — nur die Spielliste ergibt 2.
+test('jeder Eintrag der Gruppe fuehrt an seinen eigenen Platz in der Spielliste', async () => {
+  ladeErfolg(AUF_EINEM_FLECK);
+  await wrap();
+  await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
+  await fireEvent.press(screen.getByTestId('gruppe-eintrag-p2'));
+
+  expect(mockPush).toHaveBeenCalledWith({
+    pathname: '/recap/[id]/player',
+    params: { id: 't1', start: '2' },
+  });
+});
+
+// Ein offenes Sheet gehört zu der Reise, aus der es geöffnet wurde. Bliebe es
+// beim Wechsel stehen, zeigte es einen Moment der vorherigen — und sein Knopf
+// schickte den Player mit DEREN Index in die neue Reise, wo dieselbe Zahl auf
+// einen ganz anderen Moment zeigt. Genau die Art Fehler, die nur auffällt, wenn
+// jemand nachzählt.
+test('ein Wechsel der Reise laesst kein Sheet der vorherigen stehen', async () => {
+  ladeErfolg(MIT_SHEET_DATEN);
+  const { rerender } = await wrap();
+  await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
+  expect(screen.getByText('Im Recap ansehen')).toBeTruthy();
+
+  mockId = 't2';
+  ladeErfolg([m1]);
+  await rerender(<ThemeProvider><RecapKarte /></ThemeProvider>);
+
+  expect(screen.queryByText('Im Recap ansehen')).toBeNull();
+  expect(screen.queryByText('Angekommen, 28 Grad im Mai')).toBeNull();
+});
+
+// Die Beschriftung der Nadel muss dieselbe Weiche kennen wie der Tipp selbst.
+// Wie sie formuliert ist, prüft components/__tests__/KartenNadel.test.tsx —
+// hier hängt sie am richtigen Wert: sonst verspricht die Karte per VoiceOver
+// einen Zoom, den sie nicht einlösen kann, und zwar ausgerechnet denen, die
+// nur das Label haben.
+test('die Nadel einer Gruppe auf einem Fleck kuendigt das Sheet an', async () => {
+  ladeErfolg(AUF_EINEM_FLECK);
+  await wrap();
+  expect(await screen.findByLabelText('2 Momente an diesem Ort ansehen')).toBeTruthy();
+});
+
+test('die Nadel einer aufzoombaren Gruppe kuendigt den Zoom an', async () => {
+  ladeErfolg(NAH_BEIEINANDER);
+  await wrap();
+  expect(await screen.findByLabelText('Auf 2 Momente heranzoomen')).toBeTruthy();
+});
+
+// Und die Gegenprobe, die den Zoom-Weg am Leben hält: wo Zoomen etwas
+// ausrichtet, gibt es kein Sheet — weder die Liste noch den einzelnen Moment.
+test('eine Gruppe, die sich aufzoomen laesst, oeffnet KEIN Sheet', async () => {
+  ladeErfolg(NAH_BEIEINANDER);
+  await wrap();
+  await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
+
+  expect(screen.queryByText(/an diesem Ort/)).toBeNull();
+  expect(screen.queryByText('Im Recap ansehen')).toBeNull();
+});
+
+// ---------------------------------------------------------------------------
+// Task 7, offen gebliebener Punkt: der Tipp direkt nach einer Kamerafahrt
+// ---------------------------------------------------------------------------
+//
+// Der Screen merkt sich den Gruppen-Stand für den nächsten Tipp in einem Ref
+// (`stand`, karte.tsx). Geschrieben wird es in einem LAYOUT-Effekt, nicht in
+// einem passiven: ein passiver läuft erst nach dem Commit, und in dem Fenster
+// dazwischen liest ein Tipp noch den alten Stand. Genau das passiert nach
+// einer Kamerafahrt — die Gruppe ist zerfallen, die neue Nadel steht schon da,
+// und wer sie sofort antippt, wird im alten Stand nicht gefunden: das Sheet
+// bliebe aus, ohne dass irgendwo ein Fehler entstünde.
+//
+// Task 7 konnte das nicht prüfen, weil `fireEvent` sein `act()` mitbringt und
+// dieses am Ende ALLE Effekte abspielt — das Fenster existiert dort nicht.
+// Es existiert aber in der Reihenfolge der Layout-Effekte: React spielt sie in
+// Baumreihenfolge ab, Geschwister von links nach rechts, und ALLE vor dem
+// ersten passiven Effekt. Ein Nachbar, der NACH dem Screen steht und selbst in
+// einem Layout-Effekt tippt, trifft damit exakt den Augenblick, in dem der
+// Screen committet hat und sein passiver Effekt noch aussteht.
+//
+// Ausgelöst wird beides vom selben Ereignis: eine Änderung der Fenstergrösse.
+// Sie geht über `useWindowDimensions` an beide, wird zu einem Render
+// zusammengefasst — und lässt die Gruppe auseinanderfallen, weil in einem
+// grösseren Fenster mehr Bildschirmpunkte auf dasselbe Grad kommen.
+const GROSSES_FENSTER = { width: 3000, height: 5000, scale: 2, fontScale: 1 };
+const URSPRUNGS_FENSTER = Dimensions.get('window');
+const URSPRUNGS_SCHIRM = Dimensions.get('screen');
+
+function Stichler({ nadel }: { nadel: string }) {
+  const { width } = useWindowDimensions();
+  useLayoutEffect(() => {
+    // Erst nach dem Wachsen tippen — beim ersten Rendern gibt es die Nadel
+    // noch gar nicht.
+    if (width !== GROSSES_FENSTER.width) return;
+    mockPressen.get(nadel)?.();
+  }, [width, nadel]);
+  return null;
+}
+
+test('ein Tipp unmittelbar nach dem Zerfall einer Gruppe wird nicht verschluckt', async () => {
+  ladeErfolg(NAH_BEIEINANDER);
+  await render(
+    <ThemeProvider>
+      <RecapKarte />
+      <Stichler nadel="karte-nadel-p2" />
+    </ThemeProvider>
+  );
+  // Vorbedingung: p2 ist noch Mitglied der Gruppe um p1, hat also keine eigene
+  // Nadel — der Tipp unten gilt einer, die es beim Rendern davor nicht gab.
+  await screen.findByTestId('karte-nadel-p1');
+  expect(screen.queryByTestId('karte-nadel-p2')).toBeNull();
+
+  await act(async () => {
+    Dimensions.set({ window: GROSSES_FENSTER, screen: GROSSES_FENSTER });
+  });
+
+  expect(screen.getByTestId('karte-nadel-p2')).toBeTruthy();
+  expect(screen.getByText('Lea · 19:00')).toBeTruthy();
 });

@@ -1,4 +1,4 @@
-import { gruppiere, GRUPPEN_ABSTAND_PT } from '../gruppierung';
+import { aufEinemFleck, gruppiere, GRUPPEN_ABSTAND_PT } from '../gruppierung';
 import type { Ausschnitt, KartenPunkt } from '../typen';
 
 const punkt = (id: string, lat: number, lng: number, index = 0): KartenPunkt =>
@@ -86,4 +86,59 @@ test('ueber die Datumsgrenze hinweg wird richtig gruppiert', () => {
     gewickelt, BREITE, HOEHE
   );
   expect(gruppen).toHaveLength(1);
+});
+
+// ---------------------------------------------------------------------------
+// Task 8, Schritt 2b: Gruppen, die sich nicht aufzoomen lassen
+// ---------------------------------------------------------------------------
+
+// Der Abstand zweier Nadeln auf dem Bildschirm ist ihre geografische
+// Ausdehnung geteilt durch die sichtbare Spanne — und die Spanne halbiert sich
+// mit jedem Tipp (siehe karte.tsx). Bei Ausdehnung null bleibt der Abstand
+// null, durch JEDE Zoomstufe hindurch. Wer so eine Gruppe antippt, tippt sonst
+// ins Leere; der Kartenscreen oeffnet fuer sie stattdessen das Sheet.
+test('eine Gruppe auf exakt einer Koordinate liegt auf einem Fleck', () => {
+  const [gruppe] = gruppiere(
+    [punkt('a', 12.34, 56.78), punkt('b', 12.34, 56.78)],
+    { latitude: 12.34, longitude: 56.78, latitudeDelta: 0.1, longitudeDelta: 0.1 },
+    BREITE, HOEHE
+  );
+  expect(aufEinemFleck(gruppe)).toBe(true);
+});
+
+// Der triviale — und haeufigste — Fall: eine Gruppe aus genau einem Punkt.
+// Auch sie laesst sich nicht aufziehen, und der Kartenscreen fuehrt sie ueber
+// dieselbe Frage ins Sheet wie die deckungsgleichen Momente (karte.tsx). Faele
+// die Antwort hier `false` aus, oeffnete ein Tipp auf eine einzelne Nadel gar
+// nichts mehr.
+test('ein einzelner Punkt liegt auf einem Fleck', () => {
+  const [gruppe] = gruppiere([punkt('a', 0, 0)], AUSSCHNITT, BREITE, HOEHE);
+  expect(aufEinemFleck(gruppe)).toBe(true);
+});
+
+// Der wichtigere Gegenfall: hier RICHTET Zoomen etwas aus. Gaelte diese Gruppe
+// ebenfalls als «auf einem Fleck», oeffnete die Karte ein Sheet, statt sie
+// aufzuziehen — und der Zoom-Weg (Spec §5.5) waere tot.
+test('schon ein Zehntausendstel Grad Unterschied ist kein Fleck mehr', () => {
+  const [gruppe] = gruppiere(
+    [punkt('a', 12.34, 56.78), punkt('b', 12.34, 56.7801)],
+    { latitude: 12.34, longitude: 56.78, latitudeDelta: 0.1, longitudeDelta: 0.1 },
+    BREITE, HOEHE
+  );
+  expect(gruppe.punkte).toHaveLength(2);
+  expect(aufEinemFleck(gruppe)).toBe(false);
+});
+
+// Drei Punkte, von denen zwei deckungsgleich sind: Zoomen loest sehr wohl
+// etwas aus — der dritte loest sich ab. Uebrig bleibt danach eine Gruppe, die
+// wirklich auf einem Fleck liegt, und erst die oeffnet das Sheet. Wuerde hier
+// schon `true` herauskommen, bekaeme man eine Liste angeboten, obwohl die
+// Karte den Fall noch selbst aufloesen kann.
+test('liegen nur ZWEI von drei Punkten aufeinander, ist es kein Fleck', () => {
+  const [gruppe] = gruppiere(
+    [punkt('a', 0, 0), punkt('b', 0, 0), punkt('c', 0.001, 0)],
+    AUSSCHNITT, BREITE, HOEHE
+  );
+  expect(gruppe.punkte).toHaveLength(3);
+  expect(aufEinemFleck(gruppe)).toBe(false);
 });

@@ -190,8 +190,16 @@ export function KartenNadel({ moment, thumbUrl, anzahl = 1, onBereit }: NadelPro
 // lässt, was ein Element tut, bekommt sonst ein Versprechen, das die Karte
 // nicht einlöst. «An diesem Ort» wäre dazu gelogen: gruppiert wird nach 40
 // BILDSCHIRMpunkten, und die sind bei einem Kontinent-Ausschnitt über 150 km.
-function nadelBeschriftung(moment: RecapMoment, anzahl: number): string {
-  if (anzahl > 1) return `Auf ${anzahl} Momente heranzoomen`;
+//
+// `unteilbar` ist die eine Gruppe, für die das nicht gilt: liegen alle
+// Momente auf exakt derselben Koordinate, trennt sie keine Zoomstufe
+// (features/karte/gruppierung.ts, `aufEinemFleck`) — dort öffnet der Tipp das
+// Sheet mit der Liste (Spec §5.7). «An diesem Ort» ist hier, anders als bei
+// einer nach Bildschirmpunkten gebildeten Gruppe, wörtlich wahr.
+function nadelBeschriftung(moment: RecapMoment, anzahl: number, unteilbar: boolean): string {
+  if (anzahl > 1) {
+    return unteilbar ? `${anzahl} Momente an diesem Ort ansehen` : `Auf ${anzahl} Momente heranzoomen`;
+  }
   const uhrzeit = zeitInZone(moment.captured_at, moment.captured_tz);
   return `Moment von ${moment.autor_name} um ${uhrzeit} öffnen`;
 }
@@ -200,6 +208,12 @@ type MarkerProps = {
   punkt: KartenPunkt;
   thumbUrl: string | null;
   anzahl?: number;
+  /**
+   * Eine Gruppe, deren Momente alle auf derselben Koordinate liegen: sie fällt
+   * durch keinen Zoom auseinander. Ändert nur die Beschriftung — was der Tipp
+   * auslöst, entscheidet der Screen (karte.tsx) mit derselben Auskunft.
+   */
+  unteilbar?: boolean;
   /**
    * Tipp auf die Nadel. Bekommt den Punkt zurück, den sie darstellt (bei einer
    * Gruppe deren Anker) — statt eine fertige Aktion einzupacken. Nur so kann
@@ -234,7 +248,7 @@ type MarkerProps = {
 // Koordinaten-Literal unten harmlos — neu gebaut wird es nur noch, wenn sich
 // wirklich eine Eigenschaft geändert hat.
 export const KartenNadelMarker = memo(function KartenNadelMarker({
-  punkt, thumbUrl, anzahl = 1, onPress,
+  punkt, thumbUrl, anzahl = 1, unteilbar = false, onPress,
 }: MarkerProps) {
   const { moment } = punkt;
   const abbild = nadelAbbild(moment, thumbUrl, anzahl);
@@ -249,7 +263,7 @@ export const KartenNadelMarker = memo(function KartenNadelMarker({
   return (
     <Marker
       testID={`karte-nadel-${moment.id}`}
-      accessibilityLabel={nadelBeschriftung(moment, anzahl)}
+      accessibilityLabel={nadelBeschriftung(moment, anzahl, unteilbar)}
       coordinate={{ latitude: punkt.lat, longitude: punkt.lng }}
       tracksViewChanges={fertigesAbbild !== abbild}
       onPress={angetippt}

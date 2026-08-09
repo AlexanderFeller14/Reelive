@@ -1,21 +1,26 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { StyleSheet, useWindowDimensions, View } from 'react-native';
+import { StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import MapView, { Polyline, type Region } from 'react-native-maps';
+import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { ChevronLeft } from 'lucide-react-native';
+import { Button } from '@/components/Button';
 import { KartenNadelMarker } from '@/components/KartenNadel';
 import { Pille } from '@/components/Pille';
 import { PressScale } from '@/components/PressScale';
+import { Sheet } from '@/components/Sheet';
 import { meldeFehler } from '@/lib/fehlermelder';
 import { useTheme } from '@/theme/ThemeProvider';
-import { cinema, motion, radius, spacing } from '@/theme/tokens';
+import { cinema, motion, radius, spacing, type } from '@/theme/tokens';
 import { useOberkante } from '@/theme/useOberkante';
 import { useReducedMotion } from '@/theme/useReducedMotion';
 import { fetchRecapMomente } from '@/features/recap/recapApi';
+import type { RecapMoment } from '@/features/recap/types';
+import { zeitInZone } from '@/features/recap/uhrzeit';
 import { holeVorrat, type MedienUrl } from '@/features/recap/urlVorrat';
 import { ausschnittFuer } from '@/features/karte/ausschnitt';
-import { gruppiere } from '@/features/karte/gruppierung';
+import { aufEinemFleck, gruppiere } from '@/features/karte/gruppierung';
 import { zuKartenPunkten } from '@/features/karte/kartenPunkte';
 import type { Ausschnitt, Gruppe, KartenPunkt } from '@/features/karte/typen';
 
@@ -43,6 +48,120 @@ function nadelBild(urls: ReadonlyMap<string, MedienUrl>, momentId: string): stri
   const url = urls.get(momentId);
   if (!url) return null;
   return brauchbareUrl(url.thumb_url) ?? brauchbareUrl(url.medium_url);
+}
+
+// Das Bild IM SHEET ist gross (3:2, Spec §5.7) — dafür ist das mittlere Bild
+// gedacht, nicht das 44 Punkte breite Nadel-Thumbnail. Die Reihenfolge ist
+// deshalb genau umgekehrt zu `nadelBild`; der Ausweg auf die jeweils andere
+// URL bleibt aus demselben Grund wie dort: `media-urls` lässt je nach Moment
+// die eine oder die andere weg.
+function sheetBild(urls: ReadonlyMap<string, MedienUrl>, momentId: string): string | null {
+  const url = urls.get(momentId);
+  if (!url) return null;
+  return brauchbareUrl(url.medium_url) ?? brauchbareUrl(url.thumb_url);
+}
+
+// «Mira · 14:32» (Spec §5.7). Die Uhrzeit läuft über dieselbe Formatierung wie
+// im Player und an der Nadel (features/recap/uhrzeit.ts): sie zeigt die Zeit
+// in `captured_tz` — die Uhrzeit von damals vor Ort, nicht die auf die
+// Gerätezeit umgerechnete. Eine zweite eigene Formatierung liefe hier
+// unweigerlich irgendwann auseinander.
+function autorUndZeit(moment: RecapMoment): string {
+  return `${moment.autor_name} · ${zeitInZone(moment.captured_at, moment.captured_tz)}`;
+}
+
+// Der einzelne Moment im Sheet (Spec §5.7): Bild 3:2 mit Radius 24
+// (DESIGN-LANGUAGE §3), darunter Autor/Uhrzeit, Ort und Caption — und EIN
+// Primär-Button (§4: genau einer pro Screen; die Liste unten hat deshalb
+// keinen).
+function MomentSheetInhalt({
+  punkt, bildUrl, onAnsehen,
+}: {
+  punkt: KartenPunkt;
+  bildUrl: string | null;
+  onAnsehen: (punkt: KartenPunkt) => void;
+}) {
+  const { colors } = useTheme();
+  const { moment } = punkt;
+  return (
+    <>
+      <View style={[styles.sheetBild, { backgroundColor: colors['bg-1'] }]}>
+        {/* Ohne brauchbare URL bleibt die ruhige bg-1-Fläche stehen — kein
+            Puls: es kommt nichts mehr (gleiche Unterscheidung wie im
+            Nadel-Skelett, KartenNadel.tsx). */}
+        {bildUrl !== null && (
+          <Image
+            testID="sheet-bild"
+            source={{ uri: bildUrl }}
+            style={StyleSheet.absoluteFill}
+            contentFit="cover"
+            transition={motion.duration.fast}
+          />
+        )}
+      </View>
+      <View style={styles.sheetText}>
+        <Text style={[type.secondary, { color: colors['text-2'] }]}>{autorUndZeit(moment)}</Text>
+        {moment.place_name ? (
+          <Text style={[type.bodyMedium, { color: colors['text-1'] }]}>{moment.place_name}</Text>
+        ) : null}
+        {moment.caption ? (
+          <Text style={[type.body, { color: colors['text-1'] }]}>{moment.caption}</Text>
+        ) : null}
+      </View>
+      <Button variant="primary" label="Im Recap ansehen" onPress={() => onAnsehen(punkt)} />
+    </>
+  );
+}
+
+// Die Momente einer Gruppe, die sich nicht auseinanderzoomen lässt (Task-8-
+// Brief, Schritt 2b). Jeder Eintrag führt über denselben Weg in den Player wie
+// ein einzelner Moment — und keiner davon ist ein Primär-Button: es gibt genau
+// einen pro Screen, und den trägt das Moment-Sheet.
+function GruppenSheetInhalt({
+  punkte, urls, onAnsehen,
+}: {
+  punkte: KartenPunkt[];
+  urls: ReadonlyMap<string, MedienUrl>;
+  onAnsehen: (punkt: KartenPunkt) => void;
+}) {
+  const { colors } = useTheme();
+  return (
+    <>
+      {punkte.map((p) => {
+        const thumb = nadelBild(urls, p.moment.id);
+        return (
+          <PressScale
+            key={p.moment.id}
+            scaleTo={0.98}
+            accessibilityRole="button"
+            // Wortgleich zur Beschriftung der einzelnen Nadel
+            // (KartenNadel.tsx): derselbe Moment, derselbe Weg.
+            accessibilityLabel={`Moment von ${p.moment.autor_name} um ${zeitInZone(p.moment.captured_at, p.moment.captured_tz)} öffnen`}
+            testID={`gruppe-eintrag-${p.moment.id}`}
+            onPress={() => onAnsehen(p)}
+          >
+            <View style={styles.eintrag}>
+              {/* Klein und quadratisch: Radius 12 ist der Thumbnail-Wert
+                  (DESIGN-LANGUAGE §3), 24 gehört dem grossen Bild oben. */}
+              <View style={[styles.eintragBild, { backgroundColor: colors['bg-1'] }]}>
+                {thumb !== null && (
+                  <Image source={{ uri: thumb }} style={StyleSheet.absoluteFill} contentFit="cover" />
+                )}
+              </View>
+              <View style={styles.eintragText}>
+                <Text style={[type.bodyMedium, { color: colors['text-1'] }]}>{autorUndZeit(p.moment)}</Text>
+                {p.moment.caption ? (
+                  <Text numberOfLines={1} style={[type.secondary, { color: colors['text-2'] }]}>
+                    {p.moment.caption}
+                  </Text>
+                ) : null}
+              </View>
+            </View>
+          </PressScale>
+        );
+      })}
+    </>
+  );
 }
 
 // Die Karte als zweite Lesart desselben Recaps (Spec §5.2): dieselbe Ebene
@@ -76,6 +195,22 @@ export default function RecapKarte() {
   // Die Bild-URLs bleiben liegen, weil jede Nadel ihr eigenes Thumbnail
   // trägt (Spec §5.4) — nicht nur, um damit zu filtern.
   const [urls, setUrls] = useState<ReadonlyMap<string, MedienUrl>>(KEINE_URLS);
+  // Was das Sheet gerade zeigt, oder `null` für «keines offen». EIN Zustand
+  // für beide Fälle, weil sie dieselbe Frage beantworten («welche Momente
+  // stecken hinter dieser Nadel») und sich gegenseitig ausschliessen: ein Punkt
+  // ist der einzelne Moment (Spec §5.7), mehrere sind die Liste einer Gruppe,
+  // die sich nicht auseinanderzoomen lässt (Task-8-Brief, Schritt 2b).
+  //
+  // Mit der Reise, aus der es geöffnet wurde: der Screen bleibt bei einem
+  // Wechsel der id gemountet (derselbe Grund, aus dem der Ladeweg unten seine
+  // Zustände leert), und ein stehen gebliebenes Sheet zeigte danach einen
+  // Moment der VORHERIGEN Reise — sein Knopf schickte den Player mit deren
+  // Index in die neue, wo dieselbe Zahl auf einen ganz anderen Moment zeigt.
+  // Abgeleitet statt im Ladeweg zurückgesetzt: ein `setState` im Effektkörper
+  // löst eine zweite Renderrunde aus (react-hooks/set-state-in-effect), und
+  // eines im `.then()` käme zu spät — das falsche Sheet stünde bis dahin da.
+  const [sheet, setSheet] = useState<{ tripId: string; punkte: KartenPunkt[] } | null>(null);
+  const sheetPunkte = sheet !== null && sheet.tripId === id ? sheet.punkte : null;
 
   useEffect(() => {
     let aktiv = true;
@@ -208,24 +343,52 @@ export default function RecapKarte() {
   // Stand. Das ist kein theoretischer Fall — die Karte kommt aus einer Fahrt,
   // die Gruppe ist gerade zerfallen, und wer sofort auf die neu erschienene
   // Nadel tippt, wird in den alten Gruppen nicht gefunden (dort war sie
-  // Mitglied, kein Anker). Heute fiele der Tipp nur still aus; ab Task 8 wäre
-  // es ein verschlucktes Moment-Sheet.
+  // Mitglied, kein Anker) — und das Moment-Sheet bliebe aus, ohne dass
+  // irgendwo ein Fehler entstünde. Festgenagelt in karte.test.tsx («ein Tipp
+  // unmittelbar nach dem Zerfall einer Gruppe wird nicht verschluckt»): dort
+  // tippt ein Nachbar aus seinem eigenen Layout-Effekt heraus, also genau in
+  // dem Fenster zwischen Commit und passivem Effekt.
   const stand = useRef<{ gruppen: Gruppe[]; ausschnitt: Ausschnitt | null }>({ gruppen, ausschnitt });
   useLayoutEffect(() => {
     stand.current = { gruppen, ausschnitt };
   }, [gruppen, ausschnitt]);
 
-  // Ein Tipp auf eine Gruppe fährt in sie hinein, statt ein Sheet zu öffnen
-  // (Spec §5.5): wer auf der Karte sucht, will die Karte benutzen.
+  // Ein Tipp auf eine Gruppe fährt in sie hinein, solange das etwas ausrichtet
+  // (Spec §5.5): wer auf der Karte sucht, will die Karte benutzen. Erst wo
+  // Zoomen nichts mehr bringt, öffnet sich das Sheet — siehe unten.
   const aufNadel = useCallback(
     (anker: KartenPunkt) => {
       const { gruppen: aktuelle, ausschnitt: sichtbar } = stand.current;
       const gruppe = aktuelle.find((g) => g.anker === anker);
-      if (!gruppe || !sichtbar) return;
-      // Genau ein Punkt ist keine Gruppe: dorthin führt das Moment-Sheet
-      // (Task 8), keine Kamerafahrt — der Moment soll nicht unter dem Sheet
-      // wegrutschen, während man ihn liest.
-      if (gruppe.punkte.length === 1) return;
+      if (!gruppe) return;
+
+      // Ins Sheet führt EINE Frage: richtet Zoomen hier überhaupt noch etwas
+      // aus? Sie deckt beide Fälle ab, in denen die Antwort nein ist —
+      //
+      // - den häufigen: eine einzelne Nadel. Ein Punkt liegt trivialerweise
+      //   auf einem Fleck, und dort steht der Moment selbst (Spec §5.7). Die
+      //   Karte bewegt sich dabei NICHT: der Moment soll nicht unter dem Sheet
+      //   wegrutschen, während man ihn liest.
+      // - den seltenen: eine Gruppe, deren Momente alle auf derselben
+      //   Koordinate liegen. Sie fällt durch keine Zoomstufe auseinander
+      //   (Begründung in gruppierung.ts); ohne diesen Ausweg tippte man ins
+      //   Leere (Task-8-Brief, Schritt 2b), stattdessen listet das Sheet sie
+      //   auf.
+      //
+      // Bewusst nicht zusätzlich `punkte.length === 1` davorgesetzt: die
+      // Abfrage wäre vom Rest gedeckt und liesse sich ersatzlos streichen,
+      // ohne dass eine Zusicherung fiele — genau die Art Bedingung, die
+      // später niemand mehr prüfen kann.
+      if (aufEinemFleck(gruppe)) {
+        setSheet({ tripId: id, punkte: gruppe.punkte });
+        return;
+      }
+
+      // Unerreichbar, aber für den Typ nötig: `gruppen` wird nur berechnet,
+      // wenn `ausschnitt` steht (siehe useMemo oben), und beide gehen im
+      // selben Zug in `stand`. Ohne Ausschnitt gäbe es also gar keine Nadel,
+      // die getippt werden könnte.
+      if (!sichtbar) return;
 
       const umfasst = ausschnittFuer(gruppe.punkte);
       if (!umfasst) return;
@@ -252,7 +415,24 @@ export default function RecapKarte() {
         longitudeDelta: Math.min(umfasst.longitudeDelta, sichtbar.longitudeDelta / 2),
       });
     },
-    [zeige]
+    [zeige, id]
+  );
+
+  // Der Weg in den Player (Spec §5.7). `punkt.index` zählt über die
+  // SPIELLISTE, die der Ladeweg oben filtert — dieselbe, die der Player
+  // aufbaut, und `parseStartIndex` zählt dort in genau sie (player.tsx:503-527).
+  // Nie der Index innerhalb von `punkte` (der überspringt die Momente ohne
+  // Ort) und nie der innerhalb der Gruppe: beide sässen scheinbar richtig und
+  // starteten den Player beim falschen Moment.
+  //
+  // Das Sheet bleibt dabei bewusst offen: es zu schliessen hiesse, es während
+  // des Übergangs in den Player wegblitzen zu lassen — und wer zurückkommt,
+  // findet die Stelle wieder, an der er war.
+  const zumPlayer = useCallback(
+    (punkt: KartenPunkt) => {
+      router.push({ pathname: '/recap/[id]/player', params: { id, start: String(punkt.index) } });
+    },
+    [router, id]
   );
 
   const zurueck = () => {
@@ -298,6 +478,11 @@ export default function RecapKarte() {
               punkt={g.anker}
               thumbUrl={nadelBild(urls, g.anker.moment.id)}
               anzahl={g.punkte.length}
+              // Dieselbe Auskunft, die `aufNadel` benutzt — damit das Label
+              // für VoiceOver nennt, was der Tipp WIRKLICH tut: heranzoomen
+              // oder das Sheet öffnen. Eine zweite eigene Regel hier liefe
+              // irgendwann gegen die dort.
+              unteilbar={aufEinemFleck(g)}
               onPress={aufNadel}
             />
           ))}
@@ -319,6 +504,34 @@ export default function RecapKarte() {
           <ChevronLeft size={24} color={cinema['text-1']} strokeWidth={1.75} />
         </Pille>
       </PressScale>
+
+      {/* Erst gemountet, wenn es etwas zu zeigen gibt: `Sheet` bringt seine
+          Eintrittsanimation im Effekt mit (spring-ui, DESIGN-LANGUAGE §4), und
+          ein frisch gemountetes Sheet öffnet damit jedes Mal von unten. Die
+          Kinder werden ohnehin vom Elternteil gebaut — ein dauerhaft
+          gemountetes Sheet müsste sie also trotzdem gegen `null` absichern. */}
+      {sheetPunkte !== null && (
+        <Sheet
+          sichtbar
+          // Die Liste bekommt eine Überschrift, der einzelne Moment nicht:
+          // dort ist das Bild der Kopf (Spec §5.7). Mehr als ein Punkt heisst
+          // hier immer «alle auf derselben Koordinate» — «an diesem Ort» ist
+          // also wörtlich wahr, anders als bei einer nach Bildschirmpunkten
+          // gebildeten Gruppe.
+          titel={sheetPunkte.length > 1 ? `${sheetPunkte.length} Momente an diesem Ort` : undefined}
+          onSchliessen={() => setSheet(null)}
+        >
+          {sheetPunkte.length === 1 ? (
+            <MomentSheetInhalt
+              punkt={sheetPunkte[0]}
+              bildUrl={sheetBild(urls, sheetPunkte[0].moment.id)}
+              onAnsehen={zumPlayer}
+            />
+          ) : (
+            <GruppenSheetInhalt punkte={sheetPunkte} urls={urls} onAnsehen={zumPlayer} />
+          )}
+        </Sheet>
+      )}
     </View>
   );
 }
@@ -333,4 +546,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  // Spec §5.7: Bild in 3:2, Radius 24 (DESIGN-LANGUAGE §3, der Cover-Wert).
+  // `overflow: hidden` beschneidet das Bild auf diesen Radius; einen Schatten
+  // trägt es nicht, der gehört dem Sheet darunter.
+  sheetBild: { width: '100%', aspectRatio: 3 / 2, borderRadius: radius.card, overflow: 'hidden' },
+  // Enger als der Abstand, den das Sheet zwischen seinen Kindern hält: die
+  // drei Zeilen gehören zusammen (4er-Raster, §3).
+  sheetText: { gap: spacing.xs },
+  eintrag: { flexDirection: 'row', alignItems: 'center', gap: spacing.m },
+  eintragBild: { width: 56, height: 56, borderRadius: radius.control, overflow: 'hidden' },
+  // `flex: 1` nimmt den Rest der Zeile — ohne das schöbe eine lange Caption
+  // die Zeile über den Rand hinaus, statt in `numberOfLines` abgeschnitten zu
+  // werden.
+  eintragText: { flex: 1, gap: spacing.xs },
 });

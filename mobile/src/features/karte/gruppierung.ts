@@ -60,3 +60,23 @@ export function gruppiere(
 
   return gruppen.map(({ gruppe }) => gruppe);
 }
+
+// Eine Gruppe, die kein Zoom mehr trennen kann (Task-8-Brief, Schritt 2b).
+//
+// Der Abstand zweier Nadeln auf dem Bildschirm ist ihre geografische
+// Ausdehnung geteilt durch die sichtbare Spanne (siehe aufBildschirm oben),
+// und die Spanne wird bei jedem Tipp auf eine Gruppe hoechstens halbiert
+// (karte.tsx). Fuer JEDE Ausdehnung groesser null waechst der Abstand also mit
+// jedem Tipp und ueberschreitet nach endlich vielen die Gruppenschwelle. Nur
+// bei Ausdehnung NULL bleibt er null — durch jede Zoomstufe hindurch. Genau
+// dann tippt man ins Leere, und der Kartenscreen zeigt die Momente
+// stattdessen als Liste.
+//
+// Bewusst KEIN Toleranzbereich: eine Schwelle («naeher als x Meter») waere
+// eine Behauptung darueber, wie weit die Karte auf dem Geraet ueberhaupt
+// heranzoomen kann, und die laesst sich von hier aus nicht belegen. Zwei
+// Momente, die wenige Meter auseinanderliegen, trennt der Zoom nach ein paar
+// Tipps wirklich — ihnen eine Liste vorzusetzen waere der schlechtere Fehler.
+export function aufEinemFleck(gruppe: Gruppe): boolean {
+  return gruppe.punkte.every((p) => p.lat === gruppe.anker.lat && p.lng === gruppe.anker.lng);
+}
