@@ -23,6 +23,12 @@ jest.mock('expo-router', () => ({
 }));
 jest.mock('@/features/recap/recapApi', () => ({ fetchRecapMomente: jest.fn() }));
 jest.mock('@/features/recap/urlVorrat', () => ({ holeVorrat: jest.fn() }));
+// Ab Task 10 im Spiel: der Ladeweg der Reise gibt seinen Fehler als WERT
+// zurück und hat ihn bisher fallen lassen. Sichtbar wird er auf diesem Screen
+// nicht (der Filter ist Beiwerk, siehe karte.tsx) — dass er den Fehlermelder
+// erreicht, ist deshalb die einzige prüfbare Spur. Ohne DSN ist `meldeFehler`
+// ein No-Op (lib/fehlermelder.ts), ein Spion muss also her.
+jest.mock('@/lib/fehlermelder', () => ({ meldeFehler: jest.fn() }));
 // Ab Task 9 im Spiel: der Tagesfilter braucht `trips.start_date`, weil die
 // Tagesnummern ab DEM zählen (tage.ts) — dieselbe Quelle wie in uebersicht.tsx
 // und player.tsx. Ohne den Mock ginge die Abfrage an den echten Supabase-Client.
@@ -107,6 +113,7 @@ jest.mock('react-native-maps', () => {
 import RecapKarte, { SHEET_SCROLL_ANTEIL } from '../[id]/karte';
 import { fetchRecapMomente } from '@/features/recap/recapApi';
 import { holeVorrat } from '@/features/recap/urlVorrat';
+import { meldeFehler } from '@/lib/fehlermelder';
 import { fetchTrip } from '@/features/trips/tripsApi';
 import { zuKartenPunkten } from '@/features/karte/kartenPunkte';
 import type { Trip } from '@/features/trips/types';
@@ -612,13 +619,19 @@ test('der Ausschnitt umfasst nur die sichtbaren Nadeln', async () => {
   expect(region.longitudeDelta).toBeLessThan(1);
 });
 
-// Kein leerer Kartenausschnitt über dem Atlantik (Spec K9). Der erklärende
-// Leer-Zustand kommt in Task 10 — hier zählt nur, dass keine Karte auf einer
-// erfundenen Region steht.
+// Kein leerer Kartenausschnitt über dem Atlantik (Spec K9). Hier zählt nur,
+// dass keine Karte auf einer erfundenen Region steht — was STATTDESSEN dort
+// steht, prüft der Task-10-Abschnitt unten.
+//
+// Gewartet wird auf die Überschrift des Leer-Zustands und nicht mehr auf die
+// Zurück-Pille: die gibt es hier seit Task 10 nicht mehr. Sie ist eine
+// translucente Pille für die Kartenfläche (DESIGN-LANGUAGE §1) — ohne Karte
+// liegt sie auf nichts, und der eine Knopf des Leer-Zustands (Spec §5.9)
+// führt ohnehin denselben Weg.
 test('hat kein einziger Moment einen Ort, steht gar keine Karte da', async () => {
   ladeErfolg([m3]);
   await wrap();
-  await screen.findByLabelText('Zurück');
+  await screen.findByText('Diese Reise hat keine Orte');
   expect(screen.queryByTestId('karte-flaeche')).toBeNull();
   expect(screen.queryByTestId(/^karte-nadel/)).toBeNull();
 });
@@ -1541,4 +1554,411 @@ test('der Tagesfilter sagt per VoiceOver, welcher Tag gerade gilt', async () => 
   await oeffneTagesfilter();
   await fireEvent.press(screen.getByTestId('tag-eintrag-2'));
   expect(screen.getByLabelText('Reisetag wählen, aktuell Tag 2')).toBeTruthy();
+});
+
+// ---------------------------------------------------------------------------
+// Task 10: die Momente ohne Ort — und die drei Zustände, die bisher gleich
+// aussahen
+// ---------------------------------------------------------------------------
+
+function ohneOrtMoment(id: string, stunde: number) {
+  return moment({
+    id,
+    captured_at: `2026-08-10T${String(stunde).padStart(2, '0')}:00:00.000Z`,
+    lat: null,
+    lng: null,
+  });
+}
+
+// Eine Reise, in der KEINE zwei Zählungen zusammenfallen. k5 steht
+//
+//   - in der Spielliste an Stelle 5   ← die einzig richtige Zahl
+//   - unter den Momenten ohne Ort an Stelle 2
+//   - in der rohen Momente-Liste an Stelle 7
+//   - unter den Nadeln gar nicht
+//
+// Nur die 5 kann also aus der richtigen Zählung fallen — jede andere Zahl
+// verrät sofort, aus welcher Liste heraus gezählt wurde.
+const k0 = ohneOrtMoment('k0', 9);
+const k1 = moment({ id: 'k1', captured_at: '2026-08-10T10:00:00.000Z', lat: 38.71, lng: -9.14 });
+const k2 = ohneOrtMoment('k2', 11);
+const k3 = moment({ id: 'k3', captured_at: '2026-08-10T12:00:00.000Z', lat: 38.72, lng: -9.13 });
+const k4 = moment({ id: 'k4', captured_at: '2026-08-10T13:00:00.000Z', lat: 38.75, lng: -9.1 });
+const k5 = ohneOrtMoment('k5', 14);
+// Vorne dran, damit die rohe Liste um zwei verschoben ist: ohneUrlM (07:00,
+// hochgeladen, aber ohne URL im Vorrat) und k9 (08:00, lädt noch — MIT URL,
+// damit ihn wirklich nur `upload_status` aussortiert).
+const k9 = moment({
+  id: 'k9', captured_at: '2026-08-10T08:00:00.000Z', lat: 38.7, lng: -9.15, upload_status: 'pending',
+});
+const DREI_OHNE_ORT = [ohneUrlM, k9, k0, k1, k2, k3, k4, k5];
+const VORRAT_DREI = {
+  ...VORRAT_OK,
+  urls: new Map<string, MedienUrl>(
+    ['k0', 'k1', 'k2', 'k3', 'k4', 'k5', 'k9'].map((id) => [id, bild(id)] as const)
+  ),
+};
+
+// Dieselbe Reise, wie sie eine Abfrage OHNE Sortiergarantie liefern könnte.
+// `fetchRecapMomente` sortiert heute selbst (recapApi.ts) — genau deshalb
+// fiele es nirgends auf, wenn der Index eines Moments ohne Ort aus der
+// Eingangsreihenfolge käme statt aus der sortierten Spielliste.
+const DREI_OHNE_ORT_UNSORTIERT = [k5, k2, ohneUrlM, k3, k0, k9, k4, k1];
+
+async function oeffneOhneOrt() {
+  await fireEvent.press(screen.getByText('3 Momente ohne Ort'));
+}
+
+test('die Leiste nennt die Momente ohne Ort', async () => {
+  ladeErfolg(DREI_OHNE_ORT, VORRAT_DREI);
+  await wrap();
+  expect(await screen.findByText('3 Momente ohne Ort')).toBeTruthy();
+});
+
+// VOLLSTAENDIG hat genau einen Moment ohne Ort (p3).
+test('ein einzelner Moment ohne Ort steht im Singular', async () => {
+  ladeErfolg();
+  await wrap();
+  expect(await screen.findByText('1 Moment ohne Ort')).toBeTruthy();
+});
+
+test('ohne solche Momente gibt es keine Leiste', async () => {
+  ladeErfolg(NAH_BEIEINANDER);
+  await wrap();
+  await screen.findByTestId('karte-nadel-p1');
+  expect(screen.queryByText(/ohne Ort/)).toBeNull();
+});
+
+test('die Leiste oeffnet ein Sheet mit einer Kachel je Moment ohne Ort', async () => {
+  ladeErfolg(DREI_OHNE_ORT, VORRAT_DREI);
+  await wrap();
+  await screen.findByText('3 Momente ohne Ort');
+  await oeffneOhneOrt();
+
+  expect(screen.getAllByTestId(/^ohne-ort-kachel/)).toHaveLength(3);
+  expect(screen.getByTestId('ohne-ort-kachel-k0')).toBeTruthy();
+  expect(screen.getByTestId('ohne-ort-kachel-k2')).toBeTruthy();
+  expect(screen.getByTestId('ohne-ort-kachel-k5')).toBeTruthy();
+});
+
+// Dieselbe Kachel-Liste wie in der Übersicht (Spec §5.8) heisst auch:
+// dasselbe Bild. Ein über den Index statt über die id gegriffener Vorrat
+// zeigte hier das Bild eines fremden Moments.
+test('jede Kachel traegt das Thumbnail ihres eigenen Moments', async () => {
+  ladeErfolg(DREI_OHNE_ORT, VORRAT_DREI);
+  await wrap();
+  await screen.findByText('3 Momente ohne Ort');
+  await oeffneOhneOrt();
+
+  const kachel = screen.getByTestId('ohne-ort-kachel-k2');
+  expect(within(kachel).getByTestId('ohne-ort-bild-k2').props.source.uri).toBe(bild('k2').thumb_url);
+});
+
+// DER Test dieses Tasks. `start` zählt in die SPIELLISTE (player.tsx:503-527)
+// — nie in `ohneOrt`, nie in die rohe Momente-Liste. k5 trennt alle drei
+// Zahlen voneinander (siehe Fixture oben).
+test('aus dem Sheet fuehrt der Weg in den Player', async () => {
+  ladeErfolg(DREI_OHNE_ORT, VORRAT_DREI);
+  await wrap();
+  await screen.findByText('3 Momente ohne Ort');
+  await oeffneOhneOrt();
+  await fireEvent.press(screen.getByTestId('ohne-ort-kachel-k5'));
+
+  expect(mockPush).toHaveBeenCalledWith({
+    pathname: '/recap/[id]/player',
+    params: { id: 't1', start: '5' },
+  });
+});
+
+// Und der Index kommt aus der SORTIERTEN Spielliste, nicht aus der
+// Reihenfolge, in der die Momente hereinkamen — dieselbe Reihenfolge, in der
+// `zuKartenPunkten` die Indizes der Nadeln vergibt. Käme er aus der
+// Eingangsliste, stünde k5 hier auf 0 (die Nadeln sässen trotzdem richtig).
+test('der Index eines Moments ohne Ort haengt nicht an der Eingangsreihenfolge', async () => {
+  ladeErfolg(DREI_OHNE_ORT_UNSORTIERT, VORRAT_DREI);
+  await wrap();
+  await screen.findByText('3 Momente ohne Ort');
+  await oeffneOhneOrt();
+  await fireEvent.press(screen.getByTestId('ohne-ort-kachel-k5'));
+
+  expect(mockPush).toHaveBeenCalledWith({
+    pathname: '/recap/[id]/player',
+    params: { id: 't1', start: '5' },
+  });
+});
+
+// Die Leiste zählt die ganze Reise, nicht den gewählten Tag. Ein Moment ohne
+// Ort liegt auf KEINEM Tag der Karte — und ein Tag, dessen Momente alle ohne
+// Ort sind, steht gar nicht erst zur Wahl (siehe `waehlbareTage`). Würde die
+// Leiste mitfiltern, wären genau diese Momente auf keinem Weg mehr
+// erreichbar.
+test('der Tagesfilter duennt die Momente ohne Ort nicht aus', async () => {
+  ladeErfolg(MIT_TAGEN, VORRAT_TAGE);
+  await wrap();
+  expect(await screen.findByText('1 Moment ohne Ort')).toBeTruthy();
+
+  await oeffneTagesfilter();
+  await fireEvent.press(screen.getByTestId('tag-eintrag-2'));
+
+  // p3 (ohne Ort) liegt an Tag 1 — die Leiste nennt ihn trotzdem.
+  expect(screen.getByText('1 Moment ohne Ort')).toBeTruthy();
+});
+
+// Dieselbe Sackgasse wie bei Gruppen- und Tagesliste: `Sheet` deckelt auf
+// 85 % Fensterhöhe und schneidet den Überhang hart ab (`overflow: 'hidden'`).
+const VIELE_OHNE_ORT = [
+  moment({ id: 'w0', captured_at: '2026-08-10T08:00:00.000Z', lat: 38.71, lng: -9.14 }),
+  ...Array.from({ length: 12 }, (_, i) => ohneOrtMoment(`w${i + 1}`, 9 + i)),
+];
+const VORRAT_VIELE_OHNE_ORT = {
+  ...VORRAT_OK,
+  urls: new Map<string, MedienUrl>(
+    Array.from({ length: 13 }, (_, i) => [`w${i}`, bild(`w${i}`)] as const)
+  ),
+};
+
+test('die Kachel-Liste scrollt, statt ihre letzten Momente abzuschneiden', async () => {
+  ladeErfolg(VIELE_OHNE_ORT, VORRAT_VIELE_OHNE_ORT);
+  await wrap();
+  await fireEvent.press(await screen.findByText('12 Momente ohne Ort'));
+
+  const liste = screen.getByTestId('ohne-ort-liste');
+  expect(liste.type).toBe('RCTScrollView');
+  expect(StyleSheet.flatten(liste.props.style).maxHeight).toBe(
+    Dimensions.get('window').height * SHEET_SCROLL_ANTEIL
+  );
+  expect(within(liste).getAllByTestId(/^ohne-ort-kachel/)).toHaveLength(12);
+});
+
+// Und der letzte ist nicht bloss da, sondern führt an seinen eigenen Platz:
+// w12 steht in der Spielliste an Stelle 12.
+test('auch die letzte Kachel fuehrt in den Player', async () => {
+  ladeErfolg(VIELE_OHNE_ORT, VORRAT_VIELE_OHNE_ORT);
+  await wrap();
+  await fireEvent.press(await screen.findByText('12 Momente ohne Ort'));
+  await fireEvent.press(within(screen.getByTestId('ohne-ort-liste')).getByTestId('ohne-ort-kachel-w12'));
+
+  expect(mockPush).toHaveBeenCalledWith({
+    pathname: '/recap/[id]/player',
+    params: { id: 't1', start: '12' },
+  });
+});
+
+// DESIGN-LANGUAGE §5: «Listen = Stagger 40 ms» — dieselbe Regel wie für
+// Gruppen- und Tagesliste, also dieselbe Mechanik.
+test('die Kacheln der Momente ohne Ort erscheinen gestaffelt', async () => {
+  const spion = jest.spyOn(Animated, 'timing');
+  ladeErfolg(DREI_OHNE_ORT, VORRAT_DREI);
+  await wrap();
+  await screen.findByText('3 Momente ohne Ort');
+  await oeffneOhneOrt();
+
+  expect(staggerVerzoegerungen()).toEqual([0, 40, 80]);
+  expect(staggerDauern()).toEqual([
+    motion.duration.base, motion.duration.base, motion.duration.base,
+  ]);
+  spion.mockRestore();
+});
+
+test('mit Reduced Motion erscheinen die Kacheln ohne Staffelung, in 200 ms', async () => {
+  const spion = jest.spyOn(Animated, 'timing');
+  mockReduziert = true;
+  ladeErfolg(DREI_OHNE_ORT, VORRAT_DREI);
+  await wrap();
+  await screen.findByText('3 Momente ohne Ort');
+  await oeffneOhneOrt();
+
+  expect(staggerVerzoegerungen()).toEqual([0, 0, 0]);
+  expect(staggerDauern()).toEqual([200, 200, 200]);
+  spion.mockRestore();
+});
+
+// Gleiche Schärfe wie beim Moment-Sheet: ein Sheet der VORHERIGEN Reise
+// schickte den Player mit deren Index in die neue, wo dieselbe Zahl auf einen
+// ganz anderen Moment zeigt.
+test('ein Wechsel der Reise laesst kein offenes Sheet der Momente ohne Ort stehen', async () => {
+  ladeErfolg(DREI_OHNE_ORT, VORRAT_DREI);
+  const { rerender } = await wrap();
+  await screen.findByText('3 Momente ohne Ort');
+  await oeffneOhneOrt();
+  expect(screen.getByTestId('ohne-ort-kachel-k5')).toBeTruthy();
+
+  mockId = 't2';
+  ladeErfolg(DREI_OHNE_ORT, VORRAT_DREI);
+  await rerender(<ThemeProvider><RecapKarte /></ThemeProvider>);
+
+  expect(screen.queryByTestId('ohne-ort-kachel-k5')).toBeNull();
+});
+
+// DESIGN-LANGUAGE §4: höchstens ein Sheet, und damit höchstens ein
+// Primär-Button gleichzeitig sichtbar (siehe `oeffneTagesfilter`).
+test('die Leiste schliesst ein offenes Moment-Sheet', async () => {
+  ladeErfolg(DREI_OHNE_ORT, VORRAT_DREI);
+  await wrap();
+  await fireEvent.press(await screen.findByTestId('karte-nadel-k1'));
+  expect(screen.getByText('Im Recap ansehen')).toBeTruthy();
+
+  await oeffneOhneOrt();
+  expect(screen.queryByText('Im Recap ansehen')).toBeNull();
+  expect(screen.getByTestId('ohne-ort-kachel-k5')).toBeTruthy();
+});
+
+// ---------------------------------------------------------------------------
+// Task 10: «lädt noch» ≠ «konnte nicht laden» ≠ «keine Orte»
+// ---------------------------------------------------------------------------
+
+// Bis Task 10 sahen alle drei gleich aus: eine weisse Fläche mit Zurück-Pille.
+// Ein Deep Link auf eine fremde Reise war von einer Reise ohne Orte nicht zu
+// unterscheiden.
+test('vor der ersten Antwort steht ein Skelett — nicht die Erklaerung', async () => {
+  (fetchRecapMomente as jest.Mock).mockReturnValue(new Promise(() => {}));
+  (holeVorrat as jest.Mock).mockReturnValue(new Promise(() => {}));
+  await wrap();
+
+  expect(screen.getByTestId('karte-skelett')).toBeTruthy();
+  expect(screen.queryByText('Diese Reise hat keine Orte')).toBeNull();
+  expect(screen.queryByTestId('karte-flaeche')).toBeNull();
+});
+
+test('ein Ladefehler nennt seinen Grund, statt wie eine Reise ohne Orte auszusehen', async () => {
+  (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: [], error: null });
+  (holeVorrat as jest.Mock).mockResolvedValue({
+    vorrat: null, error: 'Kein Zugriff auf diese Reise.', grund: 'kein_zugriff',
+  });
+  await wrap();
+
+  expect(await screen.findByText('Kein Zugriff auf diese Reise.')).toBeTruthy();
+  expect(screen.queryByText('Diese Reise hat keine Orte')).toBeNull();
+  expect(screen.getByText('Nochmal versuchen')).toBeTruthy();
+});
+
+// Der zweite Fehlerwert desselben Ladewegs — eigener Test, weil ihn allein
+// sein Fehlen rot machen muss (dieselbe Regel wie bei den beiden Filtern der
+// Spielliste).
+test('auch ein Fehler der Momente-Abfrage bleibt nicht stumm', async () => {
+  (fetchRecapMomente as jest.Mock).mockResolvedValue({
+    data: [], error: 'Die Momente konnten nicht geladen werden. Probier es gleich nochmal.',
+  });
+  (holeVorrat as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+  await wrap();
+
+  expect(
+    await screen.findByText('Die Momente konnten nicht geladen werden. Probier es gleich nochmal.')
+  ).toBeTruthy();
+  expect(screen.queryByText('Diese Reise hat keine Orte')).toBeNull();
+});
+
+// Wirft eine der beiden Abfragen (statt den Fehler zurückzugeben), gibt es
+// keinen Text vom Server — der Screen muss trotzdem sagen, was los ist.
+test('wirft der Ladeweg, erklaert der Screen das trotzdem', async () => {
+  (fetchRecapMomente as jest.Mock).mockRejectedValue(new Error('kaputt'));
+  (holeVorrat as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+  await wrap();
+
+  expect(
+    await screen.findByText('Die Karte konnte nicht geladen werden. Probier es gleich nochmal.')
+  ).toBeTruthy();
+  expect(screen.queryByText('Diese Reise hat keine Orte')).toBeNull();
+});
+
+test('«Nochmal versuchen» holt die Karte zurueck', async () => {
+  (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: [], error: 'Gerade keine Verbindung.' });
+  (holeVorrat as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+  await wrap();
+  await screen.findByText('Gerade keine Verbindung.');
+
+  ladeErfolg();
+  await fireEvent.press(screen.getByText('Nochmal versuchen'));
+
+  expect(await screen.findByTestId('karte-nadel-p1')).toBeTruthy();
+  expect(screen.queryByText('Gerade keine Verbindung.')).toBeNull();
+});
+
+// Spec §5.9, wörtlich: Überschrift, Erklärung, genau ein Knopf.
+test('hat kein Moment einen Ort, erklaert der Screen das', async () => {
+  ladeErfolg([m3]);
+  await wrap();
+
+  expect(await screen.findByText('Diese Reise hat keine Orte')).toBeTruthy();
+  expect(
+    screen.getByText(
+      'Momente bekommen ihren Ort beim Einsenden — nur, wenn die Ortungsdienste erlaubt sind. Für diese Reise war das nie der Fall.'
+    )
+  ).toBeTruthy();
+  expect(screen.queryByTestId(/^karte-nadel/)).toBeNull();
+});
+
+// DESIGN-LANGUAGE §4: genau EIN Primär-Button pro Screen — und §7: nie mehr
+// als einer. Im Leer-Zustand ist er der einzige Bedienelement überhaupt, das
+// lässt sich hier vollständig nachzählen statt bloss behaupten.
+test('der Leer-Zustand traegt genau einen Knopf', async () => {
+  ladeErfolg([m3]);
+  await wrap();
+  await screen.findByText('Diese Reise hat keine Orte');
+
+  expect(screen.getAllByRole('button').map((k) => k.props.accessibilityLabel)).toEqual([
+    'Zurück zur Übersicht',
+  ]);
+});
+
+test('der eine Knopf des Leer-Zustands fuehrt zurueck', async () => {
+  ladeErfolg([m3]);
+  await wrap();
+  await fireEvent.press(await screen.findByText('Zurück zur Übersicht'));
+  expect(mockBack).toHaveBeenCalled();
+});
+
+// ---------------------------------------------------------------------------
+// Task 10: die beiden stillen Ladepfade
+// ---------------------------------------------------------------------------
+
+// Der Fehler der Reise-Abfrage wurde bisher vollständig verworfen. Sichtbar
+// wird er weiterhin nicht (der Filter ist Beiwerk, die Nadeln SIND der
+// Screen) — aber er darf nicht spurlos verschwinden.
+test('faellt die Reise-Abfrage aus, hinterlaesst sie wenigstens eine Spur', async () => {
+  ladeErfolg(MIT_TAGEN, VORRAT_TAGE);
+  (fetchTrip as jest.Mock).mockResolvedValue({
+    data: null, error: 'Diese Reise konnte nicht geladen werden.',
+  });
+  await wrap();
+  await screen.findAllByTestId(/^karte-nadel/);
+
+  expect(meldeFehler).toHaveBeenCalledWith(
+    expect.objectContaining({ message: 'Diese Reise konnte nicht geladen werden.' }),
+    { screen: 'recap/karte', tripId: 't1', ladeweg: 'reise' }
+  );
+});
+
+test('eine geglueckte Reise-Abfrage meldet nichts', async () => {
+  ladeErfolg(MIT_TAGEN, VORRAT_TAGE);
+  await wrap();
+  await screen.findByTestId('karte-tagesfilter');
+  expect(meldeFehler).not.toHaveBeenCalled();
+});
+
+// Die Nummernlücke: OHNE_ORT_DAZWISCHEN hat an Tag 2 nur Momente ohne Ort.
+// Die Übersicht zeigt diesen Tag, der Kartenfilter springt von 1 auf 3 — ohne
+// eine Zeile dazu sieht das nach einem Fehler aus.
+test('die Luecke in den Tagesnummern wird erklaert', async () => {
+  ladeErfolg(OHNE_ORT_DAZWISCHEN, VORRAT_OHNE_ORT_DAZWISCHEN);
+  await wrap();
+  await screen.findByTestId('karte-nadel-q3');
+
+  await oeffneTagesfilter();
+  expect(screen.queryByTestId('tag-eintrag-2')).toBeNull();
+  expect(
+    screen.getByText('Tage, an denen kein Moment einen Ort hat, stehen nicht zur Wahl.')
+  ).toBeTruthy();
+});
+
+// Und nur dann: eine lückenlose Liste erklärt nichts, was niemand gefragt hat.
+test('ohne Luecke steht die Zeile nicht da', async () => {
+  ladeErfolg(MIT_TAGEN, VORRAT_TAGE);
+  await wrap();
+  await screen.findByTestId('karte-nadel-p6');
+
+  await oeffneTagesfilter();
+  expect(screen.getByTestId('tag-eintrag-1')).toBeTruthy();
+  expect(screen.getByTestId('tag-eintrag-2')).toBeTruthy();
+  expect(screen.queryByText(/stehen nicht zur Wahl/)).toBeNull();
 });
