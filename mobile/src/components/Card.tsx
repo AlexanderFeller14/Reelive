@@ -3,7 +3,7 @@ import { useTheme } from '@/theme/ThemeProvider';
 import { radius, shadow, spacing } from '@/theme/tokens';
 
 // Karte mit Chrome (DESIGN-LANGUAGE v2 §3): weisse Fläche mit shadow-1.
-// Randlose Reise-Karten (Phase 3) sind KEINE Card — sie bestehen aus Bild + Text.
+// Randlose Reise-Karten (Phase 3) sind KEINE Card, sie bestehen aus Bild + Text.
 export function Card({ style, children, ...rest }: ViewProps) {
   const { colors } = useTheme();
   return (

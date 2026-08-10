@@ -5,12 +5,12 @@
 -- Bisher (090600_role_hardening.sql) würfelte der Trigger nach JEDEM Delete auf
 -- trip_members einen neuen trips.invite_code. Damit reisst schon ein einzelner
 -- Austritt allen anderen den geteilten Link und QR-Code weg: Der Owner schickt
--- den Code an drei Freunde, einer geht wieder — die beiden anderen landen in
+-- den Code an drei Freunde, einer geht wieder, die beiden anderen landen in
 -- «Diesen Einladungslink gibt es nicht mehr.». Das trifft genau die Kern-
 -- funktion von Phase 3.
 --
 -- Der Sicherheitszweck bleibt erhalten, denn er greift nur in einer Richtung:
--- Wer ENTFERNT wird, soll nicht mit dem alten Link zurückkommen können — dort
+-- Wer ENTFERNT wird, soll nicht mit dem alten Link zurückkommen können, dort
 -- rotiert der Code weiterhin. Wer SELBST geht, ist kein Sicherheitsproblem
 -- (er hätte einfach bleiben können), also dürfen die Links der anderen leben.
 -- ============================================================================
@@ -22,10 +22,10 @@ begin
   -- Freiwilliger Austritt: die löschende Person ist die gelöschte. auth.uid()
   -- liest die Request-GUC `request.jwt.claims` und ist von security definer
   -- unberührt (das ändert nur den Ausführungs-Rollenkontext, nicht die
-  -- Session-Settings) — im Trigger steht also dieselbe Identität wie im
+  -- Session-Settings), im Trigger steht also dieselbe Identität wie im
   -- auslösenden Statement.
   --
-  -- auth.uid() is null heisst: kein Client-Kontext — service_role (Edge
+  -- auth.uid() is null heisst: kein Client-Kontext, service_role (Edge
   -- Functions ab Phase 4), Migrationen, Seeds, psql. Dann lässt sich gerade
   -- NICHT belegen, dass jemand freiwillig geht; die Löschung kommt von aussen
   -- und ist damit näher am Rauswurf. Deshalb bewusst die sichere Richtung:

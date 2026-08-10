@@ -5,7 +5,7 @@ const mockPush = jest.fn();
 const mockReplace = jest.fn();
 const mockBack = jest.fn();
 // Steuerbar wie in aufnehmen/__tests__/preview.test.tsx (`mockKannZurueck`):
-// nur so lässt sich der replace-Zweig von zurueck() überhaupt erreichen —
+// nur so lässt sich der replace-Zweig von zurueck() überhaupt erreichen,
 // mit einem hart auf `true` verdrahteten canGoBack bleibt er toter Code aus
 // Test-Sicht (Review Task 10, Important 2, M8).
 let mockKannZurueck = true;
@@ -20,7 +20,7 @@ jest.mock('expo-router', () => {
     useFocusEffect: (cb: () => void | (() => void)) => ReactActual.useEffect(cb, [cb]),
   };
 });
-// expo-image ist ein natives View — im Test reicht ein einfacher Platzhalter,
+// expo-image ist ein natives View, im Test reicht ein einfacher Platzhalter,
 // der alle Props (inkl. `source`, `testID`) durchreicht, damit sich pro
 // Kachel prüfen lässt, WELCHE URL tatsächlich gezogen wurde.
 jest.mock('expo-image', () => {
@@ -36,7 +36,7 @@ jest.mock('@/features/recap/urlVorrat', () => ({ holeVorrat: jest.fn() }));
 const mockAuth = { userId: 'u1' };
 jest.mock('@/features/auth/AuthProvider', () => ({ useAuth: () => mockAuth }));
 // TeilenSheetInhalt hat ihre eigene, vollständige Testdatei
-// (features/teilen/__tests__/TeilenSheetInhalt.test.tsx) — hier nur ein
+// (features/teilen/__tests__/TeilenSheetInhalt.test.tsx), hier nur ein
 // Platzhalter, der belegt, DASS und MIT WELCHER tripId sie gemountet wird,
 // ohne die Supabase-Aufrufkette dieser Datei über den Import-Graph
 // mitzuziehen (sie ist hier ungemockt und würde beim Modul-Load werfen,
@@ -50,7 +50,7 @@ jest.mock('@/features/teilen/TeilenSheetInhalt', () => {
   };
 });
 // Task 7: exportApi hat ihre eigene, vollständige Testdatei
-// (features/recap/__tests__/exportApi.test.ts) — hier nur ein Spion. Ein
+// (features/recap/__tests__/exportApi.test.ts), hier nur ein Spion. Ein
 // echter Import würde expo-media-library ziehen, das sich in diesem
 // Jest-Setup nicht mocken lässt (native Klassenvererbung, siehe Kommentar
 // dort/Bericht).
@@ -82,14 +82,14 @@ function moment(overrides: Partial<{
 }
 
 // Chronologisch (Ortszeit Lissabon, Sommer: UTC+1): p5 07:00, p1 09:00,
-// p2 18:00 — alle Tag 1; p4 (Nachzügler) ebenfalls Tag 1, stört die
+// p2 18:00, alle Tag 1; p4 (Nachzügler) ebenfalls Tag 1, stört die
 // Gruppierung aber nicht (als 'pending' ohnehin herausgefiltert, bevor
-// gruppiereNachTagen ihn sieht); p3 11.8. ist Tag 2, ohne place_name — prüft,
+// gruppiereNachTagen ihn sieht); p3 11.8. ist Tag 2, ohne place_name, prüft,
 // dass der Ortsname in der Überschrift entfällt statt einen leeren
 // Platzhalter zu zeigen.
 //
 // p5 ist 'uploaded', aber absichtlich NICHT im Vorrat (die Function konnte
-// keine URL ausstellen) — und bewusst VOR p1 platziert, nicht dahinter
+// keine URL ausstellen), und bewusst VOR p1 platziert, nicht dahinter
 // (Review Task 10, Important 2, M3): stünde er chronologisch am Ende, fiele
 // seine Auslassung keinem Index mehr auf, weil kein sichtbarer Moment mehr
 // hinter ihm steht, dessen Index sich verschieben könnte. Nur VOR p1
@@ -102,7 +102,7 @@ const pendingM = moment({ id: 'p4', captured_at: '2026-08-10T20:00:00.000Z', upl
 const m3 = moment({ id: 'p3', captured_at: '2026-08-11T10:00:00.000Z', place_name: null });
 
 // Bereits chronologisch sortiert, wie recapApi.fetchRecapMomente es liefern
-// würde — die Komponente sortiert selbst nicht nach.
+// würde, die Komponente sortiert selbst nicht nach.
 const VOLLSTAENDIG = [ausgelassenM, m1, m2, pendingM, m3];
 
 function bild(id: string) {
@@ -117,7 +117,7 @@ const VORRAT_OK = {
 
 const wrap = () => render(<ThemeProvider><RecapUebersicht /></ThemeProvider>);
 
-// Ein Ladeweg, der sauber durchläuft, aber nichts Sichtbares liefert — für
+// Ein Ladeweg, der sauber durchläuft, aber nichts Sichtbares liefert, für
 // alle Tests, in denen es nicht um die Kacheln geht, sondern um das, was
 // unabhängig von ihnen im Kopf des Screens steht (Teilen-Knopf, Segment-Zeile).
 // Modulweit statt zweimal lokal: zwei Kopien liefen irgendwann auseinander,
@@ -147,7 +147,7 @@ test('gruppiert nach Tagen mit Ortsname, und ohne Ortsname entfällt er', async 
 });
 
 // Review Task 10, Important 2, M4: `tage.map` in der Reihenfolge, in der
-// `gruppiereNachTagen` sie liefert (chronologisch) — nicht rückwärts. Ein
+// `gruppiereNachTagen` sie liefert (chronologisch), nicht rückwärts. Ein
 // Feature, dessen Eckpfeiler laut CLAUDE.md die Chronologie ist, darf die
 // Tage nicht in beliebiger Reihenfolge zeigen.
 test('die Tage stehen in chronologischer Reihenfolge, nicht rückwärts', async () => {
@@ -166,7 +166,7 @@ test('Nachzügler und Ausgelassene tragen keine Kachel, aber je eine ehrliche Ze
   await wrap();
   await screen.findByText('Tag 1 · Lissabon · 10. August');
 
-  // Genau drei Kacheln (p1, p2, p3) — weder der Nachzügler (p4) noch der
+  // Genau drei Kacheln (p1, p2, p3), weder der Nachzügler (p4) noch der
   // Ausgelassene (p5) bekommen eine, obwohl beide in `momente` stecken.
   expect(screen.getAllByTestId(/^recap-kachel-/)).toHaveLength(3);
   expect(screen.queryByTestId('recap-kachel-p4')).toBeNull();
@@ -198,7 +198,7 @@ test('Mehrzahl bei mehreren Nachzüglern und mehreren Ausgelassenen', async () =
 // Review Task 10, Important 2, M3 (Kernfall): p5 liegt chronologisch VOR
 // allen sichtbaren Kacheln (siehe Fixture-Kommentar oben). Zählte der Index
 // über die volle Liste statt über die sichtbaren Momente, bekäme p1 den
-// Index 1 statt 0 — der Player würde beim Tipp auf die erste Kachel den
+// Index 1 statt 0, der Player würde beim Tipp auf die erste Kachel den
 // zweiten Moment öffnen.
 test('ein Tipp auf eine Kachel übergibt den richtigen, tagübergreifenden Startindex', async () => {
   (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: VOLLSTAENDIG, error: null });
@@ -210,14 +210,14 @@ test('ein Tipp auf eine Kachel übergibt den richtigen, tagübergreifenden Start
   await fireEvent.press(screen.getByTestId('recap-kachel-p1'));
   expect(mockPush).toHaveBeenCalledWith({ pathname: '/recap/[id]/player', params: { id: 't1', start: '0' } });
 
-  // … p3 die dritte (Index 2) — der Index läuft über die Tagesgrenze hinweg
+  // … p3 die dritte (Index 2), der Index läuft über die Tagesgrenze hinweg
   // weiter, statt in Tag 2 wieder bei 0 zu beginnen.
   await fireEvent.press(screen.getByTestId('recap-kachel-p3'));
   expect(mockPush).toHaveBeenCalledWith({ pathname: '/recap/[id]/player', params: { id: 't1', start: '2' } });
 });
 
 // Review Task 10, Important 2, M7: `thumb_url` ist die Kachel-URL, nicht
-// `medium_url` — sonst zöge jede Kachel im Raster das volle Bild.
+// `medium_url`, sonst zöge jede Kachel im Raster das volle Bild.
 test('die Kachel zeigt das Thumbnail, nicht das volle Bild', async () => {
   (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: VOLLSTAENDIG, error: null });
   (holeVorrat as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
@@ -228,7 +228,7 @@ test('die Kachel zeigt das Thumbnail, nicht das volle Bild', async () => {
 });
 
 // Review Task 10, Important 2, M5: `ausgelassenAnzahl` ist die vom Server
-// gezählte Grösse (`vorrat.ausgelassen`) — hier bewusst höher als das, was
+// gezählte Grösse (`vorrat.ausgelassen`), hier bewusst höher als das, was
 // sich aus `uploaded.length - mitBild.length` lokal ergäbe (in dieser
 // Fixture wäre die lokale Differenz 1), damit ein Test, der stattdessen die
 // lokale Differenz anzeigt, sichtbar eine andere Zahl zeigt.
@@ -256,7 +256,7 @@ test('eine Reise ganz ohne sichtbare Momente sagt es freundlich', async () => {
 });
 
 // Gegenprobe zum Test oben: eine Reise mit einem wartenden Nachzügler, aber
-// sonst nichts Sichtbarem, ist NICHT "leer geblieben" — es kommt ja noch was.
+// sonst nichts Sichtbarem, ist NICHT "leer geblieben", es kommt ja noch was.
 test('mit nur einem Nachzügler erscheint die leere Zeile nicht', async () => {
   (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: [pendingM], error: null });
   (holeVorrat as jest.Mock).mockResolvedValue({
@@ -270,7 +270,7 @@ test('mit nur einem Nachzügler erscheint die leere Zeile nicht', async () => {
 });
 
 // Review Task 10, Important 2, M6: dieselbe Gegenprobe für die ANDERE Hälfte
-// der `komplettLeer`-Bedingung — nur Ausgelassene, kein Nachzügler. Ohne
+// der `komplettLeer`-Bedingung, nur Ausgelassene, kein Nachzügler. Ohne
 // `&& ausgelassenAnzahl === 0` stünden «Diese Reise ist leer geblieben.»
 // UND die Ausgelassen-Zeile gleichzeitig da.
 test('mit nur Ausgelassenen erscheint die leere Zeile ebenfalls nicht', async () => {
@@ -306,8 +306,8 @@ test('eine nicht mehr existierende Reise zeigt einen Rückweg statt eines leeren
 });
 
 // Review Task 10, Important 2, M9: solange `geladen` noch `false` ist (die
-// drei parallelen Abrufe hängen hier absichtlich), muss das Skelett stehen
-// — nicht «Diese Reise gibt es nicht mehr.», was ohne den `!geladen`-Guard
+// drei parallelen Abrufe hängen hier absichtlich), muss das Skelett stehen,
+// nicht «Diese Reise gibt es nicht mehr.», was ohne den `!geladen`-Guard
 // zeigen würde, weil `trip` bis zur ersten Antwort `null` ist.
 test('während des Ladens erscheint das Skelett, nicht «gibt es nicht mehr»', async () => {
   (fetchTrip as jest.Mock).mockReturnValue(new Promise(() => {}));
@@ -333,7 +333,7 @@ test('der Zurück-Pfeil verlässt den Screen per back(), wenn ein Rückweg exist
 });
 
 // Review Task 10, Important 2, M8: ohne Rückweg (z.B. per Deep Link direkt
-// in die Übersicht) gibt es nichts vom Stapel zu nehmen — nur dort ist
+// in die Übersicht) gibt es nichts vom Stapel zu nehmen, nur dort ist
 // `replace('/recap')` richtig. Mit einem hart auf `true` verdrahteten
 // `canGoBack` bliebe dieser Zweig für einen Test unerreichbar.
 test('ohne Rückweg im Stapel führt der Zurück-Pfeil per replace zur Liste', async () => {
@@ -351,7 +351,7 @@ test('ohne Rückweg im Stapel führt der Zurück-Pfeil per replace zur Liste', a
   expect(mockBack).not.toHaveBeenCalled();
 });
 
-// Task 6: «Recap teilen» — nur Owner-Person, nur bei status==='revealed'
+// Task 6: «Recap teilen», nur Owner-Person, nur bei status==='revealed'
 // (Brief, wörtlich). `trip` (Fixture oben) ist bereits status:'revealed',
 // owner_id:'u1'; mockAuth.userId startet ebenfalls bei 'u1' (beforeEach).
 describe('«Recap teilen»: nur Owner-Person, nur bei revealed', () => {
@@ -391,7 +391,7 @@ describe('«Recap teilen»: nur Owner-Person, nur bei revealed', () => {
   });
 
   // status==='active' kommt in der Praxis für diesen Screen kaum vor (der
-  // Recap ist bis zum Reveal versiegelt) — die Sichtbarkeitsregel gilt
+  // Recap ist bis zum Reveal versiegelt), die Sichtbarkeitsregel gilt
   // trotzdem unabhängig davon, ob die Function das später ohnehin ablehnen
   // würde: die UI blendet aus, bevor überhaupt ein Aufruf stattfindet.
   test('bei status "active" (noch nicht aufgedeckt) fehlt der Teilen-Knopf, selbst für die Owner-Person', async () => {
@@ -402,16 +402,16 @@ describe('«Recap teilen»: nur Owner-Person, nur bei revealed', () => {
     expect(screen.queryByTestId('uebersicht-teilen-oeffnen')).toBeNull();
   });
 
-  // Brief, wörtlich: "nur bei status==='revealed'" — bewusst OHNE Ausnahme
+  // Brief, wörtlich: "nur bei status==='revealed'", bewusst OHNE Ausnahme
   // für 'archived', obwohl ein bereits bestehender Link auf einer
   // archivierten Reise laut Server-Policy weiterhin widerrufbar bliebe
   // (supabase/migrations/20260808130000_share_links_widerruf_archiviert.sql).
   // Das ist eine echte Lücke (siehe Bericht, "Bedenken"): sobald eine Reise
   // archiviert, verschwindet in DIESER App-Version der einzige Weg, einen
-  // zuvor erstellten Link noch zu widerrufen — nicht Teil dieses Tasks, hier
+  // zuvor erstellten Link noch zu widerrufen, nicht Teil dieses Tasks, hier
   // nur als Zusicherung festgehalten, dass die Gating-Regel exakt dem Brief
   // folgt und nicht heimlich grosszügiger ist.
-  test('bei status "archived" fehlt der Teilen-Knopf ebenfalls — auch für die Owner-Person', async () => {
+  test('bei status "archived" fehlt der Teilen-Knopf ebenfalls, auch für die Owner-Person', async () => {
     (fetchTrip as jest.Mock).mockResolvedValue({ data: { ...trip, status: 'archived' as const }, error: null });
     leererLadeErfolg();
     await wrap();
@@ -420,7 +420,7 @@ describe('«Recap teilen»: nur Owner-Person, nur bei revealed', () => {
   });
 });
 
-// Task 7: «Alle sichern» — offen für jedes Mitglied (kein Owner-Vorbehalt
+// Task 7: «Alle sichern», offen für jedes Mitglied (kein Owner-Vorbehalt
 // wie beim Teilen), nur ausgeblendet, wenn es nichts zu sichern gibt.
 describe('«Alle sichern»', () => {
   beforeEach(() => {
@@ -475,7 +475,7 @@ describe('«Alle sichern»', () => {
     expect(screen.getByText('2 von 3 gesichert')).toBeTruthy();
   });
 
-  test('eine ehrliche Bilanz am Ende — inklusive Fehlschlägen, nicht bloss "fertig"', async () => {
+  test('eine ehrliche Bilanz am Ende, inklusive Fehlschlägen, nicht bloss "fertig"', async () => {
     (sichereAlleInGalerie as jest.Mock).mockResolvedValue({
       status: 'fertig', gesichert: 2, gesamt: 3, fehlgeschlagen: 1, abgebrochen: false,
     });
@@ -501,7 +501,7 @@ describe('«Alle sichern»', () => {
     expect(screen.queryByTestId('export-bilanz')).toBeNull();
   });
 
-  // Kernfall (Brief, wörtlich: "nie ein stiller Fehlschlag" — gilt genauso
+  // Kernfall (Brief, wörtlich: "nie ein stiller Fehlschlag", gilt genauso
   // für "alle sichern" wie für den Einzelmoment im Player).
   test('fehlende Berechtigung zeigt die Ursache und "Einstellungen öffnen", statt einfach nichts zu tun', async () => {
     (sichereAlleInGalerie as jest.Mock).mockResolvedValue({
@@ -550,7 +550,7 @@ describe('«Alle sichern»', () => {
   });
 
   // Gegenprobe: ist der Export bereits FERTIG, darf ein Schliessen keinen
-  // (inzwischen längst erledigten) Abbruch mehr auslösen — es gibt nichts
+  // (inzwischen längst erledigten) Abbruch mehr auslösen, es gibt nichts
   // mehr, das abzubrechen wäre.
   test('ein Schliessen NACH dem Ende bricht nichts mehr ab', async () => {
     (sichereAlleInGalerie as jest.Mock).mockResolvedValue({
@@ -569,7 +569,7 @@ describe('«Alle sichern»', () => {
 });
 
 // Task 11 / Spec §5.1: die Segment-Zeile ist der EINZIGE Ort, an dem die Karte
-// überhaupt auftaucht — es gibt keinen Tab, keinen zweiten Knopf, keinen
+// überhaupt auftaucht, es gibt keinen Tab, keinen zweiten Knopf, keinen
 // anderen Weg dorthin. Damit entscheidet allein diese Zeile darüber, ob die
 // Karte erreichbar ist.
 describe('Segment-Zeile «Nach Tagen» / «Auf der Karte»', () => {
@@ -591,7 +591,7 @@ describe('Segment-Zeile «Nach Tagen» / «Auf der Karte»', () => {
   });
 
   // DER Kernfall dieses Tasks (Spec K10, R3): eine Karte der laufenden Reise
-  // würde verraten, wo die anderen gerade waren — genau das, was die
+  // würde verraten, wo die anderen gerade waren, genau das, was die
   // Versiegelung verhindert. Serverseitig ist es erzwungen
   // (`posts_select_revealed_members` lässt Mitglieder erst bei status in
   // ('revealed','archived') lesen), der Client darf den Weg trotzdem gar nicht
@@ -604,13 +604,13 @@ describe('Segment-Zeile «Nach Tagen» / «Auf der Karte»', () => {
     expect(screen.queryByText('Auf der Karte')).toBeNull();
     // Und zwar fehlt die ganze ZEILE, nicht bloss die zweite Pille (Spec §5.1,
     // wörtlich: «gibt es die Zeile nicht»): eine einzelne, unangetastete
-    // «Nach Tagen»-Pille wäre ein Segment-Control mit genau einem Segment —
+    // «Nach Tagen»-Pille wäre ein Segment-Control mit genau einem Segment,
     // sie behauptete eine Wahl, die es hier nicht gibt.
     expect(screen.queryByText('Nach Tagen')).toBeNull();
   });
 
   // Spec §5.1, wörtlich: «Für `revealed` und `archived` gibt es sie.» Eine
-  // archivierte Reise ist aufgedeckt und bleibt es — sie zu archivieren nimmt
+  // archivierte Reise ist aufgedeckt und bleibt es, sie zu archivieren nimmt
   // niemandem das Recht, den eigenen Recap zu lesen (dieselbe Grenze zieht die
   // Server-Policy: status in ('revealed','archived')).
   test('eine archivierte Reise bietet die Karte weiterhin an', async () => {

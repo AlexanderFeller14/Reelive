@@ -47,7 +47,7 @@ test('aufgedeckte Reise trägt sie nicht', async () => {
 
 // Task 10: «entwickelte» Reisen (revealed/archived) tragen statt der
 // Versiegelt-Pille eine Play-Einladung, aber NUR wenn der Aufrufer das per
-// `alsRecap` ausdrücklich anfordert — Gegenprobe zum Test oben, der nur
+// `alsRecap` ausdrücklich anfordert, Gegenprobe zum Test oben, der nur
 // belegt, dass die alte Pille FEHLT, nicht dass etwas Sinnvolles an ihre
 // Stelle tritt.
 test('aufgedeckte Reise trägt mit alsRecap die Recap-Play-Pille', async () => {
@@ -66,7 +66,7 @@ test('laufende Reise trägt die Play-Pille nicht, selbst mit alsRecap', async ()
 });
 
 // Review Task 10, Important 1: ohne `alsRecap` (der Reise-Tab lässt es weg,
-// siehe reise/index.tsx) bleibt eine aufgedeckte Reise ohne jede Pille — ein
+// siehe reise/index.tsx) bleibt eine aufgedeckte Reise ohne jede Pille, ein
 // Tipp dort führt in die Reise-Verwaltung, nicht in den Recap, «Recap
 // ansehen» wäre ein Versprechen gewesen, das der Tipp nicht einlöst.
 test('ohne alsRecap zeigt eine aufgedeckte Reise keine Pille', async () => {

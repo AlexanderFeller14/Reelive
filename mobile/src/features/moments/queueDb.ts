@@ -4,7 +4,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import type { JobZustand, QueueJob, VerworfenerMoment } from './types';
 
 // Einzige Stelle im Projekt, die zwischen SQLite-Zeile und QueueJob übersetzt.
-// Booleans liegen als 0/1, Zeiten als Zahl — siehe Task-3-Brief.
+// Booleans liegen als 0/1, Zeiten als Zahl, siehe Task-3-Brief.
 
 const DB_NAME = 'upload_queue.db';
 
@@ -22,9 +22,9 @@ function holeDatenbank(): Promise<SQLiteDatabase> {
 // Gleiches Lazy-Muster wie holeDatenbank() oben: alleJobs() ruft dies bei
 // JEDEM Aufruf auf (auch bei jedem 5-Sekunden-Tick des Workers), `create
 // table if not exists` soll dafür aber nicht jedes Mal erneut ausgeführt
-// werden — genau die Last, die uploadWorker mit seinem eigenen
+// werden, genau die Last, die uploadWorker mit seinem eigenen
 // `sicherstellenInitialisiert` bereits bewusst vermeidet (Task-13-Fix-Runde-1,
-// Minor). Ein fehlgeschlagener Versuch wird NICHT gecacht — initQueue() wirft
+// Minor). Ein fehlgeschlagener Versuch wird NICHT gecacht, initQueue() wirft
 // dann beim nächsten Aufruf erneut, statt die Warteschlange nach einem
 // einmaligen Fehler für den Rest des Prozesses tot zu lassen.
 let tabelleSichergestellt = false;
@@ -37,12 +37,12 @@ async function sicherstellenTabelle(): Promise<void> {
 // Einzige Quelle der Wahrheit für das Spaltenschema: Name, SQLite-Typ und ob die
 // Spalte Pflicht ist (not null). `create table`, die Spaltenreihenfolge für
 // insert/update UND die Pflichtfeld-Prüfung beim Lesen (siehe zuJob) werden alle
-// aus diesem einen Array abgeleitet — sie können dadurch nicht mehr auseinanderlaufen.
+// aus diesem einen Array abgeleitet, sie können dadurch nicht mehr auseinanderlaufen.
 const SPALTEN_SCHEMA = [
   { name: 'id', typ: 'text', pflicht: true },
   { name: 'post_id', typ: 'text', pflicht: true },
   { name: 'trip_id', typ: 'text', pflicht: true },
-  // Task-13-Fix-Runde-2: Pflicht wie jede andere Kern-Spalte — eine Zeile ohne
+  // Task-13-Fix-Runde-2: Pflicht wie jede andere Kern-Spalte, eine Zeile ohne
   // author_id (z.B. eine Alt-Zeile aus einer Installation von vor diesem Feld,
   // siehe spaltenNachziehen unten) gilt über istVollstaendig() als
   // unvollständig und wird nie verarbeitet, statt geraten zu werden.
@@ -110,7 +110,7 @@ function zuZeile(job: QueueJob): Zeile {
 // Schutz gegen stillen Datenverlust: eine Zeile mit fehlendem Pflichtfeld oder
 // ungültigem zustand (z. B. nach einem Absturz mitten im Schreiben oder einer
 // `create table if not exists`, die nicht mitgewachsen ist) darf nicht als gültiger
-// QueueJob durchgehen — sonst wandert der Schaden stillschweigend in queueLogic
+// QueueJob durchgehen, sonst wandert der Schaden stillschweigend in queueLogic
 // und Task 6 weiter.
 function istVollstaendig(zeile: Record<string, unknown>): boolean {
   for (const def of SPALTEN_SCHEMA) {
@@ -158,17 +158,17 @@ function werteFuer(zeile: Zeile, spalten: readonly Spalte[]): (string | number |
 }
 
 // Migration für Bestandsinstallationen: `create table if not exists` legt nur
-// eine NEUE Tabelle mit dem vollen, aktuellen Schema an — eine bereits
+// eine NEUE Tabelle mit dem vollen, aktuellen Schema an, eine bereits
 // existierende Tabelle (z.B. von vor Task-13-Fix-Runde-2, als es author_id
 // noch nicht gab) wandert dadurch NICHT nach. PRAGMA table_info zeigt die
 // tatsächlich vorhandenen Spalten; fehlt eine, wird sie per ALTER TABLE
-// nachgezogen — bewusst OHNE "not null", selbst wenn SPALTEN_SCHEMA die
+// nachgezogen, bewusst OHNE "not null", selbst wenn SPALTEN_SCHEMA die
 // Spalte als Pflicht führt: SQLite verweigert eine NOT-NULL-Spalte ohne
 // DEFAULT auf einer bereits befüllten Tabelle. Bestehende Zeilen bekommen so
-// NULL — istVollstaendig() (siehe zuJob) verwirft sie beim Lesen als
+// NULL, istVollstaendig() (siehe zuJob) verwirft sie beim Lesen als
 // unvollständig, statt sie unter der aktuell angemeldeten Person
 // weiterzuverarbeiten. Das ist Absicht: ein Alt-Moment ohne bekannte
-// Autoren-Kennung darf nie unter fremdem Namen landen — auch nicht, indem
+// Autoren-Kennung darf nie unter fremdem Namen landen, auch nicht, indem
 // man es einfach der Person zuschreibt, die das Gerät gerade benutzt.
 async function spaltenNachziehen(db: SQLiteDatabase): Promise<void> {
   const vorhandeneSpalten = await db.getAllAsync<{ name: string }>('pragma table_info(upload_queue)', []);
@@ -191,7 +191,7 @@ export async function initQueue(): Promise<void> {
     `);
     // Zweite Tabelle, gleiche Datenbank (Final-Review, Important 9): ein
     // dauerhaft verworfener Moment ist die einzige Nachricht, die die App über
-    // ihn je senden wird — sie muss denselben Neustart überleben wie die
+    // ihn je senden wird, sie muss denselben Neustart überleben wie die
     // Warteschlange selbst. `id` ist die post_id des verworfenen Moments,
     // damit ein zweiter Anlauf (Wiederanlauf nach Absturz) keinen doppelten
     // Eintrag erzeugt.
@@ -227,9 +227,9 @@ export async function jobHinzufuegen(job: QueueJob): Promise<void> {
 }
 
 // Ein frisch installiertes Gerät (oder eines, auf dem der Worker noch nie
-// gestartet ist, weil Sitzung/Profil fehlen — siehe uploadWorker/_layout.tsx)
+// gestartet ist, weil Sitzung/Profil fehlen, siehe uploadWorker/_layout.tsx)
 // hat die Tabelle noch nicht angelegt. Lesen darf davon nie einen Screen mit
-// einem SQLite-Fehler ("no such table") blockieren — deshalb stellt alleJobs
+// einem SQLite-Fehler ("no such table") blockieren, deshalb stellt alleJobs
 // die Tabelle selbst sicher (`create table if not exists` ist billig genug),
 // statt jeden Aufrufer (Reise-Detail, Zähler, ...) einzeln defensiv zu machen.
 export async function alleJobs(): Promise<QueueJob[]> {
@@ -244,7 +244,7 @@ export async function alleJobs(): Promise<QueueJob[]> {
         jobs.push(job);
       } else {
         // NUR die id (Final-Review Punkt 3): `zeile` ist die volle
-        // SQLite-Zeile inkl. `caption`/`lat`/`lng`/`place_name` — das
+        // SQLite-Zeile inkl. `caption`/`lat`/`lng`/`place_name`, das
         // gehört nicht in einen Diagnose-Log, den Sentrys
         // Konsolen-Breadcrumb (ohne DSN: gar niemand; siehe fehlermelder.ts)
         // im Fehlerfall mitschneiden würde. Die id reicht, um die defekte
@@ -259,7 +259,7 @@ export async function alleJobs(): Promise<QueueJob[]> {
   }
 }
 
-// Schreibt den vollständigen Job zurück (kein Teil-Update) — einfacher und ohne
+// Schreibt den vollständigen Job zurück (kein Teil-Update), einfacher und ohne
 // Race, solange nur der Worker schreibt (siehe Task-3-Brief).
 export async function jobAktualisieren(job: QueueJob): Promise<void> {
   const db = await holeDatenbank();
@@ -290,7 +290,7 @@ export async function jobEntfernen(id: string): Promise<void> {
 // === Verworfene Momente (Final-Review, Important 9) ===
 // Spec §8 verspricht, ein nach dem Reveal aufgenommener Moment werde «mit
 // Erklärung verworfen». Tatsächlich löschte der Worker den Job und schrieb
-// eine Konsolenzeile — die betroffene Person erfuhr nie, dass ihre Aufnahme
+// eine Konsolenzeile, die betroffene Person erfuhr nie, dass ihre Aufnahme
 // weg ist. Derselbe Pfad greift auch, wenn jemandem mitten im Upload die
 // Mitgliedschaft entzogen wird.
 

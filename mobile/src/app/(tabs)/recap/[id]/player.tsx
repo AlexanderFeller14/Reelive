@@ -54,7 +54,7 @@ import {
   setzeReaktion,
 } from '@/features/recap/sozialApi';
 
-// Die nächsten drei Fotos werden per expo-image vorgeladen (V8) — beim
+// Die nächsten drei Fotos werden per expo-image vorgeladen (V8), beim
 // Weitertippen darf nichts schwarz blitzen.
 const VORLADEN_ANZAHL = 3;
 // Tages-Zwischenkarte steht 1,5 Sekunden, dann geht es von selbst weiter
@@ -62,38 +62,38 @@ const VORLADEN_ANZAHL = 3;
 const ZWISCHENKARTE_DAUER_MS = 1500;
 // Unterhalb dieser Haltedauer zählt eine Berührung als "Tipp" (navigiert),
 // darüber als "Halten" (pausiert nur und setzt beim Loslassen fort, ohne zu
-// navigieren) — Snapchat/Instagram-Story-Konvention, siehe Bericht.
+// navigieren), Snapchat/Instagram-Story-Konvention, siehe Bericht.
 const TAP_SCHWELLE_MS = 250;
 // Task 8, Phase 6: langes Tippen öffnet «Diesen Moment melden». Bewusst
-// deutlich über TAP_SCHWELLE_MS (250 ms, das ist schon "halten" = pausieren)
-// — 500 ms ist der plattformübliche Wert für eine Long-Press-Geste
+// deutlich über TAP_SCHWELLE_MS (250 ms, das ist schon "halten" = pausieren),
+// 500 ms ist der plattformübliche Wert für eine Long-Press-Geste
 // (iOS/Android-Konvention, von RN Pressable auch als Default für
 // `delayLongPress` verwendet) und lässt sich klar von einem blossen Halten
 // unterscheiden: WÄHREND der ersten 500 ms verhält sich eine Berührung exakt
 // wie bisher (pausiert, siehe onPressIn), erst danach kommt zusätzlich das
-// Melden-Sheet dazu. Kein Konflikt mit der bestehenden Gesten-Schicht nötig
-// — siehe Kommentar bei `onLongPress` an den Tipp-Zonen unten.
+// Melden-Sheet dazu. Kein Konflikt mit der bestehenden Gesten-Schicht nötig,
+// siehe Kommentar bei `onLongPress` an den Tipp-Zonen unten.
 const LANGES_TIPPEN_MS = 500;
 // Wisch nach unten weiter als diese Schwelle schliesst den Player.
 const SCHLIESSEN_SCHWELLE_PX = 120;
-// DESIGN-LANGUAGE §5: „hell → Kino = Fade durch Dunkel 350 ms" — der
+// DESIGN-LANGUAGE §5: „hell → Kino = Fade durch Dunkel 350 ms", der
 // inszenierte Übergang beim Betreten des Players ("das Licht geht aus").
 const KINO_FADE_DAUER_MS = 350;
 const KINO_FADE_REDUZIERT_MS = 200;
 
 // Final-Review Phase-5-Nachbesserung: Gründe, die zum VERLASSENEN Moment
 // gehören und bei jedem TATSÄCHLICHEN Indexwechsel (Tipp-Navigation,
-// automatischer Vorschub) zurückgenommen werden — nie zum NEUEN Moment
+// automatischer Vorschub) zurückgenommen werden, nie zum NEUEN Moment
 // mitgeschleppt. 'kommentare' und 'zwischenkarte' gehören bewusst NICHT
 // hierher: 'kommentare' hängt am Sheet (schliesst über schliesseKommentare,
-// nicht über einen Indexwechsel — während es offen ist, sind die Tipp-Zonen
+// nicht über einen Indexwechsel, während es offen ist, sind die Tipp-Zonen
 // ohnehin vom Sheet verdeckt), 'zwischenkarte' ist über den eigenen Effekt
 // (Deps u.a. stand.index) bereits selbstverwaltend.
 const MOMENTWECHSEL_GRUENDE: PauseGrund[] = ['halten', 'neuversuch'];
 
 // Feste kleine Emoji-Leiste (Task-12-Brief: kein Picker, kein neues Paket).
 // `id` ist der stabile Schlüssel für testID/React-key (ein Emoji-Glyph kann
-// aus mehreren Codepoints bestehen, z.B. Herz + Variationsselektor — als
+// aus mehreren Codepoints bestehen, z.B. Herz + Variationsselektor, als
 // testID unpraktisch), `emoji` ist der Wert, den sozialApi tatsächlich
 // speichert.
 const EMOJI_LEISTE: { id: string; emoji: string; label: string }[] = [
@@ -106,7 +106,7 @@ const EMOJI_LEISTE: { id: string; emoji: string; label: string }[] = [
 
 // Dieselben Formulierungen wie im Schwester-Screen recap/[id]/uebersicht.tsx
 // für Nachzügler/Ausgelassene (Task-11-Brief: "nimm dieselben, statt neue zu
-// erfinden") — hier bewusst als eigene, kleine Kopie statt eines Imports:
+// erfinden"), hier bewusst als eigene, kleine Kopie statt eines Imports:
 // uebersicht.tsx exportiert diese Hilfsfunktionen nicht, und diese Aufgabe
 // darf laut Auftrag ausschliesslich die eigenen vier Dateien anfassen, nicht
 // uebersicht.tsx umbauen, um sie zu exportieren.
@@ -135,11 +135,11 @@ function tagesueberschrift(tag: RecapTag): string {
 }
 
 // Uhrzeit in DER ZEITZONE DES MOMENTS (captured_tz), nicht in Gerätezeit
-// (Task-11-Brief, Schritt 3) — anders als preview.tsx (dort ist Moment- und
+// (Task-11-Brief, Schritt 3), anders als preview.tsx (dort ist Moment- und
 // Gerätezeit dieselbe, weil dort live aufgenommen wird) braucht das hier
 // zwingend Intl.DateTimeFormat mit `timeZone`, es gibt dafür keinen
 // Intl-freien Weg. Ein ungültiger/unbekannter Zonenname (siehe tage.ts,
-// gleiches Verteidigungsprinzip) wirft dort einen RangeError — lieber eine
+// gleiches Verteidigungsprinzip) wirft dort einen RangeError, lieber eine
 // best-effort Gerätezeit zeigen als abstürzen oder eine leere Pille.
 function zeitInZone(capturedAt: string, capturedTz: string): string {
   try {
@@ -156,7 +156,7 @@ function zeitInZone(capturedAt: string, capturedTz: string): string {
 
 // Vertrag 2 (Review-Fund der Vorgänger-Tasks): der Startindex aus der
 // Übersicht bezieht sich auf die Momente mit upload_status==='uploaded', die
-// AUCH im Vorrat eine URL haben, in der Reihenfolge von fetchRecapMomente —
+// AUCH im Vorrat eine URL haben, in der Reihenfolge von fetchRecapMomente,
 // dieselbe Liste, die `laden()` unten als `spielliste` aufbaut. Verteidigt
 // gegen fehlendes, nicht-numerisches und ausserhalb des Bereichs liegendes
 // `start`, statt zu raten oder zu werfen.
@@ -170,8 +170,8 @@ function parseStartIndex(raw: string | undefined, laenge: number): number {
 
 type LadePhase = 'laedt' | 'fehler' | 'leer' | 'bereit' | 'ende';
 
-// Medien-Screen (DESIGN-LANGUAGE v2 §1): feste Kino-Palette, kein useTheme()
-// — gleiches Muster wie aufnehmen/index.tsx und preview.tsx.
+// Medien-Screen (DESIGN-LANGUAGE v2 §1): feste Kino-Palette, kein useTheme(),
+// gleiches Muster wie aufnehmen/index.tsx und preview.tsx.
 function KinoButton({ label, onPress }: { label: string; onPress: () => void }) {
   return (
     <PressScale accessibilityRole="button" onPress={onPress}>
@@ -191,10 +191,10 @@ function TextLink({ label, onPress }: { label: string; onPress: () => void }) {
 }
 
 // Ein Emoji der festen Leiste. Aktiv (eigene Reaktion): Pille füllt sich mit
-// `cinema['text-1']` — derselbe Ton, den `KinoButton` bereits für "solide
+// `cinema['text-1']`, derselbe Ton, den `KinoButton` bereits für "solide
 // Fläche auf Kino-Hintergrund" benutzt, kein neuer Wert. 44×44: minimales
 // Touch-Target (DESIGN-LANGUAGE v2 §8).
-// Aktiv (eigene Reaktion) füllt sich SOLIDE mit `cinema['text-1']` — keine
+// Aktiv (eigene Reaktion) füllt sich SOLIDE mit `cinema['text-1']`, keine
 // translucente Pille, also auch kein Blur: eine deckende Fläche hat nichts,
 // das durchscheinen könnte. Inaktiv bleibt die Pille translucent + Blur
 // (DESIGN-LANGUAGE §1/§4, Task 10).
@@ -228,7 +228,7 @@ function EmojiPille({
   );
 }
 
-// Reaktionen ANDERER Personen auf den aktiven Moment — dezent, nur die
+// Reaktionen ANDERER Personen auf den aktiven Moment, dezent, nur die
 // Emojis, ohne Namen und ohne Zähler (Task-12-Brief, Schritt 4: "nicht als
 // Zählerbalken").
 function AndereReaktionenPille({ emojis }: { emojis: string[] }) {
@@ -254,7 +254,7 @@ function KommentarZeile({ kommentar }: { kommentar: Kommentar }) {
 }
 
 // Initiale statt echtem Bild (Avatar.tsx macht dasselbe für die helle
-// Palette) — hier lokal statt importiert, weil Avatar.tsx über useTheme()
+// Palette), hier lokal statt importiert, weil Avatar.tsx über useTheme()
 // die HELLE Palette zieht und auf einem Kino-Screen falsch aussähe.
 function AvatarInitiale({ name }: { name: string }) {
   return (
@@ -285,7 +285,7 @@ function FotoMoment({ url, onFehler }: { url: string; onFehler: () => void }) {
   );
 }
 
-// Videoende erkennen: das `playToEnd`-Event des Players (nicht ein Timer) —
+// Videoende erkennen: das `playToEnd`-Event des Players (nicht ein Timer),
 // der uniforme dauerFuer-Timer im Elternteil läuft trotzdem als Rückfall
 // weiter (siehe dort) und schaltet notfalls auch bei einem Video weiter, das
 // wegen fehlendem Netz nie lädt. `statusChange` mit status==='error' meldet
@@ -295,7 +295,7 @@ function FotoMoment({ url, onFehler }: { url: string; onFehler: () => void }) {
 // `pausiert` (die für DIESE Komponente auf ein einzelnes boolean verdichtete
 // Frage "läuft gerade IRGENDEIN Pausier-Grund", siehe `gestoppt` weiter
 // unten) steuert player.pause()/play() direkt: "Halten = Pause" darf sich
-// nicht auf das Einfrieren des Fortschrittsbalkens beschränken — sonst liefe
+// nicht auf das Einfrieren des Fortschrittsbalkens beschränken, sonst liefe
 // Bild UND Ton eines Videos unbeirrt weiter, während die Anzeige stillstünde.
 // Genau dieser Fall (gehalten, während das Video währenddessen zu Ende
 // liefe) ist auch der Grund, warum `weiterAutomatisch` beim Vorschub den
@@ -363,7 +363,7 @@ function MomentAnzeige({
     );
   }
   // Randfall (Task-11-Brief, Schritt 7): ein Video, das nicht lädt, zeigt
-  // sein Thumbnail plus Hinweis — Weitertippen bleibt möglich (die Tap-Zonen
+  // sein Thumbnail plus Hinweis, Weitertippen bleibt möglich (die Tap-Zonen
   // liegen unverändert über dieser Fläche, sie ist rein informativ). Dieselbe
   // Behandlung gilt symmetrisch für ein Foto, dessen Laden zweimal
   // fehlschlägt (V10: eine kaputte URL darf den Recap nie beenden).
@@ -396,7 +396,7 @@ export default function RecapPlayer() {
   const [startDate, setStartDate] = useState('');
   // Referenzstabil ab dem Moment, in dem laden() sie einmal setzt (Vertrag 1
   // der Vorgänger-Tasks: tagWechselt memoisiert über die ARRAY-REFERENZ,
-  // nicht über Inhalt/Länge — diese Liste wird darum NIE inline neu gebaut,
+  // nicht über Inhalt/Länge, diese Liste wird darum NIE inline neu gebaut,
   // sondern genau einmal pro erfolgreichem Laden per setState ersetzt).
   const [spielliste, setSpielliste] = useState<RecapMoment[]>([]);
   const [urls, setUrls] = useState<Map<string, MedienUrl>>(new Map());
@@ -407,14 +407,14 @@ export default function RecapPlayer() {
   const [stand, setStand] = useState<PlayerStand>({ index: 0, pausiert: new Set(), fortschritt: 0 });
   const [fehlgeschlagen, setFehlgeschlagen] = useState<Set<string>>(new Set());
 
-  // Reaktionen (Task 12): `reaktionen` trägt den OPTIMISTISCHEN Zustand — ein
+  // Reaktionen (Task 12): `reaktionen` trägt den OPTIMISTISCHEN Zustand, ein
   // Tipp schreibt hier sofort, bevor die Antwort von setzeReaktion/
   // entferneReaktion da ist (siehe tippeEmoji unten).
   const [reaktionen, setReaktionen] = useState<Record<string, Reaktion[]>>({});
   const [reaktionFehler, setReaktionFehler] = useState<string | null>(null);
 
   // Task 7: «In Galerie sichern» für den GERADE aktiven Moment. Eigener
-  // Hinweistext statt Wiederverwendung von `reaktionFehler` — ein Erfolg
+  // Hinweistext statt Wiederverwendung von `reaktionFehler`, ein Erfolg
   // ("gesichert.") ist kein Fehler, beide sollen aber nach demselben Muster
   // (eine Pille unter der Reaktionsreihe, verschwindet beim Momentwechsel)
   // behandelt werden.
@@ -430,11 +430,11 @@ export default function RecapPlayer() {
   const [kommentarSendenFehler, setKommentarSendenFehler] = useState<string | null>(null);
 
   // Task 8, Phase 6: «Diesen Moment melden», ausgelöst durch langes Tippen
-  // (siehe onLongPress an den Tipp-Zonen unten) — gleiches Zustandsmuster wie
+  // (siehe onLongPress an den Tipp-Zonen unten), gleiches Zustandsmuster wie
   // das Kommentar-Sheet direkt darüber. `meldenBestaetigt` schaltet den
   // Sheet-Inhalt nach einem erfolgreichen Absenden auf die Bestätigung um
   // (Brief: "Danach eine Bestätigung."); der Moment selbst bleibt in JEDEM
-  // Fall unverändert sichtbar — Melden entfernt nichts, das übernimmt
+  // Fall unverändert sichtbar, Melden entfernt nichts, das übernimmt
   // ausschliesslich die Moderation im Reise-Detail.
   const [meldenMomentId, setMeldenMomentId] = useState<string | null>(null);
   const [meldenGrund, setMeldenGrund] = useState('');
@@ -443,8 +443,8 @@ export default function RecapPlayer() {
   const [meldenBestaetigt, setMeldenBestaetigt] = useState(false);
 
   const aktiv = useRef(true);
-  // Wandzeit, zu der das aktuelle Segment (bei fortschritt=0) begonnen hätte
-  // — daraus lässt sich beim Berühren (Halten-Geste) exakt zurückrechnen,
+  // Wandzeit, zu der das aktuelle Segment (bei fortschritt=0) begonnen hätte,
+  // daraus lässt sich beim Berühren (Halten-Geste) exakt zurückrechnen,
   // wie viel von diesem Moment schon "gesehen" wurde, ohne einen zweiten,
   // separat tickenden Zähler zu pflegen (dieselbe Trennung von Optik/Zeitgeber
   // wie Versiegelung.tsx: die Animation läuft für sich, der eigentliche
@@ -452,29 +452,29 @@ export default function RecapPlayer() {
   const segmentStartRef = useRef(0);
   const beruehrungStartRef = useRef(0);
   const erneuerungLaeuftRef = useRef(false);
-  // Pro Moment höchstens EIN automatischer, unsichtbarer Neuversuch (V10) —
+  // Pro Moment höchstens EIN automatischer, unsichtbarer Neuversuch (V10),
   // scheitert der auch, gilt der Moment als endgültig fehlgeschlagen.
   const versuchtRef = useRef<Set<string>>(new Set());
   const aktivIdRef = useRef<string | undefined>(undefined);
   // Phase-5-Final-Review, Punkt 1 (korrigiert): früher zwei separate Refs
   // (`zwischenkarteRef`, `kommentarOffenRef`), weil `stand.pausiert` als
   // einzelnes boolean die drei Gründe (Halten, Zwischenkarte,
-  // Kommentar-Sheet) nicht auseinanderhalten konnte — videoZuEnde brauchte
+  // Kommentar-Sheet) nicht auseinanderhalten konnte, videoZuEnde brauchte
   // zwei EIGENE, parallel geführte Booleans, um "Halten" (soll durchlassen,
   // Vertrag 4) von den anderen beiden (sollen blockieren) zu unterscheiden.
   // Mit PauseGrund als benannter Menge genügt EIN Ref auf das aktuelle
-  // `stand.pausiert` — `blockiertAutomatischenVorschub` (playerLogic.ts)
+  // `stand.pausiert`, `blockiertAutomatischenVorschub` (playerLogic.ts)
   // kennt den Unterschied selbst.
   const pausiertRef = useRef<ReadonlySet<PauseGrund>>(new Set());
-  // Schlüssel `${postId}:${emoji}` — verhindert, dass ein schneller
+  // Schlüssel `${postId}:${emoji}`, verhindert, dass ein schneller
   // Doppeltipp auf dasselbe Emoji zwei sich widersprechende Anfragen lostritt
   // (Frage aus dem Task-12-Auftrag). Ein Ref statt ein State-Flag: Prüfen und
   // Setzen müssen SYNCHRON im selben Tastendruck passieren, bevor der
-  // nächste Tipp überhaupt eintrifft — React committed einen State-Wechsel
+  // nächste Tipp überhaupt eintrifft, React committed einen State-Wechsel
   // erst beim nächsten Renderzyklus, ein zweiter, sehr schneller Tipp könnte
   // ihn also noch mit dem alten Wert lesen.
   const pendingReaktionenRef = useRef<Set<string>>(new Set());
-  // Für welchen Moment das Kommentar-Sheet zuletzt geöffnet/geladen hat — mit
+  // Für welchen Moment das Kommentar-Sheet zuletzt geöffnet/geladen hat, mit
   // dem State `kommentarMomentId` synchron gehalten, damit eine spät
   // eintreffende Antwort (Sheet inzwischen für einen ANDEREN Moment neu
   // geöffnet) das dann aktuellere Ergebnis nicht überschreibt.
@@ -490,7 +490,7 @@ export default function RecapPlayer() {
       await Promise.all([fetchTrip(tripId), fetchRecapMomente(tripId), holeVorrat(tripId)]);
     if (!aktiv.current) return;
 
-    // Priorität Reise vor Vorrat vor Momenten — gleiche Reihenfolge wie in
+    // Priorität Reise vor Vorrat vor Momenten, gleiche Reihenfolge wie in
     // uebersicht.tsx: eine kaputte Reise-Abfrage macht die anderen beiden
     // ohnehin bedeutungslos.
     const gemeinsamerFehler = tFehler ?? vFehler ?? mFehler ?? null;
@@ -512,7 +512,7 @@ export default function RecapPlayer() {
     setPendingAnzahl(momente.length - uploaded.length);
     setAusgelassenAnzahl(vorrat?.ausgelassen ?? 0);
     setSpielliste(mitBild);
-    // Klein (Review-Fund): ein frisches Laden ist ein frischer Anlauf — ein
+    // Klein (Review-Fund): ein frisches Laden ist ein frischer Anlauf, ein
     // Moment, der beim VORHERIGEN Anlauf zweimal scheiterte, bekommt sonst
     // nie wieder einen stillen Neuversuch und zeigt dauerhaft die
     // Hinweispille, auch wenn das zugrunde liegende Problem (z.B. eine
@@ -553,17 +553,17 @@ export default function RecapPlayer() {
   // liefert beim allerersten Render IMMER `false` (useState(false)) und löst
   // erst ASYNCHRON auf, sobald `AccessibilityInfo.isReduceMotionEnabled()`
   // zurückkommt (useReducedMotion.ts). Mit `[]`-Deps lief dieser Effekt genau
-  // einmal, exakt beim Mount — zu einem Zeitpunkt, an dem `reducedMotion`
+  // einmal, exakt beim Mount, zu einem Zeitpunkt, an dem `reducedMotion`
   // strukturell IMMER `false` ist, egal was die echte Systemeinstellung
   // sagt. `KINO_FADE_REDUZIERT_MS` war dadurch zur Laufzeit unerreichbar,
   // nur im (den echten Hook synchron mockenden) Test erreichbar. Mit
   // `[reducedMotion]` läuft der Effekt ein zweites Mal, FALLS der Hook nach
   // dem Mount tatsächlich auf `true` auflöst, und startet die Animation dann
-  // mit der kürzeren Dauer neu — dasselbe akzeptierte Verhalten wie
+  // mit der kürzeren Dauer neu, dasselbe akzeptierte Verhalten wie
   // Versiegelung.tsx/RevealInszenierung.tsx (dort ebenfalls `reducedMotion`
   // in den Deps, siehe deren Fix-Runde-1-Kommentar). Löst der Hook (der
   // Normalfall) auf `false` auf, ändert sich der State-Wert nicht, React
-  // rendert nicht neu, der Effekt läuft kein zweites Mal — keine zusätzliche
+  // rendert nicht neu, der Effekt läuft kein zweites Mal, keine zusätzliche
   // Animation im Normalfall.
   const kinoFade = useRef(new Animated.Value(1)).current;
   useEffect(() => {
@@ -579,10 +579,10 @@ export default function RecapPlayer() {
   const aktivMoment = spielliste[stand.index];
   aktivIdRef.current = aktivMoment?.id;
   // Beide aus `stand.pausiert` abgeleitet (Phase-5-Final-Review, Punkt 1):
-  // `zwischenkarte` — zeigt die Tages-Zwischenkarte gerade, `kommentarOffen`
-  // — ist das Kommentar-Sheet gerade offen. Kein eigener State mehr (vorher
+  // `zwischenkarte`, zeigt die Tages-Zwischenkarte gerade, `kommentarOffen`,
+  // ist das Kommentar-Sheet gerade offen. Kein eigener State mehr (vorher
   // je ein `useState`, das im gleichen Atemzug wie der jeweilige Grund
-  // gesetzt/entfernt wurde — zwei Quellen der Wahrheit für dieselbe
+  // gesetzt/entfernt wurde, zwei Quellen der Wahrheit für dieselbe
   // Information). `gestoppt` ist die für Fortschrittsbalken/VideoMoment
   // verdichtete Frage "läuft gerade IRGENDEIN Grund" (die einzige Stelle,
   // an der die Unterscheidung der Gründe bewusst NICHT mehr interessiert).
@@ -591,7 +591,7 @@ export default function RecapPlayer() {
   // Task 8: dasselbe Prinzip, für das Melden-Sheet.
   const meldenOffen = stand.pausiert.has('melden');
   const gestoppt = stand.pausiert.size > 0;
-  // Für videoZuEnde unten — direkt in der Render-Zeile aktuell gehalten
+  // Für videoZuEnde unten, direkt in der Render-Zeile aktuell gehalten
   // (gleiches Muster wie aktivIdRef, siehe dort).
   pausiertRef.current = stand.pausiert;
   kommentarMomentIdRef.current = kommentarMomentId;
@@ -599,7 +599,7 @@ export default function RecapPlayer() {
 
   // Erstes (und einziges) useMemo dieser Codebase (Vertrag 1): `tage` hängt
   // nur an der referenzstabilen `spielliste` + `startDate`, muss also nicht
-  // bei jedem Fortschritts-Tick neu berechnet werden — dieselbe
+  // bei jedem Fortschritts-Tick neu berechnet werden, dieselbe
   // Performance-Überlegung wie tagWechselt.
   const tage = useMemo(() => gruppiereNachTagen(spielliste, startDate), [spielliste, startDate]);
   const aktuellerTag = useMemo(() => {
@@ -608,7 +608,7 @@ export default function RecapPlayer() {
   }, [tage, aktivMoment]);
 
   // EIN fetchReaktionen()-Aufruf für die GANZE Spielliste (Brief: nicht pro
-  // Moment — bei 200 Momenten der Unterschied zwischen "lädt" und "lädt
+  // Moment, bei 200 Momenten der Unterschied zwischen "lädt" und "lädt
   // nicht"), sobald sie feststeht. `spielliste` ist referenzstabil (Vertrag
   // 1 aus Task 11), der Effekt feuert also genau einmal pro erfolgreichem
   // Laden, nicht bei jedem Momentwechsel.
@@ -619,12 +619,12 @@ export default function RecapPlayer() {
       if (!lebt || !aktiv.current) return;
       setReaktionen(data);
       // Fix-Runde 1, Klein 4: ein verschluckter Ladefehler liess jeden
-      // Moment fälschlich reaktionslos wirken — die eigene, tatsächlich
+      // Moment fälschlich reaktionslos wirken, die eigene, tatsächlich
       // schon bestehende Reaktion zeigte sich nicht als aktiv, UND der
       // erste Tipp darauf wurde dank `ignoreDuplicates` zu einem stillen
       // No-Op (erst der zweite Tipp hätte sie entfernt), ohne dass die
       // Person je erfahren hätte, warum. Dieselbe Pille wie ein
-      // fehlgeschlagener Tipp selbst — verschwindet beim nächsten
+      // fehlgeschlagener Tipp selbst, verschwindet beim nächsten
       // Momentwechsel (siehe Effekt unten).
       if (error) setReaktionFehler(error);
     });
@@ -634,13 +634,13 @@ export default function RecapPlayer() {
   }, [spielliste]);
 
   // Eine stehengebliebene Fehlermeldung vom vorherigen Moment darf nicht auf
-  // dem neuen weiterhängen. Gleiches gilt für den Export-Hinweis (Task 7) —
+  // dem neuen weiterhängen. Gleiches gilt für den Export-Hinweis (Task 7),
   // ein "gesichert."-Text von Moment A darf nicht unter Moment B weiterstehen.
   // `exportLaeuft` wird HIER ebenfalls zurückgesetzt (nicht nur am Ende von
   // sichereAktuellenMoment): wechselt die Person WÄHREND eines laufenden
   // Exports von Moment A zu Moment B, greift dort die Stale-Guard
   // (aktivIdRef.current !== momentId) und lässt `exportLaeuft` NIE mehr auf
-  // false zurückfallen — ohne diesen Reset bliebe der Sichern-Knopf auf dem
+  // false zurückfallen, ohne diesen Reset bliebe der Sichern-Knopf auf dem
   // NEUEN, unbeteiligten Moment B fälschlich im Ladezustand hängen.
   useEffect(() => {
     setReaktionFehler(null);
@@ -654,7 +654,7 @@ export default function RecapPlayer() {
     return new Set(liste.filter((r) => r.user_id === userId).map((r) => r.emoji));
   }, [reaktionen, aktivMoment, userId]);
 
-  // Nur die EMOJIS anderer Personen, dedupliziert — kein Name, kein Zähler
+  // Nur die EMOJIS anderer Personen, dedupliziert, kein Name, kein Zähler
   // (Brief, Schritt 4).
   const andereEmojis = useMemo(() => {
     if (!aktivMoment) return [];
@@ -667,11 +667,11 @@ export default function RecapPlayer() {
   }, [reaktionen, aktivMoment, userId]);
 
   // Tippen auf ein Emoji: OPTIMISTISCH setzen/entfernen (Brief, Kernstück
-  // dieses Screens) — die Reaktion ändert sich sofort im UI, ohne auf die
+  // dieses Screens), die Reaktion ändert sich sofort im UI, ohne auf die
   // Antwort von setzeReaktion/entferneReaktion zu warten. Scheitert der
   // Aufruf, macht der `.then()`-Zweig unten GENAU die entgegengesetzte
   // Änderung und zeigt die Ursache kurz an. Ein zweiter Tipp auf eine bereits
-  // eigene Reaktion ENTFERNT sie (Toggle) — die einzige Deutung, die zu
+  // eigene Reaktion ENTFERNT sie (Toggle), die einzige Deutung, die zu
   // "Tippen setzt, Tippen nimmt zurück" ohne einen zweiten Interaktionsweg
   // (z.B. Halten) auskommt; ein PK aus (post_id, user_id, emoji) erlaubt
   // ohnehin nur genau diese zwei Zustände pro Person und Emoji.
@@ -702,7 +702,7 @@ export default function RecapPlayer() {
     });
 
     // Rücknahme (Rollback): exakt die entgegengesetzte Änderung der
-    // optimistischen oben — die Reaktion verschwindet wieder (bzw. taucht
+    // optimistischen oben, die Reaktion verschwindet wieder (bzw. taucht
     // wieder auf). Als benannte Funktion, weil sowohl ein AUFGELÖSTES `{
     // error }` als auch ein tatsächliches `reject()` (Fix-Runde 1, Klein 5)
     // dieselbe Behandlung brauchen.
@@ -710,7 +710,7 @@ export default function RecapPlayer() {
       pendingReaktionenRef.current.delete(schluessel);
       if (!aktiv.current) return;
       setReaktionen(warReagiert ? hinzufuegen : entfernen);
-      // Nur anzeigen, wenn noch derselbe Moment aktiv ist — sonst würde ein
+      // Nur anzeigen, wenn noch derselbe Moment aktiv ist, sonst würde ein
       // Fehler zu einem längst verlassenen Moment auf dem FALSCHEN,
       // inzwischen aktiven Moment aufblitzen.
       if (aktivIdRef.current === momentId) setReaktionFehler(nachricht);
@@ -725,11 +725,11 @@ export default function RecapPlayer() {
       })
       .catch(() => {
         // sozialApi fängt jeden erwarteten Fehlerpfad selbst ab und liefert
-        // ihn als `{ error }`, statt zu werfen (siehe dortiger Kommentar) —
+        // ihn als `{ error }`, statt zu werfen (siehe dortiger Kommentar),
         // ein tatsächliches reject() hier ist der unerwartete Rest (z.B.
         // eine Laufzeitausnahme in der fetch-Polyfill). Ohne dieses `.catch`
         // (Fix-Runde 1, Klein 5) bliebe `schluessel` für immer in
-        // `pendingReaktionenRef` hängen — dieses Emoji auf diesem Moment
+        // `pendingReaktionenRef` hängen, dieses Emoji auf diesem Moment
         // liesse sich nie wieder antippen, plus eine Unhandled Rejection.
         rollback(
           warReagiert
@@ -741,16 +741,16 @@ export default function RecapPlayer() {
 
   // Öffnet das Kommentar-Sheet für den GERADE aktiven Moment und hält diesen
   // in einem eigenen State fest (`kommentarMomentId`), statt bei jedem
-  // Zugriff `aktivMoment.id` neu zu lesen — schreibeKommentar bekommt so
+  // Zugriff `aktivMoment.id` neu zu lesen, schreibeKommentar bekommt so
   // IMMER den Moment, für den das Sheet geöffnet wurde, unabhängig davon, ob
   // währenddessen im Hintergrund der Vorrat erneuert wird (Frage aus dem
   // Auftrag). Der Player pausiert zusätzlich strukturell (unten), solange
-  // das Sheet offen ist — der eigene State macht die Zusicherung aber
+  // das Sheet offen ist, der eigene State macht die Zusicherung aber
   // explizit statt sich allein darauf zu verlassen.
   //
   // Fix-Runde 1, bewusste Abweichung vom Brief-Wortlaut ("Wisch nach oben
   // öffnet das Sheet"): dieser Knopf ist der EINZIGE Weg, das Sheet zu
-  // öffnen — es gibt keine Wisch-Geste dafür. Der einzige PanResponder des
+  // öffnen, es gibt keine Wisch-Geste dafür. Der einzige PanResponder des
   // Screens (unten, `panResponder`) erkennt ausschliesslich Abwärtswische
   // zum Schliessen des Players; ihn zusätzlich für Aufwärtswische zu öffnen
   // hätte entweder eine zweite, unabhängige Touch-Fläche gebraucht (Konflikt
@@ -759,35 +759,35 @@ export default function RecapPlayer() {
   // Aufwärtsbewegung nicht). Ohne echten Gerätetest wollte ich diese
   // Kombination nicht ungeprüft einbauen. Der Tipp-Knopf ist deterministisch,
   // hat ein 44×44-Touch-Target (DESIGN-LANGUAGE v2 §8) und ist der einzige
-  // Weg, den auch die Tests unten prüfen — siehe Bericht, Abschnitt
+  // Weg, den auch die Tests unten prüfen, siehe Bericht, Abschnitt
   // "Wisch-Geste".
   //
   // Phase-5-Final-Review, Punkt 1: eine frühere Fassung dieses Kommentars
   // begründete die Zurückhaltung bei der Wisch-Geste u.a. damit, dass der
   // Zwischenkarten-Timer `pausiert` "unbedingt auf false zurücksetzt" und
-  // ein währenddessen geöffnetes Sheet dadurch lautlos entpausiert würde —
+  // ein währenddessen geöffnetes Sheet dadurch lautlos entpausiert würde,
   // GENAU dieser Mechanismus war der tatsächliche, unabhängig von der
   // Wisch-Geste auslösbare Bug (siehe der Effekt bei
   // `ZWISCHENKARTE_DAUER_MS` und `ueberspringen` unten): der Zwischenkarten-
   // Timer nimmt jetzt AUSSCHLIESSLICH den Grund `'zwischenkarte'` zurück,
-  // nie `'kommentare'` — ein offenes Sheet bleibt also so oder so
+  // nie `'kommentare'`, ein offenes Sheet bleibt also so oder so
   // pausiert, auch über einen verwaisten Timer hinweg.
   const oeffneKommentare = () => {
     const moment = aktivMoment;
     if (!moment) return;
     const momentId = moment.id;
     // Fix-Runde 2 (Review-Fund): der VORHERIGE Wert, BEVOR er unten
-    // überschrieben wird — entscheidet, ob dies ein echter Momentwechsel
+    // überschrieben wird, entscheidet, ob dies ein echter Momentwechsel
     // ist oder ein Wiederöffnen DESSELBEN Moments (siehe
     // `kommentarSendetLaeuft`-Reset weiter unten).
     const vorherigerMomentId = kommentarMomentIdRef.current;
-    // EAGER, synchron gesetzt — nicht erst über die Render-Zeile weiter
+    // EAGER, synchron gesetzt, nicht erst über die Render-Zeile weiter
     // unten (`kommentarMomentIdRef.current = kommentarMomentId`). Löst
     // fetchKommentare unten schneller auf, als React den durch
     // setKommentarMomentId ausgelösten Re-Render committet (z.B. weil die
-    // Antwort aus einem Cache kommt oder — wie im eigenen Test — synchron
+    // Antwort aus einem Cache kommt oder, wie im eigenen Test, synchron
     // aufgelöst ist), würde der Ref-Vergleich im `.then()` unten sonst noch
-    // den ALTEN Wert sehen und die frische Antwort fälschlich verwerfen —
+    // den ALTEN Wert sehen und die frische Antwort fälschlich verwerfen,
     // das Sheet bliebe dann für immer beim Ladespinner stehen.
     kommentarMomentIdRef.current = momentId;
     setKommentarMomentId(momentId);
@@ -795,12 +795,12 @@ export default function RecapPlayer() {
     setKommentarSendenFehler(null);
     // Fix-Runde 1, Wichtig 3, korrigiert in Fix-Runde 2: NUR bei einem
     // echten MOMENTWECHSEL zurücksetzen. Der ursprüngliche Fix (Runde 1)
-    // setzte bei JEDEM Öffnen zurück — auch beim Wiederöffnen DESSELBEN
+    // setzte bei JEDEM Öffnen zurück, auch beim Wiederöffnen DESSELBEN
     // Moments, während schreibeKommentar für GENAU DIESEN Moment noch
     // lief: Senden → Sheet schliessen, bevor die Antwort da ist → sofort
     // wieder öffnen (derselbe Moment ist weiterhin aktiv) → der
     // Senden-Knopf wäre wieder aktiv gewesen, OBWOHL die erste Anfrage noch
-    // läuft — ein zweiter Tipp hätte einen zweiten, überlappenden Versand
+    // läuft, ein zweiter Tipp hätte einen zweiten, überlappenden Versand
     // ausgelöst. Vor Runde 1 war das nicht möglich (dort wurde nie
     // zurückgesetzt), Runde 1 hat also eine neue Regression eingeführt.
     // Ein Wechsel zu einem ANDEREN Moment ist dagegen eine echte neue
@@ -816,7 +816,7 @@ export default function RecapPlayer() {
     setKommentareFehler(null);
     setKommentareLaden(true);
     // Der Screen verwaltet `pausiert` selbst (playerLogic fasst es bewusst
-    // nicht an) — solange das Sheet offen ist, läuft weder Timer noch Video.
+    // nicht an), solange das Sheet offen ist, läuft weder Timer noch Video.
     // `kommentarOffen` (Render-Zeile oben) ist AUS `stand.pausiert`
     // abgeleitet, es gibt also nur diesen einen Schreibzugriff, keinen
     // separaten `setKommentarOffen`-Aufruf mehr.
@@ -825,7 +825,7 @@ export default function RecapPlayer() {
     void fetchKommentare(momentId).then(({ data, error }) => {
       // Das Sheet wurde inzwischen für einen ANDEREN Moment neu geöffnet
       // (schliessen → weiter → wieder öffnen, während diese Antwort noch
-      // unterwegs war) — eine späte Antwort für den ALTEN Moment darf den
+      // unterwegs war), eine späte Antwort für den ALTEN Moment darf den
       // inzwischen frischeren Zustand nicht überschreiben.
       if (!aktiv.current || kommentarMomentIdRef.current !== momentId) return;
       setKommentareLaden(false);
@@ -836,19 +836,19 @@ export default function RecapPlayer() {
 
   const schliesseKommentare = () => {
     // Nimmt AUSSCHLIESSLICH den eigenen Grund zurück (Phase-5-Final-Review,
-    // Punkt 1) — bleibt der Player aus einem ANDEREN Grund pausiert (z.B.
+    // Punkt 1), bleibt der Player aus einem ANDEREN Grund pausiert (z.B.
     // eine Halten-Geste, die währenddessen begonnen hätte), bleibt er das
     // auch nach dem Schliessen des Sheets.
     setStand((s) => ({ ...s, pausiert: ohneGrund(s.pausiert, 'kommentare') }));
   };
 
-  // Task 7: «In Galerie sichern» für den gerade aktiven Moment — exportApi
+  // Task 7: «In Galerie sichern» für den gerade aktiven Moment, exportApi
   // sichert IMMER url.medium_url (volle Auflösung), nie das Thumbnail.
-  // Ohne Berechtigung: NIE ein stiller Fehlschlag (Brief, wörtlich) — ein
+  // Ohne Berechtigung: NIE ein stiller Fehlschlag (Brief, wörtlich), ein
   // Alert erklärt die Ursache und bietet den Weg in die Einstellungen an,
   // statt nur eine kleine Pille zu zeigen, die leicht übersehen wird. Ein
   // sonstiger Fehlschlag (Netzwerk, Galerie-Fehler) bekommt dieselbe kleine
-  // Hinweis-Pille wie `reaktionFehler` — sichtbares, aber nicht blockierendes
+  // Hinweis-Pille wie `reaktionFehler`, sichtbares, aber nicht blockierendes
   // Feedback, passend zur Schwere eines einzelnen fehlgeschlagenen Exports.
   const sichereAktuellenMoment = async () => {
     const moment = aktivMoment;
@@ -903,19 +903,19 @@ export default function RecapPlayer() {
   };
 
   // Task 8, Phase 6: langes Tippen (siehe onLongPress an den Tipp-Zonen
-  // unten) ruft dies auf — gleiches Grundmuster wie oeffneKommentare: eigener
+  // unten) ruft dies auf, gleiches Grundmuster wie oeffneKommentare: eigener
   // State pro Moment, plus der strukturelle Pausier-Grund 'melden'. Anders
   // als Kommentare braucht Melden keinen Ladezustand (nichts wird vorab
-  // geholt) — das Formular startet sofort leer. Bewusst OHNE eigene Haptik
+  // geholt), das Formular startet sofort leer. Bewusst OHNE eigene Haptik
   // (anders als z.B. der Auslöser): DESIGN-LANGUAGE §5 kennt ein festes
-  // Vokabular an Anlässen, „Sheet öffnen" gehört nicht dazu — oeffneKommentare
+  // Vokabular an Anlässen, „Sheet öffnen" gehört nicht dazu, oeffneKommentare
   // (dieselbe Geste-öffnet-Sheet-Handlung) hat aus demselben Grund ebenfalls
   // keine.
   const oeffneMelden = () => {
     const moment = aktivMoment;
     if (!moment) return;
     const momentId = moment.id;
-    // Eager wie kommentarMomentIdRef (siehe dortiger Kommentar) — ein
+    // Eager wie kommentarMomentIdRef (siehe dortiger Kommentar), ein
     // schnelles erneutes Öffnen darf nicht auf den alten Ref-Wert treffen.
     meldenMomentIdRef.current = momentId;
     setMeldenMomentId(momentId);
@@ -927,13 +927,13 @@ export default function RecapPlayer() {
 
   const schliesseMelden = () => {
     // Nimmt AUSSCHLIESSLICH den eigenen Grund zurück (gleiches Prinzip wie
-    // schliesseKommentare) — ein aus einem anderen Grund pausierter Player
+    // schliesseKommentare), ein aus einem anderen Grund pausierter Player
     // bleibt das auch nach dem Schliessen dieses Sheets.
     setStand((s) => ({ ...s, pausiert: ohneGrund(s.pausiert, 'melden') }));
   };
 
   // Der Moment bleibt in JEDEM Fall unverändert sichtbar (Brief, wörtlich:
-  // "Melden ist kein Verstecken") — dieser Aufruf ändert nichts an
+  // "Melden ist kein Verstecken"), dieser Aufruf ändert nichts an
   // spielliste/urls, nur den Sheet-Zustand selbst.
   const meldenAbsenden = () => {
     const postId = meldenMomentId;
@@ -968,19 +968,19 @@ export default function RecapPlayer() {
     }
   }, [tripId, urls, gueltigBis, ausgelassenAnzahl]);
 
-  // Programmatisches Weiterschalten (Timer-Ablauf ODER Video-Ende) — beide
+  // Programmatisches Weiterschalten (Timer-Ablauf ODER Video-Ende), beide
   // münden hier. Vertrag 4: `weiter()` lässt `pausiert` unangetastet, ein
   // programmatischer Aufruf MUSS `MOMENTWECHSEL_GRUENDE` hier selbst
-  // zurücknehmen — sonst bliebe der NÄCHSTE Moment nach einer vorherigen
+  // zurücknehmen, sonst bliebe der NÄCHSTE Moment nach einer vorherigen
   // Halten-Geste lautlos stehen (genau der Fall, den
   // `blockiertAutomatischenVorschub` in videoZuEnde unten für `'halten'`
   // bewusst DURCHLÄSST). Final-Review Phase-5-Nachbesserung: `'neuversuch'`
-  // gehört ebenfalls hierher — ohne diese Zeile blieb es unentfernbar
+  // gehört ebenfalls hierher, ohne diese Zeile blieb es unentfernbar
   // gesetzt, wenn eine Person während eines laufenden Neuversuchs
   // weitertippte (die Stale-Guard in `beiLadefehler` verhindert dann, dass
   // dessen EIGENE, verspätete Antwort den Grund noch zurücknimmt). `'halten'`
   // ist ohnehin schon leer, wenn `weiterAutomatisch` über `videoZuEnde` oder
-  // den Auto-Vorschub-Timer erreicht wird (siehe dort) — `ohneGruende` bleibt
+  // den Auto-Vorschub-Timer erreicht wird (siehe dort), `ohneGruende` bleibt
   // dafür ein sicheres No-Op. `'zwischenkarte'`/`'kommentare'` bleiben
   // unangetastet, siehe Kommentar bei `MOMENTWECHSEL_GRUENDE`.
   const weiterAutomatisch = useCallback(() => {
@@ -1002,7 +1002,7 @@ export default function RecapPlayer() {
   // Wichtig 2 (Review-Fund): dieselbe Stale-Guard wie beiLadefehler. Der
   // `playToEnd`-Listener eines VideoMoment ist an dessen `player`-Instanz
   // gebunden (Effekt-Deps `[player]`, siehe dort) und bleibt darum bis zum
-  // Unmount an genau DIESEN Moment gekoppelt — trifft das Event aus Native
+  // Unmount an genau DIESEN Moment gekoppelt, trifft das Event aus Native
   // erst ein, NACHDEM der Player bereits auf den nächsten Moment committed
   // hat (aber bevor React die Abmeldung des alten Listeners tatsächlich
   // ausgeführt hat), darf es kein zweites Mal weiterschalten. Der
@@ -1014,15 +1014,15 @@ export default function RecapPlayer() {
     // Phase-5-Final-Review, Punkt 1: EIN Guard statt zwei separater Refs
     // (frühere Fassung: `zwischenkarteRef`/`kommentarOffenRef`, siehe
     // Kommentar bei `pausiertRef` oben). `blockiertAutomatischenVorschub`
-    // (playerLogic.ts) lässt genau `'halten'` durch (Vertrag 4 — ein
+    // (playerLogic.ts) lässt genau `'halten'` durch (Vertrag 4, ein
     // während einer Halten-Geste eintreffendes `playToEnd` MUSS trotzdem
     // weiterschalten, siehe `weiterAutomatisch`) und blockiert jeden
     // anderen Grund: steht die Zwischenkarte (eigener Zeitgeber,
-    // ZWISCHENKARTE_DAUER_MS — ein Event, das trotzdem eintrifft, darf sie
+    // ZWISCHENKARTE_DAUER_MS, ein Event, das trotzdem eintrifft, darf sie
     // nicht überholen), ist das Kommentar-Sheet offen (`oeffneKommentare`
     // setzt den Grund SYNCHRON, aber VideoMoments eigener Pause-Effekt
     // committet erst im NÄCHSTEN Durchlauf, siehe VideoMoment oben, Deps
-    // `[pausiert, player]` — trifft `playToEnd` GENAU in diesem schmalen
+    // `[pausiert, player]`, trifft `playToEnd` GENAU in diesem schmalen
     // Fenster ein, würde der Player sonst unsichtbar unter dem offenen
     // Sheet weiterlaufen), oder läuft gerade ein stiller Neuversuch nach
     // einem Ladefehler.
@@ -1031,17 +1031,17 @@ export default function RecapPlayer() {
   }, []);
 
   // Auto-Vorschub: EIN Timer für Fotos UND Videos (dauerFuer liefert für
-  // beide eine sinnvolle Dauer, siehe playerLogic.ts) — für ein Video ist das
+  // beide eine sinnvolle Dauer, siehe playerLogic.ts), für ein Video ist das
   // zugleich der Rückfall, falls es nie lädt (Netz weg): der Timer schaltet
   // trotzdem nach spätestens dauerFuer(moment) weiter, das echte
   // `playToEnd`-Event (VideoMoment) kommt bei einem normal ladenden Video
-  // meist etwas früher und schaltet dann stattdessen weiter — React hebt den
+  // meist etwas früher und schaltet dann stattdessen weiter, React hebt den
   // hier gesetzten Timer in diesem Fall automatisch per Cleanup auf, sobald
   // `stand.index` sich dadurch ändert (kein doppeltes Weiterschalten).
   useEffect(() => {
     // `stand.pausiert.size > 0` deckt ALLE Gründe ab, inklusive `'halten'`
     // und `'zwischenkarte'` (anders als `blockiertAutomatischenVorschub` in
-    // videoZuEnde oben) — der reguläre Pro-Moment-Timer ist kein Event, das
+    // videoZuEnde oben), der reguläre Pro-Moment-Timer ist kein Event, das
     // eine Halten-Geste ausnahmsweise durchlassen müsste, er darf während
     // JEDES Grundes schlicht nicht laufen.
     if (phase !== 'bereit' || stand.pausiert.size > 0) return;
@@ -1058,30 +1058,30 @@ export default function RecapPlayer() {
   // (tagWechselt aus Task 7) und steht 1,5 s, bevor sie selbst weiterschaltet.
   //
   // Phase-5-Final-Review, Punkt 1: dieser Effekt hat die Deps `[phase,
-  // spielliste, startDate, stand.index]` — `ueberspringen()` (Tipp auf die
+  // spielliste, startDate, stand.index]`, `ueberspringen()` (Tipp auf die
   // Karte) ändert KEINE davon, Cleanup/Neulauf bleiben also aus, wenn die
   // Karte per Tipp übersprungen wird. Der hier gesetzte Timer bleibt in dem
   // Fall bis zu seinem regulären Ablauf verwaist stehen und feuert dann
-  // trotzdem noch — das ist bewusst hingenommen, nicht wegdesignt (ein
+  // trotzdem noch, das ist bewusst hingenommen, nicht wegdesignt (ein
   // zusätzlicher Ref/State allein für "wurde diese Karte schon
   // übersprungen" wäre mehr Zustand für denselben Fall). Was den früheren
   // Bug ausmachte, war NICHT der verwaiste Timer selbst, sondern dass sein
   // Rumpf `pausiert` BEDINGUNGSLOS zurücksetzte, statt nur den eigenen
   // Grund: `ohneGrund(..., 'zwischenkarte')` ist bei einer bereits (per
-  // Tipp) entfernten Zwischenkarte ein sicheres No-Op (siehe playerLogic.ts)
-  // — ein inzwischen aus einem GANZ ANDEREN Grund (z.B. offenes
+  // Tipp) entfernten Zwischenkarte ein sicheres No-Op (siehe playerLogic.ts),
+  // ein inzwischen aus einem GANZ ANDEREN Grund (z.B. offenes
   // Kommentar-Sheet) pausierter Player bleibt davon unberührt.
   useEffect(() => {
     if (phase !== 'bereit') return;
     if (!tagWechselt(spielliste, startDate, stand.index)) {
       // Kleinigkeit (Final-Review-Nachbesserung): dieser Zweig läuft bei
-      // JEDEM Indexwechsel, der KEIN Tageswechsel ist — der ganz normale
+      // JEDEM Indexwechsel, der KEIN Tageswechsel ist, der ganz normale
       // Regelfall. `ohneGrund` selbst ist zwar No-Op-sicher (liefert
       // dieselbe Set-Referenz), aber `setStand` bekäme trotzdem bei JEDEM
       // Aufruf ein NEUES `stand`-Objekt (`{...s, pausiert: sameRef}`) und
       // löste damit immer einen Render aus, selbst wenn 'zwischenkarte'
       // ohnehin schon fehlt. Der explizite `.has()`-Check davor lässt
-      // `setStand` in diesem — häufigsten — Fall ganz aus, React bailt dann
+      // `setStand` in diesem, häufigsten, Fall ganz aus, React bailt dann
       // vollständig aus (dieselbe `s`-Referenz zurückgegeben).
       setStand((s) => (s.pausiert.has('zwischenkarte') ? { ...s, pausiert: ohneGrund(s.pausiert, 'zwischenkarte') } : s));
       return;
@@ -1093,7 +1093,7 @@ export default function RecapPlayer() {
     return () => clearTimeout(timer);
   }, [phase, spielliste, startDate, stand.index]);
 
-  // Vorladen der nächsten drei FOTOS (V8) — Videos werden nicht vorgeladen,
+  // Vorladen der nächsten drei FOTOS (V8), Videos werden nicht vorgeladen,
   // das verlangt der Brief nicht und expo-video puffert selbst beim Mounten.
   useEffect(() => {
     if (phase !== 'bereit') return;
@@ -1109,13 +1109,13 @@ export default function RecapPlayer() {
   // zum nächsten Moment weiter (das war die Frage aus dem Auftrag): die Karte
   // ist die einzige `Pressable` an dieser Stelle des Bildschirms, sie wird
   // (siehe JSX unten) ALS LETZTES gerendert und liegt damit strukturell über
-  // den beiden Tipp-Zonen darunter — ein Touch währenddessen erreicht rein
+  // den beiden Tipp-Zonen darunter, ein Touch währenddessen erreicht rein
   // physisch/strukturell nur ihren eigenen onPress-Handler, niemals auch den
   // der Tipp-Zonen. Es ist also kein Flag-Check, der das verhindert, sondern
   // die Render-Reihenfolge selbst.
   const ueberspringen = () => {
     // Nimmt AUSSCHLIESSLICH den eigenen Grund zurück (Phase-5-Final-Review,
-    // Punkt 1) — siehe der lange Kommentar beim Zwischenkarten-Effekt oben.
+    // Punkt 1), siehe der lange Kommentar beim Zwischenkarten-Effekt oben.
     setStand((s) => ({ ...s, pausiert: ohneGrund(s.pausiert, 'zwischenkarte') }));
   };
 
@@ -1130,7 +1130,7 @@ export default function RecapPlayer() {
       }
       versuchtRef.current.add(postId);
       // Der einmalige, unsichtbare Neuversuch (V10): den Player anhalten,
-      // während im Hintergrund neu signiert wird — "das darf man nicht
+      // während im Hintergrund neu signiert wird, "das darf man nicht
       // sehen" heisst hier: kein Fehlertext, nur ein kurzes, stilles Warten.
       setStand((s) => ({ ...s, pausiert: mitGrund(s.pausiert, 'neuversuch') }));
       void (async () => {
@@ -1142,17 +1142,17 @@ export default function RecapPlayer() {
         // Nimmt AUSSCHLIESSLICH den eigenen Grund zurück (Phase-5-Final-
         // Review, Punkt 1). Zusätzliche Stale-Guard (gleiches Prinzip wie
         // videoZuEnde/Wichtig 2): der Player kann inzwischen längst zu einem
-        // ANDEREN Moment weitergeschaltet haben (Tipp, Auto-Vorschub) —
+        // ANDEREN Moment weitergeschaltet haben (Tipp, Auto-Vorschub),
         // dessen eigenen, unabhängig gesetzten Pausier-Zustand (z.B. ein
         // neues Halten) darf diese verspätete Antwort nicht überschreiben.
         //
         // Final-Review Phase-5-Nachbesserung: GENAU diese Stale-Guard machte
-        // 'neuversuch' unentfernbar, wenn währenddessen weitergetippt wurde
-        // — die Bedingung schlägt dann für immer fehl, und keine andere
+        // 'neuversuch' unentfernbar, wenn währenddessen weitergetippt wurde,
+        // die Bedingung schlägt dann für immer fehl, und keine andere
         // Stelle nahm bis zu dieser Korrektur je 'neuversuch' zurück. Der
         // Ausweg liegt bewusst NICHT hier (ein bedingungsloses Zurücknehmen
         // hätte bei mehreren gleichzeitig scheiternden Momenten den GRUND
-        // eines fremden, noch laufenden Neuversuchs mitreissen können —
+        // eines fremden, noch laufenden Neuversuchs mitreissen können,
         // 'neuversuch' ist EIN Set-Eintrag ohne Bezug zu einem bestimmten
         // Moment, mehrere Momente können ihn sich "teilen"), sondern in
         // MOMENTWECHSEL_GRUENDE: jeder TATSÄCHLICHE Indexwechsel
@@ -1167,7 +1167,7 @@ export default function RecapPlayer() {
   );
 
   const onPressIn = () => {
-    // Neue Berührung — ein evtl. von der VORHERIGEN Berührung übernommener
+    // Neue Berührung, ein evtl. von der VORHERIGEN Berührung übernommener
     // Wisch darf diese hier nicht mehr betreffen.
     wischUebernommenRef.current = false;
     beruehrungStartRef.current = Date.now();
@@ -1181,7 +1181,7 @@ export default function RecapPlayer() {
   const beendeBeruehrung = (seite: 'links' | 'rechts') => {
     // Klein (Review-Fund): RN-Pressability feuert onPressOut auf einer
     // Tipp-Zone AUCH DANN, wenn der PanResponder den Touch währenddessen per
-    // Responder-Terminierung übernommen hat (Beginn eines echten Wischs) —
+    // Responder-Terminierung übernommen hat (Beginn eines echten Wischs),
     // das ist kein echtes Loslassen. Ohne diese Sperre navigierte JEDER
     // Wisch nach unten zusätzlich, und ein erfolgreicher Schliess-Wisch riefe
     // schliessen() UND weiter()/zurueck() gleichzeitig.
@@ -1197,13 +1197,13 @@ export default function RecapPlayer() {
         }
         // Ein echter Indexwechsel per Tipp: nimmt `MOMENTWECHSEL_GRUENDE`
         // zurück, nicht nur `'halten'` (Final-Review Phase-5-Nachbesserung,
-        // siehe Kommentar dort — `'neuversuch'` gehört ebenfalls zum
+        // siehe Kommentar dort, `'neuversuch'` gehört ebenfalls zum
         // VERLASSENEN Moment und darf den neuen nicht blockieren).
         setStand({ ...ergebnis, pausiert: ohneGruende(ergebnis.pausiert, MOMENTWECHSEL_GRUENDE) });
         return;
       }
       // Klein (Review-Fund): V10 gilt in BEIDE Richtungen ("vor jedem
-      // Weiter" schliesst ein zurueck() nicht aus — auch dabei bleibt der
+      // Weiter" schliesst ein zurueck() nicht aus, auch dabei bleibt der
       // Player sichtbar auf demselben Vorrat angewiesen).
       void pruefeUndErneuereVorratImHintergrund();
       const ergebnisZurueck = zurueck(stand);
@@ -1223,7 +1223,7 @@ export default function RecapPlayer() {
   const pan = useRef(new Animated.ValueXY()).current;
   // Klein (Review-Fund): true, sobald der PanResponder den Touch tatsächlich
   // übernommen hat (onPanResponderGrant feuert nur bei echter Übernahme,
-  // anders als das bloss ANFRAGENDE onMoveShouldSetPanResponderCapture) —
+  // anders als das bloss ANFRAGENDE onMoveShouldSetPanResponderCapture),
   // beendeBeruehrung() liest das, um ein von RN-Pressability trotzdem
   // ausgelöstes onPressOut als das zu erkennen, was es ist: kein Loslassen,
   // sondern der Beginn eines Wischs.
@@ -1318,12 +1318,12 @@ export default function RecapPlayer() {
           url={url}
           fehlgeschlagen={fehlgeschlagen.has(aktivMoment.id)}
           // Wichtig 1 (Review-Fund): auch die Zwischenkarte muss das Video
-          // wirklich pausieren — sie ist vollflächig-opak, ohne diese
+          // wirklich pausieren, sie ist vollflächig-opak, ohne diese
           // Verknüpfung liefe ein Video darunter unbeirrt weiter (Bild UND
           // Ton) und könnte sogar unter der Karte zu Ende laufen, sodass der
           // Moment, den die Karte gerade ankündigt, nie gezeigt würde.
           // `gestoppt` = irgendein Grund aus `stand.pausiert` ist gesetzt
-          // (Halten, Kommentar-Sheet, Zwischenkarte oder Neuversuch) — an
+          // (Halten, Kommentar-Sheet, Zwischenkarte oder Neuversuch), an
           // DIESER Stelle interessiert bewusst nur "läuft/läuft nicht", nicht
           // welcher Grund es ist (siehe Render-Zeile oben).
           pausiert={gestoppt}
@@ -1379,7 +1379,7 @@ export default function RecapPlayer() {
               </Pille>
             </PressScale>
             {/* Nur sichtbar, wenn es für DIESEN Moment überhaupt eine URL
-                gibt (siehe MomentAnzeige) — ein Moment, der gerade nicht
+                gibt (siehe MomentAnzeige), ein Moment, der gerade nicht
                 lädt, hat nichts, das sich sichern liesse. */}
             {url && (
               <PressScale
@@ -1414,18 +1414,18 @@ export default function RecapPlayer() {
         </View>
 
         {/* Task 8, Phase 6: `onLongPress`/`delayLongPress` hängen auf GENAU
-            derselben Pressable wie die bestehende Tipp-Navigation — kein
+            derselben Pressable wie die bestehende Tipp-Navigation, kein
             zusätzlicher, potenziell verdeckter Bedienbereich (der
             zIndex-Bug aus Phase 5 entstand durch eine ZWEITE, konkurrierende
             Fläche; hier gibt es keine zweite Fläche, nur einen zweiten
             Event-Handler auf der bereits nachweislich obersten/erreichbaren
-            — siehe die zIndex-Tests unten). RN-Pressability liefert
+           , siehe die zIndex-Tests unten). RN-Pressability liefert
             onPressIn/onPressOut/onLongPress nebeneinander, ohne dass sie
             sich gegenseitig unterdrücken: onPressIn pausiert weiterhin
             SOFORT bei Berührungsbeginn (Halten = Pause, unverändert), erst
             NACH LANGES_TIPPEN_MS kommt zusätzlich das Melden-Sheet dazu.
             Löst die Berührung sich vorher (Tipp oder normales Halten unter
-            500 ms), feuert onLongPress nie — beendeBeruehrung entscheidet
+            500 ms), feuert onLongPress nie, beendeBeruehrung entscheidet
             wie bisher allein über die Haltedauer. */}
         <Pressable
           testID="player-links"
@@ -1475,7 +1475,7 @@ export default function RecapPlayer() {
       />
 
       {/* GESCHWISTER des Animated.View mit den Pan-Handlern, nicht sein Kind
-          (gleiches Muster wie reise/[id]/index.tsx) — das Sheet muss über
+          (gleiches Muster wie reise/[id]/index.tsx), das Sheet muss über
           allem liegen, inklusive der Tipp-Zonen. */}
       <Sheet sichtbar={kommentarOffen} titel="Kommentare" onSchliessen={schliesseKommentare} kino>
         {kommentareLaden ? (
@@ -1504,7 +1504,7 @@ export default function RecapPlayer() {
               maxLength={KOMMENTAR_MAX_LAENGE}
               // Phase-5-Final-Review, Punkt 4: ohne diesen Schalter zieht
               // `Input` über `useTheme()` zwingend die Licht-Palette (siehe
-              // dort) — eine weisse Box mitten im Kinosaal.
+              // dort), eine weisse Box mitten im Kinosaal.
               kino
             />
           </View>
@@ -1531,7 +1531,7 @@ export default function RecapPlayer() {
       </Sheet>
 
       {/* Task 8, Phase 6: gleiches GESCHWISTER-Prinzip wie das Kommentar-
-          Sheet direkt darüber — über allem, inklusive der Tipp-Zonen. */}
+          Sheet direkt darüber, über allem, inklusive der Tipp-Zonen. */}
       <Sheet sichtbar={meldenOffen} titel="Diesen Moment melden" onSchliessen={schliesseMelden} kino>
         {meldenBestaetigt ? (
           <View style={{ gap: spacing.base }}>
@@ -1542,7 +1542,7 @@ export default function RecapPlayer() {
           </View>
         ) : (
           <View style={{ gap: spacing.base }}>
-            {/* Brief, wörtlich: "Der Moment bleibt sichtbar — Melden ist
+            {/* Brief, wörtlich: "Der Moment bleibt sichtbar, Melden ist
                 kein Verstecken." Steht hier, BEVOR jemand abschickt, nicht
                 erst danach. */}
             <Text style={[type.secondary, { color: cinema['text-2'] }]}>
@@ -1623,7 +1623,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
   },
   // Klein (Review-Fund): DESIGN-LANGUAGE §4 verlangt "rund, 32–44 px, 2 px
-  // weisser Ring" — 32 px (unteres Ende der Spanne, passend zur kompakten
+  // weisser Ring", 32 px (unteres Ende der Spanne, passend zur kompakten
   // Kopf-Pille) mit 2 px Rand in `cinema['text-1']` (das hellste Kino-Token,
   // der nächste verfügbare Ersatz für "weiss" innerhalb der festen
   // Kino-Palette, die kein rohes #FFFFFF kennt).
@@ -1639,7 +1639,7 @@ const styles = StyleSheet.create({
   },
   // Kein `position:absolute` mehr (anders als vor Task 12): die Pille ist
   // jetzt ein normales Flow-Kind von `sozialBereich`, das seinerseits
-  // GENAU EINMAL vom unteren Rand aus positioniert ist — Caption,
+  // GENAU EINMAL vom unteren Rand aus positioniert ist, Caption,
   // "Reaktionen anderer" und die Emoji-Leiste stapeln sich darin per `gap`,
   // ohne sich je zu überlappen, unabhängig davon, wie viele Zeilen die
   // Caption braucht.
@@ -1651,13 +1651,13 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.s,
   },
   // M5/Klein (Review-Fund): die Stapel-Reihenfolge hing bisher allein an der
-  // Render-Reihenfolge im JSX ("später gerendert = oben") — fragil, weil sie
+  // Render-Reihenfolge im JSX ("später gerendert = oben"), fragil, weil sie
   // sich unbemerkt umkehren liess (ein RNTL-`fireEvent.press` prüft keine
   // Geometrie/Stapelung, jede Verschiebung im Baum blieb also unbemerkt
   // grün). Jetzt ein expliziter, von der Reihenfolge unabhängiger zIndex:
   // Tipp-Zonen unten, die Zwischenkarte darüber (blockiert sie strukturell),
-  // die Schliessen-Pille ganz oben (bleibt auch WÄHREND der Karte bedienbar
-  // — sonst liesse sich der Player während der 1,5 s der Karte nicht
+  // die Schliessen-Pille ganz oben (bleibt auch WÄHREND der Karte bedienbar,
+  // sonst liesse sich der Player während der 1,5 s der Karte nicht
   // verlassen).
   tapZoneLinks: { position: 'absolute', top: 0, bottom: 0, left: 0, width: '50%', zIndex: 1 },
   tapZoneRechts: { position: 'absolute', top: 0, bottom: 0, right: 0, width: '50%', zIndex: 1 },
@@ -1688,17 +1688,17 @@ const styles = StyleSheet.create({
     zIndex: 2,
   },
   // Fix-Runde 1, Blocker 1: ohne zIndex lag dieser Bereich UNTER den
-  // Tipp-Zonen (zIndex 1, siehe tapZoneLinks/tapZoneRechts unten) — jeder
+  // Tipp-Zonen (zIndex 1, siehe tapZoneLinks/tapZoneRechts unten), jeder
   // Tipp auf ein Emoji oder den Kommentar-Knopf traf physisch player-links/
   // -rechts und blätterte nur weiter, statt zu reagieren bzw. das Sheet zu
   // öffnen. zIndex 2 hebt ihn über die Tipp-Zonen; bleibt unter der
-  // Zwischenkarte (ebenfalls zIndex 2, aber SPÄTER im Baum — bei gleichem
+  // Zwischenkarte (ebenfalls zIndex 2, aber SPÄTER im Baum, bei gleichem
   // zIndex gewinnt in React Native das später gerenderte Geschwister,
   // gleiches Prinzip wie beim tapZoneLinks/-Rechts-Kommentar unten), die
   // Karte deckt die Leiste also weiterhin vollständig ab, während sie steht.
   //
   // Fix-Runde 2 (Review-Korrektur): entgegen einer früheren, FALSCHEN Notiz
-  // hier ist das sehr wohl testbar — player.test.tsx prüft `zIndex` direkt
+  // hier ist das sehr wohl testbar, player.test.tsx prüft `zIndex` direkt
   // über `StyleSheet.flatten(...props.style)` (Muster aus der
   // Task-11-Fixrunde für die Zwischenkarte, siehe dort), nicht über echtes
   // Hit-Testing. Siehe "die Reaktionen/der Kommentar-Knopf liegen per zIndex
@@ -1711,8 +1711,8 @@ const styles = StyleSheet.create({
     gap: spacing.base,
     zIndex: 2,
   },
-  // Fix-Runde 1, Klein 6: sechs 44-px-Pillen + fünf 8-px-Lücken sind 304 px
-  // — auf einem 320-pt-Gerät bleiben zwischen den 24-px-Screen-Rändern nur
+  // Fix-Runde 1, Klein 6: sechs 44-px-Pillen + fünf 8-px-Lücken sind 304 px,
+  // auf einem 320-pt-Gerät bleiben zwischen den 24-px-Screen-Rändern nur
   // 272 px. `flexWrap` lässt die letzte Pille (den Kommentar-Knopf) in eine
   // zweite Zeile umbrechen, statt über den Rand hinauszulaufen; `gap` gilt
   // in React Native für beide Achsen, auch für die umgebrochene Zeile.

@@ -3,7 +3,7 @@ import * as SecureStore from 'expo-secure-store';
 import * as Crypto from 'expo-crypto';
 import aesjs from 'aes-js';
 
-// SecureStore fasst nur ~2 KB — Sessions sind grösser. Darum: 256-bit-AES-Key
+// SecureStore fasst nur ~2 KB, Sessions sind grösser. Darum: 256-bit-AES-Key
 // pro Eintrag in SecureStore, der verschlüsselte Payload in AsyncStorage.
 async function encrypt(key: string, value: string): Promise<string> {
   const encryptionKey = Crypto.getRandomValues(new Uint8Array(32));
@@ -31,7 +31,7 @@ export const secureSessionStorage = {
       return await decrypt(key, stored);
     } catch {
       // Ciphertext und SecureStore-Key können auseinanderlaufen (z.B. abgebrochener
-      // Schreibvorgang) — utf8.fromBytes wirft dann auf Byte-Ebene. Als "kein
+      // Schreibvorgang), utf8.fromBytes wirft dann auf Byte-Ebene. Als "kein
       // Eintrag" behandeln statt die App abstürzen zu lassen: Supabase sieht keine
       // Session und der Nutzer meldet sich sauber neu an.
       return null;

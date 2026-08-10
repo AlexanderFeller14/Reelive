@@ -2,17 +2,17 @@
 // modulgraph.test.ts (statisch: welche Module sind überhaupt ERREICHBAR) um
 // die VERHALTENSBASIERTE Gegenprobe: den Screen tatsächlich mounten, jede
 // vorhandene Interaktion durchspielen (Tippen, Halten, Auto-Vorschub bis zum
-// Ende, "Nochmal ansehen", "Nochmal versuchen" nach einem Fehler) — und
+// Ende, "Nochmal ansehen", "Nochmal versuchen" nach einem Fehler), und
 // belegen, dass dabei NUR EIN einziger, lesender Aufruf beim echten
 // Supabase-Client ankommt.
 //
 // Bewusst eine EIGENE Datei statt ein weiterer Block in token.test.tsx: dort
 // wird `@/features/teilen/shareApi` komplett gemockt (für einfache, schnelle
-// UI-Tests) — hier bleibt shareApi UNGEMOCKT (jest.requireActual käme auf
+// UI-Tests), hier bleibt shareApi UNGEMOCKT (jest.requireActual käme auf
 // dasselbe hinaus, ein zweiter jest.mock-Aufruf für dasselbe Modul in
 // derselben Datei wäre nur verwirrend), stattdessen wird die IO-GRENZE
 // darunter (der Supabase-Client selbst) durch Spione ersetzt. Genau diese
-// Kombination — echte Implementierung, gemockte Aussenkante — ist die
+// Kombination, echte Implementierung, gemockte Aussenkante, ist die
 // Lehre aus Phase 5: ein Mock auf shareApi selbst würde exakt den
 // Mechanismus ersetzen, der hier geprüft werden soll.
 const mockInvoke = jest.fn();
@@ -93,7 +93,7 @@ const gueltigeAntwort = {
   gueltig_bis: '2099-01-01T00:00:00.000Z',
 };
 
-test('eine vollständige Interaktion (laden, tippen, halten, Auto-Vorschub, Video-Ende, Ende, Nochmal ansehen) ruft NUR EINMAL functions.invoke("share-link", aktion "aufloesen") auf — nie .from()/.rpc()/.auth', async () => {
+test('eine vollständige Interaktion (laden, tippen, halten, Auto-Vorschub, Video-Ende, Ende, Nochmal ansehen) ruft NUR EINMAL functions.invoke("share-link", aktion "aufloesen") auf, nie .from()/.rpc()/.auth', async () => {
   mockInvoke.mockResolvedValueOnce({ data: gueltigeAntwort, error: null });
 
   await render(<GeteilterRecapScreen />);
@@ -124,7 +124,7 @@ test('eine vollständige Interaktion (laden, tippen, halten, Auto-Vorschub, Vide
   });
   expect(screen.getByTestId('teilen-ende')).toBeTruthy();
 
-  // "Nochmal ansehen" — rein lokaler State-Reset, KEIN neuer Netzwerkaufruf.
+  // "Nochmal ansehen", rein lokaler State-Reset, KEIN neuer Netzwerkaufruf.
   await fireEvent.press(screen.getByText('Nochmal ansehen'));
   expect(screen.getByTestId('teilen-bereit')).toBeTruthy();
 
@@ -147,7 +147,7 @@ test('ein abgelehnter Token: "Nochmal versuchen" ruft erneut NUR functions.invok
   await render(<GeteilterRecapScreen />);
   await act(async () => {});
   expect(screen.getByTestId('teilen-fehler')).toBeTruthy();
-  // Byte-gleiche Ablehnung (siehe shareApi.test.ts) — der Screen zeigt NICHT
+  // Byte-gleiche Ablehnung (siehe shareApi.test.ts), der Screen zeigt NICHT
   // den rohen Function-Text "Unbekannter Token.", sondern den festen Satz.
   expect(screen.getByText('Dieser Link funktioniert nicht mehr.')).toBeTruthy();
 

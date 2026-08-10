@@ -18,7 +18,7 @@ test('trennt Momente mit Ort von denen ohne', () => {
   expect(ohneOrt.map((m) => m.id)).toEqual(['b']);
 });
 
-// Der Index zeigt in die SORTIERTE Gesamtliste, nicht in die gefilterte —
+// Der Index zeigt in die SORTIERTE Gesamtliste, nicht in die gefilterte,
 // sonst startet der Player beim falschen Moment.
 test('der Index zaehlt ueber alle Momente, nicht nur ueber die mit Ort', () => {
   const { punkte } = zuKartenPunkten([

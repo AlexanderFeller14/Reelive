@@ -1,6 +1,6 @@
 import type { FontVariant } from 'react-native';
 
-// Design Language v2 — Werte siehe DESIGN-LANGUAGE.md §1–§5.
+// Design Language v2, Werte siehe DESIGN-LANGUAGE.md §1–§5.
 // Licht-Palette für alle Alltags-Screens (light-only).
 export const palette = {
   'bg-0': '#FFFFFF', 'bg-1': '#F7F7F7',
@@ -11,7 +11,7 @@ export const palette = {
 } as const;
 
 // Kino-Palette: NUR Medien-Screens (Kamera, Preview, Versiegeln, Recap-Player).
-// Fix, kein Theme — wird direkt importiert, nicht über useTheme().
+// Fix, kein Theme, wird direkt importiert, nicht über useTheme().
 export const cinema = {
   'bg-0': '#131110', 'bg-1': '#1C1917',
   'text-1': '#F2EEE8', 'text-2': '#A79F96',
@@ -22,7 +22,7 @@ export type ColorTokens = typeof palette;
 
 // Modal-Backdrop hinter einem Sheet (Phase-5-Final-Review, Punkt 6): weder
 // ein Foto-Scrim (§1, an Fotoinhalt gebunden) noch die Pillen-Farbe
-// `overlay-pill` (an Text/Icons auf Fotos gebunden) — ein reiner Abdunkler
+// `overlay-pill` (an Text/Icons auf Fotos gebunden), ein reiner Abdunkler
 // hinter einem von unten kommenden Panel. Gilt UNVERÄNDERT für den hellen
 // UND den Kino-Sheet (Sheet.tsx setzt ihn unabhängig von `kino`), darum kein
 // Teil von `palette`/`cinema`. Wert deckt sich mit
@@ -33,7 +33,7 @@ export const backdrop = 'rgba(0,0,0,0.4)' as const;
 export const radius = { control: 12, card: 24, pill: 999 } as const;
 
 // `screen` (Screen-Rand) und `l` (Layout-Abstand) sind semantisch getrennte
-// Keys, deren Werte in v2 zufällig beide 24 sind — nicht deduplizieren.
+// Keys, deren Werte in v2 zufällig beide 24 sind, nicht deduplizieren.
 export const spacing = { xs: 4, s: 8, m: 12, base: 16, screen: 24, l: 24, xl: 32, xxl: 48 } as const;
 
 export const type = {
@@ -54,7 +54,7 @@ export const type = {
   tab: { fontFamily: 'Figtree_500Medium', fontSize: 11 },
 } as const;
 
-// Drei Schatten-Stufen (DESIGN-LANGUAGE v2 §3) — iOS shadow* + Android elevation.
+// Drei Schatten-Stufen (DESIGN-LANGUAGE v2 §3), iOS shadow* + Android elevation.
 export const shadow = {
   s1: { shadowColor: '#000000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.08, shadowRadius: 12, elevation: 2 },
   s2: { shadowColor: '#000000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.12, shadowRadius: 16, elevation: 6 },

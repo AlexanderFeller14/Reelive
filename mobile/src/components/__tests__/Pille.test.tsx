@@ -4,12 +4,12 @@ import { Pille } from '../Pille';
 import { cinema } from '@/theme/tokens';
 
 // Sucht im gerenderten Baum (screen.toJSON()) nach einem Knoten des
-// angegebenen Typs — dieselbe Baum-Lauf-Technik wie
+// angegebenen Typs, dieselbe Baum-Lauf-Technik wie
 // detail.test.tsx:zaehleAccentFlaechen, weil diese RNTL-Version kein
 // UNSAFE_getByType mehr exponiert (siehe Sheet.test.tsx-Kommentar), sich
 // aber auf ECHTES natives Rendering verlassen lässt: expo-blur rendert
 // unter Jest tatsächlich seinen "ViewManagerAdapter_ExpoBlur"-Host-Knoten
-// (keine eigene Mock-Attrappe nötig — mit BlurView.web.tsx verhielte sich
+// (keine eigene Mock-Attrappe nötig, mit BlurView.web.tsx verhielte sich
 // das anders, siehe token.test.tsx für den Web-Fall).
 type Knoten = { type: string; props: Record<string, unknown>; children: (Knoten | string)[] | null };
 

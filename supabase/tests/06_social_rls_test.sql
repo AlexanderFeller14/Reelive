@@ -44,7 +44,7 @@ select throws_ok(
   '42501', null, 'Vor Reveal keine Reaktionen möglich');
 
 -- Autorisierte Erweiterung (Task-5-Review): Testabdeckung für
--- posts_delete_after_reveal VOR dem Reveal — auch die Autorin selbst darf
+-- posts_delete_after_reveal VOR dem Reveal, auch die Autorin selbst darf
 -- ihren eigenen Post nicht löschen. Kein Fehler erwartet: RLS filtert das
 -- DELETE still (0 betroffene Zeilen), weil vor dem Reveal keine
 -- posts-Delete-Policy zutrifft.
@@ -74,7 +74,7 @@ select is(count(*)::int, 1, 'Kommentare sind für Mitglieder sichtbar')
   from public.comments where post_id = '22222222-2222-2222-2222-222222222222';
 
 -- === reactions_delete_own: nur der Verfasser löscht, keine Fremdrechte
--- (Finding 2, finaler Whole-Branch-Review — bisher 0 Assertions). Anna ist
+-- (Finding 2, finaler Whole-Branch-Review, bisher 0 Assertions). Anna ist
 -- Owner, aber nicht Verfasserin der Reaktion.
 delete from public.reactions
   where post_id = '22222222-2222-2222-2222-222222222222'
@@ -118,7 +118,7 @@ insert into public.reports (post_id, reporter_id, reason)
 select pass('Mitglied kann Post melden');
 
 -- === reports_select_owner: nur der Trip-Owner liest Meldungen (Moderation),
--- Finding 2, finaler Whole-Branch-Review — bisher 0 Assertions.
+-- Finding 2, finaler Whole-Branch-Review, bisher 0 Assertions.
 select is(count(*)::int, 1, 'reports_select_owner: Owner sieht die Meldung')
   from public.reports where post_id = '22222222-2222-2222-2222-222222222222';
 
@@ -130,13 +130,13 @@ select is(count(*)::int, 0, 'reports_select_owner: Nicht-Owner sieht die Meldung
 --
 -- Bis 20260808140000_share_links_nur_edge_function.sql standen hier zwei
 -- Assertions: Ben (Mitglied, nicht Owner) wird abgewiesen, Anna (Owner) darf
--- anlegen. Der Positivpfad ist entfallen — nicht weil die Zusicherung
+-- anlegen. Der Positivpfad ist entfallen, nicht weil die Zusicherung
 -- weggefallen wäre, sondern weil sie umgezogen ist: Angelegt wird
 -- ausschliesslich über die Edge Function `share-link` (Aktion `erstellen`, mit
 -- Service-Role), und `authenticated` hat auf share_links nur noch `select`.
 -- Der Grund steht ausführlich in jener Migration; kurz: `token` ist `text` mit
 -- Default, ein Default greift nur bei fehlender Spalte, und damit konnte sich
--- ein Client seinen eigenen — beliebig kurzen — Token aussuchen.
+-- ein Client seinen eigenen, beliebig kurzen, Token aussuchen.
 --
 -- Wo die Zusicherungen jetzt liegen:
 --   * «nur der Owner, nur eine aufgedeckte Reise»
@@ -148,7 +148,7 @@ select is(count(*)::int, 0, 'reports_select_owner: Nicht-Owner sieht die Meldung
 --     -> dieselbe Datei, Abschnitt B (Grant innerhalb der Transaktion)
 --
 -- Bens Ablehnung bleibt hier stehen. Sie schlägt jetzt schon am fehlenden
--- Tabellen-Privileg fehl statt an der Policy — derselbe SQLSTATE, ein anderer
+-- Tabellen-Privileg fehl statt an der Policy, derselbe SQLSTATE, ein anderer
 -- Mechanismus, und in beiden Fällen die richtige Antwort.
 select pg_temp.login_as('00000000-0000-0000-0000-00000000000b');
 select throws_ok(
@@ -157,7 +157,7 @@ select throws_ok(
   '42501', null, 'Kein angemeldeter Client legt Share-Links direkt an');
 
 -- Autorisierte Erweiterung (Task-5-Review): Testabdeckung für
--- posts_delete_after_reveal NACH dem Reveal — Fremde löschen nicht,
+-- posts_delete_after_reveal NACH dem Reveal, Fremde löschen nicht,
 -- der Owner darf moderierend löschen, die Autorin ihren eigenen Post.
 -- Reihenfolge ist wichtig: Das Löschen von Annas Post kaskadiert auch die
 -- Reaktionen/Kommentare aus den Tests oben, darum steht dieser Block ganz

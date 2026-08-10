@@ -10,7 +10,7 @@
 //
 // Fehlerverhalten ist bewusst grosszügig: ein Netzfehler oder ein
 // kaputtes/unerwartetes Antwortformat bricht `sende` NICHT ab (kein throw),
-// sondern wird geloggt und übersprungen — der Block, der scheitert, liefert
+// sondern wird geloggt und übersprungen, der Block, der scheitert, liefert
 // dann einfach keine zu löschenden Tokens. `index.ts` legt zusätzlich noch
 // ein try/catch um den gesamten Versand (Verteidigung in der Tiefe), aber
 // schon `push.ts` selbst soll ein einzelnes fehlgeschlagenes Push-Ticket
@@ -57,7 +57,7 @@ function istDeviceNotRegistered(ticket: unknown): boolean {
 }
 
 // `tickets` ist die `data`-Liste aus der Expo-Antwort, ein Ticket je
-// Nachricht, in derselben Reihenfolge wie die Anfrage — deshalb hier per
+// Nachricht, in derselben Reihenfolge wie die Anfrage, deshalb hier per
 // Index mit `tokens` verzahnt. `tickets` ist `unknown`, weil die Antwort von
 // einem fremden Dienst kommt: eine unerwartete Form (kein Array, zu kurz,
 // Ticket ohne "status") darf nie werfen, nur weniger Treffer liefern.
@@ -73,7 +73,7 @@ export function tokensZumLoeschen(tickets: unknown, tokens: string[]): string[] 
 }
 
 // Schickt alle Nachrichten in Blöcken à höchstens 100 an Expo und liefert
-// die Tokens zurück, deren Ticket "DeviceNotRegistered" meldet — die ruft
+// die Tokens zurück, deren Ticket "DeviceNotRegistered" meldet, die ruft
 // `index.ts` anschliessend zum Löschen auf. Wirft nie: jeder Fehler (Netz,
 // HTTP-Status, Antwortformat) landet in console.error, der betroffene Block
 // liefert dann schlicht keine Treffer.

@@ -1,4 +1,4 @@
-// Integrationstest für konto-loeschen — die zweite Schicht unter
+// Integrationstest für konto-loeschen, die zweite Schicht unter
 // ablauf_test.ts, nie die einzige.
 //
 // Was hier und NUR hier belegt werden kann:
@@ -8,10 +8,10 @@
 //   2. Dass `trips.owner_id → profiles` als on-delete-restrict tatsächlich
 //      beisst: ein direkter deleteUser ohne vorherige Reise-Löschung scheitert.
 //      Ohne diesen Nachweis wäre die ganze Reihenfolge Spekulation.
-//   3. Dass die Objekte im Bucket weg sind — auch die von FREMDEN Autoren in
+//   3. Dass die Objekte im Bucket weg sind, auch die von FREMDEN Autoren in
 //      einer eigenen Reise, und auch die eigenen in einer FREMDEN Reise.
 //   4. Dass die fremde Reise selbst überlebt und ihr invite_code NICHT
-//      rotiert — der Grund, warum `verlasseFremdeReisen` mit dem JWT der
+//      rotiert, der Grund, warum `verlasseFremdeReisen` mit dem JWT der
 //      Person läuft und nicht mit Service-Role.
 //   5. Dass `zahlen` die Wahrheit sagt.
 //   6. Dass ein zweiter Aufruf mit demselben (jetzt toten) JWT nichts mehr
@@ -113,7 +113,7 @@ const stackBereit = Boolean(
 
 if (!stackBereit) {
   console.warn(
-    'konto_loeschen_integration_test: übersprungen — braucht `supabase start` UND ' +
+    'konto_loeschen_integration_test: übersprungen, braucht `supabase start` UND ' +
       '`supabase functions serve --env-file supabase/functions/.env` in einem zweiten Terminal. ' +
       'Die Kernzusicherung W7 läuft ohne Stack in ablauf_test.ts.',
   );
@@ -144,7 +144,7 @@ async function rest(pfad: string, init?: RequestInit): Promise<unknown> {
   return text.length > 0 ? JSON.parse(text) : null;
 }
 
-// Zählt Zeilen über den Content-Range-Header — funktioniert für jede Tabelle,
+// Zählt Zeilen über den Content-Range-Header, funktioniert für jede Tabelle,
 // ohne dass der Test ihre Spalten kennen muss.
 async function zaehle(pfad: string): Promise<number> {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/${pfad}&select=*`, {
@@ -179,7 +179,7 @@ async function legeObjektAb(key: string, inhalt: string): Promise<void> {
 }
 
 // Ein frisches Wegwerf-Konto: auth.users + profiles. Wegwerf, weil der Test es
-// am Ende wirklich löscht — ein seed.sql-Konto zu verbrennen würde jeden
+// am Ende wirklich löscht, ein seed.sql-Konto zu verbrennen würde jeden
 // weiteren Lauf und jede manuelle Prüfung im Simulator kaputtmachen.
 async function legeKontoAn(nummer: string): Promise<{ id: string; jwt: string }> {
   const id = crypto.randomUUID();
@@ -215,13 +215,13 @@ async function legePostAn(zeile: Record<string, unknown>): Promise<void> {
 }
 
 Deno.test({
-  name: 'konto-loeschen räumt Zeilen und Objekte — und lässt fremde Reisen unangetastet',
+  name: 'konto-loeschen räumt Zeilen und Objekte, und lässt fremde Reisen unangetastet',
   ignore: !stackBereit,
   async fn() {
     const konto = await legeKontoAn('a');
     // Ein zweites Konto, das Mitglied in der Reise des ersten ist: Sein
     // Moment liegt in einer FREMDEN (nämlich unserer) Reise und muss beim
-    // Löschen mitgehen — samt Objekten. Genau der Fall aus Spec §3
+    // Löschen mitgehen, samt Objekten. Genau der Fall aus Spec §3
     // («Werden mitgelöscht, samt Medien aller Mitglieder»).
     const mitreisend = await legeKontoAn('b');
 
@@ -306,7 +306,7 @@ Deno.test({
       await legeObjektAb(sAnderswo.thumb_key, 'thumb-anderswo');
       objekte.push(sAnderswo.storage_key, sAnderswo.thumb_key);
 
-      // Ein Moment von Mira in ihrer eigenen Reise — er muss ALLES überleben.
+      // Ein Moment von Mira in ihrer eigenen Reise, er muss ALLES überleben.
       const miraPost = crypto.randomUUID();
       const sMira = erwarteteSchluessel(fremdeTripId, miraPost, 'photo', 'jpg');
       await legePostAn({
@@ -354,7 +354,7 @@ Deno.test({
         headers: restHeaders({ Prefer: 'return=representation' }),
         body: JSON.stringify({ post_id: miraPost, reporter_id: konto.id, reason: 'Testmeldung' }),
       });
-      // Ein Share-Link auf die eigene (jetzt revealed) Reise — er muss über
+      // Ein Share-Link auf die eigene (jetzt revealed) Reise, er muss über
       // share_links.trip_id → trips kaskadieren.
       await rest('share_links', {
         method: 'POST',
@@ -370,7 +370,7 @@ Deno.test({
       });
       assertEquals(await erwarteJson(zahlenRes, 200), {
         eigene_reisen: 1,
-        // BEIDE Momente der eigenen Reise, auch der fremde — er geht mit.
+        // BEIDE Momente der eigenen Reise, auch der fremde, er geht mit.
         momente_in_eigenen_reisen: 2,
         // Nur das mitreisende Konto; die Person selbst zählt nicht mit.
         betroffene_personen: 1,
@@ -423,7 +423,7 @@ Deno.test({
       for (const key of [
         sEigen.storage_key,
         sEigen.thumb_key,
-        // Der Moment eines ANDEREN in unserer Reise — seine Objekte gehen mit,
+        // Der Moment eines ANDEREN in unserer Reise, seine Objekte gehen mit,
         // sonst blieben sie ohne jede Datenbankzeile im Speicher zurück.
         sFremdInEigen.storage_key,
         sFremdInEigen.thumb_key,
@@ -442,7 +442,7 @@ Deno.test({
       assertEquals(await zaehle(`profiles?id=eq.${mitreisend.id}`), 1, 'das mitreisende Konto überlebt');
 
       // Der invite_code der fremden Reise darf NICHT rotiert sein. Sonst
-      // reisst eine Kontolöschung allen anderen Eingeladenen ihren Link weg —
+      // reisst eine Kontolöschung allen anderen Eingeladenen ihren Link weg,
       // genau der Schaden, gegen den 20260807090000 geschrieben wurde. Möglich
       // nur, weil verlasseFremdeReisen mit dem JWT der Person läuft und nicht
       // mit Service-Role.
@@ -500,7 +500,7 @@ Deno.test({
     });
     assertEquals(await erwarteJson(ohne, 401), { fehler: 'Nicht angemeldet.' });
 
-    // Der Anon-Key ist ein gültiges, korrekt signiertes JWT — aber keine
+    // Der Anon-Key ist ein gültiges, korrekt signiertes JWT, aber keine
     // Person. Er kommt durch das Gateway und muss am eigenen Check scheitern.
     const anon = await fetch(FUNCTION_URL, {
       method: 'POST',
@@ -523,7 +523,7 @@ Deno.test({
   ignore: !stackBereit,
   async fn() {
     // Der Grenzfall, an dem `in.()`-Filter mit leerer Liste einen
-    // PostgREST-Syntaxfehler auslösen würden — und an dem eine Löschung
+    // PostgREST-Syntaxfehler auslösen würden, und an dem eine Löschung
     // trotzdem funktionieren muss.
     const konto = await legeKontoAn('c');
     const zahlenRes = await fetch(FUNCTION_URL, {

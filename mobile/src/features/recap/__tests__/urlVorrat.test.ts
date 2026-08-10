@@ -1,5 +1,5 @@
 // Jest-Hoisting: jest.mock wandert über die Importe, die Factory läuft also
-// VOR den const-Zuweisungen — Zugriff auf die Mocks deshalb erst zur
+// VOR den const-Zuweisungen, Zugriff auf die Mocks deshalb erst zur
 // Aufrufzeit (Muster wie in recapApi.test.ts/postsApi.test.ts). mockInvoke
 // hält die Aufruf-Argumente fest, damit ein Test nicht nur das Ergebnis,
 // sondern auch geprüft, WELCHE Aktion und trip_id tatsächlich gesendet
@@ -24,11 +24,11 @@ const httpFehler = (status: number, body: unknown) => ({
 describe('laeuftBaldAb', () => {
   const vorrat = (gueltigBis: number): Vorrat => ({ urls: new Map(), gueltigBis, ausgelassen: 0 });
 
-  // Phase-5-Final-Review, Punkt 8 (Review-Fund): fehlte bisher — der Test
+  // Phase-5-Final-Review, Punkt 8 (Review-Fund): fehlte bisher, der Test
   // "exakt fünf Minuten" unten leitete seinen Vergleichswert bislang aus
   // `BALD_ABLAUF_SCHWELLE_MS` SELBST ab, statt gegen ein Literal zu prüfen.
   // Jeder Wert zwischen 4:59 (Test oben) und 10:00 (Test unten) bestand damit
-  // alle vier Tests dieser Suite — die Fünf-Minuten-Schwelle aus Spec §7 war
+  // alle vier Tests dieser Suite, die Fünf-Minuten-Schwelle aus Spec §7 war
   // nirgends festgenagelt. Literal-Pinning nach demselben Muster wie
   // `FOTO_DAUER_MS`/`VIDEO_DAUER_MIN_MS` in playerLogic.test.ts.
   test('BALD_ABLAUF_SCHWELLE_MS sind fünf Minuten (Spec §7: Ablauf-Vorlauf für Lese-URLs)', () => {
@@ -42,7 +42,7 @@ describe('laeuftBaldAb', () => {
   });
 
   // Grenzfall exakt bei fünf Minuten: die Schwelle greift bei WENIGER als
-  // fünf Minuten, exakt fünf Minuten zählt noch nicht als "bald ab" — ein
+  // fünf Minuten, exakt fünf Minuten zählt noch nicht als "bald ab", ein
   // Mutant, der < zu <= dreht, fällt hier durch. Literal `5 * 60 * 1000`
   // statt `BALD_ABLAUF_SCHWELLE_MS` (Review-Fund, siehe oben): der Test prüft
   // damit den tatsächlichen Fünf-Minuten-Grenzwert, nicht bloss "was auch
@@ -53,7 +53,7 @@ describe('laeuftBaldAb', () => {
     expect(laeuftBaldAb(vorrat(fuenfMinuten), jetzt)).toBe(false);
   });
 
-  // Knapp über der Schwelle (5:01) — engere Gegenprobe zum 10-Minuten-Test
+  // Knapp über der Schwelle (5:01), engere Gegenprobe zum 10-Minuten-Test
   // unten, die einen Mutanten fängt, der die Schwelle grosszügig nach oben
   // verschiebt (z.B. auf 10 Minuten): 5:01 läge dann fälschlich noch
   // innerhalb der (mutierten) Schwelle.
@@ -76,7 +76,7 @@ describe('laeuftBaldAb', () => {
   });
 
   // Review-Fund, Important 1: ein NaN-gueltigBis (holeVorrat fängt einen
-  // unparsbaren Wert zwar schon beim Einlesen ab, siehe unten — dieser Test
+  // unparsbaren Wert zwar schon beim Einlesen ab, siehe unten, dieser Test
   // sichert trotzdem laeuftBaldAb SELBST ab, unabhängig davon, wie ein
   // Vorrat entstanden ist). `NaN - jetzt < SCHWELLE` wäre `false` ("läuft
   // nie ab", das Gegenteil von V10); die verneinte `>=`-Form muss hier
@@ -114,7 +114,7 @@ describe('holeVorrat', () => {
       thumb_url: 'https://s3/p1-thumb',
     });
     // Fehlendes thumb_url im Function-Eintrag wird zu null, nicht zu
-    // undefined — MedienUrl.thumb_url ist string | null, kein optionales
+    // undefined, MedienUrl.thumb_url ist string | null, kein optionales
     // Feld (ein Mutant, der ?? undefined statt ?? null schreibt, fällt hier
     // durch: toEqual unterscheidet die fehlende von der null-Eigenschaft).
     expect(vorrat?.urls.get('p2')).toEqual({ post_id: 'p2', medium_url: 'https://s3/p2', thumb_url: null });
@@ -133,7 +133,7 @@ describe('holeVorrat', () => {
   });
 
   // Review-Fund, Important 1: der ganze Zweck dieses Moduls ist, dass eine
-  // abgelaufene URL den Recap nie beendet — ein UNPARSBARES gueltig_bis darf
+  // abgelaufene URL den Recap nie beendet, ein UNPARSBARES gueltig_bis darf
   // deshalb nicht stillschweigend zu einem Vorrat werden, dessen Ablauf sich
   // nie mehr als "bald" erkennen liesse (Date.parse liefert NaN, NaN wäre in
   // JEDEM Vergleich false). Es muss stattdessen als Ladefehler gelten.
@@ -148,7 +148,7 @@ describe('holeVorrat', () => {
   });
 
   // Review-Fund: die Array.isArray-Prüfung auf `medien` darf nicht
-  // entfernbar sein, ohne dass ein Test das bemerkt — ohne sie würfe das
+  // entfernbar sein, ohne dass ein Test das bemerkt, ohne sie würfe das
   // `for…of` in Produktion einen TypeError statt einer Fehlermeldung.
   test('eine Antwort mit gültigem gueltig_bis, aber ohne medien-Array wird als Fehlschlag gewertet, nicht als Absturz', async () => {
     mockInvoke.mockResolvedValueOnce({
@@ -163,7 +163,7 @@ describe('holeVorrat', () => {
   });
 
   // Phase-5-Final-Review, Punkt 2: `ausgelassen` ist rein informativ («N
-  // Momente liessen sich nicht laden») — anders als `medien`/`gueltig_bis`
+  // Momente liessen sich nicht laden»), anders als `medien`/`gueltig_bis`
   // darf sein Fehlen den Recap nicht am Laden hindern. App (EAS) und Edge
   // Function (`supabase functions deploy`) werden getrennt ausgerollt; ein
   // Rollback oder eine vertauschte Reihenfolge, in der die Function das Feld
@@ -181,7 +181,7 @@ describe('holeVorrat', () => {
 
   // Gegenprobe zum Test oben: ein TATSÄCHLICH übermittelter Wert (auch 0)
   // wird weiterhin unverändert durchgereicht, `?? 0` darf einen echten Wert
-  // nicht überschreiben — ein Mutant, der `antwort.ausgelassen ?? 0` zu
+  // nicht überschreiben, ein Mutant, der `antwort.ausgelassen ?? 0` zu
   // `antwort.ausgelassen || 0` verkürzt, würde HIER durchfallen, weil 0
   // bereits falsy ist und beide Schreibweisen für 0 identisch wirken; der
   // eigentliche Unterschied zeigt sich erst bei einem vorhandenen,
@@ -217,11 +217,11 @@ describe('holeVorrat', () => {
     expect(grund).not.toBe('versiegelt');
   });
 
-  // grundAus prüft Status UND Text — nicht nur den Text (Review-Fund,
+  // grundAus prüft Status UND Text, nicht nur den Text (Review-Fund,
   // Important 2: derselbe Wortlaut könnte theoretisch auch über einen
   // anderen Statuscode ankommen). Ein Test, der nur die beiden echten
   // 403-Antworten der Function durchspielt, würde eine entfernte
-  // Status-Prüfung NICHT bemerken — dieser hier schon: derselbe Text, aber
+  // Status-Prüfung NICHT bemerken, dieser hier schon: derselbe Text, aber
   // Status 500, darf keinen grund liefern.
   test('derselbe Text bei einem anderen Status als 403 liefert keinen grund', async () => {
     mockInvoke.mockResolvedValueOnce(httpFehler(500, { fehler: 'Diese Reise ist noch versiegelt.' }));
@@ -232,7 +232,7 @@ describe('holeVorrat', () => {
   });
 
   // Review-Fund: der Name-Check auf 'FunctionsHttpError' war durch keinen
-  // Test gedeckt, der ihn scharf stellt — ein Fehlerobjekt mit einem
+  // Test gedeckt, der ihn scharf stellt, ein Fehlerobjekt mit einem
   // ANDEREN Namen, aber demselben Response-Body, darf NICHT als strukturierter
   // 403-Fall durchgehen, sondern muss auf die generische Meldung zurückfallen.
   test('ein Response-Context mit fremdem Fehlernamen wird NICHT als strukturierter 403 behandelt', async () => {
@@ -249,7 +249,7 @@ describe('holeVorrat', () => {
     expect(error).toBe('Die Momente konnten nicht geladen werden. Probier es gleich nochmal.');
   });
 
-  // Minor-Fund: nur die beiden fachlichen 403 werden durchgereicht — jeder
+  // Minor-Fund: nur die beiden fachlichen 403 werden durchgereicht, jeder
   // andere Statuscode/Text bekommt die generische, lösungsorientierte
   // Meldung (DESIGN-LANGUAGE §6), nicht den rohen Function-Text.
   test('ein HTTP-Fehler ohne verwertbaren Body bekommt eine generische deutsche Meldung', async () => {
@@ -289,7 +289,7 @@ describe('holeVorrat', () => {
 
   // Review-Fund: der zweite Offline-Zweig in funktionMeldung (Erkennung
   // direkt über error.message, ohne verschachtelten context) war durch
-  // keinen Test allein geprüft — der obige Test wäre auch grün geblieben,
+  // keinen Test allein geprüft, der obige Test wäre auch grün geblieben,
   // hätte man NUR den context-Zweig implementiert.
   test('ein Netzwerkfehler ohne verschachtelten context wird ebenfalls als offline erkannt', async () => {
     mockInvoke.mockResolvedValueOnce({

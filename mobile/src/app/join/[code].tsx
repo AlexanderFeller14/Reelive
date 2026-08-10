@@ -40,7 +40,7 @@ export default function JoinScreen() {
   }, [code, versuch]);
 
   const beitreten = async () => {
-    // Ohne Session zuerst anmelden — der Code wartet solange und wird vom
+    // Ohne Session zuerst anmelden, der Code wartet solange und wird vom
     // Root-Layout eingelöst, sobald Session und Profil stehen.
     if (status !== 'signedIn') {
       await rememberInvite(code);
@@ -95,7 +95,7 @@ export default function JoinScreen() {
 
       <View style={{ marginTop: spacing.xl }}>
         {ladefehler ? (
-          // Ein Ladefehler ist kein Urteil ueber die Einladung — der einzig
+          // Ein Ladefehler ist kein Urteil ueber die Einladung, der einzig
           // sinnvolle naechste Schritt ist, es nochmal zu versuchen.
           <Button variant="primary" label="Nochmal versuchen" onPress={() => setVersuch((v) => v + 1)} />
         ) : offen && !fehler ? (

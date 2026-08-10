@@ -88,7 +88,7 @@ jest.mock('expo-video-thumbnails', () => ({
 
 // Ein winziges Dateisystem im Speicher statt des nativen Moduls: es hält fest,
 // WAS existiert, damit die Tests das Verschieben und Aufräumen aus Critical 2
-// wirklich prüfen können — nicht bloss, dass eine Methode aufgerufen wurde.
+// wirklich prüfen können, nicht bloss, dass eine Methode aufgerufen wurde.
 const mockVorhanden = new Set<string>();
 const mockOrdnerAngelegt = jest.fn();
 
@@ -272,7 +272,7 @@ test('videoAufbereiten lässt das Video unangetastet und zieht ein Standbild', a
 
 // === Final-Review, Critical 2: dauerhafte Ablage statt flüchtiger Cache ===
 // Alle vier Erzeuger (takePictureAsync, recordAsync, saveAsync,
-// getThumbnailAsync) schreiben nach Library/Caches — ein Verzeichnis, das iOS
+// getThumbnailAsync) schreiben nach Library/Caches, ein Verzeichnis, das iOS
 // unter Speicherdruck leeren darf. Die Warteschlange soll Momente tagelang
 // halten, hielt aber nur Zeiger dorthin.
 
@@ -304,7 +304,7 @@ test('dauerhaftSichern legt Medium und Thumbnail unter dem Dokumentenverzeichnis
   });
 
   // Re-Review: KOPIERT, nicht verschoben. Die Quellen bleiben unangetastet,
-  // bis der Job den Moment besitzt — bei einem Video ist die Quelle die
+  // bis der Job den Moment besitzt, bei einem Video ist die Quelle die
   // einzige Kopie, und der Fehlerpfad räumt den Zielordner ab.
   expect(mockVorhanden.has('file:///Caches/medium.jpg')).toBe(true);
   expect(mockVorhanden.has('file:///Caches/thumb.jpg')).toBe(true);
@@ -356,7 +356,7 @@ test('momentDateienEntfernen räumt den ganzen Moment-Ordner ab', async () => {
 
 // Aufräumen darf nie werfen: es läuft im Worker direkt nach dem Entfernen des
 // Jobs. Ein daran scheiternder Durchlauf würde den Job endlos wiederholen
-// lassen — teurer als eine liegen gebliebene Datei.
+// lassen, teurer als eine liegen gebliebene Datei.
 test('Aufräumen wirft nie, auch wenn es nichts (mehr) zu löschen gibt', () => {
   expect(() => momentDateienEntfernen('gibt-es-nicht')).not.toThrow();
   expect(() => dateiVerwerfen('file:///Caches/weg.jpg')).not.toThrow();
@@ -369,7 +369,7 @@ test('dateiVerwerfen löscht die Kamera-Datei', () => {
 });
 
 // Die Unterscheidung, die im Fehlerpfad den Unterschied macht: alles
-// Abgeleitete darf weg, die Rohaufnahme nie — auch dann nicht, wenn sie
+// Abgeleitete darf weg, die Rohaufnahme nie, auch dann nicht, wenn sie
 // zufällig zugleich das Medium ist (Video).
 test('zwischenfassungenVerwerfen lässt die Rohaufnahme in Ruhe', () => {
   mockVorhanden.add('file:///Caches/roh.mov');

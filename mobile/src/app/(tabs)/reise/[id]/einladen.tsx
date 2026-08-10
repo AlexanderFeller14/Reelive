@@ -15,7 +15,7 @@ export default function Einladen() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
   const [url, setUrl] = useState<string | null>(null);
-  // Getrennt von `url`: `null` ist zwei verschiedene Zustände — „lädt noch"
+  // Getrennt von `url`: `null` ist zwei verschiedene Zustände, „lädt noch"
   // (geladen=false) und „kein Code bekommen" (geladen=true, url=null).
   // Letzteres muss der Screen sichtbar machen statt still eine leere Fläche
   // zu zeigen (DESIGN-LANGUAGE §6: Ursache + Lösung).
@@ -62,7 +62,7 @@ export default function Einladen() {
 
       <View style={styles.qr}>
         {url ? (
-          // QRCode nimmt feste Farbwerte statt Style-Props — bewusst die
+          // QRCode nimmt feste Farbwerte statt Style-Props, bewusst die
           // Token-Werte durchgereicht, keine neuen Hex-Werte.
           <QRCode value={url} size={220} color={palette['text-1']} backgroundColor={palette['bg-0']} />
         ) : geladen ? (

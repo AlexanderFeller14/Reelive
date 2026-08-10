@@ -8,7 +8,7 @@ type Props = TextInputProps & {
   label: string;
   error?: string;
   // `Sheet` hat seit Task 8 einen `kino`-Schalter (DESIGN-LANGUAGE v2 §1:
-  // Medien-Screens nutzen IMMER die feste Kino-Palette, nie `useTheme()` —
+  // Medien-Screens nutzen IMMER die feste Kino-Palette, nie `useTheme()`,
   // ThemeProvider ist konstruktionsbedingt light-only, siehe dort). Dieses
   // `Input` sitzt seit Task 12 im Kommentar-Sheet des Recap-Players (einem
   // Kino-Screen) und zog bislang zwingend die Licht-Palette: eine weisse Box
@@ -22,13 +22,13 @@ type Props = TextInputProps & {
 // 2 px text-1 (bewusst nicht accent), Fehler in danger.
 // Abweichung zur Spec: das Label bleibt konstant in type.body.fontFamily,
 // weil fontFamily nicht animierbar ist. Die Grösse wird ebenfalls nicht
-// direkt animiert (fontSize ist wie fontFamily kein Transform-Property) —
+// direkt animiert (fontSize ist wie fontFamily kein Transform-Property),
 // §5 verlangt strikt nur transform/opacity auf dem UI-Thread. Statt top/
 // fontSize zu interpolieren, bleibt das Label auf top 17 / fontSize 16
 // fixiert und wird per translateY (0 → −9, ergibt visuell top 8) und
 // scale (1 → 0.75, ergibt visuell 12 px) verschoben/verkleinert;
 // transformOrigin 'left top' hält die linke obere Ecke fest, sodass die
-// Skalierung die Oberkante nicht verschiebt — translateY −9 ergibt damit
+// Skalierung die Oberkante nicht verschiebt, translateY −9 ergibt damit
 // exakt top 17 → 8, ohne weitere Kompensation.
 export function Input({ label, error, value, placeholder, style, onFocus, onBlur, kino, ...rest }: Props) {
   const { colors } = useTheme();
@@ -38,7 +38,7 @@ export function Input({ label, error, value, placeholder, style, onFocus, onBlur
   const reducedMotion = useReducedMotion();
 
   // Die Animation haengt am abgeleiteten `lifted`, NICHT an den Fokus-Handlern.
-  // Vorher trieben nur onFocus/onBlur den Wert — ein programmatisch gesetzter
+  // Vorher trieben nur onFocus/onBlur den Wert, ein programmatisch gesetzter
   // `value` (Prefill des Bearbeiten-Formulars, wiederhergestellter Entwurf,
   // Autofill) hob das Label deshalb nie an, und die Beschriftung lag mitten
   // im bereits ausgefuellten Feld. Als Effekt formuliert deckt eine einzige
@@ -54,17 +54,17 @@ export function Input({ label, error, value, placeholder, style, onFocus, onBlur
       toValue: to,
       duration: motion.duration.fast,
       easing: Easing.bezier(...motion.easeSmooth),
-      useNativeDriver: true, // nur transform/scale — UI-Thread (DESIGN-LANGUAGE v2 §5)
+      useNativeDriver: true, // nur transform/scale, UI-Thread (DESIGN-LANGUAGE v2 §5)
     });
     lauf.start();
     return () => lauf.stop();
   }, [lifted, reducedMotion, anim]);
 
   // Kino übernimmt dieselbe Zuordnung wie Sheet.tsx (Fläche `bg-1`, Text
-  // `text-1`, Rand-Ersatz für `line-strong` ist `text-2` — die feste
+  // `text-1`, Rand-Ersatz für `line-strong` ist `text-2`, die feste
   // Kino-Palette kennt keine dritte, gedämpftere Textstufe, siehe
   // DESIGN-LANGUAGE §1). `danger` bleibt in BEIDEN Paletten dasselbe fixe
-  // Fehler-Rot aus `palette` — kein Teil der Kino-Palette, aber auch nicht
+  // Fehler-Rot aus `palette`, kein Teil der Kino-Palette, aber auch nicht
   // Teil der wechselnden Licht-Palette (§1: „Nur Fehler und destruktive
   // Aktionen"), exakt wie `palette.accent`/`on-accent` schon direkt im
   // Kommentar-Sheet dieses Screens wiederverwendet werden (player.tsx,
@@ -76,7 +76,7 @@ export function Input({ label, error, value, placeholder, style, onFocus, onBlur
   const randFarbeNormal = kino ? cinema['text-2'] : colors['line-strong'];
   const randFarbeFokus = kino ? cinema['text-1'] : colors['text-1'];
   const borderColor = error ? palette.danger : focused ? randFarbeFokus : randFarbeNormal;
-  // Fokus-Rand wird 2 px — Padding kompensiert, damit nichts springt.
+  // Fokus-Rand wird 2 px, Padding kompensiert, damit nichts springt.
   const pad = focused ? spacing.base - 1 : spacing.base;
 
   return (
@@ -94,7 +94,7 @@ export function Input({ label, error, value, placeholder, style, onFocus, onBlur
       >
         <Animated.Text
           // Das sichtbare Label und `accessibilityLabel` am TextInput tragen
-          // denselben Text — VoiceOver las ihn dadurch zweimal vor, einmal als
+          // denselben Text, VoiceOver las ihn dadurch zweimal vor, einmal als
           // eigenes Textelement und einmal als Beschriftung des Feldes. Sichtbar
           // bleibt es, hoerbar nur noch einmal, naemlich am Feld selbst.
           importantForAccessibility="no"

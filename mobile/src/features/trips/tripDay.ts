@@ -40,7 +40,7 @@ export function validateDateRange(startIso: string | null, endIso: string | null
 // war damit in Mitteleuropa jede Nacht zwischen 00:00 und 02:00 einen Tag zu
 // frueh: der Reisetag zaehlte zu niedrig und «Reise abschliessen» rueckte
 // einen Tag zu spaet nach oben. Die uebrigen Funktionen dieser Datei rechnen
-// bewusst in UTC, weil sie reine Kalendertage OHNE Zeitzone vergleichen —
+// bewusst in UTC, weil sie reine Kalendertage OHNE Zeitzone vergleichen,
 // dieser Wert dagegen ist die Frage «welchen Tag hat der Nutzer gerade», und
 // die beantwortet nur die lokale Uhr.
 export function heutigerKalendertag(jetzt: Date = new Date()): string {

@@ -1,9 +1,9 @@
-// Integrationstest für share-link — die zweite Schicht unter
+// Integrationstest für share-link, die zweite Schicht unter
 // aufloesung_test.ts, nie die einzige.
 //
 // Was hier und NUR hier belegt werden kann (alles andere steht in
 // aufloesung_test.ts und läuft ohne Docker):
-//   1. Der öffentliche Aufruf kommt OHNE JEDEN Header durch das Gateway —
+//   1. Der öffentliche Aufruf kommt OHNE JEDEN Header durch das Gateway,
 //      kein Authorization, kein apikey. Das ist die Zusicherung, die
 //      verify_jwt = false überhaupt erst nötig macht (Spec §4, W5).
 //   2. Die ausgestellten URLs zeigen auf echte Bytes: ein GET darauf gibt
@@ -11,13 +11,13 @@
 //   3. Die SQL-Filter greifen wirklich: nur `upload_status = 'uploaded'`, nur
 //      Momente DIESER Reise (W1), sortiert nach captured_at/id.
 //   4. Widerrufen und Ablaufen liefern eine byte-gleiche Antwort zum
-//      unbekannten Token — hier gegen die echten HTTP-Bytes verglichen, nicht
+//      unbekannten Token, hier gegen die echten HTTP-Bytes verglichen, nicht
 //      gegen ein TypeScript-Objekt (W2).
 //   5. Ein Link auf eine `active` Reise lässt sich weder anlegen noch (falls
 //      er per Service-Role doch entsteht) auflösen (W3, beide Hälften).
 //   6. `widerrufen` ist kein Orakel: ein fremder Token und ein nicht
 //      existierender liefern dieselbe Antwort.
-//   7. Die Antwort enthält nirgends author_id, invite_code oder owner_id —
+//   7. Die Antwort enthält nirgends author_id, invite_code oder owner_id,
 //      geprüft am rohen Antworttext, inklusive der echten UUID-Werte.
 //   8. Das Blättern über die max_rows-Grenze gegen echtes PostgREST.
 //
@@ -40,7 +40,7 @@ import { assert, assertEquals, assertFalse } from 'jsr:@std/assert';
 import { erwarteteSchluessel } from '../media-urls/keys.ts';
 
 // seed.sql-Konten: Lea ist Owner der Testreisen. Ben hat eine auth.users-Zeile,
-// aber KEIN Profil — er kann sich anmelden und ist damit genau der «irgendein
+// aber KEIN Profil, er kann sich anmelden und ist damit genau der «irgendein
 // angemeldeter Fremder», den es hier braucht; als Autor eines Moments taugt er
 // nicht (posts.author_id verweist auf profiles). Dafür Sofia: ein echtes
 // Profil, das in keiner der Testreisen Mitglied ist.
@@ -133,7 +133,7 @@ const stackBereit = Boolean(
 
 if (!stackBereit) {
   console.warn(
-    'share_link_integration_test: übersprungen — braucht `supabase start` UND ' +
+    'share_link_integration_test: übersprungen, braucht `supabase start` UND ' +
       '`supabase functions serve --env-file supabase/functions/.env` in einem zweiten Terminal. ' +
       'Die Sicherheitszusicherungen der Prüfkette laufen ohne Stack in aufloesung_test.ts.',
   );
@@ -233,7 +233,7 @@ type AufloesungsAntwort = {
 };
 
 Deno.test({
-  name: 'share-link: erstellen, auflösen ohne Anmeldung, widerrufen — und keine Auskunft an Unbefugte',
+  name: 'share-link: erstellen, auflösen ohne Anmeldung, widerrufen, und keine Auskunft an Unbefugte',
   ignore: !stackBereit,
   async fn() {
     const tripId = await legeTripAn('Integrationstest share-link');
@@ -268,7 +268,7 @@ Deno.test({
             captured_at: '2026-01-01T08:00:00+01:00',
             captured_tz: 'Europe/Zurich',
             place_name: 'Zürich',
-            // A trägt Koordinaten, C (weiter unten) nicht — damit zeigt EIN
+            // A trägt Koordinaten, C (weiter unten) nicht, damit zeigt EIN
             // Durchgang beide Richtungen: dass lat/lng wirklich aus der
             // Select-Liste kommen, und dass ein Moment ohne Ort trotzdem in
             // der Filmrolle steht.
@@ -280,7 +280,7 @@ Deno.test({
         201,
       );
 
-      // Bytes direkt über die Storage-API ablegen — dieser Test prüft
+      // Bytes direkt über die Storage-API ablegen, dieser Test prüft
       // share-link, nicht den Upload-Weg von media-urls.
       for (const [key, inhalt] of [
         [schluesselA.storage_key, MEDIUM_INHALT],
@@ -299,7 +299,7 @@ Deno.test({
         hochgeladen.push(key);
       }
 
-      // B: eingesendet, nie fertig hochgeladen — darf in keiner Antwort
+      // B: eingesendet, nie fertig hochgeladen, darf in keiner Antwort
       //    auftauchen.
       const postBId = crypto.randomUUID();
       await erwarteJson(
@@ -319,7 +319,7 @@ Deno.test({
         201,
       );
 
-      // C: fertig, aber ohne Thumbnail — thumb_url muss null werden.
+      // C: fertig, aber ohne Thumbnail, thumb_url muss null werden.
       const postCId = crypto.randomUUID();
       await erwarteJson(
         await fetch(`${SUPABASE_URL}/rest/v1/posts`, {
@@ -344,7 +344,7 @@ Deno.test({
       //    genau auf UNSERE Reise passt. Die einzige Zeile, an der sich die
       //    Reise-Eingrenzung des Selects überhaupt zeigen kann: Fällt
       //    `.eq('trip_id', …)` weg, rutscht D durch den Ableitungs-Abgleich
-      //    hindurch in die Antwort — jeder andere fremde Moment würde dort
+      //    hindurch in die Antwort, jeder andere fremde Moment würde dort
       //    noch aussortiert. Das ist W1 in seiner schärfsten Form.
       nachbarTripId = await legeTripAn('Integrationstest share-link Nachbarreise');
       const postDId = crypto.randomUUID();
@@ -377,7 +377,7 @@ Deno.test({
       });
       assertEquals(await erwarteJson(ohneJwt, 401), { fehler: 'Nicht angemeldet.' });
 
-      // Der Anon-Key ist ein syntaktisch gültiges, korrekt signiertes JWT —
+      // Der Anon-Key ist ein syntaktisch gültiges, korrekt signiertes JWT,
       // und trotzdem keine Person. Weil das Gateway hier nicht mehr vorprüft,
       // ist dieser Fall der Beleg, dass die eigene Prüfung ihn abfängt.
       const mitAnonKey = await rufe(mitJwt(ANON_KEY), { aktion: 'erstellen', trip_id: tripId });
@@ -408,7 +408,7 @@ Deno.test({
       });
 
       // Genau A und C, in captured_at-Reihenfolge. B fehlt (pending), D fehlt
-      // (andere Reise) — zwei verschiedene Gründe, eine Zusicherung.
+      // (andere Reise), zwei verschiedene Gründe, eine Zusicherung.
       assertEquals(antwort.medien.map((m) => m.post_id), [postAId, postCId]);
       assertEquals(antwort.ausgelassen, 0);
 
@@ -420,7 +420,7 @@ Deno.test({
       assertEquals(eintragA.duration_s, null);
       // Spec R4: der geteilte Recap zeigt dieselbe Karte wie die App. Nur
       // hier lässt sich prüfen, dass die zwei Spalten die echte
-      // PostgREST-Abfrage überhaupt verlassen — aufloesung_test.ts sieht die
+      // PostgREST-Abfrage überhaupt verlassen, aufloesung_test.ts sieht die
       // Select-Liste nicht.
       assertEquals(eintragA.lat, 47.3769);
       assertEquals(eintragA.lng, 8.5417);
@@ -440,7 +440,7 @@ Deno.test({
         `gueltig_bis liegt ${restSekunden}s in der Zukunft, erwartet ~3600s`,
       );
 
-      // Die URLs zeigen auf echte Bytes — nicht nur auf einen Statuscode, den
+      // Die URLs zeigen auf echte Bytes, nicht nur auf einen Statuscode, den
       // auch eine Fehlerseite liefern könnte.
       const getMedium = await fetch(eintragA.medium_url);
       assertEquals(getMedium.status, 200);
@@ -480,7 +480,7 @@ Deno.test({
       // --- W1: ein zweiter Link zeigt seine eigene Reise, nicht diese -----
       // E ist der einzige regulär abgelegte Moment der Nachbarreise. D liegt
       // ebenfalls dort, trägt aber den auf UNSERE Reise passenden
-      // storage_key — für die Nachbarreise stimmt die Ableitung damit nicht,
+      // storage_key, für die Nachbarreise stimmt die Ableitung damit nicht,
       // und D fällt hier aus dem anderen Grund heraus als oben: nicht wegen
       // der trip_id, sondern wegen des Abgleichs. Beide Schranken zeigen sich
       // so an derselben Zeile, jede in einer anderen Antwort.
@@ -514,7 +514,7 @@ Deno.test({
       const nachbarAntwort = JSON.parse(nachbarOffen.text) as AufloesungsAntwort;
       assertEquals(nachbarAntwort.reise.name, 'Integrationstest share-link Nachbarreise');
       assertEquals(nachbarAntwort.medien.map((m) => m.post_id), [postEId]);
-      // D ist gezählt, aber nicht ausgeliefert — die App sieht die Lücke,
+      // D ist gezählt, aber nicht ausgeliefert, die App sieht die Lücke,
       // statt einen stillschweigend kürzeren Recap zu bekommen.
       assertEquals(nachbarAntwort.ausgelassen, 1);
       // Der Autorenname kommt aus profiles, nicht aus der Owner-Zeile: hier
@@ -547,7 +547,7 @@ Deno.test({
         { ok: true },
       );
 
-      // b) abgelaufen — expires_at per Service-Role in die Vergangenheit
+      // b) abgelaufen, expires_at per Service-Role in die Vergangenheit
       //    schieben (die Function selbst kann nur Zukunft ausstellen).
       await erwarteJson(
         await fetch(`${SUPABASE_URL}/rest/v1/share_links?token=eq.${abgelaufenToken.token}`, {
@@ -560,7 +560,7 @@ Deno.test({
       const abgelaufen = await aufloesen(abgelaufenToken.token);
       assertEquals([abgelaufen.status, abgelaufen.text], [unbekannt.status, unbekannt.text]);
 
-      // c) Reise nicht aufgedeckt — W3, zweite Hälfte. Der Link entsteht hier
+      // c) Reise nicht aufgedeckt, W3, zweite Hälfte. Der Link entsteht hier
       //    per Service-Role (an RLS und an `erstellen` vorbei), weil genau das
       //    der Fall ist, den die Auflösung selbst abfangen muss: die
       //    Erstellungs-Prüfung ist nicht die einzige Schranke.
@@ -576,13 +576,13 @@ Deno.test({
       const versiegelt = await aufloesen(versiegelterLink.token);
       assertEquals([versiegelt.status, versiegelt.text], [unbekannt.status, unbekannt.text]);
 
-      // d) ein absurd langer Token — dieselbe Antwort, kein eigenes Signal.
+      // d) ein absurd langer Token, dieselbe Antwort, kein eigenes Signal.
       const zuLang = await aufloesen('a'.repeat(2000));
       assertEquals([zuLang.status, zuLang.text], [unbekannt.status, unbekannt.text]);
 
       // --- widerrufen ist kein Orakel -------------------------------------
       // Nachbarlink existiert, gehört aber nicht Ben. Für ihn muss das
-      // dasselbe sein wie ein Token, den es nie gab — sonst liesse sich die
+      // dasselbe sein wie ein Token, den es nie gab, sonst liesse sich die
       // Existenz eines Tokens mit einem beliebigen eigenen Konto prüfen,
       // während `aufloesen` sich alle Mühe gibt, nichts zu verraten.
       const bensVersuchEcht = await rufe(mitJwt(benJwt), { aktion: 'widerrufen', token: nachbarLink.token });
@@ -605,7 +605,7 @@ Deno.test({
       assertEquals(nachBen.revoked, false);
 
       // --- Archiviert: lesbar, und der Widerruf gelingt weiterhin ---------
-      // «Weggelegt ist nicht zugesperrt» — aber die Owner-Person muss den
+      // «Weggelegt ist nicht zugesperrt», aber die Owner-Person muss den
       // Link auch danach noch abschalten können (Migration 20260808130000).
       await erwarteJson(
         await fetch(`${SUPABASE_URL}/rest/v1/trips?id=eq.${nachbarTripId}`, {
@@ -624,7 +624,7 @@ Deno.test({
         fehler: 'Diese Reise ist archiviert. Für sie entsteht kein neuer Link mehr.',
       });
 
-      // Der bestehende lässt sich aber widerrufen — und danach zeigt er
+      // Der bestehende lässt sich aber widerrufen, und danach zeigt er
       // nichts mehr.
       assertEquals(
         await erwarteJson(await rufe(mitJwt(leaJwt), { aktion: 'widerrufen', token: nachbarLink.token }), 200),
@@ -642,7 +642,7 @@ Deno.test({
         body: JSON.stringify({ aktion: 'alles_zeigen', token: erstellt.token }),
       });
       // Unbekannte Aktionen laufen in den JWT-Zweig und scheitern dort ohne
-      // Anmeldung — nicht an einer Verzweigung, die sie hätte durchlassen
+      // Anmeldung, nicht an einer Verzweigung, die sie hätte durchlassen
       // können.
       assertEquals(await erwarteJson(unbekannteAktion, 401), { fehler: 'Nicht angemeldet.' });
       assertEquals(
@@ -651,13 +651,13 @@ Deno.test({
       );
 
       // CORS: Ohne diese Kopfzeilen scheitert der öffentliche Web-Player im
-      // Browser, obwohl die Function korrekt antwortet — er läuft auf einer
+      // Browser, obwohl die Function korrekt antwortet, er läuft auf einer
       // anderen Herkunft als die Supabase-Instanz.
       //
       // Geprüft wird an der ECHTEN Antwort, nicht am Preflight: Das lokale
       // Kong beantwortet OPTIONS selbst (HTTP 200 mit einer sehr grosszügigen
       // Methodenliste), die Anfrage erreicht die Function also gar nicht. Auf
-      // einem gehosteten Projekt ist das nicht so — dort muss die Function
+      // einem gehosteten Projekt ist das nicht so, dort muss die Function
       // OPTIONS selbst beantworten, und genau dafür steht der Zweig in
       // index.ts. Was BEIDE Umgebungen zeigen: die Kopfzeilen auf der
       // POST-Antwort, und die kommen nachweislich aus der Function (Kong
@@ -740,7 +740,7 @@ Deno.test({
       assertEquals(offen.status, 200, offen.text.slice(0, 500));
       const antwort = JSON.parse(offen.text) as AufloesungsAntwort;
 
-      // Ohne Blättern stünde hier 1000 — der stille Verlust, um den es geht.
+      // Ohne Blättern stünde hier 1000, der stille Verlust, um den es geht.
       assertEquals(antwort.medien.length, ANZAHL);
       assertEquals(antwort.medien.map((m) => m.post_id), erwarteteReihenfolge);
       assertEquals(antwort.ausgelassen, 0);

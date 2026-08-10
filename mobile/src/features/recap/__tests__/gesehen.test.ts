@@ -28,7 +28,7 @@ test('nach dem Merken gilt dieselbe Reise als gesehen', async () => {
 });
 
 // Ohne diese Prüfung könnte revealGesehen() `true` liefern, ohne den
-// Speicher überhaupt zu befragen — der Test oben würde das nicht auffangen
+// Speicher überhaupt zu befragen, der Test oben würde das nicht auffangen
 // (mockGetItem.mockResolvedValueOnce liefert unabhängig davon einen Wert).
 test('revealGesehen fragt tatsächlich den Speicher ab', async () => {
   await revealGesehen('t1');
@@ -50,7 +50,7 @@ test('der Schlüssel trägt die Reise-Kennung und ist zwischen zwei Reisen unter
 });
 
 // Das Merken einer anderen Reise darf revealGesehen für DIESE Reise nicht
-// beeinflussen — ein Test, der nur mit EINER Reise arbeitet, könnte eine
+// beeinflussen, ein Test, der nur mit EINER Reise arbeitet, könnte eine
 // Implementierung übersehen, die z. B. nur EINEN globalen Schlüssel schreibt.
 test('als gesehen gemerkt gilt nur die gemerkte Reise, keine andere', async () => {
   await merkeRevealGesehen('reise-a');
@@ -68,7 +68,7 @@ test('ein Schreibfehler lässt merkeRevealGesehen nicht scheitern', async () => 
   await expect(merkeRevealGesehen('t1')).resolves.toBeUndefined();
 });
 
-// Ein kaputter Speicher darf die Inszenierung nicht dauerhaft verhindern —
+// Ein kaputter Speicher darf die Inszenierung nicht dauerhaft verhindern,
 // «noch nicht gesehen» ist der sichere Rückfall, kein geworfener Fehler.
 test('ein Lesefehler zählt als "noch nicht gesehen", nicht als Ausnahme', async () => {
   mockGetItem.mockRejectedValueOnce(new Error('Speicher kaputt'));

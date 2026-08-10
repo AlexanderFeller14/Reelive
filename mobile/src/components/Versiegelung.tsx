@@ -15,7 +15,7 @@ type Props = {
 // Eine der zwei ausdrücklich erlaubten Inszenierungen (DESIGN-LANGUAGE v2 §5):
 // «Moment schrumpft in die Filmrolle, Siegel schliesst mit Gold-Glow, Zähler
 // rollt hoch. Haptik: success.» Die Feinoptik (Filmrolle, Zähler-Digit-Roll)
-// gehört Task 12 — dieser Baustein liefert die abgesicherte Mechanik: Haptik
+// gehört Task 12, dieser Baustein liefert die abgesicherte Mechanik: Haptik
 // feuert genau einmal beim Start, `onFertig` kommt zuverlässig nach der Dauer,
 // animiert wird ausschliesslich `transform`/`opacity` mit `useNativeDriver`
 // (UI-Thread), `prefers-reduced-motion` verkürzt auf einen 200-ms-Fade.
@@ -28,7 +28,7 @@ export function Versiegelung({ sichtbar, onFertig }: Props) {
   const onFertigRef = useRef(onFertig);
   onFertigRef.current = onFertig;
   // Fix-Runde 1: der Effekt hängt (nötigerweise) auch an `reducedMotion`, weil
-  // die Dauer davon abhängt — ändert sich die Systemeinstellung, während die
+  // die Dauer davon abhängt, ändert sich die Systemeinstellung, während die
   // Inszenierung schon läuft (sichtbar bleibt true), lief der Effekt bisher
   // erneut und feuerte die Haptik ein zweites Mal für dasselbe Siegel. Dieser
   // Ref merkt sich «für dieses sichtbar=true schon gefeuert» unabhängig vom
@@ -54,7 +54,7 @@ export function Versiegelung({ sichtbar, onFertig }: Props) {
     const dauer = reducedMotion ? REDUZIERTE_DAUER_MS : motion.duration.feature;
     fortschritt.setValue(0);
     // Die Optik läuft mit useNativeDriver auf dem UI-Thread (§5) und damit
-    // unabhängig vom JS-Thread — ihr eigener Abschluss-Callback ist darum
+    // unabhängig vom JS-Thread, ihr eigener Abschluss-Callback ist darum
     // aber KEIN verlässlicher Zeitgeber für `onFertig` (auf einem Gerät ohne
     // aktives natives Animated-Modul, z. B. in Tests, meldet er sich sofort
     // statt nach `dauer`). Gleiches Prinzip wie Ausloeser.tsx: die sichtbare

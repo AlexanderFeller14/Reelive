@@ -5,7 +5,7 @@ const mockReplace = jest.fn();
 const mockBack = jest.fn();
 // Final-Review, Important 3: die Vorschau wird vom Stapel GENOMMEN statt durch
 // einen neuen Kamera-Screen ersetzt. Nur ohne Rückweg (Deep Link) bleibt
-// replace übrig — deshalb steuerbar.
+// replace übrig, deshalb steuerbar.
 let mockKannZurueck = true;
 let mockParams: Record<string, string | undefined> = {
   uri: 'file://foto.jpg',
@@ -30,7 +30,7 @@ jest.mock('expo-status-bar', () => ({
 
 // expo-video braucht ein natives Modul, das es in diesem Jest-Setup nicht
 // gibt (gleiche Einschränkung wie expo-image in Task 8, siehe dessen
-// Bericht) — deshalb gemockt statt real importiert. `useVideoPlayer` liefert
+// Bericht), deshalb gemockt statt real importiert. `useVideoPlayer` liefert
 // ein greifbares Fake-Player-Objekt, damit der Video-Nachzug prüfen kann,
 // dass die Vorschau stumm und in Schleife läuft.
 const mockVideoPlayer = { loop: false, muted: false, play: jest.fn() };
@@ -92,7 +92,7 @@ jest.mock('@/features/moments/ortUndZeit', () => ({
 }));
 
 // Die echte Inszenierung (Task 9) läuft 700–900 ms und ist bereits für sich
-// getestet (Versiegelung.test.tsx) — hier interessiert nur der Vertrag „wird
+// getestet (Versiegelung.test.tsx), hier interessiert nur der Vertrag „wird
 // sichtbar, sobald der Job eingereiht ist, und navigiert über onFertig weiter".
 // Der Mock feuert onFertig synchron, sobald er sichtbar wird, damit die
 // bestehenden Erwartungen an mockReplace ohne Timer-Steuerung auskommen.
@@ -225,7 +225,7 @@ test('Einsenden reiht genau einen Job ein und navigiert zur Kamera zurück', asy
 });
 
 // Ohne Rückweg (per Deep Link direkt in die Vorschau) gibt es nichts vom
-// Stapel zu nehmen — nur dort bleibt replace richtig.
+// Stapel zu nehmen, nur dort bleibt replace richtig.
 test('ohne Rückweg im Stapel führt der Weg zurück per replace zur Kamera', async () => {
   mockKannZurueck = false;
   mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
@@ -291,7 +291,7 @@ test('ein Video trägt seine Dauer in duration_s ein und ruft videoAufbereiten a
 });
 
 // Final-Review, Important 5: expo-camera nimmt auf iOS QuickTime auf. Bis zur
-// Fix-Welle landete das unter ….mp4 mit Content-Type video/mp4 — dauerhaft
+// Fix-Welle landete das unter ….mp4 mit Content-Type video/mp4, dauerhaft
 // falsch etikettiert, und weil der Schlüssel pro Moment unveränderlich ist,
 // nachträglich nicht mehr zu heilen.
 test('eine iOS-Aufnahme (.mov) bekommt einen Schlüssel mit der tatsächlichen Endung', async () => {
@@ -312,7 +312,7 @@ test('eine iOS-Aufnahme (.mov) bekommt einen Schlüssel mit der tatsächlichen E
 });
 
 // Nachzug aus Task 8: der letzte Blick vor dem Versiegeln zeigt bei Videos
-// «das Aufgenommene formatfüllend» (Spec) statt nur eines Symbols mit Dauer —
+// «das Aufgenommene formatfüllend» (Spec) statt nur eines Symbols mit Dauer,
 // stumm, in Schleife, ohne Bedienelemente (eine Vorschau, kein Player).
 test('ein Video wird als stumme, endlos wiederholte Vorschau ohne Bedienelemente angezeigt', async () => {
   mockParams = { uri: 'file://video.mp4', typ: 'video', dauer: '12', tripId: 't1' };
@@ -368,7 +368,7 @@ test('erst nach dem Einreihen werden Rohaufnahme und Zwischenfassungen freigegeb
 });
 
 // Ohne Job in der Warteschlange käme nie wieder jemand an diesen Dateien
-// vorbei, der sie aufräumt — sie lägen für immer im Dokumentenverzeichnis.
+// vorbei, der sie aufräumt, sie lägen für immer im Dokumentenverzeichnis.
 test('scheitert das Einreihen, wird der dauerhafte Ordner wieder abgeräumt', async () => {
   mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
   mockJobEinreihen.mockRejectedValue(new Error('SQLITE_FULL'));
@@ -402,7 +402,7 @@ test('bei einem Video überlebt die Rohaufnahme ein gescheitertes Einreihen', as
     await fireEvent.press(screen.getByText('Einsenden'));
   });
 
-  // Die dauerhafte KOPIE wird abgeräumt — sie ist ohne Job herrenlos.
+  // Die dauerhafte KOPIE wird abgeräumt, sie ist ohne Job herrenlos.
   expect(mockMomentDateienEntfernen).toHaveBeenCalledWith('post-1');
   // Die Rohaufnahme aber unter keinen Umständen: sie ist die einzige Kopie.
   expect(mockDateiVerwerfen).not.toHaveBeenCalledWith('file://video.mov');
@@ -438,7 +438,7 @@ test('nach einem gescheiterten Einsenden gelingt der zweite Versuch bei einem Vi
 });
 
 // Der Kopiervorgang selbst scheitert (kein Platz): auch dann muss die Aufnahme
-// überleben — genau dafür wird kopiert statt verschoben.
+// überleben, genau dafür wird kopiert statt verschoben.
 test('scheitert schon das dauerhafte Sichern, bleibt die Rohaufnahme liegen', async () => {
   mockParams = { uri: 'file://video.mov', typ: 'video', dauer: '12', tripId: 't1' };
   mockVideoAufbereiten.mockResolvedValue({ medium: 'file://video.mov', thumb: 'file://thumb.jpg' });
@@ -466,7 +466,7 @@ test('ein Fehler beim Aufbereiten reiht keinen Job ein, zeigt eine Meldung und d
   expect(mockJobEinreihen).not.toHaveBeenCalled();
   expect(mockBack).not.toHaveBeenCalled();
   expect(await screen.findByText(/Speicherplatz/)).toBeTruthy();
-  // Der Screen bleibt stehen — Einsenden ist weiterhin da und lässt sich
+  // Der Screen bleibt stehen, Einsenden ist weiterhin da und lässt sich
   // erneut versuchen.
   expect(screen.getByText('Einsenden')).toBeTruthy();
 });
@@ -499,7 +499,7 @@ test('ohne trip_id (Navigationslücke aus dem Kamera-Screen) wird das Einsenden 
   expect(await screen.findByText(/keiner Reise zuordnen/)).toBeTruthy();
 });
 
-// Task-13-Fix-Runde-2: ein Job ohne Autoren-Kennung darf nie entstehen — in
+// Task-13-Fix-Runde-2: ein Job ohne Autoren-Kennung darf nie entstehen, in
 // der Praxis lässt das Root-Layout diesen Screen ohne Sitzung gar nicht erst
 // zu, aber der Screen rät hier bewusst nicht, sondern lehnt sichtbar ab
 // (gleiches Prinzip wie ohne trip_id oben).

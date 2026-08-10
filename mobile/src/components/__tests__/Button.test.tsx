@@ -26,7 +26,7 @@ test('disabled Button spielt Press-Scale-Animation nicht ab', async () => {
   await wrap(<Button variant="primary" label="Weiter" onPress={onPress} disabled />);
   const label = screen.getByText('Weiter');
 
-  // Reales Pressable-`disabled` unterdrückt den Responder-Zyklus nativ — RNTL
+  // Reales Pressable-`disabled` unterdrückt den Responder-Zyklus nativ, RNTL
   // simuliert das über `onStartShouldSetResponder`, deshalb kommt pressIn/pressOut
   // hier gar nicht erst beim internen Handler an (echtes Verhalten, kein Mock).
   await fireEvent(label, 'pressIn');

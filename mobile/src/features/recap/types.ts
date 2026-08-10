@@ -1,6 +1,6 @@
 // Nur die Typen, die diese Phase wirklich braucht (Task-5-Brief). Reaktion und
 // Kommentar stehen hier bereits mit, weil Task 12 (Reaktionen/Kommentare) auf
-// denselben Typen aufsetzen soll statt auf einer zweiten, eigenen Definition —
+// denselben Typen aufsetzen soll statt auf einer zweiten, eigenen Definition,
 // beide Tasks laufen parallel, dieser Datei-Ausschnitt ist ihr gemeinsamer Vertrag.
 
 export type RecapMoment = {
@@ -16,7 +16,7 @@ export type RecapMoment = {
   // Koordinaten der Aufnahme. null ist der Normalfall und kein Fehler:
   // ortBestimmen() (Phase 4) liefert bewusst null, wenn die Ortungsdienste
   // nicht erlaubt sind, drinnen kein Fix zustande kommt oder die Frist
-  // ablaeuft — der Moment wird trotzdem eingesendet.
+  // ablaeuft, der Moment wird trotzdem eingesendet.
   lat: number | null;
   lng: number | null;
   upload_status: 'pending' | 'uploaded';

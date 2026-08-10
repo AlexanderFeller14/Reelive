@@ -11,7 +11,7 @@ const MINDESTSPANNE = 0.01;
 // Die naive Rechnung max - min stimmt ueberall ausser dort, wo die Reise den
 // 180. Laengengrad kreuzt: fuer 179 und -179.5 ergaebe sie 358.5 Grad und
 // einen Mittelpunkt auf der anderen Seite der Erde. Stattdessen wird die
-// GROESSTE LUECKE zwischen zwei benachbarten Laengengraden gesucht — was
+// GROESSTE LUECKE zwischen zwei benachbarten Laengengraden gesucht, was
 // uebrig bleibt, ist die gesuchte Spanne.
 function laengenSpanne(lngs: number[]): { mitte: number; spanne: number } {
   const sortiert = [...lngs].sort((a, b) => a - b);
@@ -25,7 +25,7 @@ function laengenSpanne(lngs: number[]): { mitte: number; spanne: number } {
     }
   }
   // Sind alle Laengengrade gleich (ein einziger Punkt, oder mehrere auf
-  // derselben Koordinate), ist JEDE Luecke 0 — auch die Umrundung, denn
+  // derselben Koordinate), ist JEDE Luecke 0, auch die Umrundung, denn
   // (x - x + 360) % 360 ist 0. Ohne diesen Ausstieg ergaebe `360 - 0` eine
   // Spanne von 360 Grad und einen Mittelpunkt auf dem Antipoden: fuer Lissabon
   // (-9.13) landete die Karte bei 170.87 im Pazifik. Groesste Luecke = 0 heisst
@@ -44,7 +44,7 @@ function laengenSpanne(lngs: number[]): { mitte: number; spanne: number } {
 }
 
 // Die Region, in der ALLE uebergebenen Punkte sichtbar sind (Spec K2).
-// `null` heisst: es gibt nichts zu zeigen — der Screen entscheidet dann auf
+// `null` heisst: es gibt nichts zu zeigen, der Screen entscheidet dann auf
 // den Leer-Zustand, statt einen erfundenen Ausschnitt zu bekommen.
 export function ausschnittFuer(punkte: KartenPunkt[]): Ausschnitt | null {
   if (punkte.length === 0) return null;

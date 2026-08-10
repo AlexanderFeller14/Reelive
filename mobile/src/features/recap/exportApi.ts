@@ -1,12 +1,12 @@
 // Export in die Galerie (Task-7-Brief, Spec §6, Versprechen W9): einen
-// Moment sichern, alle sichern — über dieselben signierten Lese-URLs, die
+// Moment sichern, alle sichern, über dieselben signierten Lese-URLs, die
 // der Player schon hat (urlVorrat.ts). Gesichert wird IMMER `medium_url`
 // (volle Auflösung), nie `thumb_url`.
 //
 // === Der Zwischenschritt, und warum er diesmal aufräumt (Phase-4-Lehre) ===
 //
 // expo-media-library sichert nur von einer LOKALEN Datei
-// (MediaLibrary.createAssetAsync(filePath)) — die Medien liegen aber hinter
+// (MediaLibrary.createAssetAsync(filePath)), die Medien liegen aber hinter
 // einer signierten HTTPS-URL. Es braucht also einen Download über
 // expo-file-system, bevor überhaupt etwas in die Galerie kann.
 //
@@ -19,12 +19,12 @@
 // 1. **Cache, nicht Documents.** medien.ts kopiert bewusst NACH Documents,
 //    weil die Warteschlange Momente tagelang halten muss, bevor der Upload
 //    sie verbraucht. Hier ist es umgekehrt: die heruntergeladene Datei lebt
-//    nur für die Dauer EINES einzelnen `Asset.create()`-Aufrufs — Sekunden,
+//    nur für die Dauer EINES einzelnen `Asset.create()`-Aufrufs, Sekunden,
 //    nicht Tage. `Paths.cache` (vom System bei Speicherdruck löschbar) ist
 //    dafür der richtige Ort, nicht der falsche: es gibt nichts, das über
 //    diesen einen Aufruf hinaus erhalten bleiben müsste.
 // 2. **`finally`, nicht "danach".** Jede heruntergeladene Datei wird in
-//    einem `finally`-Block gelöscht, der auf JEDEM Pfad läuft — Erfolg,
+//    einem `finally`-Block gelöscht, der auf JEDEM Pfad läuft, Erfolg,
 //    ein regulärer Fehlschlag (Netzwerk, 4xx/5xx) UND ein Abbruch über
 //    `AbortSignal`. Ein "danach aufräumen" nur im Erfolgspfad war genau die
 //    Lücke, die Phase 4 offen liess: ein abgebrochener oder fehlgeschlagener
@@ -33,26 +33,26 @@
 //    mitten in einem Download ab (kein JS-`finally` kann das auffangen),
 //    bliebe ohne diesen Schritt eine verwaiste Datei bis zum nächsten
 //    Export liegen. `raeumeExportOrdnerAufNeu()` löscht den GESAMTEN
-//    Export-Ordner, bevor ein neuer Lauf beginnt — ein verwaistes Rest aus
+//    Export-Ordner, bevor ein neuer Lauf beginnt, ein verwaistes Rest aus
 //    einem abgestürzten vorherigen Lauf überlebt also nie länger als bis
 //    zum nächsten Export-Versuch.
 // Bewusst der LEGACY-Einstieg ('expo-media-library/legacy'), nicht die
-// modernere klassenbasierte API (Asset.create(), aus dem Hauptexport) —
+// modernere klassenbasierte API (Asset.create(), aus dem Hauptexport),
 // obwohl das SDK-57-Changelog Letztere für neuen Code empfiehlt. Grund:
 // `expo-media-library`s Haupteinstieg (`index.ts`) deklariert
 // `class Asset extends ExpoMediaLibraryNext.Asset {}`, ausgewertet BEIM
-// MODUL-LADEN — `ExpoMediaLibraryNext` selbst ist `requireNativeModule(...)`
+// MODUL-LADEN, `ExpoMediaLibraryNext` selbst ist `requireNativeModule(...)`
 // OHNE eigene Web-Fassung. Web-Export dieses Projekts bündelt laut Task 4/5
-// dieser Phase die GESAMTE App als SPA, inklusive dieses Screens — mit dem
+// dieser Phase die GESAMTE App als SPA, inklusive dieses Screens, mit dem
 // modernen Einstieg bricht `npx expo export --platform web` deshalb schon
 // beim Bündeln mit "Class extends value undefined is not a constructor or
 // null" (selbst geprüft, reproduziert, siehe Bericht). Der LEGACY-Einstieg
-// importiert stattdessen `ExpoMediaLibrary` (ohne "Next") — DAFÜR existiert
+// importiert stattdessen `ExpoMediaLibrary` (ohne "Next"), DAFÜR existiert
 // eine echte `ExpoMediaLibrary.web.ts`, die `getPermissionsAsync`/
 // `requestPermissionsAsync` mit `granted:false` beantwortet, statt beim
 // Import zu werfen. Auf Web (ohnehin über `istWebGesperrt()` gesperrt,
 // Task 4/5) bleibt der Effekt derselbe wie beabsichtigt: keine Berechtigung,
-// also nie ein tatsächlicher `createAssetAsync`-Aufruf — nur bricht das
+// also nie ein tatsächlicher `createAssetAsync`-Aufruf, nur bricht das
 // Bündeln selbst nicht mehr.
 import * as MediaLibrary from 'expo-media-library/legacy';
 import { Directory, File, Paths } from 'expo-file-system';
@@ -79,10 +79,10 @@ function raeumeExportOrdnerAufNeu(): void {
   ordner.create({ intermediates: true, idempotent: true });
 }
 
-// Ohne Berechtigung: ein erklärender Hinweis mit Weg in die Einstellungen —
+// Ohne Berechtigung: ein erklärender Hinweis mit Weg in die Einstellungen,
 // NIE ein stiller Fehlschlag (Brief, wörtlich). `writeOnly: true` fragt auf
 // iOS gezielt "Fotos hinzufügen" statt vollen Lesezugriff auf die
-// Bibliothek — die App liest nie vorhandene Fotos, sie schreibt nur eigene.
+// Bibliothek, die App liest nie vorhandene Fotos, sie schreibt nur eigene.
 export const KEIN_ZUGRIFF_TEXT =
   'Reelive braucht Zugriff auf deine Fotobibliothek, um Momente dort zu sichern. Erlaube das in den Systemeinstellungen.';
 const BERECHTIGUNGSPRUEFUNG_FEHLER =
@@ -99,7 +99,7 @@ export async function sichergestellteBerechtigung(): Promise<BerechtigungsErgebn
     if (angefragt.granted) return { erlaubt: true };
     return { erlaubt: false, text: KEIN_ZUGRIFF_TEXT };
   } catch {
-    // Praktisch nie erreichbar (reine OS-Abfrage, kein Netzwerk) — aber
+    // Praktisch nie erreichbar (reine OS-Abfrage, kein Netzwerk), aber
     // "nie ein stiller Fehlschlag" gilt auch für diesen Randfall.
     return { erlaubt: false, text: BERECHTIGUNGSPRUEFUNG_FEHLER };
   }
@@ -111,7 +111,7 @@ function istAbbruchFehler(fehler: unknown): boolean {
 
 // Lädt EIN Medium in eine temporäre Cache-Datei und übergibt sie an
 // expo-media-library. Räumt die temporäre Datei auf JEDEM Pfad auf (siehe
-// Kopfkommentar, Punkt 2) — deshalb `finally`, nicht ein zusätzlicher aufruf
+// Kopfkommentar, Punkt 2), deshalb `finally`, nicht ein zusätzlicher aufruf
 // nach einem erfolgreichen `try`.
 async function ladeUndSichereEinzeln(url: string, dateiname: string, signal?: AbortSignal): Promise<void> {
   const ziel = new File(exportOrdner(), dateiname);
@@ -125,7 +125,7 @@ async function ladeUndSichereEinzeln(url: string, dateiname: string, signal?: Ab
       } catch (fehler) {
         // Ein misslungenes Aufräumen darf den Erfolg/Fehlschlag des
         // Sicherns selbst nicht überschreiben (gleiches Prinzip wie
-        // medien.ts) — nur geloggt, nie geworfen.
+        // medien.ts), nur geloggt, nie geworfen.
         console.error('[exportApi] Zwischendatei konnte nicht gelöscht werden', dateiname, fehler);
       }
     }
@@ -155,9 +155,9 @@ export async function sichereMomentInGalerie(moment: RecapMoment, url: MedienUrl
 
 export type AlleFortschritt = { erledigt: number; gesamt: number };
 
-// Diskriminiert bewusst zwischen "kam nie los" (keine Berechtigung — vor dem
+// Diskriminiert bewusst zwischen "kam nie los" (keine Berechtigung, vor dem
 // ersten Download) und "ist fertig" (eine Bilanz, auch wenn sie unvollständig
-// ist) — eine gemeinsame Form hätte einen Aufrufer gezwungen, `gesichert:0,
+// ist), eine gemeinsame Form hätte einen Aufrufer gezwungen, `gesichert:0,
 // gesamt:0` von einem echten Nulldurchlauf zu unterscheiden, ohne dass die
 // Form selbst das hergäbe.
 export type AlleErgebnis =
@@ -165,12 +165,12 @@ export type AlleErgebnis =
   | { status: 'fertig'; gesichert: number; gesamt: number; fehlgeschlagen: number; abgebrochen: boolean };
 
 // «Alle sichern»: Fortschritt («7 von 23») über `onFortschritt`, abbrechbar
-// über `signal` (Brief). Bricht ein Aufruf per Signal ab — vor dem nächsten
-// Element ODER mitten in einem laufenden Download —, endet die Schleife
+// über `signal` (Brief). Bricht ein Aufruf per Signal ab, vor dem nächsten
+// Element ODER mitten in einem laufenden Download, endet die Schleife
 // SOFORT mit `abgebrochen:true` und der bis dahin ehrlich gezählten Bilanz,
 // statt weiterzumachen oder die bisherigen Zahlen zu verschweigen.
 //
-// Kein `Promise.all`: sequentiell, absichtlich — ein Fortschritt "7 von 23"
+// Kein `Promise.all`: sequentiell, absichtlich, ein Fortschritt "7 von 23"
 // setzt voraus, dass es zu jedem Zeitpunkt ein wohldefiniertes "bis hierhin
 // erledigt" gibt; parallele Downloads würden das nur verkomplizieren, ohne
 // dass der Brief eine Parallelität verlangt.

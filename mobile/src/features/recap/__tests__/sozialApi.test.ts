@@ -90,8 +90,8 @@ describe('fetchReaktionen', () => {
     expect(kette.select).toHaveBeenCalledWith('post_id, user_id, emoji');
     expect(kette.in).toHaveBeenCalledWith('post_id', ['p1', 'p2']);
     // Review-Fund (Klein 4B/4C aus Fix-Runde 1): ungeprüft liesse sich sowohl
-    // die abgefragte Spaltenliste als auch die Sortierung unbemerkt entfernen
-    // — kein anderer Test in dieser Datei sieht dem `select`/`order`-Aufruf
+    // die abgefragte Spaltenliste als auch die Sortierung unbemerkt entfernen,
+    // kein anderer Test in dieser Datei sieht dem `select`/`order`-Aufruf
     // von fetchReaktionen auf die Finger.
     expect(kette.order).toHaveBeenCalledWith('created_at', { ascending: true });
     expect(ergebnis.error).toBeNull();
@@ -145,7 +145,7 @@ describe('setzeReaktion', () => {
   });
 
   // Ein Mutant, der ignoreDuplicates auf false (oder weg) setzt, würde
-  // serverseitig ein ON-CONFLICT-DO-UPDATE erzeugen — genau das würde am
+  // serverseitig ein ON-CONFLICT-DO-UPDATE erzeugen, genau das würde am
   // fehlenden UPDATE-Grant scheitern (siehe Kommentar in sozialApi.ts).
   // Diese exakte Objektprüfung fängt eine solche stille Regression ab dem
   // ersten Lauf ab, nicht erst am (in Tests unsichtbaren) DB-Grant.
@@ -221,8 +221,8 @@ describe('fetchKommentare', () => {
     });
     const ergebnis = await fetchKommentare('p1');
     expect(ergebnis.error).toBeNull();
-    // Phase-5-Final-Review, Punkt 8: siehe Kommentar bei fetchReaktionen oben
-    // — hier für `comments` statt `reactions`.
+    // Phase-5-Final-Review, Punkt 8: siehe Kommentar bei fetchReaktionen oben,
+    // hier für `comments` statt `reactions`.
     expect(mockFrom).toHaveBeenCalledWith('comments');
     expect(ergebnis.data).toEqual([
       {
@@ -250,7 +250,7 @@ describe('fetchKommentare', () => {
 
   // Review-Fund (Klein 4B aus Fix-Runde 1): der Erfolgstest oben füttert
   // `profiles` unabhängig von der tatsächlich abgefragten Spaltenliste in
-  // die Mock-Antwort — ein Streichen von `profiles(display_name)` aus dem
+  // die Mock-Antwort, ein Streichen von `profiles(display_name)` aus dem
   // echten `select()`-Aufruf bliebe unbemerkt grün, obwohl in Produktion
   // dann jeder Autorenname leer wäre. Diese Prüfung sieht dem Aufruf selbst
   // auf die Finger.
@@ -278,7 +278,7 @@ describe('schreibeKommentar', () => {
     expect(kette.insert).toHaveBeenCalledWith({ post_id: 'p1', user_id: 'u1', text: 'Toller Moment!' });
   });
 
-  test('leerer Text wird VOR jedem Aufruf abgefangen — keine Sitzung nötig, kein Insert', async () => {
+  test('leerer Text wird VOR jedem Aufruf abgefangen, keine Sitzung nötig, kein Insert', async () => {
     const ergebnis = await schreibeKommentar('p1', '');
     expect(ergebnis.error).toBe('Schreib etwas, bevor du sendest.');
     expect(mockGetSession).not.toHaveBeenCalled();
@@ -291,7 +291,7 @@ describe('schreibeKommentar', () => {
     expect(mockFrom).not.toHaveBeenCalled();
   });
 
-  // Der Datenbank-Check erlaubt genau 1–500 Zeichen — 500 muss durchgehen,
+  // Der Datenbank-Check erlaubt genau 1–500 Zeichen, 500 muss durchgehen,
   // 501 muss VOR dem Netzwerkaufruf abgefangen werden. Ein Mutant, der `>`
   // durch `>=` ersetzt, liesse den ersten Test fallen; einer, der die
   // Prüfung ganz entfernt, liesse den zweiten fallen (insert würde

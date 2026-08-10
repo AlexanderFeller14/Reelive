@@ -2,12 +2,12 @@
 -- share_links: `authenticated` schreibt gar nicht mehr direkt.
 --
 -- Der Befund (Task 2 dieser Phase): `20260803090500_social_rls.sql` erteilt
--- `grant select, insert, update, delete on public.share_links to authenticated`
--- — ohne Spalten-Einschränkung. Über einen direkten PostgREST-Aufruf konnte die
+-- `grant select, insert, update, delete on public.share_links to authenticated`,
+-- ohne Spalten-Einschränkung. Über einen direkten PostgREST-Aufruf konnte die
 -- Owner-Person damit dreierlei, was kein Entwurf je vorgesehen hat:
 --
 --   1. Einen Link mit SELBSTGEWÄHLTEM Token anlegen. `share_links.token` ist
---      `text` mit Default `encode(gen_random_bytes(16),'hex')` — ein Default
+--      `text` mit Default `encode(gen_random_bytes(16),'hex')`, ein Default
 --      greift nur, wenn die Spalte beim Insert fehlt. Ein Client konnte also
 --      einen Link mit dem Token 'a' erzeugen.
 --
@@ -26,13 +26,13 @@
 --      Richtungen schaltbar, ist «dieser Link wurde am 3. widerrufen» keine
 --      haltbare Aussage mehr.
 --
---   3. Den Token einer bereits geteilten Zeile nachträglich umschreiben —
+--   3. Den Token einer bereits geteilten Zeile nachträglich umschreiben,
 --      dieselbe Wirkung wie 1., nur an einer Zeile, die schon in fremden Händen
 --      ist.
 --
 -- Alles drei betrifft nur die eigene Reise, ist also kein Angriff auf Fremde.
 -- Aber die Momente in dieser Reise gehören allen Mitreisenden, nicht der
--- Owner-Person — und ausgelöst wird es nicht von einem Angreifer, sondern von
+-- Owner-Person, und ausgelöst wird es nicht von einem Angreifer, sondern von
 -- einem manipulierten oder schlicht falsch gebauten Client.
 --
 -- ----------------------------------------------------------------------------
@@ -40,7 +40,7 @@
 -- ----------------------------------------------------------------------------
 -- Der Weg über die Edge Function ist gebaut und geprüft
 -- (supabase/functions/share-link). Der direkte Schreibweg war nie Teil eines
--- Entwurfs — der Kommentar in 20260803090500_social_rls.sql:35-37 sagt es
+-- Entwurfs, der Kommentar in 20260803090500_social_rls.sql:35-37 sagt es
 -- wörtlich: «Öffentliche Auflösung eines Tokens läuft NIE über diese Tabelle
 -- direkt, sondern über eine Edge Function mit Service-Role (Phase 6).» Er ist
 -- seit Phase 1 offen geblieben, weil es die Function noch nicht gab.
@@ -49,26 +49,26 @@
 --
 --   select  BLEIBT. Die App muss anzeigen können, ob für eine Reise schon ein
 --           Link existiert und ob er widerrufen ist (Spec §5.3: «falls schon
---           einer existiert — Link deaktivieren»). Lesen kann nichts kaputt
+--           einer existiert, Link deaktivieren»). Lesen kann nichts kaputt
 --           machen, und `share_links_select_owner` grenzt es auf die eigenen
 --           Reisen ein. Eine eigene Function-Aktion dafür wäre eine zweite
 --           Schnittstelle für etwas, das die Policy bereits richtig löst.
 --
 --   insert  WEG. Erzeugt wird ausschliesslich über die Aktion `erstellen`, und
---           die schickt die Spalte `token` bewusst nicht mit — der Zufall kommt
+--           die schickt die Spalte `token` bewusst nicht mit, der Zufall kommt
 --           aus pgcrypto, nicht aus einem Client und nicht aus dem
 --           Edge-Runtime (functions/share-link/store.ts, legeLinkAn).
 --
 --   update  WEG. Widerrufen läuft über die Aktion `widerrufen`, und die setzt
 --           `revoked` nur auf true. Ein Zurückschalten gibt es damit nirgends
---           mehr — auch nicht in der Function.
+--           mehr, auch nicht in der Function.
 --
 --   delete  WEG, und das ist keine Nebenwirkung, sondern gewollt: Spec §5.1
 --           verlangt ausdrücklich «Kein Löschen». Eine gelöschte Zeile ist für
 --           eine spätere Rechenschaft wertlos. Die Function hat aus demselben
 --           Grund gar keine Lösch-Aktion. (Kaskaden bleiben unberührt: löscht
 --           jemand die Reise oder sein Konto, verschwinden die Zeilen über
---           `on delete cascade` — das ist ein Tabellen-Constraint, kein
+--           `on delete cascade`, das ist ein Tabellen-Constraint, kein
 --           Privileg.)
 --
 -- ----------------------------------------------------------------------------
@@ -76,8 +76,8 @@
 -- ----------------------------------------------------------------------------
 -- Ohne Grant sind die drei Schreib-Policies heute unerreichbar: Postgres prüft
 -- das Tabellen-Privileg, bevor RLS überhaupt ausgewertet wird. Sie bleiben als
--- ZWEITE Schicht: Wer in einer späteren Phase ein Schreibrecht zurückgibt —
--- versehentlich oder für ein neues Feature —, öffnet damit nicht die Tabelle,
+-- ZWEITE Schicht: Wer in einer späteren Phase ein Schreibrecht zurückgibt,
+-- versehentlich oder für ein neues Feature, öffnet damit nicht die Tabelle,
 -- sondern trifft weiterhin auf «nur die Owner-Person, nur eine aufgedeckte
 -- Reise». Zwei Schlösser, von denen jedes allein hält.
 --
@@ -89,13 +89,13 @@
 -- ----------------------------------------------------------------------------
 -- Was das für die Function bedeutet: nichts wird leichter
 -- ----------------------------------------------------------------------------
--- `service_role` trägt in diesem Image `rolbypassrls = true` — RLS wird für die
+-- `service_role` trägt in diesem Image `rolbypassrls = true`, RLS wird für die
 -- Edge Function also gar nicht ausgewertet, weder vorher noch nachher. Die
 -- Prüfungen «gehört die Reise der anfragenden Person?» und «ist sie
 -- aufgedeckt?» liegen deshalb dort, wo sie wirken: in
 -- functions/share-link/verwaltung.ts, als reine Funktionen mit eigenen Tests
 -- (verwaltung_test.ts, ohne Docker). Diese Migration verschiebt keine
--- Zusicherung in die Function — sie hält nur fest, dass die Function ab jetzt
+-- Zusicherung in die Function, sie hält nur fest, dass die Function ab jetzt
 -- der einzige Weg dorthin ist.
 -- ----------------------------------------------------------------------------
 

@@ -13,7 +13,7 @@ export function PressScale({ scaleTo = 0.97, children, onPressIn, onPressOut, ..
   const springTo = (toValue: number) => {
     // Reduced Motion (§5): Scale bleibt bei 1, keine Spring-Animation.
     // `setValue(1)` statt eines blossen `return`: schaltet jemand die
-    // Systemeinstellung mitten im Druck um, steht `scale` bereits auf 0.97 —
+    // Systemeinstellung mitten im Druck um, steht `scale` bereits auf 0.97,
     // ein reines Aussteigen haette das Element dauerhaft geschrumpft stehen
     // lassen. So endet jeder Weg durch diese Funktion bei 1.
     if (reducedMotion) {

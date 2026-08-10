@@ -16,11 +16,11 @@ jest.mock('@/theme/useReducedMotion', () => ({
 }));
 
 // Review Important 2: die ursprüngliche Test-Suite prüfte ausschliesslich
-// Mechanik (Haptik, Timer, reduced motion) — nie, OB überhaupt ein Siegel,
+// Mechanik (Haptik, Timer, reduced motion), nie, OB überhaupt ein Siegel,
 // ein Aufbruch oder ein einziger Funke im Baum landet. Ein lokaler Ersatz
 // für die drei Icons macht genau das prüfbar: identifizierbare Platzhalter
 // mit `testID`, die die tatsächlich übergebenen `color`/`size`-Props
-// durchreichen — robuster als die interne SVG-Pfad-Struktur von
+// durchreichen, robuster als die interne SVG-Pfad-Struktur von
 // lucide-react-native zu parsen, und funktioniert trotz des
 // `moduleNameMapper` für `lucide-react-native` in der Jest-Konfiguration
 // (jest.mock() gewinnt für den exakten Modul-Specifier).
@@ -180,7 +180,7 @@ test('zeigt sowohl das geschlossene (Lock) als auch das offene Siegel (LockOpen)
   await unmount();
 });
 
-test('genau fünf Gold-Funken steigen — kein Konfetti, alle in der Kino-Gold-Farbe', async () => {
+test('genau fünf Gold-Funken steigen, kein Konfetti, alle in der Kino-Gold-Farbe', async () => {
   const onFertig = jest.fn();
   const { unmount } = await render(<RevealInszenierung sichtbar={true} onFertig={onFertig} />);
 
@@ -199,11 +199,11 @@ test('genau fünf Gold-Funken steigen — kein Konfetti, alle in der Kino-Gold-F
 
 // Review Major 1: die Funken sassen wegen gesetzter `left`/`top`-Insets auf
 // einem `position: absolute`-Kind in der oberen linken Bildschirmecke statt
-// zentriert ums Siegel verteilt — ein gesetzter Inset sticht in Yoga IMMER
+// zentriert ums Siegel verteilt, ein gesetzter Inset sticht in Yoga IMMER
 // die `alignItems`/`justifyContent: center`-Ausrichtung des Elternteils aus.
 // Dieser Test prüft die Bedingung strukturell: kein `left`/`top`, nur
 // `transform` mit fünf UNTERSCHIEDLICHEN `translateX`-Werten (die Streuung).
-test('die Funken sind ausschliesslich per transform positioniert — kein left/top, das die Zentrierung des Elternteils aussticht', async () => {
+test('die Funken sind ausschliesslich per transform positioniert, kein left/top, das die Zentrierung des Elternteils aussticht', async () => {
   const onFertig = jest.fn();
   const { unmount } = await render(<RevealInszenierung sichtbar={true} onFertig={onFertig} />);
 
@@ -237,7 +237,7 @@ test('die Funken sind ausschliesslich per transform positioniert — kein left/t
 // Review Important 2, Mutationen 4+5: fängt sowohl das Entfernen von
 // `useNativeDriver: true` als auch ein nachträglich ergänztes
 // `easing: Easing.linear` (§5: «linear ist verboten») in einem einzigen
-// exakten Abgleich der Konfiguration ab — ein Spy auf `Animated.timing`
+// exakten Abgleich der Konfiguration ab, ein Spy auf `Animated.timing`
 // selbst, unabhängig davon, ob die Animation im Testlauf je fortschreitet.
 test('startet die Timing-Animation ausschliesslich mit useNativeDriver, ohne eigene Easing-Funktion', async () => {
   const timingSpy = jest.spyOn(Animated, 'timing');
@@ -258,19 +258,19 @@ test('startet die Timing-Animation ausschliesslich mit useNativeDriver, ohne eig
 });
 
 // Review Important 2, Mutation 7: eine auf einen einzigen Wert eingefrorene
-// outputRange wäre über den gerenderten Endzustand NICHT beobachtbar — im
+// outputRange wäre über den gerenderten Endzustand NICHT beobachtbar, im
 // Testlauf bewegt sich `fortschritt._value` (useNativeDriver: true, kein
 // natives Animated-Modul verbunden) ohnehin nie über 0 hinaus, jede
 // Interpolation zeigt also so oder so nur ihren linken Randwert. Deshalb
 // wird hier die tatsächlich übergebene Konfiguration jedes `interpolate()`-
 // Aufrufs geprüft, nicht ein Render-Snapshot.
-test('jede Interpolation bewegt sich tatsächlich — keine outputRange ist auf einen einzigen Wert eingefroren', async () => {
+test('jede Interpolation bewegt sich tatsächlich, keine outputRange ist auf einen einzigen Wert eingefroren', async () => {
   const interpolateSpy = jest.spyOn(Animated.Value.prototype, 'interpolate');
   const onFertig = jest.fn();
   const { unmount } = await render(<RevealInszenierung sichtbar={true} onFertig={onFertig} />);
 
   // scrim, Siegel-zu (Opacity+Scale), Siegel-auf (Opacity+Scale) und fünf
-  // Funken (je Opacity+TranslateY) — 1 + 2 + 2 + 5*2 = 15 Aufrufe.
+  // Funken (je Opacity+TranslateY), 1 + 2 + 2 + 5*2 = 15 Aufrufe.
   expect(interpolateSpy.mock.calls.length).toBe(15);
   interpolateSpy.mock.calls.forEach(([config]) => {
     const outputRange = (config as { outputRange: number[] }).outputRange;
@@ -286,7 +286,7 @@ test('jede Interpolation bewegt sich tatsächlich — keine outputRange ist auf 
 
 // Review Minor: anders als bei Versiegelung.tsx liegen hier tippbare,
 // teils destruktive Aktionen unter dem Overlay (Reise löschen/bearbeiten,
-// Mitglied entfernen) — `pointerEvents="none"` liesse Tipps während der
+// Mitglied entfernen), `pointerEvents="none"` liesse Tipps während der
 // ganzen Inszenierung ungehindert durch.
 test('blockiert Tipps auf darunterliegende Flächen, solange sie läuft (pointerEvents)', async () => {
   const onFertig = jest.fn();

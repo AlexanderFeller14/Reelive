@@ -1,4 +1,4 @@
-// Unit-Tests für die reine Logik von `aufloesen` — sie laufen OHNE
+// Unit-Tests für die reine Logik von `aufloesen`, sie laufen OHNE
 // `supabase start` und OHNE ein zweites Terminal mit `functions serve`, im
 // Gegensatz zu share_link_integration_test.ts (das echte HTTP-Aufrufe braucht
 // und darum `ignore: !stackBereit` trägt).
@@ -13,14 +13,14 @@
 //   npx deno test aufloesung_test.ts
 //
 // Belegt:
-//   1. Die VIER Ablehnungen von beurteileToken sind byte-gleich — Status-Code
+//   1. Die VIER Ablehnungen von beurteileToken sind byte-gleich, Status-Code
 //      UND serialisierter Antwort-Body. Dazu die fünfte Ablehnung (Token zu
 //      lang), die index.ts aus derselben Konstante bildet.
 //   2. Die Reihenfolge der Prüfkette und ihre Grenzfälle (Ablauf auf die
 //      Sekunde, kaputtes Ablaufdatum, 'archived' bleibt lesbar).
 //   3. Das Blättern über die max_rows-Grenze: nichts verloren, nichts
 //      doppelt, keine Endlosschleife.
-//   4. Die Schlüssel werden ABGELEITET, nie aus storage_key übernommen — und
+//   4. Die Schlüssel werden ABGELEITET, nie aus storage_key übernommen, und
 //      eine Zeile, deren storage_key woanders hinzeigt, fällt heraus.
 //   5. Die Antwort trägt GENAU die Felder des Vertrags. Reaktionen,
 //      Kommentare, Mitglieder, invite_code und author_id sind nicht dabei,
@@ -28,7 +28,7 @@
 //   6. Seit Phase 7 gehören lat/lng dazu (Spec R4): sie gehen unverändert
 //      durch, `null` bleibt `null`, und ein Moment ohne Ort verschwindet
 //      nicht. Dass sie NUR hinter einem bestandenen Urteil herausgehen,
-//      hängt an Punkt 1 — deshalb steht dort die Aussage dazu.
+//      hängt an Punkt 1, deshalb steht dort die Aussage dazu.
 
 import { assert, assertEquals, assertFalse } from 'jsr:@std/assert';
 import {
@@ -70,7 +70,7 @@ const REVEALED: AufloesungsTrip = {
 
 // Genau das, was der Aufrufer aus einem Urteil macht: Status-Code und Body.
 // Auf DIESER Ebene muss die Gleichheit gelten, nicht auf der eines
-// TypeScript-Objekts — was zurückgeht, sind Bytes.
+// TypeScript-Objekts, was zurückgeht, sind Bytes.
 function alsHttpAntwort(urteil: TokenUrteil): string {
   if (urteil.erlaubt) return 'ERLAUBT';
   return `${urteil.status} ${JSON.stringify({ fehler: urteil.nachricht })}`;
@@ -80,7 +80,7 @@ function alsHttpAntwort(urteil: TokenUrteil): string {
 // 1. Die eine Zusicherung, an der alles hängt
 // ===========================================================================
 
-Deno.test('aufloesen: die vier Ablehnungen sind byte-gleich — Status und Body', () => {
+Deno.test('aufloesen: die vier Ablehnungen sind byte-gleich, Status und Body', () => {
   const faelle: Array<[string, TokenUrteil]> = [
     // a) Token unbekannt
     ['Token unbekannt', beurteileToken(null, null, JETZT)],
@@ -95,7 +95,7 @@ Deno.test('aufloesen: die vier Ablehnungen sind byte-gleich — Status und Body'
     ['Reise nicht aufgedeckt', beurteileToken(gueltigeZeile(), { ...REVEALED, status: 'active' }, JETZT)],
   ];
 
-  // Erst gegen den erwarteten Wortlaut — sonst wären vier gleich falsche
+  // Erst gegen den erwarteten Wortlaut, sonst wären vier gleich falsche
   // Antworten ebenfalls "gleich".
   const erwartet = `404 ${JSON.stringify({ fehler: 'Dieser Link funktioniert nicht mehr.' })}`;
   for (const [name, urteil] of faelle) {
@@ -113,7 +113,7 @@ Deno.test('aufloesen: die vier Ablehnungen sind byte-gleich — Status und Body'
 
 Deno.test('aufloesen: ein zu langer Token bekommt dieselbe Ablehnung wie ein unbekannter', () => {
   // index.ts bildet diesen Fall aus derselben Konstante, statt einen eigenen
-  // Text zu erfinden — sonst wäre die Längengrenze selbst ein Signal
+  // Text zu erfinden, sonst wäre die Längengrenze selbst ein Signal
   // ("dieser Token hat wenigstens die richtige Form").
   assertFalse(tokenLaengePlausibel('x'.repeat(TOKEN_MAX_LAENGE + 1)));
   assert(tokenLaengePlausibel('x'.repeat(TOKEN_MAX_LAENGE)));
@@ -134,7 +134,7 @@ Deno.test('aufloesen: die Ablehnung lässt sich vom Aufrufer nicht verändern', 
   try {
     (urteil as { nachricht: string }).nachricht = 'Token existiert nicht.';
   } catch {
-    // Im strict mode wirft die Zuweisung — beides ist recht, solange der Wert
+    // Im strict mode wirft die Zuweisung, beides ist recht, solange der Wert
     // danach unverändert ist.
   }
   assertEquals(
@@ -151,7 +151,7 @@ Deno.test('aufloesen: gültiger Token auf einer aufgedeckten Reise wird zugelass
   assertEquals(beurteileToken(gueltigeZeile(), REVEALED, JETZT), { erlaubt: true });
 });
 
-Deno.test('aufloesen: archivierte Reise bleibt lesbar — weggelegt ist nicht zugesperrt', () => {
+Deno.test('aufloesen: archivierte Reise bleibt lesbar, weggelegt ist nicht zugesperrt', () => {
   assertEquals(
     beurteileToken(gueltigeZeile(), { ...REVEALED, status: 'archived' }, JETZT),
     { erlaubt: true },
@@ -171,7 +171,7 @@ Deno.test('aufloesen: expires_at in der Zukunft ist gültig, auf die Sekunde gen
 
 Deno.test('aufloesen: ein unlesbares Ablaufdatum gilt als abgelaufen, nicht als "ohne Ablauf"', () => {
   // Die gefährliche Verwechslung: Ein Wert, den Date.parse nicht versteht,
-  // ergibt NaN. Jeder Vergleich mit NaN ist false — eine naive Prüfung
+  // ergibt NaN. Jeder Vergleich mit NaN ist false, eine naive Prüfung
   // (`ablauf <= jetzt`) liesse den Link damit unbegrenzt gültig sein.
   assertEquals(
     alsHttpAntwort(beurteileToken(gueltigeZeile({ expires_at: 'irgendwann' }), REVEALED, JETZT)),
@@ -187,7 +187,7 @@ Deno.test('aufloesen: ein widerrufener Token bleibt abgelehnt, auch ohne Ablaufd
 });
 
 Deno.test('aufloesen: eine Token-Zeile ohne Reise wird abgelehnt statt durchgelassen', () => {
-  // Kann heute nicht auftreten (trip_id ist not null mit on delete cascade) —
+  // Kann heute nicht auftreten (trip_id ist not null mit on delete cascade),
   // eine fehlende Reise ist trotzdem kein Grund, Medien herauszugeben.
   assertEquals(alsHttpAntwort(beurteileToken(gueltigeZeile(), null, JETZT)), alsHttpAntwort(LINK_ABLEHNUNG));
 });
@@ -195,8 +195,8 @@ Deno.test('aufloesen: eine Token-Zeile ohne Reise wird abgelehnt statt durchgela
 Deno.test('aufloesen: ein widerrufener Link kommt nie bis zu den Koordinaten', () => {
   // K15. Prüft keine neue Logik, sondern nagelt die REIHENFOLGE fest: seit
   // Phase 7 tragen die Momente lat/lng (Spec R4), und dies ist der einzige
-  // Weg, auf dem Koordinaten an Menschen ohne Konto gelangen. baueMedien —
-  // und damit jede Koordinate — läuft erst, wenn dieses Urteil `erlaubt`
+  // Weg, auf dem Koordinaten an Menschen ohne Konto gelangen. baueMedien,
+  // und damit jede Koordinate, läuft erst, wenn dieses Urteil `erlaubt`
   // sagt; ein negatives Urteil lässt in index.ts gar keinen Pfad zur Abfrage
   // der Momente offen. Widerruf ist der Fall, der zählt: er trifft einen
   // Link, der die Koordinaten gestern noch zeigen DURFTE.
@@ -234,7 +234,7 @@ function momentZeile(id: string, ueberschreibe: Partial<MomentZeile> = {}): Mome
   };
 }
 
-// Ein Server, der wie PostgREST bei einer Obergrenze kappt — ohne Fehler,
+// Ein Server, der wie PostgREST bei einer Obergrenze kappt, ohne Fehler,
 // ohne Hinweis. Genau die Eigenschaft, an der ein einzelner Select
 // stillschweigend scheitert.
 function kappenderServer(anzahl: number, seitengroesse: number) {
@@ -260,7 +260,7 @@ Deno.test('sammleMomente: blättert über die Seitengrenze hinweg und verliert k
   const server = kappenderServer(1001, 1000);
   const { zeilen, verloren, fehler } = await sammleMomente(server.holeSeite);
   assertEquals(fehler, null);
-  // Ohne Blättern stünden hier 1000 — der stille Verlust, um den es geht.
+  // Ohne Blättern stünden hier 1000, der stille Verlust, um den es geht.
   assertEquals(zeilen.length, 1001);
   assertEquals(zeilen.map((z) => z.id), server.alle.map((z) => z.id));
   assertEquals(verloren, 0);
@@ -351,7 +351,7 @@ Deno.test('baueMedien: signiert den ABGELEITETEN Pfad, nicht den gespeicherten t
   const FREMDE_REISE = '00000000-0000-4000-8000-00000000dead';
   const zeile = momentZeile('cccccccc-0000-4000-8000-000000000001', {
     // storage_key stimmt, thumb_key zeigt in eine fremde Reise. Der Eintrag
-    // bleibt also in der Antwort — genau daran zeigt sich, dass auch der
+    // bleibt also in der Antwort, genau daran zeigt sich, dass auch der
     // Thumb-Pfad abgeleitet wird. Ein Thumbnail ist der Inhalt eines Moments
     // in klein; sicherheitlich steht hier dasselbe auf dem Spiel wie beim
     // Medium.
@@ -432,7 +432,7 @@ Deno.test('baueMedien: lat und lng gehen unverändert durch', async () => {
 Deno.test('baueMedien: ein Moment ohne Ort behält null, statt zu verschwinden', async () => {
   // Der Normalfall, nicht der Sonderfall: ortBestimmen() liefert bewusst
   // null, wenn die Ortungsdienste nicht erlaubt sind. Der Moment wird
-  // trotzdem eingesendet — und muss darum auch im geteilten Recap stehen.
+  // trotzdem eingesendet, und muss darum auch im geteilten Recap stehen.
   // Ein `filter` auf gesetzte Koordinaten wäre stiller Datenverlust; die
   // Karte lässt die Nadel weg, die Filmrolle nicht den Moment.
   const zeile = momentZeile('cccccccc-0000-4000-8000-000000000006', { lat: null, lng: null });
@@ -445,7 +445,7 @@ Deno.test('baueMedien: ein Moment ohne Ort behält null, statt zu verschwinden',
 });
 
 // ===========================================================================
-// 5. Die Antwortform — der Beleg für das, was NICHT herausgeht
+// 5. Die Antwortform, der Beleg für das, was NICHT herausgeht
 // ===========================================================================
 
 // Die verbotene Liste aus Spec §5.1 und dem Task-Brief, dazu die Felder, die
@@ -473,7 +473,7 @@ const VERBOTENE_FELDER = [
 Deno.test('formeReise: gibt GENAU name, start_date und end_date heraus', () => {
   // Die Zeile kommt hier absichtlich mit allem, was public.trips trägt.
   // invite_code allein wäre ein Beitritt zur Reise für jeden, der den
-  // öffentlichen Link hat — aus «anschauen dürfen» würde «mitmachen können».
+  // öffentlichen Link hat, aus «anschauen dürfen» würde «mitmachen können».
   const volleZeile = {
     id: TRIP_ID,
     name: 'Lissabon Städtetrip',
@@ -515,7 +515,7 @@ Deno.test('die Antwort von aufloesen trägt genau die Felder des Vertrags', asyn
   assertEquals(Object.keys(antwort.reise).sort(), ['end_date', 'name', 'start_date']);
   // Zwölf Felder seit Phase 7 (vorher zehn): lat und lng sind dazugekommen.
   // Diese Liste ist die Stelle, an der eine unbeabsichtigt hinzugefügte
-  // Spalte auffällt — auch eine, die harmlos aussieht.
+  // Spalte auffällt, auch eine, die harmlos aussieht.
   assertEquals(Object.keys(antwort.medien[0]).sort(), [
     'autor_name',
     'caption',

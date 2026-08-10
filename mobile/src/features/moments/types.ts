@@ -1,7 +1,7 @@
 export type JobZustand = 'wartet' | 'laeuft' | 'fertig';
 
 // Ein Moment, den der Worker dauerhaft verwerfen musste (Spec §8: «mit
-// Erklärung verworfen»). Bis zum Final-Review verschwand so einer wortlos —
+// Erklärung verworfen»). Bis zum Final-Review verschwand so einer wortlos,
 // der Job wurde gelöscht und eine Konsolenzeile geschrieben, die niemand
 // sieht. Der Eintrag überlebt Neustarts (SQLite, neben der Warteschlange) und
 // bleibt liegen, bis die betroffene Person ihn im Reise-Detail zur Kenntnis
@@ -16,7 +16,7 @@ export type VerworfenerMoment = {
 };
 
 // Ein Job trägt alles, was die posts-Zeile braucht, plus den Fortschritt.
-// post_id und die Schlüssel stehen schon beim Aufnehmen fest (Spec §5) —
+// post_id und die Schlüssel stehen schon beim Aufnehmen fest (Spec §5),
 // nur so legt ein Wiederanlauf nach Absturz keine zweite Zeile an.
 export type QueueJob = {
   id: string;
@@ -25,7 +25,7 @@ export type QueueJob = {
   // Beim Einreihen festgehalten (Task-13-Fix-Runde-2), NICHT beim Schreiben aus
   // der Sitzung gelesen: sonst könnte ein Moment, der bloss in der
   // Warteschlange liegt (zustand: 'wartet', noch nicht verarbeitet), unter dem
-  // Namen der nächsten angemeldeten Person auf demselben Gerät landen — ganz
+  // Namen der nächsten angemeldeten Person auf demselben Gerät landen, ganz
   // ohne Race, sobald sich A ab- und B anmeldet, bevor der Job je lief. Siehe
   // preview.tsx (setzt es) und queueLogic.naechsterJob (wählt nur Jobs der
   // aktuell angemeldeten Person aus).

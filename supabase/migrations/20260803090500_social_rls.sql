@@ -65,7 +65,7 @@ create policy reports_select_owner on public.reports
 -- bereits in Task 4/5). Ohne die folgenden Grants sind obige Policies
 -- unerreichbar: jede Operation scheitert am fehlenden Tabellen-Privileg
 -- ("permission denied for table ..."), bevor RLS überhaupt ausgewertet wird.
--- Diese Grants ändern KEINE Policy-Logik — sie schalten lediglich frei, was
+-- Diese Grants ändern KEINE Policy-Logik, sie schalten lediglich frei, was
 -- die Policies oben ohnehin bereits erlauben/einschränken. Minimal, exakt was
 -- die Brief-Policies implizieren:
 --   reactions:   select, insert, delete   (keine Update-Policy vorgesehen)

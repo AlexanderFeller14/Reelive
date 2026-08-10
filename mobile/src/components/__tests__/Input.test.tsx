@@ -26,7 +26,7 @@ test('placeholder erscheint erst mit Fokus (Floating Label)', async () => {
 });
 
 // Phase-5-Final-Review, Punkt 4: ohne den `kino`-Schalter zog dieses Input
-// über `useTheme()` zwingend die Licht-Palette — eine weisse Box mit
+// über `useTheme()` zwingend die Licht-Palette, eine weisse Box mit
 // `#222222`-Text mitten im Kinosaal (Kommentar-Sheet des Recap-Players).
 // Gleiches Testmuster wie Sheet.test.tsx ("ohne/mit `kino`").
 test('ohne `kino` nutzt das Feld die Licht-Palette', async () => {
@@ -44,8 +44,8 @@ test('mit `kino` nutzt das Feld die feste Kino-Palette statt useTheme()', async 
 });
 
 // Die Animation hing vorher nur an onFocus/onBlur. Ein programmatisch
-// gesetzter `value` — Prefill des Bearbeiten-Formulars, wiederhergestellter
-// Entwurf, Autofill — hob das Label deshalb nie an, und die Beschriftung lag
+// gesetzter `value`, Prefill des Bearbeiten-Formulars, wiederhergestellter
+// Entwurf, Autofill, hob das Label deshalb nie an, und die Beschriftung lag
 // mitten im bereits ausgefüllten Feld.
 //
 // Geprüft wird über den Reduced-Motion-Pfad, weil der den Zielwert synchron
@@ -54,7 +54,7 @@ test('mit `kino` nutzt das Feld die feste Kino-Palette statt useTheme()', async 
 jest.mock('@/theme/useReducedMotion', () => ({ useReducedMotion: () => true }));
 
 // `includeHiddenElements`, weil das Label seit dem a11y-Fix bewusst nicht mehr
-// im Accessibility-Baum steht — sichtbar ist es weiterhin.
+// im Accessibility-Baum steht, sichtbar ist es weiterhin.
 const labelVerschiebung = (labelText: string) => {
   const label = screen.getByText(labelText, { includeHiddenElements: true });
   const transform = StyleSheet.flatten(label.props.style).transform as { translateY: number }[];
@@ -71,7 +71,7 @@ test('ein leeres Feld lässt sein Label in der Mitte stehen', async () => {
   expect(labelVerschiebung('Name der Reise')).toBe(0);
 });
 
-// Sichtbares Label und accessibilityLabel am Feld tragen denselben Text —
+// Sichtbares Label und accessibilityLabel am Feld tragen denselben Text,
 // VoiceOver las ihn zweimal vor.
 test('das sichtbare Label bleibt für VoiceOver stumm', async () => {
   await wrap(<Input label="Beginn" value="" onChangeText={() => {}} />);

@@ -21,7 +21,7 @@ export function Button({ variant, label, onPress, disabled, loading }: Props) {
     <PressScale
       accessibilityRole="button"
       // `accessibilityLabel` explizit, weil der Text im Ladezustand durch einen
-      // ActivityIndicator ersetzt wird — ohne ihn ist der Knopf dann namenlos.
+      // ActivityIndicator ersetzt wird, ohne ihn ist der Knopf dann namenlos.
       // `busy` unterscheidet fuer VoiceOver «laedt gerade» von «deaktiviert»,
       // obwohl beide Zustaende hier dieselbe Sperre ausloesen.
       accessibilityLabel={label}

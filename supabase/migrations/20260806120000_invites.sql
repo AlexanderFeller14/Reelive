@@ -1,6 +1,6 @@
 -- Beitritt über Invite-Code. security definer, weil trip_members bewusst KEINE
 -- Insert-Policy hat (Phase 1) und trips_select_member Nicht-Mitgliedern das
--- Lesen verbietet — beides soll so bleiben.
+-- Lesen verbietet, beides soll so bleiben.
 
 -- Vorschau vor dem Beitritt: nur das, was der Link ohnehin preisgibt.
 -- Gibt NIE invite_code zurück. Unbekannter Code = null Zeilen, kein Fehler.
@@ -59,7 +59,7 @@ begin
   -- Doppeltipp oder Mobilfunk-Retry können zwei Aufrufe derselben Person
   -- gleichzeitig hier ankommen. "on conflict do nothing" macht den Insert
   -- selbst zur Beitritts-Prüfung (atomar, kein Savepoint wie bei einem
-  -- exception-Handler nötig) — wer den Primary-Key-Konflikt verliert, bekommt
+  -- exception-Handler nötig), wer den Primary-Key-Konflikt verliert, bekommt
   -- über FOUND denselben 'already_member'-Status wie beim expliziten Re-Beitritt,
   -- nie den rohen unique_violation-Fehler. Ziel ist der Constraint-Name (statt
   -- der Spaltenliste "(trip_id, user_id)"), weil "trip_id" sonst mit dem

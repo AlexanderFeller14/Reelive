@@ -11,7 +11,7 @@ function meldung(error: { message?: string } | null, sonst: string): string {
 
 // functions-js bricht einen echten Netzwerkfehler in FunctionsFetchError um und
 // ersetzt dabei die Nachricht durch einen festen englischen Satz ("Failed to send
-// a request to the Edge Function") — istOffline() träfe darauf nie zu. Die
+// a request to the Edge Function"), istOffline() träfe darauf nie zu. Die
 // ursprüngliche Fetch-Fehlermeldung steckt aber im `context` der Exception, siehe
 // node_modules/@supabase/functions-js FunctionsClient. Beide Stellen prüfen,
 // bevor auf die generische Meldung zurückgefallen wird.
@@ -22,8 +22,8 @@ function funktionMeldung(error: unknown, sonst: string): string {
 }
 
 // Primärschlüssel schon vorhanden (Postgres 23505): ein Wiederanlauf nach Absturz
-// ruft momentAnlegen erneut mit derselben id auf. Die Zeile existiert dann bereits
-// — das ist Erfolg, kein Fehler, sonst bliebe der Job für immer hängen (Brief Step 3).
+// ruft momentAnlegen erneut mit derselben id auf. Die Zeile existiert dann bereits,
+// das ist Erfolg, kein Fehler, sonst bliebe der Job für immer hängen (Brief Step 3).
 const PRIMARYKEY_VERLETZUNG = '23505';
 
 // RLS-Ablehnung (Postgres 42501). Anders als jeder andere Fehlschlag lohnt hier kein
@@ -33,17 +33,17 @@ const PRIMARYKEY_VERLETZUNG = '23505';
 // «Reise wird währenddessen aufgedeckt»).
 //
 // ACHTUNG, Fix-Runde 1: der SQLSTATE 42501 allein ("insufficient_privilege") ist NICHT
-// eindeutig — Postgres vergibt denselben Code auch für einen fehlenden GRANT ("permission
+// eindeutig, Postgres vergibt denselben Code auch für einen fehlenden GRANT ("permission
 // denied for table …"), z.B. wenn eine künftige Migration eine weitere Insert-Spalte
 // ergänzt, ohne den Spalten-Grant aus 20260803090600_role_hardening.sql nachzuziehen.
 // Nur der Code allein hätte in diesem Fall JEDEN wartenden Moment JEDES Nutzers
 // gelöscht statt ihn zu wiederholen. Zweites, von Postgres selbst (nicht von der App)
 // erzeugtes Signal nötig: die RLS-WITH-CHECK-Verletzung trägt IMMER exakt den Text
-// "new row violates row-level security policy for table …" — sprachunabhängig, weil er
+// "new row violates row-level security policy for table …", sprachunabhängig, weil er
 // aus dem C-Code kommt, nicht aus einem übersetzbaren Format-String. Die Grant-Meldung
 // lautet stattdessen "permission denied for …". Nur BEIDE Signale zusammen (Code UND
-// dieser Text) gelten als dauerhafte Ablehnung. Im Zweifel: wiederholen, nicht verwerfen
-// — ein zu Unrecht wiederholter Job kostet Bandbreite, ein zu Unrecht gelöschter eine
+// dieser Text) gelten als dauerhafte Ablehnung. Im Zweifel: wiederholen, nicht verwerfen,
+// ein zu Unrecht wiederholter Job kostet Bandbreite, ein zu Unrecht gelöschter eine
 // Erinnerung, die es nie wieder gibt.
 const RLS_ABLEHNUNG_CODE = '42501';
 const RLS_ABLEHNUNG_MUSTER = /row-level security policy/i;
@@ -55,7 +55,7 @@ function istRlsAblehnung(error: { code?: string; message?: string } | null | und
 // Liest die aktuell aktive Autoren-Kennung aus der Sitzung. Genutzt vom
 // Worker VOR der Job-Auswahl (queueLogic.naechsterJob), damit ein Job, dessen
 // gespeicherte author_id nicht zur gerade angemeldeten Person passt, gar
-// nicht erst ausgewählt wird — Task-13-Fix-Runde-2. momentAnlegen unten
+// nicht erst ausgewählt wird, Task-13-Fix-Runde-2. momentAnlegen unten
 // ermittelt die Kennung NICHT mehr selbst (siehe dort), das war die Lücke:
 // sie kam bisher aus der Sitzung zum Zeitpunkt des Schreibens, nicht zu dem
 // des Einreihens.
@@ -75,10 +75,10 @@ export async function momentAnlegen(
 ): Promise<{ error: string | null; dauerhaftAbgelehnt?: boolean }> {
   // Die Autorenschaft kommt jetzt vom Job selbst (beim Einreihen festgehalten,
   // siehe QueueJob.author_id und preview.tsx) statt aus der AKTUELL aktiven
-  // Sitzung — sonst könnte ein Moment, der bloss in der Warteschlange lag,
+  // Sitzung, sonst könnte ein Moment, der bloss in der Warteschlange lag,
   // unter dem Namen der nächsten angemeldeten Person landen (Task-13-
   // Fix-Runde-2). uploadWorker wählt über aktuelleAutorId()+naechsterJob
-  // ohnehin nur Jobs der gerade angemeldeten Person aus — dieser Insert
+  // ohnehin nur Jobs der gerade angemeldeten Person aus, dieser Insert
   // vertraut deshalb bewusst der gespeicherten Kennung.
   const { error } = await supabase.from('posts').insert({
     id: job.post_id,
@@ -90,7 +90,7 @@ export async function momentAnlegen(
     // Android .mp4). Sie steht schon im Speicherschlüssel und wird von dort
     // gelesen, statt ein zweites Mal im Job zu stehen und mit ihm
     // auseinanderlaufen zu können. Die Edge Function leitet ihren Schlüssel
-    // aus GENAU DIESER Spalte ab — der Client bestimmt damit die Endung, aber
+    // aus GENAU DIESER Spalte ab, der Client bestimmt damit die Endung, aber
     // nur innerhalb der Check-Constraint aus der Migration, und nur beim
     // Insert (ein Update auf posts hat authenticated seit Phase 1 nicht).
     media_ext: medien.endungAus(job.storage_key),
@@ -132,7 +132,7 @@ export async function signierteUrls(
 // Antwortet die Function mit 409, liegt im Speicher kein vollständiges Objekt
 // (0 Byte oder abgeschnitten, siehe objektGroesse in der Function). Das ist
 // der einzige Fehlschlag, bei dem ERNEUT HOCHLADEN hilft statt nur erneut zu
-// bestätigen — der Worker muss ihn deshalb unterscheiden können (Important 4).
+// bestätigen, der Worker muss ihn deshalb unterscheiden können (Important 4).
 const UNVOLLSTAENDIG_STATUS = 409;
 
 export async function uploadBestaetigen(
@@ -143,7 +143,7 @@ export async function uploadBestaetigen(
   });
   if (error) {
     // Die Function liefert bei einem HTTP-Fehler ihren deutschen Klartext im
-    // Response-Body mit — der landet über FunctionsHttpError im `context`.
+    // Response-Body mit, der landet über FunctionsHttpError im `context`.
     const httpFehler = error as { name?: string; context?: unknown };
     if (httpFehler?.name === 'FunctionsHttpError' && httpFehler.context instanceof Response) {
       const unvollstaendig = httpFehler.context.status === UNVOLLSTAENDIG_STATUS;
@@ -151,7 +151,7 @@ export async function uploadBestaetigen(
         const body = (await httpFehler.context.clone().json()) as { fehler?: string };
         if (typeof body.fehler === 'string') return { error: body.fehler, unvollstaendig };
       } catch {
-        // Antwort war kein JSON — generische Meldung, der Status zählt trotzdem.
+        // Antwort war kein JSON, generische Meldung, der Status zählt trotzdem.
       }
       if (unvollstaendig) {
         return { error: 'Der Upload ist noch nicht vollständig. Er wird gleich erneut versucht.', unvollstaendig };

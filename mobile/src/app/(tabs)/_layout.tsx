@@ -9,12 +9,12 @@ import { type } from '@/theme/tokens';
 export default function TabsLayout() {
   const { colors } = useTheme();
   // Phase-5-Final-Review, Punkt 5: der Recap-Player (recap/[id]/player) ist
-  // laut Spec §8.2 "Vollbild, Kino-Palette" — keine helle bg-0-Leiste mit
+  // laut Spec §8.2 "Vollbild, Kino-Palette", keine helle bg-0-Leiste mit
   // accent/text-2-Labels unter dem Kinosaal, und `sozialBereich` (die
   // Emoji-Leiste im Player) liegt bei `bottom: spacing.xl`, exakt dort, wo
   // die Tab-Bar sonst gerendert würde. `tabBarStyle` lässt sich nur AUF der
   // Tabs-Navigator-Ebene abschalten, nicht aus dem verschachtelten Stack in
-  // recap/_layout.tsx heraus — `useSegments()` liefert dafür die
+  // recap/_layout.tsx heraus, `useSegments()` liefert dafür die
   // UNNORMALISIERTEN Datei-Pfad-Segmente (Cast wie in app/_layout.tsx: mit
   // `experiments.typedRoutes` engt der Rückgabetyp sich sonst auf ein festes
   // Tupel ein, Laufzeitverhalten unverändert), für die Player-Route exakt

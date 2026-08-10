@@ -3,13 +3,13 @@
 // Testgegenstand, die Übersetzung schon.
 const zeilen: Record<string, unknown>[] = [];
 // Bildet nach, dass eine "select" auf einer noch nie angelegten SQLite-Tabelle
-// wirft ("no such table") statt eine leere Liste zu liefern — genau der
+// wirft ("no such table") statt eine leere Liste zu liefern, genau der
 // Zustand eines frisch installierten Geräts, bevor initQueue() je gelaufen
 // ist (Task 13). mockExecAsync steht für "create table if not exists" und
 // schaltet die Tabelle frei.
 let tabelleAngelegt = false;
 // PRAGMA table_info(upload_queue): welche Spalten die (fiktive) Tabelle schon
-// hat, BEVOR initQueue() in diesem Testlauf läuft — simuliert eine
+// hat, BEVOR initQueue() in diesem Testlauf läuft, simuliert eine
 // Bestandsinstallation (Task-13-Fix-Runde-2, spaltenNachziehen). Standard:
 // vollständig, kein ALTER TABLE nötig; ein dedizierter Migrations-Test
 // überschreibt das gezielt.
@@ -38,7 +38,7 @@ const mockExecAsync = jest.fn(async (..._args: unknown[]) => {
   tabelleAngelegt = true;
 });
 // Greifbar statt inline, damit ein Öffnen (oder Nicht-Öffnen) beim Import
-// nachweisbar bleibt — siehe Test weiter unten.
+// nachweisbar bleibt, siehe Test weiter unten.
 const mockOpenDatabaseAsync = jest.fn(async (..._args: unknown[]) => ({
   execAsync: (...a: unknown[]) => mockExecAsync(...a),
   runAsync: (...a: unknown[]) => mockRunAsync(...a),
@@ -75,7 +75,7 @@ const job: QueueJob = {
 };
 
 // Liest die Spaltenliste aus einem "insert into upload_queue (a, b, c) values (...)"-
-// Statement — damit Tests die Position eines Feldes im Werte-Array nachweisen können,
+// Statement, damit Tests die Position eines Feldes im Werte-Array nachweisen können,
 // ohne SPALTEN aus der Implementierung zu importieren.
 function spaltenAusInsertSql(sql: string): string[] {
   const treffer = sql.match(/\(([^)]+)\)\s*values/i);
@@ -107,7 +107,7 @@ test('initQueue legt jedes Feld von QueueJob als Spalte an', async () => {
 });
 
 // Task-13-Fix-Runde-2: `create table if not exists` legt nur eine NEUE
-// Tabelle mit vollem Schema an — eine Bestandsinstallation (Tabelle existiert
+// Tabelle mit vollem Schema an, eine Bestandsinstallation (Tabelle existiert
 // schon, ohne die neue author_id-Spalte) wandert dadurch NICHT nach.
 test('initQueue zieht eine fehlende Spalte einer Bestandsinstallation per ALTER TABLE nach, ohne "not null"', async () => {
   vorhandeneSpalten = ALLE_SPALTEN.filter((s) => s !== 'author_id');
@@ -128,7 +128,7 @@ test('initQueue lässt eine bereits vollständige Tabelle unangetastet (kein ALT
   expect(hatAlter).toBe(false);
 });
 
-// Eine per ALTER TABLE nachgezogene Spalte ist nullable — Alt-Zeilen bekommen
+// Eine per ALTER TABLE nachgezogene Spalte ist nullable, Alt-Zeilen bekommen
 // author_id: null. istVollstaendig() (Pflichtfeld-Prüfung) verwirft sie beim
 // Lesen als unvollständig, statt sie unter der aktuell angemeldeten Person zu
 // verarbeiten. Das ist Absicht, nicht ein Nebeneffekt: ein Alt-Moment ohne
@@ -161,7 +161,7 @@ test('jobHinzufuegen schreibt Booleans positionsgenau als 0/1 in beide Richtunge
 
 // Finding 3b: echter Rundreise-Test. Die tatsächlich von jobHinzufuegen geschriebenen
 // Spalten/Werte werden in eine Zeile zusammengesetzt (so, wie SQLite sie speichern
-// würde) und über alleJobs zurückgelesen — muss unversehrt herauskommen.
+// würde) und über alleJobs zurückgelesen, muss unversehrt herauskommen.
 test('Job übersteht eine Rundreise durch jobHinzufuegen und alleJobs unversehrt', async () => {
   const original: QueueJob = {
     ...job,
@@ -194,7 +194,7 @@ test('alleJobs wandelt 0/1 zurück in Booleans', async () => {
 });
 
 // Finding 2: eine Zeile mit fehlendem Pflichtfeld darf nicht als gültiger Job
-// durchgehen — und darf die übrige Warteschlange nicht mitreissen.
+// durchgehen, und darf die übrige Warteschlange nicht mitreissen.
 test('alleJobs überspringt eine Zeile mit fehlendem Pflichtfeld, behält die übrigen', async () => {
   const { post_id: _weg, ...kaputt } = job;
   zeilen.push({ ...kaputt, id: 'kaputt-1' });
@@ -231,7 +231,7 @@ test('jobEntfernen löscht über die id', async () => {
   expect(werte).toEqual(['j1']);
 });
 
-// Finding 3c: "nicht beim Import geöffnet" war zuvor unbelegt — mockOpenDatabaseAsync
+// Finding 3c: "nicht beim Import geöffnet" war zuvor unbelegt, mockOpenDatabaseAsync
 // war in der Mock-Factory eingeschlossen und für den Test nicht greifbar, und
 // jest.clearAllMocks() in beforeEach hätte einen Aufruf beim Import ohnehin
 // weggewischt. Fix: frisches Modul nach jest.resetModules() laden (Registry-Reset
@@ -248,17 +248,17 @@ test('öffnet die Datenbank nicht beim Import, sondern erst beim ersten Zugriff'
   expect(mockOpenDatabaseAsync).toHaveBeenCalledTimes(1);
 });
 
-// Task 13: der Worker (und mit ihm initQueue()) läuft erst ab signedIn — ein
+// Task 13: der Worker (und mit ihm initQueue()) läuft erst ab signedIn, ein
 // frisch installiertes Gerät oder eines ohne Session/Profil hat die Tabelle
 // also noch nicht. alleJobs() wird trotzdem direkt von aussen gerufen (Reise-
 // Detail, Zähler) und darf diese Aufrufer nie mit einem SQLite-Fehler
 // blockieren, sondern muss die Tabelle selbst sicherstellen.
 //
-// Frisches Modul nach jest.resetModules() wie im Test direkt oberhalb — sonst
+// Frisches Modul nach jest.resetModules() wie im Test direkt oberhalb, sonst
 // hätte ein früherer Test in dieser Datei (z.B. der erste initQueue-Aufruf)
 // `tabelleAngelegt` bereits dauerhaft auf true gesetzt und dieser Test würde
 // nichts mehr beweisen. `tabelleAngelegt` wird bewusst NICHT in beforeEach
-// zurückgesetzt (siehe oben) — es bildet eine reale, für die Prozesslaufzeit
+// zurückgesetzt (siehe oben), es bildet eine reale, für die Prozesslaufzeit
 // einmal angelegte SQLite-Tabelle nach, kein Pro-Test-Zurücksetzen.
 test('alleJobs liefert auf einer noch nie angelegten Tabelle eine leere Liste statt zu werfen', async () => {
   jest.resetModules();
@@ -271,7 +271,7 @@ test('alleJobs liefert auf einer noch nie angelegten Tabelle eine leere Liste st
 
 // === Final-Review, Important 9: verworfene Momente ===
 // Spec §8 verspricht «mit Erklärung verworfen». Der Eintrag muss denselben
-// Neustart überleben wie die Warteschlange — deshalb dieselbe SQLite-Datei,
+// Neustart überleben wie die Warteschlange, deshalb dieselbe SQLite-Datei,
 // eigene Tabelle.
 
 test('initQueue legt auch die Tabelle für verworfene Momente an', async () => {

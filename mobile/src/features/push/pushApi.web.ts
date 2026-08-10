@@ -6,7 +6,7 @@ export type PushRegistrierungsErgebnis = 'ok' | 'keine-berechtigung' | 'nicht-un
 // Module, die Metro auf Web nicht bündeln kann bzw. deren Push-Funktionen im
 // Browser ohnehin nicht existieren. Die native Fassung würde für
 // Platform.OS === 'web' sofort 'nicht-unterstuetzt' liefern, noch bevor sie
-// eine der beiden Bibliotheken tatsächlich benutzt — dieser Web-Shim macht
+// eine der beiden Bibliotheken tatsächlich benutzt, dieser Web-Shim macht
 // diesen Kurzschluss nur explizit und vermeidet dabei den Import selbst.
 //
 // Wirft nie, wie im Brief für die native Fassung verlangt (jeder

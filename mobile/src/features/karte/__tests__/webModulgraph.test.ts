@@ -1,18 +1,18 @@
 // Die Browser-Fassung der Kartenfläche darf react-native-maps nicht berühren.
 //
 // Die Bibliothek hat keine Web-Fassung: ihr `main` zeigt auf TypeScript-Quelle
-// mit nativen Modulen. Landet sie im Web-Bundle, bricht der Build — und zwar
+// mit nativen Modulen. Landet sie im Web-Bundle, bricht der Build, und zwar
 // erst beim Bündeln, mit einem Fehler, der auf eine fremde Datei zeigt.
 //
 // Ein Test, der nur die Importe DIESER einen Datei liest, wäre zu schwach: die
 // Trennung kippt über eine gemeinsame Datei. `features/karte/typen.ts` ist die
-// naheliegendste — ein `import type { Region } from 'react-native-maps'` darin
+// naheliegendste, ein `import type { Region } from 'react-native-maps'` darin
 // wäre für tsc harmlos, für Metro aber ein Modul im Graphen. Genau deshalb
 // läuft dieser Test den GANZEN Graphen ab.
 //
 // Vorbild und Mechanik: app/teilen/__tests__/modulgraph.test.ts (Phase 6), das
 // auf demselben Weg belegt, dass der Web-Player nichts schreiben kann. Wie
-// dort wird `.web.ts`/`.web.tsx` ZUERST aufgelöst — das ist es, was Metro auf
+// dort wird `.web.ts`/`.web.tsx` ZUERST aufgelöst, das ist es, was Metro auf
 // der Web-Plattform auch tut.
 import { existsSync, readFileSync } from 'fs';
 import path from 'path';
@@ -29,7 +29,7 @@ const REQUIRE_RE = /\brequire\(\s*['"]([^'"]+)['"]\s*\)/g;
 // Alle Modulnamen, die eine Datei tatsächlich einbindet.
 //
 // Bewusst die Specifier und nicht der blosse Text: die Bibliothek WIRD in
-// diesen Dateien genannt — in Kommentaren, die erklären, warum sie hier nichts
+// diesen Dateien genannt, in Kommentaren, die erklären, warum sie hier nichts
 // zu suchen hat. Ein Test, der auf das Wort anspränge, verböte damit die
 // Begründung seiner eigenen Existenz.
 function importierteModule(quelltext: string): string[] {
@@ -47,7 +47,7 @@ function istMaps(spec: string): boolean {
   return spec === 'react-native-maps' || spec.startsWith('react-native-maps/');
 }
 
-// Bare Specifier (node_modules-Pakete) werden NICHT weiterverfolgt — geprüft
+// Bare Specifier (node_modules-Pakete) werden NICHT weiterverfolgt, geprüft
 // wird, ob UNSER Code die Bibliothek nennt.
 function resolveDatei(spec: string, ausDatei: string): string | null {
   let basis: string;
@@ -90,7 +90,7 @@ const graph = sammleGraph(EINSTIEG);
 
 describe('die Browser-Fassung der Kartenflaeche zieht react-native-maps nicht mit', () => {
   // Gegenprobe für den Testaufbau selbst: schlägt der Resolver fehl (falscher
-  // SRC_ROOT, kaputte Regex), wäre der Graph nur die Einstiegsdatei — und
+  // SRC_ROOT, kaputte Regex), wäre der Graph nur die Einstiegsdatei, und
   // jede Zusicherung unten grün, ohne etwas zu prüfen.
   test('Testaufbau: der Graph enthaelt die wiederverwendeten Dateien', () => {
     const dateien = [...graph.keys()];
@@ -104,7 +104,7 @@ describe('die Browser-Fassung der Kartenflaeche zieht react-native-maps nicht mi
 
   // Und die Trennschärfe: die NATIVE Fassung bindet die Bibliothek sehr wohl
   // ein. Ohne diesen Test wäre die Zusicherung unten ein Freifahrtschein, der
-  // überall zuträfe — etwa, weil die Erkennung selbst kaputt ist.
+  // überall zuträfe, etwa, weil die Erkennung selbst kaputt ist.
   test('Testaufbau: die native Fassung bindet react-native-maps tatsaechlich ein', () => {
     expect(importierteModule(readFileSync(NATIVE_FASSUNG, 'utf8')).filter(istMaps)).toEqual([
       'react-native-maps',
@@ -123,7 +123,7 @@ describe('die Browser-Fassung der Kartenflaeche zieht react-native-maps nicht mi
   // Die eigentliche Zusicherung. Sie gilt für JEDE Datei im Graphen, nicht nur
   // für die Einstiegsdatei: ein `import type { Region } from 'react-native-maps'`
   // in typen.ts wäre für tsc harmlos (Babel wirft Typ-Importe weg), für Metro
-  // aber ein Modul im Graphen — und der Bruch fiele erst beim Web-Build auf.
+  // aber ein Modul im Graphen, und der Bruch fiele erst beim Web-Build auf.
   test('keine Datei im Graphen bindet react-native-maps ein', () => {
     const treffer: string[] = [];
     for (const [pfad, quelltext] of graph) {

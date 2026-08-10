@@ -1,6 +1,6 @@
 // Jest-Hoisting: jest.mock wandert über die Importe, die Factory läuft also
 // VOR den const-Zuweisungen. Die Mocks dürfen deshalb nicht als direkte Werte
-// im Objektliteral stehen (sie wären dort für immer undefined) — der Zugriff
+// im Objektliteral stehen (sie wären dort für immer undefined), der Zugriff
 // muss erst zur Aufrufzeit passieren. Gleiches Prinzip wie in
 // mobile/src/lib/__tests__/secureSessionStorage.test.ts.
 const mockRpc = jest.fn();
@@ -98,7 +98,7 @@ test('fetchTrips unterscheidet einen Ladefehler von einer leeren Liste', async (
   });
   const { data, error } = await fetchTrips();
   expect(data).toEqual([]);
-  // Ohne diese Meldung behauptet die Liste «Noch keine Reise» — eine falsche
+  // Ohne diese Meldung behauptet die Liste «Noch keine Reise», eine falsche
   // Aussage über die Daten des Nutzers.
   expect(error).toBe('Deine Reisen konnten nicht geladen werden. Probier es gleich nochmal.');
 });
@@ -115,7 +115,7 @@ test('fetchTrips benennt den Offline-Fall statt nur «probier es nochmal»', asy
 
 // Re-Review, Minor 2: die beiden Abfragen in fetchTrips können unabhängig
 // scheitern. Gelingen die Reisen und nur die Zähler-rpc nicht, trägt jede Reise
-// `my_post_count: 0` — der Aufrufer muss unterscheiden können, ob diese 0
+// `my_post_count: 0`, der Aufrufer muss unterscheiden können, ob diese 0
 // gemessen oder bloss ausgefallen ist.
 test('fetchTrips meldet einen ausgefallenen Zähler getrennt vom Reise-Fehler', async () => {
   mockFrom.mockReturnValue({
@@ -147,7 +147,7 @@ test('fetchTrips meldet keinen Zähler-Fehler, wenn die rpc durchkommt', async (
   await expect(fetchTrips()).resolves.toEqual({ data: [], error: null, zaehlerFehler: null });
 });
 
-// Fix-Runde 1 (Task 9): eigeneZaehler() hatte bisher keinen eigenen Test —
+// Fix-Runde 1 (Task 9): eigeneZaehler() hatte bisher keinen eigenen Test,
 // nur tsc prüfte die Object.fromEntries(...)-Umwandlung. Der Momente-Zähler
 // (zaehler.ts) braucht bracket-Zugriff (zaehler[tripId]), darum die
 // Zuordnung Reise-id -> Zahl als reines Objekt statt als Map.
@@ -165,7 +165,7 @@ test('eigeneZaehler liefert die rpc-Zuordnung als reines Objekt (bracket-lesbar)
 
 // Final-Review, Important 6: der Fehler MUSS mitkommen. Vorher lieferte
 // eigeneZaehler bei einem Fehlschlag ein leeres Objekt, ununterscheidbar von
-// «du hast wirklich noch keinen Moment» — der Momente-Zähler rechnete daraufhin
+// «du hast wirklich noch keinen Moment», der Momente-Zähler rechnete daraufhin
 // offline mit 0 statt mit dem letzten bekannten Stand (siehe zaehler.ts).
 test('eigeneZaehler meldet einen rpc-Fehlschlag, statt ihn als leeren Stand auszugeben', async () => {
   mockRpc.mockResolvedValueOnce({ data: null, error: { message: 'kaputt' } });

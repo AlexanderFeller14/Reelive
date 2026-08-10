@@ -1,7 +1,7 @@
 // Legt für jeden Moment im Seed eine Datei im lokalen Medien-Speicher ab.
 //
 // Warum es das braucht: `supabase/seed.sql` legt Zeilen an, lädt aber bewusst
-// nichts hoch — und `supabase db reset` leert den Bucket mit. Ohne diesen
+// nichts hoch, und `supabase db reset` leert den Bucket mit. Ohne diesen
 // Schritt zeigen Übersicht, Player und Karte nach jedem Reset leere Kacheln,
 // und die Lese-URLs antworten mit 404. Das ist keine Panne, sondern der
 // fehlende zweite Halbschritt, den bisher jede Session von Hand nachgeholt hat.
@@ -26,7 +26,7 @@ const ausfuehren = promisify(execFile);
 
 const API = process.env.SUPABASE_URL ?? 'http://127.0.0.1:54321';
 // Der Service-Key des LOKALEN Stacks. Er ist in jeder Supabase-CLI-Installation
-// derselbe und gehört zu keiner echten Umgebung — dieses Skript läuft
+// derselbe und gehört zu keiner echten Umgebung, dieses Skript läuft
 // ausschliesslich gegen 127.0.0.1.
 const SERVICE_KEY =
   process.env.SUPABASE_SERVICE_ROLE_KEY ??
@@ -35,7 +35,7 @@ const BUCKET = 'media';
 const SCHRIFT = '/System/Library/Fonts/Supplemental/Arial Bold.ttf';
 
 // Eine feste Farbe je Moment: gleicher Moment, gleiche Farbe, auch nach einem
-// Reset. Nur der Farbton wandert, Sättigung und Helligkeit bleiben — sonst
+// Reset. Nur der Farbton wandert, Sättigung und Helligkeit bleiben, sonst
 // entstehen Flächen, auf denen die weisse Schrift nicht mehr lesbar ist.
 function farbeFuer(id) {
   let summe = 0;

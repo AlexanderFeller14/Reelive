@@ -103,7 +103,7 @@ insert into public.posts (trip_id, author_id, type, media_ext, storage_key, dura
 select pass('Video mit 20s Dauer wird angenommen');
 
 -- === Positiv-Insert mit ALLEN 14 gegrantsen posts-Spalten (gekoppelte
--- Ergänzung, finaler Whole-Branch-Review — fängt versehentliche
+-- Ergänzung, finaler Whole-Branch-Review, fängt versehentliche
 -- Grant-Verengungen auf den Insert-Spalten aus 090600_role_hardening.sql)
 -- media_ext kam mit 20260807100000_post_media_ext.sql dazu und braucht einen
 -- eigenen Spalten-Grant: eine neue Spalte wandert in einer solchen Liste NICHT
@@ -160,7 +160,7 @@ select is(
   'invite_code bleibt stehen, wenn jemand die Reise selbst verlaesst');
 
 -- === invite_code-Rotation auch beim Entfernen durch den Owner (gekoppelte
--- Ergänzung, finaler Whole-Branch-Review — analog zum Selbst-Austritt oben,
+-- Ergänzung, finaler Whole-Branch-Review, analog zum Selbst-Austritt oben,
 -- aber der Owner entfernt ein anderes Mitglied statt Selbst-Austritt).
 select pg_temp.logout();
 insert into public.trip_members (trip_id, user_id) values

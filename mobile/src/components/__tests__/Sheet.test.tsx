@@ -12,7 +12,7 @@ jest.mock('@/theme/useReducedMotion', () => ({
 
 const wrap = (ui: React.ReactElement) => render(<ThemeProvider>{ui}</ThemeProvider>);
 
-// Der resolvierte translateY-Wert des äusseren (Schatten-)Knotens — Animated.View
+// Der resolvierte translateY-Wert des äusseren (Schatten-)Knotens, Animated.View
 // löst seine Animated.Value-Props beim Rendern zu einfachen Zahlen auf, deshalb
 // ist das über StyleSheet.flatten direkt prüfbar, ohne Refs aus der Komponente
 // herauszureichen.
@@ -112,7 +112,7 @@ test('nicht reduzierte Bewegung faded den Hintergrund über 250 ms (duration-bas
   timingSpy.mockRestore();
 });
 
-// Review-Minor: beide Animated.timing-Aufrufe liefen ohne `easing` — RN nimmt
+// Review-Minor: beide Animated.timing-Aufrufe liefen ohne `easing`, RN nimmt
 // dann seine Standardkurve statt ease-smooth (Konvention siehe Input.tsx).
 test('nutzt ease-smooth für die zeitbasierten Fades, nicht die RN-Standardkurve', async () => {
   const easingSpy = jest.spyOn(Easing, 'bezier');
@@ -138,9 +138,9 @@ test('öffnet von deutlich ausserhalb des sichtbaren Bereichs, nicht von der Nul
 });
 
 // Review Important 3: `translateY.setValue(0)` im reduced-motion-Zweig löschen
-// blieb bislang unentdeckt — das Sheet bliebe für reduced-motion-Nutzende
+// blieb bislang unentdeckt, das Sheet bliebe für reduced-motion-Nutzende
 // dauerhaft unterhalb des Bildschirms, unsichtbar.
-test('reduzierte Bewegung hält die Position bei 0 — kein unsichtbares Sheet', async () => {
+test('reduzierte Bewegung hält die Position bei 0, kein unsichtbares Sheet', async () => {
   mockUseReducedMotion.mockReturnValue(true);
   await wrap(
     <Sheet sichtbar onSchliessen={jest.fn()}>
@@ -160,7 +160,7 @@ test('unmount räumt sauber auf', async () => {
   await unmount();
 });
 
-describe('DESIGN-LANGUAGE §4 — Spec-Masse, einzeln geprüft (Mutationslücken aus dem Review)', () => {
+describe('DESIGN-LANGUAGE §4, Spec-Masse, einzeln geprüft (Mutationslücken aus dem Review)', () => {
   test('Radius 24 oben, nicht radius.control', async () => {
     await wrap(
       <Sheet sichtbar onSchliessen={jest.fn()}>
@@ -173,7 +173,7 @@ describe('DESIGN-LANGUAGE §4 — Spec-Masse, einzeln geprüft (Mutationslücken
     expect(flach.borderTopRightRadius).toBe(radius.card);
   });
 
-  test('shadow-3, nicht gelöscht — und auf dem Knoten mit der sichtbaren Fläche (iOS-Schatten braucht Content)', async () => {
+  test('shadow-3, nicht gelöscht, und auf dem Knoten mit der sichtbaren Fläche (iOS-Schatten braucht Content)', async () => {
     await wrap(
       <Sheet sichtbar onSchliessen={jest.fn()}>
         <Text>Inhalt</Text>
@@ -214,13 +214,13 @@ describe('DESIGN-LANGUAGE §4 — Spec-Masse, einzeln geprüft (Mutationslücken
 });
 
 // Review Important 2: eine Maximalhöhe lässt sich aus einem Kind heraus nicht
-// nachrüsten — Task 12 (Kommentarliste) braucht sie zwingend.
-describe('Review Important 2 — Maximalhöhe und Kino-Variante', () => {
-  // Re-Review: `maxHeight: '85%'` war mit hoher Wahrscheinlichkeit wirkungslos
-  // — `panelClip` sitzt in `schatten`, und `schatten` ist `position:'absolute'`
+// nachrüsten, Task 12 (Kommentarliste) braucht sie zwingend.
+describe('Review Important 2, Maximalhöhe und Kino-Variante', () => {
+  // Re-Review: `maxHeight: '85%'` war mit hoher Wahrscheinlichkeit wirkungslos,
+  // `panelClip` sitzt in `schatten`, und `schatten` ist `position:'absolute'`
   // OHNE `top` und ohne explizite Höhe, hat also keine DEFINITE Höhe, gegen die
   // ein Prozentwert auflösen könnte. `react-test-renderer` führt kein echtes
-  // Yoga-Layout aus — ein „ist ein Prozentstring gesetzt"-Test hätte diesen
+  // Yoga-Layout aus, ein „ist ein Prozentstring gesetzt"-Test hätte diesen
   // Fehler NIE sehen können, mit oder ohne Layout-Engine. Der Fix (numerisch
   // aus useWindowDimensions() statt Prozent-String, siehe MAX_HOEHE_ANTEIL in
   // Sheet.tsx) macht die Wirkung dagegen direkt prüfbar: eine Zahl lässt sich
@@ -278,14 +278,14 @@ test('weicht der Tastatur aus (iOS: behavior="padding", gleiche Konvention wie p
   // wie UNSAFE_getByType mehr, um die Komponente selbst statt des Host-Knotens
   // abzufragen). Beobachtbar ist der RESOLVIERTE Effekt: mit behavior="padding"
   // rendert KeyboardAvoidingView ein `paddingBottom` in seinem eigenen Style
-  // (0 ohne sichtbare Tastatur) — ohne behavior fehlt dieser Style-Key
+  // (0 ohne sichtbare Tastatur), ohne behavior fehlt dieser Style-Key
   // vollständig (manuell gegengeprüft). jest-expo mockt Platform.OS als 'ios'.
   const wurzel = screen.getByTestId('sheet-root');
   const flach = StyleSheet.flatten(wurzel.props.style);
   expect(flach).toHaveProperty('paddingBottom');
 });
 
-// wischUeberSchwelle ist bewusst als reine Funktion exportiert (siehe Sheet.tsx) —
+// wischUeberSchwelle ist bewusst als reine Funktion exportiert (siehe Sheet.tsx),
 // eine echte Wisch-Geste über PanResponder lässt sich ohne native Touch-Historie
 // nicht verlässlich simulieren (im Projekt auch sonst nirgends getan, siehe
 // preview.tsx: die dortige Caption-Drag-Geste hat aus demselben Grund keinen

@@ -12,9 +12,9 @@ jest.mock('../authApi', () => ({ signOut: () => mockSignOut() }));
 
 // Task 9: kontoApi importiert transitiv @/lib/supabase (→ AsyncStorage-
 // Nativmodul, in Jest nicht vorhanden, auch über jest.requireActual nicht
-// umgehbar — der Import steht am Modulkopf) — deshalb wie die übrigen
+// umgehbar, der Import steht am Modulkopf), deshalb wie die übrigen
 // Feature-Module vollständig gemockt. `zahlenText` bekommt hier eine simple,
-// vorhersagbare Fassung statt der echten Wortwahl — die echte Formulierung
+// vorhersagbare Fassung statt der echten Wortwahl, die echte Formulierung
 // (Singular/Plural, "3 Reisen mit insgesamt 128 Momenten…") ist bereits in
 // features/konto/__tests__/kontoApi.test.ts vollständig abgedeckt; hier
 // zählt nur, DASS profil.tsx das Ergebnis von zahlenText tatsächlich anzeigt.
@@ -36,7 +36,7 @@ jest.mock('@/features/moments/einstellungen', () => ({
 }));
 
 // Pfad-Anpassung (Task-10-Kontext, Abweichung 2): Router-Root ist mobile/src/app/,
-// nicht mobile/app/ — von __tests__/ drei Ebenen hoch zu app/(tabs)/...
+// nicht mobile/app/, von __tests__/ drei Ebenen hoch zu app/(tabs)/...
 import ProfilScreen from '../../../app/(tabs)/profil';
 
 beforeEach(() => {
@@ -87,7 +87,7 @@ const ZAHLEN_LEER = {
 };
 
 describe('Konto löschen (Task 9)', () => {
-  test('steht unten, unter allem anderen — nach dem Abmelden-Knopf', async () => {
+  test('steht unten, unter allem anderen, nach dem Abmelden-Knopf', async () => {
     await render(<ThemeProvider><ProfilScreen /></ThemeProvider>);
     await screen.findByText('Lea');
     expect(screen.getByTestId('konto-loeschen-oeffnen')).toBeTruthy();
@@ -103,7 +103,7 @@ describe('Konto löschen (Task 9)', () => {
   });
 
   // Der Kern des Auftrags: "Ohne geladene Zahlen darf nicht bestätigt werden
-  // können." — solange holeLoeschZahlen noch nicht geantwortet hat, gibt es
+  // können.", solange holeLoeschZahlen noch nicht geantwortet hat, gibt es
   // den Bestätigungsknopf im Baum schlicht nicht (kein blosses `disabled`).
   test('ohne geladene Zahlen gibt es KEINEN Bestätigungsknopf, nur einen Ladeindikator', async () => {
     mockHoleLoeschZahlen.mockReturnValue(new Promise(() => {})); // hängt absichtlich
@@ -122,7 +122,7 @@ describe('Konto löschen (Task 9)', () => {
     expect(screen.getByText('Nochmal versuchen')).toBeTruthy();
   });
 
-  test('«Nochmal versuchen» lädt die Zahlen erneut — danach erscheint der Bestätigungsknopf', async () => {
+  test('«Nochmal versuchen» lädt die Zahlen erneut, danach erscheint der Bestätigungsknopf', async () => {
     mockHoleLoeschZahlen
       .mockResolvedValueOnce({ data: null, error: 'kaputt' })
       .mockResolvedValueOnce(ZAHLEN_LEER);
@@ -144,7 +144,7 @@ describe('Konto löschen (Task 9)', () => {
     await waitFor(() => expect(mockSignOut).toHaveBeenCalledTimes(1));
   });
 
-  test('ein Fehlschlag beim Löschen zeigt die Ursache, meldet NICHT ab — der Dialog bleibt bedienbar', async () => {
+  test('ein Fehlschlag beim Löschen zeigt die Ursache, meldet NICHT ab, der Dialog bleibt bedienbar', async () => {
     mockHoleLoeschZahlen.mockResolvedValue(ZAHLEN_LEER);
     mockLoescheKonto.mockResolvedValue({
       error: 'Dein Konto konnte nicht vollständig gelöscht werden. Probier es später noch einmal.',

@@ -1,5 +1,5 @@
 // Web-Fassung von pushApi: kein expo-notifications/expo-device im Spiel, also
-// auch kein Mock dafür nötig — genau das ist der Punkt dieser Datei.
+// auch kein Mock dafür nötig, genau das ist der Punkt dieser Datei.
 import { registrierePushToken, deregistrierePushToken } from '../pushApi.web';
 
 test("registrierePushToken() liefert immer 'nicht-unterstuetzt' und wirft nie", async () => {

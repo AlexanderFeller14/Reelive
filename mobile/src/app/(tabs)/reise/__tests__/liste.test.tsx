@@ -44,7 +44,7 @@ test('ohne Reisen lädt der leere Zustand zum Handeln ein', async () => {
 });
 
 // Gegenprobe zum Test darüber: Ohne sie belegt «Noch keine Reise» nur, dass der
-// Text existiert — nicht, dass er an eine Bedingung geknüpft ist. Bei einem
+// Text existiert, nicht, dass er an eine Bedingung geknüpft ist. Bei einem
 // Ladefehler wäre die Aussage schlicht falsch: über die Reisen des Nutzers ist
 // dann nichts bekannt.
 test('ein Ladefehler zeigt die Ursache statt «Noch keine Reise»', async () => {

@@ -1,13 +1,13 @@
 // W4 (Spec-Versprechen): der Web-Player kann nichts schreiben. Ein Test, der
 // nur das Fehlen eines Knopfes prüft, ist schwächer als einer, der belegt,
 // dass kein schreibender Aufruf im MODULGRAPH erreichbar ist (Task-Auftrag,
-// wörtlich) — dieser Test tut genau das. Er liest, auf Quelltext-Ebene, JEDE
+// wörtlich), dieser Test tut genau das. Er liest, auf Quelltext-Ebene, JEDE
 // lokale Datei, die von teilen/[token].tsx aus (transitiv über `@/`- und
 // relative Importe) erreichbar ist, und belegt:
 //
 //   1. Keine dieser Dateien greift über `supabase.from(...)` oder
 //      `supabase.rpc(...)` auf eine Tabelle zu (weder lesend noch
-//      schreibend — der Web-Player braucht das nirgends, share-link/
+//      schreibend, der Web-Player braucht das nirgends, share-link/
 //      aufloesen läuft komplett über die Edge Function).
 //   2. Keine dieser Dateien ruft `supabase.auth.*` auf (kein Login-Pfad).
 //   3. Der EINZIGE `functions.invoke(...)`-Aufruf im gesamten Graph ist in
@@ -15,12 +15,12 @@
 //      dabei verwendete `aktion` ist 'aufloesen'.
 //
 // Anders als ein gemockter Render-Test bleibt das auch dann wahr, wenn der
-// Screen nie tatsächlich gemountet/interagiert wird — es ist eine
+// Screen nie tatsächlich gemountet/interagiert wird, es ist eine
 // Eigenschaft des CODES (welche Module überhaupt erreichbar sind), nicht
 // des im Test konkret ausgeführten Pfads. Ein zweiter, ergänzender Test
 // (token.test.tsx, "W4"-Block) prüft dieselbe Zusicherung zusätzlich
 // verhaltensbasiert (Spione auf dem gesamten Supabase-Client, echte
-// Bildschirm-Interaktion) — die Kombination fängt sowohl "ein neuer,
+// Bildschirm-Interaktion), die Kombination fängt sowohl "ein neuer,
 // ungenutzter Import mit Schreibfähigkeit schleicht sich ein" (dieser Test)
 // als auch "ein tatsächlich ausgeführter Pfad schreibt heimlich" (der
 // andere).
@@ -35,15 +35,15 @@ const FROM_IMPORT_RE = /\bfrom\s+['"]([^'"]+)['"]/g;
 const SEITENEFFEKT_IMPORT_RE = /\bimport\s+['"]([^'"]+)['"]/g;
 const REQUIRE_RE = /\brequire\(\s*['"]([^'"]+)['"]\s*\)/g;
 
-// Löst einen Import-Specifier zu einer Datei im Repo auf — `@/…` relativ zu
+// Löst einen Import-Specifier zu einer Datei im Repo auf, `@/…` relativ zu
 // mobile/src, `./`/`../` relativ zur importierenden Datei. Ein bare
 // Specifier (node_modules-Paket) liefert `null` und wird NICHT weiter
 // verfolgt: Drittanbieter-Code (@supabase/supabase-js, expo-*, react-native)
-// ist bewusst ausserhalb dieses Tests — wir vertrauen darauf, dass diese
+// ist bewusst ausserhalb dieses Tests, wir vertrauen darauf, dass diese
 // Pakete nicht von sich aus schreiben, ohne dass UNSER Code sie dazu
 // aufruft (genau das prüft dieser Test: ob UNSER Code das tut).
 //
-// `.web.ts`/`.web.tsx` wird VOR der plattformneutralen Fassung probiert —
+// `.web.ts`/`.web.tsx` wird VOR der plattformneutralen Fassung probiert,
 // das ist es, was Metro auf der tatsächlichen Web-Plattform auch auflöst
 // (z.B. secureSessionStorage.web.ts statt secureSessionStorage.ts).
 function resolveDatei(spec: string, ausDatei: string): string | null {
@@ -93,7 +93,7 @@ describe('W4: der Web-Player kann nichts schreiben (Modulgraph-Beweis)', () => {
   // Gegenprobe für den Testaufbau selbst (Phase-5-Lehre: ein Test, dessen
   // Mechanismus kaputt ist, ist grün, ohne etwas zu prüfen). Schlägt der
   // Resolver fehl (z.B. falscher SRC_ROOT, kaputte Regex), wäre der Graph
-  // nur die Einstiegsdatei — alle Tests unten würden dann sinnlos "grün"
+  // nur die Einstiegsdatei, alle Tests unten würden dann sinnlos "grün"
   // sein. Mindestens diese drei WIEDERVERWENDETEN Dateien müssen im Graph
   // auftauchen, sonst hat die Sammlung nicht funktioniert.
   test('Testaufbau: der Modulgraph enthält tatsächlich die erwarteten, wiederverwendeten Dateien', () => {
@@ -107,10 +107,10 @@ describe('W4: der Web-Player kann nichts schreiben (Modulgraph-Beweis)', () => {
 
   // Positiv-Gegenprobe zur nächsten Behauptung: der native Player (NICHT im
   // Graph, weil teilen/[token].tsx ihn nie importiert) enthält sehr wohl
-  // `.insert(`/`.upsert(` (sozialApi.ts) — die folgenden Assertions wären
+  // `.insert(`/`.upsert(` (sozialApi.ts), die folgenden Assertions wären
   // also KEIN Freifahrtschein, der zufällig überall zutrifft, sondern
   // treffen echte Trennschärfe.
-  test('Testaufbau: recap/sozialApi.ts (schreibt tatsächlich) ist NICHT im Graph — sonst wäre der Test wirkungslos', () => {
+  test('Testaufbau: recap/sozialApi.ts (schreibt tatsächlich) ist NICHT im Graph, sonst wäre der Test wirkungslos', () => {
     const dateien = [...graph.keys()];
     expect(dateien.some((d) => d.endsWith(path.join('recap', 'sozialApi.ts')))).toBe(false);
     expect(dateien.some((d) => d.endsWith(path.join('recap', 'recapApi.ts')))).toBe(false);

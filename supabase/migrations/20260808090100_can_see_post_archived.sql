@@ -2,7 +2,7 @@
 -- can_see_post: Archiv-Erweiterung nachziehen
 -- ----------------------------------------------------------------------------
 -- 20260806120100_counts_and_archived.sql hat posts_select_revealed_members auf
--- status in ('revealed', 'archived') erweitert — Mitglieder verlieren beim
+-- status in ('revealed', 'archived') erweitert, Mitglieder verlieren beim
 -- Archivieren also NICHT den Zugriff auf die Momente selbst («archiviert
 -- heisst weggelegt, nicht zugesperrt»). can_see_post wurde dabei übersehen
 -- und prüfte weiterhin nur status = 'revealed'. Ohne diese Nachbesserung

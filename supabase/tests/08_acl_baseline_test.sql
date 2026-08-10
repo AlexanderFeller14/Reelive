@@ -2,10 +2,10 @@ create extension if not exists pgtap with schema extensions;
 begin;
 select plan(4);
 
--- MAINTAIN (PG17) wurde in Migration 090600 nicht miterfasst — jetzt entzogen.
+-- MAINTAIN (PG17) wurde in Migration 090600 nicht miterfasst, jetzt entzogen.
 -- Bewusst über ALLE acht Tabellen und beide Client-Rollen statt über zwei
 -- Stichproben: der Entzug in 20260804090000 läuft über `all tables in schema
--- public`, und genau das soll hier belegt werden — sonst fällt eine später
+-- public`, und genau das soll hier belegt werden, sonst fällt eine später
 -- hinzugekommene Tabelle durch das Raster.
 select is(
   (select count(*)::int

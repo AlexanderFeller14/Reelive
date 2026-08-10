@@ -10,7 +10,7 @@ select is(has_column_privilege('authenticated', 'public.profiles', 'created_at',
 select is(has_column_privilege('authenticated', 'public.profiles', 'created_at', 'UPDATE'), false,
   'authenticated darf profiles.created_at nicht ändern');
 select is(has_column_privilege('authenticated', 'public.profiles', 'id', 'UPDATE'), false,
-  'authenticated darf profiles.id nicht ändern — das wäre ein Identitätswechsel');
+  'authenticated darf profiles.id nicht ändern, das wäre ein Identitätswechsel');
 
 -- Was der Client wirklich braucht, bleibt offen: Anlegen mit eigener uid,
 -- danach Username, Anzeigename und Avatar pflegen.
@@ -32,7 +32,7 @@ select is(has_table_privilege('anon', 'public.profiles', 'INSERT'), false,
 
 -- ----------------------------------------------------------------------------
 -- Leerstring-Checks. Bewusst ohne Rollenwechsel: postgres umgeht RLS, aber
--- keine Check-Constraints — die Zeilen hier scheitern also nachweislich an der
+-- keine Check-Constraints, die Zeilen hier scheitern also nachweislich an der
 -- Constraint und nicht an einer Policy.
 -- ----------------------------------------------------------------------------
 insert into auth.users (instance_id, id, aud, role, phone, phone_confirmed_at,

@@ -2,13 +2,13 @@ import * as Location from 'expo-location';
 
 // Die Ortsbestimmung darf die Aufnahme nie kosten (Task-8-Kontext): eine
 // verweigerte Berechtigung, ein Timeout oder ein fehlgeschlagenes Geocoding
-// führen IMMER zu den drei null, nie zu einer geworfenen Exception — der
+// führen IMMER zu den drei null, nie zu einer geworfenen Exception, der
 // Moment wird so oder so eingesendet, nur eben ohne Ort. Deshalb ist jeder
 // Schritt einzeln abgesichert statt sich auf ein einziges try/catch zu
 // verlassen (ein fehlschlagendes Geocoding soll lat/lng nicht mitreissen).
 
 // Kein GPS-Fix (z.B. drinnen) kann getCurrentPositionAsync ohne Fehler und
-// ohne Ergebnis ewig hängen lassen — das darf preview.tsx nie blockieren.
+// ohne Ergebnis ewig hängen lassen, das darf preview.tsx nie blockieren.
 const FRIST_MS = 8_000;
 
 const KEIN_ORT: Ort = { lat: null, lng: null, place_name: null };
@@ -58,7 +58,7 @@ export async function ortBestimmen(): Promise<Ort> {
     return KEIN_ORT;
   }
 
-  // Koordinaten sind schon sicher — ein scheiterndes Geocoding kostet nur
+  // Koordinaten sind schon sicher, ein scheiterndes Geocoding kostet nur
   // noch den Ortsnamen, nicht mehr lat/lng.
   let place_name: string | null = null;
   try {

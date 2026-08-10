@@ -2,7 +2,7 @@ import { StyleSheet } from 'react-native';
 import { render, screen, fireEvent, act } from '@testing-library/react-native';
 
 // Fake Timers global (wie player.test.tsx): Date.now() läuft synchron mit den
-// Timern mit — das braucht dieser Screen für dieselbe Halten-vs-Tipp-
+// Timern mit, das braucht dieser Screen für dieselbe Halten-vs-Tipp-
 // Unterscheidung wie der native Player.
 jest.useFakeTimers();
 
@@ -15,7 +15,7 @@ const mockSetStatusBarStyle = jest.fn();
 jest.mock('expo-status-bar', () => ({ setStatusBarStyle: (...a: unknown[]) => mockSetStatusBarStyle(...a) }));
 
 // expo-image: einfacher View-Platzhalter, der alle Props (inkl. `source`,
-// `testID`) durchreicht (gleiches Muster wie player.test.tsx) — dazu ein
+// `testID`) durchreicht (gleiches Muster wie player.test.tsx), dazu ein
 // eigener `prefetch`-Spy.
 const mockPrefetch = jest.fn();
 jest.mock('expo-image', () => {
@@ -62,13 +62,13 @@ jest.mock('@/features/teilen/shareApi', () => ({
   LINK_TOT_TEXT: 'Dieser Link funktioniert nicht mehr.',
 }));
 
-// DESIGN-LANGUAGE §5: «Haptik: selection (Tabs, Zoom)» — der Gruppen-Zoom der
+// DESIGN-LANGUAGE §5: «Haptik: selection (Tabs, Zoom)», der Gruppen-Zoom der
 // Karte meldet sie. Muster wie in player.test.tsx/karte.test.tsx: das native
 // Modul gibt es im Testlauf nicht.
 const mockHaptik = jest.fn(() => Promise.resolve());
 jest.mock('expo-haptics', () => ({ selectionAsync: () => mockHaptik() }));
 // Steuerbar wie in karte.test.tsx: ohne das liesse sich der Sprung-Zweig der
-// Kamera gar nicht erreichen — AccessibilityInfo meldet im Testlauf immer
+// Kamera gar nicht erreichen, AccessibilityInfo meldet im Testlauf immer
 // «keine Reduktion».
 let mockReduziert = false;
 jest.mock('@/theme/useReducedMotion', () => ({ useReducedMotion: () => mockReduziert }));
@@ -93,7 +93,7 @@ function reise(overrides: Partial<GeteilterRecap['reise']> = {}) {
 
 // Ohne Koordinaten als Vorgabe: die Momente der bestehenden Blöcke prüfen den
 // Player, und ein Recap ohne einen einzigen Ort hat keinen Karten-Einstieg
-// (Spec K9) — sie bleiben damit genau die Story, die sie vorher waren.
+// (Spec K9), sie bleiben damit genau die Story, die sie vorher waren.
 function moment(overrides: Partial<GeteilterRecap['medien'][number]> = {}): GeteilterRecap['medien'][number] {
   return {
     post_id: 'p0', autor_name: 'Lea', type: 'photo', duration_s: null, caption: null,
@@ -130,7 +130,7 @@ function erfolg(
 // RNTL v14 selbst schon vollständig async, der zusätzliche leere act()-Flush
 // lässt das await loeseTokenAuf(...) in laden() plus den daraus folgenden
 // setState-Schwung sicher committen, BEVOR der Test die erste Assertion
-// macht — ohne diesen zweiten Flush bliebe der Screen in manchen Läufen noch
+// macht, ohne diesen zweiten Flush bliebe der Screen in manchen Läufen noch
 // auf 'laedt' hängen.
 async function bereit() {
   const utils = await render(<GeteilterRecapScreen />);
@@ -195,7 +195,7 @@ describe('Story-Anzeige', () => {
     expect(screen.getByText('Hol dir die App')).toBeTruthy();
     // Nicht interaktiv: eine Berührung an dieser Stelle muss der Tipp-Zone
     // darunter gelten, nicht der Fusszeile (die hat ohnehin keinen
-    // Knopf/onPress — es gibt noch keinen Store-Link, siehe Kommentar im
+    // Knopf/onPress, es gibt noch keinen Store-Link, siehe Kommentar im
     // Screen).
     expect(fussleiste.props.pointerEvents).toBe('none');
   });
@@ -228,7 +228,7 @@ describe('Navigation: Tipp, Halten, Auto-Vorschub, Ende', () => {
     mockLoeseTokenAuf.mockResolvedValueOnce(erfolg([p1, p2]));
     await bereit();
     // Der allererste Moment zeigt IMMER die Tages-Zwischenkarte (tagWechselt
-    // liefert für index 0 unbedingt true) — erst dismissed lässt sich der
+    // liefert für index 0 unbedingt true), erst dismissed lässt sich der
     // Auto-Vorschub von p1 selbst isoliert prüfen, sonst wäre unklar, OB ein
     // ausbleibender Vorschub am Halten liegt oder noch an der Karte.
     await act(async () => {
@@ -260,7 +260,7 @@ describe('Navigation: Tipp, Halten, Auto-Vorschub, Ende', () => {
 
     // Zwei GETRENNTE advanceTimersByTime-Aufrufe (nicht einer über 6500ms):
     // der zweite Timer (Auto-Vorschub) wird erst DURCH den State-Wechsel des
-    // ersten (Zwischenkarte weg) überhaupt geplant — cascading Timer
+    // ersten (Zwischenkarte weg) überhaupt geplant, cascading Timer
     // brauchen einen eigenen act()-Zyklus, um sicher zu feuern (gleiches
     // Muster wie player.test.tsx, "erscheint vor dem allerersten Moment...").
     await act(async () => {
@@ -274,7 +274,7 @@ describe('Navigation: Tipp, Halten, Auto-Vorschub, Ende', () => {
 
   test('ein Video-Ende-Event (playToEnd) schaltet weiter, ohne auf die Foto-Dauer zu warten', async () => {
     // Bewusst NUR p2 (ein einzelner Video-Moment): sortiereMomente sortiert
-    // IMMER nach captured_at (CLAUDE.md-Eckpfeiler) — [p2, p1] als
+    // IMMER nach captured_at (CLAUDE.md-Eckpfeiler), [p2, p1] als
     // Eingabereihenfolge würde also ohnehin zu [p1, p2] umsortiert, ein
     // zweiter Moment ist für diesen Test nicht nötig. Der Beweis liegt
     // darin, dass die Phase auf 'ende' wechselt, OHNE dass FOTO_DAUER_MS
@@ -282,7 +282,7 @@ describe('Navigation: Tipp, Halten, Auto-Vorschub, Ende', () => {
     mockLoeseTokenAuf.mockResolvedValueOnce(erfolg([p2]));
     await bereit();
     expect(screen.getByTestId('teilen-video')).toBeTruthy();
-    // Zwischenkarte des allerersten Moments zuerst abwarten —
+    // Zwischenkarte des allerersten Moments zuerst abwarten,
     // blockiertAutomatischenVorschub blockt playToEnd, solange sie steht.
     await act(async () => {
       jest.advanceTimersByTime(1500);
@@ -305,7 +305,7 @@ describe('Navigation: Tipp, Halten, Auto-Vorschub, Ende', () => {
     await fireEvent.press(screen.getByText('Nochmal ansehen'));
     expect(screen.getByTestId('teilen-bereit')).toBeTruthy();
     expect(screen.getByTestId('teilen-foto')).toBeTruthy();
-    // Kein zweiter Netzwerkaufruf für den Neustart — nur der ursprüngliche.
+    // Kein zweiter Netzwerkaufruf für den Neustart, nur der ursprüngliche.
     expect(mockLoeseTokenAuf).toHaveBeenCalledTimes(1);
   });
 });
@@ -324,7 +324,7 @@ describe('Tages-Zwischenkarte', () => {
     });
     expect(screen.queryByTestId('teilen-zwischenkarte')).toBeNull();
 
-    // Weiter zu p3 (Tag 2, anderes Datum) — die Karte erscheint erneut.
+    // Weiter zu p3 (Tag 2, anderes Datum), die Karte erscheint erneut.
     await fireEvent(screen.getByTestId('teilen-rechts'), 'pressIn');
     await fireEvent(screen.getByTestId('teilen-rechts'), 'pressOut');
     expect(screen.getByTestId('teilen-zwischenkarte')).toBeTruthy();
@@ -357,7 +357,7 @@ describe('Tages-Zwischenkarte', () => {
 
 describe('Die Karte im geteilten Recap (Spec §5.10)', () => {
   // Wie lange die Tages-Zwischenkarte steht (ZWISCHENKARTE_DAUER_MS im
-  // Screen) — dieselbe Zahl wie in den Blöcken darüber, hier benannt, weil
+  // Screen), dieselbe Zahl wie in den Blöcken darüber, hier benannt, weil
   // zwei Tests unten sie brauchen.
   const ZWISCHENKARTE_MS = 1500;
 
@@ -367,7 +367,7 @@ describe('Die Karte im geteilten Recap (Spec §5.10)', () => {
   //
   // Der Moment ohne Ort in der Mitte ist die Pointe dieser Aufstellung: er
   // bekommt keine Nadel, zählt in der Spielliste aber mit. Wer den Player mit
-  // der Stelle innerhalb der NADELN startet, landet bei q3 also auf Index 1 —
+  // der Stelle innerhalb der NADELN startet, landet bei q3 also auf Index 1,
   // und damit auf q2. Genau diesen Fehler nagelt der Sprung-Test unten fest.
   const q1 = moment({
     post_id: 'q1', autor_name: 'Lea', captured_at: '2026-08-10T09:00:00.000Z',
@@ -392,7 +392,7 @@ describe('Die Karte im geteilten Recap (Spec §5.10)', () => {
     mockLoeseTokenAuf.mockResolvedValueOnce(erfolg([q1, q2, q3]));
     await bereit();
     expect(await screen.findByText('Auf der Karte')).toBeTruthy();
-    // Beide Beschriftungen stehen immer da — die aktive Hälfte sagt nur, wo
+    // Beide Beschriftungen stehen immer da, die aktive Hälfte sagt nur, wo
     // man gerade ist.
     expect(screen.getByText('Ansehen')).toBeTruthy();
     expect(screen.getByTestId('teilen-bereit')).toBeTruthy();
@@ -409,7 +409,7 @@ describe('Die Karte im geteilten Recap (Spec §5.10)', () => {
     await aufDerKarte();
     expect(screen.getByTestId('teilen-karte')).toBeTruthy();
     // Der Player ist WEG, nicht bloss verdeckt: eine zweite Route gibt es
-    // nicht (der expo-router-Mock oben bietet gar keinen `router` an — ein
+    // nicht (der expo-router-Mock oben bietet gar keinen `router` an, ein
     // `router.push` in diesem Screen liesse den Test hier abstürzen).
     expect(screen.queryByTestId('teilen-bereit')).toBeNull();
 
@@ -420,7 +420,7 @@ describe('Die Karte im geteilten Recap (Spec §5.10)', () => {
     expect(screen.queryByTestId('karte-flaeche')).toBeNull();
   });
 
-  test('die Karte zeigt die Momente mit Ort — und nur die', async () => {
+  test('die Karte zeigt die Momente mit Ort, und nur die', async () => {
     await aufDerKarte();
     expect(await screen.findAllByTestId(/^karte-nadel/)).toHaveLength(2);
     expect(screen.getByTestId('karte-nadel-q1')).toBeTruthy();
@@ -477,7 +477,7 @@ describe('Die Karte im geteilten Recap (Spec §5.10)', () => {
     // Und der Index nachgezählt, nicht bloss «irgendetwas ist passiert»: der
     // Fortschrittsbalken füllt genau die Segmente VOR dem aktiven ganz aus,
     // zwei volle heissen also Index 2. Zählte der Sprung in die Nadel-Liste
-    // (q1, q3), stünde hier eine 1 — und der Player liefe bei q2 los.
+    // (q1, q3), stünde hier eine 1, und der Player liefe bei q2 los.
     expect(screen.getAllByTestId(/^fortschritt-voll-/)).toHaveLength(2);
   });
 
@@ -485,7 +485,7 @@ describe('Die Karte im geteilten Recap (Spec §5.10)', () => {
   // ersten Versuch durchgerutscht ist: nach dem Sprung ist die Kartenansicht
   // ohnehin nicht mehr im Baum, ein `queryByText('Ab hier ansehen')` wäre
   // dort auch dann null, wenn das Sheet gar nie geschlossen würde. Sichtbar
-  // wird ein offen gebliebenes Sheet erst beim ZURÜCKKOMMEN — dann läge es
+  // wird ein offen gebliebenes Sheet erst beim ZURÜCKKOMMEN, dann läge es
   // über der Karte, ohne dass jemand eine Nadel angetippt hat.
   test('die Karte öffnet ohne das Sheet von vorhin', async () => {
     await aufDerKarte();
@@ -502,7 +502,7 @@ describe('Die Karte im geteilten Recap (Spec §5.10)', () => {
   test('der Sprung startet neu und nicht mitten im Abspann', async () => {
     mockLoeseTokenAuf.mockResolvedValueOnce(erfolg([q1, q2, q3]));
     await bereit();
-    // Bis ans Ende durchtippen: drei Momente, also dreimal rechts — der
+    // Bis ans Ende durchtippen: drei Momente, also dreimal rechts, der
     // dritte Tipp führt vom letzten Moment auf den Abspann.
     for (let i = 0; i < 3; i++) {
       await fireEvent(screen.getByTestId('teilen-rechts'), 'pressIn');
@@ -522,7 +522,7 @@ describe('Die Karte im geteilten Recap (Spec §5.10)', () => {
   });
 
   test('Momente auf derselben Koordinate öffnen die Liste, jeder Eintrag führt an seine eigene Stelle', async () => {
-    // s1 und s2 liegen bitgleich aufeinander — keine Zoomstufe trennt sie
+    // s1 und s2 liegen bitgleich aufeinander, keine Zoomstufe trennt sie
     // (features/karte/gruppierung.ts), sie teilen sich eine Nadel.
     const s1 = moment({
       post_id: 's1', autor_name: 'Lea', captured_at: '2026-08-10T09:00:00.000Z',
@@ -550,7 +550,7 @@ describe('Die Karte im geteilten Recap (Spec §5.10)', () => {
     expect(screen.getAllByTestId(/^fortschritt-voll-/)).toHaveLength(1);
   });
 
-  // Der Player bleibt beim Umschalten als ZUSTAND bestehen — nur seine
+  // Der Player bleibt beim Umschalten als ZUSTAND bestehen, nur seine
   // Ansicht ist weg. Ohne eine Bremse liefe seine Uhr hinter der Karte
   // weiter, und wer eine halbe Minute auf der Karte sucht, käme an einer
   // ganz anderen Stelle wieder heraus.
@@ -560,14 +560,14 @@ describe('Die Karte im geteilten Recap (Spec §5.10)', () => {
     // Die Zwischenkarte des allerersten Moments ZUERST wegwarten: solange sie
     // steht, ist der Player ohnehin pausiert, und ein ausbleibender Vorschub
     // liesse sich nicht der Karte zuschreiben (genau daran ist die erste
-    // Fassung dieses Tests vorbeigelaufen — die Mutation überlebte).
+    // Fassung dieses Tests vorbeigelaufen, die Mutation überlebte).
     await act(async () => {
       jest.advanceTimersByTime(ZWISCHENKARTE_MS);
     });
     expect(screen.queryByTestId('teilen-zwischenkarte')).toBeNull();
 
     await fireEvent.press(screen.getByText('Auf der Karte'));
-    // Weit mehr als die Foto-Dauer (5000 ms) — und mehr, als alle drei
+    // Weit mehr als die Foto-Dauer (5000 ms), und mehr, als alle drei
     // Momente zusammen bräuchten.
     await act(async () => {
       jest.advanceTimersByTime(30_000);
@@ -584,7 +584,7 @@ describe('Die Karte im geteilten Recap (Spec §5.10)', () => {
   // Und dasselbe für die Tages-Zwischenkarte, auf einem anderen Weg: sie
   // WARTET nicht hinter der Karte, sie wird verworfen und beim Zurückkommen
   // neu aufgesetzt (`ansicht` steht in den Abhängigkeiten ihres Effekts).
-  // Sichtbar ist dasselbe — der Tag ist beim Zurückkommen nicht schon
+  // Sichtbar ist dasselbe, der Tag ist beim Zurückkommen nicht schon
   // angesagt, ohne dass ihn jemand gelesen hat.
   test('die Tages-Zwischenkarte beginnt nach der Karte von vorn', async () => {
     mockLoeseTokenAuf.mockResolvedValueOnce(erfolg([q1, q2, q3]));
@@ -610,7 +610,7 @@ describe('Die Karte im geteilten Recap (Spec §5.10)', () => {
   });
 
   // Finding 3 des Abschluss-Reviews: die Segment-Zeile liegt per zIndex ÜBER
-  // dem Sheet und ist damit auch bei offenem Sheet antippbar (gewollt — der
+  // dem Sheet und ist damit auch bei offenem Sheet antippbar (gewollt, der
   // Weg zurück darf von nichts verdeckt werden). Räumt «Ansehen» das Sheet
   // nicht mit ab, öffnet die Karte beim nächsten Mal mit einem Sheet, das
   // niemand angetippt hat. Über «Ab hier ansehen» war dieser Weg zu, über die
@@ -631,7 +631,7 @@ describe('Die Karte im geteilten Recap (Spec §5.10)', () => {
 
   // Finding 1: die Karte hat eine letzte Zoomstufe. Bleibt der sichtbare
   // Ausschnitt nach einem Gruppen-Tipp derselbe, richtet ein weiterer nichts
-  // aus — dann gehört der Gruppe das Sheet, obwohl ihre Koordinaten
+  // aus, dann gehört der Gruppe das Sheet, obwohl ihre Koordinaten
   // verschieden sind. Im Testlauf meldet die Karte von sich aus nie einen
   // neuen Ausschnitt; sie steht also genau so still wie am Anschlag.
   test('bewegt ein Gruppen-Tipp die Kamera nicht, öffnet der nächste das Sheet', async () => {
@@ -659,7 +659,7 @@ describe('Die Karte im geteilten Recap (Spec §5.10)', () => {
 
   // Und die Gegenprobe, die den Zoom-Weg am Leben hält: hat sich der
   // Ausschnitt zwischen den beiden Tipps geändert, kann die Kamera noch etwas
-  // ausrichten — dann gibt es weiterhin kein Sheet.
+  // ausrichten, dann gibt es weiterhin kein Sheet.
   test('hat sich der Ausschnitt bewegt, zoomt auch der zweite Tipp weiter', async () => {
     const g1 = moment({
       post_id: 'g1', captured_at: '2026-08-10T09:00:00.000Z',
@@ -676,7 +676,7 @@ describe('Die Karte im geteilten Recap (Spec §5.10)', () => {
     await aufDerKarte([g1, g2, g3]);
 
     await fireEvent.press(screen.getByTestId('karte-nadel-g1'));
-    // Die Karte meldet einen deutlich engeren Ausschnitt — sie IST gefahren.
+    // Die Karte meldet einen deutlich engeren Ausschnitt, sie IST gefahren.
     await fireEvent(screen.getByTestId('karte-flaeche'), 'regionChangeComplete', {
       latitude: 38.71399,
       longitude: -9.1301,
@@ -723,7 +723,7 @@ describe('Die Karte im geteilten Recap (Spec §5.10)', () => {
 
   test('ein Tipp auf eine Gruppe, die sich trennen lässt, fährt hinein statt ein Sheet zu öffnen', async () => {
     // Zwei Momente, die auf DIESEM Ausschnitt zusammenfallen (rund 20 Meter
-    // auseinander, die Karte zeigt gut 4 Kilometer) — aber nicht auf
+    // auseinander, die Karte zeigt gut 4 Kilometer), aber nicht auf
     // derselben Koordinate liegen.
     const g1 = moment({
       post_id: 'g1', captured_at: '2026-08-10T09:00:00.000Z', place_name: 'Alfama',
@@ -741,7 +741,7 @@ describe('Die Karte im geteilten Recap (Spec §5.10)', () => {
     expect(await screen.findAllByTestId(/^karte-nadel/)).toHaveLength(2);
 
     await fireEvent.press(screen.getByTestId('karte-nadel-g1'));
-    // Kein Sheet — die Karte fährt hinein (Spec §5.5), und meldet das per
+    // Kein Sheet, die Karte fährt hinein (Spec §5.5), und meldet das per
     // selection-Haptik (DESIGN-LANGUAGE §5).
     expect(screen.queryByText('Ab hier ansehen')).toBeNull();
     expect(screen.queryByTestId('teilen-gruppe-liste')).toBeNull();

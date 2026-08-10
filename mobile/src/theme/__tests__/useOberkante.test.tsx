@@ -4,7 +4,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { spacing } from '../tokens';
 import { useOberkante } from '../useOberkante';
 
-// Die übrigen Suiten laufen über jest.setup.ts mit Insets 0 — also auf einem
+// Die übrigen Suiten laufen über jest.setup.ts mit Insets 0, also auf einem
 // Gerät ohne Dynamic Island. Der interessante Fall ist der andere, und den
 // prüft diese Datei, indem sie dem Provider echte Metriken mitgibt.
 function Anzeige({ basis }: { basis: number }) {
@@ -30,7 +30,7 @@ test('ohne Inset bleibt der gestaltete Abstand unverändert', async () => {
 });
 
 // 20 pt Statusleiste (iPhone SE): 20 + 16 = 36, weniger als die gestalteten
-// 48 — der Screen sieht aus wie entworfen.
+// 48, der Screen sieht aus wie entworfen.
 test('eine schmale Statusleiste ändert nichts', async () => {
   expect(await mitInsets(20, spacing.xxl)).toBe(spacing.xxl);
 });
@@ -42,7 +42,7 @@ test('unter der Dynamic Island weicht der Inhalt aus', async () => {
 });
 
 // Der kleinere Basiswert der Listen-Screens rutscht schon früher unter das
-// Inset — auch dort darf nichts hinter die Uhr geraten.
+// Inset, auch dort darf nichts hinter die Uhr geraten.
 test('der kleinere Listen-Abstand weicht früher aus', async () => {
   expect(await mitInsets(47, spacing.xl)).toBe(47 + spacing.base);
 });

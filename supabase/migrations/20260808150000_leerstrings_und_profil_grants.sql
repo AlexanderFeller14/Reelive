@@ -13,7 +13,7 @@
 -- id im Insert-Grant, aber NICHT im Update-Grant: beim Anlegen muss der Client
 -- die eigene uid mitschicken (profiles_insert_own prüft `id = auth.uid()`),
 -- danach ist die Zeile identitätsgebunden. Ein Update auf id wäre ein
--- Identitätswechsel — profiles_update_own prüft nur `using`, also die ALTE
+-- Identitätswechsel, profiles_update_own prüft nur `using`, also die ALTE
 -- Zeile, und hätte einen Wechsel auf eine fremde uid durchgelassen, solange
 -- für diese noch kein Profil existiert.
 -- ----------------------------------------------------------------------------
@@ -28,7 +28,7 @@ grant update (username, display_name, avatar_key) on public.profiles to authenti
 -- captured_tz trägt die IANA-Zone der Aufnahme und ist die Grundlage der
 -- Tagesgruppierung im Recap ('Europe/Lisbon'). Leer heisst dort: der Moment
 -- landet in keiner Zone und die Gruppierung fällt auf UTC zurück. Die obere
--- Grenze ist grosszügig — die längsten IANA-Namen liegen bei rund 32 Zeichen.
+-- Grenze ist grosszügig, die längsten IANA-Namen liegen bei rund 32 Zeichen.
 --
 -- emoji hatte bereits eine Obergrenze, aber keine Untergrenze; eine Reaktion
 -- ohne Zeichen ist eine unsichtbare Reaktion, die trotzdem zählt.

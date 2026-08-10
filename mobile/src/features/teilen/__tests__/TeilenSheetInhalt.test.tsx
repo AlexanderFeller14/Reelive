@@ -1,7 +1,7 @@
 import { Alert } from 'react-native';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
 
-// Alert zeigt im Test nur einen Dialog an, ohne dass jemand tippt — der
+// Alert zeigt im Test nur einen Dialog an, ohne dass jemand tippt, der
 // bestätigende (destruktive) Knopf wird per Default automatisch ausgelöst
 // (gleiches Muster wie reise/__tests__/detail.test.tsx), einzelne Tests
 // überschreiben das für den Abbrechen-Pfad.
@@ -17,7 +17,7 @@ const mockSetStringAsync = jest.fn((..._args: unknown[]) => Promise.resolve(true
 jest.mock('expo-clipboard', () => ({ setStringAsync: (...args: unknown[]) => mockSetStringAsync(...args) }));
 
 // react-native exportiert `Share` als `require('./Libraries/Share/Share').default`
-// (index.js) — die Klasse selbst, mit `share` als STATISCHER Methode. Der Mock
+// (index.js), die Klasse selbst, mit `share` als STATISCHER Methode. Der Mock
 // muss dieselbe Form haben (`default.share`), sonst wäre `RN.Share` im
 // Component-Code `undefined` und `Share.share(...)` würfe, statt den
 // Aufruf abzufangen.
@@ -37,7 +37,7 @@ import { holeAktivenLink, erstelleLink, widerrufeLink } from '../linkVerwaltenAp
 
 const AKTIVER_LINK = { token: 'tok123', url: 'http://127.0.0.1:8081/teilen/tok123', expiresAt: null };
 
-// @testing-library/react-native v14 ist vollständig async — render() selbst
+// @testing-library/react-native v14 ist vollständig async, render() selbst
 // liefert ein Promise (Muster wie player.test.tsx: `await render(...)`).
 async function wrap(tripId = 't1') {
   return render(<TeilenSheetInhalt tripId={tripId} />);
@@ -88,7 +88,7 @@ describe('Kein Link: Ehrlichkeits-Hinweis, Ablauf-Auswahl, Erstellen', () => {
         'Wer diesen Link hat, sieht den ganzen Recap: alle Momente aller Mitreisenden samt den Orten, an denen sie entstanden sind, auch ohne eigenes Konto.'
       )
     ).toBeTruthy();
-    // Noch kein Link erstellt — die Erstellen-Aktion selbst ist sichtbar,
+    // Noch kein Link erstellt, die Erstellen-Aktion selbst ist sichtbar,
     // "teilen-link-text" (die Anzeige EINES bestehenden Links) dagegen nicht.
     expect(screen.getByTestId('teilen-erstellen')).toBeTruthy();
     expect(screen.queryByTestId('teilen-link-text')).toBeNull();
@@ -97,7 +97,7 @@ describe('Kein Link: Ehrlichkeits-Hinweis, Ablauf-Auswahl, Erstellen', () => {
   test('7 Tage ist voreingestellt', async () => {
     await wrap();
     await screen.findByTestId('teilen-erstellen');
-    // Kein direkter "ist ausgewählt"-Text — die Auswahl wird über den an
+    // Kein direkter "ist ausgewählt"-Text, die Auswahl wird über den an
     // erstelleLink übergebenen Wert geprüft (nächster Test), hier nur, dass
     // alle drei Optionen angeboten werden.
     expect(screen.getByTestId('teilen-ablauf-7')).toBeTruthy();
@@ -186,7 +186,7 @@ describe('Bestehender Link: anzeigen statt neu erzeugen', () => {
   });
 
   // Kernfall aus dem Auftrag: der Dialog muss WIRKLICH nachfragen, nicht nur
-  // pro forma einen Alert zeigen — ein Abbrechen darf widerrufeLink NIE rufen.
+  // pro forma einen Alert zeigen, ein Abbrechen darf widerrufeLink NIE rufen.
   test('"Abbrechen" im Bestätigungsdialog widerruft NICHTS', async () => {
     mockAlertAuslösen.mockImplementation((_t: string, _m: string, knoepfe?: AlertKnopf[]) => {
       knoepfe?.find((k) => k.style === 'cancel')?.onPress?.();

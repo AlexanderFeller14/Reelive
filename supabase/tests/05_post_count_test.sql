@@ -48,7 +48,7 @@ insert into public.trip_members (trip_id, user_id) values
   ('11111111-1111-1111-1111-111111111111', '00000000-0000-0000-0000-00000000000b');
 select pg_temp.login_as('00000000-0000-0000-0000-00000000000b');
 select is(public.my_post_count('11111111-1111-1111-1111-111111111111'), 0::bigint,
-  'Mitglied ohne Posts hat Zähler 0 — sieht NICHT die Anzahl der anderen');
+  'Mitglied ohne Posts hat Zähler 0, sieht NICHT die Anzahl der anderen');
 
 select pg_temp.login_as('00000000-0000-0000-0000-00000000000c');
 select throws_ok(

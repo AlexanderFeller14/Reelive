@@ -1,4 +1,4 @@
-// Unit-Tests für die beiden angemeldeten Aktionen — ohne `supabase start`,
+// Unit-Tests für die beiden angemeldeten Aktionen, ohne `supabase start`,
 // ohne `functions serve`, ohne Netz, ohne Berechtigung:
 //   cd supabase/functions/share-link && npx deno test verwaltung_test.ts
 //
@@ -6,14 +6,14 @@
 // 20260808140000_share_links_nur_edge_function.sql hat `authenticated` kein
 // Schreibrecht mehr auf share_links. Die Zusicherung «ein Share-Link entsteht
 // nur für eine aufgedeckte Reise und nur durch die Owner-Person» (Spec §4, W3,
-// erste Hälfte) hatte vorher zwei Träger — die RLS-Policy und die Function.
+// erste Hälfte) hatte vorher zwei Träger, die RLS-Policy und die Function.
 // Jetzt trägt sie praktisch nur noch die Function. Wäre ihr einziger Beleg der
 // Integrationstest mit `ignore: !stackBereit`, wäre W3 auf jeder Maschine ohne
 // Docker ungeprüft und der Lauf trotzdem grün.
 //
 // Belegt:
 //   1. beurteileErstellen: Reise fehlt / fremde Reise / versiegelt /
-//      archiviert / aufgedeckt — Reihenfolge und Wortlaut.
+//      archiviert / aufgedeckt, Reihenfolge und Wortlaut.
 //   2. berechneAblauf: was als gueltig_tage durchgeht und was nicht.
 //   3. beurteileWiderrufen: «gibt es nicht» und «gehört jemand anderem» sind
 //      byte-gleich.
@@ -39,19 +39,19 @@ function trip(status: ErstellenTrip['status'], ownerId = LEA): ErstellenTrip {
 }
 
 // Was der Aufrufer daraus macht: Status-Code und Body. Auf dieser Ebene muss
-// verglichen werden — was zurückgeht, sind Bytes.
+// verglichen werden, was zurückgeht, sind Bytes.
 function alsHttpAntwort(urteil: VerwaltungsUrteil): string {
   if (urteil.erlaubt) return 'ERLAUBT';
   return `${urteil.status} ${JSON.stringify({ fehler: urteil.nachricht })}`;
 }
 
 // ===========================================================================
-// erstellen — W3, erste Hälfte
+// erstellen, W3, erste Hälfte
 // ===========================================================================
 
 Deno.test('erstellen: für eine versiegelte Reise entsteht kein Link', () => {
   // Der Kern von W3. Ohne diese Zeile wäre ein öffentlicher Link auf eine noch
-  // versiegelte Reise erzeugbar — und die Versiegelung ist das ganze Produkt.
+  // versiegelte Reise erzeugbar, und die Versiegelung ist das ganze Produkt.
   assertEquals(beurteileErstellen(trip('active'), LEA), {
     erlaubt: false,
     nachricht: 'Diese Reise ist noch versiegelt.',
@@ -62,7 +62,7 @@ Deno.test('erstellen: für eine versiegelte Reise entsteht kein Link', () => {
 Deno.test('erstellen: für eine archivierte Reise entsteht kein NEUER Link', () => {
   // Spiegelt 20260808130000: Anlegen bleibt revealed-only, Widerrufen geht
   // auch für archiviert. Bestehende Links auf archivierten Reisen lösen sich
-  // weiterhin auf (beurteileToken in aufloesung.ts) — «weggelegt ist nicht
+  // weiterhin auf (beurteileToken in aufloesung.ts), «weggelegt ist nicht
   // zugesperrt».
   assertEquals(beurteileErstellen(trip('archived'), LEA), {
     erlaubt: false,
@@ -121,7 +121,7 @@ Deno.test('berechneAblauf: ganze Tage werden auf einen Zeitstempel gerechnet', (
 
 Deno.test('berechneAblauf: alles andere wird abgelehnt, statt still zu einem Invalid Date zu werden', () => {
   // Der gefährliche Fall ist der letzte: `new Date(x)` mit NaN ergibt ein
-  // Invalid Date, dessen toISOString() wirft — oder, schlimmer, ein
+  // Invalid Date, dessen toISOString() wirft, oder, schlimmer, ein
   // Ablaufdatum, das beurteileToken nicht lesen kann. Deshalb wird hier
   // abgelehnt und nicht gerechnet.
   for (const wert of [0, -1, 1.5, MAX_GUELTIG_TAGE + 1, '7', true, NaN, Infinity, {}, []]) {
@@ -131,7 +131,7 @@ Deno.test('berechneAblauf: alles andere wird abgelehnt, statt still zu einem Inv
 });
 
 // ===========================================================================
-// widerrufen — kein Orakel
+// widerrufen, kein Orakel
 // ===========================================================================
 
 Deno.test('widerrufen: «gibt es nicht» und «gehört jemand anderem» sind byte-gleich', () => {
@@ -146,7 +146,7 @@ Deno.test('widerrufen: «gibt es nicht» und «gehört jemand anderem» sind byt
   assertEquals(alsHttpAntwort(nichtVorhanden), alsHttpAntwort(fremd));
 
   // Wäre das unterschiedlich, liesse sich die Existenz eines Tokens hier
-  // abfragen — mit einem beliebigen eigenen Konto — und die byte-gleichen
+  // abfragen, mit einem beliebigen eigenen Konto, und die byte-gleichen
   // Ablehnungen von `aufloesen` wären umsonst.
 });
 
@@ -155,7 +155,7 @@ Deno.test('widerrufen: die Ablehnung lässt sich vom Aufrufer nicht verändern',
   try {
     (urteil as { nachricht: string }).nachricht = 'Dieser Link gehört dir nicht.';
   } catch {
-    // Im strict mode wirft die Zuweisung — beides ist recht, solange der Wert
+    // Im strict mode wirft die Zuweisung, beides ist recht, solange der Wert
     // danach unverändert ist.
   }
   assertEquals(alsHttpAntwort(beurteileWiderrufen(null, BEN)), alsHttpAntwort(WIDERRUF_ABLEHNUNG));

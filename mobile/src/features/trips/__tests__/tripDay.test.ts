@@ -65,7 +65,7 @@ test('groupTrips trennt laufende Reisen von Recaps', () => {
   expect(recaps.map((t) => t.id)).toEqual(['b', 'c']);
 });
 
-// `new Date().toISOString().slice(0, 10)` lieferte den Kalendertag in UTC —
+// `new Date().toISOString().slice(0, 10)` lieferte den Kalendertag in UTC,
 // in Mitteleuropa also jede Nacht zwischen 00:00 und 02:00 einen Tag zu früh.
 // Der Reisetag zählte dann zu niedrig und «Reise abschliessen» rückte einen
 // Tag zu spät nach oben.
@@ -74,7 +74,7 @@ test('heutigerKalendertag nimmt die lokale Uhr, nicht UTC', () => {
   const nachts = new Date(2026, 7, 9, 0, 30, 0);
   expect(heutigerKalendertag(nachts)).toBe('2026-08-09');
   // Der eigentliche Unterschied zeigt sich nur östlich von Greenwich (dort ist
-  // getTimezoneOffset negativ) — genau dort lag die alte UTC-Rechnung daneben.
+  // getTimezoneOffset negativ), genau dort lag die alte UTC-Rechnung daneben.
   // Läuft die Suite in UTC oder westlich davon, gibt es um 00:30 nichts zu
   // unterscheiden, und die Zeile hätte nichts zu sagen.
   if (nachts.getTimezoneOffset() < 0) {

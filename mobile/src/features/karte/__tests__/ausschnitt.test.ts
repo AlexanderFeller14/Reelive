@@ -8,7 +8,7 @@ test('ohne Punkte gibt es keinen Ausschnitt', () => {
   expect(ausschnittFuer([])).toBeNull();
 });
 
-// Ein einzelner Punkt hat keine Ausdehnung — ohne Sonderfall waere das Delta 0
+// Ein einzelner Punkt hat keine Ausdehnung, ohne Sonderfall waere das Delta 0
 // und die Karte zoomte bis auf Hausnummern hinunter.
 test('ein einzelner Punkt bekommt einen festen Radius', () => {
   const a = ausschnittFuer([punkt(38.71, -9.13)])!;
@@ -37,7 +37,7 @@ test('ueber den 180. Laengengrad hinweg bleibt der Ausschnitt eng', () => {
 
 // Der Fehler, den Task 3 beim Umsetzen gefunden hat: bei identischen
 // Laengengraden fand die Luecken-Suche eine Luecke von 0 Grad und machte
-// daraus eine Spanne von 360 — der Mittelpunkt landete auf dem Antipoden.
+// daraus eine Spanne von 360, der Mittelpunkt landete auf dem Antipoden.
 test('mehrere Punkte auf derselben Koordinate bleiben dort', () => {
   const a = ausschnittFuer([punkt(38.71, -9.13), punkt(38.71, -9.13)])!;
   expect(a.longitude).toBeCloseTo(-9.13, 5);
@@ -52,7 +52,7 @@ test('der Mittelpunkt bleibt im gueltigen Bereich', () => {
 
 // Drei Punkte, zwei gleich grosse Luecken (je 170 Grad): der Kern des
 // Verfahrens. Die kleinste einschliessende Spanne ist 190 Grad, und bei
-// Gleichstand gewinnt die zuerst gefundene Luecke — das Ergebnis muss
+// Gleichstand gewinnt die zuerst gefundene Luecke, das Ergebnis muss
 // deterministisch sein, nicht nur irgendein gueltiges.
 test('drei Punkte mit gleich grossen Luecken ergeben ein festes Ergebnis', () => {
   const a = ausschnittFuer([punkt(0, -170), punkt(0, 0), punkt(0, 170)])!;

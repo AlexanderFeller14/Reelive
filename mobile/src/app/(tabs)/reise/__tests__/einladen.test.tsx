@@ -3,7 +3,7 @@ import { Share } from 'react-native';
 import { ThemeProvider } from '@/theme/ThemeProvider';
 
 // Jest-Hoisting: die Factory läuft vor dieser Zuweisung, der Zugriff auf
-// `fokus` passiert aber erst beim Rendern — dann steht die Variable.
+// `fokus` passiert aber erst beim Rendern, dann steht die Variable.
 let fokus: (() => void) | null = null;
 jest.mock('expo-router', () => ({
   useRouter: () => ({ push: jest.fn(), replace: jest.fn(), back: jest.fn() }),
@@ -72,7 +72,7 @@ test('beim erneuten Fokussieren wird der Code frisch geholt', async () => {
   await wrap();
   await screen.findByText('Link teilen');
   // Der useFocusEffect-Mock ruft bei jedem Render nach, absolute Aufrufzahlen
-  // sagen hier also nichts — entscheidend ist, dass ein Fokus-Lauf danach den
+  // sagen hier also nichts, entscheidend ist, dass ein Fokus-Lauf danach den
   // frischen Code holt und der Screen ihn übernimmt.
   const vorher = (fetchInviteCode as jest.Mock).mock.calls.length;
 

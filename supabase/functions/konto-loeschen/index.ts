@@ -1,7 +1,7 @@
 // Setup type definitions for built-in Supabase Runtime APIs
 import '@supabase/functions-js/edge-runtime.d.ts';
 
-// konto-loeschen — Store-Pflicht und Datenschutz-Zusage in einer Function.
+// konto-loeschen, Store-Pflicht und Datenschutz-Zusage in einer Function.
 // Zwei Aktionen:
 //
 //   zahlen   → was der Löschdialog anzeigen muss, bevor jemand zustimmt
@@ -10,7 +10,7 @@ import '@supabase/functions-js/edge-runtime.d.ts';
 // ---------------------------------------------------------------------------
 // Die Identität kommt aus dem JWT, NIE aus dem Body
 // ---------------------------------------------------------------------------
-// Der Body trägt hier ausser der Aktion überhaupt nichts — keine user_id,
+// Der Body trägt hier ausser der Aktion überhaupt nichts, keine user_id,
 // keine trip_id. Ein Konto kann ausschliesslich sich selbst löschen, und das
 // ist keine Prüfung, die man vergessen könnte: es gibt schlicht keinen
 // Parameter, über den eine fremde Identität hereinkäme.
@@ -18,7 +18,7 @@ import '@supabase/functions-js/edge-runtime.d.ts';
 // `verify_jwt = true` in supabase/config.toml (anders als bei share-link, das
 // wegen seines öffentlichen Lesewegs auf false steht): Diese Function hat
 // keinen anonymen Pfad, das Gateway ist also wieder die erste von zwei Hürden.
-// Der Handler prüft trotzdem selbst (supabaseAdmin.auth.getUser) — der
+// Der Handler prüft trotzdem selbst (supabaseAdmin.auth.getUser), der
 // Anon-Key allein reicht dafür nicht.
 //
 // ---------------------------------------------------------------------------
@@ -26,13 +26,13 @@ import '@supabase/functions-js/edge-runtime.d.ts';
 // ---------------------------------------------------------------------------
 // Sie steht in ablauf.ts als reine Funktion, zusammen mit der Ableitung der
 // Schlüssel, dem Wächter für client-geschriebene Pfade und dem Blättern.
-// Grund: Der wichtigste Fall — «der Speicherschritt scheitert, also wird die
-// Datenbank gar nicht angefasst» — lässt sich gegen einen laufenden Stack kaum
+// Grund: Der wichtigste Fall, «der Speicherschritt scheitert, also wird die
+// Datenbank gar nicht angefasst», lässt sich gegen einen laufenden Stack kaum
 // herstellen, und ein Test, den es nur im Integrationslauf gibt, überspringt
 // sich auf jeder Maschine ohne Docker stillschweigend (der schwerste Befund
 // des Phase-5-Reviews). ablauf_test.ts läuft immer.
 //
-// Worauf sich die Löschung stützt — die Kaskaden, einzeln nachgezählt gegen
+// Worauf sich die Löschung stützt, die Kaskaden, einzeln nachgezählt gegen
 // pg_constraint (14 Fremdschlüssel im Schema public):
 //
 //   trips.owner_id      → profiles     RESTRICT  ← die EINZIGE Ausnahme.
@@ -56,7 +56,7 @@ import '@supabase/functions-js/edge-runtime.d.ts';
 //   push_tokens.user_id → profiles     CASCADE
 //
 // Das sind alle neun Tabellen in public. Was NICHT kaskadiert, weil es keinen
-// Fremdschlüssel gibt: storage.objects — die Objekte im Bucket. Genau die
+// Fremdschlüssel gibt: storage.objects, die Objekte im Bucket. Genau die
 // räumt der Speicherschritt, und genau deshalb muss er zuerst laufen.
 import { AwsClient } from 'npm:aws4fetch@1';
 import { fuehreLoeschungAus, medienSchluessel, pfadGehoertUns, sammleAlle, type PostZeile, type Schritt } from './ablauf.ts';
@@ -67,7 +67,7 @@ const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
 const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
 // Dieselben fünf S3-Variablen wie media-urls/share-link (siehe dortige
-// index.ts) — seit dem Abschluss-Review von Phase 6 löscht auch diese
+// index.ts), seit dem Abschluss-Review von Phase 6 löscht auch diese
 // Function über das S3-Protokoll, nicht mehr über die Supabase-Storage-API
 // (die ausführliche Begründung steht in store.ts, Kopfkommentar). Derselbe
 // Bucket-Name wie in supabase/config.toml, [storage.buckets.media].
@@ -92,7 +92,7 @@ function s3KonfigVollstaendig(): boolean {
 
 // Spec §9 / Task-Brief "abschluss-fix-server": ein schlanker Fehler-Melder
 // über `fetch`, ohne Paket (Begründung und Privacy-Regeln in
-// _shared/fehlermelder.ts). Ohne SENTRY_DSN ein vollständiger No-Op — der
+// _shared/fehlermelder.ts). Ohne SENTRY_DSN ein vollständiger No-Op, der
 // heutige, unveränderte Zustand jeder lokalen Umgebung.
 const SENTRY_DSN = Deno.env.get('SENTRY_DSN') ?? '';
 const melde = erstelleFehlermelder(SENTRY_DSN, 'konto-loeschen');
@@ -137,7 +137,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
   const anfragendeId = userData.user.id;
 
   // Ein leerer Body ist der Normalfall (Interface-Vertrag: `POST` mit `{}`).
-  // Auch gar kein Body soll durchgehen — die Löschung braucht keine Angaben.
+  // Auch gar kein Body soll durchgehen, die Löschung braucht keine Angaben.
   let body: AnfrageBody = {};
   try {
     const roh = await req.text();
@@ -151,7 +151,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     return fehler('Unbekannte Aktion.', 400);
   }
 
-  // `loescheEins` wird unabhängig von der Aktion gebaut (billig — nur eine
+  // `loescheEins` wird unabhängig von der Aktion gebaut (billig, nur eine
   // Closure, kein Netzaufruf), aber nur im `loeschen`-Pfad je aufgerufen.
   // `zahlen` braucht keine S3-Konfiguration; die Prüfung darauf steht deshalb
   // NICHT hier, sondern unten, unmittelbar vor dem Speicherschritt.
@@ -169,7 +169,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
   const eigeneTripIds = trips.map((t) => t.id);
 
   // -------------------------------------------------------------------------
-  // zahlen — was der Dialog anzeigen muss
+  // zahlen, was der Dialog anzeigen muss
   // -------------------------------------------------------------------------
   if (aktion === 'zahlen') {
     const { data: zahlen, error: zahlenError } = await store.zaehle(anfragendeId, eigeneTripIds);
@@ -185,7 +185,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
   // loeschen
   // -------------------------------------------------------------------------
   // Erst hier geprüft, nicht ganz oben: `zahlen` braucht keine S3-Konfiguration
-  // und soll deshalb auch funktionieren, wenn sie fehlt — nur `loeschen` löscht
+  // und soll deshalb auch funktionieren, wenn sie fehlt, nur `loeschen` löscht
   // im Speicher. Ohne diese Prüfung würde ein fehlkonfiguriertes S3 erst tief
   // in loescheObjekte als kryptischer "Invalid URL"-Fehler auffallen, statt
   // hier als klare 500 (dasselbe Muster wie media-urls/share-link).
@@ -196,7 +196,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
   }
 
   // Schritt 1: ermitteln, was weggehört. VOLLSTÄNDIG, bevor irgendetwas
-  // gelöscht wird — ein Moment, der hier durchrutscht, ist nach der Kaskade
+  // gelöscht wird, ein Moment, der hier durchrutscht, ist nach der Kaskade
   // nicht mehr auffindbar: sein Pfad leitet sich aus der posts-Zeile ab, und
   // die ist dann weg. Deshalb wird geblättert (max_rows = 1000) und deshalb
   // bricht die Function ab, wenn beim Einsammeln etwas fehlt.
@@ -241,12 +241,12 @@ Deno.serve(async (req: Request): Promise<Response> => {
   ];
 
   // cover_key und avatar_key sind client-geschriebene Textspalten OHNE
-  // Ableitung — der Wächter in ablauf.ts lässt sie nur durch, wenn sie unter
+  // Ableitung, der Wächter in ablauf.ts lässt sie nur durch, wenn sie unter
   // einem Präfix liegen, das nachweislich zu dieser Löschung gehört. Heute
   // passt kein einziger Wert (die einzigen existierenden stehen in
   // supabase/seed.sql und sehen aus wie 'covers/norwegen.jpg'), und kein
   // Codepfad schreibt diese Spalten überhaupt. Sobald ein späteres Feature ein
-  // eigentümer-gebundenes Schema einführt — das einzige sichere —, greift die
+  // eigentümer-gebundenes Schema einführt, das einzige sichere, greift die
   // Löschung von selbst. Bis dahin bleibt ein solcher Wert liegen und wird
   // gemeldet, statt dass eine Kontolöschung zum Werkzeug gegen fremde Objekte
   // wird (die ausführliche Begründung steht bei pfadGehoertUns).
@@ -271,7 +271,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       'konto-loeschen: cover_key/avatar_key liegen ausserhalb der eigenen Präfixe und bleiben liegen.',
       { user_id: anfragendeId, pfade: ungeklaertePfade },
     );
-    // Nur die ANZAHL geht an Sentry, nie die Pfade selbst — sie bleiben im
+    // Nur die ANZAHL geht an Sentry, nie die Pfade selbst, sie bleiben im
     // Server-Log (siehe console.error oben). Ein Storage-Pfad ist kein
     // Moment-Inhalt, aber auch kein Diagnosewert, den ein externer Dienst
     // braucht; die Zahl allein genügt, um das Muster zu erkennen.
@@ -289,7 +289,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     ausfuehren: () => store.loescheObjekte(schluessel),
   };
   const datenbank: Schritt[] = [
-    // VOR der Kaskade und im Namen der Person — sonst rotiert der
+    // VOR der Kaskade und im Namen der Person, sonst rotiert der
     // Einladungscode jeder Reise, in der sie Mitglied war, und reisst allen
     // anderen ihren Link weg (siehe store.ts/verlasseFremdeReisen).
     { name: 'fremde-reisen-verlassen', ausfuehren: () => store.verlasseFremdeReisen(anfragendeId, eigeneTripIds) },
@@ -311,14 +311,14 @@ Deno.serve(async (req: Request): Promise<Response> => {
     // Speicherschritt (oder ein Datenbankschritt danach), bleibt W6/W7 sonst
     // ausschliesslich im Server-Log sichtbar. `ergebnis.fehler` trägt hier die
     // eigentliche Ursache; `melde()` liest daraus nur `.message` (siehe
-    // fehlermelder.ts) — nie die rohe Fehlerstruktur.
+    // fehlermelder.ts), nie die rohe Fehlerstruktur.
     await melde(ergebnis.fehler, {
       user_id: anfragendeId,
       schritt: ergebnis.gescheitertBei,
       datenbank_beruehrt: ergebnis.datenbankBeruehrt,
     });
     // Ein Text für beide Fälle: Ob die Datenbank schon angefasst wurde oder
-    // nicht, ändert für die Person nichts an dem, was sie tun soll — es noch
+    // nicht, ändert für die Person nichts an dem, was sie tun soll, es noch
     // einmal versuchen. Beide Wege sind wiederholbar: Das Löschen im Speicher
     // ist idempotent, eine bereits gelöschte Reise ist ein No-Op, und
     // deleteUser auf einen schon gelöschten Nutzer schlägt fehl, ohne etwas

@@ -77,7 +77,7 @@ test('ohne Session wird der Code gemerkt und zum Login geschickt', async () => {
 
 // Der Unterschied zwischen «gibt es nicht» und «konnte nicht nachsehen»: nur
 // der zweite Fall darf wiederholbar sein. Vorher sah der Gast im Funkloch den
-// Satz, der die Einladung fuer erloschen erklaert — endgueltig und falsch.
+// Satz, der die Einladung fuer erloschen erklaert, endgueltig und falsch.
 test('Lesefehler zeigt den Fehler und laesst es nochmal versuchen', async () => {
   (peekInvite as jest.Mock).mockResolvedValue({ data: null, error: 'Du bist gerade offline.' });
   await wrap();

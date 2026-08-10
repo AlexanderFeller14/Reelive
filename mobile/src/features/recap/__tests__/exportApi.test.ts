@@ -1,17 +1,17 @@
 // Gleiches Mock-Grundmuster wie moments/__tests__/medien.test.ts: ein
 // winziges Dateisystem im Speicher (`mockVorhanden`), damit die Tests
-// tatsächliches Anlegen/Löschen prüfen können — nicht bloss, dass eine
+// tatsächliches Anlegen/Löschen prüfen können, nicht bloss, dass eine
 // Methode irgendwann aufgerufen wurde. Phase-5-Lehre: ein Mock, der genau
 // den Mechanismus ersetzt, den der Test prüfen soll (hier: ob eine
-// Zwischendatei WIRKLICH verschwindet), prüfte nichts — deshalb ein echtes,
+// Zwischendatei WIRKLICH verschwindet), prüfte nichts, deshalb ein echtes,
 // zustandsbehaftetes Fake statt eines reinen jest.fn()-Stubs.
 const mockVorhanden = new Set<string>();
 // Pro URL steuerbares Verhalten: 'ok' legt die Zieldatei an und löst auf,
-// 'fehler' wirft (simuliert einen Netzwerk-/HTTP-Fehlschlag OHNE Zieldatei —
+// 'fehler' wirft (simuliert einen Netzwerk-/HTTP-Fehlschlag OHNE Zieldatei,
 // der Normalfall laut expo-file-system-Doku für einen Non-2xx-Status),
 // 'fehler-mit-datei' wirft, legt die Zieldatei aber TROTZDEM an (Android-Fall
 // aus der Doku: "a partially written file may remain"), 'haenge' löst NIE
-// von selbst auf und reagiert nur auf ein AbortSignal — für Tests, die einen
+// von selbst auf und reagiert nur auf ein AbortSignal, für Tests, die einen
 // Abbruch MITTEN in einem laufenden Download simulieren.
 type DownloadPlan = 'ok' | 'fehler' | 'fehler-mit-datei' | 'haenge';
 const mockDownloadPlan: Record<string, DownloadPlan> = {};
@@ -53,7 +53,7 @@ jest.mock('expo-file-system', () => {
       this.uri = verbinden(teile);
     }
     // Ein reales Dateisystem kennt kein "die Datei existiert, aber ihr
-    // Elternordner nicht" — ein Ordner mit Inhalt EXISTIERT damit zwangsläufig
+    // Elternordner nicht", ein Ordner mit Inhalt EXISTIERT damit zwangsläufig
     // mit, auch ohne einen expliziten eigenen .create()-Aufruf (z.B. ein
     // verwaister Rest aus einem vorherigen, abgestürzten Lauf, der nie über
     // DIESES Mock-Objekt angelegt wurde). Ohne diese zweite Bedingung wäre
@@ -171,7 +171,7 @@ describe('sichergestellteBerechtigung', () => {
     expect(ergebnis).toEqual({ erlaubt: false, text: KEIN_ZUGRIFF_TEXT });
   });
 
-  // canAskAgain:false (Person hat "Nicht erlauben" dauerhaft gewählt) — ein
+  // canAskAgain:false (Person hat "Nicht erlauben" dauerhaft gewählt), ein
   // erneuter Request-Aufruf wäre auf iOS/Android ein No-Op, der nur den
   // alten Wert zurückgibt. Kein stiller Fehlschlag: der Text erklärt trotzdem
   // den Weg über die Einstellungen.
@@ -229,7 +229,7 @@ describe('sichereMomentInGalerie', () => {
 
   // Kernfall (Auftrag: "wie du bei Abbruch UND Fehlschlag aufräumst"): auf
   // Android kann laut expo-file-system-Doku bei einem fehlgeschlagenen
-  // Download trotzdem eine TEILWEISE geschriebene Datei zurückbleiben — die
+  // Download trotzdem eine TEILWEISE geschriebene Datei zurückbleiben, die
   // muss genauso verschwinden wie im Erfolgsfall.
   test('eine bei einem Fehlschlag teilweise geschriebene Datei (Android-Fall) wird trotzdem aufgeräumt', async () => {
     mockDownloadPlan['https://cdn.example/p1-medium.jpg'] = 'fehler-mit-datei';
@@ -239,7 +239,7 @@ describe('sichereMomentInGalerie', () => {
   });
 
   // Kernfall: der Download gelingt, ABER Asset.create (der zweite Schritt)
-  // scheitert — die Zwischendatei muss AUCH DANN weg sein. Ein `finally` nur
+  // scheitert, die Zwischendatei muss AUCH DANN weg sein. Ein `finally` nur
   // um den Download-Aufruf herum würde das nicht abdecken.
   test('schlägt Asset.create fehl, wird die bereits heruntergeladene Zwischendatei trotzdem gelöscht', async () => {
     mockAssetCreate.mockRejectedValueOnce(new Error('Galerie-Fehler'));
@@ -251,7 +251,7 @@ describe('sichereMomentInGalerie', () => {
 
   // Phase-4-Lehre (Auftragstext, wörtlich): ein verwaister Rest aus einem
   // ABGESTÜRZTEN vorherigen Lauf darf nicht liegen bleiben, bis er selbst zum
-  // Speicherproblem wird — ein neuer Export-Versuch räumt den GESAMTEN
+  // Speicherproblem wird, ein neuer Export-Versuch räumt den GESAMTEN
   // Export-Ordner zuerst leer, bevor er selbst etwas anlegt.
   test('ein verwaister Rest aus einem früheren (z.B. abgestürzten) Lauf wird vor dem nächsten Export geräumt', async () => {
     mockVorhanden.add('file:///cache/export/uralt-verwaist.jpg');
@@ -285,14 +285,14 @@ describe('sichereAlleInGalerie', () => {
     ]);
   });
 
-  // Kernfall aus dem Auftrag: "Nicht «fertig», wenn drei Dateien fehlen" —
+  // Kernfall aus dem Auftrag: "Nicht «fertig», wenn drei Dateien fehlen",
   // die Bilanz muss die Fehlschläge EHRLICH zählen, nicht unter den Tisch
   // fallen lassen oder die ganze Aktion als Ganzes scheitern lassen.
   test('ein Fehlschlag mittendrin bricht NICHT die ganze Aktion ab, sondern zählt ehrlich mit', async () => {
     mockDownloadPlan['https://cdn.example/p2-medium.jpg'] = 'fehler';
     const ergebnis = await sichereAlleInGalerie(eintraege(3), jest.fn());
     expect(ergebnis).toEqual({ status: 'fertig', gesichert: 2, gesamt: 3, fehlgeschlagen: 1, abgebrochen: false });
-    // p1 und p3 sind trotzdem gesichert worden — kein Fehlschlag stoppt die
+    // p1 und p3 sind trotzdem gesichert worden, kein Fehlschlag stoppt die
     // übrigen Momente.
     expect(mockAssetCreate).toHaveBeenCalledTimes(2);
   });
@@ -319,14 +319,14 @@ describe('sichereAlleInGalerie', () => {
 
   // Kernfall "abbrechbar" (Auftrag, wörtlich): ein Abbruch MITTEN in einem
   // laufenden Download muss diesen Download selbst beenden (nicht nur den
-  // NÄCHSTEN verhindern) — geprüft über einen Download, der ohne Abbruch nie
+  // NÄCHSTEN verhindern), geprüft über einen Download, der ohne Abbruch nie
   // von selbst aufgelöst hätte ('haenge').
   test('Abbruch MITTEN in einem laufenden Download beendet ihn sofort, ohne ihn als Fehlschlag zu zählen', async () => {
     mockDownloadPlan['https://cdn.example/p2-medium.jpg'] = 'haenge';
     const controller = new AbortController();
     const lauf = sichereAlleInGalerie(eintraege(3), jest.fn(), controller.signal);
     // p1 läuft synchron-genug durch (Promise-Microtasks), p2 hängt in
-    // 'haenge' fest — jetzt mitten im laufenden Download abbrechen.
+    // 'haenge' fest, jetzt mitten im laufenden Download abbrechen.
     await Promise.resolve();
     await Promise.resolve();
     controller.abort();
@@ -337,7 +337,7 @@ describe('sichereAlleInGalerie', () => {
     expect(geladeneUrls).not.toContain('https://cdn.example/p3-medium.jpg');
   });
 
-  // Aufräumen gilt auch bei EINEM abgebrochenen Element mitten im Lauf —
+  // Aufräumen gilt auch bei EINEM abgebrochenen Element mitten im Lauf,
   // nicht nur am Ende der ganzen Aktion.
   test('die Zwischendatei eines mitten im Download abgebrochenen Elements wird ebenfalls aufgeräumt', async () => {
     mockDownloadPlan['https://cdn.example/p1-medium.jpg'] = 'haenge';

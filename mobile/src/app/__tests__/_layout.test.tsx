@@ -4,12 +4,12 @@ import * as React from 'react';
 // RootLayout verdrahtet native/IO-Abhängigkeiten, die in Tests nie laufen
 // dürfen (Schriftladen, Splash-Screen, Router). Alle werden auf ein Minimum
 // reduziert, damit hier ausschliesslich die Worker-Verdrahtung (Task 13)
-// unter Test steht — stabile Referenzen (Modul-Konstanten statt neuer
+// unter Test steht, stabile Referenzen (Modul-Konstanten statt neuer
 // Objekte pro Aufruf), damit Router/Segmente nicht selbst Rerenders auslösen.
 const mockRouter = { replace: jest.fn() };
 const mockSegments: string[] = ['(tabs)'];
 // Task 5: die Web-Hartsperre braucht einen ECHTEN Nachweis, dass <Stack/>
-// NICHT gemountet wird, nicht nur, dass irgendwo Text erscheint — deshalb
+// NICHT gemountet wird, nicht nur, dass irgendwo Text erscheint, deshalb
 // ein Spion statt `() => null` (gleiches Prinzip wie mockRouter/mockInvoke
 // in anderen Testdateien: Aufruf UND Nicht-Aufruf müssen prüfbar sein).
 const mockStackRender = jest.fn((_props?: unknown) => null);
@@ -19,14 +19,14 @@ jest.mock('expo-router', () => ({
   Stack: (props: unknown) => mockStackRender(props),
 }));
 
-// Platform.OS umschalten (Task 5): react-native wird NICHT gemockt — Platform
+// Platform.OS umschalten (Task 5): react-native wird NICHT gemockt, Platform
 // ist bei react-native ein normales, beschreibbares Datenfeld (kein Getter,
 // gleiches Muster/gleiche Begründung wie pushApi.test.ts, dortiges
 // "Android: Notification-Channel..."-describe), lässt sich also direkt
 // umschalten und danach wiederherstellen. Ein jest.mock('react-native', …)
 // wäre hier zusätzlich riskant: expo-modules-core liest Platform.OS schon
 // beim Laden (jest-expo-Setup), bevor irgendein modul-lokaler `const` dieser
-// Datei initialisiert ist — ein Mock-Factory-Closure darauf träfe auf eine
+// Datei initialisiert ist, ein Mock-Factory-Closure darauf träfe auf eine
 // TDZ/Initialisierungsreihenfolge, die nicht zuverlässig ist.
 import { Platform } from 'react-native';
 
@@ -64,7 +64,7 @@ jest.mock('@/features/moments/uploadWorker', () => ({
 }));
 
 // pushApi.ts importiert @/lib/supabase (Task 4), das wiederum echtes
-// AsyncStorage lädt — unter Jest genau wie uploadWorker oben nie ungemockt.
+// AsyncStorage lädt, unter Jest genau wie uploadWorker oben nie ungemockt.
 jest.mock('@/features/push/pushApi', () => ({
   registrierePushToken: jest.fn(async () => 'ok'),
 }));
@@ -81,8 +81,8 @@ beforeEach(() => {
   Platform.OS = 'ios';
 });
 
-// Task 13: der Worker legt posts-Zeilen an, braucht dafür Sitzung UND Profil
-// — vor signedIn (loading/signedOut/needsProfile) darf er nicht anlaufen.
+// Task 13: der Worker legt posts-Zeilen an, braucht dafür Sitzung UND Profil,
+// vor signedIn (loading/signedOut/needsProfile) darf er nicht anlaufen.
 test('vor signedIn läuft der Worker nicht an', async () => {
   const { unmount } = await render(<RootLayout />);
   expect(uploadWorker.starte).not.toHaveBeenCalled();
@@ -104,7 +104,7 @@ test('sobald Sitzung und Profil stehen (signedIn), startet der Worker', async ()
 });
 
 // Ein weiterlaufender Worker, der mit fremder oder fehlender Sitzung
-// posts-Zeilen anzulegen versucht, wäre falsch — er muss beim Abmelden sofort
+// posts-Zeilen anzulegen versucht, wäre falsch, er muss beim Abmelden sofort
 // stehen, nicht erst beim nächsten Intervall-Tick.
 test('beim Abmelden (signedIn -> signedOut) stoppt der Worker sofort', async () => {
   mockAuth.status = 'signedIn';
@@ -149,7 +149,7 @@ test('beim Unmount (z.B. App-Beenden) stoppt ein laufender Worker', async () => 
 });
 
 // Task 4: Push-Registrierung wird wie der Upload-Worker erst bei signedIn
-// angestossen — vorher gibt es weder eine gültige Sitzung noch eine userId.
+// angestossen, vorher gibt es weder eine gültige Sitzung noch eine userId.
 test('vor signedIn wird keine Push-Registrierung angestossen', async () => {
   const { unmount } = await render(<RootLayout />);
   expect(pushApi.registrierePushToken).not.toHaveBeenCalled();
@@ -171,10 +171,10 @@ test('sobald Sitzung und Profil stehen (signedIn), wird die Push-Registrierung m
 
 // Task 5, Koordinator-Entscheid nach einem Fund aus Task 4: der Web-Export
 // bündelt die GANZE App, isPublicArea() allein sperrt keine Route. Auf Web
-// bleibt jetzt bis auf 'teilen' alles gesperrt — kein <Stack/>, keine
+// bleibt jetzt bis auf 'teilen' alles gesperrt, kein <Stack/>, keine
 // Redirect-Logik, nur die freundliche «Reelive gibt es als App»-Seite.
 describe('Web-Hartsperre (istWebGesperrt)', () => {
-  test('auf Web ausserhalb von "teilen" wird <Stack/> NICHT gerendert — die Sperr-Seite steht stattdessen', async () => {
+  test('auf Web ausserhalb von "teilen" wird <Stack/> NICHT gerendert, die Sperr-Seite steht stattdessen', async () => {
     Platform.OS = 'web';
     mockSegments[0] = '(tabs)';
     const { getByText, unmount } = await render(<RootLayout />);
@@ -184,7 +184,7 @@ describe('Web-Hartsperre (istWebGesperrt)', () => {
   });
 
   // Bewusst KEIN Sonderfall wie bei isPublicArea: 'join' bleibt auf Web
-  // ebenfalls gesperrt (siehe Begründung in guard.ts) — der Beitritts-Screen
+  // ebenfalls gesperrt (siehe Begründung in guard.ts), der Beitritts-Screen
   // verzweigt ohne Session selbst in den Login-Flow.
   test('auf Web bleibt auch "join" gesperrt', async () => {
     Platform.OS = 'web';
@@ -194,7 +194,7 @@ describe('Web-Hartsperre (istWebGesperrt)', () => {
     await unmount();
   });
 
-  test('auf Web bleibt "teilen" erreichbar — <Stack/> wird gerendert, keine Sperr-Seite', async () => {
+  test('auf Web bleibt "teilen" erreichbar, <Stack/> wird gerendert, keine Sperr-Seite', async () => {
     Platform.OS = 'web';
     mockSegments[0] = 'teilen';
     const { queryByText, unmount } = await render(<RootLayout />);
@@ -203,7 +203,7 @@ describe('Web-Hartsperre (istWebGesperrt)', () => {
     await unmount();
   });
 
-  test('auf nativen Plattformen ist die Sperre nie aktiv — <Stack/> wird wie zuvor immer gerendert', async () => {
+  test('auf nativen Plattformen ist die Sperre nie aktiv, <Stack/> wird wie zuvor immer gerendert', async () => {
     Platform.OS = 'ios';
     mockSegments[0] = '(tabs)';
     const { unmount } = await render(<RootLayout />);
@@ -216,7 +216,7 @@ describe('Web-Hartsperre (istWebGesperrt)', () => {
   // etwas TÄTE (status künstlich auf signedIn gesetzt), und belegen, dass
   // trotzdem nichts passiert. In der echten App ist `status === 'signedIn'`
   // auf Web praktisch unerreichbar (secureSessionStorage.web liefert nie
-  // eine Session) — genau deshalb testet dieser Fall die Absicherung selbst,
+  // eine Session), genau deshalb testet dieser Fall die Absicherung selbst,
   // nicht nur den heutigen Erreichbarkeits-Zufall.
   test('selbst wenn status künstlich signedIn ist, laufen unter der Web-Sperre weder Redirect noch Worker noch Push-Registrierung an', async () => {
     Platform.OS = 'web';

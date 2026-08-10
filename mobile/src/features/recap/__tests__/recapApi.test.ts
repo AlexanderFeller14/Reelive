@@ -1,5 +1,5 @@
 // Jest-Hoisting: jest.mock wandert über die Importe, die Factory läuft also
-// VOR den const-Zuweisungen — Zugriff auf die Mocks deshalb erst zur
+// VOR den const-Zuweisungen, Zugriff auf die Mocks deshalb erst zur
 // Aufrufzeit (Muster wie in tripsApi.test.ts/postsApi.test.ts).
 const mockFrom = jest.fn();
 const mockInvoke = jest.fn();
@@ -25,11 +25,11 @@ const zeile = (overrides: Record<string, unknown> = {}) => ({
 
 type Antwort = { data: unknown; error: unknown };
 
-// posts: .select(SPALTEN).eq('trip_id', tripId) — select/eq als jest.fn(),
+// posts: .select(SPALTEN).eq('trip_id', tripId), select/eq als jest.fn(),
 // damit die AUFRUF-Argumente selbst prüfbar sind, nicht nur das Endergebnis
 // (Review-Fund: ein Mock, der Argumente ignoriert, lässt "profiles(display_
 // name) aus SPALTEN entfernt" bzw. "eq() auf falscher Spalte" unbemerkt
-// durchrutschen — Muster wie tripKette in tripsApi.test.ts).
+// durchrutschen, Muster wie tripKette in tripsApi.test.ts).
 const postsKette = (ergebnis: Antwort) => {
   const eq = jest.fn(async () => ergebnis);
   // Parameter ausdrücklich typisiert (auch wenn ungenutzt): sonst inferiert
@@ -59,7 +59,7 @@ describe('fetchRecapMomente', () => {
     expect(select).toHaveBeenCalledTimes(1);
     // Der Fremdschlüsselname MUSS drinstehen: zwischen posts und profiles gibt
     // es zwei Wege (author_id direkt, und many-to-many über reactions).
-    // Ohne ihn antwortet PostgREST mit HTTP 300 und der Recap bleibt leer —
+    // Ohne ihn antwortet PostgREST mit HTTP 300 und der Recap bleibt leer,
     // was kein gemockter Test bemerkt, weil der Mock die Abfrage nie stellt.
     expect(select.mock.calls[0][0]).toEqual(
       expect.stringContaining('profiles!posts_author_id_fkey(display_name)')
@@ -73,7 +73,7 @@ describe('fetchRecapMomente', () => {
     const spalten = select.mock.calls[0][0] as string;
     expect(spalten).toContain('lat');
     expect(spalten).toContain('lng');
-    // Der Fremdschlüsselname bleibt zwingend — ohne ihn liefert PostgREST
+    // Der Fremdschlüsselname bleibt zwingend, ohne ihn liefert PostgREST
     // HTTP 300 und der gesamte Recap ist leer (siehe Kommentar in recapApi.ts).
     expect(spalten).toContain('profiles!posts_author_id_fkey(display_name)');
   });
@@ -88,7 +88,7 @@ describe('fetchRecapMomente', () => {
     expect(data[0].lng).toBe(-9.1301);
   });
 
-  test('sortiert das Ergebnis über tage.sortiereMomente — nicht bloss über die DB-Reihenfolge', async () => {
+  test('sortiert das Ergebnis über tage.sortiereMomente, nicht bloss über die DB-Reihenfolge', async () => {
     postsKette({
       data: [
         zeile({ id: 'spaet', captured_at: '2026-08-01T15:00:00.000Z' }),
@@ -120,7 +120,7 @@ describe('fetchRecapMomente', () => {
   });
 
   // Kein Fehlerfall: posts_select_revealed_members lässt vor dem Reveal
-  // niemanden lesen — RLS filtert, wirft aber nicht.
+  // niemanden lesen, RLS filtert, wirft aber nicht.
   test('eine (noch) nicht aufgedeckte Reise liefert eine leere Liste ohne Fehler', async () => {
     postsKette({ data: [], error: null });
     const { data, error } = await fetchRecapMomente('t1');

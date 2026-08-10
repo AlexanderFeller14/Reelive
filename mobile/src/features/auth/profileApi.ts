@@ -14,7 +14,7 @@ export function validateDisplayName(displayName: string): string | null {
 }
 
 // `feld` sagt dem Screen, WO die Meldung hingehoert. Vorher gab es nur einen
-// Fehlerstring, und der landete pauschal unter dem Username-Feld — auch «Das
+// Fehlerstring, und der landete pauschal unter dem Username-Feld, auch «Das
 // Profil konnte nicht gespeichert werden», was mit dem Username nichts zu tun
 // hat. DESIGN-LANGUAGE §4 verlangt feldgenaue Zuordnung, und die kann nur
 // treffen, wer weiss, welches Feld gemeint ist.

@@ -84,7 +84,7 @@ select throws_ok(
   '42501', null, 'Client kann trips.status nicht direkt setzen');
 
 -- === profiles_insert_own: eigenes Profil anlegen erlaubt, fremde ID
--- verboten (Finding 2, finaler Whole-Branch-Review — bisher 0 Assertions:
+-- verboten (Finding 2, finaler Whole-Branch-Review, bisher 0 Assertions:
 -- alle Profile-Inserts liefen bislang als Superuser).
 select pg_temp.logout();
 insert into auth.users (id, email) values
@@ -134,7 +134,7 @@ select is(count(*)::int, 0, 'trips_delete_owner: Owner kann eigenen Trip lösche
 
 -- === Mitgliedschafts-Orakel geschlossen (Finding 1, finaler Whole-Branch-
 -- Review): ein authenticated Nicht-Mitglied darf über is_trip_member() keine
--- fremden Mitgliedschaften erfragen — auch wenn die Zielperson tatsächlich
+-- fremden Mitgliedschaften erfragen, auch wenn die Zielperson tatsächlich
 -- Mitglied ist. Carla ist Mitglied von nichts.
 select pg_temp.login_as('00000000-0000-0000-0000-00000000000c');
 select is(

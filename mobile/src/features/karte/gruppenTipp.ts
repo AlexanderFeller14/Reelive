@@ -2,7 +2,7 @@ import { ausschnittFuer } from './ausschnitt';
 import { aufEinemFleck } from './gruppierung';
 import type { Ausschnitt, Gruppe } from './typen';
 
-// Was ein Tipp auf eine Gruppe auslöst — die Regel, die sich der Kartenscreen
+// Was ein Tipp auf eine Gruppe auslöst, die Regel, die sich der Kartenscreen
 // der App (recap/[id]/karte.tsx) und der geteilte Recap (teilen/[token].tsx)
 // teilen. Zwei Kopien liefen hier garantiert auseinander, und die eine wäre
 // die, an der die Sackgasse unten wieder aufginge.
@@ -11,29 +11,29 @@ import type { Ausschnitt, Gruppe } from './typen';
 // Erst wo Zoomen nichts mehr bringt, öffnet er das Sheet.
 //
 // «Nichts mehr bringen» hiess bis zur Merge-Fixrunde ausschliesslich
-// `aufEinemFleck` — bitgleiche Koordinaten. Die Begründung dafür (Task 8) war:
+// `aufEinemFleck`, bitgleiche Koordinaten. Die Begründung dafür (Task 8) war:
 // für JEDE Ausdehnung grösser null wächst der Bildschirmabstand mit jedem
 // Tipp (die sichtbare Spanne wird höchstens halbiert) und überschreitet nach
 // endlich vielen die Gruppenschwelle von 40 Punkten.
 //
 // Dieser Beweis setzt voraus, dass die Karte beliebig weit hineinzoomen kann.
 // Sie kann es nicht. Im Browser ist bei Zoomstufe 19 Schluss (`MAX_ZOOM` in
-// KartenFlaeche.web.tsx — so weit reichen die OpenStreetMap-Kacheln), und
+// KartenFlaeche.web.tsx, so weit reichen die OpenStreetMap-Kacheln), und
 // `getBoundsZoom` deckelt darauf. Auf dieser Stufe sind 8 Meter noch rund 34
 // Bildschirmpunkte, also WENIGER als die 40, ab denen zwei Nadeln einzeln
 // gezeichnet werden; erst ab gut 9 Metern fällt eine Gruppe dort auseinander.
 // Zwei Aufnahmen am selben Ort liegen durch den GPS-Versatz regelmässig 3 bis
-// 8 Meter auseinander — für sie war der Tipp eine Sackgasse: Haptik,
+// 8 Meter auseinander, für sie war der Tipp eine Sackgasse: Haptik,
 // Kamerafahrt auf dieselbe Stufe, keine Änderung, kein Sheet, beliebig oft.
 //
 // Nativ gibt es dieselbe Grenze, nur auf einer anderen Stufe (MapKit
 // entscheidet sie selbst). Die Antwort darf deshalb keine Zahl kennen, sondern
 // nur die BEOBACHTUNG: hat der letzte Tipp auf diese Gruppe die Kamera bewegt?
-// Wenn nicht, wird der nächste es auch nicht — und dann öffnet er das Sheet.
+// Wenn nicht, wird der nächste es auch nicht, und dann öffnet er das Sheet.
 
 // Der letzte Zoom-Versuch: für WELCHE Gruppe gefahren wurde und was VOR der
 // Fahrt zu sehen war. Der Anker identifiziert die Gruppe: er ist ihr frühester
-// Moment (gruppierung.ts) und bleibt derselbe, solange die Gruppe besteht —
+// Moment (gruppierung.ts) und bleibt derselbe, solange die Gruppe besteht,
 // und wenn die Kamera stillsteht, ändert sich die Gruppierung nicht.
 export type ZoomVersuch = { ankerId: string; vorher: Ausschnitt };
 
@@ -45,7 +45,7 @@ export type ZoomVersuch = { ankerId: string; vorher: Ausschnitt };
 const BEWEGUNGS_ANTEIL = 0.01;
 
 // Abstand zweier Längengrade, auf den kürzeren Weg um die Erde gerechnet.
-// Ohne das wären 179.9 und -179.9 rund 360 Grad auseinander statt 0.2 — die
+// Ohne das wären 179.9 und -179.9 rund 360 Grad auseinander statt 0.2, die
 // Karte gälte über der Datumsgrenze immer als «bewegt».
 function laengenAbstand(a: number, b: number): number {
   return Math.abs((((a - b + 540) % 360) - 180));
@@ -77,7 +77,7 @@ export function zoomZiel(gruppe: Gruppe, sichtbar: Ausschnitt): Ausschnitt | nul
   return {
     ...umfasst,
     // Die Fahrt geht immer HINEIN, nie hinaus: `ausschnittFuer` hat eine
-    // Mindestspanne von rund 1,1 km — sie ist für den Erststart gedacht, damit
+    // Mindestspanne von rund 1,1 km, sie ist für den Erststart gedacht, damit
     // ein einzelner Moment nicht maximal herangezoomt wird. Liegen die Momente
     // einer Gruppe enger beieinander, ist ihr Ergebnis WEITER als das, was
     // gerade zu sehen ist, und der Tipp zoomte hinaus.
@@ -86,7 +86,7 @@ export function zoomZiel(gruppe: Gruppe, sichtbar: Ausschnitt): Ausschnitt | nul
   };
 }
 
-// Richtet ein Tipp auf diese Gruppe noch etwas aus — oder gehört ihr das
+// Richtet ein Tipp auf diese Gruppe noch etwas aus, oder gehört ihr das
 // Sheet? Zwei Wege führen zu «nein, das Zoomen ist durch»:
 //
 // - Alle Momente liegen auf exakt derselben Koordinate. Das steht ohne jeden

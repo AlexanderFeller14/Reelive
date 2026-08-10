@@ -1,16 +1,16 @@
 // Zweiter, öffentlicher Leseweg auf einen Recap (Task-5-Brief, Task-2-Brief
 // der Gegenstelle): die Edge Function `share-link`, Aktion `aufloesen`,
-// braucht KEIN JWT. Aufrufweg identisch zu recapApi.ts/urlVorrat.ts —
+// braucht KEIN JWT. Aufrufweg identisch zu recapApi.ts/urlVorrat.ts,
 // supabase.functions.invoke, Fehler kommen entweder als FunctionsHttpError
 // mit deutschem Klartext im JSON-Body, oder als Netzwerkfehler, der über
 // istOffline erkannt wird.
 //
 // W4 (Spec-Versprechen): der Web-Player kann nichts schreiben. Diese Datei
 // ruft AUSSCHLIESSLICH supabase.functions.invoke('share-link', { aktion:
-// 'aufloesen' }) auf — kein .from(), kein .rpc(), kein .auth. Das ist hier
+// 'aufloesen' }) auf, kein .from(), kein .rpc(), kein .auth. Das ist hier
 // per Test belegt (Spione auf dem gesamten Client, siehe shareApi.test.ts),
 // und für den GANZEN Screen zusätzlich statisch über den Modulgraph
-// (mobile/src/app/teilen/__tests__/modulgraph.test.ts) — nicht nur behauptet.
+// (mobile/src/app/teilen/__tests__/modulgraph.test.ts), nicht nur behauptet.
 import { supabase } from '@/lib/supabase';
 import { OFFLINE_HINT, istOffline } from '@/lib/netzfehler';
 
@@ -24,7 +24,7 @@ export type GeteiltesMoment = {
   caption: string | null;
   duration_s: number | null;
   // Koordinaten der Aufnahme (Spec R4/K13, seit Task 13 in der Antwort der
-  // Function). `null` ist der Normalfall und kein Fehler — dieselbe Bedeutung
+  // Function). `null` ist der Normalfall und kein Fehler, dieselbe Bedeutung
   // wie in RecapMoment: ohne erlaubte Ortungsdienste, drinnen oder nach einer
   // Zeitüberschreitung wird der Moment ohne Ort eingesendet.
   lat: number | null;
@@ -39,28 +39,28 @@ export type GeteilterRecap = {
   gueltigBis: number;
   // Momente, für die die Function keine URL herausgeben konnte (kaputtes oder
   // fehlendes Objekt, Signierfehler, Verlust beim Blättern). Sie fehlen in
-  // `medien` — ohne diese Zahl fehlten sie SPURLOS, und die geteilte Seite
+  // `medien`, ohne diese Zahl fehlten sie SPURLOS, und die geteilte Seite
   // behauptete, sie zeige die ganze Reise. Sie steht in der Antwort immer da,
   // auch als 0 (share-link/aufloesung.ts, `baueAufloesungsAntwort`).
   ausgelassen: number;
 };
 
 // Gleiches Muster wie recapApi.ts/urlVorrat.ts/tripsApi.ts: Gelesen<T> ist
-// dort jeweils NICHT exportiert — jede Datei bekommt ihre eigene lokale
+// dort jeweils NICHT exportiert, jede Datei bekommt ihre eigene lokale
 // Definition. `data: GeteilterRecap | null` statt `Gelesen<GeteilterRecap>`
 // (Abweichung vom Interface-Wortlaut im Task-Brief, siehe Bericht): ein
 // abgelehnter/kaputter Token hat keinen sinnvollen "leeren" GeteilterRecap-
-// Wert — dieselbe Form wie tripsApi.fetchTrip (`Gelesen<Trip | null>`), wo
+// Wert, dieselbe Form wie tripsApi.fetchTrip (`Gelesen<Trip | null>`), wo
 // `data === null` bei `error === null` nie vorkommt (hier: `data` ist genau
 // dann `null`, wenn `error` gesetzt ist).
 type Gelesen<T> = { data: T; error: string | null };
 
 // Die Function macht die vier Ablehnungen (unbekannt, widerrufen, abgelaufen,
-// nicht aufgedeckt) laut Vertrag byte-gleich — kein Orakel. Dieser Client
+// nicht aufgedeckt) laut Vertrag byte-gleich, kein Orakel. Dieser Client
 // verstärkt das: er liest den Klartext der Function bei einem Fehler GAR
 // NICHT erst, sondern bildet JEDEN HTTP-Fehler dieser Aktion auf denselben
 // Satz ab, ohne Fallunterscheidung. Nur ein echter Netzwerkausfall (kein
-// Kontakt zur Function) bekommt eine andere Meldung — das ist eine andere
+// Kontakt zur Function) bekommt eine andere Meldung, das ist eine andere
 // Ursache mit einer anderen Lösung ("verbinde dich"), kein Hinweis auf den
 // Token selbst.
 export const LINK_TOT_TEXT = 'Dieser Link funktioniert nicht mehr.';
@@ -68,7 +68,7 @@ const LADEFEHLER = 'Der Recap konnte nicht geladen werden. Probier es gleich noc
 
 // functions-js ersetzt einen echten Netzwerkfehler durch einen festen
 // englischen Satz und legt die ursprüngliche Fetch-Fehlermeldung in
-// `context` ab — beide Stellen müssen geprüft werden (gleiches Muster wie
+// `context` ab, beide Stellen müssen geprüft werden (gleiches Muster wie
 // recapApi.ts/urlVorrat.ts).
 function funktionMeldung(error: unknown, sonst: string): string {
   const err = error as { message?: string; context?: { message?: string } } | null;
@@ -85,7 +85,7 @@ type MedienEintrag = {
   place_name: string | null;
   caption: string | null;
   duration_s: number | null;
-  // Nicht optional, sondern `number | null` — genau so beschreibt es
+  // Nicht optional, sondern `number | null`, genau so beschreibt es
   // `OeffentlicherMoment` in supabase/functions/share-link/aufloesung.ts.
   // Gelesen wird trotzdem defensiv (siehe `zahlOderNull`).
   lat: number | null;
@@ -100,12 +100,12 @@ type AufloeseAntwort = {
   ausgelassen: number;
 };
 
-// Eine Koordinate, die sich rechnen lässt — oder `null`.
+// Eine Koordinate, die sich rechnen lässt, oder `null`.
 //
 // `?? null` reichte hier NICHT, und der Unterschied ist nicht theoretisch: App
 // und Edge Function werden getrennt ausgerollt (derselbe Grund, aus dem
 // `thumb_url` weich gelesen wird). Antwortet eine ältere Function ohne die
-// beiden Felder, ist `m.lat` `undefined` — und `undefined ?? null` ergäbe zwar
+// beiden Felder, ist `m.lat` `undefined`, und `undefined ?? null` ergäbe zwar
 // `null`, aber ein `m.lat` mit einem String oder NaN darin käme ungeprüft
 // durch. `zuKartenPunkten` prüft flussabwärts ausschliesslich auf `=== null`
 // (features/karte/kartenPunkte.ts); alles andere gilt dort als gültige
@@ -164,7 +164,7 @@ export async function loeseTokenAuf(token: string): Promise<Gelesen<GeteilterRec
       // Weich gelesen und NICHT Teil der Formprüfung oben: das Feld ist rein
       // additiv (siehe `baueAufloesungsAntwort`), und eine ältere Function
       // ohne es darf keine tote Seite ergeben. Fehlt es, wird nichts
-      // behauptet — 0 heisst «nichts ausgelassen», und das ist derselbe
+      // behauptet, 0 heisst «nichts ausgelassen», und das ist derselbe
       // Zustand, den es vor diesem Feld überall gab.
       ausgelassen: typeof antwort.ausgelassen === 'number' && Number.isFinite(antwort.ausgelassen)
         ? antwort.ausgelassen

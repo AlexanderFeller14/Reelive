@@ -26,14 +26,14 @@ import { holeVorrat } from '@/features/recap/urlVorrat';
 import { entferneMoment, fetchMeldungen, verwirfMeldung, type Meldung } from '@/features/recap/meldenApi';
 
 // DESIGN-LANGUAGE §5: destruktive Dialoge kündigen sich haptisch an (warning).
-// Sparsam eingesetzt — nur die drei Dialoge dieses Screens. Ein fehlender
+// Sparsam eingesetzt, nur die drei Dialoge dieses Screens. Ein fehlender
 // Vibrationsmotor (Simulator, Web) darf den Dialog nie aufhalten, deshalb wird
 // das Versprechen bewusst verworfen statt abgewartet.
 function warnhaptik() {
   void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
 }
 
-// Task 10: die dezente Zeile unter dem Zähler — nur sichtbar, solange die
+// Task 10: die dezente Zeile unter dem Zähler, nur sichtbar, solange die
 // Warteschlange für diese Reise nicht leer ist (siehe Render-Guard unten).
 function wartendText(anzahl: number): string {
   return `${anzahl} ${anzahl === 1 ? 'Moment ist' : 'Momente sind'} noch unterwegs.`;
@@ -41,10 +41,10 @@ function wartendText(anzahl: number): string {
 
 // Final-Review, Important 9: Spec §8 verspricht, ein nach dem Reveal
 // aufgenommener Moment werde «mit Erklärung verworfen». Bis zur Fix-Welle
-// löschte der Worker den Job und schrieb eine Konsolenzeile — die betroffene
+// löschte der Worker den Job und schrieb eine Konsolenzeile, die betroffene
 // Person erfuhr nie, dass ihre Aufnahme weg ist. Hier ist die Erklärung: neben
 // dem Zähler und der Warten-Zeile, also dort, wo der Upload-Zustand dieser
-// Reise ohnehin steht (Spec §7). Sie bleibt stehen, bis sie quittiert wird —
+// Reise ohnehin steht (Spec §7). Sie bleibt stehen, bis sie quittiert wird,
 // eine Meldung, die von selbst verschwindet, ist keine Erklärung.
 // Feste Referenz statt eines jedes Mal neuen Literals: `laden()` läuft bei
 // jedem Fokussieren, und ein neues Array würde setVerworfen() jedes Mal einen
@@ -55,7 +55,7 @@ function verworfenTitel(anzahl: number): string {
   return anzahl === 1 ? 'Ein Moment konnte nicht mehr eingesendet werden' : `${anzahl} Momente konnten nicht mehr eingesendet werden`;
 }
 
-// Review Important 1: die Zahl bleibt im Singular NICHT stehen — anders als bei
+// Review Important 1: die Zahl bleibt im Singular NICHT stehen, anders als bei
 // wartendText oben («1 Moment ist …») folgt diese Zeile der Konvention von
 // verworfenTitel(1) («Ein Moment …») weiter oben in dieser Datei: «Dein 1
 // wartender Moment» ist grammatisch schief, «Dein wartender Moment» nicht.
@@ -73,7 +73,7 @@ function meldungenText(anzahl: number): string {
   return anzahl === 1 ? 'Ein gemeldeter Moment' : `${anzahl} gemeldete Momente`;
 }
 
-// Zeitpunkt DER MELDUNG (reports.created_at), in Gerätezeit — anders als
+// Zeitpunkt DER MELDUNG (reports.created_at), in Gerätezeit, anders als
 // player.tsx/zeitInZone geht es hier nicht um den Moment selbst (dessen
 // captured_tz), sondern darum, WANN die Owner-Person meldete. Ein
 // unparsbarer Wert zeigt lieber nichts als abzustürzen (gleiches
@@ -92,7 +92,7 @@ function formatMeldezeit(iso: string): string {
 
 // Eine Zeile der Moderationsliste: Vorschaubild, Grund, Zeitpunkt (Brief,
 // wörtlich), dazu die zwei Aktionen. `laeuft` deckt BEIDE Aktionen ab (eine
-// laufende Anfrage für diese Meldung, gleich welche) — ersetzt die
+// laufende Anfrage für diese Meldung, gleich welche), ersetzt die
 // Aktionsreihe durch einen einzigen Ladeindikator, statt zu raten, welcher
 // der beiden Knöpfe ihn zeigen sollte.
 function MeldungZeile({
@@ -155,14 +155,14 @@ export default function ReiseDetail() {
   // Gleiche Dreiteilung wie in der Liste, [id]/einladen.tsx und join/[code].tsx:
   // `geladen` trennt «lädt noch» von «fertig», `fehler` trennt «nicht geladen»
   // von «gibt es nicht mehr». Ohne diese Trennung blieb bei einem Lesefehler
-  // ein leerer weisser Screen ohne Erklärung und ohne Rückweg stehen — der
+  // ein leerer weisser Screen ohne Erklärung und ohne Rückweg stehen, der
   // Stack hat keinen Header.
   const [geladen, setGeladen] = useState(false);
   const [fehler, setFehler] = useState<string | null>(null);
   const [mitgliederFehler, setMitgliederFehler] = useState<string | null>(null);
   const [laedt, setLaedt] = useState(false);
   // Task 10: der grosse Zähler zählt künftig den Serverstand PLUS wartende
-  // Momente derselben Reise (eigenerZaehler statt trip.my_post_count) — sonst
+  // Momente derselben Reise (eigenerZaehler statt trip.my_post_count), sonst
   // bliebe er nach einer Offline-Aufnahme stehen. `wartend` zählt separat nur
   // die Warteschlange dieser Reise, für die dezente Zeile darunter.
   const [zaehler, setZaehler] = useState(0);
@@ -171,7 +171,7 @@ export default function ReiseDetail() {
   // Task 8, Phase 6: Melden und Moderation. `meldungenAnzahl` ist ein weicher
   // Beiwert wie `zaehler`/`wartend` oben (RLS filtert für Nicht-Owner-Personen
   // ohnehin auf null Zeilen, ein Fehler hier degradiert still auf 0 statt den
-  // ganzen Screen zu blockieren — siehe laden()). Die eigentliche Liste
+  // ganzen Screen zu blockieren, siehe laden()). Die eigentliche Liste
   // (`meldungen`) lädt ERST beim Öffnen des Sheets, mit eigenem Fehlerzustand,
   // gleiches Prinzip wie TeilenSheetInhalt.
   const [meldungenAnzahl, setMeldungenAnzahl] = useState(0);
@@ -181,54 +181,54 @@ export default function ReiseDetail() {
   const [meldungen, setMeldungen] = useState<Meldung[]>([]);
   // post_id -> Vorschau-URL (Thumbnail aus demselben Vorrat wie der Player,
   // holeVorrat/media-urls). `null` heisst "kein Thumbnail vorhanden", nicht
-  // "noch nicht geladen" — die Sheet-Phase trägt das Ladestadium bereits.
+  // "noch nicht geladen", die Sheet-Phase trägt das Ladestadium bereits.
   const [vorschauUrls, setVorschauUrls] = useState<Map<string, string | null>>(new Map());
   // Die report_id der Meldung, für die GERADE eine Aktion läuft (verwerfen
-  // ODER entfernen, gleich welche) — deckt beide Knöpfe der Zeile ab, siehe
+  // ODER entfernen, gleich welche), deckt beide Knöpfe der Zeile ab, siehe
   // MeldungZeile oben.
   const [aktionLaeuftFuer, setAktionLaeuftFuer] = useState<string | null>(null);
   const [aktionFehler, setAktionFehler] = useState<Record<string, string>>({});
   // Task 8: Bestätigungs-Sheet für «Reise abschliessen». revealFehler bleibt
-  // eigens vom Lade-`fehler` oben getrennt — ein gescheiterter Reveal darf den
+  // eigens vom Lade-`fehler` oben getrennt, ein gescheiterter Reveal darf den
   // Screen nicht so behandeln, als wäre die Reise nicht mehr ladbar.
   const [bestaetigenSichtbar, setBestaetigenSichtbar] = useState(false);
   const [revealLaedt, setRevealLaedt] = useState(false);
   const [revealFehler, setRevealFehler] = useState<string | null>(null);
-  // Task 9 — Reveal-Entdeckung (Versprechen V6: der Recap muss ohne Push
+  // Task 9, Reveal-Entdeckung (Versprechen V6: der Recap muss ohne Push
   // erreichbar sein). `laden()` prüft bei jedem Fokussieren selbst, ob die
   // Reise nicht mehr aktiv ist und die Inszenierung für sie schon gezeigt
   // wurde (gesehen.ts, persistiert). `inszenierungSichtbar` steuert nur die
-  // Optik; `revealBereit` schaltet den Primär-Button «Recap starten» frei —
+  // Optik; `revealBereit` schaltet den Primär-Button «Recap starten» frei,
   // getrennt, weil eine schon gesehene Reise `revealBereit` sofort bekommt,
   // eine frische erst NACH der Inszenierung (siehe inszenierungFertig unten).
   const [inszenierungSichtbar, setInszenierungSichtbar] = useState(false);
   const [revealBereit, setRevealBereit] = useState(false);
   // Zwei getrennte Wächter statt einem (Review Important 3 am ursprünglichen
   // einzelnen Ref): `revealPruefungLaeuftRef` schützt nur den Moment WÄHREND
-  // `revealGesehen()` noch aussteht — er verhindert, dass zwei überlappende
+  // `revealGesehen()` noch aussteht, er verhindert, dass zwei überlappende
   // `laden()`-Aufrufe (z. B. ein zweiter durch `entfernen()`, während der
   // erste noch auf AsyncStorage wartet) den Speicher beide gleichzeitig
   // befragen. `revealEntschiedenRef` wird ERST gesetzt, NACHDEM eine
   // Entscheidung tatsächlich angewendet wurde (`setRevealBereit`/
-  // `setInszenierungSichtbar`) — genau DAS, nicht der In-Flight-Zustand, ist
+  // `setInszenierungSichtbar`), genau DAS, nicht der In-Flight-Zustand, ist
   // was künftige `laden()`-Aufrufe von einem erneuten Check abhalten soll.
   //
   // Der ursprüngliche einzelne Ref wurde VOR dem `await revealGesehen(id)`
   // gesetzt (richtig gegen Nebenläufigkeit) und im Abbruchpfad
   // (`if (!aktiv.current) return`) NIE zurückgenommen: verlor der Screen
   // während des AsyncStorage-Lesens den Fokus (Tab-Wechsel, ein `push` auf
-  // `/reise/[id]/einladen` — der Screen bleibt dabei gemountet), blieb er
+  // `/reise/[id]/einladen`, der Screen bleibt dabei gemountet), blieb er
   // für den Rest dieses Mounts auf "true" hängen, ohne dass je `revealBereit`
-  // oder `inszenierungSichtbar` gesetzt worden wäre — eine aufgedeckte Reise
+  // oder `inszenierungSichtbar` gesetzt worden wäre, eine aufgedeckte Reise
   // hätte dann WEDER die Inszenierung NOCH «Recap starten» gezeigt. Mit der
   // Aufteilung bleibt nur `revealPruefungLaeuftRef` (unten wieder auf
-  // `false` gesetzt, sobald `revealGesehen()` zurückkommt — VOR dem
+  // `false` gesetzt, sobald `revealGesehen()` zurückkommt, VOR dem
   // `aktiv`-Check) über den Abbruch hinaus gesetzt; `revealEntschiedenRef`
   // bleibt `false`, ein späterer `laden()`-Aufruf (echtes Refokussieren)
   // versucht es also erneut.
   const revealPruefungLaeuftRef = useRef(false);
   const revealEntschiedenRef = useRef(false);
-  // Schirmt setState nach Blur/Unmount ab — gleiches Muster wie in der
+  // Schirmt setState nach Blur/Unmount ab, gleiches Muster wie in der
   // Listen-Schwesterdatei (reise/index.tsx): jeder Fokus-Zyklus bekommt seinen
   // eigenen Wächter, der beim Verlassen des Screens auf false gesetzt wird, damit
   // eine spät auflösende Ladeoperation keinen State mehr auf einen weggeklickten
@@ -240,7 +240,7 @@ export default function ReiseDetail() {
       fetchTrip(id),
       fetchMembers(id),
       // Anders als fetchTrip/fetchMembers sind eigenerZaehler und
-      // queueDb.alleJobs nicht garantiert werfensicher — sie lesen aus der
+      // queueDb.alleJobs nicht garantiert werfensicher, sie lesen aus der
       // lokalen SQLite-Warteschlange, die bei einer beschädigten Datenbank
       // ablehnen kann (siehe queueDb.ts). Ohne dieses .catch() liesse eine
       // solche Ablehnung das ganze Promise.all scheitern, `geladen` würde
@@ -252,11 +252,11 @@ export default function ReiseDetail() {
       queueDb.alleJobs().catch((): QueueJob[] => []),
       // Gleicher Grund für das .catch() wie oben: eine beschädigte lokale
       // Datenbank darf den Screen nicht leer stehen lassen. Ohne userId gibt
-      // es nichts abzufragen — verworfene Momente gehören immer einer Person.
+      // es nichts abzufragen, verworfene Momente gehören immer einer Person.
       userId
         ? queueDb.verworfene(id, userId).catch(() => KEINE_VERWORFENEN)
         : Promise.resolve(KEINE_VERWORFENEN),
-      // Task 8: ungefiltert nach Owner-Rolle aufgerufen — reports_select_owner
+      // Task 8: ungefiltert nach Owner-Rolle aufgerufen, reports_select_owner
       // (RLS) liefert einer Nicht-Owner-Person ohnehin still null Zeilen,
       // kein Fehler. Der Einstiegspunkt unten rendert nur bei istOwner UND
       // meldungenAnzahl > 0, ein falsch positiver Treffer ist also
@@ -273,16 +273,16 @@ export default function ReiseDetail() {
     setWartend(wartendeAnzahl(jobs.filter((job) => job.trip_id === id)));
     setVerworfen(abgelehnt);
     // Ein Ladefehler degradiert still auf 0 (Beiwert-Prinzip, siehe
-    // Kommentar am State oben) — das offene Moderation-Sheet (falls gerade
+    // Kommentar am State oben), das offene Moderation-Sheet (falls gerade
     // sichtbar) hat seinen EIGENEN, prominenten Fehlerzustand.
     setMeldungenAnzahl(meldungenErgebnis.error ? 0 : meldungenErgebnis.data.length);
     setGeladen(true);
 
-    // Reveal-Entdeckung (V6): keine Benachrichtigung, kein Deep-Link — nur
+    // Reveal-Entdeckung (V6): keine Benachrichtigung, kein Deep-Link, nur
     // die Tatsache, dass diese Reise beim (Wieder-)Öffnen nicht mehr 'active'
     // ist. Das trifft die Owner-Person direkt nach einem erfolgreichen
     // abschliessen() (derselbe laden()-Aufruf, siehe dort) genauso wie jedes
-    // andere Mitglied, das die Reise irgendwann später wieder aufmacht — mit
+    // andere Mitglied, das die Reise irgendwann später wieder aufmacht, mit
     // oder ohne Push.
     if (
       t.data &&
@@ -294,11 +294,11 @@ export default function ReiseDetail() {
       const gesehen = await revealGesehen(id);
       // VOR dem aktiv-Check zurückgesetzt: der In-Flight-Zustand endet hier
       // so oder so, ob der Screen inzwischen den Fokus verloren hat oder
-      // nicht — sonst bliebe er bei einem Abbruch hängen und würde jeden
+      // nicht, sonst bliebe er bei einem Abbruch hängen und würde jeden
       // späteren laden()-Aufruf blockieren (siehe Kommentar bei den Refs).
       revealPruefungLaeuftRef.current = false;
       if (!aktiv.current) return;
-      // Ab hier gilt die Entscheidung als getroffen — erst JETZT, nicht
+      // Ab hier gilt die Entscheidung als getroffen, erst JETZT, nicht
       // schon vor dem await, damit ein Abbruch oben sie erneut versuchen
       // lässt statt sie für den Rest dieses Mounts zu verhindern.
       revealEntschiedenRef.current = true;
@@ -311,7 +311,7 @@ export default function ReiseDetail() {
   }, [id, userId]);
 
   // Läuft, sobald die Inszenierung ihre volle Dauer gespielt hat (siehe
-  // RevealInszenierung — success-Haptik und Timing sind dort schon
+  // RevealInszenierung, success-Haptik und Timing sind dort schon
   // abgesichert). `id` statt `trip?.id`: stabile Referenz, unabhängig davon,
   // ob `trip` zwischen Start und Ende der Animation neu geladen wurde.
   const inszenierungFertig = useCallback(() => {
@@ -323,7 +323,7 @@ export default function ReiseDetail() {
   const zumRecap = () => {
     // Phase-5-Final-Review, Punkt 7: der Cast war eine Übergangslösung, so
     // lange `/recap/[id]/uebersicht` in der generierten (gitignorten)
-    // Routen-Liste fehlte — Task 11 hat die Route angelegt, `tsc` ist ohne
+    // Routen-Liste fehlte, Task 11 hat die Route angelegt, `tsc` ist ohne
     // Cast sauber (siehe dasselbe Muster in recap/[id]/uebersicht.tsx:
     // `zumPlayer`, das exakt diese Begründung schon für `/recap/[id]/player`
     // dokumentiert).
@@ -341,7 +341,7 @@ export default function ReiseDetail() {
 
   // `laedt` hängt am Knopf, nicht am Fokus-Lauf: sichtbares Warten gehört nur
   // dorthin, wo jemand getippt hat. Zurückgesetzt wird es IMMER, auch wenn der
-  // Screen zwischendurch den Fokus verliert — sonst käme der Knopf mit einem
+  // Screen zwischendurch den Fokus verliert, sonst käme der Knopf mit einem
   // toten Spinner und deaktiviert zurück. Ein `aktiv`-Guard ist dafür anders als
   // in `laden` nicht nötig: setState nach Unmount ist seit React 18 folgenlos.
   const nochmal = useCallback(async () => {
@@ -361,7 +361,7 @@ export default function ReiseDetail() {
   );
 
   // Task-8-Brief §Der Reveal ist unumkehrbar: die Function ist idempotent, ein
-  // zweiter Versuch nach einem Fehlschlag ist immer erlaubt — nichts wird
+  // zweiter Versuch nach einem Fehlschlag ist immer erlaubt, nichts wird
   // gesperrt, das Sheet bleibt bedienbar.
   const abschliessenOeffnen = () => {
     setRevealFehler(null);
@@ -387,7 +387,7 @@ export default function ReiseDetail() {
     // Reise neu laden: `trip.status` wechselt danach auf 'revealed', genau die
     // Vorbedingung, die Task 9 (Reveal-Entdeckung) an dieser Stelle prüft, um
     // seine Inszenierung auszulösen. Diese Datei kennt Task 9 noch nicht (er
-    // läuft nach diesem Task) — der Reload ist der Teil davon, der hier hingehört.
+    // läuft nach diesem Task), der Reload ist der Teil davon, der hier hingehört.
     void laden();
   };
 
@@ -471,10 +471,10 @@ export default function ReiseDetail() {
   };
 
   // Task 8, Phase 6: öffnet das Moderations-Sheet und lädt die Liste FRISCH
-  // (nicht den bereits vorhandenen Zähler aus laden() — der könnte veraltet
+  // (nicht den bereits vorhandenen Zähler aus laden(), der könnte veraltet
   // sein, z.B. nachdem eine andere Sitzung längst etwas erledigt hat).
   // holeVorrat liefert die Vorschaubilder über denselben Vorrat wie der
-  // Player (media-urls) — ein Fehlschlag dort ist Beiwerk (leere/graue
+  // Player (media-urls), ein Fehlschlag dort ist Beiwerk (leere/graue
   // Vorschau statt eines blockierenden Fehlers): die eigentliche Liste
   // (Grund, Zeitpunkt, Aktionen) bleibt davon unberührt.
   const moderationOeffnen = () => {
@@ -521,7 +521,7 @@ export default function ReiseDetail() {
   };
 
   // Destruktiv (Alert.alert mit warnhaptik, gleiches Muster wie entfernen/
-  // verlassen/loeschen oben) — anders als «Meldung verwerfen» lässt sich
+  // verlassen/loeschen oben), anders als «Meldung verwerfen» lässt sich
   // dies nicht rückgängig machen: der Moment verschwindet für ALLE
   // Mitreisenden, nicht nur aus der Moderationsliste.
   const momentEntfernen = (meldung: Meldung) => {
@@ -544,7 +544,7 @@ export default function ReiseDetail() {
                 return;
               }
               // reports.post_id -> posts ist ON DELETE CASCADE (siehe
-              // meldenApi.ts) — die Meldung ist serverseitig bereits mit
+              // meldenApi.ts), die Meldung ist serverseitig bereits mit
               // verschwunden. Die Liste hier zieht clientseitig sofort nach.
               setMeldungen((liste) => liste.filter((m) => m.id !== meldung.id));
               setMeldungenAnzahl((n) => Math.max(0, n - 1));
@@ -557,7 +557,7 @@ export default function ReiseDetail() {
 
   return (
     // Fragment statt eines einzelnen Wurzelelements: das Sheet muss als
-    // GESCHWISTER der ScrollView stehen, nicht als deren Kind — innerhalb der
+    // GESCHWISTER der ScrollView stehen, nicht als deren Kind, innerhalb der
     // ScrollView würde sein StyleSheet.absoluteFill sich auf die (potenziell
     // scrollbare, höhere) Inhaltsfläche beziehen statt auf den festen Screen.
     <>
@@ -587,7 +587,7 @@ export default function ReiseDetail() {
             Eure Reise ist zu Ende. Zeit für den Recap.
           </Text>
           {/* Review-Nachtrag zu Task 8 (Important 3/M4 dieser Runde): solange
-              das Sheet offen ist, trägt SEIN «Abschliessen» die Akzentfarbe —
+              das Sheet offen ist, trägt SEIN «Abschliessen» die Akzentfarbe,
               dieser Knopf hier tritt zurück, sonst stünden zwei Akzentflächen
               gleichzeitig im Baum (§7). */}
           <Button
@@ -614,7 +614,7 @@ export default function ReiseDetail() {
             {verworfenTitel(verworfen.length)}
           </Text>
           {/* Der Grund kommt aus der Policy-Ablehnung (postsApi) und ist schon
-              deutscher Klartext nach DESIGN-LANGUAGE §6 — Ursache statt Code. */}
+              deutscher Klartext nach DESIGN-LANGUAGE §6, Ursache statt Code. */}
           {verworfen.map((v) => (
             <Text key={v.id} style={[type.secondary, { color: colors['text-2'] }]}>
               {v.grund}
@@ -625,7 +625,7 @@ export default function ReiseDetail() {
       )}
 
       {/* Task 8, Phase 6: nur für die Owner-Person, nur solange es etwas zu
-          bearbeiten gibt — dieselbe Sichtbarkeitsregel wie verworfenBox
+          bearbeiten gibt, dieselbe Sichtbarkeitsregel wie verworfenBox
           oben (kein leerer Hinweis über nichts). */}
       {istOwner && meldungenAnzahl > 0 && (
         <PressScale
@@ -669,8 +669,8 @@ export default function ReiseDetail() {
       </View>
 
       {/* Review-Entscheidung zu §7 (genau EIN Primär-Button, nicht zwingend
-          GENAU einer): vor dem Enddatum bleibt «Freunde einladen» primär —
-          das ist die Aktion, die eine LAUFENDE Reise wirklich braucht — und
+          GENAU einer): vor dem Enddatum bleibt «Freunde einladen» primär,
+          das ist die Aktion, die eine LAUFENDE Reise wirklich braucht, und
           «Reise abschliessen» steht als Outline unten, ohne zu drängen. Ab
           dem Enddatum (oben) dreht sich das um: «Reise abschliessen» wird
           primär, «Freunde einladen» tritt zurück. So trägt in jedem Zustand
@@ -686,15 +686,15 @@ export default function ReiseDetail() {
           onPress={() => router.push(`/reise/${id}/einladen`)}
         />
       )}
-      {/* Task 9 — der Screen hatte nach dem Reveal bislang KEINEN
+      {/* Task 9, der Screen hatte nach dem Reveal bislang KEINEN
           Primär-Button. `revealBereit` und `laeuft` schliessen sich
           gegenseitig aus (Ersteres setzt status !== 'active' voraus,
-          Letzteres status === 'active') — «Recap starten» ersetzt
+          Letzteres status === 'active'), «Recap starten» ersetzt
           «Freunde einladen» als einzige Akzent-Fläche, statt eine zweite
           hinzuzufügen (§7). Für ALLE Mitglieder sichtbar, nicht nur für die
-          Owner-Person — der Recap gehört der ganzen Gruppe.
+          Owner-Person, der Recap gehört der ganzen Gruppe.
           Review-Nachtrag: ein neuer, schmaler Pfad macht `bestaetigenSichtbar`
-          und `revealBereit` gleichzeitig wahr — ein unabhängiger laden()-Lauf
+          und `revealBereit` gleichzeitig wahr, ein unabhängiger laden()-Lauf
           entdeckt einen Reveal (z. B. von einem zweiten Gerät ausgelöst),
           während DIESES Sheet noch offen steht und niemand es geschlossen
           hat. Auch hier tritt der Screen-Knopf zugunsten des Sheets zurück. */}
@@ -717,11 +717,11 @@ export default function ReiseDetail() {
 
     <Sheet sichtbar={bestaetigenSichtbar} titel="Reise abschliessen?" onSchliessen={abschliessenSchliessen}>
       {/* Review Important 1: «niemand mehr Momente einsenden» war sachlich
-          falsch — posts_insert_member (20260803090300_sealing_rls.sql) lässt
+          falsch, posts_insert_member (20260803090300_sealing_rls.sql) lässt
           Nachzügler mit captured_at <= revealed_at ausdrücklich weiter zu, für
           ALLE Mitglieder, nicht nur den lokalen Warteschlangenstand dieser
           Person. Die Zeile sagt jetzt beides ehrlich: keine NEUEN Momente,
-          aber schon aufgenommene kommen — von allen — noch durch. */}
+          aber schon aufgenommene kommen, von allen, noch durch. */}
       <Text style={[type.body, { color: colors['text-2'] }]}>
         Danach kann niemand mehr neue Momente aufnehmen. Bereits aufgenommene Momente von allen
         kommen noch durch, und alle sehen den Recap. Das lässt sich nicht rückgängig machen.
@@ -762,7 +762,7 @@ export default function ReiseDetail() {
       )}
     </Sheet>
 
-    {/* Wie das Sheet: GESCHWISTER der ScrollView, nicht ihr Kind — ihr
+    {/* Wie das Sheet: GESCHWISTER der ScrollView, nicht ihr Kind, ihr
         StyleSheet.absoluteFill soll den ganzen Bildschirm decken, nicht nur
         die (potenziell höhere, scrollbare) Inhaltsfläche. */}
     <RevealInszenierung sichtbar={inszenierungSichtbar} onFertig={inszenierungFertig} />
@@ -786,10 +786,10 @@ const styles = StyleSheet.create({
     padding: spacing.base,
   },
   moderationListe: { maxHeight: 420 },
-  // borderBottomColor kommt inline aus useTheme() (siehe MeldungZeile) — ein
+  // borderBottomColor kommt inline aus useTheme() (siehe MeldungZeile), ein
   // Hairline-Ton ist ein Farbwert und gehört wie jeder andere Farbwert dieser
   // Codebase nicht fest in ein statisches StyleSheet (DESIGN-LANGUAGE §9:
-  // „Nirgends feste Hex-Werte im Code — alles über Tokens").
+  // „Nirgends feste Hex-Werte im Code, alles über Tokens").
   meldungZeile: { gap: spacing.s, paddingVertical: spacing.base, borderBottomWidth: 1 },
   meldungKopf: { flexDirection: 'row', gap: spacing.m },
   meldungBild: { width: 56, height: 56, borderRadius: radius.control },

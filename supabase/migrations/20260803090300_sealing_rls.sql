@@ -1,7 +1,7 @@
 alter table public.posts enable row level security;
 
 -- DIE Kernregel des Produkts: Lesen erst nach dem Reveal, nur für Mitglieder.
--- Es gibt bewusst KEINE weitere Select-Policy — dadurch liest vor dem Reveal
+-- Es gibt bewusst KEINE weitere Select-Policy, dadurch liest vor dem Reveal
 -- niemand irgendeinen Post, auch der Autor nicht (Spec §4 «Filmrolle»).
 create policy posts_select_revealed_members on public.posts
   for select using (
@@ -47,7 +47,7 @@ revoke update on public.posts from authenticated;
 -- bereits in Task 4). Ohne die folgenden Grants sind obige Policies
 -- unerreichbar: jede Operation scheitert am fehlenden Tabellen-Privileg
 -- ("permission denied for table posts"), bevor RLS überhaupt ausgewertet
--- wird. Diese Grants ändern KEINE Policy-Logik — sie schalten lediglich
+-- wird. Diese Grants ändern KEINE Policy-Logik, sie schalten lediglich
 -- frei, was die Policies oben ohnehin bereits erlauben/einschränken.
 -- Die Policies implizieren genau SELECT, INSERT, DELETE für authenticated;
 -- KEIN UPDATE-Grant (das obige "revoke update" bleibt bewusst wirksam).

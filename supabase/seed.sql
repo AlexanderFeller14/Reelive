@@ -62,7 +62,7 @@ insert into public.profiles (id, username, display_name, created_at) values
 on conflict (id) do nothing;
 
 -- ===========================================================================
--- Reisen — je eine pro Status, damit alle Zustände sichtbar sind
+-- Reisen, je eine pro Status, damit alle Zustände sichtbar sind
 -- ===========================================================================
 insert into public.trips (id, name, cover_key, start_date, end_date, status, revealed_at, invite_code, owner_id, plan, created_at) values
   -- Läuft gerade (heute ist der 06.08.2026): versiegelt, niemand sieht die Momente.
@@ -95,19 +95,19 @@ insert into public.trip_members (trip_id, user_id, role, joined_at) values
 on conflict (trip_id, user_id) do nothing;
 
 -- ===========================================================================
--- Momente — sortiert IMMER nach captured_at (Gerätezeit), nie nach Upload
+-- Momente, sortiert IMMER nach captured_at (Gerätezeit), nie nach Upload
 -- ===========================================================================
 -- storage_key/thumb_key zeigen auf Objekte, die im Speicher nicht liegen: Der
 -- Seed legt Zeilen an, er lädt nichts hoch (das tut die App über
 -- supabase/functions/media-urls). Ein GET auf eine daraus abgeleitete Lese-URL
 -- gibt darum 404. upload_status ist trotzdem 'uploaded', wo ein fertiger
--- Upload simuliert werden soll — sonst gäbe es lokal keine aufgedeckte Reise,
+-- Upload simuliert werden soll, sonst gäbe es lokal keine aufgedeckte Reise,
 -- an der sich der Recap überhaupt ansehen lässt.
 --
 -- Feste IDs für ALLE Momente, wie im Kopf dieser Datei angekündigt. Das ist
 -- nicht nur Kosmetik: `posts` hat ausser dem Primärschlüssel keinen
 -- Unique-Constraint, also kann `on conflict do nothing` ohne feste IDs gar
--- nicht greifen — ein zweiter Durchlauf der Datei legte dieselben Momente
+-- nicht greifen, ein zweiter Durchlauf der Datei legte dieselben Momente
 -- einfach noch einmal an. Über `supabase db reset` fällt das nie auf (die DB
 -- ist dann leer), beim direkten Einspielen gegen eine laufende Instanz sofort.
 --
@@ -115,7 +115,7 @@ on conflict (trip_id, user_id) do nothing;
 -- Seed-Daten lesbar bleiben; ans echte Ablageschema zieht sie das UPDATE am
 -- Ende dieses Abschnitts. Warum das nötig ist, steht dort.
 
--- Norwegen (versiegelt) — bewusst durcheinander eingesendet, damit auffällt,
+-- Norwegen (versiegelt), bewusst durcheinander eingesendet, damit auffällt,
 -- wenn irgendwo nach created_at statt nach captured_at sortiert wird.
 insert into public.posts (id, trip_id, author_id, type, media_ext, storage_key, thumb_key, duration_s, caption, captured_at, captured_tz, lat, lng, place_name, upload_status, created_at) values
   ('cccccccc-0000-4000-8000-000000000001', 'aaaaaaaa-0000-4000-8000-000000000001', '11111111-1111-4111-8111-111111111111', 'photo', 'jpg', 'trips/norwegen/001.jpg', 'trips/norwegen/001_t.jpg', null, 'Fähre ablegt, Regen von der Seite', '2026-08-01 07:12:00+02', 'Europe/Oslo', 59.9139, 10.7522, 'Oslo', 'uploaded', '2026-08-01 09:40:00+02'),
@@ -134,7 +134,7 @@ insert into public.posts (id, trip_id, author_id, type, media_ext, storage_key, 
   ('cccccccc-0000-4000-8000-000000000013', 'aaaaaaaa-0000-4000-8000-000000000001', '55555555-5555-4555-8555-555555555555', 'photo', 'jpg', 'trips/norwegen/013.jpg', null, null, 'Frühstück am Wasser', '2026-08-06 08:30:00+02', 'Europe/Oslo', 63.4305, 10.3951, 'Trondheim', 'pending', '2026-08-06 08:33:00+02')
 on conflict do nothing;
 
--- Lissabon (revealed) — feste IDs, weil Reaktionen und Kommentare daran hängen
+-- Lissabon (revealed), feste IDs, weil Reaktionen und Kommentare daran hängen
 insert into public.posts (id, trip_id, author_id, type, media_ext, storage_key, thumb_key, duration_s, caption, captured_at, captured_tz, lat, lng, place_name, upload_status, created_at) values
   ('bbbbbbbb-0000-4000-8000-000000000001', 'aaaaaaaa-0000-4000-8000-000000000002', '33333333-3333-4333-8333-333333333333', 'photo', 'jpg', 'trips/lissabon/001.jpg', 'trips/lissabon/001_t.jpg', null, 'Angekommen, 28 Grad im Mai', '2026-05-08 14:20:00+01', 'Europe/Lisbon', 38.7223, -9.1393, 'Lissabon', 'uploaded', '2026-05-08 14:25:00+01'),
   ('bbbbbbbb-0000-4000-8000-000000000002', 'aaaaaaaa-0000-4000-8000-000000000002', '11111111-1111-4111-8111-111111111111', 'photo', 'jpg', 'trips/lissabon/002.jpg', 'trips/lissabon/002_t.jpg', null, 'Tram 28, wir stehen', '2026-05-08 17:45:00+01', 'Europe/Lisbon', 38.7115, -9.1354, 'Alfama', 'uploaded', '2026-05-08 21:03:00+01'),
@@ -150,7 +150,7 @@ insert into public.posts (id, trip_id, author_id, type, media_ext, storage_key, 
   ('bbbbbbbb-0000-4000-8000-000000000012', 'aaaaaaaa-0000-4000-8000-000000000002', '44444444-4444-4444-8444-444444444444', 'photo', 'jpg', 'trips/lissabon/012.jpg', 'trips/lissabon/012_t.jpg', null, 'Abflug, Sand noch in den Schuhen', '2026-05-12 11:25:00+01', 'Europe/Lisbon', 38.7756, -9.1354, 'Aeroporto de Lisboa', 'uploaded', '2026-05-12 11:30:00+01'),
   -- Momente ohne Ort (Phase 7, Task 1): ortBestimmen() liefert null, wenn
   -- Ortungsdienste fehlen, drinnen kein Fix zustandekommt oder die Frist
-  -- abläuft — die Karte muss auch mit lat/lng = null zurechtkommen.
+  -- abläuft, die Karte muss auch mit lat/lng = null zurechtkommen.
   ('bbbbbbbb-0000-4000-8000-000000000013', 'aaaaaaaa-0000-4000-8000-000000000002', '11111111-1111-4111-8111-111111111111', 'photo', 'jpg', 'trips/lissabon/013.jpg', 'trips/lissabon/013_t.jpg', null, 'Im Museum, kein Empfang', '2026-05-09 15:20:00+01', 'Europe/Lisbon', null, null, null, 'uploaded', '2026-05-09 15:25:00+01'),
   ('bbbbbbbb-0000-4000-8000-000000000014', 'aaaaaaaa-0000-4000-8000-000000000002', '33333333-3333-4333-8333-333333333333', 'photo', 'jpg', 'trips/lissabon/014.jpg', 'trips/lissabon/014_t.jpg', null, null, '2026-05-10 21:40:00+01', 'Europe/Lisbon', null, null, null, 'uploaded', '2026-05-10 21:44:00+01'),
   ('bbbbbbbb-0000-4000-8000-000000000015', 'aaaaaaaa-0000-4000-8000-000000000002', '44444444-4444-4444-8444-444444444444', 'video', 'mp4', 'trips/lissabon/015.mp4', 'trips/lissabon/015_t.jpg', 9.3, 'U-Bahn, Signal weg', '2026-05-11 19:05:00+01', 'Europe/Lisbon', null, null, null, 'uploaded', '2026-05-11 19:10:00+01')
@@ -168,18 +168,18 @@ on conflict do nothing;
 -- ---------------------------------------------------------------------------
 -- Schlüssel ans echte Ablageschema ziehen
 -- ---------------------------------------------------------------------------
--- Das echte Schema ist 'trips/<trip_id>/<post_id>.<ext>' bzw. '…_t.jpg' —
+-- Das echte Schema ist 'trips/<trip_id>/<post_id>.<ext>' bzw. '…_t.jpg',
 -- siehe supabase/functions/media-urls/keys.ts, dieselbe Ableitung, die `sign`,
 -- `confirm` und seit Phase 5 auch `lesen` benutzen. `lesen` leitet den Pfad
 -- selbst ab und lässt jeden Moment aus, dessen gespeicherter storage_key
 -- abweicht (sonst stellte es URLs auf Objekte aus, die es nie geben kann).
 -- Mit den sprechenden Pfaden von oben wäre die Lissabon-Filmrolle im Recap
--- also schlicht leer, und jeder Aufruf schriebe zwölf Fehlerzeilen ins Log —
+-- also schlicht leer, und jeder Aufruf schriebe zwölf Fehlerzeilen ins Log,
 -- die lokale Verifikation von Phase 5 liefe ins Leere und der Stolperdraht der
 -- Function wäre wertlos, weil er im Normalbetrieb dauernd schrillt.
 --
 -- Die Bytes fehlen im Bucket weiterhin (Seed lädt nichts hoch): ein GET auf
--- eine dieser URLs gibt 404. Das ist unverändert und in Ordnung — es geht hier
+-- eine dieser URLs gibt 404. Das ist unverändert und in Ordnung, es geht hier
 -- um den Pfad, nicht um den Inhalt.
 update public.posts set
   storage_key = 'trips/' || trip_id || '/' || id || '.'
@@ -195,7 +195,7 @@ where trip_id in (
 );
 
 -- ===========================================================================
--- Reaktionen & Kommentare — nur auf einer aufgedeckten Reise möglich
+-- Reaktionen & Kommentare, nur auf einer aufgedeckten Reise möglich
 -- ===========================================================================
 insert into public.reactions (post_id, user_id, emoji, created_at) values
   ('bbbbbbbb-0000-4000-8000-000000000004', '33333333-3333-4333-8333-333333333333', '😍', '2026-05-13 19:22:00+02'),

@@ -9,13 +9,13 @@ const mockPush = jest.fn();
 // Die Vorfassung rief den Callback bei JEDEM Rendern auf (wie in
 // reise/__tests__/liste.test.tsx). Das ging nur so lange gut, wie `laden()`
 // bei gleichbleibendem Ergebnis dieselbe Array-Referenz zurücksetzte und
-// React deshalb aus dem Rendern ausstieg — sobald der Ladeweg eine neue Liste
+// React deshalb aus dem Rendern ausstieg, sobald der Ladeweg eine neue Liste
 // erzeugt (etwa den aus dem Speicher geparsten Bestand, Critical 1), dreht
 // sich das endlos. Ein Effekt mit Abhängigkeiten bildet das echte Verhalten
 // ohnehin näher ab: einmal beim Fokussieren, nicht bei jedem Rendern.
 //
 // `mockFokusStand`/`mockFokusHoerer` machen ein erneutes Fokussieren
-// auslösbar (siehe erneutFokussieren) — Voraussetzung dafür, dass sich der
+// auslösbar (siehe erneutFokussieren), Voraussetzung dafür, dass sich der
 // Zähler-Nachzug beim Zurückkehren aus der Vorschau überhaupt prüfen lässt.
 const mockFokusHoerer = new Set<(stand: number) => void>();
 let mockFokusStand = 0;
@@ -48,7 +48,7 @@ async function erneutFokussieren() {
 jest.mock('@/features/trips/tripsApi', () => ({ fetchTrips: jest.fn() }));
 
 // Der lokale Reise-Bestand (Final-Review, Critical 1) wird hier NICHT gemockt,
-// sondern echt benutzt — nur AsyncStorage darunter ist ein Doppelgänger. So
+// sondern echt benutzt, nur AsyncStorage darunter ist ein Doppelgänger. So
 // prüft der Offline-Test wirklich den Weg «erfolgreicher Abruf schreibt fort →
 // gescheiterter Abruf greift darauf zurück», statt einen Mock zu befragen.
 const mockSpeicher = new Map<string, string>();
@@ -64,7 +64,7 @@ jest.mock('@/features/auth/AuthProvider', () => ({ useAuth: () => mockAuth }));
 
 // Task 10 (Nachzug aus Task 9): der Zähler in der Kopf-Pille kommt aus
 // eigenerZaehler (Serverstand + wartende Momente derselben Reise), nicht
-// mehr aus reise.my_post_count — sonst bewegt er sich nach einer Offline-
+// mehr aus reise.my_post_count, sonst bewegt er sich nach einer Offline-
 // Aufnahme nicht (Spec §7). Default 0, einzelne Tests überschreiben mit
 // mockResolvedValueOnce passend zum jeweiligen Trip-Fixture.
 const mockEigenerZaehler = jest.fn(async (_tripId: string) => 0);
@@ -92,7 +92,7 @@ const mockRequestCameraPermission = jest.fn();
 const mockRequestMicPermission = jest.fn();
 
 // Merkt sich die zuletzt gerenderten Props, damit sich prüfen lässt, was die
-// Kamera tatsächlich bekommt (Richtung, Blitz) — Important 7.
+// Kamera tatsächlich bekommt (Richtung, Blitz), Important 7.
 const mockCameraProps = jest.fn();
 jest.mock('expo-camera', () => {
   const ReactActual = require('react');
@@ -134,7 +134,7 @@ beforeEach(() => {
   mockSpeicher.clear();
   mockAuth.userId = 'u1';
   // jest.clearAllMocks() setzt nur die Aufruf-Historie zurück, NICHT eine per
-  // mockResolvedValue gesetzte Implementierung — sonst sickerte sie in jeden
+  // mockResolvedValue gesetzte Implementierung, sonst sickerte sie in jeden
   // folgenden Test durch (gleiche Falle wie in uploadWorker.test.ts).
   mockEigenerZaehler.mockImplementation(async () => 0);
   mockCameraPermission = GEWAEHRT;
@@ -162,13 +162,13 @@ test('sind alle Reisen bereits versiegelt, gilt das ebenfalls als „keine laufe
 
 // Final-Review, Critical 1: DIESER Test behauptete bis zur Fix-Welle das
 // Falsche. Er schrieb fest, dass ein Ladefehler die Kamera durch eine
-// Fehlerseite ersetzt — und damit, dass «Aufnehmen funktioniert vollständig
+// Fehlerseite ersetzt, und damit, dass «Aufnehmen funktioniert vollständig
 // offline» (Spec §1) an seinem allerersten Screen bricht. Die Fehlerseite
 // gehört nur noch dorthin, wo es auch nichts Vorgehaltenes gibt.
 test('ohne je geladenen Bestand zeigt ein Ladefehler die Ursache mit einer Wiederholen-Möglichkeit', async () => {
-  (fetchTrips as jest.Mock).mockResolvedValue({ data: [], error: 'Offline — ohne Netz keine aktuellen Daten.', zaehlerFehler: 'Offline' });
+  (fetchTrips as jest.Mock).mockResolvedValue({ data: [], error: 'Offline, ohne Netz keine aktuellen Daten.', zaehlerFehler: 'Offline' });
   await render(<AufnehmenScreen />);
-  expect(await screen.findByText('Offline — ohne Netz keine aktuellen Daten.')).toBeTruthy();
+  expect(await screen.findByText('Offline, ohne Netz keine aktuellen Daten.')).toBeTruthy();
 
   (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
   await fireEvent.press(screen.getByText('Nochmal versuchen'));
@@ -183,13 +183,13 @@ test('im Flugmodus erscheint der Sucher aus dem vorgehaltenen Bestand statt eine
   await ersteSitzung.unmount();
 
   // Zweiter Lauf ohne Netz: fetchTrips liefert nur noch den Fehler.
-  (fetchTrips as jest.Mock).mockResolvedValue({ data: [], error: 'Offline — ohne Netz keine aktuellen Daten.', zaehlerFehler: 'Offline' });
+  (fetchTrips as jest.Mock).mockResolvedValue({ data: [], error: 'Offline, ohne Netz keine aktuellen Daten.', zaehlerFehler: 'Offline' });
   await render(<AufnehmenScreen />);
 
   expect(await screen.findByLabelText('Auslöser')).toBeTruthy();
   expect(screen.getByText('Norwegen mit dem Camper')).toBeTruthy();
   expect(screen.queryByText('Das hat nicht geklappt')).toBeNull();
-  expect(screen.queryByText('Offline — ohne Netz keine aktuellen Daten.')).toBeNull();
+  expect(screen.queryByText('Offline, ohne Netz keine aktuellen Daten.')).toBeNull();
 });
 
 // Der Bestand gehört zur Person, nicht zum Gerät: sonst sähe B im Flugmodus
@@ -201,15 +201,15 @@ test('der vorgehaltene Bestand einer anderen Person wird nicht angezeigt', async
   await ersteSitzung.unmount();
 
   mockAuth.userId = 'person-b';
-  (fetchTrips as jest.Mock).mockResolvedValue({ data: [], error: 'Offline — ohne Netz keine aktuellen Daten.', zaehlerFehler: 'Offline' });
+  (fetchTrips as jest.Mock).mockResolvedValue({ data: [], error: 'Offline, ohne Netz keine aktuellen Daten.', zaehlerFehler: 'Offline' });
   await render(<AufnehmenScreen />);
 
-  expect(await screen.findByText('Offline — ohne Netz keine aktuellen Daten.')).toBeTruthy();
+  expect(await screen.findByText('Offline, ohne Netz keine aktuellen Daten.')).toBeTruthy();
   expect(screen.queryByText('Norwegen mit dem Camper')).toBeNull();
 });
 
 // Ein vorgehaltener LEERER Bestand ist eine Aussage («du hattest zuletzt keine
-// Reise»), kein fehlender Bestand — er führt auf den Einladungs-Weg, nicht auf
+// Reise»), kein fehlender Bestand, er führt auf den Einladungs-Weg, nicht auf
 // die Fehlerseite.
 test('ein vorgehaltener leerer Bestand führt offline auf «Keine laufende Reise»', async () => {
   (fetchTrips as jest.Mock).mockResolvedValue(geladen([]));
@@ -217,7 +217,7 @@ test('ein vorgehaltener leerer Bestand führt offline auf «Keine laufende Reise
   await screen.findByText('Keine laufende Reise');
   await ersteSitzung.unmount();
 
-  (fetchTrips as jest.Mock).mockResolvedValue({ data: [], error: 'Offline — ohne Netz keine aktuellen Daten.', zaehlerFehler: 'Offline' });
+  (fetchTrips as jest.Mock).mockResolvedValue({ data: [], error: 'Offline, ohne Netz keine aktuellen Daten.', zaehlerFehler: 'Offline' });
   await render(<AufnehmenScreen />);
 
   expect(await screen.findByText('Keine laufende Reise')).toBeTruthy();
@@ -256,7 +256,7 @@ test('bei genau einer laufenden Reise erscheint direkt die Kamera mit Reisename 
   expect(screen.getByLabelText('Auslöser')).toBeTruthy();
 });
 
-// Task 10: der Zähler ist Task 9s eigenerZaehler — er zählt wartende Momente
+// Task 10: der Zähler ist Task 9s eigenerZaehler, er zählt wartende Momente
 // derselben Reise mit, statt beim reinen Serverstand (my_post_count) stehen
 // zu bleiben. Genau das unterscheidet diesen Test vom vorigen.
 test('nach einer Offline-Aufnahme bewegt sich der Zähler nach vorn statt stehen zu bleiben', async () => {
@@ -270,7 +270,7 @@ test('nach einer Offline-Aufnahme bewegt sich der Zähler nach vorn statt stehen
 
 // Final-Review, Important 3: bis zur Fix-Welle wirkte der Zähler nur deshalb
 // richtig, weil preview.tsx per replace bei JEDER Aufnahme einen neuen
-// Kamera-Screen erzeugte — der Effekt lief also zwangsläufig neu. Sobald die
+// Kamera-Screen erzeugte, der Effekt lief also zwangsläufig neu. Sobald die
 // Vorschau sauber vom Stapel genommen wird, bleibt derselbe Screen stehen und
 // der Abruf MUSS am Fokussieren hängen, sonst friert die Zahl für die ganze
 // Sitzung ein (die Regression, für die es Task 10 gab).
@@ -289,7 +289,7 @@ test('nach der Rückkehr aus der Vorschau zieht der Zähler nach, ohne dass der 
 });
 
 // Fix-Runde 1: eigenerZaehler kann ablehnen (kaputte lokale Warteschlange).
-// Ohne .catch() an dieser Stelle bliebe eine unbehandelte Ablehnung stehen —
+// Ohne .catch() an dieser Stelle bliebe eine unbehandelte Ablehnung stehen,
 // der Screen soll stattdessen einfach beim my_post_count-Fallback bleiben.
 test('eigenerZaehler schlägt fehl: die Pille zeigt trotzdem den Serverstand, kein Absturz', async () => {
   (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise({ my_post_count: 4 })]));
@@ -338,7 +338,7 @@ test('ein Halten auf dem Auslöser nimmt ein Video auf und navigiert nach dem Lo
 
   await fireEvent(screen.getByLabelText('Auslöser'), 'pressOut');
   expect(mockStopRecording).toHaveBeenCalledTimes(1);
-  // Die Navigation wartet auf das Ergebnis von recordAsync — vor der
+  // Die Navigation wartet auf das Ergebnis von recordAsync, vor der
   // Auflösung darf noch nichts geschehen.
   expect(mockPush).not.toHaveBeenCalled();
 
@@ -353,7 +353,7 @@ test('ein Halten auf dem Auslöser nimmt ein Video auf und navigiert nach dem Lo
 });
 
 // Fix-Runde 1: die Vorfassung behandelte 'undetermined' (weder gefragt noch
-// beantwortet — die Systemabfrage kann gerade laufen) fälschlich wie eine
+// beantwortet, die Systemabfrage kann gerade laufen) fälschlich wie eine
 // Ablehnung, weil `granted: false` bei beiden Zuständen gleich aussieht.
 test('vor der ersten Antwort behauptet der Screen keine fehlende Berechtigung', async () => {
   mockCameraPermission = { status: 'undetermined', granted: false, canAskAgain: true, expires: 'never' };
@@ -361,7 +361,7 @@ test('vor der ersten Antwort behauptet der Screen keine fehlende Berechtigung', 
   (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
   const { rerender } = await render(<AufnehmenScreen />);
   // Erneutes Rendern (statt eines blossen `findByText`, das hier ins Leere
-  // liefe — der Screen bleibt in diesem Zustand bewusst blank) treibt über
+  // liefe, der Screen bleibt in diesem Zustand bewusst blank) treibt über
   // dasselbe `act()` alle bis dahin ausstehenden Mikrotasks durch, u.a. das
   // aufgelöste `fetchTrips()`. Damit ist sichergestellt, dass die Reise
   // wirklich geladen ist und wir den Berechtigungs-Zweig prüfen, nicht bloss
@@ -373,7 +373,7 @@ test('vor der ersten Antwort behauptet der Screen keine fehlende Berechtigung', 
   expect(mockRequestCameraPermission).toHaveBeenCalled();
   expect(mockRequestMicPermission).toHaveBeenCalled();
 
-  // Gegenprobe: sobald die Antwort da ist (granted), erscheint der Sucher —
+  // Gegenprobe: sobald die Antwort da ist (granted), erscheint der Sucher,
   // der Screen blockiert nicht dauerhaft, er wartet nur wirklich.
   mockCameraPermission = GEWAEHRT;
   mockMicPermission = GEWAEHRT;
@@ -418,7 +418,7 @@ test('der Blitz lässt sich ein- und ausschalten und benennt beim Namen, was pas
   expect(letzteKameraProps().flash).toBe('off');
 });
 
-// Beim Video greift `flash` nicht — dort braucht es das Dauerlicht. Derselbe
+// Beim Video greift `flash` nicht, dort braucht es das Dauerlicht. Derselbe
 // Schalter, zwei Prop-Namen.
 test('bei eingeschaltetem Blitz läuft im Video-Modus das Dauerlicht', async () => {
   (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
@@ -441,7 +441,7 @@ test('bei eingeschaltetem Blitz läuft im Video-Modus das Dauerlicht', async () 
 
 // Re-Review, Minor 1: die Steuerung sitzt rechts oben auf derselben Höhe wie
 // die Kopf-Pille. Vor der Ergänzung war rechts nichts zu überdecken, seither
-// schon — ein langer Reisename lief unter die Bedienelemente. Begrenzt wird
+// schon, ein langer Reisename lief unter die Bedienelemente. Begrenzt wird
 // die Pille, nicht die Steuerung verschoben.
 test('ein langer Reisename wird gekürzt, statt unter die Bedienelemente zu laufen', async () => {
   (fetchTrips as jest.Mock).mockResolvedValue(
@@ -454,7 +454,7 @@ test('ein langer Reisename wird gekürzt, statt unter die Bedienelemente zu lauf
 });
 
 // Re-Review, Minor 2: die Reisen laden, nur die my_post_counts-rpc scheitert.
-// Dann trägt jede Reise `my_post_count: 0` — und diese Nullen wanderten sowohl
+// Dann trägt jede Reise `my_post_count: 0`, und diese Nullen wanderten sowohl
 // in den Auswahl-Screen als auch in den vorgehaltenen Bestand. Dieselbe Klasse
 // wie Important 6, eine Ebene weiter.
 test('scheitert nur der Zähler-Abruf, greift der zuletzt bekannte Stand statt einer 0', async () => {

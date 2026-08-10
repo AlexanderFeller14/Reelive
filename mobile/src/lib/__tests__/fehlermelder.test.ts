@@ -1,26 +1,26 @@
 // Versprechen W10 (Spec §4, Task-10-Brief): «Ohne Sentry-DSN verhält sich die
-// App exakt wie heute» — kein Init, kein Netz, keine Warnung. Jeder Test lädt
+// App exakt wie heute», kein Init, kein Netz, keine Warnung. Jeder Test lädt
 // das Modul frisch (jest.resetModules() + require()), weil `aktiv` reiner
 // Modulzustand ist (gleiches Muster wie secureSessionStorage.test.ts,
-// "Neustart-Simulation") — sonst würde ein früherer Test mit DSN den
+// "Neustart-Simulation"), sonst würde ein früherer Test mit DSN den
 // Zustand für einen späteren ohne DSN verfälschen.
 const mockInit = jest.fn();
 const mockCaptureException = jest.fn();
 const mockBreadcrumbsIntegration = jest.fn((...a: unknown[]) => ({ name: 'Breadcrumbs', optionen: a[0] }));
 
 // Final-Review Punkt 4: der eigentliche Fix (fehlermelder.ts) ist ein
-// LAZY `require('@sentry/react-native')` statt eines Top-Level-Imports —
+// LAZY `require('@sentry/react-native')` statt eines Top-Level-Imports,
 // das blosse Laden des echten Pakets startet sonst einen internen
 // `setInterval` (AsyncExpiringMap), unabhängig von `init()`. Dieser Mock
 // ERSETZT das Paket komplett, ein Test gegen ihn kann also nicht zeigen, OB
-// das Paket geladen wurde — nur was passiert, wenn es geladen wird. Deshalb
+// das Paket geladen wurde, nur was passiert, wenn es geladen wird. Deshalb
 // dieses Flag: es schlägt genau dann an, wenn Jest die Factory unten
 // tatsächlich ausführt, also wenn irgendein Code `require('@sentry/
-// react-native')` aufruft (egal ob echtes Paket oder — wie hier — sein
+// react-native')` aufruft (egal ob echtes Paket oder, wie hier, sein
 // Mock; `jest.resetModules()` in frischesModul() sorgt dafür, dass die
 // Factory nach jedem Test erneut läuft, sobald das Modul wieder gebraucht
 // wird). Ein zurückgedrehter Top-Level-Import in fehlermelder.ts würde
-// diese Factory schon beim `require('../fehlermelder')` selbst auslösen —
+// diese Factory schon beim `require('../fehlermelder')` selbst auslösen,
 // die Tests unten, die OHNE DSN `sentryModulGeladen === false` verlangen,
 // würden das aufdecken.
 let sentryModulGeladen = false;
@@ -63,7 +63,7 @@ describe('ohne EXPO_PUBLIC_SENTRY_DSN: vollständiger No-Op', () => {
     expect(mockInit).not.toHaveBeenCalled();
   });
 
-  test('meldeFehler() ruft Sentry.captureException nie auf — auch nach initFehlermelder()', () => {
+  test('meldeFehler() ruft Sentry.captureException nie auf, auch nach initFehlermelder()', () => {
     const { initFehlermelder, meldeFehler } = frischesModul();
     initFehlermelder();
     meldeFehler(new Error('kaputt'), { screen: 'recap' });
@@ -89,11 +89,11 @@ describe('ohne EXPO_PUBLIC_SENTRY_DSN: vollständiger No-Op', () => {
   });
 
   // Final-Review Punkt 4, der eigentliche Wächter: ohne DSN darf
-  // `@sentry/react-native` gar nicht erst REQUIRE'T werden — nicht nur
+  // `@sentry/react-native` gar nicht erst REQUIRE'T werden, nicht nur
   // "unbenutzt bleiben". Ein zurückgedrehter Top-Level-Import würde
   // `sentryModulGeladen` schon durch das blosse `require('../fehlermelder')`
   // in frischesModul() auf true setzen, lange bevor initFehlermelder()
-  // überhaupt läuft — diese Assertion würde das aufdecken, wo die drei
+  // überhaupt läuft, diese Assertion würde das aufdecken, wo die drei
   // Tests oben (die nur Sentry-Aufrufe/Konsole prüfen) es nicht könnten.
   test('@sentry/react-native wird nie geladen (Modul-Guard)', () => {
     const { initFehlermelder, meldeFehler } = frischesModul();
@@ -109,13 +109,13 @@ describe('mit EXPO_PUBLIC_SENTRY_DSN gesetzt', () => {
     process.env[DSN_KEY] = 'https://beispiel@o0.ingest.sentry.io/1';
   });
 
-  test('initFehlermelder() initialisiert genau einmal — auch bei mehrfachem Aufruf', () => {
+  test('initFehlermelder() initialisiert genau einmal, auch bei mehrfachem Aufruf', () => {
     const { initFehlermelder } = frischesModul();
     initFehlermelder();
     initFehlermelder();
     initFehlermelder();
     expect(mockInit).toHaveBeenCalledTimes(1);
-    // `dsn` exakt geprüft, `integrations` nur auf "ist eine Funktion" — der
+    // `dsn` exakt geprüft, `integrations` nur auf "ist eine Funktion", der
     // eigentliche Inhalt (Breadcrumbs-Härtung) hat einen eigenen Test unten.
     expect(mockInit).toHaveBeenCalledWith({
       dsn: 'https://beispiel@o0.ingest.sentry.io/1',
@@ -124,7 +124,7 @@ describe('mit EXPO_PUBLIC_SENTRY_DSN gesetzt', () => {
   });
 
   // Final-Review Punkt 4, Gegenprobe zum Modul-Guard oben: mit DSN MUSS das
-  // Paket geladen werden — sonst wäre der Guard nur eine Konstante, die
+  // Paket geladen werden, sonst wäre der Guard nur eine Konstante, die
   // immer `false` liefert, egal was passiert.
   test('initFehlermelder() lädt @sentry/react-native tatsächlich', () => {
     const { initFehlermelder } = frischesModul();
@@ -134,7 +134,7 @@ describe('mit EXPO_PUBLIC_SENTRY_DSN gesetzt', () => {
   });
 
   // Final-Review Punkt 3: `init({ dsn })` allein würde mit ALLEN
-  // Default-Integrationen laufen — darunter `breadcrumbsIntegration` mit
+  // Default-Integrationen laufen, darunter `breadcrumbsIntegration` mit
   // `console: true, xhr: true` (signierte Medien-URLs, Konsolen-Inhalte).
   // Dieser Test prüft die tatsächliche Ersetzung: die an `Sentry.init`
   // übergebene `integrations`-Funktion muss GENAU den Eintrag namens

@@ -17,7 +17,7 @@ export default function RecapListe() {
   const [trips, setTrips] = useState<Trip[]>([]);
   // Gleiche Dreiteilung wie reise/index.tsx: `geladen` trennt «lädt noch» von
   // «fertig», `fehler` trennt «fertig, aber nichts bekommen» von «fertig und
-  // wirklich leer» — sonst behauptete ein Ladefehler «Noch kein Recap», eine
+  // wirklich leer», sonst behauptete ein Ladefehler «Noch kein Recap», eine
   // falsche Aussage über die Daten der Person (DESIGN-LANGUAGE §6).
   const [geladen, setGeladen] = useState(false);
   const [fehler, setFehler] = useState<string | null>(null);
@@ -53,7 +53,7 @@ export default function RecapListe() {
   );
 
   // Dieselbe Filterung wie in reise/index.tsx, dort schon als groupTrips
-  // gebaut — keine zweite, gleichlautende Funktion für dasselbe Kriterium
+  // gebaut, keine zweite, gleichlautende Funktion für dasselbe Kriterium
   // (Review Task 10, Kleinigkeit).
   const { recaps } = groupTrips(trips);
   const leer = geladen && !fehler && recaps.length === 0;

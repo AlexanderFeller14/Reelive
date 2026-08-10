@@ -35,7 +35,7 @@ export default function ReiseBearbeiten() {
     setGeladen(false);
     void fetchTrip(id).then(({ data, error }) => {
       if (!aktiv) return;
-      // Vorher blieb das Formular bei einem Lesefehler einfach leer stehen —
+      // Vorher blieb das Formular bei einem Lesefehler einfach leer stehen,
       // es sah aus wie eine Reise ohne Namen und ohne Daten, also wie ein
       // Zustand der Daten statt wie ein Fehler beim Lesen. Jetzt sagt der
       // Screen, was los ist, und bietet den einen sinnvollen Schritt an.

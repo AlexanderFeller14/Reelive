@@ -8,7 +8,7 @@ import { cinema, radius } from '@/theme/tokens';
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
 // Snapchat-Muster (Produktkonzept): Tippen = Foto, Halten = Video. Die
-// Schwelle entscheidet, wann aus einem Druck ein Video wird — kurz genug, um
+// Schwelle entscheidet, wann aus einem Druck ein Video wird, kurz genug, um
 // sich nicht wie eine Verzögerung anzufühlen, lang genug, um ein normales
 // Tippen nicht versehentlich als Halten zu werten.
 const HALTE_SCHWELLE_MS = 500;
@@ -24,17 +24,17 @@ const UMFANG = 2 * Math.PI * RING_RADIUS;
 // `transform` noch `opacity`, und läuft JS-getrieben (`useNativeDriver:
 // false`), nicht auf dem UI-Thread.
 //
-// Wichtig — Klarstellung zur ursprünglich falschen Begründung: Die
+// Wichtig, Klarstellung zur ursprünglich falschen Begründung: Die
 // „linear ist verboten, ausser bei Fortschritt, der reale Zeit abbildet"-
 // Ausnahme in §5 betrifft NUR die Beschleunigungskurve (linear vs.
 // ease-smooth), nicht die animierte Eigenschaft. Sie deckt diesen Fall also
-// NICHT automatisch ab — das war ein Fehlschluss im ersten Anlauf.
+// NICHT automatisch ab, das war ein Fehlschluss im ersten Anlauf.
 //
 // Eigenständige Begründung für die Ausnahme: Ein füllender Kreisring lässt
 // sich mit reinem `transform`/`opacity` nur über zwei unabhängig rotierende
 // Halbkreis-Masken nachbilden (das Standardmuster hinter z.B.
 // react-native-circular-progress). Diese Geometrie ist in diesem Sandbox-
-// Environment ohne Simulator/Screenshot nicht visuell verifizierbar — ein
+// Environment ohne Simulator/Screenshot nicht visuell verifizierbar, ein
 // unbemerkter Rotations-/Pivot-Fehler wäre an genau der einen Stelle der App
 // sichtbar, die das Produktkonzept als „Herzstück" bezeichnet. Die
 // SVG-Stroke-Technik ist demgegenüber Industriestandard für Kreis-Fortschritt,
@@ -48,14 +48,14 @@ type Props = {
   onFoto: () => void;
   onVideoStart: () => void;
   onVideoStop: () => void;
-  /** Höchstdauer eines Videos in Sekunden — der Ring stoppt von selbst hier. */
+  /** Höchstdauer eines Videos in Sekunden, der Ring stoppt von selbst hier. */
   maxSekunden: number;
 };
 
 type Phase = 'ruhe' | 'haelt' | 'video';
 
 function leichtesFeedback() {
-  // .catch(): Haptik ist reines Beiwerk (§5) — ein fehlendes/verweigertes
+  // .catch(): Haptik ist reines Beiwerk (§5), ein fehlendes/verweigertes
   // Haptik-Feature darf die Aufnahme selbst nie stören.
   void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
 }
@@ -63,7 +63,7 @@ function leichtesFeedback() {
 // Der Auslöser ist die einzige Stelle im Kamera-Screen mit echter Logik:
 // Tippen gegen Halten unterscheiden und die Aufnahme bei maxSekunden selbst
 // stoppen. Zwei Timer stecken das ab (Schwelle + Höchstdauer) und werden
-// sowohl beim Loslassen als auch beim Unmount aufgeräumt — ein hängender
+// sowohl beim Loslassen als auch beim Unmount aufgeräumt, ein hängender
 // Timer würde nach dem Verlassen des Screens weiter onVideoStart/-Stop feuern.
 export function Ausloeser({ onFoto, onVideoStart, onVideoStop, maxSekunden }: Props) {
   const [nimmtAuf, setNimmtAuf] = useState(false);
@@ -105,7 +105,7 @@ export function Ausloeser({ onFoto, onVideoStart, onVideoStop, maxSekunden }: Pr
       setNimmtAuf(true);
       leichtesFeedback();
       onVideoStart();
-      // Realer Zeitverlauf bis maxSekunden — DESIGN-LANGUAGE §5 erlaubt
+      // Realer Zeitverlauf bis maxSekunden, DESIGN-LANGUAGE §5 erlaubt
       // `linear` ausdrücklich als Ausnahme für die Beschleunigungskurve bei
       // Fortschritt, der reale Zeit abbildet (zur animierten Eigenschaft
       // selbst siehe die Erklärung bei RING_DAUER_EASING oben).
@@ -113,7 +113,7 @@ export function Ausloeser({ onFoto, onVideoStart, onVideoStop, maxSekunden }: Pr
         toValue: 1,
         duration: maxSekunden * 1000,
         easing: RING_DAUER_EASING,
-        useNativeDriver: false, // strokeDashoffset ist kein Transform/Opacity — kann nicht nativ laufen.
+        useNativeDriver: false, // strokeDashoffset ist kein Transform/Opacity, kann nicht nativ laufen.
       }).start();
       hoechstdauerTimer.current = setTimeout(videoStoppen, maxSekunden * 1000);
     }, HALTE_SCHWELLE_MS);
@@ -135,7 +135,7 @@ export function Ausloeser({ onFoto, onVideoStart, onVideoStop, maxSekunden }: Pr
       videoStoppen();
     }
     // phase === 'ruhe': das Video hat sich bereits selbst gestoppt
-    // (Höchstdauer erreicht) — ein verspätetes pressOut löst nichts mehr aus.
+    // (Höchstdauer erreicht), ein verspätetes pressOut löst nichts mehr aus.
   };
 
   const dashOffset = fortschritt.interpolate({ inputRange: [0, 1], outputRange: [UMFANG, 0] });
@@ -192,7 +192,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     backgroundColor: cinema['text-1'],
   },
-  // Beim Aufnehmen zieht sich der Kern zusammen — reine Transform-Änderung
+  // Beim Aufnehmen zieht sich der Kern zusammen, reine Transform-Änderung
   // (DESIGN-LANGUAGE §5), kein Opacity-Dimmen.
   kernAktiv: {
     transform: [{ scale: 0.72 }],

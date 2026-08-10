@@ -1,11 +1,11 @@
 -- ============================================================================
--- push_tokens — Expo-Push-Token je Geräteinstallation, Grundlage für die
+-- push_tokens, Expo-Push-Token je Geräteinstallation, Grundlage für die
 -- Reveal-Benachrichtigung («Euer Recap von … ist bereit!», Phase 5).
 -- ----------------------------------------------------------------------------
 -- Primärschlüssel ist der TOKEN, nicht (user_id, token): dasselbe Gerät kann
 -- den Account wechseln (Abmelden, neu anmelden). Meldet sich danach eine neue
 -- Person auf demselben Gerät an, MUSS die Zeile ihr gehören statt doppelt zu
--- existieren — sonst bekäme die vorige Person weiterhin Pushes für Reisen,
+-- existieren, sonst bekäme die vorige Person weiterhin Pushes für Reisen,
 -- die sie nichts mehr angehen. Der Client schreibt darum immer mit `upsert`
 -- auf `token`.
 -- ============================================================================
@@ -38,11 +38,11 @@ create policy push_tokens_delete_own on public.push_tokens
 -- Postgres verlangt für UPDATE (und damit auch für den UPDATE-Zweig von
 -- INSERT … ON CONFLICT DO UPDATE, den ein `upsert` erzeugt) zusätzlich zur
 -- USING-Klausel der UPDATE-Policy, dass die BESTEHENDE Zeile bereits über
--- eine SELECT-Policy sichtbar ist — das ist dokumentiertes RLS-Kernverhalten,
+-- eine SELECT-Policy sichtbar ist, das ist dokumentiertes RLS-Kernverhalten,
 -- keine Eigenheit dieses Schemas. push_tokens_select_own zeigt einer Person
 -- nur eigene Zeilen; ein Upsert von Ben auf Annas Token bekäme Annas
 -- bestehende Zeile also nie zu Gesicht (0 betroffene Zeilen bei UPDATE,
--- Fehler bei ON CONFLICT DO UPDATE) — unabhängig davon, wie offen
+-- Fehler bei ON CONFLICT DO UPDATE), unabhängig davon, wie offen
 -- push_tokens_update_own formuliert ist. Am laufenden Stack verifiziert,
 -- Details im Task-1-Report.
 --
@@ -51,7 +51,7 @@ create policy push_tokens_delete_own on public.push_tokens
 -- RLS-Policy-Trick, sondern ein SECURITY DEFINER-Trigger: er entfernt VOR dem
 -- Insert gezielt eine fremde Zeile mit demselben Token, falls die neue Zeile
 -- einer anderen Person gehört. Der anschliessende Insert trifft dadurch nie
--- mehr auf einen Konflikt mit einer fremden Zeile — er läuft als normaler,
+-- mehr auf einen Konflikt mit einer fremden Zeile, er läuft als normaler,
 -- durch push_tokens_insert_own gedeckter Insert. Gehört das Token bereits
 -- derselben Person, läuft der gewöhnliche ON-CONFLICT-DO-UPDATE-Zweig unter
 -- den Policies oben (dort passt die SELECT-Sichtbarkeit, weil es die eigene
@@ -84,7 +84,7 @@ grant select, insert, update, delete on public.push_tokens to authenticated;
 -- Ebenso ohne Default-Grant für service_role (20260803090600_role_hardening.sql,
 -- Punkt 1: dieses Image vergibt auch service_role keine Default-DML-Grants).
 -- Die Edge Function reveal-trip (Phase 5, Task 2) liest push_tokens für den
--- Versand und löscht Tokens, deren Ticket "DeviceNotRegistered" meldet — ohne
+-- Versand und löscht Tokens, deren Ticket "DeviceNotRegistered" meldet, ohne
 -- dieses Grant scheitert das am fehlenden Tabellen-Privileg, obwohl
 -- service_role RLS ohnehin umgeht (BYPASSRLS ersetzt kein Tabellen-Privileg).
 grant select, insert, update, delete on public.push_tokens to service_role;

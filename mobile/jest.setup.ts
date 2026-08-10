@@ -1,4 +1,4 @@
-// Screen-Tests rendern einzelne Screens, nicht die App — der SafeAreaProvider
+// Screen-Tests rendern einzelne Screens, nicht die App, der SafeAreaProvider
 // aus src/app/_layout.tsx ist dort also nie gemountet, und useSafeAreaInsets
 // wirft ohne ihn. Die Bibliothek liefert genau dafür einen eigenen Mock mit
 // (Insets 0, Frame in iPhone-Grösse); er gilt hier für alle Testdateien,
@@ -8,7 +8,7 @@
 // useOberkante den gestalteten Abstand unverändert durchreicht. Die Rechnung
 // für Geräte MIT Insel steht in src/theme/__tests__/useOberkante.test.tsx,
 // die den Hook direkt mit gesetzten Insets prüft.
-// `.default`, weil der Mock die Bibliothek als Default-Export nachbildet —
+// `.default`, weil der Mock die Bibliothek als Default-Export nachbildet,
 // ohne das kommt beim Testlauf ein { default: … } an und useSafeAreaInsets
 // ist dort keine Funktion.
 jest.mock('react-native-safe-area-context', () =>
@@ -17,7 +17,7 @@ jest.mock('react-native-safe-area-context', () =>
 
 // react-native-maps bringt native Views mit, die im Test-Environment nicht
 // existieren. Der Mock rendert stattdessen schlichte Views mit denselben
-// Props (inkl. testID) und denselben Kindern — genug, um zu pruefen, WELCHE
+// Props (inkl. testID) und denselben Kindern, genug, um zu pruefen, WELCHE
 // Nadeln der Screen setzt und mit welchem Ausschnitt er die Karte oeffnet,
 // ohne eine Karte zu rendern.
 //
@@ -34,7 +34,7 @@ jest.mock('react-native-safe-area-context', () =>
 // `setRegion` ist der Sprung (Reduced Motion, DESIGN-LANGUAGE §5).
 // `setNativeProps` steht hier bewusst NICHT, obwohl MapView die Methode hat:
 // sie reicht an `this.map` weiter, und dieses Ref wird in react-native-maps
-// 1.27.2 an kein Element gehaengt (`ref={this.map}` kommt nirgends vor) —
+// 1.27.2 an kein Element gehaengt (`ref={this.map}` kommt nirgends vor),
 // der Aufruf ist auf dem Geraet ein stiller No-op. Ein Mock, der sie anboete,
 // beglaubigte eine Kamerabewegung, die nie stattfindet: gruener Test, stehende
 // Karte.

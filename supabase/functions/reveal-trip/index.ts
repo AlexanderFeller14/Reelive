@@ -1,9 +1,9 @@
 // Setup type definitions for built-in Supabase Runtime APIs
 import '@supabase/functions-js/edge-runtime.d.ts';
 
-// reveal-trip — die EINZIGE Stelle, an der eine Reise je ihren Status
+// reveal-trip, die EINZIGE Stelle, an der eine Reise je ihren Status
 // wechselt. `authenticated` hat auf `trips.status`/`revealed_at` gar kein
-// Spalten-Grant (supabase/migrations/20260803090200_membership_rls.sql) —
+// Spalten-Grant (supabase/migrations/20260803090200_membership_rls.sql),
 // diese Function ist deshalb kein zusätzlicher Weg neben einem Client-Update,
 // sondern der einzige, der existiert.
 //
@@ -16,12 +16,12 @@ import '@supabase/functions-js/edge-runtime.d.ts';
 //   - reveal.ts: die reine Entscheidungs- und Versandlogik (Owner-Check,
 //     idempotente Antwort, Archiv-Konflikt, CAS-Update, Push nur im
 //     Gewinner-Zweig, Nachlesen im Verlierer-Zweig) über einer schmalen
-//     `RevealStore`-Schnittstelle — unit-testbar ohne Docker
+//     `RevealStore`-Schnittstelle, unit-testbar ohne Docker
 //     (reveal_test.ts).
 //   - revealStore.ts: der reale Adapter dieser Schnittstelle gegen
 //     supabaseAdmin, inklusive der zwei Abfragen, die kein Unit-Test
 //     ersetzen kann (CAS-Bedingung, Empfänger-Einschränkung bei der
-//     Token-Löschung) — geprüft in revealStore_integration_test.ts direkt
+//     Token-Löschung), geprüft in revealStore_integration_test.ts direkt
 //     gegen den echten Stack, ohne Umweg über HTTP oder Expo.
 // Dieser Handler übersetzt nur noch HTTP: Methode, Konfiguration, Identität
 // aus dem JWT, Body-Parsing, das Ergebnis von `fuehreRevealAus` in eine
@@ -68,7 +68,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
   const supabaseAdmin = erstelleAdminClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
-  // Identität kommt ausschliesslich aus dem JWT im Authorization-Header —
+  // Identität kommt ausschliesslich aus dem JWT im Authorization-Header,
   // nie aus dem Body. Der Body enthält nur trip_id.
   const authHeader = req.headers.get('Authorization') ?? '';
   const token = authHeader.replace(/^Bearer\s+/i, '').trim();

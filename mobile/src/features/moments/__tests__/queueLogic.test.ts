@@ -55,15 +55,15 @@ test('nurWlan pausiert auf Mobilfunk statt Jobs scheitern zu lassen', () => {
 });
 
 // Task-13-Fix-Runde-2: der ENTSCHEIDENDE Fall braucht KEIN Race. Ein Job
-// liegt bloss in der Warteschlange (zustand: 'wartet', längst fällig) —
+// liegt bloss in der Warteschlange (zustand: 'wartet', längst fällig),
 // A meldet sich ab, B an, und der nächste reguläre Tick läuft vollständig
 // unter B's gültiger, frischer Sitzung. Ohne den author_id-Filter würde
 // naechsterJob diesen Job trotzdem auswählen, und momentAnlegen würde ihn
 // unter B's Namen schreiben.
 describe('naechsterJob wählt nur Jobs der aktuell angemeldeten Person', () => {
-  test('ein Job einer anderen Person wird NICHT ausgewählt, obwohl er längst fällig ist — kein Race nötig', () => {
+  test('ein Job einer anderen Person wird NICHT ausgewählt, obwohl er längst fällig ist, kein Race nötig', () => {
     const jobs = [job({ id: 'a', author_id: 'person-a', naechster_versuch: 0 })];
-    // "person-b" ist jetzt angemeldet, der Job gehört "person-a" — er bleibt
+    // "person-b" ist jetzt angemeldet, der Job gehört "person-a", er bleibt
     // liegen, wird nicht verworfen und nicht als Fehlschlag gezählt.
     expect(naechsterJob(jobs, 10_000, true, false, 'person-b')).toBeNull();
   });
@@ -84,7 +84,7 @@ describe('naechsterJob wählt nur Jobs der aktuell angemeldeten Person', () => {
 
   // Alt-Bestand (Migration von vor Task 13) oder ein fehlgeschlagener
   // Sitzungs-Lookup: aktuelleAutorId() liefert dann null. Ein Job matcht
-  // niemals gegen null — istVollstaendig() in queueDb sorgt ohnehin schon
+  // niemals gegen null, istVollstaendig() in queueDb sorgt ohnehin schon
   // dafür, dass author_id nie null in einem QueueJob steckt, aber die Logik
   // hier verlässt sich nicht darauf und ist defensiv korrekt.
   test('aktuelleAutorId === null wählt keinen Job aus, auch keinen mit author_id null', () => {

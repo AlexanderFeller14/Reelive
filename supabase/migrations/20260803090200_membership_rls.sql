@@ -61,7 +61,7 @@ revoke update on public.trips from authenticated;
 grant update (name, cover_key, start_date, end_date) on public.trips to authenticated;
 
 -- trip_members: Mitglieder sehen die Liste; beitreten NUR via Edge Function
--- (Service-Role, Phase 3) oder Owner-Trigger — darum keine Insert-Policy.
+-- (Service-Role, Phase 3) oder Owner-Trigger, darum keine Insert-Policy.
 create policy trip_members_select_member on public.trip_members
   for select using (public.is_trip_member(trip_id, auth.uid()));
 -- Verlassen (selbst, ausser Owner) oder Entfernen (durch Owner)
@@ -78,11 +78,11 @@ create policy trip_members_delete on public.trip_members
 -- Ergänzung ohne Brief-Deckung (siehe task-4-report.md, Abschnitt Deviations):
 -- Dieses Supabase-Postgres-Image (17.6.1.156, lokal) gewährt neu angelegten
 -- Tabellen standardmässig NUR REFERENCES/TRIGGER/TRUNCATE an anon/authenticated
--- (verifiziert via pg_default_acl und einer Test-Tabelle) — SELECT/INSERT/
+-- (verifiziert via pg_default_acl und einer Test-Tabelle), SELECT/INSERT/
 -- UPDATE/DELETE fehlen ohne explizites GRANT. Ohne die folgenden Grants sind
 -- die obigen Policies unerreichbar: jede Operation scheitert bereits am
 -- fehlenden Tabellen-Privileg ("permission denied for table ..."), bevor RLS
--- überhaupt ausgewertet wird. Diese Grants ändern KEINE Policy-Logik — sie
+-- überhaupt ausgewertet wird. Diese Grants ändern KEINE Policy-Logik, sie
 -- schalten lediglich frei, was die Policies oben ohnehin bereits erlauben/
 -- einschränken. Spalten-Restriktion bei trips-Insert folgt demselben Prinzip
 -- wie beim bestehenden Update-Grant (Status/revealed_at/invite_code/plan

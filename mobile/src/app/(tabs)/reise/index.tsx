@@ -17,10 +17,10 @@ export default function ReiseListe() {
   const router = useRouter();
   const [trips, setTrips] = useState<Trip[]>([]);
   const [geladen, setGeladen] = useState(false);
-  // Drei Zustände statt zwei — dasselbe Muster wie in [id]/einladen.tsx und
+  // Drei Zustände statt zwei, dasselbe Muster wie in [id]/einladen.tsx und
   // join/[code].tsx: `geladen` trennt «lädt noch» von «fertig», `fehler` trennt
   // «fertig, aber nichts bekommen» von «fertig und wirklich leer». Ohne diese
-  // Trennung behauptete ein Ladefehler «Noch keine Reise» — eine falsche
+  // Trennung behauptete ein Ladefehler «Noch keine Reise», eine falsche
   // Aussage über die Daten des Nutzers (DESIGN-LANGUAGE §6).
   const [fehler, setFehler] = useState<string | null>(null);
   const [laedt, setLaedt] = useState(false);
@@ -37,11 +37,11 @@ export default function ReiseListe() {
 
   // `laedt` hängt bewusst am Knopf, nicht an `laden`: Der Fokus-Lauf soll die
   // bereits stehende Liste nicht bei jeder Rückkehr mit einem Ladezustand
-  // überschreiben — sichtbares Warten gehört nur dorthin, wo jemand getippt hat.
+  // überschreiben, sichtbares Warten gehört nur dorthin, wo jemand getippt hat.
   // Der Ladezustand wird IMMER zurückgesetzt, auch wenn der Screen zwischendurch
   // den Fokus verliert: sonst bliebe `laedt` true und der Knopf käme mit einem
   // toten Spinner und deaktiviert zurück. Ein `aktiv`-Guard ist hier anders als
-  // in `laden` nicht nötig — setState nach Unmount ist seit React 18 folgenlos,
+  // in `laden` nicht nötig, setState nach Unmount ist seit React 18 folgenlos,
   // und `laden` schützt die Daten-States ohnehin selbst.
   const nochmal = useCallback(async () => {
     setLaedt(true);
@@ -49,7 +49,7 @@ export default function ReiseListe() {
     setLaedt(false);
   }, [laden]);
 
-  // Beim Zurückkehren neu laden — eine gerade angelegte Reise soll sofort dastehen.
+  // Beim Zurückkehren neu laden, eine gerade angelegte Reise soll sofort dastehen.
   useFocusEffect(
     useCallback(() => {
       aktiv.current = true;
@@ -103,7 +103,7 @@ export default function ReiseListe() {
             <Text style={[type.h2, { color: colors['text-1'] }]}>Recaps</Text>
             {/* Bewusst OHNE `alsRecap`: ein Tipp hier führt in die Reise-
                 Verwaltung (Mitglieder, Bearbeiten, Einladen), nicht in die
-                Recap-Übersicht — die «Recap ansehen»-Pille wäre hier ein
+                Recap-Übersicht, die «Recap ansehen»-Pille wäre hier ein
                 Versprechen, das der Tipp nicht einlöst (Review Task 10,
                 Important 1). Der Recap-Tab setzt `alsRecap`, weil dort ein
                 Tipp tatsächlich die Übersicht öffnet. */}
@@ -119,7 +119,7 @@ export default function ReiseListe() {
 }
 
 // Der FAB schwebt mit spacing.screen Abstand vom unteren Rand und ist 56 hoch
-// (siehe Fab.tsx, Design-Language §4) — plus spacing.xl Luft darüber, damit die
+// (siehe Fab.tsx, Design-Language §4), plus spacing.xl Luft darüber, damit die
 // unterste Reise-Karte nicht dahinter verschwindet.
 const FAB_AUSWEICHRAUM = spacing.screen + 56 + spacing.xl;
 

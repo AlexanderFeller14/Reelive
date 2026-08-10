@@ -27,7 +27,7 @@ import { createTrip, updateTrip, fetchTrip } from '@/features/trips/tripsApi';
 const wrap = (ui: React.ReactElement) => render(<ThemeProvider>{ui}</ThemeProvider>);
 
 // Scoped auf die Zeile eines Felds (Label + Input + eigener Fehlertext), damit
-// Tests prüfen können, an welchem Feld ein Fehler tatsächlich landet — nicht
+// Tests prüfen können, an welchem Feld ein Fehler tatsächlich landet, nicht
 // nur, dass sein Text irgendwo auf dem Screen steht.
 const feldZeile = (labelText: string) => {
   const feld = screen.getByLabelText(labelText);
@@ -45,7 +45,7 @@ test('leerer Name wird abgefangen', async () => {
   expect(createTrip).not.toHaveBeenCalled();
 });
 
-test('Ende vor Beginn wird abgefangen — Fehler landet am Ende-Feld', async () => {
+test('Ende vor Beginn wird abgefangen, Fehler landet am Ende-Feld', async () => {
   await wrap(<NeueReise />);
   await fireEvent.changeText(screen.getByLabelText('Name der Reise'), 'Norwegen');
   await fireEvent.changeText(screen.getByLabelText('Beginn'), '14.08.2026');
@@ -102,7 +102,7 @@ test('bearbeiten: Lesefehler zeigt den Fehler statt eines leeren Formulars', asy
   (fetchTrip as jest.Mock).mockResolvedValueOnce({ data: null, error: 'Du bist gerade offline.' });
   await wrap(<ReiseBearbeiten />);
   expect(await screen.findByText('Du bist gerade offline.')).toBeTruthy();
-  // Vorher stand hier ein leeres Formular — es sah aus wie eine Reise ohne
+  // Vorher stand hier ein leeres Formular, es sah aus wie eine Reise ohne
   // Namen, nicht wie ein Fehler beim Lesen.
   expect(screen.queryByLabelText('Name der Reise')).toBeNull();
   expect(screen.getByText('Nochmal versuchen')).toBeTruthy();

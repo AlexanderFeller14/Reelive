@@ -1,6 +1,6 @@
 // Jest-Hoisting: jest.mock wandert über die Importe, die Factory läuft also
 // VOR den const-Zuweisungen. Die Mocks dürfen deshalb nicht als direkte Werte
-// im Objektliteral stehen (sie wären dort für immer undefined) — der Zugriff
+// im Objektliteral stehen (sie wären dort für immer undefined), der Zugriff
 // muss erst zur Aufrufzeit passieren. Gleiches Prinzip wie in
 // mobile/src/features/trips/__tests__/tripsApi.test.ts.
 const mockUpsert = jest.fn();
@@ -10,7 +10,7 @@ jest.mock('@/lib/supabase', () => ({
   supabase: { from: (...args: unknown[]) => mockFrom(...args) },
 }));
 
-// Device.isDevice ist bei expo-device ein Getter, kein Funktionsaufruf — der
+// Device.isDevice ist bei expo-device ein Getter, kein Funktionsaufruf, der
 // Getter im Mock ruft eine jest.fn() auf, damit der Rückgabewert (und ein
 // Wurf daraus) sich pro Test umschalten lässt.
 const mockIsDevice = jest.fn();
@@ -29,7 +29,7 @@ jest.mock('expo-notifications', () => ({
   requestPermissionsAsync: (...args: unknown[]) => mockRequestPermissionsAsync(...args),
   getExpoPushTokenAsync: (...args: unknown[]) => mockGetExpoPushTokenAsync(...args),
   setNotificationChannelAsync: (...args: unknown[]) => mockSetNotificationChannelAsync(...args),
-  // Realer Wert egal (siehe pushApi.ts: nur durchgereicht, nie ausgewertet) —
+  // Realer Wert egal (siehe pushApi.ts: nur durchgereicht, nie ausgewertet),
   // die Konstante muss nur existieren, damit der Android-Zweig nicht an
   // einem undefined-Property scheitert.
   AndroidImportance: { DEFAULT: 3 },
@@ -100,16 +100,16 @@ test('Erfolg: schreibt genau eine Zeile per upsert auf token, inkl. explizitem u
 
 // Der wichtigste Teil laut Brief: KEIN Fehlerfall darf werfen. Jeder dieser
 // Fälle ist im Alltag der Normalfall (Expo Go, Simulator, kein EAS-Projekt,
-// Netzfehler) — ein Test, der nur den Erfolgspfad prüft, wäre hier wertlos.
+// Netzfehler), ein Test, der nur den Erfolgspfad prüft, wäre hier wertlos.
 // Jeder Testfall ruft registrierePushToken() OHNE eigenes try/catch auf: ein
 // tatsächlicher Wurf liesse den `await` rejecten und den Test schon daran
 // scheitern, unabhängig vom .resolves.toBe()-Vergleich danach.
-describe('wirft nie — jeder Fehlschlag liefert einen gültigen Wert statt zu werfen', () => {
+describe('wirft nie, jeder Fehlschlag liefert einen gültigen Wert statt zu werfen', () => {
   // Bewusst hypothetisch, kein realer Pfad: das echte expo-device exportiert
   // isDevice als einmalig beim Modul-Import berechnete Konstante
   // (node_modules/expo-device/build/Device.js: `export const isDevice = …`),
   // nicht als Getter. Ein Wurf dort passierte beim allerersten Import der
-  // Datei, lange bevor registrierePushToken() aufgerufen wird — dieser Test
+  // Datei, lange bevor registrierePushToken() aufgerufen wird, dieser Test
   // kann also so nie eintreten. Er bleibt trotzdem stehen, um zu belegen,
   // dass der äussere try/catch auch einen synchronen Wurf an dieser Stelle
   // abfangen würde, falls sich die Export-Form von expo-device je ändert.
@@ -162,7 +162,7 @@ describe('wirft nie — jeder Fehlschlag liefert einen gültigen Wert statt zu w
 });
 
 // jest-expo löst 'react-native' standardmässig mit Platform.OS === 'ios'
-// auf (siehe Erfolgstest oben: platform: 'ios') — der komplette
+// auf (siehe Erfolgstest oben: platform: 'ios'), der komplette
 // `if (Platform.OS === 'android')`-Zweig (Notification-Channel vor der
 // Berechtigungsanfrage, Android-13-Voraussetzung laut versionsgenauer
 // SDK-57-Doku) wurde bislang von KEINEM Testfall erreicht. Platform.OS ist

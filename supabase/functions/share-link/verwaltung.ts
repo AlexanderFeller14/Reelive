@@ -1,4 +1,4 @@
-// Die reine Logik der beiden ANGEMELDETEN Aktionen — `erstellen` und
+// Die reine Logik der beiden ANGEMELDETEN Aktionen, `erstellen` und
 // `widerrufen`. Gegenstück zu aufloesung.ts, die den öffentlichen Weg hält.
 //
 // Eigene Datei, damit aufloesung.ts genau das bleibt, was ihr Kopf verspricht:
@@ -10,7 +10,7 @@
 // supabase/migrations/20260808140000_share_links_nur_edge_function.sql hat
 // `authenticated` kein Schreibrecht mehr auf share_links. Die Zusicherung
 // «ein Share-Link entsteht nur für eine aufgedeckte Reise und nur durch die
-// Owner-Person» (Spec §4, W3, erste Hälfte) hatte davor zwei Träger — die
+// Owner-Person» (Spec §4, W3, erste Hälfte) hatte davor zwei Träger, die
 // RLS-Policy und die Function. Jetzt trägt sie praktisch nur noch die
 // Function: `service_role` hat `rolbypassrls`, die Policy wird für sie nie
 // ausgewertet, und für `authenticated` gibt es das Privileg nicht mehr.
@@ -28,7 +28,7 @@ export type ErstellenTrip = {
 };
 
 // Wer einen Token widerrufen will: die Zeile samt Eigentümerschaft der
-// zugehörigen Reise. `null` heisst «gibt es nicht» — und muss von «gehört
+// zugehörigen Reise. `null` heisst «gibt es nicht», und muss von «gehört
 // jemand anderem» ununterscheidbar behandelt werden, siehe unten.
 export type TokenBesitz = {
   token: string;
@@ -48,7 +48,7 @@ export type VerwaltungsUrteil =
 // reveal-trip (das denselben Owner-Check führt): Sie verrät einer angemeldeten
 // Person, dass es eine Reise mit dieser UUID gibt. Das ist bereits die
 // bestehende, gereviewte Auskunftslage des Systems, und trip_id ist eine
-// UUIDv4 — anders als beim öffentlichen `aufloesen`, wo die Ununterscheidbarkeit
+// UUIDv4, anders als beim öffentlichen `aufloesen`, wo die Ununterscheidbarkeit
 // der Ablehnungen die ganze Zusicherung trägt.
 export function beurteileErstellen(
   trip: ErstellenTrip | null,
@@ -62,7 +62,7 @@ export function beurteileErstellen(
   }
   // Versprechen W3, erste Hälfte: ein Share-Link auf eine nicht aufgedeckte
   // Reise entsteht gar nicht erst. Die zweite Hälfte hält beurteileToken in
-  // aufloesung.ts — auch eine irgendwie doch entstandene Zeile löst sich nicht
+  // aufloesung.ts, auch eine irgendwie doch entstandene Zeile löst sich nicht
   // auf.
   if (trip.status === 'active') {
     return { erlaubt: false, nachricht: 'Diese Reise ist noch versiegelt.', status: 409 };
@@ -86,7 +86,7 @@ export type AblaufErgebnis =
   | { ok: false; nachricht: string };
 
 // `gueltig_tage` fehlend oder null heisst «ohne Ablauf». Alles andere muss eine
-// ganze Zahl im erlaubten Bereich sein — insbesondere kein Fliesskommawert und
+// ganze Zahl im erlaubten Bereich sein, insbesondere kein Fliesskommawert und
 // keine Zahl aus einem String, die sonst über eine implizite Umwandlung zu
 // einem stillen `Invalid Date` würde.
 export function berechneAblauf(gueltigTage: unknown, jetzt: Date): AblaufErgebnis {
@@ -110,12 +110,12 @@ export function berechneAblauf(gueltigTage: unknown, jetzt: Date): AblaufErgebni
 // Das ist kein Detail, sondern die Kehrseite der Zusicherung von `aufloesen`:
 // Dort geben sich vier Ablehnungen alle Mühe, byte-gleich zu sein, damit sich
 // die Existenz eines Tokens nicht abfragen lässt. Wäre `widerrufen` ein Orakel
-// («403 — gehört dir nicht» gegen «404 — gibt es nicht»), liesse sich genau
+// («403, gehört dir nicht» gegen «404, gibt es nicht»), liesse sich genau
 // diese Auskunft dort holen, mit nichts weiter als einem beliebigen eigenen
 // Konto. Die ganze Anstrengung in aufloesung.ts wäre umsonst.
 //
 // Wie in aufloesung.ts eine einzige gefrorene Konstante statt zweier gleich
-// aussehender Literale — und aus demselben Grund.
+// aussehender Literale, und aus demselben Grund.
 export const WIDERRUF_ABLEHNUNG: { erlaubt: false; nachricht: string; status: number } = Object.freeze({
   erlaubt: false,
   nachricht: 'Diesen Link gibt es nicht.',

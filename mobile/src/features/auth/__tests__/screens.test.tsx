@@ -12,7 +12,7 @@ jest.mock('../authApi', () => ({
 }));
 
 // Pfad-Anpassung (Task-8-Kontext, Abweichung 2): Router-Root ist mobile/src/app/,
-// nicht mobile/app/ — von __tests__/ drei Ebenen hoch zu src/, dann app/(auth)/...
+// nicht mobile/app/, von __tests__/ drei Ebenen hoch zu src/, dann app/(auth)/...
 import PhoneScreen from '../../../app/(auth)/phone';
 import OtpScreen from '../../../app/(auth)/otp';
 import { requestOtp } from '../authApi';

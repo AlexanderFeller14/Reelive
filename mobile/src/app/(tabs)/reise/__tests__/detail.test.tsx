@@ -6,19 +6,19 @@ import { palette } from '@/theme/tokens';
 const mockPush = jest.fn();
 const mockReplace = jest.fn();
 // Review Important 3 (Task 8): `(cb) => cb()` feuerte bei JEDEM Render statt
-// nur beim Fokussieren/bei geänderter Callback-Referenz — überlebte bislang
+// nur beim Fokussieren/bei geänderter Callback-Referenz, überlebte bislang
 // nur, weil jeder verwendete Mock stabile Objektreferenzen zurückgab. Das
 // verdeckte statt reparierte die eigentliche Lücke: `void laden()` aus dem
 // Erfolgspfad von `abschliessen()` löschen blieb unbemerkt grün, weil
 // ohnehin ständig neu geladen wurde. `useEffect(cb, [cb])` reproduziert die
-// echte Semantik von useFocusEffect exakt — der Screen memoisiert seinen
+// echte Semantik von useFocusEffect exakt, der Screen memoisiert seinen
 // Callback bereits mit `useCallback([laden])`, der Effekt läuft also einmal
 // beim Mount und erneut nur, wenn sich `id`/`userId` ändern. `require('react')`
 // statt eines Top-Level-Imports, weil jest.mock()-Factories laut
 // babel-plugin-jest-hoist keine Variablen aus dem Modul-Scope referenzieren
-// dürfen — `mockRouteId` ist erlaubt, weil der Name mit "mock" beginnt.
+// dürfen, `mockRouteId` ist erlaubt, weil der Name mit "mock" beginnt.
 //
-// Review Important 3 (Task 9): `mockRouteId` statt eines festen `'t1'` —
+// Review Important 3 (Task 9): `mockRouteId` statt eines festen `'t1'`,
 // sonst bliebe unbemerkt, wenn `zumRecap()` die Reise-Kennung fest verdrahtet
 // statt der tatsächlichen `id` zu verwenden (alle Fixtures heissen `t1`,
 // eine hartkodierte Zeichenkette wäre unterschiedslos "richtig" gewesen).
@@ -53,7 +53,7 @@ jest.mock('expo-haptics', () => ({
   NotificationFeedbackType: { Warning: 'warning' },
 }));
 // Task 10: der Zähler kommt aus eigenerZaehler (Serverstand + wartende
-// Momente), nicht mehr aus trip.my_post_count — siehe Test unten, der genau
+// Momente), nicht mehr aus trip.my_post_count, siehe Test unten, der genau
 // das absichert. Default deckungsgleich mit trip.my_post_count = 0, damit die
 // bereits bestehenden Tests ohne eigene Erwartung an den Zähler unverändert
 // grün bleiben.
@@ -67,16 +67,16 @@ jest.mock('@/features/moments/queueDb', () => ({
 }));
 // Task 8: «Reise abschliessen» ruft revealTrip auf (Task 5). Echtes recapApi
 // importiert @/lib/supabase (→ AsyncStorage-Nativmodul, in Jest nicht
-// vorhanden) — deshalb wie die übrigen Feature-Module vollständig gemockt.
+// vorhanden), deshalb wie die übrigen Feature-Module vollständig gemockt.
 jest.mock('@/features/recap/recapApi', () => ({ revealTrip: jest.fn() }));
-// Task 9: gesehen.ts ist eigens getestet (gesehen.test.ts) — hier zählt nur,
+// Task 9: gesehen.ts ist eigens getestet (gesehen.test.ts), hier zählt nur,
 // OB und WANN dieser Screen es aufruft, nicht wie es intern AsyncStorage
 // benutzt.
 jest.mock('@/features/recap/gesehen', () => ({
   revealGesehen: jest.fn(),
   merkeRevealGesehen: jest.fn(),
 }));
-// expo-image ist ein natives View — im Test reicht ein einfacher Platzhalter
+// expo-image ist ein natives View, im Test reicht ein einfacher Platzhalter
 // (gleiches Muster wie uebersicht.test.tsx), der alle Props durchreicht.
 jest.mock('expo-image', () => {
   const ReactActual = require('react');
@@ -84,7 +84,7 @@ jest.mock('expo-image', () => {
   return { Image: (props: object) => ReactActual.createElement(View, props) };
 });
 // Task 8, Phase 6: meldenApi hat ihre eigene, vollständige Testdatei
-// (features/recap/__tests__/meldenApi.test.ts) — hier nur Spione. urlVorrat
+// (features/recap/__tests__/meldenApi.test.ts), hier nur Spione. urlVorrat
 // liefert hier nur die Vorschau-Thumbnails für die Moderationsliste.
 jest.mock('@/features/recap/meldenApi', () => ({
   fetchMeldungen: jest.fn(),
@@ -95,7 +95,7 @@ jest.mock('@/features/recap/urlVorrat', () => ({ holeVorrat: jest.fn() }));
 // Die Inszenierung selbst (Haptik, Timing, prefers-reduced-motion) ist in
 // RevealInszenierung.test.tsx abgesichert. Hier steht ein steuerbarer
 // Platzhalter: sichtbar rendert einen drückbaren Testknoten, ein Druck darauf
-// simuliert «Inszenierung fertig» (onFertig) — ohne echte Animated-Timer, die
+// simuliert «Inszenierung fertig» (onFertig), ohne echte Animated-Timer, die
 // diese Datei (keine Fake-Timer) sonst 700–900 ms lang wirklich abwarten müsste.
 jest.mock('@/components/RevealInszenierung', () => {
   const React = require('react');
@@ -144,7 +144,7 @@ const einVerworfener = [
 
 // Task 8: «Reise abschliessen» rückt ab dem Enddatum nach oben. Relativ zum
 // echten heutigen Datum berechnet statt eines fixen Literals wie beim
-// `trip`-Fixture oben — sonst würde dieser Test brüchig, sobald das echte
+// `trip`-Fixture oben, sonst würde dieser Test brüchig, sobald das echte
 // Datum irgendwann den 14.08.2026 überschreitet.
 const HEUTE = new Date().toISOString().slice(0, 10);
 function inTagen(tage: number): string {
@@ -171,12 +171,12 @@ beforeEach(() => {
   (queueDb.alleJobs as jest.Mock).mockResolvedValue([]);
   (queueDb.verworfene as jest.Mock).mockResolvedValue(keineVerworfenen);
   // Default «schon gesehen»: die meisten bestehenden Tests in dieser Datei
-  // beschäftigen sich nicht mit der Reveal-Inszenierung — mit `true` bleibt
+  // beschäftigen sich nicht mit der Reveal-Inszenierung, mit `true` bleibt
   // ihr Bildschirm unverändert (sofort «Recap starten», kein Overlay davor).
   // Tests, die explizit die Inszenierung wollen, überschreiben das mit `false`.
   (revealGesehen as jest.Mock).mockResolvedValue(true);
   (merkeRevealGesehen as jest.Mock).mockResolvedValue(undefined);
-  // Task 8, Phase 6: Default ohne offene Meldungen — die meisten bestehenden
+  // Task 8, Phase 6: Default ohne offene Meldungen, die meisten bestehenden
   // Tests in dieser Datei beschäftigen sich nicht mit Moderation. Tests, die
   // das explizit wollen, überschreiben das mit eigenen Daten.
   (fetchMeldungen as jest.Mock).mockResolvedValue({ data: [], error: null });
@@ -270,7 +270,7 @@ test('ein Lesefehler erklärt sich und lässt zurück statt weiss zu bleiben', a
   (fetchTrip as jest.Mock).mockResolvedValue({ data: null, error: LADEFEHLER });
   await wrap();
   expect(await screen.findByText(LADEFEHLER)).toBeTruthy();
-  // Der Stack hat keinen Header — ohne diesen Knopf gäbe es keinen Rückweg.
+  // Der Stack hat keinen Header, ohne diesen Knopf gäbe es keinen Rückweg.
   await fireEvent.press(screen.getByText('Zu meinen Reisen'));
   expect(mockReplace).toHaveBeenCalledWith('/reise');
 });
@@ -325,7 +325,7 @@ test('Haptik bleibt sparsam: kein Auslösen ohne destruktiven Dialog', async () 
 });
 
 // Task 10: der grosse Zähler zählt den Serverstand PLUS wartende Momente
-// derselben Reise — er darf nach einer Offline-Aufnahme nie beim reinen
+// derselben Reise, er darf nach einer Offline-Aufnahme nie beim reinen
 // Serverstand (hier bewusst 0 im Trip-Fixture) stehen bleiben.
 test('der Zähler kommt aus eigenerZaehler, nicht aus dem rohen Serverstand', async () => {
   (eigenerZaehler as jest.Mock).mockResolvedValue(7);
@@ -360,8 +360,8 @@ test('ein einzelner wartender Moment wird im Singular gemeldet', async () => {
 
 // Fix-Runde 1: eigenerZaehler/queueDb.alleJobs lesen anders als fetchTrip/
 // fetchMembers aus der lokalen SQLite-Warteschlange und können werfen (siehe
-// queueDb.ts). Vorher lag das im selben Promise.all wie fetchTrip/fetchMembers
-// — eine Ablehnung liess `geladen` nie `true` werden, der Screen blieb ohne
+// queueDb.ts). Vorher lag das im selben Promise.all wie fetchTrip/fetchMembers,
+// eine Ablehnung liess `geladen` nie `true` werden, der Screen blieb ohne
 // jede Meldung leer. Beide Fälle einzeln nachgestellt.
 test('eigenerZaehler schlägt fehl: die Reise erscheint trotzdem mit dem Serverstand', async () => {
   (fetchTrip as jest.Mock).mockResolvedValue({ data: { ...trip, my_post_count: 3 }, error: null });
@@ -383,7 +383,7 @@ test('queueDb.alleJobs schlägt fehl: die Reise erscheint trotzdem, nur ohne War
 // === Final-Review, Important 9 ===
 // Spec §8 verspricht, ein nach dem Reveal aufgenommener Moment werde «mit
 // Erklärung verworfen». Tatsächlich löschte der Worker den Job und schrieb eine
-// Konsolenzeile — die betroffene Person erfuhr nie, dass ihre Aufnahme weg ist.
+// Konsolenzeile, die betroffene Person erfuhr nie, dass ihre Aufnahme weg ist.
 test('ein dauerhaft verworfener Moment wird mit seiner Ursache erklärt', async () => {
   (queueDb.verworfene as jest.Mock).mockResolvedValue(einVerworfener);
   await wrap();
@@ -395,7 +395,7 @@ test('ein dauerhaft verworfener Moment wird mit seiner Ursache erklärt', async 
 
 test('die Erklärung verschwindet erst, wenn sie quittiert wurde', async () => {
   (queueDb.verworfene as jest.Mock).mockResolvedValue(einVerworfener);
-  // Der echte Speicher löscht beim Quittieren — der Doppelgänger zieht nach,
+  // Der echte Speicher löscht beim Quittieren, der Doppelgänger zieht nach,
   // sonst brächte der nächste Fokus-Lauf die Meldung sofort zurück.
   (queueDb.verworfeneQuittieren as jest.Mock).mockImplementation(() => {
     (queueDb.verworfene as jest.Mock).mockResolvedValue(keineVerworfenen);
@@ -434,16 +434,16 @@ test('queueDb.verworfene schlägt fehl: die Reise erscheint trotzdem', async () 
 // würde. Läuft über den vollständigen gerenderten Baum, nicht nur über zwei
 // benannte Stellen.
 //
-// Review-Nachtrag (Task 9): diese Funktion ERZWINGT §7 nicht von sich aus —
+// Review-Nachtrag (Task 9): diese Funktion ERZWINGT §7 nicht von sich aus,
 // sie zählt nur, für den EINEN Baum, mit dem sie aufgerufen wird. Bis hierhin
 // wurde sie nie bei offenem Sheet aufgerufen, obwohl dort (Sheet-eigenes
 // «Abschliessen» + der jeweilige Screen-Primärbutton dahinter) tatsächlich
-// zwei Akzentflächen gleichzeitig standen — ein realer Fund, kein
+// zwei Akzentflächen gleichzeitig standen, ein realer Fund, kein
 // hypothetischer. Die Tests unten rufen sie jetzt auch für den
 // Sheet-offen-Fall auf (inkl. des durch Task 9 neu möglichen dritten
 // Zustands «Recap starten» + offenes Sheet); vollständig ist die Abdeckung
 // damit trotzdem nicht (revealed/archived/Nicht-Owner-Zustände bleiben
-// ungeprüft) — das ist eine bewusste Lücke, keine verdeckte.
+// ungeprüft), das ist eine bewusste Lücke, keine verdeckte.
 type Baumknoten = { type?: string; props?: { style?: unknown }; children?: (Baumknoten | string)[] | null };
 function zaehleAccentFlaechen(baum: unknown): number {
   let anzahl = 0;
@@ -478,7 +478,7 @@ test('Reise abschliessen fehlt bei bereits aufgedeckter Reise', async () => {
   expect(screen.queryByText('Reise abschliessen')).toBeNull();
 });
 
-// Review M2: `laeuft` prüft exakt `status === 'active'` — eine Aufweichung auf
+// Review M2: `laeuft` prüft exakt `status === 'active'`, eine Aufweichung auf
 // `status !== 'revealed'` (Mutation) hätte den Knopf einer archivierten Reise
 // angeboten, die Function hätte mit 409 abgelehnt. Kein bestehender Test
 // deckte das ab.
@@ -492,12 +492,12 @@ test('Reise abschliessen fehlt bei archivierter Reise', async () => {
 // Review-Entscheidung: vor dem Enddatum bleibt «Freunde einladen» primär (die
 // Aktion, die eine laufende Reise wirklich braucht) und «Reise abschliessen»
 // steht als Outline unten. Review M3: bislang prüfte kein Test die POSITION
-// (nur Anwesenheit) — eine Mutation, die den unteren Block unkonditional
+// (nur Anwesenheit), eine Mutation, die den unteren Block unkonditional
 // rendert und den oberen streicht, wäre unbemerkt geblieben. Über die
 // Zeichenposition im serialisierten Baum geprüft: RNTL v14 exponiert keine
 // Sibling-Order-Matcher, `JSON.stringify(toJSON())` erhält aber die
 // Dokumentreihenfolge.
-test('vor dem Enddatum steht «Reise abschliessen» unten als Sekundär-Button — «Freunde einladen» bleibt primär', async () => {
+test('vor dem Enddatum steht «Reise abschliessen» unten als Sekundär-Button, «Freunde einladen» bleibt primär', async () => {
   (fetchTrip as jest.Mock).mockResolvedValue(tripVorEndeOk);
   await wrap();
   await screen.findByText('Norwegen mit dem Camper');
@@ -517,12 +517,12 @@ test('vor dem Enddatum steht «Reise abschliessen» unten als Sekundär-Button �
   expect(zaehleAccentFlaechen(screen.toJSON())).toBe(1);
 });
 
-test('ab dem Enddatum rückt «Reise abschliessen» nach oben und wird zum Primär-Button — «Freunde einladen» tritt zurück', async () => {
+test('ab dem Enddatum rückt «Reise abschliessen» nach oben und wird zum Primär-Button, «Freunde einladen» tritt zurück', async () => {
   (fetchTrip as jest.Mock).mockResolvedValue(tripAmEndeOk);
   await wrap();
   expect(await screen.findByText('Eure Reise ist zu Ende. Zeit für den Recap.')).toBeTruthy();
 
-  // getByText wirft bei mehr als einem Treffer — sichert zugleich, dass der
+  // getByText wirft bei mehr als einem Treffer, sichert zugleich, dass der
   // Knopf nicht gleichzeitig oben UND unten steht.
   const abschliessen = StyleSheet.flatten(screen.getByText('Reise abschliessen').parent?.props.style);
   expect(abschliessen.backgroundColor).toBe(palette.accent);
@@ -543,7 +543,7 @@ test('Tippen auf «Reise abschliessen» öffnet das Bestätigungs-Sheet mit korr
   expect(await screen.findByText('Reise abschliessen?')).toBeTruthy();
   // Review Important 1: die Zeile behauptet nicht mehr, dass NIEMAND mehr
   // Momente einsenden kann (posts_insert_member erlaubt Nachzügler mit
-  // captured_at <= revealed_at ausdrücklich weiter, für alle Mitglieder) —
+  // captured_at <= revealed_at ausdrücklich weiter, für alle Mitglieder),
   // sondern sagt ehrlich beides: keine neuen Momente, bereits aufgenommene
   // kommen noch durch.
   expect(
@@ -558,7 +558,7 @@ test('Sheet zeigt die persönliche Wartenden-Zeile nicht, wenn keine eigenen Mom
   await wrap();
   await fireEvent.press(await screen.findByText('Reise abschliessen'));
   await screen.findByText('Reise abschliessen?');
-  expect(screen.queryByText(/kommt noch durch — er/)).toBeNull();
+  expect(screen.queryByText(/kommt noch durch, er/)).toBeNull();
   expect(screen.queryByText(/wartenden Momente kommen noch durch/)).toBeNull();
 });
 
@@ -576,7 +576,7 @@ test('Sheet zeigt die persönliche Wartenden-Zeile im Plural, wenn mehrere eigen
 });
 
 // Review Important 1: die Zahl bleibt im Singular NICHT stehen (Konvention von
-// verworfenTitel(1) — «Ein Moment …», nicht «1 Moment …»), und «Reveal» wurde
+// verworfenTitel(1), «Ein Moment …», nicht «1 Moment …»), und «Reveal» wurde
 // durch das im Projekt sonst durchgängig verwendete «Aufdeckung» ersetzt.
 test('Sheet zeigt die persönliche Wartenden-Zeile im Singular, wenn genau ein eigener Moment wartet', async () => {
   (queueDb.alleJobs as jest.Mock).mockResolvedValue([{ trip_id: 't1', zustand: 'wartet' }]);
@@ -606,7 +606,7 @@ test('Tippen auf den Hintergrund schliesst das Bestätigungs-Sheet', async () =>
 
 test('Abschliessen ruft revealTrip auf; bei Erfolg schliesst das Sheet und lädt die Reise GENAU EIN weiteres Mal neu', async () => {
   // Stabile Referenz für den Zustand «nach dem Reveal» (siehe Kommentar bei
-  // tripRevealedOk oben) — mit korrigiertem useFocusEffect (Important 3) läuft
+  // tripRevealedOk oben), mit korrigiertem useFocusEffect (Important 3) läuft
   // der Ladeweg zwar nicht mehr bei jedem Render, aber ein frisches Objekt pro
   // Aufruf wäre trotzdem ein unnötiger Rerender.
   let aufgedeckt = false;
@@ -627,7 +627,7 @@ test('Abschliessen ruft revealTrip auf; bei Erfolg schliesst das Sheet und lädt
   // Reise neu geladen: status ist jetzt 'revealed', der Knopf verschwindet.
   await waitFor(() => expect(screen.queryByText('Reise abschliessen')).toBeNull());
   // Review M1: mit dem korrigierten useFocusEffect-Mock lädt fetchTrip nicht
-  // mehr bei jedem Render nach — dieser Test schlägt jetzt tatsächlich fehl,
+  // mehr bei jedem Render nach, dieser Test schlägt jetzt tatsächlich fehl,
   // wenn `void laden()` aus dem Erfolgspfad von `abschliessen()` gelöscht wird.
   await waitFor(() => expect((fetchTrip as jest.Mock).mock.calls.length).toBe(ladeAufrufeVorAbschluss + 1));
 });
@@ -646,7 +646,7 @@ test('ein Fehler beim Abschliessen zeigt die Ursache und lässt den Knopf bedien
   expect(
     await screen.findByText('Die Reise konnte nicht abgeschlossen werden. Probier es gleich nochmal.')
   ).toBeTruthy();
-  // Sheet bleibt offen, der Knopf bleibt bedienbar — ein zweiter Versuch ist
+  // Sheet bleibt offen, der Knopf bleibt bedienbar, ein zweiter Versuch ist
   // immer erlaubt, weil die Function idempotent ist (Task-8-Brief).
   expect(screen.getByText('Reise abschliessen?')).toBeTruthy();
   await fireEvent.press(screen.getByText('Abschliessen'));
@@ -654,7 +654,7 @@ test('ein Fehler beim Abschliessen zeigt die Ursache und lässt den Knopf bedien
 });
 
 // Review M5: `setRevealFehler(null)` in `abschliessenOeffnen` löschen blieb
-// unbemerkt — kein Test öffnete das Sheet nach einem Fehler ein zweites Mal.
+// unbemerkt, kein Test öffnete das Sheet nach einem Fehler ein zweites Mal.
 test('ein erneutes Öffnen nach einem Fehler zeigt die alte Fehlermeldung nicht mehr', async () => {
   const fehlerText = 'Die Reise konnte nicht abgeschlossen werden. Probier es gleich nochmal.';
   (revealTrip as jest.Mock).mockResolvedValue({ revealed_at: null, error: fehlerText });
@@ -671,8 +671,8 @@ test('ein erneutes Öffnen nach einem Fehler zeigt die alte Fehlermeldung nicht 
   expect(screen.queryByText(fehlerText)).toBeNull();
 });
 
-// === Task 9: Reveal-Entdeckung — Versprechen V6 («funktioniert auch ohne
-// Push»). Kein einziger Mock in dieser Datei kennt Push oder Deep-Links —
+// === Task 9: Reveal-Entdeckung, Versprechen V6 («funktioniert auch ohne
+// Push»). Kein einziger Mock in dieser Datei kennt Push oder Deep-Links,
 // die Entdeckung hängt komplett am ohnehin bei jedem Fokussieren laufenden
 // laden(). Genau das beweisen die folgenden Tests: sie lösen NICHTS aus
 // ausser einem normalen Render/Fokus-Zyklus, und die Inszenierung erscheint
@@ -697,21 +697,21 @@ test('eine bereits gesehene aufgedeckte Reise zeigt sofort «Recap starten», oh
 });
 
 // Das Kernstück von V6: die App entdeckt den Reveal SELBST beim
-// Fokussieren, ganz ohne Push oder Deep-Link — dieser Test tut nichts
+// Fokussieren, ganz ohne Push oder Deep-Link, dieser Test tut nichts
 // anderes als rendern und wartet ab.
-test('eine frisch aufgedeckte, noch nie gesehene Reise spielt zuerst die Inszenierung — «Recap starten» erscheint erst danach und wird gemerkt', async () => {
+test('eine frisch aufgedeckte, noch nie gesehene Reise spielt zuerst die Inszenierung, «Recap starten» erscheint erst danach und wird gemerkt', async () => {
   (fetchTrip as jest.Mock).mockResolvedValue(tripRevealedOk);
   (revealGesehen as jest.Mock).mockResolvedValue(false);
   await wrap();
 
   await screen.findByTestId('reveal-inszenierung-fake');
-  // Solange die Inszenierung läuft, steht der Primär-Button noch NICHT da —
+  // Solange die Inszenierung läuft, steht der Primär-Button noch NICHT da,
   // «zeigt DANACH» aus dem Task-9-Brief ist eine Reihenfolge, keine blosse
   // Koexistenz.
   expect(screen.queryByText('Recap starten')).toBeNull();
   expect(merkeRevealGesehen).not.toHaveBeenCalled();
 
-  // Simuliert das Ende der Inszenierung (onFertig) — die echte Optik/Timing
+  // Simuliert das Ende der Inszenierung (onFertig), die echte Optik/Timing
   // sind in RevealInszenierung.test.tsx abgesichert.
   await fireEvent.press(screen.getByTestId('reveal-inszenierung-fake'));
 
@@ -728,7 +728,7 @@ test('«Recap starten» führt zur Recap-Übersicht dieser Reise', async () => {
   expect(mockPush).toHaveBeenCalledWith({ pathname: '/recap/[id]/uebersicht', params: { id: 't1' } });
 });
 
-// DESIGN-LANGUAGE §7: höchstens eine Fläche trägt die Akzentfarbe — auch auf
+// DESIGN-LANGUAGE §7: höchstens eine Fläche trägt die Akzentfarbe, auch auf
 // dem neuen Zustand nach dem Reveal, nicht nur auf den beiden schon
 // bestehenden Zuständen (vor/ab Enddatum), die weiter oben geprüft werden.
 test('«Recap starten» bleibt der einzige Primär-Button einer aufgedeckten Reise', async () => {
@@ -749,11 +749,11 @@ test('eine archivierte Reise bekommt dieselbe Reveal-Entdeckung wie eine aufgede
 
 // Beweist gleich zwei Dinge aus dem Task-9-Brief: dass die Prüfung
 // tatsächlich «genau einmal» läuft, UND was bei einem gescheiterten Merken
-// passiert (hier fest auf `false` gestellt — so, als hätte
+// passiert (hier fest auf `false` gestellt, so, als hätte
 // merkeRevealGesehen nie erfolgreich geschrieben). `entfernen()` liefert
 // einen zweiten, von der Reveal-Entdeckung komplett unabhängigen laden()-
 // Aufruf INNERHALB DESSELBEN Bildschirm-Aufrufs (der X-Knopf hängt an keiner
-// Status-Bedingung) — ohne `revealEntschiedenRef` würde dieser zweite Aufruf
+// Status-Bedingung), ohne `revealEntschiedenRef` würde dieser zweite Aufruf
 // `revealGesehen` erneut befragen, wieder `false` bekommen und die
 // Inszenierung ein zweites Mal über den längst sichtbaren «Recap
 // starten»-Knopf legen.
@@ -776,7 +776,7 @@ test('ein zweiter Ladevorgang nach abgeschlossener Entscheidung fragt revealGese
 });
 
 // Review Important 3: der ursprüngliche einzelne Ref wurde VOR dem `await`
-// gesetzt — richtig, um zwei ÜBERLAPPENDE laden()-Aufrufe (dieser Test) davon
+// gesetzt, richtig, um zwei ÜBERLAPPENDE laden()-Aufrufe (dieser Test) davon
 // abzuhalten, `revealGesehen` beide gleichzeitig zu befragen. Eine
 // kontrolliert unaufgelöste Promise hält den ERSTEN Aufruf mitten im Warten
 // fest, während `entfernen()` (siehe Test oben) einen ZWEITEN auslöst, noch
@@ -790,7 +790,7 @@ test('zwei überlappende laden()-Aufrufe fragen revealGesehen nur einmal ab (Sch
   await wrap();
   await waitFor(() => expect(revealGesehen).toHaveBeenCalledTimes(1));
 
-  // Der erste Aufruf (vom Mount) wartet noch auf revealGesehen() — jetzt
+  // Der erste Aufruf (vom Mount) wartet noch auf revealGesehen(), jetzt
   // löst ein zweiter, unabhängiger laden()-Aufruf aus.
   await fireEvent.press(screen.getByLabelText('Jonas entfernen'));
   await waitFor(() => expect(removeMember).toHaveBeenCalledWith('t1', 'u2'));
@@ -805,11 +805,11 @@ test('zwei überlappende laden()-Aufrufe fragen revealGesehen nur einmal ab (Sch
 });
 
 // Review-Nachtrag zu Task 8 (Important 3/M4 dieser Runde): bei offenem Sheet
-// stand bislang eine ZWEITE Akzentfläche im Baum — der Screen-Primärbutton
+// stand bislang eine ZWEITE Akzentfläche im Baum, der Screen-Primärbutton
 // dahinter blieb primär, während das Sheet sein eigenes «Abschliessen»
 // zeigte. Der `zaehleAccentFlaechen`-Docstring behauptete das Gegenteil,
 // ohne je in diesem Zustand geprüft worden zu sein.
-test('bei offenem Sheet bleibt nur das «Abschliessen» im Sheet primär — der Screen-Knopf dahinter tritt zurück', async () => {
+test('bei offenem Sheet bleibt nur das «Abschliessen» im Sheet primär, der Screen-Knopf dahinter tritt zurück', async () => {
   (fetchTrip as jest.Mock).mockResolvedValue(tripAmEndeOk);
   await wrap();
   await fireEvent.press(await screen.findByText('Reise abschliessen'));
@@ -819,8 +819,8 @@ test('bei offenem Sheet bleibt nur das «Abschliessen» im Sheet primär — der
 
 // Der durch Task 9 neu mögliche dritte Zustand: das Sheet steht offen (noch
 // nichts hat es geschlossen), während ein UNABHÄNGIGER Ladevorgang (hier über
-// `entfernen()` ausgelöst) entdeckt, dass die Reise inzwischen aufgedeckt ist
-// — z. B. weil ein zweites Gerät sie abgeschlossen hat. «Recap starten»
+// `entfernen()` ausgelöst) entdeckt, dass die Reise inzwischen aufgedeckt ist,
+// z. B. weil ein zweites Gerät sie abgeschlossen hat. «Recap starten»
 // erscheint im Hintergrund, ohne dass DIESES Sheet je «Abschliessen» gedrückt
 // hätte.
 test('ein Reveal während offenem Sheet (z. B. von einem zweiten Gerät) lässt trotzdem nur eine Akzentfläche stehen', async () => {
@@ -835,7 +835,7 @@ test('ein Reveal während offenem Sheet (z. B. von einem zweiten Gerät) lässt 
   await waitFor(() => expect(removeMember).toHaveBeenCalledWith('t1', 'u2'));
 
   await screen.findByText('Recap starten');
-  // Das Sheet bleibt offen — nichts in diesem Ablauf schliesst es automatisch.
+  // Das Sheet bleibt offen, nichts in diesem Ablauf schliesst es automatisch.
   expect(screen.getByText('Reise abschliessen?')).toBeTruthy();
   expect(zaehleAccentFlaechen(screen.toJSON())).toBe(1);
 });
@@ -872,7 +872,7 @@ describe('Moderation (Task 8)', () => {
     expect(screen.queryByTestId('moderation-oeffnen')).toBeNull();
   });
 
-  test('die Owner-Person sieht «N gemeldete Momente» — ein Mitglied ohne Owner-Rolle NICHT, selbst mit denselben Daten', async () => {
+  test('die Owner-Person sieht «N gemeldete Momente», ein Mitglied ohne Owner-Rolle NICHT, selbst mit denselben Daten', async () => {
     (fetchMeldungen as jest.Mock).mockResolvedValue({ data: [meldungFixture], error: null });
     await wrap();
     expect(await screen.findByText('Ein gemeldeter Moment')).toBeTruthy();
@@ -939,7 +939,7 @@ describe('Moderation (Task 8)', () => {
     expect(screen.queryByTestId('meldung-r1')).toBeNull();
   });
 
-  test('«Meldung verwerfen» entfernt die Zeile und verringert den Zähler — der Moment selbst bleibt unberührt (kein entferneMoment-Aufruf)', async () => {
+  test('«Meldung verwerfen» entfernt die Zeile und verringert den Zähler, der Moment selbst bleibt unberührt (kein entferneMoment-Aufruf)', async () => {
     (fetchMeldungen as jest.Mock).mockResolvedValue({ data: [meldungFixture], error: null });
     (verwirfMeldung as jest.Mock).mockResolvedValue({ error: null });
     await wrap();
@@ -971,7 +971,7 @@ describe('Moderation (Task 8)', () => {
   });
 
   // Alert.alert ist global gemockt (siehe Dateikopf) und ruft den
-  // destruktiven Knopf sofort auf — «Moment entfernen» braucht darum keine
+  // destruktiven Knopf sofort auf, «Moment entfernen» braucht darum keine
   // separate Bestätigungs-Simulation, exakt wie loeschen()/entfernen() oben.
   test('«Moment entfernen» fragt destruktiv nach (warning-Haptik) und entfernt danach den Moment UND die Zeile', async () => {
     (fetchMeldungen as jest.Mock).mockResolvedValue({ data: [meldungFixture], error: null });
@@ -1002,7 +1002,7 @@ describe('Moderation (Task 8)', () => {
     expect(screen.getByTestId('meldung-r1')).toBeTruthy();
   });
 
-  test('das Öffnen lädt die Liste FRISCH — nicht den beim ersten Laden gesehenen Stand', async () => {
+  test('das Öffnen lädt die Liste FRISCH, nicht den beim ersten Laden gesehenen Stand', async () => {
     (fetchMeldungen as jest.Mock)
       .mockResolvedValueOnce({ data: [meldungFixture], error: null }) // beim ersten laden()
       .mockResolvedValueOnce({

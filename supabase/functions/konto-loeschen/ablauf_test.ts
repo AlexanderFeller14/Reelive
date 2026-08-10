@@ -1,11 +1,11 @@
-// Unit-Tests für die reine Logik von konto-loeschen — ohne `supabase start`,
+// Unit-Tests für die reine Logik von konto-loeschen, ohne `supabase start`,
 // ohne `functions serve`, ohne Netz, ohne Berechtigung:
 //   cd supabase/functions/konto-loeschen && npx deno test ablauf_test.ts
 //
 // Der wichtigste Test dieser Datei ist der zweite: **scheitert der
 // Speicherschritt, wird die Datenbank gar nicht angefasst.** Das ist
-// Versprechen W7 in seiner konkretesten Form, und es lässt sich nur so prüfen
-// — indem man den Speicherschritt scheitern lässt und danach nachweist, dass
+// Versprechen W7 in seiner konkretesten Form, und es lässt sich nur so prüfen,
+// indem man den Speicherschritt scheitern lässt und danach nachweist, dass
 // der Datenbankschritt NIE gerufen wurde. Gegen den echten Stack wäre dieser
 // Fall kaum herstellbar (man müsste die Storage-API gezielt kaputtmachen),
 // und ein Test, den es nur im Integrationslauf gibt, überspringt sich auf
@@ -40,7 +40,7 @@ function schritt(name: string, ergebnis: { fehler: unknown } | 'wirft', protokol
 const OK = { fehler: null };
 
 // ===========================================================================
-// Die Reihenfolge — Versprechen W7
+// Die Reihenfolge, Versprechen W7
 // ===========================================================================
 
 Deno.test('Reihenfolge: Speicher zuerst, danach die Datenbankschritte in genau dieser Folge', async () => {
@@ -63,7 +63,7 @@ Deno.test('Reihenfolge: Speicher zuerst, danach die Datenbankschritte in genau d
 });
 
 Deno.test('W7: scheitert der Speicherschritt, wird die Datenbank NIE angefasst', async () => {
-  // Der Kern. Ein Objekt ohne Datenbankzeile ist Müll — niemand kennt seinen
+  // Der Kern. Ein Objekt ohne Datenbankzeile ist Müll, niemand kennt seinen
   // Pfad mehr, denn die Zeile, aus der er sich ableiten liesse, wäre gerade
   // kaskadiert worden.
   const protokoll: string[] = [];
@@ -87,7 +87,7 @@ Deno.test('W7: scheitert der Speicherschritt, wird die Datenbank NIE angefasst',
 });
 
 Deno.test('W7: eine geworfene Ausnahme im Speicherschritt hält die Datenbank genauso auf', async () => {
-  // Ohne try/catch liefe der Fehler am Aufrufer vorbei nach oben — was
+  // Ohne try/catch liefe der Fehler am Aufrufer vorbei nach oben, was
   // zufällig auch die Datenbank verschonte, aber eben nur zufällig. Hier wird
   // es zugesichert statt in Kauf genommen.
   const protokoll: string[] = [];
@@ -122,7 +122,7 @@ Deno.test('Ein scheiternder Datenbankschritt hält die folgenden auf', async () 
 });
 
 Deno.test('Die Schritte laufen nacheinander, nicht nebeneinander', async () => {
-  // Ein Promise.all über dieselben Schritte wäre in allen Tests oben grün —
+  // Ein Promise.all über dieselben Schritte wäre in allen Tests oben grün,
   // die Reihenfolge im Protokoll bliebe zufällig sogar oft dieselbe. Hier
   // startet der zweite Schritt nachweislich erst, wenn der erste FERTIG ist.
   const protokoll: string[] = [];
@@ -146,7 +146,7 @@ Deno.test('Die Schritte laufen nacheinander, nicht nebeneinander', async () => {
   assertEquals(protokoll, ['speicher', 'langsam:start', 'langsam:ende', 'schnell:start']);
 });
 
-Deno.test('Ohne Datenbankschritte bleibt es beim Speicherschritt — und der läuft trotzdem', async () => {
+Deno.test('Ohne Datenbankschritte bleibt es beim Speicherschritt, und der läuft trotzdem', async () => {
   const protokoll: string[] = [];
   const ergebnis = await fuehreLoeschungAus(schritt('speicher', OK, protokoll), []);
   assertEquals(ergebnis, { ok: true });
@@ -169,7 +169,7 @@ Deno.test('medienSchluessel: Medium und Thumbnail je Moment, aus der Ableitung',
     erwarteteSchluessel(TRIP, 'p2', 'video', 'mov').storage_key,
     erwarteteSchluessel(TRIP, 'p2', 'video', 'mov').thumb_key,
   ]);
-  // Das Video liegt unter .mov (iOS), nicht unter dem Standard .mp4 — sonst
+  // Das Video liegt unter .mov (iOS), nicht unter dem Standard .mp4, sonst
   // bliebe die echte Datei liegen und eine nicht existierende würde
   // "gelöscht".
   assert(schluessel[2].endsWith('.mov'), schluessel[2]);
@@ -177,7 +177,7 @@ Deno.test('medienSchluessel: Medium und Thumbnail je Moment, aus der Ableitung',
 });
 
 Deno.test('medienSchluessel: ein Moment aus einer anderen Reise erzeugt den Pfad DIESER Reise', () => {
-  // trip_id kommt aus der posts-Zeile, nicht aus einem Parameter — ein
+  // trip_id kommt aus der posts-Zeile, nicht aus einem Parameter, ein
   // eigener Moment in einer fremden Reise wird also unter dem Pfad der
   // fremden Reise gelöscht, und genau dort liegt er auch.
   const fremd = '00000000-0000-4000-8000-0000000000ff';
@@ -196,8 +196,8 @@ Deno.test('medienSchluessel: eine leere Liste ergibt keine Schlüssel', () => {
 // ===========================================================================
 
 Deno.test('pfadGehoertUns: ein fremder Pfad in der eigenen cover_key-Spalte wird nicht gelöscht', () => {
-  // Der Angriff: Wer 'covers/lissabon.jpg' — das Titelbild einer FREMDEN
-  // Reise — in sein eigenes cover_key schreibt und danach sein Konto löscht,
+  // Der Angriff: Wer 'covers/lissabon.jpg', das Titelbild einer FREMDEN
+  // Reise, in sein eigenes cover_key schreibt und danach sein Konto löscht,
   // dürfte damit nicht das fremde Objekt mitlöschen. Eine Kontolöschung darf
   // nie ein Werkzeug gegen fremde Daten werden.
   const erlaubt = [`trips/${TRIP}/`];
@@ -236,7 +236,7 @@ function seitenServer(anzahl: number, seitengroesse: number) {
   };
 }
 
-Deno.test('sammleAlle: blättert über die Seitengrenze — sonst blieben zwei Objekte je übersehenem Moment liegen', async () => {
+Deno.test('sammleAlle: blättert über die Seitengrenze, sonst blieben zwei Objekte je übersehenem Moment liegen', async () => {
   const server = seitenServer(1001, 1000);
   const { zeilen, verloren, fehler } = await sammleAlle(server.holeSeite);
   assertEquals(fehler, null);

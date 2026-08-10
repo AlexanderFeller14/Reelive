@@ -12,7 +12,7 @@ jest.mock('@/lib/supabase', () => ({
   },
 }));
 
-// medien zieht expo-file-system und expo-image-manipulator nach — hier wird
+// medien zieht expo-file-system und expo-image-manipulator nach, hier wird
 // davon nur die Endungs-Ableitung gebraucht (Important 5: posts.media_ext).
 jest.mock('../medien', () => ({
   endungAus: (uri: string) => uri.slice(uri.lastIndexOf('.') + 1).toLowerCase(),
@@ -38,7 +38,7 @@ beforeEach(() => {
 
 // Task-13-Fix-Runde-2: author_id kommt jetzt vom Job (beim Einreihen in
 // preview.tsx festgehalten), nicht mehr aus der Sitzung zum Zeitpunkt des
-// Schreibens — sonst könnte ein Moment, der bloss in der Warteschlange lag,
+// Schreibens, sonst könnte ein Moment, der bloss in der Warteschlange lag,
 // unter dem Namen der nächsten angemeldeten Person landen.
 test('Erfolg: legt an, author_id kommt vom Job, typ wird auf type umbenannt', async () => {
   mockInsert.mockResolvedValueOnce({ error: null });
@@ -54,7 +54,7 @@ test('Erfolg: legt an, author_id kommt vom Job, typ wird auf type umbenannt', as
 
 // Ein Job, dessen author_id NICHT zur aktuell angemeldeten Person passt, wird
 // von uploadWorker.naechsterJob() gar nicht erst ausgewählt (siehe
-// queueLogic.test.ts) — momentAnlegen selbst vertraut deshalb bewusst der
+// queueLogic.test.ts), momentAnlegen selbst vertraut deshalb bewusst der
 // gespeicherten Kennung und rät nicht mehr selbst.
 test('author_id eines anderen Nutzers wird unverändert durchgereicht (die Auswahl davor ist die Absicherung)', async () => {
   mockInsert.mockResolvedValueOnce({ error: null });
@@ -69,7 +69,7 @@ test('Primärschlüssel schon vorhanden (23505): Wiederanlauf gilt als Erfolg', 
 });
 
 // Fix-Runde 1: SQLSTATE 42501 allein ist mehrdeutig (insufficient_privilege deckt sowohl
-// RLS-Verletzung als auch einen fehlenden GRANT ab). Beide Richtungen müssen stimmen —
+// RLS-Verletzung als auch einen fehlenden GRANT ab). Beide Richtungen müssen stimmen,
 // im Zweifel wiederholen, nicht verwerfen.
 test('echte RLS-Ablehnung (Reveal-Regel) → dauerhaftAbgelehnt, Job darf verworfen werden', async () => {
   mockInsert.mockResolvedValueOnce({
@@ -113,7 +113,7 @@ test('media_ext kommt aus dem Speicherschlüssel (iOS liefert mov, Android mp4)'
 // === Final-Review, Important 4 ===
 // Antwortet confirm mit 409, liegt im Speicher kein vollständiges Objekt. Das
 // ist der einzige Fehlschlag, bei dem ERNEUT HOCHLADEN hilft statt nur erneut
-// zu bestätigen — ohne diese Unterscheidung übersprang der Worker die Uploads
+// zu bestätigen, ohne diese Unterscheidung übersprang der Worker die Uploads
 // und rief für immer nur wieder confirm.
 describe('uploadBestaetigen', () => {
   const httpFehler = (status: number, body: unknown) => ({
@@ -149,7 +149,7 @@ describe('uploadBestaetigen', () => {
     expect(ergebnis.error).not.toBeNull();
   });
 
-  test('jeder andere HTTP-Fehler ist NICHT unvollständig — die Uploads bleiben erledigt', async () => {
+  test('jeder andere HTTP-Fehler ist NICHT unvollständig, die Uploads bleiben erledigt', async () => {
     mockInvoke.mockResolvedValueOnce(httpFehler(500, { fehler: 'Bestätigen fehlgeschlagen.' }));
     const ergebnis = await uploadBestaetigen('p1');
     expect(ergebnis.unvollstaendig).toBe(false);

@@ -1,5 +1,5 @@
 // Jest-Hoisting: jest.mock wandert über die Importe (Muster wie
-// recapApi.test.ts/shareApi.test.ts) — Zugriff auf die Mocks deshalb erst
+// recapApi.test.ts/shareApi.test.ts), Zugriff auf die Mocks deshalb erst
 // zur Aufrufzeit.
 const mockFrom = jest.fn();
 const mockInvoke = jest.fn();
@@ -17,7 +17,7 @@ beforeEach(() => {
   process.env.EXPO_PUBLIC_TEILEN_BASIS_URL = ENV_BASIS_URL;
 });
 
-// share_links: .select(...).eq('trip_id', …).eq('revoked', false).order(…) —
+// share_links: .select(...).eq('trip_id', …).eq('revoked', false).order(…),
 // jede Stufe ein eigener jest.fn(), damit die AUFRUF-ARGUMENTE selbst
 // prüfbar sind, nicht nur das Endergebnis (Review-Fund-Muster aus
 // recapApi.test.ts: ein Mock, der Argumente verschluckt, liesse eine falsche
@@ -77,7 +77,7 @@ describe('holeAktivenLink', () => {
 
   // Kernfall (Brief: "ein abgelaufener Link zählt wie keiner"): die Zeile
   // existiert (revoked=false, RLS liefert sie), ist aber in der Vergangenheit
-  // abgelaufen — holeAktivenLink darf sie NICHT als aktiv ausgeben, sonst
+  // abgelaufen, holeAktivenLink darf sie NICHT als aktiv ausgeben, sonst
   // böte die Sheet einen toten Link zum Teilen an.
   test('ein abgelaufener, aber nicht widerrufener Link zählt wie kein Link', async () => {
     const vergangenheit = new Date(Date.now() - 1000).toISOString();
@@ -87,7 +87,7 @@ describe('holeAktivenLink', () => {
     expect(error).toBeNull();
   });
 
-  // `revoked=false` ist bereits Teil der Abfrage (server-seitig gefiltert) —
+  // `revoked=false` ist bereits Teil der Abfrage (server-seitig gefiltert),
   // dieser Test hält zusätzlich fest, dass ein GEMISCHTES Ergebnis (ein
   // abgelaufener VOR einem noch gültigen, absteigend nach created_at) den
   // ersten GÜLTIGEN nimmt, nicht einfach zeilen[0].
@@ -119,7 +119,7 @@ describe('holeAktivenLink', () => {
   });
 
   // Fehlende EXPO_PUBLIC_TEILEN_BASIS_URL: ein gefundener Token liesse sich
-  // sonst nur zu einer kaputten/falschen URL zusammenbauen (leerer Prefix) —
+  // sonst nur zu einer kaputten/falschen URL zusammenbauen (leerer Prefix),
   // das wäre schlechter als ein ehrlicher Konfigurationsfehler.
   test('ein Treffer OHNE gesetzte EXPO_PUBLIC_TEILEN_BASIS_URL liefert einen Konfigurationsfehler statt einer kaputten URL', async () => {
     delete process.env.EXPO_PUBLIC_TEILEN_BASIS_URL;
@@ -140,7 +140,7 @@ describe('erstelleLink', () => {
     });
     expect(data?.token).toBe('tok1');
     expect(data?.url).toBe(`${ENV_BASIS_URL}/teilen/tok1`);
-    // expiresAt ist client-seitig aus gueltigTage berechnet — ~7 Tage voraus.
+    // expiresAt ist client-seitig aus gueltigTage berechnet, ~7 Tage voraus.
     expect(data?.expiresAt).not.toBeNull();
     const inTagen = (Date.parse(data!.expiresAt!) - Date.now()) / 86_400_000;
     expect(inTagen).toBeGreaterThan(6.9);

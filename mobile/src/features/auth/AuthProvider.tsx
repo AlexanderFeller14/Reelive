@@ -22,7 +22,7 @@ AppState.addEventListener('change', (state) => {
   else supabase.auth.stopAutoRefresh();
 });
 
-// null = Query fehlgeschlagen (RLS/Netzwerk) — bewusst getrennt von "kein Profil",
+// null = Query fehlgeschlagen (RLS/Netzwerk), bewusst getrennt von "kein Profil",
 // damit evaluate() einen Fehler nie fälschlich als needsProfile interpretiert.
 async function hasProfile(userId: string): Promise<boolean | null> {
   const { data, error } = await supabase.from('profiles').select('id').eq('id', userId).maybeSingle();
@@ -39,7 +39,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!s) return setStatus('signedOut');
       const found = await hasProfile(s.user.id);
       // found === false: Query erfolgreich, kein Profil ⇒ needsProfile.
-      // found === true ODER null (Query-Fehler): signedIn — bei einem Fehler
+      // found === true ODER null (Query-Fehler): signedIn, bei einem Fehler
       // bleibt der Nutzer angemeldet statt fälschlich ins Profil-Setup zu
       // geraten; profilabhängige UI degradiert bis zur nächsten evaluate()-Runde.
       setStatus(found === false ? 'needsProfile' : 'signedIn');
@@ -58,7 +58,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         void evaluate(data.session);
       })
       .catch(() => {
-        // getSession() selbst kann rejecten (z.B. Storage-Fehler) — ohne
+        // getSession() selbst kann rejecten (z.B. Storage-Fehler), ohne
         // Fallback bliebe der Status für immer auf "loading" (endloser Splash).
         setStatus('signedOut');
       });
@@ -70,7 +70,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [evaluate]);
 
   // Ohne useMemo entsteht bei JEDEM Render dieses Providers ein neues
-  // Context-Objekt, und React weckt daraufhin jeden Consumer — hier also
+  // Context-Objekt, und React weckt daraufhin jeden Consumer, hier also
   // praktisch jeden Screen der App, denn der Provider sitzt an der Wurzel.
   // Die enthaltenen Werte aendern sich dagegen selten.
   const wert = useMemo<AuthContextValue>(

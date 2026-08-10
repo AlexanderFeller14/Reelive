@@ -1,12 +1,12 @@
-// Docker-freie Unit-Tests für den S3-Löschweg aus store.ts — Reaktion auf den
+// Docker-freie Unit-Tests für den S3-Löschweg aus store.ts, Reaktion auf den
 // Abschluss-Review-Befund (Punkt 1): `loescheObjekte` lief bis dahin über die
 // Supabase-Storage-API, die einzige Stelle im Repo, die nicht über
-// `S3_ENDPOINT` signiert. Diese Datei ersetzt keinen Integrationstest — die
+// `S3_ENDPOINT` signiert. Diese Datei ersetzt keinen Integrationstest, die
 // Behauptung "Objekte sind nach der Löschung WIRKLICH weg" kann nur ein Test
 // gegen den echten Stack beweisen (konto_loeschen_integration_test.ts, über
 // die Storage-REST-API, unabhängig vom S3-Pfad hier). Was hier ohne Docker
 // geprüft wird, ist die reine Logik darüber: Blockung, Kurzschluss bei einem
-// echten Fehler — UND, das ist die eigentliche Falle aus dem Review-Befund,
+// echten Fehler, UND, das ist die eigentliche Falle aus dem Review-Befund,
 // dass eine „erfolgreiche" Antwort für einen bereits fehlenden Schlüssel
 // NICHT mit einem Beweis verwechselt wird, dass er vorher existierte.
 
@@ -56,7 +56,7 @@ Deno.test('loescheObjekteBlockweise: mehr Schlüssel als die Blockgrösse laufen
   const schluessel = Array.from({ length: 12 }, (_, i) => `k-${i}`);
   await loescheObjekteBlockweise(schluessel, loescheEins, 5);
   // 12 Schlüssel, Blockgrösse 5 → drei Blöcke (5/5/2). Innerhalb eines
-  // Blocks läuft es parallel (Promise.all), zwischen Blöcken nacheinander —
+  // Blocks läuft es parallel (Promise.all), zwischen Blöcken nacheinander,
   // die maximale Parallelität darf die Blockgrösse nie überschreiten.
   assert(maxGleichzeitig <= 5, `maxGleichzeitig war ${maxGleichzeitig}`);
   void bloecke;
@@ -72,7 +72,7 @@ Deno.test('loescheObjekteBlockweise: ein einzelner Fehlschlag im Block bricht so
   const ergebnis = await loescheObjekteBlockweise(['k-0', 'k-1', 'k-2'], loescheEins, 10);
   assert(ergebnis.fehler instanceof Error);
   assertEquals((ergebnis.fehler as Error).message, 'Zugriff verweigert');
-  // Alle drei liegen im selben Block (Blockgrösse 10) und laufen parallel —
+  // Alle drei liegen im selben Block (Blockgrösse 10) und laufen parallel,
   // alle drei werden versucht, bevor der Fehler ausgewertet wird.
   assertEquals(versucht.sort(), ['k-0', 'k-1', 'k-2']);
 });
@@ -86,7 +86,7 @@ Deno.test('loescheObjekteBlockweise: ein Fehlschlag im ERSTEN Block verhindert d
   const schluessel = ['a', 'b', 'c', 'd'];
   const ergebnis = await loescheObjekteBlockweise(schluessel, loescheEins, 2);
   assert(ergebnis.fehler !== null);
-  // Block 1 ist ['a', 'b'] — Block 2 ('c', 'd') darf gar nicht erst anlaufen.
+  // Block 1 ist ['a', 'b'], Block 2 ('c', 'd') darf gar nicht erst anlaufen.
   assertEquals(versucht, ['a', 'b']);
 });
 
@@ -99,7 +99,7 @@ Deno.test('loescheObjekteBlockweise: ein Fehlschlag OHNE eigenes Fehlerobjekt be
 
 // --- erstelleS3Loescher: die reale Signierung, mit injiziertem fetchImpl ---
 // Kein echtes Netz, keine echte SigV4-Prüfung (die übernimmt der
-// Integrationstest gegen den laufenden Storage-Dienst) — hier wird nur
+// Integrationstest gegen den laufenden Storage-Dienst), hier wird nur
 // geprüft, DASS eine DELETE-Anfrage an den richtigen Pfad geht, mit welcher
 // Methode, und dass die Antwort korrekt in {ok, status} übersetzt wird.
 
@@ -128,7 +128,7 @@ Deno.test('erstelleS3Loescher: signiert eine DELETE-Anfrage auf endpoint/bucket/
 
 // Die eigentliche Falle aus dem Review-Befund: "weniger zurückbekommen als
 // angefragt" (hier: ein Erfolgsstatus für einen längst fehlenden Schlüssel)
-// darf NICHT als Fehlschlag gelten — S3-kompatible Object-Storages
+// darf NICHT als Fehlschlag gelten, S3-kompatible Object-Storages
 // beantworten DELETE auf einen nicht (mehr) existierenden Schlüssel genauso
 // wie auf einen existierenden.
 Deno.test('erstelleS3Loescher: ein 204 auf einen (schon) fehlenden Schlüssel ist KEIN Fehler', async () => {
@@ -167,7 +167,7 @@ Deno.test('loescheObjekteBlockweise + erstelleS3Loescher: ein zweiter Löschvers
     const req = input as Request;
     // Simuliert echtes S3-Verhalten: die erste Löschung entfernt das
     // Objekt wirklich, jede weitere Anfrage auf denselben Schlüssel bleibt
-    // trotzdem ein Erfolg (204) — kein 404, wie im Kopfkommentar von
+    // trotzdem ein Erfolg (204), kein 404, wie im Kopfkommentar von
     // erstelleS3Loescher beschrieben.
     geloescht.add(req.url);
     return new Response(null, { status: 204 });
@@ -180,7 +180,7 @@ Deno.test('loescheObjekteBlockweise + erstelleS3Loescher: ein zweiter Löschvers
   assertEquals(erster, { fehler: null });
   assertEquals(geloescht.size, 2);
 
-  // Zweiter Versuch auf DIESELBEN (jetzt schon gelöschten) Schlüssel — muss
+  // Zweiter Versuch auf DIESELBEN (jetzt schon gelöschten) Schlüssel, muss
   // ebenfalls fehlerfrei durchlaufen (Idempotenz, worauf ablauf.ts sich
   // stützt, wenn ein zweiter Anlauf nach einem Teilabbruch startet).
   const zweiter = await loescheObjekteBlockweise(schluessel, loescheEins);

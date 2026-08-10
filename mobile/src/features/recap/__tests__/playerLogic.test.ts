@@ -16,7 +16,7 @@ import {
 import * as tage from '../tage';
 import type { RecapMoment } from '../types';
 
-// Minimal-Moment mit sinnvollen Defaults — jeder Test überschreibt nur, was
+// Minimal-Moment mit sinnvollen Defaults, jeder Test überschreibt nur, was
 // ihn tatsächlich betrifft (Muster wie in tage.test.ts).
 function moment(overrides: Partial<RecapMoment>): RecapMoment {
   return {
@@ -41,7 +41,7 @@ describe('dauerFuer', () => {
   // Literal-Assert statt nur "gegen sich selbst" (Review-Fund): ein Test,
   // der dauerFuer(...) nur gegen FOTO_DAUER_MS vergleicht, bleibt grün, auch
   // wenn die Konstante selbst mutiert (Implementierung gegen Implementierung
-  // geprüft). Spec §8.2: Fotos laufen 5 Sekunden — das ist die Zahl, die
+  // geprüft). Spec §8.2: Fotos laufen 5 Sekunden, das ist die Zahl, die
   // zählt, unabhängig vom Namen der Konstante.
   test('FOTO_DAUER_MS ist 5000 (Spec §8.2: Fotos laufen 5 Sekunden)', () => {
     expect(FOTO_DAUER_MS).toBe(5000);
@@ -50,7 +50,7 @@ describe('dauerFuer', () => {
   test('ein Foto dauert immer FOTO_DAUER_MS (5000 ms)', () => {
     expect(dauerFuer(moment({ type: 'photo', duration_s: null }))).toBe(5000);
     // Ein duration_s auf einem Foto (sollte laut Schema nie vorkommen) darf
-    // die Dauer trotzdem nicht verändern — Fotos hängen NIE von duration_s ab.
+    // die Dauer trotzdem nicht verändern, Fotos hängen NIE von duration_s ab.
     expect(dauerFuer(moment({ type: 'photo', duration_s: 42 }))).toBe(5000);
   });
 
@@ -58,14 +58,14 @@ describe('dauerFuer', () => {
     expect(dauerFuer(moment({ type: 'video', duration_s: 12 }))).toBe(12_000);
   });
 
-  // Phase-5-Final-Review, Punkt 8 (Review-Fund): fehlte bisher — die beiden
+  // Phase-5-Final-Review, Punkt 8 (Review-Fund): fehlte bisher, die beiden
   // Boden-Tests unten vergleichen `dauerFuer(...)` gegen `VIDEO_DAUER_MIN_MS`
   // SELBST, nicht gegen ein Literal. Ein Mutant, der die Konstante von 1000
   // auf z.B. 8000 ändert, bliebe bei BEIDEN grün (die Implementierung würde
   // dann tatsächlich 8000 liefern, und der Test vergleicht ja weiterhin nur
-  // gegen dieselbe — inzwischen mutierte — Konstante). Zwei Zeilen weiter
+  // gegen dieselbe, inzwischen mutierte, Konstante). Zwei Zeilen weiter
   // oben macht die Suite es für FOTO_DAUER_MS bereits richtig
-  // (`expect(FOTO_DAUER_MS).toBe(5000)`) — dasselbe Literal-Pinning fehlte
+  // (`expect(FOTO_DAUER_MS).toBe(5000)`), dasselbe Literal-Pinning fehlte
   // hier für den Video-Boden.
   test('VIDEO_DAUER_MIN_MS ist 1000 (Kommentar am Export: „eine Sekunde ist kurz genug … aber lang genug, um real sichtbar zu sein")', () => {
     expect(VIDEO_DAUER_MIN_MS).toBe(1000);
@@ -73,8 +73,8 @@ describe('dauerFuer', () => {
 
   // Ein Boden verhindert, dass ein sehr kurzer/kaputter duration_s-Wert
   // (0 ist laut Check-Constraint technisch gültig) den Moment faktisch
-  // unsichtbar macht — der Fortschrittsbalken würde sonst augenblicklich
-  // füllen. 0 ist gleichzeitig ein gültiger, aber FALSY Wert — eine
+  // unsichtbar macht, der Fortschrittsbalken würde sonst augenblicklich
+  // füllen. 0 ist gleichzeitig ein gültiger, aber FALSY Wert, eine
   // Implementierung, die `duration_s ? … : Fallback` statt `=== null`
   // prüft, würde hier fälschlich den (viel längeren) Fallback statt des
   // Bodens liefern; dieser Test verlangt explizit den Boden, nicht 0 und
@@ -102,7 +102,7 @@ describe('dauerFuer', () => {
   });
 
   // VIDEO_DAUER_FALLBACK_MS muss mindestens die laut Check-Constraint
-  // maximal zulässige Videolänge (30 s) abdecken (Review-Fund) — sonst
+  // maximal zulässige Videolänge (30 s) abdecken (Review-Fund), sonst
   // schneidet der Fallback ein legales, aber dauer-loses Video mitten im
   // Bild ab.
   test('VIDEO_DAUER_FALLBACK_MS ist mindestens 30 Sekunden (maximal zulässige Videolänge laut Check-Constraint)', () => {
@@ -112,7 +112,7 @@ describe('dauerFuer', () => {
 
 describe('weiter', () => {
   // Phase-5-Final-Review, Punkt 1: `pausiert` ist jetzt ein
-  // `ReadonlySet<PauseGrund>` statt eines booleans (siehe playerLogic.ts) —
+  // `ReadonlySet<PauseGrund>` statt eines booleans (siehe playerLogic.ts),
   // dieselben Fixtures wie zuvor, nur mit der neuen Repräsentation.
   const stand = (overrides: Partial<PlayerStand> = {}): PlayerStand => ({
     index: 0,
@@ -128,8 +128,8 @@ describe('weiter', () => {
   });
 
   // "pausiert bleibt unangetastet" heisst hier konkret: dieselbe Set-
-  // REFERENZ geht unverändert durch — weiter() liest/schreibt sie nicht.
-  test('lässt "pausiert" unverändert (dieselbe Referenz) — weiter/zurueck entscheiden nicht über Pause', () => {
+  // REFERENZ geht unverändert durch, weiter() liest/schreibt sie nicht.
+  test('lässt "pausiert" unverändert (dieselbe Referenz), weiter/zurueck entscheiden nicht über Pause', () => {
     const ergebnis = weiter(stand({ index: 0, pausiert: GEHALTEN }), 5);
     expect(ergebnis).not.toBe('ende');
     if (ergebnis === 'ende') throw new Error('unreachable');
@@ -137,7 +137,7 @@ describe('weiter', () => {
     expect(ergebnis).toEqual({ index: 1, pausiert: GEHALTEN, fortschritt: 0 });
   });
 
-  // Brief: am letzten Moment liefert weiter 'ende', NICHT Index `anzahl` —
+  // Brief: am letzten Moment liefert weiter 'ende', NICHT Index `anzahl`,
   // ein off-by-one hier würde stattdessen { index: anzahl, ... } liefern.
   test('am letzten Moment liefert weiter "ende", nicht Index anzahl', () => {
     const ergebnis = weiter(stand({ index: 4 }), 5);
@@ -168,7 +168,7 @@ describe('zurueck', () => {
   });
 
   // Brief: zurueck am ersten Moment bleibt bei Index 0 und setzt den
-  // Fortschritt zurück — es springt NICHT aus dem Tag/der Filmrolle hinaus
+  // Fortschritt zurück, es springt NICHT aus dem Tag/der Filmrolle hinaus
   // (kein negativer Index).
   test('am ersten Moment bleibt der Index bei 0, statt negativ zu werden', () => {
     const ergebnis = zurueck(stand({ index: 0, fortschritt: 800 }));
@@ -176,7 +176,7 @@ describe('zurueck', () => {
   });
 
   // Brief: zurueck setzt fortschritt IMMER auf 0, auch mitten in einem
-  // Video — unabhängig davon, ob der Index sich überhaupt verändert.
+  // Video, unabhängig davon, ob der Index sich überhaupt verändert.
   test('setzt fortschritt immer auf 0, auch wenn der Index gleich bleibt (Index 0)', () => {
     const ergebnis = zurueck(stand({ index: 0, fortschritt: 3999 }));
     expect(ergebnis.fortschritt).toBe(0);
@@ -228,11 +228,11 @@ describe('tagWechselt', () => {
   // bestimmen. Review-Fund aus tage.ts: bei einem Ostwärts-Zeitsprung
   // (Tokio → Los Angeles) läuft der EIGENE lokale Kalendertag der späteren
   // Ankunft hinter den des früheren Abflugs zurück (Los Angeles: 1. August,
-  // Tokio: 2. August) — gruppiereNachTagen hält die Reihenfolge trotzdem
+  // Tokio: 2. August), gruppiereNachTagen hält die Reihenfolge trotzdem
   // chronologisch und ordnet beide demselben (höheren) Tag zu. Eine
   // Implementierung, die stattdessen naiv die LOKALEN Kalendertage der
   // beiden Momente miteinander vergliche, würde hier fälschlich true
-  // liefern (1. August ≠ 2. August) — dieser Test verlangt explizit false.
+  // liefern (1. August ≠ 2. August), dieser Test verlangt explizit false.
   test('folgt der monoton fortgeschriebenen Tagesnummer aus gruppiereNachTagen, nicht dem rohen lokalen Kalendertag', () => {
     const abflugTokio = moment({
       id: 'a',
@@ -248,7 +248,7 @@ describe('tagWechselt', () => {
     expect(tagWechselt(momente, startDate, 1)).toBe(false);
   });
 
-  // Ein echter Ortstag-Wechsel (Nachtflug) bleibt dagegen ein Tageswechsel —
+  // Ein echter Ortstag-Wechsel (Nachtflug) bleibt dagegen ein Tageswechsel,
   // Gegenprobe zum Test oben, damit "immer false bei unterschiedlicher
   // captured_tz" nicht versehentlich als Regel durchrutscht.
   test('ein echter Ortstag-Wechsel (Nachtflug) bleibt ein Tageswechsel', () => {
@@ -266,7 +266,7 @@ describe('tagWechselt', () => {
   });
 
   // Review-Fund, Important 3/4: der ursprüngliche Test prüfte hier NUR
-  // not.toThrow() — die eigentliche Designentscheidung (id-basierte
+  // not.toThrow(), die eigentliche Designentscheidung (id-basierte
   // Zuordnung statt Position im ggf. verkürzten Ergebnis von
   // gruppiereNachTagen) war dadurch durch keinen einzigen Rückgabewert
   // gedeckt. Ein Mutant, der stattdessen positional in eine geflachte
@@ -277,7 +277,7 @@ describe('tagWechselt', () => {
   // Fall A: der verworfene Moment liegt INNERHALB eines Tages (a, kaputt, b
   // sind real alle Tag 1). Review-Fund, Important 4: ein fehlender
   // Map-Eintrag auf EINER Seite gilt als "kein Wechsel" (false), nicht als
-  // Wechsel — sonst kündigt der Player denselben Tag zweimal an (an kaputts
+  // Wechsel, sonst kündigt der Player denselben Tag zweimal an (an kaputts
   // Position UND an b's Position direkt danach).
   test('ein verworfener Moment INNERHALB eines Tages erzeugt keine falsche Tages-Zwischenkarte (weder an seiner Position noch danach)', () => {
     const a = moment({ id: 'a', captured_at: '2026-08-01T09:00:00.000Z', captured_tz: 'Europe/Zurich' });
@@ -291,13 +291,13 @@ describe('tagWechselt', () => {
 
   // Fall B: der verworfene Moment liegt GENAU AN einer echten Tagesgrenze
   // (a ist Tag 1, b ist Tag 2). Der bewusste Kompromiss aus Important 4:
-  // auch hier liefert tagWechselt an beiden Nachbarpositionen false — der
+  // auch hier liefert tagWechselt an beiden Nachbarpositionen false, der
   // echte Wechsel wird nicht angezeigt, weil sein einziger unmittelbarer
   // Zeuge der verworfene Moment gewesen wäre. Das ist zugleich der Test, der
   // eine positionale Re-Implementierung am schärfsten von der id-basierten
   // unterscheidet: gruppiereNachTagen liefert für [a, kaputt, b] nur zwei
   // Tage mit je einem Moment (kaputt fehlt), macht eine geflachte Ausgabe
-  // `[1, 2]` (Länge 2) — `flach[2]` wäre dort `undefined` (Index aus dem
+  // `[1, 2]` (Länge 2), `flach[2]` wäre dort `undefined` (Index aus dem
   // 3-elementigen `momente` direkt in die 2-elementige Ausgabe gespiegelt)
   // und `undefined !== 2` läge fälschlich bei `true`.
   test('ein verworfener Moment GENAU AN einer Tagesgrenze zeigt an keiner Nachbarposition einen Wechsel (dokumentierter Kompromiss)', () => {
@@ -315,7 +315,7 @@ describe('tagWechselt', () => {
   // (und damit pro Moment ein frisches Intl.DateTimeFormat) aufbaut. Ein
   // Cache, der stattdessen z.B. nach Länge oder startDate allein schlüsselte
   // (statt nach der Referenz), würde zwei verschiedene, gleich lange Listen
-  // verwechseln — dieser Test ruft beide verschachtelt auf und verlangt,
+  // verwechseln, dieser Test ruft beide verschachtelt auf und verlangt,
   // dass jede ihr eigenes, korrektes Ergebnis behält.
   test('zwei verschiedene momente-Arrays gleicher Länge werden unabhängig zwischengespeichert, keine Verwechslung', () => {
     const listeA = [
@@ -337,7 +337,7 @@ describe('tagWechselt', () => {
 
   // Phase-5-Final-Review, Punkt 8 (Review-Fund, "wenn es billig ist"): bis
   // hierhin prüft keine einzige Zeile den eigentlichen ZWECK des WeakMap-
-  // Caches (siehe Kommentar bei `tageNummernCache` in playerLogic.ts) — die
+  // Caches (siehe Kommentar bei `tageNummernCache` in playerLogic.ts), die
   // Tests oben prüfen nur RICHTIGE Ergebnisse, die auch eine Implementierung
   // OHNE jeden Cache liefern würde (die WeakMap ersatzlos zu streichen liesse
   // alle bisherigen Tests grün). Dieser Test spioniert `gruppiereNachTagen`
@@ -369,7 +369,7 @@ describe('PauseGrund: mitGrund/ohneGrund/blockiertAutomatischenVorschub', () => 
 
   // Review-Fund-Prinzip (bissiger Test statt reiner Ergebnisprüfung): bei
   // einem bereits vorhandenen Grund liefert mitGrund DIESELBE Referenz
-  // zurück (kein neues Set) — ein Mutant, der stattdessen IMMER
+  // zurück (kein neues Set), ein Mutant, der stattdessen IMMER
   // `new Set(pausiert).add(grund)` zurückgibt, würde von einer reinen
   // `.has()`-Prüfung nicht erkannt.
   test('mitGrund liefert bei bereits vorhandenem Grund DIESELBE Set-Referenz (kein unnötiger Re-Render)', () => {
@@ -387,13 +387,13 @@ describe('PauseGrund: mitGrund/ohneGrund/blockiertAutomatischenVorschub', () => 
   });
 
   // Das ist die eigentliche Pointe des Moduls (Final-Review Punkt 1): ein
-  // Aufruf mit einem NICHT vorhandenen Grund — z.B. ein verwaister Timer,
-  // dessen eigener Grund längst von anderswo zurückgenommen wurde — ist ein
+  // Aufruf mit einem NICHT vorhandenen Grund, z.B. ein verwaister Timer,
+  // dessen eigener Grund längst von anderswo zurückgenommen wurde, ist ein
   // sicheres No-Op, auch wenn INZWISCHEN ein FREMDER Grund gesetzt wurde. Ein
   // naiver `pausiert = false`-Ersatz (die alte Repräsentation) würde diesen
-  // fremden Grund hier mitreissen — dieser Test verlangt explizit, dass er
+  // fremden Grund hier mitreissen, dieser Test verlangt explizit, dass er
   // stehen bleibt.
-  test('ohneGrund für einen nicht vorhandenen Grund ist ein No-Op — ein FREMDER, inzwischen gesetzter Grund bleibt unberührt', () => {
+  test('ohneGrund für einen nicht vorhandenen Grund ist ein No-Op, ein FREMDER, inzwischen gesetzter Grund bleibt unberührt', () => {
     const stand = mitGrund(leer(), 'kommentare');
     const ergebnis = ohneGrund(stand, 'zwischenkarte');
     expect(ergebnis.has('kommentare')).toBe(true);
@@ -401,7 +401,7 @@ describe('PauseGrund: mitGrund/ohneGrund/blockiertAutomatischenVorschub', () => 
   });
 
   // Final-Review Phase-5-Nachbesserung: ohneGruende nimmt mehrere Gründe auf
-  // einmal zurück — genau das, was ein echter Indexwechsel (Tipp-Navigation,
+  // einmal zurück, genau das, was ein echter Indexwechsel (Tipp-Navigation,
   // automatischer Vorschub) braucht, damit weder 'halten' noch 'neuversuch'
   // vom VERLASSENEN Moment auf den NEUEN übergehen (siehe player.tsx,
   // MOMENTWECHSEL_GRUENDE).
@@ -417,7 +417,7 @@ describe('PauseGrund: mitGrund/ohneGrund/blockiertAutomatischenVorschub', () => 
 
   // Dieselbe No-Op-Pointe wie bei ohneGrund, jetzt für mehrere Gründe auf
   // einmal: sind ALLE übergebenen Gründe bereits abwesend, liefert
-  // ohneGruende dieselbe Referenz zurück — kein unnötiger Re-Render, wenn
+  // ohneGruende dieselbe Referenz zurück, kein unnötiger Re-Render, wenn
   // z.B. weiterAutomatisch aufgerufen wird, obwohl 'halten'/'neuversuch'
   // ohnehin schon leer sind (der Normalfall über den Auto-Vorschub-Timer).
   test('ohneGruende ist ein No-Op (dieselbe Referenz), wenn KEINER der übergebenen Gründe vorhanden ist', () => {
@@ -428,7 +428,7 @@ describe('PauseGrund: mitGrund/ohneGrund/blockiertAutomatischenVorschub', () => 
   });
 
   // Regression, die den Final-Review-Fund exakt nachbildet: 'neuversuch'
-  // allein (kein 'halten') muss ebenfalls zurückgenommen werden — ein
+  // allein (kein 'halten') muss ebenfalls zurückgenommen werden, ein
   // Mutant, der ohneGruende nur auf den ERSTEN Grund der Liste anwendet,
   // fiele hier durch.
   test('ohneGruende nimmt auch einen NUR teilweise vorhandenen Grund zurück (nur "neuversuch", kein "halten")', () => {
@@ -459,14 +459,14 @@ describe('PauseGrund: mitGrund/ohneGrund/blockiertAutomatischenVorschub', () => 
     expect(blockiertAutomatischenVorschub(mitGrund(leer(), 'neuversuch'))).toBe(true);
   });
 
-  // Task 8, Phase 6: 'melden' blockiert genau wie 'kommentare' — ein
+  // Task 8, Phase 6: 'melden' blockiert genau wie 'kommentare', ein
   // offenes «Diesen Moment melden»-Sheet darf den Player nicht
   // weiterschalten lassen.
   test('blockiertAutomatischenVorschub ist true, wenn das Melden-Sheet offen ist', () => {
     expect(blockiertAutomatischenVorschub(mitGrund(leer(), 'melden'))).toBe(true);
   });
 
-  // "halten" zusammen mit einem blockierenden Grund bleibt blockierend — die
+  // "halten" zusammen mit einem blockierenden Grund bleibt blockierend, die
   // Ausnahme gilt nur, wenn "halten" der EINZIGE Grund ist.
   test('blockiertAutomatischenVorschub bleibt true, wenn "halten" UND ein weiterer Grund gesetzt sind', () => {
     const stand = mitGrund(mitGrund(leer(), 'halten'), 'kommentare');

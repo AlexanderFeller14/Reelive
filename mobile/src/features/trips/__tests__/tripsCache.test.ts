@@ -40,7 +40,7 @@ test('gemerkte Reisen kommen unverändert zurück', async () => {
   await expect(gemerkteReisen('u1')).resolves.toEqual([reise()]);
 });
 
-// Auf einem geteilten Gerät darf B offline nie A's Reisen sehen — deshalb
+// Auf einem geteilten Gerät darf B offline nie A's Reisen sehen, deshalb
 // trägt der Schlüssel die Benutzer-Kennung.
 test('der Bestand ist pro Person getrennt', async () => {
   await reisenMerken('person-a', [reise({ name: 'Nur für A' })]);

@@ -16,7 +16,7 @@ function meldung(error: { message?: string } | null, sonst: string): string {
 
 const SPALTEN = 'id, name, start_date, end_date, status, owner_id';
 // Die Karte zeigt überlappende Avatare (DESIGN-LANGUAGE §4), also werden die
-// Anzeigenamen gleich mitgeladen — die Mitgliederzahl fällt dabei ab und
+// Anzeigenamen gleich mitgeladen, die Mitgliederzahl fällt dabei ab und
 // braucht keine eigene Aggregation.
 const MIT_MITGLIEDERN = `${SPALTEN}, trip_members(profiles(display_name))`;
 
@@ -41,18 +41,18 @@ function toTrip(row: TripRow, counts: Map<string, number>): Trip {
   };
 }
 
-// Liest die rpc EINMAL und liefert Stand UND Fehler getrennt — wie jede andere
+// Liest die rpc EINMAL und liefert Stand UND Fehler getrennt, wie jede andere
 // Lesefunktion hier oben. Das war bis zum Final-Review nicht so: der Fehler
 // wurde verschluckt und ein Fehlschlag als leere Zuordnung ausgegeben. Für die
 // Reise-Karte ist das harmlos (siehe loadCounts), für den Momente-Zähler war es
 // der Bug aus Important 6: wer 40 versiegelte Momente hat und im Flugmodus
-// einen aufnimmt, sah 0 + 1 = 1 — genau der Rückwärtssprung, den Spec §7
+// einen aufnimmt, sah 0 + 1 = 1, genau der Rückwärtssprung, den Spec §7
 // ausschliesst, und ausgerechnet im Offline-Fall, für den diese Phase existiert.
 async function zaehlerLesen(): Promise<{ counts: Map<string, number>; error: string | null }> {
   // Absichtlich kein direktes `const { data, error } = await supabase.rpc(...)`:
   // in den Fehlertests bleibt der rpc-Mock unkonfiguriert und liefert
   // `undefined` zurück. Im echten Betrieb löst supabase.rpc() immer zu
-  // { data, error } auf (nie zu undefined) — dieser Guard ist rein defensiv
+  // { data, error } auf (nie zu undefined), dieser Guard ist rein defensiv
   // gegen den Test-Doppelgänger.
   const result = await supabase.rpc('my_post_counts');
   const data = result?.data;
@@ -70,7 +70,7 @@ async function zaehlerLesen(): Promise<{ counts: Map<string, number>; error: str
 }
 
 // Bewusst ohne Fehler-Weitergabe: der eigene Momente-Zähler ist Beiwerk auf der
-// Karte. Fällt nur er aus, steht dort eine 0 statt gar keiner Reise — fällt das
+// Karte. Fällt nur er aus, steht dort eine 0 statt gar keiner Reise, fällt das
 // Netz aus, meldet ohnehin die Reise-Abfrage daneben den Fehler.
 async function loadCounts(): Promise<Map<string, number>> {
   return (await zaehlerLesen()).counts;
@@ -79,8 +79,8 @@ async function loadCounts(): Promise<Map<string, number>> {
 // Öffentliche Fassung für Aufrufer ausserhalb dieser Datei (Task 9: der
 // Momente-Zähler zieht den Serverstand als Zuordnung Reise-id -> Zahl aus
 // derselben rpc, ergänzt um noch nicht hochgeladene Momente aus der
-// Warteschlange). Baut auf derselben zaehlerLesen() auf wie loadCounts —
-// eine Zuordnung, eine Quelle — gibt den Fehler aber weiter, weil der
+// Warteschlange). Baut auf derselben zaehlerLesen() auf wie loadCounts,
+// eine Zuordnung, eine Quelle, gibt den Fehler aber weiter, weil der
 // Zähler ihn NICHT als «null» werten darf (siehe zaehler.ts).
 export async function eigeneZaehler(): Promise<Gelesen<Record<string, number>>> {
   const { counts, error } = await zaehlerLesen();
@@ -89,7 +89,7 @@ export async function eigeneZaehler(): Promise<Gelesen<Record<string, number>>> 
 
 // `zaehlerFehler` getrennt vom `error` der Reisen (Re-Review, Minor 2): die
 // beiden Abfragen können unabhängig scheitern. Gelingen die Reisen und nur die
-// Zähler-rpc nicht, stünde sonst überall `my_post_count: 0` — für die Karte
+// Zähler-rpc nicht, stünde sonst überall `my_post_count: 0`, für die Karte
 // Beiwerk (siehe loadCounts), für alles, was diesen Stand weiterreicht oder
 // vorhält, aber dieselbe Klasse von Fehler wie Important 6, eine Ebene weiter.
 // Wer den Stand braucht, muss unterscheiden können, ob die 0 gemessen oder
@@ -118,7 +118,7 @@ export async function fetchTrips(): Promise<Gelesen<Trip[]> & { zaehlerFehler: s
   };
 }
 
-// data === null bei error === null heisst «gibt es (für dich) nicht mehr» —
+// data === null bei error === null heisst «gibt es (für dich) nicht mehr»,
 // gelöscht, verlassen oder nie sichtbar gewesen. Der Screen unterscheidet das
 // von einem Ladefehler, weil nur Letzterer einen Wiederholversuch lohnt.
 export async function fetchTrip(id: string): Promise<Gelesen<Trip | null>> {
@@ -160,10 +160,10 @@ export async function createTrip(input: {
 // Verwirft eine RLS-Policy den Schreibvorgang, liefert Postgres KEINEN Fehler,
 // sondern «UPDATE 0» bzw. «DELETE 0». Ohne die angehängte Auswahl meldeten
 // diese drei Funktionen Erfolg, und der Detailscreen navigierte weg, als wäre
-// die Reise gelöscht — obwohl sie weiter existiert. `.select(...)` macht die
+// die Reise gelöscht, obwohl sie weiter existiert. `.select(...)` macht die
 // betroffenen Zeilen sichtbar: leeres Ergebnis = nichts passiert = Fehlschlag.
 // (RETURNING läuft dabei über die Select-Policy auf der Zeile VOR dem Schreiben,
-// also sehen Owner bzw. Mitglied ihre eigene Zeile — lokal gegen die Policies
+// also sehen Owner bzw. Mitglied ihre eigene Zeile, lokal gegen die Policies
 // verifiziert.)
 export async function updateTrip(
   id: string,
@@ -254,7 +254,7 @@ export async function fetchInviteCode(tripId: string): Promise<Gelesen<string | 
 // sie nur `InvitePreview | null` zurueck und faltete damit zwei voellig
 // verschiedene Lagen in denselben Wert: «diesen Code gibt es nicht» und «ich
 // konnte gerade nicht nachsehen». Der Beitritts-Screen behauptete im Funkloch
-// deshalb, der Einladungslink sei erloschen — die eine Aussage, die niemand
+// deshalb, der Einladungslink sei erloschen, die eine Aussage, die niemand
 // nachpruefen kann und die den Gast endgueltig wegschickt.
 //
 // Unbekannter Code bleibt bewusst KEIN Fehler: peek_invite liefert dafuer

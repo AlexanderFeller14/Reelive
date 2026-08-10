@@ -15,13 +15,13 @@ import type {
 } from '@/features/karte/typen';
 import { KACHEL_NAMENSNENNUNG, KACHEL_URL, KartenFlaeche } from '../KartenFlaeche.web';
 
-// Die Browser-Fassung, gegen ECHTES Leaflet in jsdom — nicht gegen einen Mock.
+// Die Browser-Fassung, gegen ECHTES Leaflet in jsdom, nicht gegen einen Mock.
 // Der Grund steht am ersten Test: dass aus einer Option ein sichtbarer
 // Lizenzhinweis wird, entscheidet Leaflet. Ein Mock beglaubigte den Aufruf und
 // liesse trotzdem eine Karte ohne Namensnennung durchgehen.
 //
 // Gerendert wird mit `react-dom` statt mit @testing-library/react-native: diese
-// Fassung baut echtes DOM (das darf sie — im Browser rendert React Native Web
+// Fassung baut echtes DOM (das darf sie, im Browser rendert React Native Web
 // ohnehin dorthin), und Leaflet braucht einen Container, an den es sich hängen
 // kann. Die native Fassung und der Vertrag, den beide erfüllen, stehen in
 // KartenFlaeche.test.tsx.
@@ -67,14 +67,14 @@ const HOEHE = 600;
 
 beforeAll(() => {
   // jsdom misst jedes Element mit 0 × 0. Leaflet liest die Grösse seines
-  // Containers über `clientWidth`/`clientHeight` — ohne diese beiden Zeilen
+  // Containers über `clientWidth`/`clientHeight`, ohne diese beiden Zeilen
   // wäre jeder Ausschnitt leer und `getBoundsZoom` liefe gegen unendlich.
   Object.defineProperty(HTMLElement.prototype, 'clientWidth', { configurable: true, value: BREITE });
   Object.defineProperty(HTMLElement.prototype, 'clientHeight', { configurable: true, value: HOEHE });
   // jsdom kennt `SVGSVGElement.createSVGRect` nicht, und genau daran erkennt
   // Leaflet beim Laden, ob SVG zur Verfügung steht (`Browser.svg`). Ohne diese
   // Zeile fiele es auf einen Renderer zurück, den es in einem echten Browser
-  // nie nähme — und die Linie wäre gar kein Element mehr, sondern ein Strich
+  // nie nähme, und die Linie wäre gar kein Element mehr, sondern ein Strich
   // auf einem Canvas. Der Schalter stellt her, was jeder Browser mitbringt.
   (L.Browser as { svg: boolean }).svg = true;
 });
@@ -84,7 +84,7 @@ let behaelter: HTMLDivElement | null = null;
 let kartenSpion: jest.SpyInstance<L.Map, Parameters<typeof L.map>>;
 
 // Die Leaflet-Instanz, die die Komponente erzeugt hat. Sie gibt sie nach aussen
-// nicht heraus (sie ist ein Detail ihrer Technik) — für den Test ist sie der
+// nicht heraus (sie ist ein Detail ihrer Technik), für den Test ist sie der
 // einzige Weg, eine echte Kartenbewegung auszulösen statt eine nachzuspielen.
 function karteInstanz(): L.Map {
   const ergebnis = kartenSpion.mock.results[0];
@@ -127,7 +127,7 @@ function linienPfad(host: HTMLElement): SVGPathElement | null {
   return host.querySelector<SVGPathElement>('.leaflet-overlay-pane path');
 }
 
-// Das Bild AUS DER NADEL — nicht das erste `img` im Container: Leaflets
+// Das Bild AUS DER NADEL, nicht das erste `img` im Container: Leaflets
 // Kacheln sind ebenfalls `img`, und die stehen im Baum vor den Nadeln.
 function nadelBild(host: HTMLElement, stelle = 0): HTMLImageElement | null {
   return nadeln(host)[stelle]?.querySelector('img') ?? null;
@@ -147,13 +147,13 @@ afterEach(async () => {
 });
 
 // ---------------------------------------------------------------------------
-// Die Namensnennung — Spec K14 und die Lizenz der Kacheln
+// Die Namensnennung, Spec K14 und die Lizenz der Kacheln
 // ---------------------------------------------------------------------------
 
 // DER Test dieser Datei. Die Kacheln von OpenStreetMap dürfen nur mit
 // Namensnennung benutzt werden, und Leaflet blendet den Hinweis NUR ein, wenn
 // `attribution` gesetzt ist. Wer den Wert wegoptimiert, bricht nichts, was
-// auffiele — die Karte sähe genau gleich aus, nur ohne Lizenzhinweis, und der
+// auffiele, die Karte sähe genau gleich aus, nur ohne Lizenzhinweis, und der
 // Bruch stünde erst in einer Abmahnung.
 //
 // Geprüft am gerenderten DOM, nicht am übergebenen Wert: dass aus der Option
@@ -167,7 +167,7 @@ test('die Karte nennt OpenStreetMap sichtbar', async () => {
 
 // Und zwar so, wie die Attributionsrichtlinie der OpenStreetMap Foundation es
 // verlangt: der Wortlaut «© OpenStreetMap contributors» MIT Link auf
-// openstreetmap.org/copyright. «© OpenStreetMap» allein erfüllt sie nicht —
+// openstreetmap.org/copyright. «© OpenStreetMap» allein erfüllt sie nicht,
 // weder der fehlende Zusatz noch der fehlende Link. K14 verspricht die
 // Lizenzerfüllung, nicht einen Zeichenstring.
 test('die Namensnennung erfuellt die Bedingungen der Lizenz', async () => {
@@ -190,14 +190,14 @@ test('die Kacheln kommen von OpenStreetMap', async () => {
   expect(kacheln.mock.calls[0][1]?.attribution).toBe(KACHEL_NAMENSNENNUNG);
 });
 
-// Leaflets eigenes Stylesheet MUSS ins Bundle — ohne es liegen die Kacheln als
+// Leaflets eigenes Stylesheet MUSS ins Bundle, ohne es liegen die Kacheln als
 // ungeordneter Bilderstapel übereinander und keine Nadel sitzt auf ihrer
 // Koordinate. Das ist die einzige verbindliche Vorgabe dieser Fassung, deren
 // Ausfall sich in keinem Test zeigt: `moduleNameMapper` ersetzt die Datei, und
 // ein leerer Ersatz macht das Fehlen des Imports unsichtbar.
 //
 // Der Ersatz (jest.leafletCss.js) hinterlässt deshalb eine Spur. Sie steht
-// genau dann, wenn `import 'leaflet/dist/leaflet.css'` in der Fassung steht —
+// genau dann, wenn `import 'leaflet/dist/leaflet.css'` in der Fassung steht,
 // diese Testdatei importiert die Fassung oben und sonst nichts, was das
 // Stylesheet zöge.
 test('Leaflets Stylesheet ist im Bundle', () => {
@@ -206,7 +206,7 @@ test('Leaflets Stylesheet ist im Bundle', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Der Ausschnitt, mit dem sie öffnet — und der, den sie meldet
+// Der Ausschnitt, mit dem sie öffnet, und der, den sie meldet
 // ---------------------------------------------------------------------------
 
 test('oeffnet mit dem uebergebenen Ausschnitt', async () => {
@@ -214,7 +214,7 @@ test('oeffnet mit dem uebergebenen Ausschnitt', async () => {
   const karte = karteInstanz();
   expect(karte.getCenter().lat).toBeCloseTo(AUSSCHNITT.latitude, 3);
   expect(karte.getCenter().lng).toBeCloseTo(AUSSCHNITT.longitude, 3);
-  // Der ganze verlangte Ausschnitt muss zu sehen sein — sonst läge ein Moment
+  // Der ganze verlangte Ausschnitt muss zu sehen sein, sonst läge ein Moment
   // ausserhalb des Bildes, obwohl die Karte für ihn geöffnet wurde.
   expect(
     karte.getBounds().contains(
@@ -231,12 +231,12 @@ test('oeffnet mit dem uebergebenen Ausschnitt', async () => {
 // `fitBounds` rastet auf eine ganze Zoomstufe und zeigt damit regelmässig
 // spürbar mehr als angefordert. Bleibt diese eine Meldung aus, gruppiert der
 // Screen bis zur ersten Bewegung von Hand mit dem ANGEFORDERTEN statt dem
-// SICHTBAREN Delta — `aufBildschirm` rechnet zu viele Bildschirmpunkte pro
+// SICHTBAREN Delta, `aufBildschirm` rechnet zu viele Bildschirmpunkte pro
 // Grad, und Nadeln, die einander auf dem Schirm verdecken, bekommen keine
 // gemeinsame Gruppe. Nativ korrigiert `onRegionChangeComplete` denselben
 // Unterschied nach dem Layout.
 //
-// Leaflet feuert `moveend` synchron aus dem ersten `setView` — die Meldung
+// Leaflet feuert `moveend` synchron aus dem ersten `setView`, die Meldung
 // geht nur dann verloren, wenn der Listener erst NACH `fitBounds` hängt. Genau
 // deshalb steht hier kein `mockClear()` vor der Zusicherung.
 test('meldet schon den Ausschnitt, mit dem sie oeffnet', async () => {
@@ -261,7 +261,7 @@ test('der sichtbare Ausschnitt ist weiter als der angeforderte', async () => {
 
 // `moveend` ist Leaflets `onRegionChangeComplete`: die Karte steht still und
 // zeigt DAS hier. Ohne diese Meldung gruppierte der Screen für immer nach dem
-// Zoom, mit dem die Karte geöffnet wurde — eine Gruppe fiele durch kein
+// Zoom, mit dem die Karte geöffnet wurde, eine Gruppe fiele durch kein
 // Hineinzoomen mehr auseinander.
 test('meldet den Ausschnitt, sobald die Karte stillsteht', async () => {
   const aufAusschnitt = jest.fn<void, [Ausschnitt]>();
@@ -278,7 +278,7 @@ test('meldet den Ausschnitt, sobald die Karte stillsteht', async () => {
 
 // Und die Meldung beschreibt, was WIRKLICH zu sehen ist: Mitte und Spannen
 // kommen aus der Karte selbst. Der Screen misst damit Abstände in
-// Bildschirmpunkten — eine Spanne, die nicht stimmt, gruppiert falsch.
+// Bildschirmpunkten, eine Spanne, die nicht stimmt, gruppiert falsch.
 test('die Meldung beschreibt genau den Ausschnitt der Karte', async () => {
   const aufAusschnitt = jest.fn<void, [Ausschnitt]>();
   await zeichne({ gruppen: [gruppeA], aufAusschnitt });
@@ -323,14 +323,14 @@ test('die Nadel einer Gruppe zeigt deren Anzahl', async () => {
   expect(nadeln(host)[0].textContent).toContain('2');
 });
 
-// Eine Gruppe von einem ist keine Gruppe — sie trägt keine «1».
+// Eine Gruppe von einem ist keine Gruppe, sie trägt keine «1».
 test('eine einzelne Nadel zeigt keine Zahl', async () => {
   const host = await zeichne({ gruppen: [gruppeA] });
   expect(nadeln(host)[0].textContent).toBe('');
 });
 
 // Nach dem Zusammenfassen ist die Nadel EIN Element. Was ein Klick auslöst,
-// steht nur im Label — und zwar in derselben Formulierung wie nativ
+// steht nur im Label, und zwar in derselben Formulierung wie nativ
 // (features/karte/nadel.ts), damit beide Plattformen dasselbe versprechen.
 test('die Nadel sagt, was ein Klick auf sie tut', async () => {
   const host = await zeichne({ gruppen: [auseinander] });
@@ -351,7 +351,7 @@ test('meldet den Klick auf eine Gruppe nach oben', async () => {
 // Der Klick meldet die Gruppe von JETZT, nicht die von damals: die Nadel bleibt
 // beim Zoomen stehen, ihre Gruppe wechselt darunter laufend. Eine Closure auf
 // die Gruppe aus dem Rendern, in dem die Nadel gesetzt wurde, meldete später
-// eine, die es nicht mehr gibt — und das Sheet zeigte Momente, die längst eine
+// eine, die es nicht mehr gibt, und das Sheet zeigte Momente, die längst eine
 // eigene Nadel haben.
 test('der Klick meldet die aktuelle Gruppe, nicht die von damals', async () => {
   const aufGruppe = jest.fn();
@@ -366,7 +366,7 @@ test('der Klick meldet die aktuelle Gruppe, nicht die von damals', async () => {
 
 // Das Gegenstück zu `tracksViewChanges` nativ: eine Nadel, deren Aussehen
 // unverändert ist, bleibt als DOM stehen. Neu gebaut lüde ihr Bild bei jeder
-// Kartenbewegung erneut — und die Nadel flackerte beim Schieben.
+// Kartenbewegung erneut, und die Nadel flackerte beim Schieben.
 test('unveraenderte Nadeln werden beim Neuzeichnen nicht neu gebaut', async () => {
   const thumbFuer = (postId: string) => `https://cdn.example/${postId}.jpg`;
   const host = await zeichne({ gruppen: [gruppeA], thumbFuer });
@@ -380,7 +380,7 @@ test('unveraenderte Nadeln werden beim Neuzeichnen nicht neu gebaut', async () =
 });
 
 // Und die Gegenprobe, ohne die das Stehenlassen oben zur Falle würde: ändert
-// sich das Aussehen, MUSS die Nadel neu gebaut werden — sonst bliebe eine
+// sich das Aussehen, MUSS die Nadel neu gebaut werden, sonst bliebe eine
 // Gruppe mit ihrer alten Zahl stehen, nachdem sie gewachsen ist.
 test('ein geaendertes Aussehen baut die Nadel neu', async () => {
   const host = await zeichne({ gruppen: [gruppeA] });
@@ -428,7 +428,7 @@ test('zeige() zoomt auf ein engeres Ziel hinein', async () => {
 });
 
 // DESIGN-LANGUAGE §5 / Spec K12: mit Reduced Motion wird gesprungen statt
-// gefahren — dieselbe Weiche wie in der nativen Fassung.
+// gefahren, dieselbe Weiche wie in der nativen Fassung.
 test('mit Reduced Motion springt zeige(), statt zu fahren', async () => {
   const flug = jest.spyOn(L.Map.prototype, 'flyTo');
   const sprung = jest.spyOn(L.Map.prototype, 'setView');
@@ -451,7 +451,7 @@ test('mit Reduced Motion springt zeige(), statt zu fahren', async () => {
 // zu warten.
 //
 // `useImperativeHandle` ist ein Layout-Effekt, der Kartenaufbau hier ein
-// passiver — dazwischen steht das Handle, aber noch keine Karte. Ohne
+// passiver, dazwischen steht das Handle, aber noch keine Karte. Ohne
 // Vorkehrung wäre der Befehl STILL verschluckt, und zwar nur im Browser: nativ
 // ist das MapView-Ref bereits im Commit gesetzt. Dieselbe Zusicherung steht
 // deshalb wortgleich in KartenFlaeche.test.tsx.
@@ -509,7 +509,7 @@ test('die Linie ist der Akzent in Breite 3', async () => {
   expect(linienPfad(host)?.getAttribute('stroke-width')).toBe('3');
 });
 
-// Eine Linie braucht zwei Punkte — sonst stünde ein Overlay auf der Karte, das
+// Eine Linie braucht zwei Punkte, sonst stünde ein Overlay auf der Karte, das
 // nichts verbindet.
 test('ein einzelner Punkt ergibt keine Linie', async () => {
   const host = await zeichne({ linie: [LINIE[0]] });
@@ -517,7 +517,7 @@ test('ein einzelner Punkt ergibt keine Linie', async () => {
 });
 
 // Der Tagesfilter kann die Linie auf einen einzigen Punkt zusammenschrumpfen
-// lassen — dann muss sie verschwinden, nicht als Rest stehen bleiben.
+// lassen, dann muss sie verschwinden, nicht als Rest stehen bleiben.
 test('schrumpft die Linie auf einen Punkt, verschwindet sie', async () => {
   const host = await zeichne({ linie: LINIE });
   expect(linienPfad(host)).not.toBeNull();
@@ -525,7 +525,7 @@ test('schrumpft die Linie auf einen Punkt, verschwindet sie', async () => {
   expect(linienPfad(host)).toBeNull();
 });
 
-// Und sie bekommt kein zweites Element, wenn sie sich ändert — aus demselben
+// Und sie bekommt kein zweites Element, wenn sie sich ändert, aus demselben
 // Grund wie die Nadeln oben.
 test('eine geaenderte Linie bekommt kein zweites Element', async () => {
   const host = await zeichne({ linie: LINIE });

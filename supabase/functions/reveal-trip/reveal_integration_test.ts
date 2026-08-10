@@ -2,7 +2,7 @@
 // laufende Function, nicht nur gegen die herausgelösten Bausteine. Die
 // eigentliche Verzweigungslogik ist bereits in reveal_test.ts (ohne Docker)
 // und die beiden DB-kritischen Abfragen in revealStore_integration_test.ts
-// (ohne HTTP) bewiesen — diese Datei bestätigt zusätzlich, dass die
+// (ohne HTTP) bewiesen, diese Datei bestätigt zusätzlich, dass die
 // Verdrahtung selbst stimmt: Deno.serve → fuehreRevealAus → der echte
 // RevealStore, End-to-End über echtes JWT/HTTP, exakt wie die App es tut.
 //
@@ -11,7 +11,7 @@
 // archived -> 409. Der vierte Fall (fehlschlagender Push -> trotzdem 200)
 // läuft hier implizit mit: die Test-Reise hat Mitglieder ohne
 // push_tokens-Zeilen, `versendeRevealPush` bricht darum früh ab (keine
-// Tokens) — das ECHTE "Push wirft" wird deterministisch (ohne Abhängigkeit
+// Tokens), das ECHTE "Push wirft" wird deterministisch (ohne Abhängigkeit
 // von echtem Netz zu Expo) bereits in reveal_test.ts geprüft.
 //
 // Ohne laufenden Stack UND einen `supabase functions serve`-Prozess für
@@ -106,7 +106,7 @@ const stackBereit = Boolean(
 
 if (!stackBereit) {
   console.warn(
-    'reveal_integration_test: übersprungen — braucht `supabase start` UND ' +
+    'reveal_integration_test: übersprungen, braucht `supabase start` UND ' +
       '`supabase functions serve --env-file supabase/functions/.env` in einem zweiten Terminal.',
   );
 }
@@ -186,7 +186,7 @@ Deno.test({
 
       // --- Re-Review-Fund: Nicht-Owner bleibt 403, auch NACH dem Reveal ---
       // Der Owner-Check muss vor den Status-Zweigen greifen, nicht nur vor
-      // dem CAS-Update — sonst bekäme jede authentifizierte Person, die die
+      // dem CAS-Update, sonst bekäme jede authentifizierte Person, die die
       // trip_id kennt, für eine bereits revealte Reise 200 statt 403 (den
       // idempotenten Zweig einer fremden Person untergeschoben).
       const nichtOwnerNachReveal = await reveal(miraHeaders);

@@ -54,7 +54,7 @@ describe('kameraBewegt', () => {
   // absolute Versatz ist auf einem Kontinent-Ausschnitt nichts und auf einem
   // Häuserblock eine halbe Karte.
   test('ein Zittern unterhalb eines Prozents der Spanne zählt nicht', () => {
-    // 0.04 × 1 % = 0.0004 — die Hälfte davon liegt darunter.
+    // 0.04 × 1 % = 0.0004, die Hälfte davon liegt darunter.
     expect(kameraBewegt(SICHTBAR, { ...SICHTBAR, latitude: 38.7202 })).toBe(false);
     const eng = { ...SICHTBAR, latitudeDelta: 0.0004, longitudeDelta: 0.0004 };
     // Derselbe Versatz auf einem hundertmal engeren Ausschnitt ist sehr wohl
@@ -63,7 +63,7 @@ describe('kameraBewegt', () => {
   });
 
   // Ohne den kürzeren Weg um die Erde gälte jede Karte über der Datumsgrenze
-  // als dauerhaft in Bewegung — und die Sackgasse ginge dort wieder auf.
+  // als dauerhaft in Bewegung, und die Sackgasse ginge dort wieder auf.
   test('über den 180. Längengrad hinweg wird der kürzere Weg gemessen', () => {
     const anDerGrenze: Ausschnitt = {
       latitude: 0,
@@ -71,7 +71,7 @@ describe('kameraBewegt', () => {
       latitudeDelta: 0.04,
       longitudeDelta: 0.04,
     };
-    // 0.002 Grad auseinander, aber numerisch 359.998 — das sind 5 % der Spanne
+    // 0.002 Grad auseinander, aber numerisch 359.998, das sind 5 % der Spanne
     // und damit eine Bewegung, aber keine von 360 Grad.
     expect(kameraBewegt(anDerGrenze, { ...anDerGrenze, longitude: -179.999 })).toBe(true);
     // Und exakt derselbe Punkt, einmal als 180 und einmal als -180 geschrieben,
@@ -92,7 +92,7 @@ describe('zoomZiel', () => {
     expect(ziel!.longitude).toBeCloseTo(-9.1301, 6);
   });
 
-  test('fährt nie hinaus — höchstens auf die halbe sichtbare Spanne', () => {
+  test('fährt nie hinaus, höchstens auf die halbe sichtbare Spanne', () => {
     const ziel = zoomZiel(nah, SICHTBAR)!;
     expect(ziel.latitudeDelta).toBeLessThanOrEqual(SICHTBAR.latitudeDelta / 2);
     expect(ziel.longitudeDelta).toBeLessThanOrEqual(SICHTBAR.longitudeDelta / 2);
@@ -122,7 +122,7 @@ describe('zoomAussichtslos', () => {
   });
 
   // Der Kern der Fixrunde: bei MAX_ZOOM steht die Kamera, und die Gruppe fiele
-  // durch keine weitere Stufe auseinander — obwohl ihre Punkte verschieden
+  // durch keine weitere Stufe auseinander, obwohl ihre Punkte verschieden
   // sind.
   test('hat der letzte Tipp auf DIESE Gruppe nichts bewegt, öffnet der nächste das Sheet', () => {
     const letzter = { ankerId: 'p1', vorher: SICHTBAR };
@@ -135,7 +135,7 @@ describe('zoomAussichtslos', () => {
   });
 
   // Eine andere Gruppe liegt woanders: dorthin kann die Kamera fahren, auch
-  // wenn die Zoomstufe längst am Anschlag ist — die MITTE bewegt sich.
+  // wenn die Zoomstufe längst am Anschlag ist, die MITTE bewegt sich.
   test('der stehen gebliebene Versuch einer ANDEREN Gruppe blockiert nicht', () => {
     const andere = gruppe([punkt('q1', 38.75, -9.16), punkt('q2', 38.75018, -9.16, 1)]);
     const letzter = { ankerId: 'p1', vorher: SICHTBAR };

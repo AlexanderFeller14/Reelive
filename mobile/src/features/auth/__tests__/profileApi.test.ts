@@ -37,7 +37,7 @@ test('createProfile: Erfolg → error null', async () => {
 });
 
 // `feld` sagt dem Screen, WO die Meldung hingehört. Vorher gab es nur einen
-// Fehlerstring, und der landete pauschal unter dem Username-Feld — auch
+// Fehlerstring, und der landete pauschal unter dem Username-Feld, auch
 // «Das Profil konnte nicht gespeichert werden», was mit dem Username nichts
 // zu tun hat (DESIGN-LANGUAGE §4: feldgenaue Zuordnung).
 test('createProfile weist den vergebenen Username dem Username-Feld zu', async () => {

@@ -2,7 +2,7 @@
 -- Moderation (reports_select_owner, reports_update_owner + erledigt_am,
 -- 20260808120000_reports_erledigt.sql). Kern dieser Datei ist der
 -- Spalten-Grant: dass die Owner-Person erledigt_am setzen KANN, ist die
--- halbe Geschichte — die andere Hälfte ist, dass dieselbe Owner-Person
+-- halbe Geschichte, die andere Hälfte ist, dass dieselbe Owner-Person
 -- reason/post_id NICHT ändern kann, auch mit einem sonst gültigen
 -- Update-Statement. Ein Test, der nur den Erfolgsfall zeigt, würde die
 -- Spalten-Einschränkung nicht beweisen.
@@ -52,7 +52,7 @@ select pg_temp.as_service();
 insert into public.trip_members (trip_id, user_id) values
   ('11111111-1111-1111-1111-111111111111', '00000000-0000-0000-0000-00000000000b');
 
--- Trip 2: Carla (Owner), bereits revealed, ein Post — Ben ist HIER kein
+-- Trip 2: Carla (Owner), bereits revealed, ein Post, Ben ist HIER kein
 -- Mitglied. Dient unten dem can_see_post-Grenztest.
 select pg_temp.login_as('00000000-0000-0000-0000-00000000000c');
 insert into public.trips (id, name, start_date, end_date, owner_id)
@@ -66,7 +66,7 @@ select pg_temp.as_service();
 update public.trips set status = 'revealed', revealed_at = '2026-03-06 12:00+00'
   where id = '33333333-3333-3333-3333-333333333333';
 
--- === 1. Vor dem Reveal (Trip 1) geht Melden nicht — can_see_post ist false ===
+-- === 1. Vor dem Reveal (Trip 1) geht Melden nicht, can_see_post ist false ===
 select pg_temp.login_as('00000000-0000-0000-0000-00000000000b');
 select throws_ok(
   $$insert into public.reports (post_id, reporter_id, reason)
@@ -79,7 +79,7 @@ select pg_temp.as_service();
 update public.trips set status = 'revealed', revealed_at = '2026-08-10 18:00+00'
   where id = '11111111-1111-1111-1111-111111111111';
 
--- === 2. Melden nur im eigenen Namen — Ben kann nicht als Anna melden ===
+-- === 2. Melden nur im eigenen Namen, Ben kann nicht als Anna melden ===
 select pg_temp.login_as('00000000-0000-0000-0000-00000000000b');
 select throws_ok(
   $$insert into public.reports (post_id, reporter_id, reason)
@@ -114,7 +114,7 @@ select is(
 
 -- === 6. Nur die Owner-Person setzt erledigt_am ===
 -- Ben ist Mitglied, aber nicht Owner: reports_update_owner (using) trifft
--- auf seine Zeile nicht zu — kein Fehler, die Zeile wird beim Update still
+-- auf seine Zeile nicht zu, kein Fehler, die Zeile wird beim Update still
 -- gefiltert (0 betroffene Zeilen), wie reactions_delete_own in
 -- 06_social_rls_test.sql.
 update public.reports set erledigt_am = now() where id = '55555555-5555-5555-5555-555555555555';
@@ -130,7 +130,7 @@ select is(
   '2026-08-11 09:00+00'::timestamptz, 'Die Owner-Person kann erledigt_am setzen');
 
 -- === 7. Der Spalten-Grant: selbst die Owner-Person ändert reason/post_id
--- nicht — grant update (erledigt_am) deckt NUR diese eine Spalte ===
+-- nicht, grant update (erledigt_am) deckt NUR diese eine Spalte ===
 select throws_ok(
   $$update public.reports set reason = 'Nachträglich verfälscht'
     where id = '55555555-5555-5555-5555-555555555555'$$,
@@ -142,7 +142,7 @@ select throws_ok(
   '42501', null, 'Die Owner-Person kann post_id nicht ändern (kein Spalten-Grant)');
 
 -- Ein Statement, das eine erlaubte UND eine verbotene Spalte gleichzeitig
--- setzt, scheitert als Ganzes — der Spalten-Grant lässt kein Teil-Update zu.
+-- setzt, scheitert als Ganzes, der Spalten-Grant lässt kein Teil-Update zu.
 select throws_ok(
   $$update public.reports set erledigt_am = now(), reason = 'Verfälscht'
     where id = '55555555-5555-5555-5555-555555555555'$$,

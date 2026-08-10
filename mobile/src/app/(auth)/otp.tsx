@@ -17,7 +17,7 @@ export default function OtpScreen() {
   const [loading, setLoading] = useState(false);
   // «Code erneut senden» loeste vorher requestOtp aus und verwarf das Ergebnis:
   // ob ein neuer Code unterwegs war oder Supabase mit 429 abgewiesen hatte, sah
-  // der Screen gleich aus — naemlich nach nichts. Wer keinen Code bekam, tippte
+  // der Screen gleich aus, naemlich nach nichts. Wer keinen Code bekam, tippte
   // dann in Endlosschleife auf einen Knopf, der nie antwortet.
   const [erneut, setErneut] = useState<{ text: string; fehler: boolean } | null>(null);
   const [erneutLaeuft, setErneutLaeuft] = useState(false);

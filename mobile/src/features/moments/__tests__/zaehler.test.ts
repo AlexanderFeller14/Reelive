@@ -1,5 +1,5 @@
 // Der Zähler ist vor dem Reveal die einzige Information über versiegelte
-// Momente überhaupt (siehe Task-9-Auftrag) — er darf nach einer Offline-
+// Momente überhaupt (siehe Task-9-Auftrag), er darf nach einer Offline-
 // Aufnahme nie rückwärts springen. Deshalb zählt er den Serverstand PLUS die
 // eigenen, noch nicht hochgeladenen Momente derselben Reise aus der
 // Warteschlange. Genau das prüfen die drei Fälle unten.
@@ -21,7 +21,7 @@ import * as tripsCache from '@/features/trips/tripsCache';
 beforeEach(() => {
   jest.clearAllMocks();
   // clearAllMocks räumt nur die Historie ab, nicht die per mockResolvedValue
-  // gesetzte Implementierung — die Standardwerte hier wiederherstellen.
+  // gesetzte Implementierung, die Standardwerte hier wiederherstellen.
   (tripsApi.eigeneZaehler as jest.Mock).mockResolvedValue({ data: { t1: 5 }, error: null });
   (tripsCache.gemerkteZaehler as jest.Mock).mockResolvedValue({});
 });
@@ -50,12 +50,12 @@ test('eine Reise ohne Serverstand (noch nie eingesendet) startet bei 0 statt und
 
 // === Fix-Runde 1: Doppelzählung, sobald die posts-Zeile schon angelegt ist ===
 // uploadWorker.verarbeiteJob setzt zeile_angelegt: true, SOBALD die posts-Zeile
-// existiert — der Job bleibt aber bis zur bestätigten Fertigstellung (Medien-
+// existiert, der Job bleibt aber bis zur bestätigten Fertigstellung (Medien-
 // UND Thumbnail-Upload) in der Warteschlange, weil beide unabhängig
 // mehrfach fehlschlagen und erneut versucht werden können. my_post_counts()
 // zählt diese Zeile serverseitig bereits mit. Zählt eigenerZaehler einen
 // solchen Job zusätzlich dazu, springt die Zahl zurück, sobald der Job
-// schliesslich verschwindet — genau das Verhalten, das der Zähler laut
+// schliesslich verschwindet, genau das Verhalten, das der Zähler laut
 // Auftrag nie zeigen darf.
 
 test('ein wartender Job mit bereits angelegter Zeile erhöht die Zahl NICHT (steckt schon im Serverstand)', async () => {
@@ -90,14 +90,14 @@ test('die Zahl bleibt über den ganzen Ablauf monoton: eingereiht, Zeile angeleg
   mockAlleJobs.mockResolvedValueOnce([]);
   await expect(eigenerZaehler('t1')).resolves.toBe(5);
 
-  // Eingereiht: Job wartet, Zeile noch nicht angelegt — zählt lokal dazu.
+  // Eingereiht: Job wartet, Zeile noch nicht angelegt, zählt lokal dazu.
   mockEigeneZaehler.mockResolvedValueOnce({ data: { t1: 5 }, error: null });
   mockAlleJobs.mockResolvedValueOnce([{ trip_id: 't1', zustand: 'wartet', zeile_angelegt: false }]);
   await expect(eigenerZaehler('t1')).resolves.toBe(6);
 
   // Zeile angelegt, Medien-Upload noch nicht bestätigt (z.B. wiederholt
   // gescheitert): der Server zählt die Zeile jetzt schon selbst mit, lokal
-  // fällt der Job darum aus der Zählung — die Summe bleibt gleich.
+  // fällt der Job darum aus der Zählung, die Summe bleibt gleich.
   mockEigeneZaehler.mockResolvedValueOnce({ data: { t1: 6 }, error: null });
   mockAlleJobs.mockResolvedValueOnce([{ trip_id: 't1', zustand: 'wartet', zeile_angelegt: true }]);
   await expect(eigenerZaehler('t1')).resolves.toBe(6);
@@ -111,7 +111,7 @@ test('die Zahl bleibt über den ganzen Ablauf monoton: eingereiht, Zeile angeleg
 // === Final-Review, Important 6: ein Fehlschlag ist nicht «null» ===
 // Vorher verschluckte tripsApi den rpc-Fehler und lieferte eine leere
 // Zuordnung. Wer 40 versiegelte Momente hatte und im Flugmodus einen aufnahm,
-// sah 0 + 1 = 1 — der Rückwärtssprung, den Spec §7 ausschliesst, und
+// sah 0 + 1 = 1, der Rückwärtssprung, den Spec §7 ausschliesst, und
 // ausgerechnet im Offline-Fall, für den diese Phase existiert.
 
 test('ein erfolgreicher Abruf schreibt den Serverstand fort', async () => {

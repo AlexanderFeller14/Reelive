@@ -1,4 +1,4 @@
--- Phase 4 (Kamera & Upload) rührt an der DB nur, was hier belegt wird — die
+-- Phase 4 (Kamera & Upload) rührt an der DB nur, was hier belegt wird, die
 -- Versiegelung selbst bleibt unverändert. Zwei der vier Brief-Punkte sind
 -- bereits an anderer Stelle abgedeckt, deshalb NICHT hier dupliziert:
 --   - "Insert mit fremdem author_id scheitert": 04_sealing_rls_test.sql,
@@ -11,7 +11,7 @@
 -- Was dort fehlt und hier ergänzt wird:
 --   1. authenticated bleibt jedes UPDATE auf posts verwehrt, auch ein reines
 --      "upload_status setzen" auf den eigenen Post nach dem Reveal (nicht nur
---      beim Insert) — das ist der ganze Grund, warum die Edge Function
+--      beim Insert), das ist der ganze Grund, warum die Edge Function
 --      `confirm` mit Service-Role laufen muss.
 --   2. Nachzügler-Grenzfall exakt AUF der Grenze: captured_at = revealed_at
 --      (04 testet nur strikt davor/danach).
@@ -66,7 +66,7 @@ insert into public.posts (id, trip_id, author_id, type, storage_key, captured_at
 -- Die Edge Function leitet den Speicherschlüssel aus der posts-Zeile ab und
 -- traut dem Client keinen Pfad. Damit sie die richtige Container-Endung
 -- ableiten kann (iOS nimmt QuickTime auf, Android mp4), steht sie als Spalte
--- in der Zeile — beschränkt auf eine geschlossene Liste, die zur Aufnahmeart
+-- in der Zeile, beschränkt auf eine geschlossene Liste, die zur Aufnahmeart
 -- passen muss. Diese Grenze ist der ganze Grund, warum der Client die Endung
 -- überhaupt bestimmen darf.
 insert into public.posts (id, trip_id, author_id, type, media_ext, storage_key, duration_s, captured_at, captured_tz)
@@ -74,7 +74,7 @@ insert into public.posts (id, trip_id, author_id, type, media_ext, storage_key, 
           '00000000-0000-0000-0000-00000000000a', 'video', 'mov', 'trips/x/4.mov', 12,
           '2026-08-02 11:00+00', 'Europe/Lisbon');
 
--- Ein Video ohne ausdrückliche Endung liefe in den Default 'jpg' — das muss
+-- Ein Video ohne ausdrückliche Endung liefe in den Default 'jpg', das muss
 -- LAUT scheitern statt still falsch etikettiert im Speicher zu landen.
 select throws_ok(
   $$insert into public.posts (trip_id, author_id, type, storage_key, duration_s, captured_at, captured_tz)
@@ -97,7 +97,7 @@ select is(media_ext, 'jpg',
     'ein Foto ohne ausdrückliche Endung bekommt jpg (Default)')
   from public.posts where id = '22222222-2222-2222-2222-222222222222';
 select is(media_ext, 'mov',
-    'authenticated darf media_ext beim Insert setzen (Spalten-Grant vorhanden) — sonst scheiterte JEDER Client-Insert')
+    'authenticated darf media_ext beim Insert setzen (Spalten-Grant vorhanden), sonst scheiterte JEDER Client-Insert')
   from public.posts where id = '44444444-4444-4444-4444-444444444444';
 insert into public.trip_members (trip_id, user_id) values
   ('11111111-1111-1111-1111-111111111111', '00000000-0000-0000-0000-00000000000b');

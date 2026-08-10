@@ -12,26 +12,26 @@ import { nadelAbbild, nadelBeschriftung } from '@/features/karte/nadel';
 import type { KartenPunkt } from '@/features/karte/typen';
 
 // Die Nadel auf der Recap-Karte (Spec §5.4): keine Stecknadel, sondern das
-// runde Thumbnail des Moments — dieselbe Formsprache wie die Avatare
+// runde Thumbnail des Moments, dieselbe Formsprache wie die Avatare
 // (DESIGN-LANGUAGE §4: rund, 2 px weisser Ring). Sie beantwortet «was war
 // hier?» ohne einen einzigen Tipp.
 //
 // Zwei Komponenten in einer Datei, weil sie eine Regel teilen:
 // `KartenNadel` ist das Aussehen, `KartenNadelMarker` setzt es auf die Karte
 // und entscheidet, wann es aufhören darf, sich zu zeichnen. Diese Entscheidung
-// hängt daran, WAS die Nadel gerade zeigt — sie zu trennen hiesse, dieselbe
+// hängt daran, WAS die Nadel gerade zeigt, sie zu trennen hiesse, dieselbe
 // Frage an zwei Orten zu beantworten.
 //
 // `nadelAbbild` und `nadelBeschriftung` liegen seit Task 14 plattformfrei in
 // features/karte/nadel.ts: die Browser-Fassung der Kartenfläche baut ihre
-// Nadeln aus DOM statt aus Marker-Views, braucht aber dieselben zwei Regeln —
+// Nadeln aus DOM statt aus Marker-Views, braucht aber dieselben zwei Regeln,
 // und kann diese Datei nicht importieren, weil sie react-native-maps mitzieht.
 
 // 44 px inklusive Ring, wie der grösste Avatar (§4). Der Ring liegt als
 // `borderWidth` INNEN, genau wie in Avatar.tsx.
 const GROESSE = 44;
 const RING = 2;
-// Das Play-Zeichen sitzt in einer translucenten Pille (§1) — 20 px ist die
+// Das Play-Zeichen sitzt in einer translucenten Pille (§1), 20 px ist die
 // kleinste Fläche, in der ein 12-px-Icon nicht klebt.
 const VIDEO_PILLE = 20;
 const ZAEHLER = 20;
@@ -46,7 +46,7 @@ type NadelProps = {
    * Meldet, dass die Nadel fertig aussieht und sich von selbst nichts mehr
    * ändert. `KartenNadelMarker` schaltet daraufhin `tracksViewChanges` ab.
    * Wird auch erneut gemeldet, wenn sich das Aussehen geändert hat und der
-   * neue Stand steht — siehe `nadelAbbild`.
+   * neue Stand steht, siehe `nadelAbbild`.
    */
   onBereit?: () => void;
 };
@@ -56,7 +56,7 @@ type NadelProps = {
 //
 // - `true`: es ist ein Bild unterwegs (§4 Skeleton, Opacity-Puls 0.6 ↔ 1.0,
 //   NIE ein Gradient-Shimmer). Der Puls ist das Versprechen «gleich kommt was».
-// - `false`: es kommt nichts mehr. Dann pulst hier auch nichts — eine stille
+// - `false`: es kommt nichts mehr. Dann pulst hier auch nichts, eine stille
 //   `bg-1`-Fläche, wie ein Avatar ohne Bild.
 //
 // Bewusst dieselbe Mechanik wie `SkelettBlock` in uebersicht.tsx (dort
@@ -99,7 +99,7 @@ export function KartenNadel({ moment, thumbUrl, anzahl = 1, onBereit }: NadelPro
   // Nicht «ist geladen», sondern «WELCHE URL ist geladen»: bei einem Wechsel
   // der Quelle (der Vorrat erneuert seine Signaturen, bevor sie ablaufen) ist
   // der alte Ladestand wertlos, und der Skeleton muss zurückkommen. Als
-  // blosses Boolean bräuchte es dafür einen Effekt, der es zurücksetzt — und
+  // blosses Boolean bräuchte es dafür einen Effekt, der es zurücksetzt, und
   // der käme in der Reihenfolge der Effekte dem Fertig-Melden in die Quere.
   const [geladeneUrl, setGeladeneUrl] = useState<string | null>(null);
   const bildSteht = thumbUrl !== null && geladeneUrl === thumbUrl;
@@ -114,7 +114,7 @@ export function KartenNadel({ moment, thumbUrl, anzahl = 1, onBereit }: NadelPro
 
   // `abbild` gehört in die Abhängigkeiten, nicht nur `fertig`: ändert sich die
   // Zähler-Pille oder das Play-Zeichen, während das Bild längst steht, feuert
-  // sonst nichts mehr — und der Marker zeichnete den neuen Stand nie.
+  // sonst nichts mehr, und der Marker zeichnete den neuen Stand nie.
   useEffect(() => {
     if (fertig) onBereit?.();
   }, [fertig, abbild, onBereit]);
@@ -123,7 +123,7 @@ export function KartenNadel({ moment, thumbUrl, anzahl = 1, onBereit }: NadelPro
     // Das Polster ist kein Weissraum, sondern Platz: die Zähler-Pille ragt über
     // den Kreis hinaus, und Android schneidet ein Marker-View an seinen eigenen
     // Rändern ab. Weil es auf allen Seiten gleich ist, bleibt der Kreis im
-    // Mittelpunkt des Views — und damit auf seiner Koordinate.
+    // Mittelpunkt des Views, und damit auf seiner Koordinate.
     <View style={styles.aussen}>
       <View style={[styles.rahmen, { borderColor: colors['bg-0'], backgroundColor: colors['bg-1'] }]}>
         {/* Der Beschnitt sitzt eine Ebene TIEFER als der Schatten: `overflow:
@@ -133,7 +133,7 @@ export function KartenNadel({ moment, thumbUrl, anzahl = 1, onBereit }: NadelPro
           {/* Der Kreis liegt UNTER dem Bild, nicht darüber, und beide sind
               gleichzeitig gemountet. Das ist kein Zufall: react-native-maps
               zeichnet die Nadel ein letztes Mal, wenn `tracksViewChanges`
-              abschaltet — und das passiert im selben Commit, in dem der Kreis
+              abschaltet, und das passiert im selben Commit, in dem der Kreis
               verschwindet. Läge er oben, entschiede die Reihenfolge zweier
               nativer Operationen darüber, ob das eingefrorene Bild den Kreis
               noch trägt. Unten ist die Frage gegenstandslos: das geladene Foto
@@ -165,7 +165,7 @@ export function KartenNadel({ moment, thumbUrl, anzahl = 1, onBereit }: NadelPro
       </View>
 
       {/* Zähler-Pille der Gruppe (Spec §5.5). Eine Gruppe von einem ist keine
-          Gruppe — sie trägt keine «1». */}
+          Gruppe, sie trägt keine «1». */}
       {anzahl > 1 && (
         <View style={[styles.zaehler, { backgroundColor: colors.accent }]}>
           <Text style={[type.label, styles.zaehlerText, { color: colors['on-accent'] }]}>{String(anzahl)}</Text>
@@ -181,13 +181,13 @@ type MarkerProps = {
   anzahl?: number;
   /**
    * Eine Gruppe, deren Momente alle auf derselben Koordinate liegen: sie fällt
-   * durch keinen Zoom auseinander. Ändert nur die Beschriftung — was der Tipp
+   * durch keinen Zoom auseinander. Ändert nur die Beschriftung, was der Tipp
    * auslöst, entscheidet der Screen (karte.tsx) mit derselben Auskunft.
    */
   unteilbar?: boolean;
   /**
    * Tipp auf die Nadel. Bekommt den Punkt zurück, den sie darstellt (bei einer
-   * Gruppe deren Anker) — statt eine fertige Aktion einzupacken. Nur so kann
+   * Gruppe deren Anker), statt eine fertige Aktion einzupacken. Nur so kann
    * der Screen EINE unveränderliche Funktion an alle Nadeln geben; ein
    * `() => tuWas(gruppe)` wäre bei jedem Rendern eine neue und machte das
    * `memo` unten wirkungslos.
@@ -196,18 +196,18 @@ type MarkerProps = {
 };
 
 // Die Nadel auf der Karte. `tracksViewChanges` ist die Stelle, an der dieser
-// Screen technisch kippt — der Wert sagt react-native-maps, ob es die Nadel
+// Screen technisch kippt, der Wert sagt react-native-maps, ob es die Nadel
 // weiter nachzeichnen soll:
 //
 // - dauerhaft `true`: jede Nadel wird bei jedem Frame neu gerendert; ab einer
 //   Handvoll Nadeln ruckelt die Karte sichtbar.
 // - dauerhaft `false`: die Nadel friert in dem Zustand ein, den sie beim
-//   ersten Zeichnen hatte. Das Bild kommt aber erst danach aus dem Netz —
+//   ersten Zeichnen hatte. Das Bild kommt aber erst danach aus dem Netz,
 //   stehen bliebe also der leere Kreis, für immer.
 //
 // Der gemeldete Fertig-Stand wird deshalb nicht als Ja/Nein gehalten, sondern
 // als das Abbild, FÜR DAS er gilt. Ändert sich irgendeine sichtbare
-// Eigenschaft — neue Bildquelle, andere Gruppengrösse, anderer Momenttyp —,
+// Eigenschaft, neue Bildquelle, andere Gruppengrösse, anderer Momenttyp,
 // stimmt der gemeldete Stand nicht mehr mit dem aktuellen überein, und die
 // Nadel wird von selbst wieder gezeichnet. Ein Ja/Nein mit einem Effekt, der
 // es zurücksetzt, tut dasselbe nur, solange niemand die Reihenfolge der
@@ -216,7 +216,7 @@ type MarkerProps = {
 // `memo` aus demselben Grund, aus dem die Linie im Screen memoisiert ist: der
 // Screen rendert bei JEDER Kartenbewegung neu (`onRegionChangeComplete`), und
 // ohne das rechnete jede Nadel jedes Mal mit. Es hält zugleich das
-// Koordinaten-Literal unten harmlos — neu gebaut wird es nur noch, wenn sich
+// Koordinaten-Literal unten harmlos, neu gebaut wird es nur noch, wenn sich
 // wirklich eine Eigenschaft geändert hat.
 export const KartenNadelMarker = memo(function KartenNadelMarker({
   punkt, thumbUrl, anzahl = 1, unteilbar = false, onPress,
@@ -227,7 +227,7 @@ export const KartenNadelMarker = memo(function KartenNadelMarker({
   const merkeBereit = useCallback(() => setFertigesAbbild(abbild), [abbild]);
 
   // Der Marker reicht dem Screen zurück, WELCHE Nadel getippt wurde. Die
-  // Closure entsteht hier drinnen statt im Screen — sie wird damit nur neu
+  // Closure entsteht hier drinnen statt im Screen, sie wird damit nur neu
   // gebaut, wenn diese Nadel ohnehin neu rendert.
   const angetippt = useCallback(() => onPress?.(punkt), [onPress, punkt]);
 
@@ -273,7 +273,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  // §2: Zahlen immer tabular-nums — eine «11» soll nicht schmaler sein als
+  // §2: Zahlen immer tabular-nums, eine «11» soll nicht schmaler sein als
   // eine «44», sonst wackelt die Pille zwischen zwei Zoomstufen.
   zaehlerText: { fontVariant: ['tabular-nums'] },
 });

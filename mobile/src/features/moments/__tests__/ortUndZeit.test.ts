@@ -33,7 +33,7 @@ test('ein Fehler beim Geocoding kostet höchstens den Ortsnamen', async () => {
 
 // Nicht im Brief vorgegeben, aber von der Aufgabenstellung explizit verlangt
 // (Task-8-Kontext: "Verweigerte Berechtigung, Zeitüberschreitung, fehlgeschlagenes
-// Geocoding — in jedem Fall wird der Moment eingesendet, nur eben ohne Ort.").
+// Geocoding, in jedem Fall wird der Moment eingesendet, nur eben ohne Ort.").
 // Ohne diesen Test bliebe eine hängende Positionsbestimmung (kein GPS-Fix)
 // unbemerkt ewig unaufgelöst statt nach einer Frist auf "kein Ort" zu fallen.
 test('eine hängende Positionsbestimmung liefert nach der Frist drei null statt ewig zu hängen', async () => {

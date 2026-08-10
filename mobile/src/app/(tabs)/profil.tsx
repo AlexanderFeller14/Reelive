@@ -14,8 +14,8 @@ import { holeLoeschZahlen, loescheKonto, zahlenText, type LoeschZahlen } from '@
 
 // Task 9, Phase 6: der destruktive Bestätigungsknopf im Löschdialog. Kein
 // Filled-Button (DESIGN-LANGUAGE §4 kennt nur `accent` als Fläche für einen
-// Primär-Button — ein zweiter, fest verdrahteter Füllton hätte keine
-// Grundlage im Styleguide) — stattdessen dieselbe Outline-Archetype wie
+// Primär-Button, ein zweiter, fest verdrahteter Füllton hätte keine
+// Grundlage im Styleguide), stattdessen dieselbe Outline-Archetype wie
 // `Button variant="secondary"`, nur in `danger` statt `text-1` eingefärbt.
 // Gleiche Begründung wie die bereits bestehenden danger-Textlinks
 // (TeilenSheetInhalt „Link deaktivieren", MeldungZeile „Moment entfernen").
@@ -56,7 +56,7 @@ export default function ProfilScreen() {
   // Task 9: Konto-Löschung. `zahlenPhase`/`zahlen` trennen "noch nicht
   // geladen" von "geladen" so scharf, dass der Bestätigungsknopf STRUKTURELL
   // nicht existiert, bevor `zahlen` feststeht (Brief, wörtlich: "Ohne
-  // geladene Zahlen darf nicht bestätigt werden können.") — kein blosses
+  // geladene Zahlen darf nicht bestätigt werden können."), kein blosses
   // `disabled`, das sich vergessen liesse, sondern ein fehlender Zweig im
   // JSX (siehe Sheet unten).
   const [loeschSheetSichtbar, setLoeschSheetSichtbar] = useState(false);
@@ -70,14 +70,14 @@ export default function ProfilScreen() {
     if (userId) void fetchOwnProfile(userId).then(setProfile);
   }, [userId]);
 
-  // Task 10: der gespeicherte Stand lädt einmalig beim Öffnen — der Screen
+  // Task 10: der gespeicherte Stand lädt einmalig beim Öffnen, der Screen
   // hat kein Fokus-Refresh-Muster wie reise/[id]/index.tsx, weil hier nichts
   // ausserhalb der App selbst den Wert verändern kann.
   useEffect(() => {
     void nurUeberWlan().then(setNurWlan);
   }, []);
 
-  // Sofort sichtbar (kein Warten auf den Schreibvorgang) — ein liegen-
+  // Sofort sichtbar (kein Warten auf den Schreibvorgang), ein liegen-
   // gebliebener Schreibfehler in AsyncStorage soll den Schalter nicht
   // zurückspringen lassen, siehe einstellungen.ts.
   const umschalten = (wert: boolean) => {
@@ -85,7 +85,7 @@ export default function ProfilScreen() {
     void setzeNurUeberWlan(wert);
   };
 
-  // Öffnet den Dialog und holt die Zahlen SOFORT — es gibt keinen Weg, den
+  // Öffnet den Dialog und holt die Zahlen SOFORT, es gibt keinen Weg, den
   // Dialog ohne diesen Aufruf zu öffnen, also auch keinen Weg, die
   // Bestätigung zu sehen, bevor die Zahlen unterwegs sind.
   const kontoLoeschenOeffnen = () => {
@@ -109,10 +109,10 @@ export default function ProfilScreen() {
 
   // Nach Erfolg: abmelden und zurück auf den Welcome-Screen (Brief, wörtlich).
   // signOut() räumt zusätzlich den Push-Token auf (RLS-Delete, das nach
-  // erfolgreicher Kontolöschung ohnehin auf 0 Zeilen trifft — kein Fehler,
+  // erfolgreicher Kontolöschung ohnehin auf 0 Zeilen trifft, kein Fehler,
   // DELETE ist idempotent) und meldet lokal ab; die eigentliche Navigation
   // übernimmt danach der globale Guard im Root-Layout (resolveRoute('signedOut')
-  // → '/welcome'), genau wie beim normalen «Abmelden»-Knopf unten — kein
+  // → '/welcome'), genau wie beim normalen «Abmelden»-Knopf unten, kein
   // zweiter, redundanter router.replace() hier.
   const kontoLoeschen = async () => {
     setLoeschtLaeuft(true);
@@ -151,7 +151,7 @@ export default function ProfilScreen() {
       </Card>
       <Button variant="secondary" label="Abmelden" onPress={() => void signOut()} />
 
-      {/* Task 9: "unter allem anderen, in danger" (Brief, wörtlich) —
+      {/* Task 9: "unter allem anderen, in danger" (Brief, wörtlich),
           eigener Abstand, damit die destruktive Zone sich sichtbar vom
           Rest absetzt, ohne eine zweite Fläche/Karte einzuführen. */}
       <PressScale
@@ -176,7 +176,7 @@ export default function ProfilScreen() {
             <Button variant="secondary" label="Nochmal versuchen" onPress={kontoLoeschenOeffnen} />
           </View>
         )}
-        {/* Der Bestätigungsknopf existiert NUR in diesem Zweig — ohne
+        {/* Der Bestätigungsknopf existiert NUR in diesem Zweig, ohne
             geladene Zahlen (Phasen 'laedt'/'fehler') gibt es ihn im Baum
             schlicht nicht (Brief, siehe Kommentar am State oben). */}
         {zahlenPhase === 'bereit' && zahlen && (

@@ -33,7 +33,7 @@ insert into public.posts (trip_id, author_id, type, storage_key, captured_at, ca
   ('dddd0000-0000-4000-8000-000000000001','cccc0000-0000-4000-8000-000000000002','photo','b.jpg','2025-09-08 10:00+02','Europe/Rome');
 
 -- eigener Moment in einer NOCH LAUFENDEN Reise: macht die Versiegelt-Assertion
--- unten nicht-vakuous — es gibt eine sichtbare Zeile, die verborgen bleiben muss
+-- unten nicht-vakuous, es gibt eine sichtbare Zeile, die verborgen bleiben muss
 insert into public.posts (trip_id, author_id, type, storage_key, captured_at, captured_tz) values
   ('dddd0000-0000-4000-8000-000000000003','cccc0000-0000-4000-8000-000000000001','photo','c.jpg','2026-08-02 10:00+02','Europe/Rome');
 

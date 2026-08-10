@@ -31,7 +31,7 @@ test('dicht beieinander liegende Punkte werden zu einer Gruppe', () => {
 });
 
 // Der Anker stellt die Gruppe dar. Er ist der ERSTE der Eingabereihenfolge,
-// und die ist nach captured_at sortiert — die Gruppe traegt also das
+// und die ist nach captured_at sortiert, die Gruppe traegt also das
 // Thumbnail des fruehesten Moments.
 test('der Anker ist der fruehste Moment der Gruppe', () => {
   const gruppen = gruppiere(
@@ -59,7 +59,7 @@ test('ohne Punkte gibt es keine Gruppen', () => {
   expect(gruppiere([], AUSSCHNITT, BREITE, HOEHE)).toEqual([]);
 });
 
-// Beim Hineinzoomen faellt eine Gruppe auseinander — genau das passiert, wenn
+// Beim Hineinzoomen faellt eine Gruppe auseinander, genau das passiert, wenn
 // jemand sie antippt (Spec §5.5).
 test('enger Ausschnitt loest die Gruppe auf', () => {
   const punkte = [punkt('a', 0, 0), punkt('b', 0.001, 0.001)];
@@ -93,7 +93,7 @@ test('ueber die Datumsgrenze hinweg wird richtig gruppiert', () => {
 // ---------------------------------------------------------------------------
 
 // Der Abstand zweier Nadeln auf dem Bildschirm ist ihre geografische
-// Ausdehnung geteilt durch die sichtbare Spanne — und die Spanne halbiert sich
+// Ausdehnung geteilt durch die sichtbare Spanne, und die Spanne halbiert sich
 // mit jedem Tipp (siehe karte.tsx). Bei Ausdehnung null bleibt der Abstand
 // null, durch JEDE Zoomstufe hindurch. Wer so eine Gruppe antippt, tippt sonst
 // ins Leere; der Kartenscreen oeffnet fuer sie stattdessen das Sheet.
@@ -106,7 +106,7 @@ test('eine Gruppe auf exakt einer Koordinate liegt auf einem Fleck', () => {
   expect(aufEinemFleck(gruppe)).toBe(true);
 });
 
-// Der triviale — und haeufigste — Fall: eine Gruppe aus genau einem Punkt.
+// Der triviale, und haeufigste, Fall: eine Gruppe aus genau einem Punkt.
 // Auch sie laesst sich nicht aufziehen, und der Kartenscreen fuehrt sie ueber
 // dieselbe Frage ins Sheet wie die deckungsgleichen Momente (karte.tsx). Faele
 // die Antwort hier `false` aus, oeffnete ein Tipp auf eine einzelne Nadel gar
@@ -118,7 +118,7 @@ test('ein einzelner Punkt liegt auf einem Fleck', () => {
 
 // Der wichtigere Gegenfall: hier RICHTET Zoomen etwas aus. Gaelte diese Gruppe
 // ebenfalls als «auf einem Fleck», oeffnete die Karte ein Sheet, statt sie
-// aufzuziehen — und der Zoom-Weg (Spec §5.5) waere tot.
+// aufzuziehen, und der Zoom-Weg (Spec §5.5) waere tot.
 test('schon ein Zehntausendstel Grad Unterschied ist kein Fleck mehr', () => {
   const [gruppe] = gruppiere(
     [punkt('a', 12.34, 56.78), punkt('b', 12.34, 56.7801)],
@@ -130,7 +130,7 @@ test('schon ein Zehntausendstel Grad Unterschied ist kein Fleck mehr', () => {
 });
 
 // Drei Punkte, von denen zwei deckungsgleich sind: Zoomen loest sehr wohl
-// etwas aus — der dritte loest sich ab. Uebrig bleibt danach eine Gruppe, die
+// etwas aus, der dritte loest sich ab. Uebrig bleibt danach eine Gruppe, die
 // wirklich auf einem Fleck liegt, und erst die oeffnet das Sheet. Wuerde hier
 // schon `true` herauskommen, bekaeme man eine Liste angeboten, obwohl die
 // Karte den Fall noch selbst aufloesen kann.

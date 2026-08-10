@@ -1,7 +1,7 @@
 import { sortiereMomente, gruppiereNachTagen, ortDesTages } from '../tage';
 import type { RecapMoment } from '../types';
 
-// Minimal-Moment mit sinnvollen Defaults — jeder Test überschreibt nur, was
+// Minimal-Moment mit sinnvollen Defaults, jeder Test überschreibt nur, was
 // ihn tatsächlich betrifft (Muster wie job in postsApi.test.ts).
 function moment(overrides: Partial<RecapMoment>): RecapMoment {
   return {
@@ -31,7 +31,7 @@ describe('sortiereMomente', () => {
   });
 
   // CLAUDE.md: Sortierung IMMER nach captured_at, bei gleicher Sekunde
-  // entscheidet id — nie created_at (das RecapMoment gar nicht trägt).
+  // entscheidet id, nie created_at (das RecapMoment gar nicht trägt).
   test('bei gleicher captured_at entscheidet id', () => {
     const gleich = '2026-08-01T12:00:00.000Z';
     const z = moment({ id: 'z', captured_at: gleich });
@@ -67,7 +67,7 @@ describe('sortiereMomente', () => {
 
   // Ein reiner Text-Vergleich der ISO-Strings wäre hier falsch: "22" < "23"
   // liest sich lexikalisch kleiner, obwohl a (21:00 UTC) tatsächlich VOR b
-  // (22:00 UTC) liegt — captured_at kommt mit unterschiedlichem Offset-
+  // (22:00 UTC) liegt, captured_at kommt mit unterschiedlichem Offset-
   // Format aus der Datenbank (Kommentar im Code), und genau das prüft dieser
   // Test konkret nach.
   test('vergleicht captured_at als echten Zeitpunkt, nicht als Text (unterschiedliche Offset-Formate)', () => {
@@ -77,7 +77,7 @@ describe('sortiereMomente', () => {
   });
 
   // Ein unparsbares captured_at darf die Sortierung nicht zum Werfen bringen
-  // (Date.parse liefert dafür NaN) — es landet stattdessen deterministisch
+  // (Date.parse liefert dafür NaN), es landet stattdessen deterministisch
   // ans Ende, id entscheidet auch hier bei mehreren kaputten Werten.
   test('ein unparsbares captured_at wirft nicht und landet deterministisch am Ende', () => {
     const gueltig = moment({ id: 'a', captured_at: '2026-08-01T09:00:00.000Z' });
@@ -105,7 +105,7 @@ describe('gruppiereNachTagen', () => {
     ]);
   });
 
-  // Eigene Tagesarithmetik (nicht dieselbe Implementierung wie tripDay.ts) —
+  // Eigene Tagesarithmetik (nicht dieselbe Implementierung wie tripDay.ts),
   // ein Monatswechsel wird deshalb hier separat geprüft, analog zu
   // tripDay.test.ts.
   test('zählt Tage korrekt über einen Monatswechsel hinweg', () => {
@@ -133,7 +133,7 @@ describe('gruppiereNachTagen', () => {
     expect(tage[0].momente.map((m) => m.id)).toEqual(['a']);
   });
 
-  // Die Tagesgrenze richtet sich nach captured_tz des Moments — nicht nach
+  // Die Tagesgrenze richtet sich nach captured_tz des Moments, nicht nach
   // dem UTC-Datum von captured_at. Los Angeles (UTC-7 im Sommer) ist der
   // UTC-Zeit hier so weit hinterher, dass der Moment lokal noch am Vortag
   // liegt, obwohl captured_at bereits den nächsten UTC-Kalendertag zeigt.
@@ -164,7 +164,7 @@ describe('gruppiereNachTagen', () => {
   // Die Gruppe überquert eine Zeitzonengrenze (z.B. Eurotunnel Paris→London),
   // beide Momente liegen auf demselben Ortstag in ihrer jeweils eigenen Zone.
   // Sie dürfen NICHT auseinanderfallen, nur weil captured_tz unterschiedlich
-  // ist — massgeblich ist allein die daraus abgeleitete Tagesnummer.
+  // ist, massgeblich ist allein die daraus abgeleitete Tagesnummer.
   test('zwei Momente am selben Ortstag in verschiedenen Zeitzonen bleiben in einem Tag', () => {
     const paris = moment({
       id: 'a',
@@ -184,7 +184,7 @@ describe('gruppiereNachTagen', () => {
   });
 
   // Ein echter, lokal spürbarer Tageswechsel (Nachtflug) bleibt dagegen ein
-  // Tageswechsel — das ist kein Bug, sondern die reale Ortszeit am Zielort.
+  // Tageswechsel, das ist kein Bug, sondern die reale Ortszeit am Zielort.
   test('ein echter Ortstag-Wechsel (Nachtflug) erzeugt zwei Tage', () => {
     const abflugOslo = moment({
       id: 'a',
@@ -227,7 +227,7 @@ describe('gruppiereNachTagen', () => {
   // lässt den EIGENEN lokalen Kalendertag eines späteren Moments hinter den
   // eines früheren zurückfallen. Ohne Korrektur würde die chronologisch
   // spätere Ankunft unter einer KLEINEREN Tagesnummer erscheinen als der
-  // frühere Abflug — Chronologie ist der Eckpfeiler dieses Projekts.
+  // frühere Abflug, Chronologie ist der Eckpfeiler dieses Projekts.
   test('die Tagesreihenfolge bleibt chronologisch, auch wenn der lokale Kalendertag rückwärts läuft', () => {
     const abflugTokio = moment({
       id: 'a',
@@ -240,7 +240,7 @@ describe('gruppiereNachTagen', () => {
       captured_tz: 'America/Los_Angeles',
     });
     const tage = gruppiereNachTagen([abflugTokio, ankunftLosAngeles], startDate);
-    // Beide Momente landen im selben, höheren Tag — die Ankunft rutscht NICHT
+    // Beide Momente landen im selben, höheren Tag, die Ankunft rutscht NICHT
     // rückwärts vor den Abflug.
     expect(tage).toHaveLength(1);
     expect(tage[0].nummer).toBe(2);
@@ -253,7 +253,7 @@ describe('gruppiereNachTagen', () => {
   // mit demselben (niedrigeren) eigenen lokalen Tag wie der zweite deckt sie
   // auf: mit der Mutation würde die laufende Nummer nach dem zweiten Moment
   // fälschlich auf dessen ROHEN Wert (1) zurückfallen statt auf der bereits
-  // erreichten Nummer (2) zu bleiben — der dritte Moment eröffnete dadurch
+  // erreichten Nummer (2) zu bleiben, der dritte Moment eröffnete dadurch
   // wieder einen (kleineren, "abgeschlossenen") Tag, und die Tagesliste
   // stünde erneut absteigend (exakt Important 1 zurück).
   test('die monotone Vergabe bleibt über mehr als zwei Momente stabil (kein Rückfall in einen abgeschlossenen Tag)', () => {
@@ -281,7 +281,7 @@ describe('gruppiereNachTagen', () => {
   // Minor (Review): die Nebenwirkung der monotonen Vergabe ist nicht bloss
   // eine übersprungene Nummer, sondern kann RecapTag.datum vom EIGENEN
   // lokalen Datum eines einzelnen Moments abweichen lassen, sobald dessen
-  // Kalendertag von einem vorherigen, "laufenden" Tag verschluckt wird —
+  // Kalendertag von einem vorherigen, "laufenden" Tag verschluckt wird,
   // bewusst in Kauf genommen (siehe Kommentarkopf), hier als Vertrag
   // festgehalten, damit Task 10/11 sich nicht auf das Gegenteil verlassen.
   test('bei einem verschluckten Ortstag kann RecapTag.datum vom eigenen lokalen Datum eines Moments abweichen', () => {
@@ -297,7 +297,7 @@ describe('gruppiereNachTagen', () => {
     });
     const tage = gruppiereNachTagen([abflugTokio, ankunftLosAngeles], startDate);
     expect(tage).toHaveLength(1);
-    // b's eigenes lokales Datum wäre 2026-08-01 — die Gruppe trägt aber das
+    // b's eigenes lokales Datum wäre 2026-08-01, die Gruppe trägt aber das
     // Datum von a's (höherem, laufendem) Tag.
     expect(tage[0].datum).toBe('2026-08-02');
     expect(tage[0].momente.map((m) => m.id)).toEqual(['a', 'b']);
@@ -306,7 +306,7 @@ describe('gruppiereNachTagen', () => {
   // Review-Fund (neu, vom Fix für Important 2/3 eingeführt): ein einzelner
   // Moment, dessen roher Tageswert NaN wird, darf NICHT über
   // Math.max(NaN, laufendeNummer) die laufende Nummer für ALLE
-  // nachfolgenden Momente vergiften — sonst kostet er nicht nur sich
+  // nachfolgenden Momente vergiften, sonst kostet er nicht nur sich
   // selbst, sondern reisst gültige Momente mit sich.
   test('ein einzelner kaputter Moment vergiftet nicht die Tagesnummern nachfolgender, gültiger Momente', () => {
     const gueltigVorher = moment({ id: 'a', captured_at: '2026-08-01T08:00:00.000Z' });
@@ -320,7 +320,7 @@ describe('gruppiereNachTagen', () => {
   });
 
   // Review-Fund, Important (halb behoben): formatToParts() liefert auf
-  // manchen Intl-Teilimplementierungen (Hermes/iOS historisch — siehe
+  // manchen Intl-Teilimplementierungen (Hermes/iOS historisch, siehe
   // Kommentar in mobile/src/app/(tabs)/aufnehmen/preview.tsx, der Intl
   // gerade DESHALB meidet) 'year'/'month'/'day' nicht als eigene Parts,
   // sondern alles als einen einzigen 'literal'-Part. Nachgestellt über einen
@@ -340,7 +340,7 @@ describe('gruppiereNachTagen', () => {
   });
 
   // Zweite, unabhängige NaN-Quelle: ein kaputtes/leeres startDate selbst
-  // (nicht captured_at/captured_tz eines Moments) — derselbe
+  // (nicht captured_at/captured_tz eines Moments), derselbe
   // Number.isFinite-Guard fängt auch das ab, statt NaN-Tagesnummern für
   // JEDEN Moment zu erzeugen.
   test('ein kaputtes startDate wirft nicht und liefert eine leere Liste statt NaN-Tagesnummern', () => {
@@ -350,7 +350,7 @@ describe('gruppiereNachTagen', () => {
   });
 
   // Review-Fund, Important 2: captured_tz hat keine CHECK-Constraint und ist
-  // vom Client frei setzbar — ein ungültiger Bezeichner (fremder/älterer
+  // vom Client frei setzbar, ein ungültiger Bezeichner (fremder/älterer
   // Client, abweichende tzdata zwischen zwei Geräten desselben Recaps) lässt
   // Intl.DateTimeFormat schon beim Konstruieren werfen. Das darf höchstens
   // den betroffenen Moment kosten, nie den gesamten Recap.
@@ -410,7 +410,7 @@ describe('ortDesTages', () => {
   });
 
   // Ein leerer String ist genauso "kein Ort" wie null (`!!ort` filtert
-  // beide gleich heraus) — eigener Test, damit das nicht unbemerkt abweicht.
+  // beide gleich heraus), eigener Test, damit das nicht unbemerkt abweicht.
   test('ein leerer place_name zählt nicht mit, wie null', () => {
     const momente = [
       moment({ id: 'a', captured_at: '2026-08-01T09:00:00.000Z', place_name: '' }),

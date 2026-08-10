@@ -2,7 +2,7 @@
 // Logik plus injizierte `fetchImpl`, kein echtes Netz, kein `supabase start`
 // nötig. Deckt genau die beiden Zusicherungen aus dem Kopfkommentar von
 // fehlermelder.ts: (1) ohne DSN passiert nichts, (2) mit DSN wird korrekt und
-// NUR mit den erlaubten Feldern gemeldet — nie das rohe Fehlerobjekt, nie
+// NUR mit den erlaubten Feldern gemeldet, nie das rohe Fehlerobjekt, nie
 // mehr als die übergebenen Primitive.
 
 import { assert, assertEquals, assertExists } from 'jsr:@std/assert';
@@ -62,7 +62,7 @@ Deno.test('erstelleFehlermelder: mit DSN wird genau einmal an die Store-API gepo
   assertEquals(body.tags, { funktion: 'konto-loeschen' });
   assertEquals(body.extra, { user_id: 'u-1', schritt: 'speicher' });
   assertExists(body.event_id);
-  // 32 Hex-Zeichen, keine Bindestriche — Sentrys Store-API verlangt genau
+  // 32 Hex-Zeichen, keine Bindestriche, Sentrys Store-API verlangt genau
   // diese Form.
   assertEquals(body.event_id.length, 32);
   assert(!body.event_id.includes('-'));

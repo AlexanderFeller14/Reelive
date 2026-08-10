@@ -1,19 +1,19 @@
-// Unit-Tests für die aus index.ts herausgelöste Prüfkette der Aktion `lesen`
-// — laufen OHNE `supabase start` und OHNE ein zweites Terminal mit
+// Unit-Tests für die aus index.ts herausgelöste Prüfkette der Aktion `lesen`,
+// laufen OHNE `supabase start` und OHNE ein zweites Terminal mit
 // `functions serve`, im Gegensatz zu lesen_test.ts (das echte HTTP-Aufrufe
 // gegen den laufenden Stack braucht und darum `ignore: !stackBereit` trägt).
 // Genau das war der Kern-Befund des Final-Reviews: die einzige Absicherung
 // von Versprechen V1 der Spec («vor dem Reveal liest niemand ein Medium,
 // auch nicht die Autorin des Moments») war ausschliesslich über einen Test
 // verfügbar, der auf einer Maschine ohne Docker kommentarlos übersprungen
-// wird — «ignored», nicht «failed», in jeder Zusammenfassung nicht von
+// wird, «ignored», nicht «failed», in jeder Zusammenfassung nicht von
 // bestanden zu unterscheiden. Diese Datei läuft immer, auf jeder Maschine,
-// in jeder CI ohne Docker-Voraussetzung — `deno test` ohne --allow-net,
+// in jeder CI ohne Docker-Voraussetzung, `deno test` ohne --allow-net,
 // --allow-run oder sonst eine Berechtigung.
 //
 // Deckt exakt dieselben sechs Fälle wie der "Belegt"-Kopfkommentar von
 // lesen_test.ts (dort Fälle 1, 2, 3 plus die Archiv-Variante von 'lesen'
-// selbst — Fälle 4/5 dort betreffen das Signieren/PUT/Blättern, das bleibt
+// selbst, Fälle 4/5 dort betreffen das Signieren/PUT/Blättern, das bleibt
 // I/O und damit ausserhalb einer reinen Funktion).
 
 import { assertEquals } from 'jsr:@std/assert';
@@ -87,7 +87,7 @@ Deno.test('lesen: archivierte Reise weist ein Nicht-Mitglied weiterhin ab', () =
 
 // --- mitgliedschaft ist "unknown", nicht nur "{user_id} | null" -----------
 // index.ts faltet einen mitgliedError ebenfalls auf null (siehe Kommentar in
-// lesenZugriff.ts) — die Funktion selbst behandelt aber jeden falsy-Wert
+// lesenZugriff.ts), die Funktion selbst behandelt aber jeden falsy-Wert
 // gleich, falls sich das Aufrufer-Mapping je ändert. undefined ist ein
 // Grenzfall, der in index.ts nie vorkommt (die Variable wird immer auf
 // `null` initialisiert), aber die Funktion darf dabei nicht crashen.

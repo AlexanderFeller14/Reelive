@@ -1,6 +1,6 @@
 // Unit-Tests für die aus Deno.serve herausgelöste Entscheidungs- und
 // Versandlogik von reveal-trip (reveal.ts). Laufen OHNE `supabase start` und
-// OHNE Netz — Reaktion auf den Final-Review-Befund, dass diese Function
+// OHNE Netz, Reaktion auf den Final-Review-Befund, dass diese Function
 // bisher NULL automatisierte Tests hatte (push_test.ts deckt nur push.ts
 // isoliert ab, nicht den Statuswechsel selbst).
 //
@@ -8,13 +8,13 @@
 // CAS-Bedingung des echten Postgres-Updates (`.eq('status','active')`)
 // exakt: `aktualisiereWennAktiv` setzt status/revealed_at nur, wenn status
 // zum Zeitpunkt des Aufrufs noch 'active' ist, und liefert sonst `null`
-// zurück (0 betroffene Zeilen) — genau die Semantik, auf die sich
+// zurück (0 betroffene Zeilen), genau die Semantik, auf die sich
 // `fuehreRevealAus` verlässt. Das macht ein ECHTES Zwei-Aufrufe-Rennen
 // testbar, ohne Docker: zwei `fuehreRevealAus`-Aufrufe gegen denselben
 // Fake-Store, mit `Promise.all` gestartet.
 //
 // Was ein Fake-Store NICHT beweisen kann: dass die ECHTE Postgres-Abfrage in
-// index.ts' Adapter tatsächlich `.eq('status','active')` trägt — die CAS-
+// index.ts' Adapter tatsächlich `.eq('status','active')` trägt, die CAS-
 // Semantik ist hier bewusst vom Test vorgegeben, nicht von der Produktion
 // abgeleitet. Das schliesst reveal_integration_test.ts (Docker-gated, echter
 // Stack, echtes Rennen über echtes Postgres).
@@ -115,7 +115,7 @@ function fakeSendeFn(tote: string[] = []): { fn: SendeFn; aufrufe: PushNachricht
 }
 
 // Abschluss-Review Phase 6, Punkt 2: "ein Fehler-Melder, der keinen Aufrufer
-// hat, ist wertlos" — die folgenden Tests belegen nicht nur, dass
+// hat, ist wertlos", die folgenden Tests belegen nicht nur, dass
 // `fuehreRevealAus` ein fünftes Argument annimmt, sondern DASS es an genau
 // den drei DB-Fehlerpfaden aufgerufen wird (und an keinem anderen).
 function fakeMelde(): { fn: MeldeFn; aufrufe: Array<{ fehler: unknown; kontext?: FehlerKontext }> } {
@@ -128,7 +128,7 @@ function fakeMelde(): { fn: MeldeFn; aufrufe: Array<{ fehler: unknown; kontext?:
 }
 
 // =============================================================================
-// fuehreRevealAus — die sechs im Final-Review benannten Zusicherungen
+// fuehreRevealAus, die sechs im Final-Review benannten Zusicherungen
 // =============================================================================
 
 // --- 1. Owner-Check: Nicht-Owner -> 403 -------------------------------------
@@ -151,7 +151,7 @@ Deno.test('fuehreRevealAus: ein Nicht-Owner bekommt 403 und löst keinen Statusw
 
 // Re-Review-Fund: der Owner-Check muss VOR den Status-Zweigen stehen, nicht
 // nur vor dem CAS-Update. Eine bereits revealte oder archivierte Reise hat
-// je einen eigenen frühen Rückgabe-Zweig (Zeile 184/187) — verschöbe man den
+// je einen eigenen frühen Rückgabe-Zweig (Zeile 184/187), verschöbe man den
 // Owner-Check hinter diese beiden, bekäme JEDE authentifizierte Person, die
 // eine trip_id kennt, für eine revealte Reise 200 statt 403 und für eine
 // archivierte 409 statt 403. Die beiden Tests oben/unten deckten das nicht:
@@ -251,7 +251,7 @@ Deno.test('fuehreRevealAus: eine aktive Reise wird revealed und der Push genau e
 // Der eigentliche Regressionsfall aus f26437a: zwei Aufrufe sehen BEIDE
 // status==='active', bevor einer den anderen überholt. Mit `Promise.all`
 // gestartet, damit beide `holeTrip` VOR dem ersten `aktualisiereWennAktiv`
-// abschliessen — echte Nebenläufigkeit, kein sequenzieller Ablauf.
+// abschliessen, echte Nebenläufigkeit, kein sequenzieller Ablauf.
 Deno.test('fuehreRevealAus: zwei nebenläufige Aufrufe liefern denselben revealed_at und lösen den Push nur EINMAL aus', async () => {
   const zustand = neueFakeZustand('active');
   const aufrufe = { holeMitglieder: 0, loescheTokens: [] as Array<{ tokens: string[]; userIds: string[] }> };
@@ -268,7 +268,7 @@ Deno.test('fuehreRevealAus: zwei nebenläufige Aufrufe liefern denselben reveale
   assertEquals(
     (ergebnisA.body as { revealed_at: string }).revealed_at,
     (ergebnisB.body as { revealed_at: string }).revealed_at,
-    'beide Antworten tragen denselben Zeitstempel — nur EIN Update hat wirklich geschrieben',
+    'beide Antworten tragen denselben Zeitstempel, nur EIN Update hat wirklich geschrieben',
   );
   assertEquals(sendeAufrufe.length, 1, 'der Push wurde nur vom Gewinner-Zweig ausgelöst, nicht vom Verlierer');
 });
@@ -337,7 +337,7 @@ Deno.test('fuehreRevealAus: ein Fehler beim CAS-Update liefert 500', async () =>
 
 Deno.test('fuehreRevealAus: ein Fehler beim Nachlesen im Verlierer-Zweig liefert 500', async () => {
   const zustand = neueFakeZustand('active');
-  // status ist bereits 'revealed', aber NICHT über den Fake-Store gesetzt —
+  // status ist bereits 'revealed', aber NICHT über den Fake-Store gesetzt,
   // simuliert exakt "ein anderer Aufruf hat gewonnen": aktualisiereWennAktiv
   // liefert null (0 Zeilen), das Nachlesen scheitert.
   zustand.trip.status = 'revealed';
@@ -366,7 +366,7 @@ Deno.test('fuehreRevealAus: ohne übergebenen Melder bleibt alles wie zuvor (Def
     loescheTokens: () => Promise.resolve({ error: null }),
   };
   const { fn: sendeFn } = fakeSendeFn();
-  // Kein fünftes Argument — muss weiterhin kompilieren und funktionieren.
+  // Kein fünftes Argument, muss weiterhin kompilieren und funktionieren.
   const ergebnis = await fuehreRevealAus(store, sendeFn, TRIP_ID, OWNER_ID);
   assertEquals(ergebnis, { status: 500, body: { fehler: 'Reise konnte nicht geladen werden.' } });
 });
@@ -396,7 +396,7 @@ Deno.test('fuehreRevealAus: ein scheiternder Push-Versand ruft den Melder NICHT 
 });
 
 // =============================================================================
-// versendeRevealPush — 5. Ausschluss der auslösenden Person, 6. Scoping der
+// versendeRevealPush, 5. Ausschluss der auslösenden Person, 6. Scoping der
 // Token-Löschung
 // =============================================================================
 
@@ -408,7 +408,7 @@ const TRIP: TripZeile = {
   revealed_at: '2026-08-01T10:00:00.000Z',
 };
 
-// --- 5. `.neq('user_id', ausloesendeId)` — die Owner-Person bekommt ihren
+// --- 5. `.neq('user_id', ausloesendeId)`, die Owner-Person bekommt ihren
 // eigenen Reveal nicht gepusht -------------------------------------------
 Deno.test('versendeRevealPush: die auslösende Person wird aus den Empfängern ausgeschlossen, auch wenn sie einen eigenen Token hat', async () => {
   const zustand = neueFakeZustand('revealed');
@@ -438,7 +438,7 @@ Deno.test('versendeRevealPush: bleiben nach Ausschluss der auslösenden Person k
   assertEquals(sendeAufrufe.length, 0, 'kein Empfänger übrig, also kein Aufruf an Expo');
 });
 
-// --- 6. `.in('user_id', empfaengerIds)` bei der Token-Löschung — die
+// --- 6. `.in('user_id', empfaengerIds)` bei der Token-Löschung, die
 // Orchestrierung reicht die Empfänger-Einschränkung an den Store weiter ---
 Deno.test('versendeRevealPush: die Token-Löschung wird auf genau die angeschriebenen Empfänger eingeschränkt', async () => {
   const zustand = neueFakeZustand('revealed');

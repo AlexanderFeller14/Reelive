@@ -1,11 +1,11 @@
-// Der reale I/O-Adapter für share-link — dieselbe Rollenteilung wie
+// Der reale I/O-Adapter für share-link, dieselbe Rollenteilung wie
 // reveal-trip/revealStore.ts gegenüber reveal.ts: aufloesung.ts bleibt reine
 // Logik ohne Supabase-Import, hier stehen genau die Abfragen, die kein
 // Unit-Test ersetzen kann und die deshalb der Integrationstest gegen den
 // echten Stack prüft:
 //
 //   - die EINE Abfrage, die Token-Zeile UND Reise zusammen holt (siehe
-//     holeTokenMitReise — der Grund ist nicht Bequemlichkeit, sondern
+//     holeTokenMitReise, der Grund ist nicht Bequemlichkeit, sondern
 //     Zeitverhalten)
 //   - `.eq('trip_id', …)` und `.eq('upload_status', 'uploaded')` beim
 //     Einsammeln der Momente (W1 und «nur fertige Uploads»)
@@ -18,7 +18,7 @@ import type { AufloesungsTrip, MomentZeile, SeitenErgebnis, ShareLinkZeile, Trip
 // Fabrik statt eines direkten `createClient(...)`-Aufrufs: nur so lässt sich
 // der Rückgabetyp sauber benennen. `ReturnType<typeof createClient>` allein
 // inferiert an dieser Stelle einen ANDEREN Typ als der tatsächliche Aufruf
-// `createClient(url, key)` — createClient hat interdependente generische
+// `createClient(url, key)`, createClient hat interdependente generische
 // Default-Typparameter (ausführlich in reveal-trip/revealStore.ts).
 export function erstelleAdminClient(supabaseUrl: string, serviceRoleKey: string) {
   return createClient(supabaseUrl, serviceRoleKey);
@@ -54,7 +54,7 @@ export interface ShareStore {
 // Rohform des PostgREST-Embeds: `trips(...)` kommt als eingebettetes Objekt
 // (many-to-one über share_links.trip_id) zurück, in seltenen Fällen als
 // null-Objekt. supabase-js kennt ohne generierte Datenbank-Typen die Form
-// nicht — darum hier einmal benannt und einmal gecastet, statt an fünf Stellen
+// nicht, darum hier einmal benannt und einmal gecastet, statt an fünf Stellen
 // `any` zu verteilen.
 type ShareLinkMitTrip = {
   token: string;
@@ -74,7 +74,7 @@ type PostMitProfil = {
   captured_tz: string;
   place_name: string | null;
   // double precision in Postgres (20260803090100_content_tables.sql), also
-  // number in JSON — und nullable, weil ein Moment ohne Ortsfreigabe der
+  // number in JSON, und nullable, weil ein Moment ohne Ortsfreigabe der
   // Normalfall ist.
   lat: number | null;
   lng: number | null;
@@ -85,7 +85,7 @@ type PostMitProfil = {
 
 export function erstelleShareStore(supabaseAdmin: AdminClient): ShareStore {
   return {
-    // EINE Abfrage für Token und Reise, nicht zwei nacheinander — und das ist
+    // EINE Abfrage für Token und Reise, nicht zwei nacheinander, und das ist
     // kein Feinschliff, sondern gehört zur Zusicherung der byte-gleichen
     // Ablehnungen.
     //
@@ -102,7 +102,7 @@ export function erstelleShareStore(supabaseAdmin: AdminClient): ShareStore {
     // dem Primärschlüssel unterscheidet sich zwischen Treffer und Fehlschlag
     // um Bruchteile einer Mikrosekunde, und ein Treffer zieht zusätzlich die
     // Trip-Zeile. Das liegt weit unter dem Rauschen einer HTTP-Runde über das
-    // Netz. Ausbeutbar wäre es nur mit sehr vielen Messungen pro Kandidat —
+    // Netz. Ausbeutbar wäre es nur mit sehr vielen Messungen pro Kandidat,
     // und der Kandidatenraum sind 2^128 Token.
     async holeTokenMitReise(token) {
       const { data, error } = await supabaseAdmin
@@ -140,11 +140,11 @@ export function erstelleShareStore(supabaseAdmin: AdminClient): ShareStore {
     // aufloesung.ts/sammleMomente (reine Logik, ohne Stack testbar); hier
     // stehen nur die vier Bestandteile, die wirklich an Postgres hängen:
     //
-    //   1. `.eq('trip_id', tripId)` — die trip_id stammt aus der
+    //   1. `.eq('trip_id', tripId)`, die trip_id stammt aus der
     //      share_links-Zeile. Ohne diese Einschränkung liefe die Abfrage über
     //      die ganze posts-Tabelle, und der Ableitungs-Abgleich in baueMedien
     //      wäre die einzige verbleibende Schranke (W1).
-    //   2. `.eq('upload_status', 'uploaded')` — ein Moment mit 'pending' hat
+    //   2. `.eq('upload_status', 'uploaded')`, ein Moment mit 'pending' hat
     //      kein vollständiges Objekt im Speicher, eine URL darauf wäre ein 404
     //      in der Filmrolle.
     //   3. captured_at aufsteigend, id als zweites Kriterium (Global
@@ -153,7 +153,7 @@ export function erstelleShareStore(supabaseAdmin: AdminClient): ShareStore {
     //      Disambiguierung ist nötig, weil PostgREST zwischen posts und
     //      profiles ZWEI Beziehungen findet (die Fremdschlüsselspalte
     //      author_id und den many-to-many-Weg über reactions) und sonst mit
-    //      PGRST201 abbricht. Geholt wird ausschliesslich display_name —
+    //      PGRST201 abbricht. Geholt wird ausschliesslich display_name,
     //      author_id steht in keiner Select-Liste dieser Datei.
     async holeMomenteSeite(tripId, von, mitZaehlung) {
       const { data, error, count } = await supabaseAdmin
@@ -204,7 +204,7 @@ export function erstelleShareStore(supabaseAdmin: AdminClient): ShareStore {
     // token wird NICHT mitgegeben: der Default der Spalte
     // (encode(gen_random_bytes(16), 'hex'), 20260803090100_content_tables.sql)
     // erzeugt ihn in der Datenbank. Ein in der Function erzeugter Token wäre
-    // eine zweite Quelle für dieselbe Sache — und der Zufall käme dann aus dem
+    // eine zweite Quelle für dieselbe Sache, und der Zufall käme dann aus dem
     // Edge-Runtime statt aus pgcrypto.
     async legeLinkAn(tripId, expiresAt) {
       const { data, error } = await supabaseAdmin

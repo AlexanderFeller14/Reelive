@@ -1,4 +1,4 @@
-// Integrationstest für `confirm` — deckt genau die beiden Dinge automatisiert
+// Integrationstest für `confirm`, deckt genau die beiden Dinge automatisiert
 // ab, die bisher nur ein manueller curl-Durchlauf geprüft hat (Fix-Runde 1
 // des Task-5-Reviews):
 //   1. Schlüssel-Rückschreibung: nach `confirm` tragen posts.storage_key/
@@ -11,11 +11,11 @@
 // Kein Unit-Test: `index.ts` exportiert bewusst nichts (Deno.serve direkt im
 // Modul, siehe Sicherheitsbegründung dort) und wurde für diesen Task NICHT
 // angefasst ("Nicht ändern: den Code der Function selbst"). Dieser Test ruft
-// darum die Function über echtes HTTP auf, genau wie ein Client — braucht
+// darum die Function über echtes HTTP auf, genau wie ein Client, braucht
 // deshalb eine laufende lokale Instanz UND einen laufenden
 // `supabase functions serve media-urls`-Prozess mit gültiger S3-Umgebung
 // (supabase/functions/.env, siehe .env.example). Ohne beides überspringt der
-// Test sich selbst (mit Log-Zeile), statt fehlzuschlagen — er soll einen
+// Test sich selbst (mit Log-Zeile), statt fehlzuschlagen, er soll einen
 // Rechner ohne laufenden Stack nicht rot färben.
 //
 // Fixture: eigene Reise + eigener Post, angelegt/aufgeräumt im Test selbst
@@ -43,7 +43,7 @@ function b64urlJson(obj: unknown): string {
   return b64url(new TextEncoder().encode(JSON.stringify(obj)));
 }
 
-// Selbst signiertes HS256-JWT gegen das lokale Projekt-Secret — dieselbe
+// Selbst signiertes HS256-JWT gegen das lokale Projekt-Secret, dieselbe
 // Technik, mit der die Sicherheitsregeln beim manuellen Live-Test dieses
 // Tasks bereits geprüft wurden (auth.sms.test_otp deckt in config.toml nur
 // zwei Nummern ab, nicht die hier gebrauchte).
@@ -63,7 +63,7 @@ async function mintJwt(secret: string, userId: string): Promise<string> {
   return `${data}.${b64url(sig)}`;
 }
 
-// Werte NIE hier fest eintippen (auch nicht als "praktischer" Fallback) —
+// Werte NIE hier fest eintippen (auch nicht als "praktischer" Fallback),
 // genau das war Finding 1 dieser Fix-Runde: sie unterscheiden sich pro
 // Projekt/Rechner. `supabase status` ist die einzige Quelle.
 async function supabaseStatusEnv(): Promise<Record<string, string> | null> {
@@ -84,7 +84,7 @@ async function supabaseStatusEnv(): Promise<Record<string, string> | null> {
 }
 
 // Erkennt speziell UNSERE Function (JSON mit "fehler"-Feld), nicht nur
-// irgendeine Antwort von Kong — ein 404 von Kong, weil nichts serviert wird,
+// irgendeine Antwort von Kong, ein 404 von Kong, weil nichts serviert wird,
 // ist sonst leicht mit "Function läuft, meldet nur einen Fehler" verwechselt.
 async function functionErreichbar(url: string, anonKey: string): Promise<boolean> {
   try {
@@ -115,7 +115,7 @@ const stackBereit = Boolean(
 
 if (!stackBereit) {
   console.warn(
-    'confirm_integration_test: übersprungen — braucht `supabase start` UND ' +
+    'confirm_integration_test: übersprungen, braucht `supabase start` UND ' +
       '`supabase functions serve media-urls --env-file supabase/functions/.env` ' +
       'in einem zweiten Terminal. Details im Datei-Header.',
   );
@@ -131,7 +131,7 @@ function restHeaders(extra?: Record<string, string>): Record<string, string> {
 }
 
 // Liest den Body genau einmal (als Text), prüft den Status damit als
-// Fehlermeldung und parst danach erst als JSON — .json() UND .text() auf
+// Fehlermeldung und parst danach erst als JSON, .json() UND .text() auf
 // derselben Response wäre "Body already consumed".
 async function erwarteJson(res: Response, erwarteterStatus: number): Promise<unknown> {
   const text = await res.text();
@@ -168,7 +168,7 @@ Deno.test({
           trip_id: tripId,
           author_id: LEA_ID,
           type: 'photo',
-          // Absichtlich falsch — genau der Zustand, den Fix-Runde 1 behebt:
+          // Absichtlich falsch, genau der Zustand, den Fix-Runde 1 behebt:
           // ein Client-Wert, der nicht dem server-abgeleiteten Pfad
           // entspricht und den `confirm` nach dem Fix überschreiben muss.
           storage_key: 'trips/falsch/platzhalter.jpg',
@@ -217,7 +217,7 @@ Deno.test({
         });
         assertEquals(thumbPutLeer.status, 200, await thumbPutLeer.text());
 
-        // 3) confirm muss ablehnen — 0-Byte-Objekt zählt nicht als Nachweis
+        // 3) confirm muss ablehnen, 0-Byte-Objekt zählt nicht als Nachweis
         const confirmVorher = await fetch(FUNCTION_URL, {
           method: 'POST',
           headers: authHeaders,
@@ -267,7 +267,7 @@ Deno.test({
         // nicht liegen bleiben. Kein "content-type: application/json" ohne
         // Body: die Storage-API (Fastify) lehnt das mit 400 ab ("Body cannot
         // be empty when content-type is set to..."), darum bewusst eigene,
-        // schlankere Header statt restHeaders() — und der Status wird
+        // schlankere Header statt restHeaders(), und der Status wird
         // geprüft statt stillschweigend verworfen, sonst reisst genau die
         // Art von unbemerktem Fehlschlag wieder auf, die dieser ganze
         // Fix-Runde-Zyklus behebt.

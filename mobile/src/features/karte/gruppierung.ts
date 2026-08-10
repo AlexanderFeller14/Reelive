@@ -8,7 +8,7 @@ type Bildpunkt = { x: number; y: number };
 
 // Lineare Projektion des sichtbaren Ausschnitts auf die Flaeche. Bewusst OHNE
 // Mercator-Korrektur: es geht nicht um Kartografie, sondern um die Frage «wie
-// weit sind diese zwei Nadeln auf DIESEM Bildschirm auseinander» — und der
+// weit sind diese zwei Nadeln auf DIESEM Bildschirm auseinander», und der
 // Ausschnitt ist klein genug, dass die Verzerrung darin nicht ins Gewicht
 // faellt.
 function aufBildschirm(
@@ -23,7 +23,7 @@ function aufBildschirm(
   // schiesst ein Punkt oestlich der Datumsgrenze ins Millionenfache: fuer
   // einen gewickelten Ausschnitt (longitude -180) ist `westen` -180.014, und
   // 179.99 minus -180.014 ergibt 360.004 statt 0.004. Die Schwesterfunktion
-  // ausschnittFuer faengt diesen Fall schon ab — hier fehlte er.
+  // ausschnittFuer faengt diesen Fall schon ab, hier fehlte er.
   const versatz = (((punkt.lng - westen) % 360) + 360) % 360;
   return {
     x: (versatz / ausschnitt.longitudeDelta) * breite,
@@ -68,7 +68,7 @@ export function gruppiere(
 // und die Spanne wird bei jedem Tipp auf eine Gruppe hoechstens halbiert
 // (karte.tsx). Fuer JEDE Ausdehnung groesser null waechst der Abstand also mit
 // jedem Tipp und ueberschreitet nach endlich vielen die Gruppenschwelle. Nur
-// bei Ausdehnung NULL bleibt er null — durch jede Zoomstufe hindurch. Genau
+// bei Ausdehnung NULL bleibt er null, durch jede Zoomstufe hindurch. Genau
 // dann tippt man ins Leere, und der Kartenscreen zeigt die Momente
 // stattdessen als Liste.
 //
@@ -76,7 +76,7 @@ export function gruppiere(
 // eine Behauptung darueber, wie weit die Karte auf dem Geraet ueberhaupt
 // heranzoomen kann, und die laesst sich von hier aus nicht belegen. Zwei
 // Momente, die wenige Meter auseinanderliegen, trennt der Zoom nach ein paar
-// Tipps wirklich — ihnen eine Liste vorzusetzen waere der schlechtere Fehler.
+// Tipps wirklich, ihnen eine Liste vorzusetzen waere der schlechtere Fehler.
 export function aufEinemFleck(gruppe: Gruppe): boolean {
   return gruppe.punkte.every((p) => p.lat === gruppe.anker.lat && p.lng === gruppe.anker.lng);
 }

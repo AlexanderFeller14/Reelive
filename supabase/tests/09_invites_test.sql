@@ -23,7 +23,7 @@ insert into public.trips (id, name, start_date, end_date, status, revealed_at, i
 -- Race-Verlierer-Szenario für redeem_invite: die Mitgliedschaft besteht schon,
 -- BEVOR redeem_invite überhaupt aufgerufen wird (so wie beim Verlierer eines
 -- echten Doppeltipp-Rennens, dessen Gegenstück den Insert bereits committet
--- hat). Echte Nebenläufigkeit lässt sich in pgTAP nicht herstellen — Insert
+-- hat). Echte Nebenläufigkeit lässt sich in pgTAP nicht herstellen, Insert
 -- direkt als Superuser, weil trip_members bewusst keine Insert-Policy/-Grant
 -- für authenticated hat.
 insert into public.trip_members (trip_id, user_id, role) values

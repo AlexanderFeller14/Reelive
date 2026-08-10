@@ -1,6 +1,6 @@
 -- Reveal-Regeln: trips.status/revealed_at bleiben für authenticated
 -- unschreibbar (fehlender Spalten-Grant), und can_see_post gilt jetzt für
--- 'revealed' UND 'archived' (20260808090100_can_see_post_archived.sql) —
+-- 'revealed' UND 'archived' (20260808090100_can_see_post_archived.sql),
 -- reactions, comments UND reports hängen alle drei an can_see_post
 -- (20260803090500_social_rls.sql). Geprüft wird hier mit reactions und
 -- comments; reports_insert nutzt dieselbe Funktion und ist damit durch

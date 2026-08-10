@@ -1,9 +1,9 @@
 // Verwaltung des EIGENEN Teilen-Links durch die Owner-Person (Task-6-Brief),
 // als Gegenstück zu shareApi.ts (dort: `aufloesen`, ohne JWT, für den
-// öffentlichen Web-Player — Task 5). Erstellen und Widerrufen laufen über die
+// öffentlichen Web-Player, Task 5). Erstellen und Widerrufen laufen über die
 // Edge Function `share-link` (Service-Role): sie prüft Owner-Rolle und
 // Reise-Status server-seitig noch einmal, auch wenn die aufrufende Stelle
-// (uebersicht.tsx) das schon vorher weiss — die UI blendet nur aus, die
+// (uebersicht.tsx) das schon vorher weiss, die UI blendet nur aus, die
 // Function erzwingt (CLAUDE.md-Eckpfeiler).
 //
 // BEWUSST NICHT in shareApi.ts ergänzt, obwohl der Plan (Phase-6-Plan, File
@@ -14,7 +14,7 @@
 // Literal vorkommt: `'aufloesen'`. shareApi.ts steht in diesem Graph (der
 // Web-Player importiert sie). Zusätzliche `aktion: 'erstellen'`/`'widerrufen'`-
 // Literale in DERSELBEN Datei hätten diesen bereits committeten, geprüften
-// Test zerbrochen — nicht weil der Web-Player sie tatsächlich aufriefe
+// Test zerbrochen, nicht weil der Web-Player sie tatsächlich aufriefe
 // (er importiert diese Datei hier gar nicht), sondern weil der Test den
 // Quelltext der ganzen Datei durchsucht, nicht nur den vom Web-Player
 // erreichbaren Ausführungspfad. Eine eigene Datei ist darum nicht nur
@@ -46,13 +46,13 @@ async function funktionsFehlerText(error: unknown, sonst: string): Promise<strin
       const body = (await httpFehler.context.clone().json()) as { fehler?: string };
       if (typeof body.fehler === 'string') return body.fehler;
     } catch {
-      // Antwort war kein JSON — generische Meldung unten.
+      // Antwort war kein JSON, generische Meldung unten.
     }
   }
   return funktionMeldung(error, sonst);
 }
 
-// Basis des öffentlichen Web-Players, siehe Kommentar in .env.example — kein
+// Basis des öffentlichen Web-Players, siehe Kommentar in .env.example, kein
 // Sicherheitswert, nur eine Anzeige-Entscheidung. Ohne Standardwert: ein
 // geratener Standard ergäbe einen Link, der aussieht wie einer und keiner
 // ist (dieselbe Haltung wie die Function selbst, supabase/functions/share-link/
@@ -60,7 +60,7 @@ async function funktionsFehlerText(error: unknown, sonst: string): Promise<strin
 //
 // Als FUNKTION statt als modulweite Konstante gelesen: `process.env.*` wird
 // von Metro beim Build durch einen Literal ersetzt, in Jest dagegen ganz
-// normal zur Laufzeit gelesen — eine Konstante hätte den Wert beim ERSTEN
+// normal zur Laufzeit gelesen, eine Konstante hätte den Wert beim ERSTEN
 // Import dieses Moduls eingefroren und liesse sich in Tests, die sowohl den
 // gesetzten als auch den fehlenden Fall prüfen wollen, nicht mehr umschalten.
 function teilenBasisUrl(): string {
@@ -80,16 +80,16 @@ const LADEFEHLER = 'Der Teilen-Link konnte nicht geladen werden. Probier es glei
 const ERSTELLEN_FEHLER = 'Der Link konnte nicht erstellt werden. Probier es gleich nochmal.';
 const WIDERRUFEN_FEHLER = 'Der Link konnte nicht deaktiviert werden. Probier es gleich nochmal.';
 
-// Der jüngste NICHT widerrufene, NICHT abgelaufene Link dieser Reise — oder
+// Der jüngste NICHT widerrufene, NICHT abgelaufene Link dieser Reise, oder
 // `data: null`, wenn es keinen gibt (nie angelegt, alle widerrufen, oder alle
 // abgelaufen). Ein abgelaufener Link zählt hier bewusst wie gar keiner: die
 // Sheet würde sonst einen toten Link zum Kopieren/Teilen anbieten, statt neu
-// erstellen zu lassen — `aufloesen` lehnt ihn ohnehin serverseitig ab
+// erstellen zu lassen, `aufloesen` lehnt ihn ohnehin serverseitig ab
 // (dieselbe Ablehnung wie ein widerrufener oder unbekannter Token, siehe
 // share-link/aufloesung.ts), diese Prüfung hier verhindert nur, dass die App
 // so tut, als wäre er noch etwas wert.
 //
-// Direkter Read statt eines Umwegs über die Function — siehe Kopfkommentar.
+// Direkter Read statt eines Umwegs über die Function, siehe Kopfkommentar.
 export async function holeAktivenLink(tripId: string): Promise<Gelesen<AktiverLink | null>> {
   const { data, error } = await supabase
     .from('share_links')
@@ -111,8 +111,8 @@ export async function holeAktivenLink(tripId: string): Promise<Gelesen<AktiverLi
 }
 
 // gueltigTage: null heisst "ohne Ablauf" (share-link/index.ts, Vertrag Task 2).
-// `expiresAt` in der Rückgabe ist HIER, im Client, aus `gueltigTage` berechnet
-// — die Function selbst gibt bei `erstellen` nur { token, url } zurück, kein
+// `expiresAt` in der Rückgabe ist HIER, im Client, aus `gueltigTage` berechnet,
+// die Function selbst gibt bei `erstellen` nur { token, url } zurück, kein
 // expires_at. Das ist rein informativ für die Anzeige ("gültig bis …"), nie
 // für eine Prüfung: die einzige massgebliche Uhr ist die der Function
 // (beurteileToken vergleicht dort gegen die tatsächlich in share_links
@@ -133,7 +133,7 @@ export async function erstelleLink(tripId: string, gueltigTage: number | null): 
   return { data: { token: antwort.token, url: antwort.url, expiresAt }, error: null };
 }
 
-// Idempotent auf Server-Seite (share-link/index.ts) — ein zweiter Widerruf
+// Idempotent auf Server-Seite (share-link/index.ts), ein zweiter Widerruf
 // ist kein Fehler, diese Funktion reicht das unverändert durch.
 export async function widerrufeLink(token: string): Promise<{ error: string | null }> {
   const { data, error } = await supabase.functions.invoke('share-link', {

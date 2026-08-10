@@ -3,7 +3,7 @@
 //
 // Ein Roundtrip-Test allein (setItem → getItem === null) würde durchgehen,
 // selbst wenn die Datei heimlich über einen ZWEITEN Pfad doch etwas
-// ablegt — z.B. still auf expo-secure-store oder AsyncStorage zurückfiele.
+// ablegt, z.B. still auf expo-secure-store oder AsyncStorage zurückfiele.
 // Deshalb werden beide hier als Spione gemockt: kein Aufruf davon darf je
 // passieren, sonst wäre "speichert nichts" nur behauptet, nicht bewiesen.
 const mockSecureStoreSetItemAsync = jest.fn();
@@ -26,7 +26,7 @@ import { secureSessionStorage } from '../secureSessionStorage.web';
 
 beforeEach(() => jest.clearAllMocks());
 
-test('setItem gefolgt von getItem liefert null — es bleibt nichts hängen', async () => {
+test('setItem gefolgt von getItem liefert null, es bleibt nichts hängen', async () => {
   await secureSessionStorage.setItem('sb-session', '{"access_token":"abc"}');
   await expect(secureSessionStorage.getItem('sb-session')).resolves.toBeNull();
 });

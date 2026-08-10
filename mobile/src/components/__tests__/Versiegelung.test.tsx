@@ -53,7 +53,7 @@ test('sichtbar löst die success-Haptik genau einmal aus', async () => {
 // Fix-Runde 1: ein Wechsel von prefers-reduced-motion, während die
 // Inszenierung schon läuft (sichtbar bleibt unverändert true), liess den
 // Effekt neu laufen (er hängt auch an reducedMotion, weil die Dauer davon
-// abhängt) — ohne den Ref-Schutz hätte das die Haptik ein zweites Mal für
+// abhängt), ohne den Ref-Schutz hätte das die Haptik ein zweites Mal für
 // dasselbe Siegel ausgelöst.
 test('ein Wechsel von prefers-reduced-motion während der Inszenierung feuert die Haptik nicht zweimal', async () => {
   const onFertig = jest.fn();

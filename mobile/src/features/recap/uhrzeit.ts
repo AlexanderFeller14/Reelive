@@ -4,7 +4,7 @@
 // Intl-freien Weg gibt es dafür nicht.
 //
 // `captured_tz` hat keine CHECK-Constraint (nur `text not null`, siehe
-// tage.ts, gleiches Verteidigungsprinzip) — ein unbekannter Zonenname wirft
+// tage.ts, gleiches Verteidigungsprinzip), ein unbekannter Zonenname wirft
 // hier einen RangeError. Lieber eine best-effort Gerätezeit zeigen als
 // abstürzen oder eine leere Stelle lassen.
 //

@@ -1,34 +1,34 @@
-// Integrationstest für die Aktion `lesen` — den ersten Leseweg des Systems.
+// Integrationstest für die Aktion `lesen`, den ersten Leseweg des Systems.
 //
 // Warum dieser Test schwerer wiegt als seine Zeilenzahl: Bis Phase 5 war die
 // Versiegelung dadurch geschützt, dass `media-urls` ausschliesslich PUT-URLs
 // ausstellte. Es gab schlicht keinen Weg, an fremde (oder eigene) Bytes zu
 // kommen. Jetzt gibt es einen, und was ihn zurückhält, ist eine Prüfkette in
 // TypeScript statt eine fehlende Funktion. Dieser Test ist der Beleg, dass
-// die Kette hält — vor allem Fall 1: **vor dem Reveal gibt es keine URL, auch
+// die Kette hält, vor allem Fall 1: **vor dem Reveal gibt es keine URL, auch
 // nicht für die Autorin des Moments.** Das ist kein Grenzfall, das ist das
 // Produkt.
 //
 // Belegt (Nummern wie im Task-Brief):
 //   1. Vor dem Reveal antwortet `lesen` mit 403, auch für die Autorin.
-//   2. Für ein Nicht-Mitglied 403 — geprüft NACH dem Reveal, sonst würde
+//   2. Für ein Nicht-Mitglied 403, geprüft NACH dem Reveal, sonst würde
 //      schon die Versiegelung abweisen und die Mitgliedschaftsprüfung bliebe
 //      ungetestet.
 //   3. Nach dem Reveal bekommt ein Mitglied URLs, und ein GET darauf gibt die
 //      hochgeladenen Bytes zurück.
 //   4. Ein PUT auf eine Lese-URL scheitert (SigV4 nimmt die HTTP-Methode als
-//      erste Zeile des Canonical Request auf) — und das Objekt bleibt danach
+//      erste Zeile des Canonical Request auf), und das Objekt bleibt danach
 //      nachweislich unverändert.
 //   5. Momente mit upload_status='pending' fehlen in der Antwort.
 // Dazu, weil billig und aus der Angreifer-Sicht naheliegend: unbekannte
 // trip_id → 404, archivierte Reise → weiterhin lesbar, Gültigkeit der
 // Lese-URLs = 3600 s gegenüber 600 s beim Upload, thumb_url entfällt bei
-// thumb_key = null — und die drei Angriffszeilen: eine, deren gespeicherter
+// thumb_key = null, und die drei Angriffszeilen: eine, deren gespeicherter
 // thumb_key auf eine FREMDE Reise zeigt, bekommt trotzdem nur die abgeleitete
 // thumb_url der eigenen (Zeile D); eine, deren storage_key dorthin zeigt,
 // fällt ganz aus der Antwort und wird in `ausgelassen` gezählt (Zeile E); und
 // eine, die in einer anderen Reise liegt, aber einen auf UNSERE Reise
-// passenden storage_key trägt, taucht nicht auf — die einzige Zeile, an der
+// passenden storage_key trägt, taucht nicht auf, die einzige Zeile, an der
 // sich die Reise-Eingrenzung des Selects zeigen kann (Zeile F).
 //
 // Aufbau wie confirm_integration_test.ts: kein Unit-Test (index.ts exportiert
@@ -44,7 +44,7 @@
 //
 // Läuft die Function ausnahmsweise woanders (z. B. direkt auf dem Host, weil
 // der Edge-Runtime-Container gerade die Quellen eines anderen Arbeitsordners
-// serviert), zeigt MEDIA_URLS_URL den Test dorthin — dann zusätzlich
+// serviert), zeigt MEDIA_URLS_URL den Test dorthin, dann zusätzlich
 // --allow-env. Ohne diese Berechtigung fällt der Test still auf den
 // Standardpfad zurück, statt an einer Permission-Abfrage hängen zu bleiben.
 
@@ -52,7 +52,7 @@ import { assert, assertEquals, assertExists, assertFalse } from 'jsr:@std/assert
 import { erwarteteSchluessel } from './keys.ts';
 
 const LEA_ID = '11111111-1111-4111-8111-111111111111';
-// Ben ist in seed.sql angelegt, aber in keiner Reise Mitglied — genau die
+// Ben ist in seed.sql angelegt, aber in keiner Reise Mitglied, genau die
 // Rolle, die hier gebraucht wird. Sein Fall deckt zugleich die entfernte
 // Mitreisende ab: `trip_members`-Zeile weg heisst ab da dasselbe wie nie
 // dagewesen, unabhängig davon, dass sie die trip_id kennt.
@@ -70,7 +70,7 @@ function b64urlJson(obj: unknown): string {
   return b64url(new TextEncoder().encode(JSON.stringify(obj)));
 }
 
-// Selbst signiertes HS256-JWT gegen das lokale Projekt-Secret — dieselbe
+// Selbst signiertes HS256-JWT gegen das lokale Projekt-Secret, dieselbe
 // Technik wie in confirm_integration_test.ts (auth.sms.test_otp deckt in
 // config.toml nur zwei Nummern ab und liefert ohnehin kein Token für einen
 // automatisierten Lauf).
@@ -150,7 +150,7 @@ const stackBereit = Boolean(
 
 if (!stackBereit) {
   console.warn(
-    'lesen_test: übersprungen — braucht `supabase start` UND ' +
+    'lesen_test: übersprungen, braucht `supabase start` UND ' +
       '`supabase functions serve media-urls --env-file supabase/functions/.env` ' +
       'in einem zweiten Terminal. Details im Datei-Header.',
   );
@@ -166,7 +166,7 @@ function restHeaders(extra?: Record<string, string>): Record<string, string> {
 }
 
 // Liest den Body genau einmal (als Text), prüft den Status damit als
-// Fehlermeldung und parst danach erst als JSON — .json() UND .text() auf
+// Fehlermeldung und parst danach erst als JSON, .json() UND .text() auf
 // derselben Response wäre "Body already consumed".
 async function erwarteJson(res: Response, erwarteterStatus: number): Promise<unknown> {
   const text = await res.text();
@@ -187,7 +187,7 @@ Deno.test({
     // Eigene Reise + eigene Momente statt seed.sql-Fixtures: robust gegenüber
     // Änderungen an seed.sql, hinterlässt dort keine Spuren. Der
     // trips_add_owner_membership-Trigger legt die trip_members-Zeile für Lea
-    // automatisch an. Die Reise startet mit status='active' — versiegelt.
+    // automatisch an. Die Reise startet mit status='active', versiegelt.
     const tripRes = await fetch(`${SUPABASE_URL}/rest/v1/trips`, {
       method: 'POST',
       headers: restHeaders({ Prefer: 'return=representation' }),
@@ -216,7 +216,7 @@ Deno.test({
 
     // Schlüssel des hochgeladenen Moments, für das Aufräumen im finally.
     let hochgeladeneSchluessel: string[] = [];
-    // Zweite Reise, die es nur für Fall F gibt — im finally mit aufgeräumt.
+    // Zweite Reise, die es nur für Fall F gibt, im finally mit aufgeräumt.
     let nachbarTripId: string | null = null;
 
     try {
@@ -237,7 +237,7 @@ Deno.test({
       });
       const [postA] = (await erwarteJson(postARes, 201)) as Array<{ id: string }>;
 
-      // B: eingesendet, aber nie fertig hochgeladen — darf in keiner Antwort
+      // B: eingesendet, aber nie fertig hochgeladen, darf in keiner Antwort
       //    auftauchen (Fall 5). Ein Objekt dazu gibt es nicht.
       const postBRes = await fetch(`${SUPABASE_URL}/rest/v1/posts`, {
         method: 'POST',
@@ -255,11 +255,11 @@ Deno.test({
       assertEquals(postB.upload_status, 'pending');
 
       // C: uploaded, aber ohne thumb_key. Über `confirm` kann dieser Zustand
-      //    heute nicht mehr entstehen (es schreibt immer beide Schlüssel) —
+      //    heute nicht mehr entstehen (es schreibt immer beide Schlüssel),
       //    die Spalte ist aber nullable, und genau darauf zielt der Test:
       //    signiert werden darf keine URL auf "null". Die id wird hier
       //    vorgegeben, damit der storage_key derselbe abgeleitete Pfad ist,
-      //    den auch `confirm` schreiben würde — eine ansonsten normale Zeile.
+      //    den auch `confirm` schreiben würde, eine ansonsten normale Zeile.
       const postCId = crypto.randomUUID();
       const postCRes = await fetch(`${SUPABASE_URL}/rest/v1/posts`, {
         method: 'POST',
@@ -279,18 +279,18 @@ Deno.test({
       const [postC] = (await erwarteJson(postCRes, 201)) as Array<{ id: string }>;
 
       // Die beiden Angriffsfälle. Solche Zeilen kann heute keine
-      // `authenticated`-Person erzeugen — upload_status ist vom Spalten-Grant
+      // `authenticated`-Person erzeugen, upload_status ist vom Spalten-Grant
       // ausgenommen (20260803090600_role_hardening.sql, festgenagelt in
       // supabase/tests/07_role_hardening_test.sql und 12_upload_status_test.sql)
       // und UPDATE auf posts gibt es gar nicht; hier im Test schreibt sie
       // deshalb die Service-Role. Der Test hält fest, was passieren MUSS,
-      // falls diese Zusicherung je fällt — sonst wäre eine einzige gelockerte
+      // falls diese Zusicherung je fällt, sonst wäre eine einzige gelockerte
       // Migration genug, um über eine eigene Reise beliebige fremde Medien
       // auszulesen.
       const FREMDE_REISE = '00000000-0000-4000-8000-00000000dead';
 
       // D: storage_key ist in Ordnung, aber thumb_key zeigt auf eine fremde
-      //    Reise. Der Eintrag bleibt also in der Antwort — und genau daran
+      //    Reise. Der Eintrag bleibt also in der Antwort, und genau daran
       //    lässt sich prüfen, dass auch der THUMB-Pfad abgeleitet wird und
       //    nicht aus der Spalte kommt. Ein Thumbnail ist der Inhalt eines
       //    Moments in klein; sicherheitlich steht hier dasselbe auf dem
@@ -316,7 +316,7 @@ Deno.test({
       // E: storage_key selbst zeigt auf eine fremde Reise. Hier gibt es
       //    nichts zu retten: der abgeleitete Pfad wäre eine URL ins Nichts,
       //    der gespeicherte darf nie signiert werden. Der Moment fällt
-      //    darum ganz aus der Antwort — und die Function schreibt eine
+      //    darum ganz aus der Antwort, und die Function schreibt eine
       //    Fehlerzeile. Dieselbe Behandlung trifft Zeilen aus einem fremden
       //    Schlüsselschema, weshalb supabase/seed.sql seine Schlüssel seit
       //    Phase 5 im abgeleiteten Schema schreibt.
@@ -339,12 +339,12 @@ Deno.test({
       await erwarteJson(postERes, 201);
 
       // F: liegt in einer ANDEREN Reise, trägt aber einen storage_key, der
-      //    auf UNSERE Reise zeigt — und zwar genau den Pfad, den die
+      //    auf UNSERE Reise zeigt, und zwar genau den Pfad, den die
       //    Ableitung für diese post_id in unserer Reise ergäbe. Damit ist F
       //    die einzige Zeile, an der sich die Reise-Eingrenzung des Selects
       //    überhaupt zeigen kann: Fällt `.eq('trip_id', …)` weg, scannt die
       //    Function die ganze posts-Tabelle, und F rutscht durch den
-      //    Ableitungs-Abgleich hindurch in die Antwort — jeder andere fremde
+      //    Ableitungs-Abgleich hindurch in die Antwort, jeder andere fremde
       //    Moment würde dort noch aussortiert. Ohne diese Fixture bleibt eine
       //    der Kernaussagen der Aktion ungetestet, und die Richtigkeit hinge
       //    allein am Stolperdraht.
@@ -379,7 +379,7 @@ Deno.test({
       });
       await erwarteJson(postFRes, 201);
 
-      // A tatsächlich hochladen — über denselben Weg wie die App: sign, PUT,
+      // A tatsächlich hochladen, über denselben Weg wie die App: sign, PUT,
       // confirm. Erst danach trägt die Zeile die server-abgeleiteten
       // Schlüssel, und nur die darf `lesen` signieren.
       const signRes = await fetch(FUNCTION_URL, {
@@ -393,7 +393,7 @@ Deno.test({
         new URL(uploadUrls.thumb_url).pathname.split(`/${BUCKET}/`)[1],
       ];
 
-      // Die Gültigkeit der Upload-URL steht in der URL selbst — der direkte
+      // Die Gültigkeit der Upload-URL steht in der URL selbst, der direkte
       // Beleg, dass die 600 s der Upload-Konstante unangetastet bleiben,
       // ohne von Uhren oder Laufzeiten abzuhängen.
       assertEquals(new URL(uploadUrls.medium_url).searchParams.get('X-Amz-Expires'), '600');
@@ -415,7 +415,7 @@ Deno.test({
       // --- Fall 1: vor dem Reveal keine URL, auch nicht für die Autorin ---
       // Lea ist Eigentümerin der Reise, Mitglied und Autorin aller drei
       // Momente. Wenn irgendjemand vor dem Reveal etwas sehen dürfte, dann
-      // sie — genau deshalb steht hier 403. Die Bytes liegen zu diesem
+      // sie, genau deshalb steht hier 403. Die Bytes liegen zu diesem
       // Zeitpunkt nachweislich im Speicher (confirm oben war erfolgreich):
       // es fehlt nichts ausser der Erlaubnis.
       const versiegelt = await lesen(leaHeaders, tripId);
@@ -438,7 +438,7 @@ Deno.test({
       await erwarteJson(revealRes, 200);
 
       // --- Fall 2: Nicht-Mitglied ----------------------------------------
-      // Jetzt ist die Reise offen — die Versiegelung weist Ben also nicht
+      // Jetzt ist die Reise offen, die Versiegelung weist Ben also nicht
       // mehr ab. Was ihn abweist, ist ausschliesslich die fehlende
       // trip_members-Zeile.
       const fremd = await lesen(benHeaders, tripId);
@@ -451,7 +451,7 @@ Deno.test({
 
       // Genau A, C und D, in captured_at-Reihenfolge. B fehlt (pending), E
       // fehlt (storage_key passt nicht zur Ableitung) und F fehlt, weil es
-      // zu einer anderen Reise gehört — drei verschiedene Gründe, eine
+      // zu einer anderen Reise gehört, drei verschiedene Gründe, eine
       // Zusicherung.
       assertEquals(antwort.medien.map((m) => m.post_id), [postA.id, postC.id, postDId]);
 
@@ -470,7 +470,7 @@ Deno.test({
       assertEquals(eintragC.thumb_url, undefined);
       assertFalse(eintragC.medium_url.includes('null'));
 
-      // Keine einzige URL der Antwort zeigt in die fremde Reise — weder als
+      // Keine einzige URL der Antwort zeigt in die fremde Reise, weder als
       // Medium noch als Thumbnail, und auch nicht über einen Eintrag, den
       // man beim Durchzählen übersieht.
       for (const eintrag of antwort.medien) {
@@ -483,14 +483,14 @@ Deno.test({
       // Zeile D im Einzelnen: gespeicherter thumb_key zeigt in die fremde
       // Reise, die ausgestellte thumb_url muss trotzdem der abgeleitete Pfad
       // dieser Reise sein. Ohne diese Zusicherung bliebe die Ableitung nur
-      // für medium_url festgenagelt — und ein Thumbnail einer fremden,
+      // für medium_url festgenagelt, und ein Thumbnail einer fremden,
       // versiegelten Reise ist ihr Inhalt in klein.
       const erwartetD = erwarteteSchluessel(tripId, postDId, 'photo', 'jpg');
       assertExists(eintragD.thumb_url);
       assertEquals(new URL(eintragD.thumb_url).pathname.endsWith(erwartetD.thumb_key), true);
       assertEquals(new URL(eintragD.medium_url).pathname.endsWith(erwartetD.storage_key), true);
 
-      // Und die normale Zeile C zeigt genau dorthin, wo sie soll — die
+      // Und die normale Zeile C zeigt genau dorthin, wo sie soll, die
       // Ableitung ist für legitime Daten deckungsgleich mit der Spalte.
       assert(
         new URL(eintragC.medium_url).pathname.endsWith(
@@ -499,14 +499,14 @@ Deno.test({
         `unerwarteter Pfad: ${eintragC.medium_url}`,
       );
 
-      // Gültigkeit: 3600 s, direkt aus der signierten URL abgelesen — die
+      // Gültigkeit: 3600 s, direkt aus der signierten URL abgelesen, die
       // zweite, von der Upload-Konstante getrennte Zahl.
       assertEquals(new URL(eintragA.medium_url).searchParams.get('X-Amz-Expires'), '3600');
       assertEquals(new URL(eintragA.thumb_url).searchParams.get('X-Amz-Expires'), '3600');
 
       // gueltig_bis passt dazu und ist nie später als die echte Ablaufzeit.
       // Das Fenster ist absichtlich weit: die Function läuft im Container,
-      // der Test auf dem Host — ein paar Sekunden Uhrenversatz sind normal,
+      // der Test auf dem Host, ein paar Sekunden Uhrenversatz sind normal,
       // 600 gegen 3600 unterscheidet es trotzdem zweifelsfrei.
       const restSekunden = (Date.parse(antwort.gueltig_bis) - vorherStempel) / 1000;
       assert(
@@ -514,7 +514,7 @@ Deno.test({
         `gueltig_bis liegt ${restSekunden}s in der Zukunft, erwartet ~3600s`,
       );
 
-      // Der GET liefert wirklich die hochgeladenen Bytes — nicht nur einen
+      // Der GET liefert wirklich die hochgeladenen Bytes, nicht nur einen
       // Statuscode, der auch von einer Fehlerseite kommen könnte.
       const getMedium = await fetch(eintragA.medium_url);
       assertEquals(getMedium.status, 200);
@@ -527,7 +527,7 @@ Deno.test({
       // SigV4 nimmt die HTTP-Methode als erste Zeile in den Canonical
       // Request auf; dessen Hash steckt im String-to-Sign. Der Server
       // berechnet für ein PUT deshalb eine andere Signatur als die in der
-      // URL und lehnt ab. Die URL trägt die Methode nirgends sichtbar — das
+      // URL und lehnt ab. Die URL trägt die Methode nirgends sichtbar, das
       // hier ist der Beleg, dass sie trotzdem gebunden ist.
       const putVersuch = await fetch(eintragA.medium_url, {
         method: 'PUT',
@@ -606,14 +606,14 @@ Deno.test({
 // Seitengrenze
 // ---------------------------------------------------------------------------
 // Eigener Test, weil er eine eigene, absichtlich grosse Fixture braucht.
-// PostgREST kappt jede Antwort bei max_rows (supabase/config.toml: 1000) —
+// PostgREST kappt jede Antwort bei max_rows (supabase/config.toml: 1000),
 // still, ohne Fehler, ohne dass supabase-js etwas davon sieht. Ein `lesen`
 // ohne Blättern lieferte einer Reise mit 1001 Momenten also genau 1000 und
 // verschwiege den Rest: ausgerechnet der Recap, auf den das Produkt
 // hinausläuft, verlöre Inhalte, ohne dass irgendwo etwas rot wird.
 //
 // 1001 Zeilen sind bewusst die kleinstmögliche Fixture, die das zeigt. Objekte
-// im Bucket braucht dieser Fall keine — geprüft wird, WAS zurückkommt, nicht
+// im Bucket braucht dieser Fall keine, geprüft wird, WAS zurückkommt, nicht
 // ob es sich herunterladen lässt (das deckt der Test oben ab).
 Deno.test({
   name: 'lesen blättert über die max_rows-Grenze hinweg und verliert keinen Moment',
@@ -681,7 +681,7 @@ Deno.test({
       });
       const antwort = (await erwarteJson(res, 200)) as LeseAntwort;
 
-      // Ohne Blättern stünde hier 1000 — der stille Verlust, um den es geht.
+      // Ohne Blättern stünde hier 1000, der stille Verlust, um den es geht.
       assertEquals(antwort.medien.length, ANZAHL);
       assertEquals(antwort.medien.map((m) => m.post_id), erwarteteReihenfolge);
       // Nichts ausgelassen, und keine Doublette: die Reihenfolge oben

@@ -58,7 +58,7 @@ test('ganz ohne Reisen ist der leere Zustand ebenfalls sichtbar', async () => {
 });
 
 // Gegenprobe: ohne diesen Test belegt der Test oben nur, dass der Text
-// existiert — nicht, dass er an eine Bedingung geknüpft ist. Bei einem
+// existiert, nicht, dass er an eine Bedingung geknüpft ist. Bei einem
 // Ladefehler wäre «Noch kein Recap» schlicht falsch: über die Reisen der
 // Person ist dann nichts bekannt.
 test('ein Ladefehler zeigt die Ursache statt «Noch kein Recap»', async () => {
@@ -86,7 +86,7 @@ test('eine Karte führt in die Übersicht dieser Reise', async () => {
   expect(mockPush).toHaveBeenCalledWith('/recap/t2/uebersicht');
 });
 
-// Review Task 10, Important 1: die Karte trägt hier `alsRecap` — ein Tipp
+// Review Task 10, Important 1: die Karte trägt hier `alsRecap`, ein Tipp
 // führt tatsächlich in die Übersicht (siehe Test oben), die Pille darf hier
 // also stehen (anders als auf dem Reise-Tab, siehe TripCard.test.tsx).
 test('eine Recap-Karte trägt die Play-Pille', async () => {
@@ -98,7 +98,7 @@ test('eine Recap-Karte trägt die Play-Pille', async () => {
 // Review Task 10, Important 2 (M2): `geladen &&` in der `leer`-Bedingung
 // entfernt hätte «Noch kein Recap» schon WÄHREND des Ladens gezeigt, obwohl
 // `trips` zu diesem Zeitpunkt nur deshalb leer ist, weil noch nichts
-// angekommen ist — keine Aussage über die Daten der Person. `fetchTrips`
+// angekommen ist, keine Aussage über die Daten der Person. `fetchTrips`
 // bleibt hier absichtlich unaufgelöst hängen, bis der Test es selbst freigibt.
 test('während des Ladens erscheint der leere Zustand nicht', async () => {
   let freigeben: (v: { data: unknown[]; error: null }) => void = () => {};

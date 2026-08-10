@@ -5,7 +5,7 @@ import type { RecapMoment } from './types';
 
 // Gleiches Muster wie tripsApi.ts/postsApi.ts: Daten und Fehler getrennt
 // zurückgeben, damit ein leeres Array nie mit «wirklich leer» verwechselt
-// wird (Gelesen<T> ist dort nicht exportiert — jede Datei bekommt ihre eigene
+// wird (Gelesen<T> ist dort nicht exportiert, jede Datei bekommt ihre eigene
 // lokale Definition derselben Form, kein zweiter Import-Umweg für zwei Felder).
 type Gelesen<T> = { data: T; error: string | null };
 
@@ -15,7 +15,7 @@ function meldung(error: { message?: string } | null, sonst: string): string {
 
 // functions-js ersetzt einen echten Netzwerkfehler durch einen festen
 // englischen Satz und legt die ursprüngliche Fetch-Fehlermeldung in
-// `context` ab (siehe ausführlicher Kommentar in postsApi.ts) — beide
+// `context` ab (siehe ausführlicher Kommentar in postsApi.ts), beide
 // Stellen müssen geprüft werden, bevor auf die generische Meldung
 // zurückgefallen wird.
 function funktionMeldung(error: unknown, sonst: string): string {
@@ -25,12 +25,12 @@ function funktionMeldung(error: unknown, sonst: string): string {
 }
 
 // `profiles!posts_author_id_fkey` statt nur `profiles`: zwischen `posts` und
-// `profiles` gibt es ZWEI Wege — der direkte über `posts.author_id` und ein
+// `profiles` gibt es ZWEI Wege, der direkte über `posts.author_id` und ein
 // many-to-many über `reactions` (post_id/user_id). PostgREST verweigert eine
 // mehrdeutige Einbettung mit HTTP 300 (PGRST201) und liefert gar keine Daten.
 //
 // Gefunden erst beim Durchspielen der laufenden App: der Recap zeigte
-// «Die Momente konnten nicht geladen werden» — für jede Reise, für jede
+// «Die Momente konnten nicht geladen werden», für jede Reise, für jede
 // Person. Kein Test hat es gesehen, weil alle den Supabase-Client mocken und
 // der Mock die Abfrage nie wirklich stellt. Wer den Namen hier kürzt, bricht
 // den Recap vollständig.
@@ -45,11 +45,11 @@ type PostRow = Omit<RecapMoment, 'autor_name'> & {
 };
 
 // Liest alle Momente einer Reise inklusive Autorenname in EINEM Aufruf (kein
-// N+1, Brief) — profiles(display_name) hängt am author_id-Fremdschlüssel,
+// N+1, Brief), profiles(display_name) hängt am author_id-Fremdschlüssel,
 // analog zu trip_members(profiles(display_name)) in tripsApi.fetchMembers.
 //
 // Läuft nur nach dem Reveal: posts_select_revealed_members lässt Mitglieder
-// erst lesen, wenn trips.status in ('revealed', 'archived') ist — vorher
+// erst lesen, wenn trips.status in ('revealed', 'archived') ist, vorher
 // liefert die Abfrage eine leere Liste ohne Fehler (RLS filtert, wirft
 // nicht). Das ist hier kein Sonderfall, den diese Funktion behandeln müsste.
 export async function fetchRecapMomente(tripId: string): Promise<Gelesen<RecapMoment[]>> {
@@ -79,14 +79,14 @@ export async function fetchRecapMomente(tripId: string): Promise<Gelesen<RecapMo
     autor_name: row.profiles?.display_name ?? '',
   }));
   // Sortierung IMMER über tage.sortiereMomente (CLAUDE.md-Eckpfeiler:
-  // captured_at aufsteigend, id als stabiles zweites Kriterium) — bewusst
+  // captured_at aufsteigend, id als stabiles zweites Kriterium), bewusst
   // OHNE zusätzliches .order() auf der Abfrage selbst, damit diese Garantie
   // an genau einer Stelle steht und unabhängig vom DB-Ausführungsplan
   // nachweisbar bleibt (Task-5-Brief).
   return { data: sortiereMomente(momente), error: null };
 }
 
-// Ruft die Edge Function aus Task 2 auf. Sie ist idempotent — ein Wiederholen
+// Ruft die Edge Function aus Task 2 auf. Sie ist idempotent, ein Wiederholen
 // nach einem Netzfehler ist immer erlaubt, es gibt hier nichts zu sperren.
 export async function revealTrip(
   tripId: string
@@ -96,7 +96,7 @@ export async function revealTrip(
   });
   if (error) {
     // Die Function liefert bei einem HTTP-Fehler ihren deutschen Klartext im
-    // Response-Body mit — der landet über FunctionsHttpError im `context`
+    // Response-Body mit, der landet über FunctionsHttpError im `context`
     // (gleiches Muster wie uploadBestaetigen in postsApi.ts).
     const httpFehler = error as { name?: string; context?: unknown };
     if (httpFehler?.name === 'FunctionsHttpError' && httpFehler.context instanceof Response) {
@@ -104,7 +104,7 @@ export async function revealTrip(
         const body = (await httpFehler.context.clone().json()) as { fehler?: string };
         if (typeof body.fehler === 'string') return { revealed_at: null, error: body.fehler };
       } catch {
-        // Antwort war kein JSON — generische Meldung unten.
+        // Antwort war kein JSON, generische Meldung unten.
       }
     }
     return {

@@ -60,7 +60,7 @@ describe('meldeMoment', () => {
     expect(kette.insert).toHaveBeenCalledWith({ post_id: 'p1', reporter_id: 'u1', reason: 'Unpassend' });
   });
 
-  test('leerer Grund wird VOR jedem Aufruf abgefangen — keine Sitzung nötig, kein Insert', async () => {
+  test('leerer Grund wird VOR jedem Aufruf abgefangen, keine Sitzung nötig, kein Insert', async () => {
     const ergebnis = await meldeMoment('p1', '');
     expect(ergebnis.error).toBe('Beschreib kurz, worum es geht, bevor du meldest.');
     expect(mockGetSession).not.toHaveBeenCalled();
@@ -73,8 +73,8 @@ describe('meldeMoment', () => {
     expect(mockFrom).not.toHaveBeenCalled();
   });
 
-  // Der Datenbank-Check erlaubt genau 1–500 Zeichen (wie der Kommentar-Check)
-  // — 500 muss durchgehen, 501 muss VOR dem Netzwerkaufruf abgefangen werden.
+  // Der Datenbank-Check erlaubt genau 1–500 Zeichen (wie der Kommentar-Check),
+  // 500 muss durchgehen, 501 muss VOR dem Netzwerkaufruf abgefangen werden.
   test('genau 500 Zeichen ist erlaubt', async () => {
     const kette = insertKette({ error: null });
     const text = 'a'.repeat(500);
@@ -130,7 +130,7 @@ describe('fetchMeldungen', () => {
   });
 
   // Ungefiltert liesse sich der eq('posts.trip_id', …)-Filter unbemerkt
-  // entfernen — kein anderer Test in dieser Datei sieht dem select-Aufruf auf
+  // entfernen, kein anderer Test in dieser Datei sieht dem select-Aufruf auf
   // die Finger (gleiches Prinzip wie Phase-5-Final-Review, Punkt 8, in
   // sozialApi.test.ts).
   test('fragt den eingebetteten Join über posts!inner mit ab (Voraussetzung für den trip_id-Filter)', async () => {
@@ -160,7 +160,7 @@ describe('verwirfMeldung', () => {
     expect(ergebnis).toEqual({ error: null });
     expect(mockFrom).toHaveBeenCalledWith('reports');
     // Der Spalten-Grant (grant update (erledigt_am) …) lässt ein Update mit
-    // einem zweiten Feld komplett scheitern (16_reports_test.sql, Fall 7) —
+    // einem zweiten Feld komplett scheitern (16_reports_test.sql, Fall 7),
     // dieser Aufruf darf darum NIE ein zweites Feld im selben Objekt tragen.
     const [payload] = kette.update.mock.calls[0];
     expect(Object.keys(payload)).toEqual(['erledigt_am']);

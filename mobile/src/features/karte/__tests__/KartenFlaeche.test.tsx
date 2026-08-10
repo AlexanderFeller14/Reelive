@@ -13,14 +13,14 @@ import type {
 
 // Geprüft wird die NATIVE Fassung: jest löst `.tsx` auf (die Plattformen des
 // Testlaufs sind ios/android/native), `.web.tsx` kommt hier nie zum Zug. Das
-// ist Absicht — hier steht der VERTRAG, nicht Leaflet. Die Browser-Fassung
+// ist Absicht, hier steht der VERTRAG, nicht Leaflet. Die Browser-Fassung
 // erfüllt denselben Vertrag mit eigener Technik und hat ihre eigene Testdatei
 // (KartenFlaeche.web.test.tsx).
 
 // Eigener react-native-maps-Mock statt des globalen aus jest.setup.ts, aus
 // denselben zwei Gründen wie in recap/__tests__/karte.test.tsx: der globale
 // baut sein imperatives Handle bei jedem Rendern neu und gibt es nicht nach
-// aussen, und der Tipp jeder Nadel muss sich MERKEN lassen — der letzte Test
+// aussen, und der Tipp jeder Nadel muss sich MERKEN lassen, der letzte Test
 // unten tippt zwischen Commit und passivem Effekt, was über `fireEvent` nicht
 // geht, weil dessen `act()` beides zusammen abspielt.
 const mockAnimateToRegion = jest.fn();
@@ -50,7 +50,7 @@ jest.mock('react-native-maps', () => {
     PROVIDER_DEFAULT: undefined,
   };
 });
-// expo-image ist ein natives View — im Test reicht ein Platzhalter, der alle
+// expo-image ist ein natives View, im Test reicht ein Platzhalter, der alle
 // Props durchreicht. Gleiches Muster wie in karte.test.tsx; ohne den Mock
 // scheitert schon das Laden des Moduls, seit die Nadel ein Bild trägt.
 jest.mock('expo-image', () => {
@@ -135,7 +135,7 @@ test('die Nadel einer Gruppe zeigt deren Anzahl', async () => {
   expect(screen.getByText('2')).toBeTruthy();
 });
 
-// `thumbFuer` wird für den ANKER gefragt — die Nadel trägt sein Bild, nicht
+// `thumbFuer` wird für den ANKER gefragt, die Nadel trägt sein Bild, nicht
 // das irgendeines Mitglieds.
 test('die Nadel traegt das Bild ihres Ankers', async () => {
   const thumbFuer = jest.fn((postId: string) => `https://cdn.example/${postId}.jpg`);
@@ -179,7 +179,7 @@ test('meldet die Gruppe, deren Nadel getippt wurde', async () => {
 });
 
 // Der Screen gruppiert nach Abständen in BILDSCHIRMpunkten und braucht dafür
-// den Ausschnitt, den die Karte gerade zeigt — nicht den, mit dem sie öffnete.
+// den Ausschnitt, den die Karte gerade zeigt, nicht den, mit dem sie öffnete.
 test('meldet den sichtbaren Ausschnitt nach jeder Kartenbewegung', async () => {
   const aufAusschnitt = jest.fn();
   await wrap({ gruppen: [gruppeA], aufAusschnitt });
@@ -216,7 +216,7 @@ test('die Linie ist der Akzent in Breite 3', async () => {
   expect(screen.getByTestId('karte-linie').props.strokeWidth).toBe(3);
 });
 
-// Eine Linie braucht zwei Punkte — sonst stünde ein Overlay auf der Karte,
+// Eine Linie braucht zwei Punkte, sonst stünde ein Overlay auf der Karte,
 // das nichts verbindet.
 test('ein einzelner Punkt ergibt keine Linie', async () => {
   await wrap({ gruppen: [gruppeA], linie: [{ latitude: 38.71, longitude: -9.14 }] });
@@ -260,7 +260,7 @@ test('der Sprung trifft dasselbe Ziel wie die Fahrt', async () => {
 
 // Die Fläche bewegt ihre Kamera NUR auf Zuruf. Ein Nachziehen an den
 // `initialerAusschnitt`-Prop führte der eigenen Meldung hinterher: jede
-// Bewegung meldet einen neuen Ausschnitt nach oben, der von dort zurückkäme —
+// Bewegung meldet einen neuen Ausschnitt nach oben, der von dort zurückkäme,
 // und die Karte führe endlos hinter sich her. Genau deshalb heisst der Prop
 // so, wie er heisst.
 test('ein neuer Ausschnitt-Prop bewegt die Kamera nicht von selbst', async () => {
@@ -281,7 +281,7 @@ test('ein neuer Ausschnitt-Prop bewegt die Kamera nicht von selbst', async () =>
 //
 // Nativ ist das Ref des MapView bereits im Commit gesetzt, der Befehl kommt
 // also durch. Die Browser-Fassung baut ihre Karte in einem PASSIVEN Effekt auf
-// und verschluckte den Befehl ohne Vorkehrung — dieselbe Zusicherung steht
+// und verschluckte den Befehl ohne Vorkehrung, dieselbe Zusicherung steht
 // deshalb wortgleich in KartenFlaeche.web.test.tsx.
 function FruehesZiel({ handle }: { handle: React.RefObject<KartenFlaecheHandle | null> }) {
   useLayoutEffect(() => {
@@ -309,7 +309,7 @@ test('ein zeige() aus dem Layout-Effekt des Aufrufers geht nicht verloren', asyn
 // Die Fläche merkt sich den Gruppen-Stand für den nächsten Tipp in einem Ref.
 // Geschrieben wird es in einem LAYOUT-Effekt, nicht in einem passiven: ein
 // passiver läuft erst nach dem Commit, und in dem Fenster dazwischen liest ein
-// Tipp noch den alten Stand. Genau das passiert nach einer Kamerafahrt — die
+// Tipp noch den alten Stand. Genau das passiert nach einer Kamerafahrt, die
 // Gruppe ist zerfallen, die neue Nadel steht schon da, und wer sie sofort
 // antippt, wird im alten Stand nicht gefunden.
 //
@@ -337,7 +337,7 @@ test('ein Tipp unmittelbar nach dem Zerfall einer Gruppe wird nicht verschluckt'
     </ThemeProvider>
   );
   // Vorbedingung: p2 ist Mitglied der Gruppe um p1, hat also keine eigene
-  // Nadel — der Tipp unten gilt einer, die es beim Rendern davor nicht gab.
+  // Nadel, der Tipp unten gilt einer, die es beim Rendern davor nicht gab.
   const { rerender } = await render(baum(0, [auseinander]));
   expect(screen.queryByTestId('karte-nadel-p2')).toBeNull();
 

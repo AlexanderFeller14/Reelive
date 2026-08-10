@@ -2,7 +2,7 @@
 // Schlüssel vor dem Insert, diese Funktion traut ihm nicht und leitet sie neu ab.
 //
 // Phase-4-Final-Review, Important 5: die Endung kommt aus posts.media_ext, also
-// aus der Zeile, die die Function selbst gelesen hat — nie aus dem Anfrage-Body.
+// aus der Zeile, die die Function selbst gelesen hat, nie aus dem Anfrage-Body.
 // `expo-camera` nimmt auf iOS QuickTime (.mov) auf und auf Android .mp4; ohne
 // diese Unterscheidung lägen die iOS-Bytes dauerhaft unter `.mp4` mit
 // Content-Type video/mp4 im Speicher, und der Schlüssel ist pro Moment
@@ -24,14 +24,14 @@ const STANDARD_ENDUNG: Record<'photo' | 'video', string> = { photo: 'jpg', video
 // ---------------------------------------------------------------------------
 // Seit Phase 5 leitet auch die Aktion `lesen` den Pfad hierüber ab, statt
 // posts.storage_key zu übernehmen (Begründung in index.ts). Damit ist diese
-// Funktion der einzige Ort, der weiss, wo die Bytes liegen — für ALLE bereits
+// Funktion der einzige Ort, der weiss, wo die Bytes liegen, für ALLE bereits
 // hochgeladenen Momente, rückwirkend.
 //
 // Eine Änderung an Präfix, Endung oder Thumb-Suffix entwertet deshalb jedes
 // gespeicherte Objekt: die Zeilen zeigen weiterhin auf den alten Pfad, die
 // Ableitung auf einen neuen, und `lesen` lässt jeden betroffenen Moment aus
 // (der Abgleich in index.ts schlägt an). Das ist keine Datenmigration, das ist
-// eine Umbenennung im Bucket — jedes Objekt, bevor die neue Fassung live geht.
+// eine Umbenennung im Bucket, jedes Objekt, bevor die neue Fassung live geht.
 //
 // Wer das Schema wirklich ändern muss, braucht dreierlei: die Umbenennung im
 // Speicher, ein Nachziehen von posts.storage_key/thumb_key, und einen Plan für
@@ -48,7 +48,7 @@ export function erwarteteSchluessel(
   const ext = ERLAUBTE_ENDUNGEN[typ].includes(kandidat) ? kandidat : STANDARD_ENDUNG[typ];
   return {
     storage_key: `trips/${tripId}/${postId}.${ext}`,
-    // Thumbnails entstehen immer lokal als JPEG (Spec §4) — unabhängig davon,
+    // Thumbnails entstehen immer lokal als JPEG (Spec §4), unabhängig davon,
     // was das Medium selbst für ein Container ist.
     thumb_key: `trips/${tripId}/${postId}_t.jpg`,
   };

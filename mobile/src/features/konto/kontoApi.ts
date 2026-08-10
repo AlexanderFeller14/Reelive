@@ -1,5 +1,5 @@
 // Account-Löschung (Task 9, Phase 6). Ruft die Edge Function `konto-loeschen`
-// auf (fertig und geprüft, siehe supabase/functions/konto-loeschen/) — hier
+// auf (fertig und geprüft, siehe supabase/functions/konto-loeschen/), hier
 // entsteht kein neues Schema, nur der Aufrufweg. Gleiches Muster wie
 // recapApi.revealTrip/urlVorrat.holeVorrat: supabase.functions.invoke, Fehler
 // kommen entweder als FunctionsHttpError mit deutschem Klartext im
@@ -15,7 +15,7 @@ function meldung(error: { message?: string } | null, sonst: string): string {
 
 // functions-js ersetzt einen echten Netzwerkfehler durch einen festen
 // englischen Satz und legt die ursprüngliche Fetch-Fehlermeldung in
-// `context` ab — beide Stellen müssen geprüft werden, bevor auf die
+// `context` ab, beide Stellen müssen geprüft werden, bevor auf die
 // generische Meldung zurückgefallen wird (gleiches Muster wie recapApi.ts/
 // urlVorrat.ts).
 function funktionMeldung(error: unknown, sonst: string): string {
@@ -25,7 +25,7 @@ function funktionMeldung(error: unknown, sonst: string): string {
 }
 
 // Der HTTP-Status eines FunctionsHttpError, falls die Function wirklich
-// geantwortet hat (nicht bloss ein Netzwerkfehler) — `loescheKonto` braucht
+// geantwortet hat (nicht bloss ein Netzwerkfehler), `loescheKonto` braucht
 // GENAU diesen Status, um 401-nach-Löschung von jedem anderen Fehler zu
 // unterscheiden (siehe dort).
 function funktionsStatus(error: unknown): number | null {
@@ -37,7 +37,7 @@ function funktionsStatus(error: unknown): number | null {
 }
 
 // Der deutsche Klartext aus dem JSON-Body eines FunctionsHttpError, falls
-// vorhanden — sonst `null` (Aufrufer fällt dann auf die generische Meldung
+// vorhanden, sonst `null` (Aufrufer fällt dann auf die generische Meldung
 // zurück). Eigene Funktion statt Inline-try/catch an jeder Aufrufstelle
 // (gleiches Wiederverwendungsprinzip wie funktionMeldung).
 async function funktionsKlartext(error: unknown): Promise<string | null> {
@@ -47,7 +47,7 @@ async function funktionsKlartext(error: unknown): Promise<string | null> {
       const body = (await httpFehler.context.clone().json()) as { fehler?: string };
       if (typeof body.fehler === 'string') return body.fehler;
     } catch {
-      // Antwort war kein JSON — null, Aufrufer fällt zurück.
+      // Antwort war kein JSON, null, Aufrufer fällt zurück.
     }
   }
   return null;
@@ -55,7 +55,7 @@ async function funktionsKlartext(error: unknown): Promise<string | null> {
 
 // Deckt sich mit der Antwort der Function bei `{ aktion: 'zahlen' }`
 // (supabase/functions/konto-loeschen/index.ts). `betroffene_personen` zählt
-// bereits OHNE die anfragende Person selbst (store.ts, `zaehle`) —
+// bereits OHNE die anfragende Person selbst (store.ts, `zaehle`),
 // `zahlenText` unten muss das nicht mehr korrigieren.
 export type LoeschZahlen = {
   eigene_reisen: number;
@@ -67,7 +67,7 @@ export type LoeschZahlen = {
 const ZAHLEN_FEHLER = 'Die Zahlen konnten nicht ermittelt werden. Probier es gleich nochmal.';
 
 // Holt, was der Löschdialog anzeigen MUSS, bevor überhaupt bestätigt werden
-// kann (Brief: "Ohne geladene Zahlen darf nicht bestätigt werden können.") —
+// kann (Brief: "Ohne geladene Zahlen darf nicht bestätigt werden können."),
 // `data: null` bei jedem Fehler, nie eine geratene/leere Zahlenstruktur, die
 // ein Aufrufer versehentlich als "geladen" durchgehen lassen könnte.
 export async function holeLoeschZahlen(): Promise<Gelesen<LoeschZahlen | null>> {
@@ -104,10 +104,10 @@ const LOESCHEN_FEHLER = 'Dein Konto konnte nicht vollständig gelöscht werden. 
 // Löst die Löschung aus. **Vertragsdetail (Task-9-Brief, wörtlich):** Geht
 // die Erfolgsantwort auf dem Rückweg verloren und dieser Aufruf wiederholt
 // sich (z.B. ein erneuter Tipp nach einem Timeout), antwortet die Function
-// beim zweiten Versuch mit 401 — das Konto (und damit der Nutzer hinter dem
+// beim zweiten Versuch mit 401, das Konto (und damit der Nutzer hinter dem
 // JWT) existiert dann bereits nicht mehr (supabaseAdmin.auth.getUser scheitert
 // für ein gelöschtes Konto). Ein 401 NACH einem Löschversuch ist darum Erfolg,
-// nicht Fehler — sonst zeigt die UI im tatsächlichen Erfolgsfall einen
+// nicht Fehler, sonst zeigt die UI im tatsächlichen Erfolgsfall einen
 // Fehler an. Jeder ANDERE Status bleibt ein echter Fehler.
 export async function loescheKonto(): Promise<{ error: string | null }> {
   const { error } = await supabase.functions.invoke('konto-loeschen', {
@@ -119,7 +119,7 @@ export async function loescheKonto(): Promise<{ error: string | null }> {
   return { error: klartext ?? funktionMeldung(error, LOESCHEN_FEHLER) };
 }
 
-// Reine Textbausteine (kein IO) — separat testbar, keine eigene Datei nötig
+// Reine Textbausteine (kein IO), separat testbar, keine eigene Datei nötig
 // für zwei kleine Sätze. `betroffene_personen` zählt bereits ohne die
 // anfragende Person (siehe LoeschZahlen oben).
 function eigeneReisenSatz(z: LoeschZahlen): string {
@@ -139,7 +139,7 @@ function eigeneMomenteAnderswoSatz(anzahl: number): string {
     : `Ausserdem gehen deine ${anzahl} Momente in fremden Reisen verloren.`;
 }
 
-// Der Dialogtext — "muss die Wahrheit sagen" (Brief, wörtlich): nennt IMMER
+// Der Dialogtext, "muss die Wahrheit sagen" (Brief, wörtlich): nennt IMMER
 // die konkreten Zahlen, wenn welche zutreffen, statt einer beschönigenden
 // Pauschalformulierung. Ohne eigene Reisen UND ohne eigene Momente anderswo
 // bleibt nur die nackte Kontolöschung selbst zu sagen.

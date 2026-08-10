@@ -1,4 +1,4 @@
-// Der reale I/O-Adapter für konto-loeschen — dieselbe Rollenteilung wie
+// Der reale I/O-Adapter für konto-loeschen, dieselbe Rollenteilung wie
 // share-link/store.ts gegenüber aufloesung.ts und reveal-trip/revealStore.ts
 // gegenüber reveal.ts: ablauf.ts bleibt reine Logik ohne Supabase-Import, hier
 // stehen genau die Abfragen, die kein Unit-Test ersetzen kann und die deshalb
@@ -18,11 +18,11 @@
 // Supabase-Storage-API
 // ---------------------------------------------------------------------------
 // Bis zum Abschluss-Review von Phase 6 löschte diese Datei über
-// `supabaseAdmin.storage.from(bucket).remove(...)` — die einzige Stelle im
+// `supabaseAdmin.storage.from(bucket).remove(...)`, die einzige Stelle im
 // ganzen Repo, die den Speicher über die Storage-API statt über S3 anspricht.
 // media-urls und share-link signieren beide über `S3_ENDPOINT` (aws4fetch,
 // SigV4). README.md verspricht für den Wechsel auf Cloudflare R2, es
-// wechselten "nur Endpoint und Zugangsdaten" — ein Versprechen, das für diese
+// wechselten "nur Endpoint und Zugangsdaten", ein Versprechen, das für diese
 // Function nicht galt: Ein deployter R2-Bucket ist der Storage-API gar nicht
 // bekannt (die kennt nur den lokalen Supabase-Storage-Dienst), also hätte
 // `remove()` dort entweder still nichts getroffen (unbekannte Schlüssel sind
@@ -31,7 +31,7 @@
 // existiert. Beides hätte W6 ("ein gelöschtes Konto hinterlässt kein Objekt")
 // lokal grün und im echten Deployment lautlos falsch gemacht.
 //
-// Jetzt löscht auch diese Function über `S3_ENDPOINT` — mit denselben fünf
+// Jetzt löscht auch diese Function über `S3_ENDPOINT`, mit denselben fünf
 // Umgebungsvariablen wie media-urls/share-link (siehe index.ts), über
 // dieselbe aws4fetch-Signierung. Der R2-Wechsel trifft damit wirklich nur
 // Endpoint und Zugangsdaten, für alle drei Functions gleichermassen.
@@ -61,10 +61,10 @@ export const POSTS_SEITENGROESSE = 1000;
 
 // Blockgrösse beim Löschen im Speicher. Anders als die Storage-API (ein
 // Aufruf, eine Liste von Pfaden) kennt das S3-Protokoll pro Objekt nur ein
-// einzelnes DELETE — `loescheObjekteBlockweise` schickt darum pro Block bis zu
+// einzelnes DELETE, `loescheObjekteBlockweise` schickt darum pro Block bis zu
 // OBJEKT_BLOCKGROESSE Anfragen NEBENEINANDER (Promise.all) los, statt alle
 // Schlüssel auf einmal: Ein einzelner Block bleibt damit innerhalb eines
-// Zeitlimits, und der Fortschritt zwischen den Blöcken bleibt erhalten — ein
+// Zeitlimits, und der Fortschritt zwischen den Blöcken bleibt erhalten, ein
 // zweiter Versuch nach einem Teilabbruch überspringt dann nur, was schon weg
 // ist (siehe loescheObjekteBlockweise).
 export const OBJEKT_BLOCKGROESSE = 200;
@@ -98,7 +98,7 @@ export interface KontoStore {
 }
 
 // PostgREST-`in`-Filter brauchen eine Liste in Klammern. Bei leerer Liste wäre
-// `in.()` ein Syntaxfehler — die Aufrufer prüfen deshalb vorher auf leer, und
+// `in.()` ein Syntaxfehler, die Aufrufer prüfen deshalb vorher auf leer, und
 // diese Hilfsfunktion existiert nur, damit die Quotierung an einer Stelle
 // steht. UUIDs enthalten keine Kommas oder Anführungszeichen; die Werte kommen
 // ausserdem ausschliesslich aus der Datenbank, nie aus dem Anfrage-Body.
@@ -107,11 +107,11 @@ function idListe(ids: string[]): string {
 }
 
 // ---------------------------------------------------------------------------
-// Löschen im Speicher — über S3, ein DELETE pro Schlüssel
+// Löschen im Speicher, über S3, ein DELETE pro Schlüssel
 // ---------------------------------------------------------------------------
 
 // Ergebnis EINES DELETE. `ok` ist die einzige Grösse, die
-// `loescheObjekteBlockweise` auswertet — `status`/`fehler` stehen nur für die
+// `loescheObjekteBlockweise` auswertet, `status`/`fehler` stehen nur für die
 // Fehlermeldung zur Verfügung, falls `ok` false ist.
 export type LoeschErgebnisEins = { ok: boolean; status: number; fehler?: unknown };
 export type LoescheEinsFn = (schluessel: string) => Promise<LoeschErgebnisEins>;
@@ -126,7 +126,7 @@ export type LoescheEinsFn = (schluessel: string) => Promise<LoeschErgebnisEins>;
 // vorige Storage-API-Fassung, die pro Block genau einen HTTP-Aufruf mit einer
 // Liste von Pfaden machte, kennt das S3-Protokoll nur ein DELETE pro Objekt.
 // Ohne Parallelität innerhalb eines Blocks würde eine Kontolöschung mit
-// hunderten Objekten spürbar langsamer als vorher — mit ihr bleibt die
+// hunderten Objekten spürbar langsamer als vorher, mit ihr bleibt die
 // Anzahl gleichzeitiger Anfragen durch OBJEKT_BLOCKGROESSE gedeckelt, genau
 // wie die vorige Fassung die Grösse einer einzelnen Storage-API-Anfrage
 // gedeckelt hat.
@@ -150,24 +150,24 @@ export async function loescheObjekteBlockweise(
 
 // Der reale Adapter: signiert und schickt EIN S3-DELETE. `signQuery: true`
 // erzeugt dieselbe Art Anfrage wie `objektGroesse` in media-urls/index.ts (HEAD
-// über eine presignte URL) — nur mit Methode DELETE statt HEAD.
+// über eine presignte URL), nur mit Methode DELETE statt HEAD.
 //
 // Wichtig UND nachgemessen, dieselbe Eigenschaft wie vorher bei der
 // Storage-API: Ein Schlüssel, unter dem kein Objekt (mehr) liegt, ist KEIN
 // Fehler. S3-kompatible Object-Storages (AWS S3, Cloudflare R2, der lokale
 // Supabase-Storage-Dienst über sein S3-Gateway) beantworten DELETE auf einen
-// nicht (mehr) existierenden Schlüssel genauso wie auf einen existierenden —
+// nicht (mehr) existierenden Schlüssel genauso wie auf einen existierenden,
 // mit einem Erfolgsstatus (typischerweise 204 No Content), nicht mit 404.
 // Daraus folgt zweierlei, wortgleich zur Vorfassung:
 //   1. Ein zweiter Löschversuch nach einem Teilabbruch läuft sauber durch.
 //      Genau darauf stützt sich ablauf.ts, wenn es bei einem Fehler im
 //      Speicherschritt lieber gar nichts in der Datenbank anfasst.
-//   2. «Kein Fehler» bedeutet NICHT «das Objekt existierte» — die einzige
+//   2. «Kein Fehler» bedeutet NICHT «das Objekt existierte», die einzige
 //      Instanz, die das beweisen kann, ist ein Test, der ein Objekt VORHER
 //      ablegt und NACHHER über einen unabhängigen Weg auf Abwesenheit prüft
 //      (konto_loeschen_integration_test.ts tut genau das über die
 //      Storage-REST-API, unabhängig vom S3-Pfad hier). Ein Test, der nur
-//      "kein Fehler zurückgekommen" prüft, bewiese nichts — das ist exakt die
+//      "kein Fehler zurückgekommen" prüft, bewiese nichts, das ist exakt die
 //      Falle, vor der Punkt 2 warnt: "weniger zurückbekommen als angefragt"
 //      darf nicht als Fehlschlag gelten, aber es beweist auch keinen Erfolg.
 export function erstelleS3Loescher(
@@ -214,7 +214,7 @@ export function erstelleKontoStore(
       return { data: zeile?.avatar_key ?? null, error };
     },
 
-    // ALLE Momente der eigenen Reisen — auch die von Mitreisenden. Die Reise
+    // ALLE Momente der eigenen Reisen, auch die von Mitreisenden. Die Reise
     // wird mitgelöscht (Spec §3: «Werden mitgelöscht, samt Medien aller
     // Mitglieder»), also müssen auch deren Objekte weg. Ohne diesen Weg bliebe
     // für jeden fremden Moment in einer eigenen Reise ein Objektpaar liegen,
@@ -237,7 +237,7 @@ export function erstelleKontoStore(
 
     // Die eigenen Momente in FREMDEN Reisen. Sie verschwinden über
     // posts.author_id → profiles (on delete cascade), sobald der Auth-Nutzer
-    // weg ist — ihre Objekte aber nur, wenn sie hier eingesammelt werden.
+    // weg ist, ihre Objekte aber nur, wenn sie hier eingesammelt werden.
     // `not.in` statt eines zweiten Durchgangs, damit kein Moment doppelt
     // gezählt wird, der in einer eigenen Reise liegt UND von der Person stammt.
     async holeEigenePostsSeiteAusserhalb(userId, eigeneTripIds, von, mitZaehlung) {
@@ -260,7 +260,7 @@ export function erstelleKontoStore(
     },
 
     // Die vier Zahlen für den Dialog. Sie müssen die Wahrheit sagen: Wer
-    // eigene Reisen hat, löscht sie mit — samt der Momente ALLER Mitglieder.
+    // eigene Reisen hat, löscht sie mit, samt der Momente ALLER Mitglieder.
     // Ein Dialog, der das verschweigt oder kleinrechnet, macht aus einer
     // Entscheidung eine Falle.
     async zaehle(userId, eigeneTripIds) {
@@ -288,7 +288,7 @@ export function erstelleKontoStore(
       if (eigeneAnderswo.error) return { data: null, error: eigeneAnderswo.error };
 
       // Betroffene Personen: alle Mitglieder der eigenen Reisen ausser einem
-      // selbst, jede Person nur einmal gezählt — jemand kann in mehreren
+      // selbst, jede Person nur einmal gezählt, jemand kann in mehreren
       // eigenen Reisen sein. Deshalb die Zeilen holen und in JS entdoppeln
       // statt count zu nehmen: PostgREST kann kein `count(distinct …)`.
       let betroffene = 0;
@@ -314,24 +314,24 @@ export function erstelleKontoStore(
     },
 
     // Die eigentliche Logik (Blockung, Kurzschluss bei Fehlern) steht in
-    // loescheObjekteBlockweise oben — hier nur noch die Verdrahtung mit dem
+    // loescheObjekteBlockweise oben, hier nur noch die Verdrahtung mit dem
     // real signierenden `loescheEins`, das index.ts aus den S3-Umgebungs-
     // variablen baut (erstelleS3Loescher).
     async loescheObjekte(schluessel) {
       return loescheObjekteBlockweise(schluessel, loescheEins);
     },
 
-    // Die eigenen trip_members-Zeilen in FREMDEN Reisen — und zwar im Namen
+    // Die eigenen trip_members-Zeilen in FREMDEN Reisen, und zwar im Namen
     // der Person, nicht als Service-Role. Das ist kein Stilfrage:
     //
     // Auf trip_members liegt ein Delete-Trigger
     // (rotate_invite_code_on_member_removal, 20260807090000). Er würfelt einen
     // neuen trips.invite_code, WENN die löschende Person nicht die gelöschte
-    // ist — oder wenn gar kein Client-Kontext existiert, weil dann ein
+    // ist, oder wenn gar kein Client-Kontext existiert, weil dann ein
     // Rauswurf nicht auszuschliessen ist. Eine Service-Role hat kein
     // auth.uid(), und GoTrue erst recht nicht. Liesse man die Kaskade beim
     // Löschen des Auth-Nutzers diese Zeilen abräumen, rotierte also der
-    // Einladungscode JEDER Reise, in der die Person Mitglied war — und alle
+    // Einladungscode JEDER Reise, in der die Person Mitglied war, und alle
     // anderen Eingeladenen liefen mit ihrem Link in «Diesen Einladungslink
     // gibt es nicht mehr.». Genau dieser Schaden war der Grund für jene
     // Migration.

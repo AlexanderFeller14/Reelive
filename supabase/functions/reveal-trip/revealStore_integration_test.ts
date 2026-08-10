@@ -1,18 +1,18 @@
-// Integrationstest für revealStore.ts — genau die zwei Abfragen, die kein
+// Integrationstest für revealStore.ts, genau die zwei Abfragen, die kein
 // Fake-Store in reveal_test.ts beweisen kann, weil er die CAS-Semantik selbst
 // vorgibt statt sie von echtem Postgres abzuleiten:
-//   1. aktualisiereWennAktiv trägt `.eq('status','active')` im echten Update
-//      — zwei WIRKLICH parallele Aufrufe dürfen nur einen Gewinner erzeugen
+//   1. aktualisiereWennAktiv trägt `.eq('status','active')` im echten Update,
+// zwei WIRKLICH parallele Aufrufe dürfen nur einen Gewinner erzeugen
 //      (Final-Review-Mutation 2: diese Klausel gestrichen liesse ein
 //      Wettrennen beide Aufrufe committen, mit unterschiedlichen
 //      Zeitstempeln).
 //   2. loescheTokens trägt `.in('user_id', userIds)` zusätzlich zu
-//      `.in('token', tokens)` — ein Token, das nicht zum angeschriebenen
+//      `.in('token', tokens)`, ein Token, das nicht zum angeschriebenen
 //      Empfängerkreis gehört, bleibt unangetastet, selbst wenn sein Wert in
 //      `tokens` steht (Final-Review-Mutation 6).
 //
 // Bewusst OHNE Umweg über HTTP oder Expo: `erstelleRevealStore` wird direkt
-// aufgerufen, kein `Deno.serve`, kein `functions serve`-Prozess nötig — nur
+// aufgerufen, kein `Deno.serve`, kein `functions serve`-Prozess nötig, nur
 // ein laufendes `supabase start` (Postgres + PostgREST + Auth). Das macht den
 // Test schneller und robuster als ein Aufruf über die echte Function, ohne
 // die beiden Abfragen selbst schwächer zu prüfen: es sind exakt dieselben
@@ -54,7 +54,7 @@ const statusEnv = await supabaseStatusEnv();
 const SUPABASE_URL = statusEnv?.API_URL ?? 'http://127.0.0.1:54321';
 const SERVICE_ROLE_KEY = statusEnv?.SERVICE_ROLE_KEY ?? '';
 
-// Erreichbarkeit direkt über die REST-API prüfen — diese Datei braucht keine
+// Erreichbarkeit direkt über die REST-API prüfen, diese Datei braucht keine
 // servierte Edge Function, nur Postgres/PostgREST/Auth.
 async function restErreichbar(): Promise<boolean> {
   if (!SERVICE_ROLE_KEY) return false;
@@ -73,7 +73,7 @@ const stackBereit = Boolean(statusEnv && SERVICE_ROLE_KEY && (await restErreichb
 
 if (!stackBereit) {
   console.warn(
-    'revealStore_integration_test: übersprungen — braucht `supabase start`. Details im Datei-Header.',
+    'revealStore_integration_test: übersprungen, braucht `supabase start`. Details im Datei-Header.',
   );
 }
 
@@ -142,7 +142,7 @@ Deno.test({
         `die übrigen fünf müssen 0 Zeilen (data:null, kein Fehler) sehen, tatsächlich: ${verlierer.length}`,
       );
 
-      // Der committete Zustand stimmt mit dem Gewinner überein — kein
+      // Der committete Zustand stimmt mit dem Gewinner überein, kein
       // zweiter, späterer Schreibvorgang hat ihn überschrieben.
       const { data: nachher } = await store.holeRevealedAtNachlese(tripId);
       assertEquals(nachher?.revealed_at, gewinner[0].data?.revealed_at);
@@ -194,7 +194,7 @@ Deno.test({
     );
 
     try {
-      // tokens enthält BEIDE Werte, userIds beschränkt aber auf Mira allein —
+      // tokens enthält BEIDE Werte, userIds beschränkt aber auf Mira allein,
       // genau die Situation aus Mutation 6: Jonas' Token darf nicht fallen,
       // auch wenn sein Wert (fälschlich oder durch eine versetzte
       // Expo-Antwort) mit in `tokens` gelandet wäre.
@@ -209,7 +209,7 @@ Deno.test({
         200,
       )) as Array<{ token: string; user_id: string }>;
 
-      assertEquals(nachher.map((z) => z.token), [TOKEN_JONAS], 'nur Jonas’ Token überlebt — Miras wurde gelöscht');
+      assertEquals(nachher.map((z) => z.token), [TOKEN_JONAS], 'nur Jonas’ Token überlebt, Miras wurde gelöscht');
       assert(
         !nachher.some((z) => z.token === TOKEN_MIRA),
         'Miras Token (innerhalb der userIds-Einschränkung) wurde tatsächlich gelöscht',

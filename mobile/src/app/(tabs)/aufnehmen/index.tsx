@@ -17,7 +17,7 @@ import { eigenerZaehler } from '@/features/moments/zaehler';
 import { useAuth } from '@/features/auth/AuthProvider';
 
 // Höchstdauer eines Videos (Produktkonzept: Snapchat-Muster, Ring stoppt hier
-// von selbst) — dieselbe Zahl geht an den Auslöser UND an CameraView.recordAsync.
+// von selbst), dieselbe Zahl geht an den Auslöser UND an CameraView.recordAsync.
 const MAX_VIDEO_SEKUNDEN = 30;
 
 function momenteText(anzahl: number): string {
@@ -26,7 +26,7 @@ function momenteText(anzahl: number): string {
 
 // Medien-Screen (DESIGN-LANGUAGE v2 §1): feste Kino-Palette, kein useTheme().
 // `accent`/`on-accent` sind bewusst direkt aus den Tokens statt aus dem
-// Theme importiert — sie sind reine Interaktionsfarben und funktionieren
+// Theme importiert, sie sind reine Interaktionsfarben und funktionieren
 // unabhängig von Hell/Kino gleich (siehe Button.tsx-Rezept für „primär").
 function KinoButton({ label, onPress }: { label: string; onPress: () => void }) {
   return (
@@ -43,12 +43,12 @@ function LeererKinoScreen() {
 }
 
 // Spec §4 verlangt beides wörtlich: «Kamera wechseln und Blitz als translucente
-// Pillen». §10 nimmt nur den Trip-Umschalter aus — im Plan kam «Blitz»
+// Pillen». §10 nimmt nur den Trip-Umschalter aus, im Plan kam «Blitz»
 // nirgends vor (Final-Review, Important 7). Für ein gemeinsames Reisetagebuch
 // heisst keine Frontkamera: keine Gruppenbilder.
 //
 // Translucente Pille nach DESIGN-LANGUAGE §1/§4: `overlay-pill` + Blur
-// (Task 10, Phase 6 — siehe components/Pille.tsx), Radius 999. Icons:
+// (Task 10, Phase 6, siehe components/Pille.tsx), Radius 999. Icons:
 // Lucide, Outline, Stroke 1.75 (§4).
 function PillenKnopf({
   label,
@@ -110,7 +110,7 @@ function BerechtigungScreen() {
 
 function ReiseWahlScreen({ reisen, onWahl }: { reisen: GemerkteReise[]; onWahl: (id: string) => void }) {
   // Der einzige Teil dieses Kino-Screens, der von oben nach unten gelesen
-  // wird — der Sucher selbst bleibt randlos und hat oben nichts zu schonen.
+  // wird, der Sucher selbst bleibt randlos und hat oben nichts zu schonen.
   const oben = useOberkante(spacing.xl);
   return (
     <View style={styles.screen}>
@@ -142,9 +142,9 @@ export default function AufnehmenScreen() {
   const [blitz, setBlitz] = useState<'off' | 'on'>('off');
   // Zähler-Nachzug aus Task 9 (Task-10-Auftrag): Serverstand PLUS wartende
   // Momente derselben Reise (eigenerZaehler), statt beim reinen
-  // reise.my_post_count einzufrieren — sonst bewegt sich die Pille nach
+  // reise.my_post_count einzufrieren, sonst bewegt sich die Pille nach
   // einer Offline-Aufnahme nicht (Spec §7, „darf nie rückwärts wirken").
-  // Bleibt `null`, bis die erste Antwort da ist — bis dahin zeigt die Pille
+  // Bleibt `null`, bis die erste Antwort da ist, bis dahin zeigt die Pille
   // den zuletzt bekannten Serverstand statt kurz „0 Momente" aufblitzen zu
   // lassen (siehe Fallback beim Rendern unten).
   const [zaehler, setZaehler] = useState<number | null>(null);
@@ -160,7 +160,7 @@ export default function AufnehmenScreen() {
   // Vor den frühen Returns berechnet (Rules of Hooks: der Effekt weiter unten
   // braucht `reise?.id` als Abhängigkeit, und Hooks dürfen nicht hinter einem
   // bedingten Return stehen). `trips` kann hier noch `null` sein (noch nicht
-  // geladen) — dann bleibt `aktiveReisen` leer und `reise` `null`, was der
+  // geladen), dann bleibt `aktiveReisen` leer und `reise` `null`, was der
   // Effekt unten und die späteren Returns bereits abfangen.
   const aktiveReisen = (trips ?? []).filter((t) => t.status === 'active');
   const reise =
@@ -169,24 +169,24 @@ export default function AufnehmenScreen() {
       : (aktiveReisen.find((t) => t.id === ausgewaehlteReiseId) ?? null);
 
   // Der Kern des Offline-Versprechens dieser Phase (Final-Review, Critical 1):
-  // «Aufnehmen funktioniert vollständig offline» — aber der Sucher erscheint
+  // «Aufnehmen funktioniert vollständig offline», aber der Sucher erscheint
   // erst, wenn eine laufende Reise bekannt ist. Ohne lokalen Bestand lieferte
   // fetchTrips() im Flugmodus `{ data: [], error: OFFLINE_HINT }`, und statt
   // Sucher und Auslöser stand hier eine Fehlerseite: Queue, Kompression,
-  // Worker und Versiegelung alle korrekt — und alle unerreichbar.
+  // Worker und Versiegelung alle korrekt, und alle unerreichbar.
   //
   // Deshalb: jeder erfolgreiche Abruf schreibt den Bestand fort, ein
   // gescheiterter greift darauf zurück. Die Fehlerseite bleibt nur für den
   // Fall, dass es auch nichts Vorgehaltenes gibt (`null`, also noch nie
   // erfolgreich geladen). Ein vorgehaltener LEERER Bestand ist dagegen eine
-  // Aussage — «du hattest zuletzt keine Reise» — und führt bewusst auf
+  // Aussage, «du hattest zuletzt keine Reise», und führt bewusst auf
   // KeineReiseScreen statt auf die Fehlerseite.
   // Setzt für jede Reise den zuletzt bekannten Zähler ein. Die Quelle dafür ist
-  // der vorgehaltene Bestand selbst — er trägt den Zähler ohnehin mit sich, und
+  // der vorgehaltene Bestand selbst, er trägt den Zähler ohnehin mit sich, und
   // anders als der separate Zählerspeicher (den nur eigenerZaehler pflegt, also
   // nur für die GEWÄHLTE Reise) deckt er auch den Auswahl-Schritt ab, bei dem
   // noch gar keine Reise gewählt ist. Wo es keinen gemerkten Stand gibt, bleibt
-  // es beim gelieferten Wert — eine 0, die dann wirklich nur «noch nichts
+  // es beim gelieferten Wert, eine 0, die dann wirklich nur «noch nichts
   // eingesendet» heissen kann.
   const mitGemerktenZaehlern = useCallback(
     async (reisen: GemerkteReise[]): Promise<GemerkteReise[]> => {
@@ -203,7 +203,7 @@ export default function AufnehmenScreen() {
     if (!error) {
       // Re-Review, Minor 2: gelingen die Reisen und scheitert nur die
       // Zähler-rpc, trägt jede Reise `my_post_count: 0`. Die Kopf-Pille fängt
-      // das über eigenerZaehler ab — der Auswahl-Screen bei mehreren
+      // das über eigenerZaehler ab, der Auswahl-Screen bei mehreren
       // laufenden Reisen aber nicht, und in den vorgehaltenen Bestand
       // wanderten die Nullen ebenfalls. Also: ein ausgefallener Zähler-Abruf
       // greift auf den zuletzt bekannten Stand zurück, genau wie in
@@ -234,7 +234,7 @@ export default function AufnehmenScreen() {
       // Zählt jedes Fokussieren hoch. Der Zähler-Effekt weiter unten hängt
       // daran (Important 3): bis zur Fix-Welle wirkte er nur deshalb richtig,
       // weil preview.tsx per replace bei JEDER Aufnahme einen neuen
-      // Kamera-Screen erzeugte — sein Effekt lief also zwangsläufig neu.
+      // Kamera-Screen erzeugte, sein Effekt lief also zwangsläufig neu.
       // Nimmt man diesen Stapel-Fehler weg, ohne den Abruf ans Fokussieren zu
       // hängen, friert der Zähler für die ganze Sitzung ein: genau die
       // Regression, für die es Task 10 gab. Beides gehört zusammen.
@@ -248,7 +248,7 @@ export default function AufnehmenScreen() {
 
   // Medien-Screens stellen die StatusBar lokal um (DESIGN-LANGUAGE v2 §1).
   // Ein gemountetes <StatusBar style="light" /> würde nicht reichen, weil
-  // Tab-Screens gemountet bleiben — daher fokus-abhängig umschalten und beim
+  // Tab-Screens gemountet bleiben, daher fokus-abhängig umschalten und beim
   // Verlassen wieder auf 'dark' zurücksetzen (globaler Default in _layout.tsx).
   useFocusEffect(
     useCallback(() => {
@@ -257,7 +257,7 @@ export default function AufnehmenScreen() {
     }, [])
   );
 
-  // Berechtigungen proaktiv anfragen, sobald der aktuelle Stand bekannt ist —
+  // Berechtigungen proaktiv anfragen, sobald der aktuelle Stand bekannt ist,
   // kamera-first (Produktkonzept) heisst, der Nutzer soll nicht erst einen
   // Knopf suchen müssen, um überhaupt gefragt zu werden. Erst wenn eine
   // Anfrage tatsächlich abgelehnt wurde, zeigt BerechtigungScreen den Weg in
@@ -271,7 +271,7 @@ export default function AufnehmenScreen() {
 
   // `mode` muss committet sein, bevor recordAsync() die native Aufnahme-
   // Pipeline anspricht (CameraViewProps.mode „selects image or video
-  // output") — deshalb hier per Effekt statt direkt im Tastendruck-Handler.
+  // output"), deshalb hier per Effekt statt direkt im Tastendruck-Handler.
   useEffect(() => {
     if (modus !== 'video') return;
     videoPromise.current =
@@ -279,11 +279,11 @@ export default function AufnehmenScreen() {
   }, [modus]);
 
   // Zieht den Zähler bei jedem Reise-Wechsel UND bei jedem Fokussieren nach
-  // (`fokusStand`, Important 3) — ohne `reise` gibt es nichts zu zählen.
+  // (`fokusStand`, Important 3), ohne `reise` gibt es nichts zu zählen.
   // Genau hier landet die Rückkehr aus der Vorschau: der Moment steckt dann
   // frisch in der Warteschlange, die Pille muss ihn mitzählen.
   // eigenerZaehler kann ablehnen (kaputte lokale Warteschlange, siehe
-  // queueDb.ts) — ohne .catch() bliebe das eine unbehandelte Ablehnung; der
+  // queueDb.ts), ohne .catch() bliebe das eine unbehandelte Ablehnung; der
   // Fallback auf reise.my_post_count beim Rendern unten greift dann einfach
   // weiter (Fix-Runde 1).
   useEffect(() => {
@@ -317,7 +317,7 @@ export default function AufnehmenScreen() {
   }
 
   // Die Aufnahme verlässt diesen Screen nur als Dateipfad plus Typ (bewusste
-  // Grenze, siehe Auftrag) — dazu kommt `tripId`, weil Task 8 daraus den
+  // Grenze, siehe Auftrag), dazu kommt `tripId`, weil Task 8 daraus den
   // Speicherschlüssel und den Queue-Job baut; eine Kennung ist nichts
   // Bibliotheksspezifisches, verletzt die Grenze also nicht. `/aufnehmen/
   // preview` selbst entsteht erst in Task 8 und fehlt darum noch in der
@@ -363,7 +363,7 @@ export default function AufnehmenScreen() {
     return <BerechtigungScreen />;
   }
   if (!cameraPermission.granted || !micPermission.granted) {
-    // 'undetermined': weder gefragt noch beantwortet — die Anfrage kann
+    // 'undetermined': weder gefragt noch beantwortet, die Anfrage kann
     // gerade laufen, der Systemdialog kann offen sein. Warten, nichts
     // behaupten, NIE den Settings-Screen zeigen.
     return <LeererKinoScreen />;
@@ -377,7 +377,7 @@ export default function AufnehmenScreen() {
         facing={richtung}
         mode={modus}
         // `flash` gilt für Fotos; beim Video braucht es stattdessen das
-        // Dauerlicht — derselbe Schalter, zwei Prop-Namen.
+        // Dauerlicht, derselbe Schalter, zwei Prop-Namen.
         flash={blitz}
         enableTorch={blitz === 'on' && modus === 'video'}
         videoQuality="1080p"
@@ -434,7 +434,7 @@ const styles = StyleSheet.create({
     height: 52,
     borderRadius: radius.control,
     // DESIGN-LANGUAGE §1: accent ist Interaktionsfarbe, funktioniert
-    // unabhängig von Hell/Kino gleich — deshalb direkt aus `palette`, nicht
+    // unabhängig von Hell/Kino gleich, deshalb direkt aus `palette`, nicht
     // aus `cinema` (das nur Hintergrund/Text der Medien-Screens definiert).
     backgroundColor: palette.accent,
     alignItems: 'center',
@@ -451,7 +451,7 @@ const styles = StyleSheet.create({
   },
   // Eine Zeile für alles, was oben auf dem Sucher liegt: links die Kopf-Pille,
   // rechts die Steuerung (Re-Review, Minor 1). Vorher lagen beide einzeln
-  // absolut positioniert übereinander — solange rechts nichts war, fiel nicht
+  // absolut positioniert übereinander, solange rechts nichts war, fiel nicht
   // auf, dass die Kopf-Pille unbegrenzt breit wird; mit der Steuerung daneben
   // läuft ein langer Reisename darunter. Die Zeile begrenzt die Pille
   // (flexShrink), ohne die Steuerung zu verschieben: sie sitzt weiterhin am
@@ -467,7 +467,7 @@ const styles = StyleSheet.create({
     gap: spacing.m,
   },
   // Pille auf der Kamera-Vorschau (DESIGN-LANGUAGE §1/§4): translucent, Radius
-  // 999, Blur über components/Pille.tsx (kein backgroundColor hier — das
+  // 999, Blur über components/Pille.tsx (kein backgroundColor hier, das
   // übernimmt die Pille-Komponente selbst).
   kopfPille: {
     flexShrink: 1,
@@ -476,7 +476,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
   },
   // Kamera wechseln und Blitz (Spec §4): rechts oben, auf Höhe der Kopf-Pille,
-  // untereinander im 4er-Raster (§3). flexShrink: 0 — schrumpfen soll die
+  // untereinander im 4er-Raster (§3). flexShrink: 0, schrumpfen soll die
   // Pille, nicht die Bedienelemente.
   steuerung: {
     flexShrink: 0,

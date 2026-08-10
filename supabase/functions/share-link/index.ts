@@ -1,7 +1,7 @@
 // Setup type definitions for built-in Supabase Runtime APIs
 import '@supabase/functions-js/edge-runtime.d.ts';
 
-// share-link — der ZWEITE Leseweg auf Medien und der erste OHNE jede
+// share-link, der ZWEITE Leseweg auf Medien und der erste OHNE jede
 // Anmeldung. Drei Aktionen:
 //
 //   erstellen  (JWT, Owner)  → legt eine share_links-Zeile an
@@ -9,14 +9,14 @@ import '@supabase/functions-js/edge-runtime.d.ts';
 //   aufloesen  (ohne JWT)    → gibt heraus, was ein Aussenstehender sehen darf
 //
 // ---------------------------------------------------------------------------
-// WARUM DIESE FUNCTION verify_jwt = false HAT — und was das nach sich zieht
+// WARUM DIESE FUNCTION verify_jwt = false HAT, und was das nach sich zieht
 // ---------------------------------------------------------------------------
 // media-urls und reveal-trip stehen in supabase/config.toml mit
 // `verify_jwt = true`: Ohne gültiges, korrekt signiertes JWT erreicht ein
 // Aufruf sie gar nicht erst; das Gateway ist dort die erste von zwei Hürden.
 //
 // Hier geht das nicht. `aufloesen` ist der Weg, über den jemand OHNE Konto
-// einen geteilten Recap anschaut — kein JWT, kein Anon-Key, nichts (Spec §4,
+// einen geteilten Recap anschaut, kein JWT, kein Anon-Key, nichts (Spec §4,
 // W5: «Wer den Link hat, braucht kein Konto»). Das Gateway muss also
 // durchlassen, und damit fällt die erste Hürde für ALLE drei Aktionen weg,
 // nicht nur für die öffentliche.
@@ -27,7 +27,7 @@ import '@supabase/functions-js/edge-runtime.d.ts';
 // entfernt oder hinter eine Bedingung stellt, macht `erstellen` für jeden
 // Anonymen aufrufbar. Der Codepfad ist deshalb so gebaut, dass `aufloesen`
 // oben abzweigt und ALLES darunter unbedingt durch die Identitätsprüfung
-// läuft — nicht als if/else, in dem ein späterer Zweig sie versehentlich
+// läuft, nicht als if/else, in dem ein späterer Zweig sie versehentlich
 // umgeht.
 //
 // ---------------------------------------------------------------------------
@@ -43,7 +43,7 @@ import '@supabase/functions-js/edge-runtime.d.ts';
 // Ratenbegrenzung: Der Endpunkt ist öffentlich und nimmt einen 32-stelligen
 // Hex-Token (2^128 Möglichkeiten). Raten ist dadurch sinnlos; eine eigene
 // Begrenzung ist hier bewusst NICHT gebaut, sondern gehört beim ersten echten
-// Deployment vor die Function (Supabase/Cloudflare) — Spec §5.1.
+// Deployment vor die Function (Supabase/Cloudflare), Spec §5.1.
 import { AwsClient } from 'npm:aws4fetch@1';
 import {
   baueAufloesungsAntwort,
@@ -82,13 +82,13 @@ const TEILEN_BASIS_URL = (Deno.env.get('TEILEN_BASIS_URL') ?? '').replace(/\/$/,
 // Mitglieder-Leseweg (media-urls, LESE_URL_GUELTIGKEIT_SEKUNDEN). Eine Antwort
 // deckt eine ganze Filmrolle ab, der Player lädt vor, pausiert, springt
 // zurück. Nach Ablauf führt der einzige Weg zurück durch die Prüfkette dieser
-// Function — und die fragt revoked, expires_at und Reise-Status neu.
+// Function, und die fragt revoked, expires_at und Reise-Status neu.
 const LESE_URL_GUELTIGKEIT_SEKUNDEN = 3600;
 
 type AnfrageBody = { aktion?: unknown; token?: unknown; trip_id?: unknown; gueltig_tage?: unknown };
 
 // CORS: Der öffentliche Web-Player läuft im Browser auf einer ANDEREN Herkunft
-// als die Supabase-Instanz — ohne diese Kopfzeilen scheitert `aufloesen` im
+// als die Supabase-Instanz, ohne diese Kopfzeilen scheitert `aufloesen` im
 // Browser am Preflight, obwohl die Function selbst korrekt antwortet. Die
 // anderen beiden Edge Functions brauchen das nicht: sie werden nur aus der
 // nativen App aufgerufen, für die es keine Same-Origin-Regel gibt.
@@ -96,7 +96,7 @@ type AnfrageBody = { aktion?: unknown; token?: unknown; trip_id?: unknown; guelt
 // `*` ist hier richtig und nicht bequem: `aufloesen` ist per Entwurf für jede
 // Herkunft offen (der Token IST die Berechtigung). Es werden keine
 // Anmeldedaten mitgeschickt (kein Access-Control-Allow-Credentials, keine
-// Cookies) — ein fremdes Skript kann damit nichts tun, was es nicht auch mit
+// Cookies), ein fremdes Skript kann damit nichts tun, was es nicht auch mit
 // einem eigenen Server-Request könnte. `erstellen`/`widerrufen` bekommen
 // dieselben Kopfzeilen: sie hängen an einem JWT im Authorization-Header, den
 // ein Browser über Herkunftsgrenzen hinweg niemals von selbst mitschickt.
@@ -121,7 +121,7 @@ function fehler(nachricht: string, status: number): Response {
 }
 
 // Die eine Ablehnung, die `aufloesen` nach aussen kennt. Vier Gründe, eine
-// Antwort — siehe LINK_ABLEHNUNG in aufloesung.ts.
+// Antwort, siehe LINK_ABLEHNUNG in aufloesung.ts.
 function linkAblehnung(): Response {
   return fehler(LINK_ABLEHNUNG.nachricht, LINK_ABLEHNUNG.status);
 }
@@ -140,7 +140,7 @@ function s3KonfigVollstaendig(): boolean {
 }
 
 // Die Methode ist Teil der Signatur: SigV4 setzt sie als erste Zeile des
-// Canonical Request. Eine hier erzeugte URL taugt darum nur zum GET — ein PUT
+// Canonical Request. Eine hier erzeugte URL taugt darum nur zum GET, ein PUT
 // darauf scheitert mit SignatureDoesNotMatch. Für den öffentlichen Leseweg ist
 // das die Zusicherung, dass ein geteilter Link nie zum Überschreiben fremder
 // Momente umgewidmet werden kann.
@@ -152,7 +152,7 @@ async function presignedGetUrl(aws: AwsClient, key: string): Promise<string> {
 }
 
 Deno.serve(async (req: Request): Promise<Response> => {
-  // Preflight. Muss VOR der Methodenprüfung stehen — der Browser schickt
+  // Preflight. Muss VOR der Methodenprüfung stehen, der Browser schickt
   // OPTIONS, nicht POST.
   if (req.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: CORS_HEADERS });
@@ -181,14 +181,14 @@ Deno.serve(async (req: Request): Promise<Response> => {
   const aktion = body.aktion;
 
   // =========================================================================
-  // aufloesen — OHNE JWT. Der einzige Zweig, der keinen Authorization-Header
+  // aufloesen, OHNE JWT. Der einzige Zweig, der keinen Authorization-Header
   // liest. Er zweigt hier ab, VOR jeder Identitätsprüfung, damit unten kein
   // Pfad an ihr vorbeiführen kann.
   // =========================================================================
   if (aktion === 'aufloesen') {
     const token = body.token;
     // Ein fehlendes Feld ist ein Programmierfehler des Aufrufers, kein
-    // ungültiger Token — dafür darf es einen eigenen Text geben. Ein
+    // ungültiger Token, dafür darf es einen eigenen Text geben. Ein
     // VORHANDENER, aber unsinniger Token bekommt dagegen LINK_ABLEHNUNG wie
     // jeder unbekannte, sonst wäre die Formprüfung selbst ein Signal.
     if (typeof token !== 'string' || token.length === 0) {
@@ -201,7 +201,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     const { zeile, reise, fehler: leseFehler } = await store.holeTokenMitReise(token);
     if (leseFehler) {
       console.error('share-link: share_links-Select fehlgeschlagen', leseFehler);
-      // Der Token selbst geht NICHT in den Bericht — er ist die Berechtigung
+      // Der Token selbst geht NICHT in den Bericht, er ist die Berechtigung
       // für einen öffentlichen Recap, kein Diagnosewert (dieselbe Überlegung
       // wie bei signierten S3-URLs im Kopfkommentar von fehlermelder.ts).
       await melde(leseFehler);
@@ -253,7 +253,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     }
 
     // gueltig_bis wird VOR dem Signieren gestempelt. Jede Signatur läuft ab
-    // ihrem eigenen X-Amz-Date, das nie früher liegt als dieser Moment — der
+    // ihrem eigenen X-Amz-Date, das nie früher liegt als dieser Moment, der
     // Wert ist damit konservativ (nie später als die echte Ablaufzeit).
     const gueltigBis = new Date(Date.now() + LESE_URL_GUELTIGKEIT_SEKUNDEN * 1000).toISOString();
 
@@ -265,7 +265,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       medien = ergebnis.medien;
       ausgelassen = ergebnis.ausgelassen + verloren;
       // ergebnis.ausgelassen zählt NUR die storage_key-Abweichungen aus
-      // baueMedien (aufloesung.ts) — getrennt von `verloren`
+      // baueMedien (aufloesung.ts), getrennt von `verloren`
       // (Paginierungsverlust, oben bereits eigens gemeldet). Ein
       // storage_key-Abgleich, der nicht passt, ist ein potenzielles
       // Tampering- oder Bug-Signal (siehe Kommentar in aufloesung.ts) und
@@ -288,7 +288,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
   // =========================================================================
   // Ab hier: nur mit Anmeldung. Weil verify_jwt = false ist, ist DIESE Prüfung
-  // die einzige — am Gateway kommt jeder durch. Sie steht deshalb VOR der
+  // die einzige, am Gateway kommt jeder durch. Sie steht deshalb VOR der
   // Aktionsunterscheidung: ein neuer Zweig, den jemand später darunter
   // einhängt, ist automatisch geschützt.
   // =========================================================================
@@ -300,7 +300,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
   // getUser ist die Autorität, nicht der Inhalt des Tokens: Es fragt GoTrue,
   // ob dieses JWT zu einer echten Person gehört. Ein Anon- oder
-  // Service-Role-Schlüssel trägt kein `sub` und scheitert hier — obwohl beides
+  // Service-Role-Schlüssel trägt kein `sub` und scheitert hier, obwohl beides
   // syntaktisch gültige, korrekt signierte JWTs sind. Genau dieser Unterschied
   // trägt die Function, seit das Gateway nicht mehr vorprüft.
   const { data: userData, error: userError } = await supabaseAdmin.auth.getUser(jwt);
@@ -324,8 +324,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
     }
 
     if (!TEILEN_BASIS_URL) {
-      console.error('share-link: TEILEN_BASIS_URL fehlt — ohne sie entsteht kein gültiger Link.');
-      await melde(new Error('share-link: TEILEN_BASIS_URL fehlt — ohne sie entsteht kein gültiger Link.'));
+      console.error('share-link: TEILEN_BASIS_URL fehlt, ohne sie entsteht kein gültiger Link.');
+      await melde(new Error('share-link: TEILEN_BASIS_URL fehlt, ohne sie entsteht kein gültiger Link.'));
       return fehler('Server nicht konfiguriert.', 500);
     }
 
@@ -335,13 +335,13 @@ Deno.serve(async (req: Request): Promise<Response> => {
       await melde(tripError, { trip_id: tripId, user_id: anfragendeId });
       return fehler('Reise konnte nicht geladen werden.', 500);
     }
-    // Die Service-Role schreibt an RLS vorbei (`rolbypassrls`) —
+    // Die Service-Role schreibt an RLS vorbei (`rolbypassrls`),
     // share_links_insert_owner (20260808130000) wird bei diesem Insert gar
     // nicht ausgewertet. Und seit 20260808140000 hat `authenticated` überhaupt
     // kein Schreibrecht mehr auf share_links: DIESE Prüfung ist die einzige,
     // die «nur die Owner-Person, nur eine aufgedeckte Reise» noch erzwingt.
     // Sie liegt deshalb als reine Funktion in verwaltung.ts und ist dort ohne
-    // Docker geprüft (verwaltung_test.ts) — nicht nur im Integrationstest.
+    // Docker geprüft (verwaltung_test.ts), nicht nur im Integrationstest.
     const erstellUrteil = beurteileErstellen(trip, anfragendeId);
     if (!erstellUrteil.erlaubt) {
       return fehler(erstellUrteil.nachricht, erstellUrteil.status);
@@ -369,14 +369,14 @@ Deno.serve(async (req: Request): Promise<Response> => {
     const { data: besitzer, error: leseFehler } = await store.holeTokenBesitzer(token);
     if (leseFehler) {
       console.error('share-link: share_links-Select für widerrufen fehlgeschlagen', leseFehler);
-      // Auch hier NICHT der Token selbst im Bericht — siehe die Begründung
+      // Auch hier NICHT der Token selbst im Bericht, siehe die Begründung
       // beim `aufloesen`-Zweig oben.
       await melde(leseFehler, { user_id: anfragendeId });
       return fehler('Link konnte nicht geladen werden.', 500);
     }
 
     // EINE Antwort für «Token gibt es nicht» und «Token gehört jemand
-    // anderem» — die Begründung und die gefrorene Konstante stehen in
+    // anderem», die Begründung und die gefrorene Konstante stehen in
     // verwaltung.ts, geprüft ohne Docker in verwaltung_test.ts.
     const widerrufUrteil = beurteileWiderrufen(besitzer, anfragendeId);
     if (!widerrufUrteil.erlaubt) {
@@ -384,7 +384,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     }
 
     // Idempotent: ein zweiter Widerruf ist kein Fehler. Das Update setzt
-    // revoked = true, ob es vorher schon true war oder nicht — die App bekommt
+    // revoked = true, ob es vorher schon true war oder nicht, die App bekommt
     // beide Male dieselbe Antwort. Ein Status-Kriterium gibt es bewusst
     // nicht: widerrufen muss auf einer archivierten Reise genauso gehen.
     const { error: updateError } = await store.widerrufeLink(token);

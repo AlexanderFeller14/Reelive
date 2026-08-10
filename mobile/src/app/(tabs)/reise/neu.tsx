@@ -30,7 +30,7 @@ export default function NeueReise() {
     // Fehler feldgenau zuordnen (DESIGN-LANGUAGE §4: Rand + Text am betroffenen
     // Feld): eine unlesbare Eingabe zeigt sich am eigenen Feld. Sind beide Felder
     // für sich lesbar, aber das Ende liegt vor dem Beginn, landet der Fehler am
-    // Ende — dort liegt die Ursache aus Nutzersicht.
+    // Ende, dort liegt die Ursache aus Nutzersicht.
     const bFehler = start ? null : 'Trag den Beginn ein, z.B. 01.08.2026.';
     const eFehler = end ? (start ? validateDateRange(start, end) : null) : 'Trag das Ende ein, z.B. 14.08.2026.';
     setNameFehler(nFehler ?? undefined);

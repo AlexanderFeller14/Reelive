@@ -26,14 +26,14 @@ import { initFehlermelder } from '@/lib/fehlermelder';
 void SplashScreen.preventAutoHideAsync();
 
 // Task 10, Phase 6: so früh wie möglich, auf Modulebene wie
-// preventAutoHideAsync() oben — nicht in einem Effect, der erst nach dem
+// preventAutoHideAsync() oben, nicht in einem Effect, der erst nach dem
 // ersten Render liefe. Blockiert den Start nicht: initFehlermelder() ist
 // synchron und ohne DSN (Alltag, siehe fehlermelder.ts) ein reiner
 // No-Op-Return, kein I/O.
 initFehlermelder();
 
 // Web-Hartsperre (siehe istWebGesperrt in guard.ts für die volle Begründung):
-// «Reelive gibt es als App» — freundlich, mit dem Wortzug-Platzhalter
+// «Reelive gibt es als App», freundlich, mit dem Wortzug-Platzhalter
 // (gleiches Muster wie (auth)/welcome.tsx, echtes SVG-Asset existiert noch
 // nicht), OHNE jede Login-Möglichkeit. Bewusst hier lokal statt in einer
 // eigenen Datei unter components/: einziger Aufrufer, eng an das Layout
@@ -57,7 +57,7 @@ function WebNurAppSeite() {
 function Guarded() {
   const { status, userId } = useAuth();
   // Cast: mit experiments.typedRoutes engt useSegments() den Rückgabetyp auf die
-  // aktuell existierenden Routen ein — segments[1] wäre sonst ein
+  // aktuell existierenden Routen ein, segments[1] wäre sonst ein
   // Tuple-Out-of-Bounds-Fehler. Laufzeitverhalten unverändert.
   const segments = useSegments() as string[];
   const router = useRouter();
@@ -67,7 +67,7 @@ function Guarded() {
 
   useEffect(() => {
     // Auf Web ausserhalb von 'teilen': kein <Stack/> (siehe Return unten),
-    // also auch keine Redirect-Entscheidung nötig — der Ziel-Screen wäre
+    // also auch keine Redirect-Entscheidung nötig, der Ziel-Screen wäre
     // seinerseits ebenfalls gesperrt.
     if (webGesperrt) return;
     const target = resolveRoute(status);
@@ -81,16 +81,16 @@ function Guarded() {
   }, [status, segments, router, webGesperrt, area]);
 
   // Ein vor dem Login angetippter Einladungslink wird eingelöst, sobald Session
-  // UND Profil stehen — vorher gäbe es keine profiles-Zeile für trip_members.
+  // UND Profil stehen, vorher gäbe es keine profiles-Zeile für trip_members.
   // Die eigentliche Logik steckt in redeemPendingInvite() (joinFlow.ts): dort
   // getestet, hier nur noch mit den echten IO-Abhängigkeiten aufgerufen.
   // `webGesperrt` zusätzlich in JEDEM der drei folgenden Effekte (nicht nur
   // im Redirect-Effekt oben): solange die Web-Hartsperre steht, soll dieser
-  // Baum NICHTS tun ausser die Sperr-Seite zu zeigen — auch nicht scheinbar
+  // Baum NICHTS tun ausser die Sperr-Seite zu zeigen, auch nicht scheinbar
   // Harmloses wie den (auf Web ohnehin leeren) Upload-Worker starten. Das ist
   // in der Praxis heute nicht erreichbar (secureSessionStorage.web.ts liefert
   // nie eine Session, `status` wird auf Web also realistisch nie 'signedIn'),
-  // aber die Garantie soll nicht an dieser fremden Datei hängen — sie gilt
+  // aber die Garantie soll nicht an dieser fremden Datei hängen, sie gilt
   // hier, unabhängig davon, WARUM `status` gerade ist, was er ist.
   useEffect(() => {
     if (webGesperrt || status !== 'signedIn') return;
@@ -108,14 +108,14 @@ function Guarded() {
     };
   }, [status, router, webGesperrt]);
 
-  // Der Worker legt posts-Zeilen an — dafür braucht er Sitzung UND Profil,
+  // Der Worker legt posts-Zeilen an, dafür braucht er Sitzung UND Profil,
   // also dieselbe Bedingung wie beim Einlösen der Einladung oben: vor
   // signedIn gibt es nichts zu tun. Verlässt der Status signedIn (Abmelden,
-  // Sitzungsverlust), MUSS er sofort stehen — ein weiterlaufender Worker
+  // Sitzungsverlust), MUSS er sofort stehen, ein weiterlaufender Worker
   // würde sonst versuchen, mit fremder oder fehlender Sitzung Zeilen
   // anzulegen. starte()/stoppe() sind idempotent (siehe uploadWorker.test.ts),
   // ein Effect mit [status] als einziger Abhängigkeit reicht deshalb aus,
-  // ganz ohne eigene Zähler — die Cleanup-Funktion übernimmt sowohl den
+  // ganz ohne eigene Zähler, die Cleanup-Funktion übernimmt sowohl den
   // Wechsel weg von signedIn als auch das Unmounten (App-Beenden).
   useEffect(() => {
     if (webGesperrt || status !== 'signedIn') return;
@@ -126,7 +126,7 @@ function Guarded() {
   // Push-Registrierung: einmal pro signedIn-Wechsel anstossen, ohne auf das
   // Ergebnis zu warten und ohne das Rendern zu blockieren (Vorbild: der
   // Upload-Worker-Start oben). Anders als der Worker braucht es kein
-  // Cleanup — registrierePushToken() wirft nie (Task-4-Brief) und schreibt
+  // Cleanup, registrierePushToken() wirft nie (Task-4-Brief) und schreibt
   // höchstens eine Zeile per upsert auf token; ein doppelter Aufruf bei
   // erneutem signedIn (z.B. nach kurzem Session-Verlust) ist harmlos.
   useEffect(() => {
@@ -134,11 +134,11 @@ function Guarded() {
     void registrierePushToken(userId);
   }, [status, userId, webGesperrt]);
 
-  // Web-Hartsperre: KEIN <Stack/> — nicht nur ein Redirect. Ohne <Stack/>
+  // Web-Hartsperre: KEIN <Stack/>, nicht nur ein Redirect. Ohne <Stack/>
   // mountet keiner der eigentlichen Routen-Screens überhaupt (inkl. aller
   // (auth)- und (tabs)-Screens sowie 'join'), ihre Effekte laufen also nie
   // an. Ein Redirect allein hätte den Zielscreen für einen Frame lang
-  // trotzdem gemountet (und potenziell dessen Effekte ausgelöst) — genau die
+  // trotzdem gemountet (und potenziell dessen Effekte ausgelöst), genau die
   // Lücke aus dem Task-4-Fund.
   if (webGesperrt) {
     return (
@@ -181,7 +181,7 @@ export default function RootLayout() {
     // SafeAreaProvider, weil keiner der drei Stacks einen Navigations-Header
     // zeigt: jeder Screen beginnt bei y = 0 und muss selbst wissen, was das
     // Geraet oben belegt (useOberkante). `initialWindowMetrics` liefert die
-    // Werte schon beim ersten Frame — ohne das springt der Inhalt beim Start
+    // Werte schon beim ersten Frame, ohne das springt der Inhalt beim Start
     // sichtbar nach unten, sobald die echten Insets eintreffen.
     <SafeAreaProvider initialMetrics={initialWindowMetrics}>
       <ThemeProvider>

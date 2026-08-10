@@ -45,7 +45,7 @@ test('removeItem und fehlender Key → null', async () => {
 
 test('Beschädigter Ciphertext (Key vorhanden) → getItem liefert null statt zu werfen', async () => {
   await secureSessionStorage.setItem('sb-session', 'ok');
-  // Ciphertext manuell durch ungültigen Hex-Müll ersetzen — der SecureStore-Key
+  // Ciphertext manuell durch ungültigen Hex-Müll ersetzen, der SecureStore-Key
   // bleibt bestehen, aber die Bytes lassen sich nicht mehr sinnvoll als UTF-8 dekodieren.
   mockAsyncStore.set('sb-session', 'zzz-kein-gueltiger-hex-string-zzz');
   await expect(secureSessionStorage.getItem('sb-session')).resolves.toBeNull();

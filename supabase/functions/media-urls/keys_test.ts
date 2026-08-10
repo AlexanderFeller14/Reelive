@@ -10,7 +10,7 @@ Deno.test('Foto-Schlüssel', () => {
 
 Deno.test('Video-Schlüssel folgt der tatsächlichen Endung', () => {
   assertEquals(erwarteteSchluessel('t1', 'p1', 'video', 'mp4').storage_key, 'trips/t1/p1.mp4');
-  // iOS nimmt QuickTime auf — Important 5. Vor dem Fix lag das unter .mp4.
+  // iOS nimmt QuickTime auf, Important 5. Vor dem Fix lag das unter .mp4.
   assertEquals(erwarteteSchluessel('t1', 'p1', 'video', 'mov').storage_key, 'trips/t1/p1.mov');
   assertEquals(erwarteteSchluessel('t1', 'p1', 'video', 'MOV').storage_key, 'trips/t1/p1.mov');
 });

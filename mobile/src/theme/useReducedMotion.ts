@@ -10,7 +10,7 @@ export function useReducedMotion(): boolean {
     let mounted = true;
     // `.catch` ist Pflicht, nicht Zierde: ein abgelehntes Promise aus einem
     // nativen Modul wird sonst zu einer unbehandelten Ablehnung, die in
-    // Release-Builds als Absturz zaehlt — und das fuer eine reine
+    // Release-Builds als Absturz zaehlt, und das fuer eine reine
     // Komfortabfrage. Faellt sie aus, bleibt es beim Startwert `false`:
     // Bewegung an, so wie ohne die Einstellung.
     AccessibilityInfo.isReduceMotionEnabled()

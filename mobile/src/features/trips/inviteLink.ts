@@ -4,7 +4,7 @@ import * as Linking from 'expo-linking';
 const KEY = 'reelive.pendingInvite';
 
 // createURL liefert in Expo Go exp://host:8081/--/join/<code> und im
-// Dev-/Release-Build reelive://join/<code> — derselbe Aufruf, kein Umbau,
+// Dev-/Release-Build reelive://join/<code>, derselbe Aufruf, kein Umbau,
 // wenn später eine Domain dazukommt.
 export function createInviteUrl(code: string): string {
   return Linking.createURL(`/join/${code}`);
@@ -28,7 +28,7 @@ export async function rememberInvite(code: string): Promise<void> {
 
 // Lesen und Verwerfen sind bewusst getrennt (statt ein atomares "lies und
 // lösche"): der Aufrufer verwirft erst, wenn ein Einlöseversuch tatsächlich
-// stattgefunden hat — sonst geht ein gemerkter Code verloren, ohne dass je
+// stattgefunden hat, sonst geht ein gemerkter Code verloren, ohne dass je
 // beigetreten wurde (siehe joinFlow.ts).
 export async function peekRememberedInvite(): Promise<string | null> {
   try {
@@ -43,6 +43,6 @@ export async function discardRememberedInvite(): Promise<void> {
     await AsyncStorage.removeItem(KEY);
   } catch {
     // Ein hängender Eintrag verhindert höchstens einen erneuten Versuch beim
-    // nächsten signedIn — kein Grund, das aufrufende Flow abzubrechen.
+    // nächsten signedIn, kein Grund, das aufrufende Flow abzubrechen.
   }
 }

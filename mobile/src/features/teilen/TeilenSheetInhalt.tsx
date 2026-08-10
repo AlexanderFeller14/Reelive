@@ -1,4 +1,4 @@
-// Inhalt des «Recap teilen»-Sheets (Task-6-Brief) — eingehängt in
+// Inhalt des «Recap teilen»-Sheets (Task-6-Brief), eingehängt in
 // recap/[id]/uebersicht.tsx über <Sheet kino>. Eigene Komponente statt eines
 // lokalen Sub-Bausteins direkt in uebersicht.tsx (anders als z.B.
 // TagesAbschnitt dort): die Zustandsmaschine hier (laden, erstellen,
@@ -9,7 +9,7 @@
 // EHRLICHKEIT ZUERST (Auftrag, wörtlich: „Das Sheet sagt das, bevor jemand
 // teilt, nicht danach."): der Hinweis, dass ein Link den GANZEN Recap ohne
 // Konto zeigt, steht in JEDER Phase, in der überhaupt schon eine Aktion
-// möglich ist (kein_link UND link_aktiv) — nicht erst, nachdem ein Link
+// möglich ist (kein_link UND link_aktiv), nicht erst, nachdem ein Link
 // existiert.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Share, StyleSheet, Text, View } from 'react-native';
@@ -20,7 +20,7 @@ import { PressScale } from '@/components/PressScale';
 import { cinema, palette, radius, spacing, type } from '@/theme/tokens';
 import { erstelleLink, holeAktivenLink, widerrufeLink, type AktiverLink } from './linkVerwaltenApi';
 
-// Drei feste Optionen (Brief) statt eines freien Eingabefelds — ein Tippfehler
+// Drei feste Optionen (Brief) statt eines freien Eingabefelds, ein Tippfehler
 // bei einer Gültigkeitsdauer ist ein schlechter Ort für einen Zahlen-Input.
 const ABLAUF_OPTIONEN: { id: string; label: string; tage: number | null }[] = [
   { id: '7', label: '7 Tage', tage: 7 },
@@ -62,11 +62,11 @@ function KinoPrimaerKnopf({
   );
 }
 
-// Aktiv füllt sich SOLIDE mit `cinema['text-1']` — derselbe Ton, den
+// Aktiv füllt sich SOLIDE mit `cinema['text-1']`, derselbe Ton, den
 // `KinoButton` (player.tsx) für "solide Fläche auf Kino-Hintergrund" nutzt,
 // kein neuer Wert. WICHTIG, anders als beim Vorbild EmojiPille (player.tsx):
 // EmojiPille füllt dieselbe Fläche mit einem Emoji, dessen Eigenfarben von
-// jedem Hintergrund abgesetzt bleiben — hier steht echter Text drauf, der
+// jedem Hintergrund abgesetzt bleiben, hier steht echter Text drauf, der
 // mit `cinema['text-1']` auf `cinema['text-1']` unsichtbar würde (Final-
 // Review Punkt 1). Der Text braucht deshalb die Gegenfarbe: `cinema['bg-0']`,
 // exakt wie `KinoButton` sie für sein eigenes Label auf derselben Füllung
@@ -74,13 +74,13 @@ function KinoPrimaerKnopf({
 // `backgroundColor: cinema['text-1']`).
 //
 // Inaktiv bleibt die Pille translucent + Blur (DESIGN-LANGUAGE §1/§4,
-// Task 10) — ABER: §1 reserviert dieses Rezept ausdrücklich für UI "auf
+// Task 10), ABER: §1 reserviert dieses Rezept ausdrücklich für UI "auf
 // Fotos". Dieses Sheet liegt auf keinem Foto, sondern auf der deckenden
-// `cinema['bg-1']`-Fläche von Sheet.tsx — die Tönung `overlay-pille`
+// `cinema['bg-1']`-Fläche von Sheet.tsx, die Tönung `overlay-pille`
 // (`rgba(19,17,16,0.55)`) verschmilzt darauf fast unsichtbar mit dem
 // Untergrund (Final-Review Punkt 1, "Kontrast von etwa 5/255": beide Flächen
 // liegen im selben dunklen Farbraum). Ein 1-px-Rand in `cinema['text-2']`
-// zeichnet die Pillenform trotzdem nach — derselbe Token, den Sheet.tsx
+// zeichnet die Pillenform trotzdem nach, derselbe Token, den Sheet.tsx
 // bereits als Kino-Ersatz für `line-strong` (Grabber) verwendet, siehe dort.
 function AblaufPille({
   id, label, aktiv, onPress,
@@ -170,7 +170,7 @@ export function TeilenSheetInhalt({ tripId }: { tripId: string }) {
     try {
       await Clipboard.setStringAsync(link.url);
     } catch {
-      // expo-clipboard schlägt praktisch nie fehl — kein stiller Absturz,
+      // expo-clipboard schlägt praktisch nie fehl, kein stiller Absturz,
       // aber auch keine eigene Fehlermeldung dafür: der Link steht weiterhin
       // sichtbar da und lässt sich notfalls von Hand markieren.
       return;
@@ -192,7 +192,7 @@ export function TeilenSheetInhalt({ tripId }: { tripId: string }) {
       await Share.share({ message: link.url });
     } catch {
       // Ein abgebrochener/fehlgeschlagener System-Dialog ist kein
-      // Anwendungsfehler — der Link bleibt unverändert sichtbar und lässt
+      // Anwendungsfehler, der Link bleibt unverändert sichtbar und lässt
       // sich über "Kopieren" weiterhin teilen.
     }
   };
@@ -338,7 +338,7 @@ const styles = StyleSheet.create({
   // die translucente Pille allein verschwindet auf der deckenden
   // Sheet-Fläche fast vollständig, der Rand zeichnet die Form nach. Auf der
   // AKTIV-Variante (ablaufPilleAktiv, solide Füllung) fällt derselbe Rand
-  // kaum auf — schadet dort aber nichts, ein zweiter, auf `aktiv` bedingter
+  // kaum auf, schadet dort aber nichts, ein zweiter, auf `aktiv` bedingter
   // Style wäre hier mehr Fläche für denselben Effekt.
   ablaufPille: {
     paddingHorizontal: spacing.base,
@@ -350,8 +350,8 @@ const styles = StyleSheet.create({
   ablaufPilleAktiv: { backgroundColor: cinema['text-1'] },
   aktionsReihe: { flexDirection: 'row', gap: spacing.s },
   // Gleicher Rand-Grund wie ablaufPille: "Kopieren" ist die einzige weitere
-  // translucente `Pille` auf dieser Sheet-Fläche (Final-Review Punkt 1)
-  // — "Teilen" daneben (pilleKnopfAkzent) ist bereits eine solide
+  // translucente `Pille` auf dieser Sheet-Fläche (Final-Review Punkt 1),
+  // "Teilen" daneben (pilleKnopfAkzent) ist bereits eine solide
   // `palette.accent`-Fläche und braucht keinen Rand.
   pilleKnopf: {
     flex: 1,

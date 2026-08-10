@@ -33,7 +33,7 @@ begin
 end $$;
 
 -- Simuliert eine Edge Function / einen Seed: echte Rolle, aber kein `sub` im
--- Claim — genau der Fall auth.uid() is null.
+-- Claim, genau der Fall auth.uid() is null.
 create or replace function pg_temp.as_service() returns void
 language plpgsql as $$
 begin

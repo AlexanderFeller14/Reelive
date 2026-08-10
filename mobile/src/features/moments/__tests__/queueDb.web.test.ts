@@ -27,7 +27,7 @@ const verworfenerEintrag: VerworfenerMoment = {
   id: 'p1', trip_id: 't1', author_id: 'u1', grund: 'nach Reveal aufgenommen', verworfen_am: 0,
 };
 
-test('alleJobs() liefert eine leere Liste statt zu werfen — es gibt auf Web keine Warteschlange', async () => {
+test('alleJobs() liefert eine leere Liste statt zu werfen, es gibt auf Web keine Warteschlange', async () => {
   await expect(alleJobs()).resolves.toEqual([]);
 });
 

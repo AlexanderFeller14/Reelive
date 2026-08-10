@@ -1,5 +1,5 @@
 // Jest-Hoisting: jest.mock wandert über die Importe (gleiches Muster wie
-// recapApi.test.ts/urlVorrat.test.ts — supabase.functions.invoke gemockt).
+// recapApi.test.ts/urlVorrat.test.ts, supabase.functions.invoke gemockt).
 const mockInvoke = jest.fn();
 jest.mock('@/lib/supabase', () => ({
   supabase: { functions: { invoke: (...args: unknown[]) => mockInvoke(...args) } },
@@ -54,7 +54,7 @@ describe('holeLoeschZahlen', () => {
   });
 
   // Eine unvollständige/kaputte Antwort (fehlendes Feld, falscher Typ) darf
-  // NIE als "geladen" durchgehen — genau das ist die Voraussetzung für "ohne
+  // NIE als "geladen" durchgehen, genau das ist die Voraussetzung für "ohne
   // geladene Zahlen darf nicht bestätigt werden können" im Dialog.
   test.each([
     ['fehlendes Feld', { eigene_reisen: 1, momente_in_eigenen_reisen: 1, betroffene_personen: 1 }],
@@ -78,7 +78,7 @@ describe('loescheKonto', () => {
 
   // Das zentrale Vertragsdetail aus dem Brief: ein 401 NACH einem
   // Löschversuch ist Erfolg (das Konto existiert bereits nicht mehr), kein
-  // Fehler — sonst zeigt die UI im tatsächlichen Erfolgsfall (verlorene
+  // Fehler, sonst zeigt die UI im tatsächlichen Erfolgsfall (verlorene
   // Antwort + Wiederholung) fälschlich einen Fehler an.
   test('ein 401 nach dem Löschversuch gilt als Erfolg, nicht als Fehler', async () => {
     mockInvoke.mockResolvedValue({ data: null, error: httpFehler(401, { fehler: 'Nicht angemeldet.' }) });

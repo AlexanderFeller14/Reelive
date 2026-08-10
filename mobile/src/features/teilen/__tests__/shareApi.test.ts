@@ -1,14 +1,14 @@
 // Jest-Hoisting: jest.mock wandert über die Importe, die Factory läuft also
-// VOR den const-Zuweisungen — Zugriff auf die Mocks deshalb erst zur
+// VOR den const-Zuweisungen, Zugriff auf die Mocks deshalb erst zur
 // Aufrufzeit (Muster wie recapApi.test.ts/urlVorrat.test.ts).
 //
 // W4, Kernstück dieser Datei: NICHT nur `functions.invoke` wird gemockt,
-// sondern der GESAMTE Client — `from`, `rpc`, `auth` sind eigene Spione. Ein
+// sondern der GESAMTE Client, `from`, `rpc`, `auth` sind eigene Spione. Ein
 // Test, der nur `functions.invoke` beobachtet, könnte einen heimlich
 // hinzugefügten `.from(...)`-Aufruf gar nicht bemerken (genau die
 // Phase-5-Warnung: ein Mock, der den zu prüfenden Mechanismus selbst
 // ersetzt, prüft nichts). Hier bleibt die ECHTE loeseTokenAuf-Implementierung
-// unangetastet — nur die IO-Grenze (der Client) ist ein Double.
+// unangetastet, nur die IO-Grenze (der Client) ist ein Double.
 const mockInvoke = jest.fn();
 const mockFrom = jest.fn();
 const mockRpc = jest.fn();
@@ -79,7 +79,7 @@ describe('loeseTokenAuf: Erfolg', () => {
 
   // Die Koordinaten sind seit Phase 7 Teil der Antwort (Spec R4/K13) und die
   // Grundlage der Karte im geteilten Recap. `null` ist der Normalfall und kein
-  // Fehler — ein Moment ohne erlaubte Ortungsdienste hat schlicht keinen Ort.
+  // Fehler, ein Moment ohne erlaubte Ortungsdienste hat schlicht keinen Ort.
   test('lat/lng gehen unverändert durch, auch als null', async () => {
     mockInvoke.mockResolvedValueOnce({ data: gueltigeAntwort, error: null });
     const { data } = await loeseTokenAuf('tok123');
@@ -92,7 +92,7 @@ describe('loeseTokenAuf: Erfolg', () => {
   // Und die Gegenprobe zur Formprüfung: eine ältere Function ohne die beiden
   // Felder (App und Function werden getrennt ausgerollt) darf keine Nadel auf
   // eine Position setzen, die es nicht gibt. `zuKartenPunkten` prüft
-  // flussabwärts nur auf `=== null` — alles andere gälte dort als gültige
+  // flussabwärts nur auf `=== null`, alles andere gälte dort als gültige
   // Koordinate.
   test.each([
     ['fehlende Felder', {}],
@@ -111,7 +111,7 @@ describe('loeseTokenAuf: Erfolg', () => {
     expect(data?.medien[0].lng).toBeNull();
   });
 
-  // Fehlendes thumb_url wird zu null, nicht zu undefined — GeteiltesMoment.
+  // Fehlendes thumb_url wird zu null, nicht zu undefined, GeteiltesMoment.
   // thumb_url ist string | null, kein optionales Feld (ein Mutant, der
   // ?? undefined statt ?? null schreibt, fällt hier durch: toEqual
   // unterscheidet die fehlende von der null-Eigenschaft).
@@ -123,7 +123,7 @@ describe('loeseTokenAuf: Erfolg', () => {
   });
 
   // `ausgelassen` sind Momente, für die die Function keine URL herausgeben
-  // konnte — sie fehlen in `medien`. Ohne diese Zahl fehlten sie SPURLOS, und
+  // konnte, sie fehlen in `medien`. Ohne diese Zahl fehlten sie SPURLOS, und
   // die geteilte Seite behauptete, sie zeige die ganze Reise (Abschluss-
   // Review, Finding 2).
   test('ausgelassene Momente werden mitgelesen', async () => {
@@ -133,7 +133,7 @@ describe('loeseTokenAuf: Erfolg', () => {
   });
 
   // Additiv und deshalb NICHT Teil der Formprüfung: eine ältere Function ohne
-  // das Feld darf keine tote Seite ergeben. 0 heisst «nichts ausgelassen» —
+  // das Feld darf keine tote Seite ergeben. 0 heisst «nichts ausgelassen»,
   // derselbe Zustand, den es vor dem Feld überall gab.
   test.each([
     ['fehlendes Feld', {}],
@@ -157,7 +157,7 @@ describe('loeseTokenAuf: Erfolg', () => {
 
 describe('loeseTokenAuf: Ablehnung ist byte-gleich (Task-2-Vertrag)', () => {
   // Der Kern des Vertrags: UNTERSCHIEDLICHE zugrunde liegende Ursachen
-  // (unbekannter Token, widerrufen, abgelaufen, nicht aufgedeckte Reise —
+  // (unbekannter Token, widerrufen, abgelaufen, nicht aufgedeckte Reise,
   // hier durch unterschiedliche Status/Texte SIMULIERT, weil share-link
   // selbst laut Vertrag ohnehin immer denselben Text sendet) münden auf
   // GENAU denselben Client-Text. Das ist die Zusicherung, die die Seite in
@@ -243,7 +243,7 @@ describe('loeseTokenAuf: kaputte 200er-Antwort zählt als Ladefehler, nicht als 
 });
 
 // W4, siehe Kommentar am Mock oben: der schärfste Beweis, dass loeseTokenAuf
-// NIE schreibt — weder im Erfolgs- noch im Fehlerfall.
+// NIE schreibt, weder im Erfolgs- noch im Fehlerfall.
 describe('W4: loeseTokenAuf berührt nur functions.invoke, nie .from()/.rpc()/.auth', () => {
   test('Erfolgsfall', async () => {
     mockInvoke.mockResolvedValueOnce({ data: gueltigeAntwort, error: null });

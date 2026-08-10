@@ -1,4 +1,4 @@
--- share_links: seit Phase 1 da, seit Phase 6 benutzt — und seit
+-- share_links: seit Phase 1 da, seit Phase 6 benutzt, und seit
 -- 20260808140000_share_links_nur_edge_function.sql schreibt `authenticated`
 -- hier gar nicht mehr direkt.
 --
@@ -6,30 +6,30 @@
 --
 --   A. DER IST-ZUSTAND. Was ein angemeldeter Client heute darf: lesen, und
 --      zwar nur die eigenen Reisen. Anlegen, ändern, löschen scheitern schon
---      am Tabellen-Privileg (42501), noch bevor RLS ausgewertet wird — auch
+--      am Tabellen-Privileg (42501), noch bevor RLS ausgewertet wird, auch
 --      für die Owner-Person, auch auf einer aufgedeckten Reise. `anon` kommt
 --      an gar nichts.
 --
 --   B. DIE ZWEITE SCHICHT. Die vier Policies aus
 --      20260808130000_share_links_widerruf_archiviert.sql sind ohne Grant
---      unerreichbar — und blieben damit eine ungeprüfte Behauptung. Abschnitt B
+--      unerreichbar, und blieben damit eine ungeprüfte Behauptung. Abschnitt B
 --      stellt die Schreibrechte INNERHALB dieser Transaktion kurz wieder her
 --      (das `rollback` am Ende nimmt sie mit) und prüft die Policies genau in
 --      dem Zustand, für den sie gedacht sind: Wer in einer späteren Phase ein
 --      Schreibrecht zurückgibt, soll damit nicht die Tabelle öffnen, sondern
 --      weiterhin auf «nur die Owner-Person, nur eine aufgedeckte Reise»
---      treffen. Zwei Schlösser, von denen jedes allein hält — und beide
+--      treffen. Zwei Schlösser, von denen jedes allein hält, und beide
 --      geprüft.
 --
 --      Inhaltlich sind das die Zusicherungen, die vorher der Kern dieser Datei
 --      waren: INSERT bleibt revealed-only, UPDATE lässt 'revealed' UND
---      'archived' zu (ein Widerruf macht einen Link schwächer, nie stärker —
+--      'archived' zu (ein Widerruf macht einen Link schwächer, nie stärker,
 --      er darf an keinem Status scheitern, an dem das Anlegen scheitert),
 --      UPDATE sperrt weiterhin den Weg auf eine AKTIVE Reise (sonst liesse
 --      sich das INSERT-Verbot per trip_id-Umhängen umgehen, Spec §4/W3),
 --      SELECT und DELETE kennen keine Status-Bedingung.
 --
---   C. DIE EDGE FUNCTION. `service_role` trägt `rolbypassrls` — für sie wird
+--   C. DIE EDGE FUNCTION. `service_role` trägt `rolbypassrls`, für sie wird
 --      keine dieser Policies je ausgewertet. Genau deshalb prüft
 --      supabase/functions/share-link/verwaltung.ts Eigentümerschaft und Status
 --      selbst, mit eigenen Tests ohne Docker.
@@ -68,7 +68,7 @@ begin
   perform set_config('role', 'anon', true);
 end $$;
 
--- Zurück zum Eigentümer des Schemas — nur er darf GRANT aussprechen. Wird
+-- Zurück zum Eigentümer des Schemas, nur er darf GRANT aussprechen. Wird
 -- ausschliesslich in Abschnitt B gebraucht; die Grants dort rollen mit der
 -- Transaktion zurück.
 create or replace function pg_temp.as_owner() returns void
@@ -102,7 +102,7 @@ update public.trips set status = 'revealed', revealed_at = '2026-08-10 18:00+00'
 -- Zwei Zeilen, angelegt wie die Edge Function sie anlegt: als service_role,
 -- ohne Token-Vorgabe (der Default aus 20260803090100_content_tables.sql,
 -- encode(gen_random_bytes(16),'hex'), ist ab jetzt die EINZIGE Quelle für
--- Tokens — dass ein Client sich einen aussuchen konnte, war der Befund, der zu
+-- Tokens, dass ein Client sich einen aussuchen konnte, war der Befund, der zu
 -- 20260808140000 geführt hat). Feste Tokens hier nur, weil die Assertions
 -- unten sie brauchen; über die Function ist das nicht mehr möglich.
 insert into public.share_links (token, trip_id) values
@@ -115,7 +115,7 @@ insert into public.share_links (token, trip_id) values
 
 -- === 1. Auch die Owner-Person legt keinen Link mehr direkt an ===
 -- Vorher scheiterte das nur für eine ACTIVE Reise (Policy). Jetzt scheitert es
--- immer, schon am fehlenden Tabellen-Privileg — die Reise hier ist revealed.
+-- immer, schon am fehlenden Tabellen-Privileg, die Reise hier ist revealed.
 select pg_temp.login_as('00000000-0000-0000-0000-00000000000a');
 select throws_ok(
   $$insert into public.share_links (trip_id)
@@ -126,7 +126,7 @@ select throws_ok(
 -- === 2. ... und schon gar keinen mit selbstgewähltem Token ===
 -- Das war der schwerste Teil des Befunds: `token` ist `text` mit Default, und
 -- ein Default greift nur, wenn die Spalte fehlt. Ein Client konnte sich also
--- einen Token der Länge 1 aussuchen — und damit die 2^128, auf denen der ganze
+-- einen Token der Länge 1 aussuchen, und damit die 2^128, auf denen der ganze
 -- öffentliche Leseweg ruht, zu einer Client-Konvention machen.
 select throws_ok(
   $$insert into public.share_links (token, trip_id)
@@ -159,7 +159,7 @@ select throws_ok(
   $$delete from public.share_links where token = 'link-zwei'$$,
   '42501', null, 'Owner löscht einen Share-Link nicht mehr direkt');
 
--- === 6. Lesen bleibt — die App muss anzeigen, ob es einen Link gibt ===
+-- === 6. Lesen bleibt, die App muss anzeigen, ob es einen Link gibt ===
 select is(
   (select count(*)::int from public.share_links where trip_id = '11111111-1111-1111-1111-111111111111'),
   2, 'Owner sieht die Share-Links der eigenen Reise weiterhin');
@@ -188,7 +188,7 @@ select throws_ok(
 -- B. Die zweite Schicht: die Policies halten auch OHNE das fehlende Privileg
 -- ===========================================================================
 -- Ab hier werden die Schreibrechte innerhalb dieser Transaktion wieder
--- erteilt. Das `rollback` am Dateiende nimmt sie mit — in der Datenbank bleibt
+-- erteilt. Das `rollback` am Dateiende nimmt sie mit, in der Datenbank bleibt
 -- der Zustand aus Abschnitt A. Was hier geprüft wird, ist die Frage: Wenn
 -- jemand in einer späteren Phase ein Schreibrecht zurückgibt, öffnet er damit
 -- die Tabelle, oder trifft er weiterhin auf die Policies?
@@ -223,7 +223,7 @@ select is(
 
 -- === 12. UPDATE: Widerruf gelingt auch auf einer ARCHIVIERTEN Reise ===
 -- Der Kern von 20260808130000. Vorher galt die gemeinsame `with check` der
--- for-all-Policy auch für UPDATE und verlangte status = 'revealed' — der
+-- for-all-Policy auch für UPDATE und verlangte status = 'revealed', der
 -- Widerruf scheiterte, während Lesen und Löschen (using, ohne
 -- Status-Bedingung) weiterliefen. Ein Link auf einer archivierten Reise blieb
 -- damit dauerhaft öffentlich, weil die Owner-Person ihn nur noch löschen und
@@ -249,7 +249,7 @@ select throws_ok(
 -- Der Grund, warum die Status-Bedingung im UPDATE nicht ganz entfallen darf.
 -- `with check` wird gegen die NEUE Zeile ausgewertet: ohne Status-Bedingung
 -- liesse sich ein bestehender, gültiger Link per trip_id auf eine noch
--- versiegelte eigene Reise umhängen — und damit genau das erzeugen, was das
+-- versiegelte eigene Reise umhängen, und damit genau das erzeugen, was das
 -- INSERT-Verbot verhindert (Spec §4, W3).
 select throws_ok(
   $$update public.share_links set trip_id = '22222222-2222-2222-2222-222222222222'
@@ -271,7 +271,7 @@ select is(
   2, 'share_links_delete_owner: Löschen bleibt vom Reise-Status unabhängig');
 
 -- ===========================================================================
--- C. Die Edge Function umgeht das alles — und muss deshalb selbst prüfen
+-- C. Die Edge Function umgeht das alles, und muss deshalb selbst prüfen
 -- ===========================================================================
 
 -- === 16. service_role trägt rolbypassrls ===
@@ -284,18 +284,18 @@ select is(
 select pg_temp.as_owner();
 select is(
   (select rolbypassrls from pg_roles where rolname = 'service_role'),
-  true, 'service_role umgeht RLS — die Edge Function muss Owner und Status selbst prüfen');
+  true, 'service_role umgeht RLS, die Edge Function muss Owner und Status selbst prüfen');
 
 -- === 17. Und tut es an der Tabelle vorbei: Insert auf eine AKTIVE Reise ===
 -- Genau der Fall, den beurteileErstellen abfängt. Hier gelingt er, weil nichts
--- in der Datenbank ihn aufhält — der Beleg dafür, dass die Function die
+-- in der Datenbank ihn aufhält, der Beleg dafür, dass die Function die
 -- einzige Schranke ist und nicht die zweite.
 select pg_temp.as_service();
 insert into public.share_links (token, trip_id)
   values ('link-service-aktiv', '22222222-2222-2222-2222-222222222222');
 select is(
   (select count(*)::int from public.share_links where trip_id = '22222222-2222-2222-2222-222222222222'),
-  1, 'service_role legt auch auf einer aktiven Reise an — nur die Function verhindert das');
+  1, 'service_role legt auch auf einer aktiven Reise an, nur die Function verhindert das');
 
 select * from finish();
 rollback;
