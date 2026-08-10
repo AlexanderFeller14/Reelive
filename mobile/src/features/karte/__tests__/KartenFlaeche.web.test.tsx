@@ -194,6 +194,38 @@ test('die Kacheln kommen von OpenStreetMap', async () => {
   expect(kacheln.mock.calls[0][1]?.attribution).toBe(KACHEL_NAMENSNENNUNG);
 });
 
+// Was die Kachelrichtlinie der OSM Foundation von einer Anwendung verlangt,
+// soweit eine Seite im Browser es überhaupt beeinflussen kann. Die
+// Namensnennung prüft der Test darüber, hier stehen die beiden Punkte, die
+// die ANZAHL der Anfragen bestimmen.
+describe('die Karte geht sparsam mit fremden Kacheln um', () => {
+  test('sie laedt erst, wenn die Karte steht, nicht waehrend des Ziehens', async () => {
+    const kacheln = jest.spyOn(L, 'tileLayer');
+    await zeichne();
+    // Leaflets Vorgabe ist im Desktop-Browser `false`: dort läuft während
+    // jeder Bewegung nach, und ein Schwenk über den Kontinent fragt Dutzende
+    // Kacheln ab, die im nächsten Frame schon wieder aus dem Bild sind.
+    expect(kacheln.mock.calls[0][1]?.updateWhenIdle).toBe(true);
+  });
+
+  // Kein `{s}`: die drei Namen a/b/c sind ein HTTP/1.1-Workaround, und
+  // tile.openstreetmap.org liefert über HTTP/2 aus. Sie kosten dort zwei
+  // zusätzliche DNS-Auflösungen und TLS-Handshakes und bringen nichts.
+  test('sie verteilt ihre Anfragen nicht auf drei Hosts', async () => {
+    expect(KACHEL_URL).not.toContain('{s}');
+    expect(KACHEL_URL.startsWith('https://tile.openstreetmap.org/')).toBe(true);
+  });
+
+  // Und die Obergrenze: OpenStreetMap liefert bis Stufe 19. Ohne sie fragte
+  // die Karte auf Stufe 20 Kacheln ab, die es nicht gibt, und bekäme für
+  // jede eine 404.
+  test('sie fragt keine Zoomstufe an, die es nicht gibt', async () => {
+    const kacheln = jest.spyOn(L, 'tileLayer');
+    await zeichne();
+    expect(kacheln.mock.calls[0][1]?.maxZoom).toBe(19);
+  });
+});
+
 // Leaflets eigenes Stylesheet MUSS ins Bundle, ohne es liegen die Kacheln als
 // ungeordneter Bilderstapel übereinander und keine Nadel sitzt auf ihrer
 // Koordinate. Das ist die einzige verbindliche Vorgabe dieser Fassung, deren

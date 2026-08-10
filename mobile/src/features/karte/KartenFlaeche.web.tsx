@@ -38,7 +38,16 @@ import type {
 // sich nicht deklarativ rendern. React hält deshalb nur die Hülle, alles
 // andere hängt an Effekten, die die Karte auf den Stand der Props bringen.
 
-export const KACHEL_URL = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+// OHNE das `{s}`-Subdomain-Muster, das Leaflet in seinen Beispielen führt.
+//
+// Die drei Namen a/b/c stammen aus der HTTP/1.1-Zeit: Browser hielten damals
+// nur rund sechs Verbindungen pro Host offen, und Kacheln auf drei Hosts zu
+// verteilen verdreifachte das Limit. `tile.openstreetmap.org` liefert heute
+// über HTTP/2 aus (nachgemessen, nicht vermutet), und dort multiplext EINE
+// Verbindung beliebig viele Anfragen. Das Sharding erkauft sich also nichts
+// mehr und kostet zwei zusätzliche DNS-Auflösungen und TLS-Handshakes, bevor
+// die erste Kachel überhaupt unterwegs ist.
+export const KACHEL_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
 
 // Spec K14 und die Lizenz der Kacheln: die Namensnennung ist Pflicht.
 //
@@ -403,6 +412,23 @@ export const KartenFlaeche = forwardRef<KartenFlaecheHandle, KartenFlaecheProps>
       L.tileLayer(KACHEL_URL, {
         attribution: KACHEL_NAMENSNENNUNG,
         maxZoom: MAX_ZOOM,
+        // Kacheln erst holen, wenn die Karte STEHT. Leaflets Vorgabe ist das
+        // Gegenteil (`updateWhenIdle: Browser.mobile`, im Desktop-Browser
+        // also `false`): dort läuft während des Ziehens laufend nach, und ein
+        // einziger Schwenk über den Kontinent fragt Dutzende Kacheln ab, die
+        // im nächsten Frame schon wieder aus dem Bild sind.
+        //
+        // Die Kachelrichtlinie der OSM Foundation nennt genau das als
+        // unerwünscht (sie liefert aus Spenden, nicht aus einem CDN-Budget),
+        // und die Karte verliert dabei nichts: sie gruppiert ihre Nadeln
+        // ohnehin erst neu, wenn die Bewegung zu Ende ist (`moveend`).
+        //
+        // Was hier NICHT geht: die Richtlinie verlangt ausserdem einen
+        // eigenen User-Agent. Den setzt im Browser der Browser, eine Seite
+        // kann ihn nicht bestimmen; identifizierbar ist diese Anwendung dort
+        // allein über den `Referer` ihrer eigenen Domain. Sollte die Karte je
+        // ausserhalb eines Browsers Kacheln holen, gehört er dort gesetzt.
+        updateWhenIdle: true,
       }).addTo(instanz);
 
       karte.current = instanz;
