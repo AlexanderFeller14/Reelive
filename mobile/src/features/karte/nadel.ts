@@ -48,6 +48,19 @@ export function nadelBeschriftung(moment: RecapMoment, anzahl: number, unteilbar
   if (anzahl > 1) {
     return unteilbar ? `${anzahl} Momente an diesem Ort ansehen` : `Auf ${anzahl} Momente heranzoomen`;
   }
+  return momentLabel(moment);
+}
+
+// Was VoiceOver zu EINEM Moment sagt, an jeder Stelle, an der er sich öffnen
+// lässt: die einzelne Nadel oben, die Zeilen der Gruppenliste und die Kacheln
+// der Momente ohne Ort (features/karte/MomentSheet.tsx), in der App wie im
+// geteilten Recap.
+//
+// Es stand bis hierher dreimal wortgleich im Projekt, einmal je Aufrufstelle.
+// Drei Kopien einer Ansage, die alle dieselbe Handlung beschreiben, laufen
+// auseinander, sobald eine davon angefasst wird, und die Abweichung sieht nur,
+// wer VoiceOver einschaltet.
+export function momentLabel(moment: RecapMoment): string {
   const uhrzeit = zeitInZone(moment.captured_at, moment.captured_tz);
   return `Moment von ${moment.autor_name} um ${uhrzeit} öffnen`;
 }
