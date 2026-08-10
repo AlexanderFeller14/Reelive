@@ -845,6 +845,34 @@ export default function RecapKarte() {
     stand.current = { ausschnitt };
   }, [ausschnitt]);
 
+  // Was der Tipp auf diese Gruppe tun WIRD, für die Beschriftung, die
+  // VoiceOver vorliest. Dieselbe Frage, dieselbe Antwort, dasselbe
+  // `zoomAussichtslos` wie im Tipp darunter, nur ohne die Folgen.
+  //
+  // Sie steht hier und nicht in der Fläche, obwohl die die Nadeln zeichnet:
+  // sie hängt am Verlauf (welche Gruppe zuletzt vergeblich angefahren wurde),
+  // und der liegt in `letzterZoom`. Die Fläche kannte bis hierher nur die
+  // halbe Regel, bitgleiche Koordinaten, und sagte an einer festgefahrenen
+  // Gruppe weiter «heranzoomen», obwohl der Tipp längst das Sheet öffnete.
+  //
+  // Der Ausschnitt kommt hier aus dem STATE, nicht aus `stand.current` wie im
+  // Tipp darunter, und das ist kein Versehen: diese Frage wird beim RENDERN
+  // gestellt, und der Layout-Effekt, der das Ref nachzieht, läuft erst danach.
+  // Mit dem Ref trug die erste Nadel jeder Reise das Label für «kein
+  // Ausschnitt bekannt», also immer «heranzoomen», auch auf einem Fleck. Vom
+  // Screen-Test gefunden, nicht hergeleitet. Beim Tipp ist es umgekehrt: er
+  // kommt aus einer Closure, die den Stand von damals sähe, deshalb liest er
+  // das Ref.
+  const oeffnetSheet = useCallback(
+    (gruppe: Gruppe) => {
+      // Ohne Ausschnitt gibt es keine Nadeln, die beschriftet werden könnten
+      // (siehe `gruppen` oben). Für den Typ trotzdem nötig.
+      if (!ausschnitt) return false;
+      return zoomAussichtslos(gruppe, ausschnitt, letzterZoom.current);
+    },
+    [ausschnitt]
+  );
+
 
   // Ein Tipp auf eine Gruppe fährt in sie hinein, solange das etwas ausrichtet
   // (Spec §5.5): wer auf der Karte sucht, will die Karte benutzen. Erst wo
@@ -1125,6 +1153,7 @@ export default function RecapKarte() {
           linie={linie}
           thumbFuer={thumbFuer}
           aufGruppe={aufGruppe}
+          oeffnetSheet={oeffnetSheet}
           aufAusschnitt={merkeAusschnitt}
           reducedMotion={reducedMotion}
         />

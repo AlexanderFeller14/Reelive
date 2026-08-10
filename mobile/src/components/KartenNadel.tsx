@@ -180,11 +180,11 @@ type MarkerProps = {
   thumbUrl: string | null;
   anzahl?: number;
   /**
-   * Eine Gruppe, deren Momente alle auf derselben Koordinate liegen: sie fällt
-   * durch keinen Zoom auseinander. Ändert nur die Beschriftung, was der Tipp
-   * auslöst, entscheidet der Screen (karte.tsx) mit derselben Auskunft.
+   * Öffnet ein Tipp auf diese Gruppe ihre Liste, statt in sie hineinzufahren?
+   * Ändert nur die Beschriftung; was der Tipp auslöst, entscheidet der Screen
+   * (karte.tsx) mit derselben Auskunft.
    */
-  unteilbar?: boolean;
+  oeffnetSheet?: boolean;
   /**
    * Tipp auf die Nadel. Bekommt den Punkt zurück, den sie darstellt (bei einer
    * Gruppe deren Anker), statt eine fertige Aktion einzupacken. Nur so kann
@@ -219,7 +219,7 @@ type MarkerProps = {
 // Koordinaten-Literal unten harmlos, neu gebaut wird es nur noch, wenn sich
 // wirklich eine Eigenschaft geändert hat.
 export const KartenNadelMarker = memo(function KartenNadelMarker({
-  punkt, thumbUrl, anzahl = 1, unteilbar = false, onPress,
+  punkt, thumbUrl, anzahl = 1, oeffnetSheet = false, onPress,
 }: MarkerProps) {
   const { moment } = punkt;
   const abbild = nadelAbbild(moment, thumbUrl, anzahl);
@@ -234,7 +234,7 @@ export const KartenNadelMarker = memo(function KartenNadelMarker({
   return (
     <Marker
       testID={`karte-nadel-${moment.id}`}
-      accessibilityLabel={nadelBeschriftung(moment, anzahl, unteilbar)}
+      accessibilityLabel={nadelBeschriftung(moment, anzahl, oeffnetSheet)}
       coordinate={{ latitude: punkt.lat, longitude: punkt.lng }}
       tracksViewChanges={fertigesAbbild !== abbild}
       onPress={angetippt}

@@ -13,7 +13,6 @@ import type * as Leaflet from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { useTheme } from '@/theme/ThemeProvider';
 import { cinema, motion, radius, spacing, type ColorTokens } from '@/theme/tokens';
-import { aufEinemFleck } from '@/features/karte/gruppierung';
 import { nadelAbbild, nadelBeschriftung } from '@/features/karte/nadel';
 import type { RecapMoment } from '@/features/recap/types';
 import type {
@@ -307,7 +306,16 @@ type Nadel = { marker: Leaflet.Marker; abbild: string; gruppe: Gruppe };
 
 export const KartenFlaeche = forwardRef<KartenFlaecheHandle, KartenFlaecheProps>(
   function KartenFlaeche(
-    { initialerAusschnitt, gruppen, linie, thumbFuer, aufGruppe, aufAusschnitt, reducedMotion },
+    {
+      initialerAusschnitt,
+      gruppen,
+      linie,
+      thumbFuer,
+      aufGruppe,
+      oeffnetSheet,
+      aufAusschnitt,
+      reducedMotion,
+    },
     ref
   ) {
     const { colors } = useTheme();
@@ -464,7 +472,7 @@ export const KartenFlaeche = forwardRef<KartenFlaecheHandle, KartenFlaecheProps>
         const thumbUrl = thumbFuer(id);
         const anzahl = gruppe.punkte.length;
         const abbild = nadelAbbild(anker.moment, thumbUrl, anzahl);
-        const beschriftung = nadelBeschriftung(anker.moment, anzahl, aufEinemFleck(gruppe));
+        const beschriftung = nadelBeschriftung(anker.moment, anzahl, oeffnetSheet(gruppe));
 
         let nadel = vorhanden.get(id);
         if (!nadel) {
@@ -493,10 +501,12 @@ export const KartenFlaeche = forwardRef<KartenFlaecheHandle, KartenFlaecheProps>
         }
 
         // Die Beschriftung hängt am Element, nicht am Icon: sie kann sich
-        // ändern, ohne dass sich das Abbild ändert (eine Gruppe gleicher
-        // Grösse, die plötzlich auf einem Fleck liegt, sagt «ansehen» statt
-        // «heranzoomen»). Am Icon festgemacht bliebe sie in genau dem Fall
-        // stehen, und das Label verspräche etwas, was der Klick nicht tut.
+        // ändern, ohne dass sich das Abbild ändert. Eine Gruppe gleicher
+        // Grösse sagt «ansehen» statt «heranzoomen», sobald sie auf einem
+        // Fleck liegt, und ebenso, sobald ein Zoomversuch die Kamera nicht
+        // mehr bewegt hat (gruppenTipp.ts). Am Icon festgemacht bliebe sie in
+        // genau diesen Fällen stehen, und das Label verspräche etwas, was der
+        // Klick nicht tut.
         const element = nadel.marker.getElement();
         if (element) {
           element.setAttribute('role', 'button');
@@ -509,7 +519,12 @@ export const KartenFlaeche = forwardRef<KartenFlaecheHandle, KartenFlaecheProps>
         nadel.marker.remove();
         vorhanden.delete(id);
       }
-    }, [gruppen, thumbFuer, colors]);
+      // `oeffnetSheet` gehört in die Abhängigkeiten, obwohl es nur die
+      // Beschriftung betrifft: die Antwort hängt am Verlauf (gruppenTipp.ts),
+      // und ein Effekt, der sie nicht neu liest, hielte das Label auf dem
+      // Stand von vorhin. Der Screen gibt eine referenzstabile Funktion
+      // herein, der Effekt läuft dadurch nicht öfter als ohnehin.
+    }, [gruppen, thumbFuer, oeffnetSheet, colors]);
 
     // Die Reise als Linie (Spec K3/§5.6). Sie liegt in Leaflets `overlayPane`
     // und damit von selbst UNTER den Nadeln (`markerPane`), die native

@@ -58,6 +58,10 @@ const basis: KartenFlaecheProps = {
   linie: [],
   thumbFuer: () => null,
   aufGruppe: () => {},
+  // Die Flaeche rechnet nicht mehr selbst, ob ein Tipp das Sheet oeffnet, sie
+  // fragt (features/karte/typen.ts). `false` ist der Normalfall: eine Gruppe,
+  // in die man noch hineinfahren kann.
+  oeffnetSheet: () => false,
   aufAusschnitt: () => {},
   reducedMotion: false,
 };
@@ -336,6 +340,22 @@ test('die Nadel sagt, was ein Klick auf sie tut', async () => {
   const host = await zeichne({ gruppen: [auseinander] });
   expect(nadeln(host)[0].getAttribute('aria-label')).toBe('Auf 2 Momente heranzoomen');
   expect(nadeln(host)[0].getAttribute('role')).toBe('button');
+});
+
+// Wie nativ: die Fläche rechnet die Weiche nicht selbst, sie fragt den Screen.
+// Sie kannte bis zur Zusammenführung nur den halben Grund (`aufEinemFleck`)
+// und versprach an einer festgefahrenen Gruppe weiter einen Zoom, den kein
+// Klick mehr einlöst. Die Gruppe hier hat ausdrücklich zwei verschiedene
+// Koordinaten: was zählt, ist allein die Antwort.
+test('die Flaeche rechnet die Antwort nicht selbst, sie fragt', async () => {
+  const host = await zeichne({ gruppen: [auseinander], oeffnetSheet: () => true });
+  expect(nadeln(host)[0].getAttribute('aria-label')).toBe('2 Momente an diesem Ort ansehen');
+});
+
+test('gefragt wird mit der GANZEN Gruppe, nicht mit ihrem Anker', async () => {
+  const oeffnetSheet = jest.fn(() => false);
+  await zeichne({ gruppen: [auseinander], oeffnetSheet });
+  expect(oeffnetSheet).toHaveBeenCalledWith(auseinander);
 });
 
 test('meldet den Klick auf eine Gruppe nach oben', async () => {

@@ -681,6 +681,20 @@ export default function GeteilterRecapScreen() {
     [zeige]
   );
 
+  // Was der Tipp auf diese Gruppe tun WIRD, für die Beschriftung, die
+  // VoiceOver vorliest. Dieselbe Frage und dieselbe Antwort wie oben, nur ohne
+  // die Folgen; wortgleich zu recap/[id]/karte.tsx, samt der Begründung dort,
+  // warum die Fläche das nicht selbst rechnen kann und warum der Ausschnitt
+  // hier NICHT aus `kartenStand` kommt: diese Frage wird beim Rendern
+  // gestellt, das Ref zieht erst im Layout-Effekt danach nach.
+  const oeffnetSheet = useCallback(
+    (gruppe: Gruppe) => {
+      if (!sichtbarerAusschnitt) return false;
+      return zoomAussichtslos(gruppe, sichtbarerAusschnitt, letzterZoom.current);
+    },
+    [sichtbarerAusschnitt]
+  );
+
   // «Ab hier ansehen» (Spec §5.10). KEIN `router.push`: der geteilte Recap ist
   // EINE URL, der Player steht auf demselben Screen, der Sprung setzt also
   // seinen Index und schaltet die Ansicht um.
@@ -896,6 +910,7 @@ export default function GeteilterRecapScreen() {
           linie={linie}
           thumbFuer={thumbFuer}
           aufGruppe={aufGruppe}
+          oeffnetSheet={oeffnetSheet}
           aufAusschnitt={merkeAusschnitt}
           reducedMotion={reducedMotion}
         />

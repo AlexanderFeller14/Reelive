@@ -33,20 +33,34 @@ export function nadelAbbild(moment: RecapMoment, thumbUrl: string | null, anzahl
 // nur mit dem, was hier bekannt ist: Autor und Uhrzeit, und für eine Gruppe
 // ihre Anzahl statt eines einzelnen Moments.
 //
-// Für die Gruppe nennt das Label die Aktion, die der Tipp WIRKLICH auslöst: er
-// zoomt hinein (Spec §5.5), er öffnet nichts. Wer sich per VoiceOver ansagen
-// lässt, was ein Element tut, bekommt sonst ein Versprechen, das die Karte
-// nicht einlöst. «An diesem Ort» wäre dazu gelogen: gruppiert wird nach 40
-// BILDSCHIRMpunkten, und die sind bei einem Kontinent-Ausschnitt über 150 km.
+// Für die Gruppe nennt das Label die Aktion, die der Tipp WIRKLICH auslöst.
+// Wer sich per VoiceOver ansagen lässt, was ein Element tut, bekommt sonst ein
+// Versprechen, das die Karte nicht einlöst. Und das sind hier zwei
+// verschiedene Dinge: entweder fährt der Tipp in die Gruppe hinein (Spec §5.5)
+// oder er öffnet ihre Liste (§5.7).
 //
-// `unteilbar` ist die eine Gruppe, für die das nicht gilt: liegen alle
-// Momente auf exakt derselben Koordinate, trennt sie keine Zoomstufe
-// (features/karte/gruppierung.ts, `aufEinemFleck`), dort öffnet der Tipp das
-// Sheet mit der Liste (Spec §5.7). «An diesem Ort» ist hier, anders als bei
-// einer nach Bildschirmpunkten gebildeten Gruppe, wörtlich wahr.
-export function nadelBeschriftung(moment: RecapMoment, anzahl: number, unteilbar: boolean): string {
+// `oeffnetSheet` sagt, welches von beiden. Es ist bewusst NICHT «liegen alle
+// auf demselben Fleck»: das war der einzige Grund, bis die Merge-Fixrunde von
+// Phase 7 den zweiten hinzufügte (die Karte steht am Anschlag ihrer
+// Zoomstufen, features/karte/gruppenTipp.ts). Wer hier nach dem GRUND fragt
+// statt nach der FOLGE, sagt beim zweiten Grund wieder das Falsche. Die Frage
+// beantwortet deshalb der Screen, mit derselben Funktion, die auch den Tipp
+// entscheidet.
+//
+// «An diesem Ort» ist in beiden Fällen wörtlich wahr: bitgleiche Koordinaten
+// im einen, und im anderen die 40 Bildschirmpunkte der Gruppierung auf der
+// letzten Zoomstufe, also rund neun Meter. Bei einer Gruppe, aus der noch
+// herausgezoomt werden kann, wäre es gelogen, dort können dieselben 40 Punkte
+// über 150 km sein, und genau dort steht es auch nicht.
+export function nadelBeschriftung(
+  moment: RecapMoment,
+  anzahl: number,
+  oeffnetSheet: boolean
+): string {
   if (anzahl > 1) {
-    return unteilbar ? `${anzahl} Momente an diesem Ort ansehen` : `Auf ${anzahl} Momente heranzoomen`;
+    return oeffnetSheet
+      ? `${anzahl} Momente an diesem Ort ansehen`
+      : `Auf ${anzahl} Momente heranzoomen`;
   }
   return momentLabel(moment);
 }

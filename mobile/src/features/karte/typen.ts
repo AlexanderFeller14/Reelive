@@ -62,6 +62,19 @@ export type KartenFlaecheProps = {
   thumbFuer: (postId: string) => string | null;
   /** Tipp auf eine Nadel, mit der GANZEN Gruppe, die dahintersteckt. */
   aufGruppe: (gruppe: Gruppe) => void;
+  /**
+   * Oeffnet ein Tipp auf diese Gruppe ihre Liste, statt in sie hineinzufahren?
+   * Nur fuer die Beschriftung, die VoiceOver vorliest; die Fläche handelt
+   * daraus nichts ab, sie meldet den Tipp wie immer an `aufGruppe`.
+   *
+   * Es ist ein Prop und keine Rechnung der Flaeche, obwohl `aufEinemFleck`
+   * hier zur Hand waere: seit der Merge-Fixrunde von Phase 7 gibt es einen
+   * ZWEITEN Grund, aus dem der Tipp das Sheet oeffnet (die Karte steht am
+   * Anschlag ihrer Zoomstufen), und der haengt am Verlauf, den nur der Screen
+   * kennt. Eine eigene Regel hier lief gegen die dort, und die Abweichung
+   * sieht nur, wer VoiceOver einschaltet.
+   */
+  oeffnetSheet: (gruppe: Gruppe) => boolean;
   /** Die Karte steht still und zeigt DAS hier. Grundlage der Gruppierung. */
   aufAusschnitt: (ausschnitt: Ausschnitt) => void;
   /** DESIGN-LANGUAGE §5: damit wird gesprungen statt gefahren. */

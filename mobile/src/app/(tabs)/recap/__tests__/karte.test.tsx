@@ -893,6 +893,29 @@ test('hat sich der Ausschnitt bewegt, zoomt auch der zweite Tipp weiter', async 
   expect(mockAnimateToRegion).toHaveBeenCalledTimes(2);
 });
 
+// Und was die Nadel dazu SAGT. Bis zur Zusammenführung rechnete die
+// Kartenfläche die Weiche selbst, mit `aufEinemFleck`, und kannte damit nur
+// den seltenen Grund. Hier liegen die Momente auf verschiedenen Koordinaten,
+// `aufEinemFleck` sagt also nein, der Tipp öffnet trotzdem das Sheet, und die
+// Nadel versprach weiter einen Zoom, den kein Tipp mehr einlöst. Zu hören
+// bekommt das ausgerechnet der, der nur das Label hat.
+//
+// Das zweite `regionChangeComplete` ist die Karte, die ihre Fahrt beendet
+// meldet, ohne sich bewegt zu haben, genau das tut sie am Anschlag. Erst
+// dadurch rendert der Screen neu und die Beschriftung wird neu gebildet.
+test('an einer festgefahrenen Gruppe sagt die Nadel das Sheet an, nicht den Zoom', async () => {
+  ladeErfolg(NAH_BEIEINANDER);
+  await wrap();
+  await fireEvent(screen.getByTestId('karte-flaeche'), 'regionChangeComplete', MITTEL);
+  expect(await screen.findByLabelText('Auf 2 Momente heranzoomen')).toBeTruthy();
+
+  await fireEvent.press(screen.getByTestId('karte-nadel-p1'));
+  await fireEvent(screen.getByTestId('karte-flaeche'), 'regionChangeComplete', { ...MITTEL });
+
+  expect(screen.getByLabelText('2 Momente an diesem Ort ansehen')).toBeTruthy();
+  expect(screen.queryByLabelText('Auf 2 Momente heranzoomen')).toBeNull();
+});
+
 // Eine andere Gruppe liegt woanders: dorthin kann die Kamera fahren, auch wenn
 // die Zoomstufe am Anschlag ist, die MITTE bewegt sich. Ein stehen
 // gebliebener Versuch darf sie nicht mit ins Sheet reissen.

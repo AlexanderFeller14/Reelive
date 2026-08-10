@@ -92,10 +92,14 @@ describe('die Browser-Fassung der Kartenflaeche zieht react-native-maps nicht mi
   // Gegenprobe für den Testaufbau selbst: schlägt der Resolver fehl (falscher
   // SRC_ROOT, kaputte Regex), wäre der Graph nur die Einstiegsdatei, und
   // jede Zusicherung unten grün, ohne etwas zu prüfen.
+  //
+  // `gruppierung.ts` stand hier mit, solange die Fläche `aufEinemFleck` selbst
+  // aufrief, um ihre Nadeln zu beschriften. Sie fragt das inzwischen beim
+  // Screen nach (`oeffnetSheet`, typen.ts) und rechnet gar nichts mehr über
+  // Gruppen; die Datei gehört seither nicht mehr in ihren Graphen.
   test('Testaufbau: der Graph enthaelt die wiederverwendeten Dateien', () => {
     const dateien = [...graph.keys()];
     expect(dateien.some((d) => d.endsWith(path.join('karte', 'nadel.ts')))).toBe(true);
-    expect(dateien.some((d) => d.endsWith(path.join('karte', 'gruppierung.ts')))).toBe(true);
     expect(dateien.some((d) => d.endsWith(path.join('karte', 'typen.ts')))).toBe(true);
     expect(dateien.some((d) => d.endsWith(path.join('theme', 'tokens.ts')))).toBe(true);
     expect(dateien.some((d) => d.endsWith(path.join('recap', 'uhrzeit.ts')))).toBe(true);

@@ -4,7 +4,6 @@ import MapView, { Polyline } from 'react-native-maps';
 import { KartenNadelMarker } from '@/components/KartenNadel';
 import { useTheme } from '@/theme/ThemeProvider';
 import { motion } from '@/theme/tokens';
-import { aufEinemFleck } from '@/features/karte/gruppierung';
 import type {
   Ausschnitt,
   Gruppe,
@@ -25,7 +24,16 @@ import type {
 // Tagen nichts; sie zeigt, was man ihr gibt, und meldet, was passiert.
 export const KartenFlaeche = forwardRef<KartenFlaecheHandle, KartenFlaecheProps>(
   function KartenFlaeche(
-    { initialerAusschnitt, gruppen, linie, thumbFuer, aufGruppe, aufAusschnitt, reducedMotion },
+    {
+      initialerAusschnitt,
+      gruppen,
+      linie,
+      thumbFuer,
+      aufGruppe,
+      oeffnetSheet,
+      aufAusschnitt,
+      reducedMotion,
+    },
     ref
   ) {
     const { colors } = useTheme();
@@ -126,9 +134,9 @@ export const KartenFlaeche = forwardRef<KartenFlaecheHandle, KartenFlaecheProps>
             anzahl={g.punkte.length}
             // Dieselbe Auskunft, die der Screen für den Tipp benutzt, damit
             // das Label für VoiceOver nennt, was der Tipp WIRKLICH tut:
-            // heranzoomen oder das Sheet öffnen. Eine zweite eigene Regel
-            // hier liefe irgendwann gegen die dort.
-            unteilbar={aufEinemFleck(g)}
+            // heranzoomen oder das Sheet öffnen. Sie kommt von ihm, statt hier
+            // gerechnet zu werden, die Begründung steht am Prop (typen.ts).
+            oeffnetSheet={oeffnetSheet(g)}
             onPress={angetippt}
           />
         ))}
