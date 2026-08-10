@@ -53,6 +53,27 @@ const KEIN_ZUGRIFF_TEXT = 'Kein Zugriff auf diese Reise.';
 // maschinenlesbare Verzweigung.
 export type Grund = 'versiegelt' | 'kein_zugriff';
 
+// Hilft ein zweiter Versuch?
+//
+// Das ist die Eigenschaft, die alle `Grund`-Werte teilen und die sie von jedem
+// anderen Fehler unterscheidet: sie sind ENTSCHEIDUNGEN des Servers, keine
+// Pannen. Die Reise ist versiegelt oder man ist kein Mitglied, und beides
+// bleibt so, bis sich etwas ausserhalb dieser App ändert. Ein Netzwerkfehler,
+// ein 502 beim Signieren, eine kaputte Antwort dagegen sind Momentaufnahmen,
+// dort ist Wiederholen genau die richtige Handlung.
+//
+// Alle drei Recap-Screens (Übersicht, Player, Karte) boten «Nochmal
+// versuchen» bis hierher IMMER an, auch unter «Diese Reise ist noch
+// versiegelt.». Das ist keine Kleinigkeit im Ton: ein Knopf ist ein
+// Versprechen, und dieser konnte es nie einlösen, beliebig oft nicht.
+//
+// Als benannte Funktion und nicht als `grund === null` in drei Screens: kommt
+// je ein dritter Grund dazu, bei dem Wiederholen doch hilft, gibt es genau
+// eine Stelle, die das weiss.
+export function wiederholenHilft(grund: Grund | null): boolean {
+  return grund === null;
+}
+
 function grundAus(status: number, text: string): Grund | null {
   if (status !== 403) return null;
   if (text === REISE_VERSIEGELT_TEXT) return 'versiegelt';

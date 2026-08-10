@@ -2032,3 +2032,59 @@ describe('Melden (Task 8)', () => {
     expect(screen.getByTestId('melden-grund')).toBeTruthy();
   });
 });
+
+// ---------------------------------------------------------------------------
+// «Nochmal versuchen» nur, wo es etwas ausrichtet
+// ---------------------------------------------------------------------------
+//
+// Der Knopf stand unter jedem Fehlertext, auch unter «Diese Reise ist noch
+// versiegelt.» und «Kein Zugriff auf diese Reise.». Beides sind
+// ENTSCHEIDUNGEN des Servers, keine Ausfaelle: sie bleiben so, bis sich etwas
+// ausserhalb dieser App aendert, und der Knopf war ein Versprechen, das er
+// beliebig oft nicht einloesen konnte. Die Regel dafuer steht in
+// features/recap/urlVorrat.ts (`wiederholenHilft`) und ist hier echt, nicht
+// gemockt.
+describe('der Fehler-Zustand bietet nur an, was er halten kann', () => {
+  const LADEFEHLER = 'Die Momente konnten nicht geladen werden. Probier es gleich nochmal.';
+
+  test.each([
+    ['Diese Reise ist noch versiegelt.', 'versiegelt'],
+    ['Kein Zugriff auf diese Reise.', 'kein_zugriff'],
+  ])('unter «%s» steht kein Wiederholen-Knopf', async (text, grund) => {
+    (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
+    (holeVorrat as jest.Mock).mockResolvedValue({ vorrat: null, error: text, grund });
+    await wrap();
+
+    expect(screen.getByTestId('player-fehler')).toBeTruthy();
+    expect(screen.getByText(text)).toBeTruthy();
+    expect(screen.queryByText('Nochmal versuchen')).toBeNull();
+    // Der Rueckweg bleibt: er ist dann die einzige Handlung, die es gibt.
+    expect(screen.getByText('Zurück zur Übersicht')).toBeTruthy();
+  });
+
+  // Die Gegenprobe, die den Knopf am Leben haelt: ohne `grund` ist der Fehler
+  // eine Momentaufnahme (Netz weg, 502 beim Signieren), und dort ist
+  // Wiederholen genau die richtige Handlung.
+  test('ein Fehler ohne Grund behaelt seinen Knopf', async () => {
+    (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
+    (holeVorrat as jest.Mock).mockResolvedValue({ vorrat: null, error: LADEFEHLER, grund: null });
+    await wrap();
+
+    expect(screen.getByText('Nochmal versuchen')).toBeTruthy();
+  });
+
+  // Und die Zuordnung: `grund` gehoert zum VORRAT. Scheitert die REISE-Abfrage,
+  // steht deren Text vorn (Prioritaet im Ladeweg), und die Lage ist eine
+  // andere, auch wenn der Vorrat daneben fachlich abgelehnt hat.
+  test('ein Reise-Fehler behaelt seinen Knopf, auch neben einer fachlichen Ablehnung des Vorrats', async () => {
+    (fetchTrip as jest.Mock).mockResolvedValue({ data: null, error: 'Die Reise liess sich nicht laden.' });
+    (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
+    (holeVorrat as jest.Mock).mockResolvedValue({
+      vorrat: null, error: 'Kein Zugriff auf diese Reise.', grund: 'kein_zugriff',
+    });
+    await wrap();
+
+    expect(screen.getByText('Die Reise liess sich nicht laden.')).toBeTruthy();
+    expect(screen.getByText('Nochmal versuchen')).toBeTruthy();
+  });
+});

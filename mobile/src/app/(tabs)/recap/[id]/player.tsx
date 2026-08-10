@@ -32,7 +32,12 @@ import { sichereMomentInGalerie } from '@/features/recap/exportApi';
 import { meldeMoment, MELDEN_MAX_LAENGE } from '@/features/recap/meldenApi';
 import { gruppiereNachTagen } from '@/features/recap/tage';
 import type { Kommentar, Reaktion, RecapMoment, RecapTag } from '@/features/recap/types';
-import { holeVorrat, laeuftBaldAb, type MedienUrl } from '@/features/recap/urlVorrat';
+import {
+  holeVorrat,
+  laeuftBaldAb,
+  wiederholenHilft,
+  type MedienUrl,
+} from '@/features/recap/urlVorrat';
 import {
   blockiertAutomatischenVorschub,
   dauerFuer,
@@ -392,7 +397,12 @@ export default function RecapPlayer() {
   const { userId } = useAuth();
 
   const [phase, setPhase] = useState<LadePhase>('laedt');
-  const [fehlerText, setFehlerText] = useState<string | null>(null);
+  // Der Fehler und die Frage, ob ein zweiter Versuch etwas ausrichtet, in
+  // EINEM Wert. Sie gehören zusammen: ein Text ohne die Antwort darauf hiesse,
+  // «Nochmal versuchen» unter jeden Satz zu stellen, auch unter «Diese Reise
+  // ist noch versiegelt.». Getrennt gehalten könnten sie auseinanderlaufen,
+  // und der Knopf verspräche wieder etwas, was er nicht hält.
+  const [fehler, setFehler] = useState<{ text: string; nochmalHilft: boolean } | null>(null);
   const [startDate, setStartDate] = useState('');
   // Referenzstabil ab dem Moment, in dem laden() sie einmal setzt (Vertrag 1
   // der Vorgänger-Tasks: tagWechselt memoisiert über die ARRAY-REFERENZ,
@@ -485,9 +495,12 @@ export default function RecapPlayer() {
 
   const laden = useCallback(async () => {
     setPhase('laedt');
-    setFehlerText(null);
-    const [{ data: trip, error: tFehler }, { data: momente, error: mFehler }, { vorrat, error: vFehler }] =
-      await Promise.all([fetchTrip(tripId), fetchRecapMomente(tripId), holeVorrat(tripId)]);
+    setFehler(null);
+    const [
+      { data: trip, error: tFehler },
+      { data: momente, error: mFehler },
+      { vorrat, error: vFehler, grund: vGrund },
+    ] = await Promise.all([fetchTrip(tripId), fetchRecapMomente(tripId), holeVorrat(tripId)]);
     if (!aktiv.current) return;
 
     // Priorität Reise vor Vorrat vor Momenten, gleiche Reihenfolge wie in
@@ -495,7 +508,14 @@ export default function RecapPlayer() {
     // ohnehin bedeutungslos.
     const gemeinsamerFehler = tFehler ?? vFehler ?? mFehler ?? null;
     if (gemeinsamerFehler || !trip) {
-      setFehlerText(gemeinsamerFehler ?? 'Diese Reise gibt es nicht mehr.');
+      setFehler({
+        text: gemeinsamerFehler ?? 'Diese Reise gibt es nicht mehr.',
+        // `grund` gehört zum VORRAT und zählt deshalb nur, wenn dessen Fehler
+        // auch der angezeigte ist (siehe die Priorität darüber). Steht eine
+        // gescheiterte Reise-Abfrage vorn, ist die Lage eine andere, und dort
+        // ist Wiederholen genau die richtige Handlung.
+        nochmalHilft: tFehler === null && vFehler !== null ? wiederholenHilft(vGrund) : true,
+      });
       setPhase('fehler');
       return;
     }
@@ -1260,9 +1280,16 @@ export default function RecapPlayer() {
   if (phase === 'fehler') {
     return (
       <View testID="player-fehler" style={[styles.screen, styles.mitte]}>
-        <Text style={[type.h2, styles.zentrierterText]}>{fehlerText}</Text>
+        <Text style={[type.h2, styles.zentrierterText]}>{fehler?.text}</Text>
         <View style={{ marginTop: spacing.xl, gap: spacing.base, alignItems: 'center' }}>
-          <KinoButton label="Nochmal versuchen" onPress={() => void laden()} />
+          {/* Nur wo ein zweiter Versuch etwas ausrichten kann
+              (features/recap/urlVorrat.ts). Unter «Diese Reise ist noch
+              versiegelt.» stand der Knopf bis hierher ebenfalls, und drücken
+              konnte man ihn beliebig oft. Der Rückweg darunter bleibt in
+              jedem Fall, er ist dann die einzige Handlung, die es gibt. */}
+          {fehler?.nochmalHilft && (
+            <KinoButton label="Nochmal versuchen" onPress={() => void laden()} />
+          )}
           <TextLink label="Zurück zur Übersicht" onPress={schliessen} />
         </View>
       </View>

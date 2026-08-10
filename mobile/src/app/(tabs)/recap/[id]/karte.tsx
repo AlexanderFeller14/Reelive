@@ -16,7 +16,7 @@ import { useReducedMotion } from '@/theme/useReducedMotion';
 import { fetchRecapMomente } from '@/features/recap/recapApi';
 import { gruppiereNachTagen, sortiereMomente } from '@/features/recap/tage';
 import type { RecapMoment, RecapTag } from '@/features/recap/types';
-import { holeVorrat, type MedienUrl } from '@/features/recap/urlVorrat';
+import { holeVorrat, wiederholenHilft, type MedienUrl } from '@/features/recap/urlVorrat';
 import { fetchTrip } from '@/features/trips/tripsApi';
 import { ausschnittFuer } from '@/features/karte/ausschnitt';
 import { KartenFlaeche } from '@/features/karte/KartenFlaeche';
@@ -142,6 +142,15 @@ type Ladestand = {
   unterwegs: number;
   ohneBild: number;
   fehlerText: string | null;
+  // Ob ein zweiter Versuch etwas ausrichtet. Im Ladestand und nicht daneben:
+  // die Antwort gehört zu genau diesem Fehlertext und wird mit ihm gesetzt,
+  // getrennt gehalten könnten die beiden auseinanderlaufen und der Knopf
+  // verspräche etwas, was der Text bereits ausschliesst.
+  //
+  // `false` nur bei einer fachlichen Ablehnung des Vorrats (versiegelt, kein
+  // Zugriff, features/recap/urlVorrat.ts). Ohne Fehler ist der Wert
+  // bedeutungslos und steht auf `true`.
+  nochmalHilft: boolean;
 };
 
 // Feste leere Listen statt `[]` bei jedem Ableiten, gleicher Grund wie bei
@@ -408,6 +417,7 @@ export default function RecapKarte() {
     unterwegs: 0,
     ohneBild: 0,
     fehlerText: null,
+    nochmalHilft: true,
   }));
   // Nur für den Knopf im Fehlerzweig. Ein zweiter Anlauf setzt die Phase
   // bewusst NICHT auf 'laedt' zurück: der Fehlertext soll stehen bleiben,
@@ -517,8 +527,10 @@ export default function RecapKarte() {
           unterwegs: 0,
           ohneBild: 0,
           fehlerText: null,
+          nochmalHilft: true,
         };
-  const { phase, punkte, ohneOrt, unterwegs, ohneBild, fehlerText } = sichtbarerStand;
+  const { phase, punkte, ohneOrt, unterwegs, ohneBild, fehlerText, nochmalHilft } =
+    sichtbarerStand;
   // Aus demselben Grund abgeleitet wie oben, und hier zusätzlich für den
   // Unterschied zwischen «kein Moment hat einen Ort» und «es gibt gar keine
   // Momente» gebraucht (siehe die beiden Leer-Zweige unten).
@@ -564,10 +576,7 @@ export default function RecapKarte() {
       // sind bereits deutsche Copy in Du-Form (recapApi.ts, urlVorrat.ts),
       // inklusive der beiden fachlichen 403 «Diese Reise ist noch versiegelt.»
       // und «Kein Zugriff auf diese Reise.», die `holeVorrat` zusätzlich als
-      // `grund` maschinenlesbar macht. Der `grund` wird hier NICHT ausgewertet:
-      // was dieser Screen tun kann, ist in allen Fällen dasselbe (den Grund
-      // nennen, einen zweiten Versuch anbieten, den Rückweg offen lassen), und
-      // player.tsx entscheidet an derselben Stelle genauso.
+      // `grund` maschinenlesbar macht.
       //
       // Vorrat vor Momenten, wie in uebersicht.tsx und player.tsx: ohne
       // Bild-URLs ist die Spielliste ohnehin leer (sie filtert auf
@@ -584,6 +593,12 @@ export default function RecapKarte() {
           unterwegs: 0,
           ohneBild: 0,
           fehlerText: fehler,
+          // Nur der Vorrat kennt einen `grund`, und er zählt nur, wenn SEIN
+          // Fehler der angezeigte ist (siehe die Reihenfolge oben). Der
+          // Momente-Fehler ist immer eine Momentaufnahme, dort ist ein
+          // zweiter Versuch die richtige Handlung.
+          nochmalHilft:
+            vorratErgebnis.error !== null ? wiederholenHilft(vorratErgebnis.grund) : true,
         });
         return;
       }
@@ -621,6 +636,7 @@ export default function RecapKarte() {
         unterwegs: momente.data.length - uploaded.length,
         ohneBild: uploaded.length - mitBild.length,
         fehlerText: null,
+        nochmalHilft: true,
       });
     } catch (wurf: unknown) {
       // fetchRecapMomente und holeVorrat geben Fehler als WERT zurück statt
@@ -641,6 +657,7 @@ export default function RecapKarte() {
         unterwegs: 0,
         ohneBild: 0,
         fehlerText: WURF_TEXT,
+        nochmalHilft: true,
       });
     }
   }, [id, leereKarte]);
@@ -1079,13 +1096,20 @@ export default function RecapKarte() {
               dazuerfunden. */}
           <Text style={[type.body, { color: colors.danger }]}>{fehlerText}</Text>
           {/* Der einzige Primär-Button dieses Zustands (DESIGN-LANGUAGE §4):
-              der Rückweg oben ist ein Icon, kein Knopf. */}
-          <Button
-            variant="primary"
-            label="Nochmal versuchen"
-            onPress={() => void nochmal()}
-            loading={nochmalLaeuft}
-          />
+              der Rückweg oben ist ein Icon, kein Knopf. Und er steht nur da,
+              wo ein zweiter Versuch etwas ausrichten kann
+              (features/recap/urlVorrat.ts): unter «Diese Reise ist noch
+              versiegelt.» wäre er ein Versprechen ohne Deckung, und der
+              Zustand hat dann gar keinen Primär-Button, was §4 ausdrücklich
+              zulässt. */}
+          {nochmalHilft && (
+            <Button
+              variant="primary"
+              label="Nochmal versuchen"
+              onPress={() => void nochmal()}
+              loading={nochmalLaeuft}
+            />
+          )}
         </View>
       </View>
     );
