@@ -516,3 +516,17 @@ enabled = true
 verify_jwt = true
 import_map = "./functions/konto-loeschen/deno.json"
 entrypoint = "./functions/konto-loeschen/index.ts"
+
+# moment-entfernen (Nacharbeit nach Phase 7): einen Moment loeschen, MITSAMT
+# seinen Medien im Speicher. Vorher loeschte der Client nur die posts-Zeile,
+# und die beiden Objekte blieben fuer immer im Bucket liegen, unauffindbar.
+[functions.moment-entfernen]
+enabled = true
+# Wie konto-loeschen: kein anonymer Pfad. Die Identitaet kommt aus dem JWT, der
+# Body traegt nur die post_id. Wer entfernen darf, entscheidet zugriff.ts,
+# wortgleich zur RLS-Policy posts_delete_after_reveal, und zwar VOR dem
+# Speicherschritt: sonst liesse sich mit einer fremden post_id ein fremder
+# Moment unbrauchbar machen.
+verify_jwt = true
+import_map = "./functions/moment-entfernen/deno.json"
+entrypoint = "./functions/moment-entfernen/index.ts"

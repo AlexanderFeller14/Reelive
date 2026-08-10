@@ -134,11 +134,52 @@ export async function verwirfMeldung(reportId: string): Promise<{ error: string 
 
 const ENTFERNEN_FEHLER = 'Der Moment konnte nicht entfernt werden. Probier es gleich nochmal.';
 
-// «Moment entfernen»: löscht den gemeldeten Post. posts_delete_after_reveal
-// erlaubt der Owner-Person das Löschen jedes Moments nach dem Reveal, nicht
-// nur des eigenen, genau die Moderationsbefugnis, die dieser Aufruf braucht.
+// «Moment entfernen»: löscht den gemeldeten Moment MITSAMT seinen Medien.
+//
+// Über die Edge Function, nicht mehr über `from('posts').delete()`. Der
+// direkte Weg löschte nur die Zeile; das Medium und sein Thumbnail blieben für
+// immer im Speicher liegen, und ihren Pfad kannte danach niemand mehr, denn er
+// leitet sich aus der gelöschten Zeile ab. Bei einer Moderation ist das das
+// Gegenteil dessen, was die Handlung verspricht: der gemeldete Inhalt
+// verschwindet aus der App, aber nicht aus dem Speicher.
+//
+// Löschen im Speicher verlangt die S3-Zugangsdaten, und die gehören nie in
+// eine App. Die Function prüft dieselbe Regel, die auch
+// `posts_delete_after_reveal` durchsetzt (supabase/functions/moment-entfernen/
+// zugriff.ts), und zwar VOR dem Speicherschritt.
+//
+// Aufrufweg wie in urlVorrat.ts und postsApi.ts: `functions.invoke`, Fehler
+// kommen entweder als FunctionsHttpError mit deutschem Klartext im JSON-Body
+// oder als Netzwerkfehler, den `istOffline` erkennt.
 export async function entferneMoment(postId: string): Promise<{ error: string | null }> {
-  const { error } = await supabase.from('posts').delete().eq('id', postId);
-  if (error) return { error: meldung(error, ENTFERNEN_FEHLER) };
-  return { error: null };
+  const { error } = await supabase.functions.invoke('moment-entfernen', {
+    body: { post_id: postId },
+  });
+  if (!error) return { error: null };
+
+  // Der Klartext der Function, wo es einen gibt: sie nennt Ursache und Lösung
+  // in Du-Form (DESIGN-LANGUAGE §6), diese Datei erfindet nichts dazu. Nur
+  // wenn die Antwort kein JSON trägt, springt der eigene Text ein.
+  const httpFehler = error as { name?: string; context?: unknown };
+  if (httpFehler?.name === 'FunctionsHttpError' && httpFehler.context instanceof Response) {
+    const antwort = httpFehler.context;
+    try {
+      const body = (await antwort.clone().json()) as { fehler?: string };
+      if (typeof body.fehler === 'string' && body.fehler.length > 0) return { error: body.fehler };
+    } catch {
+      // Antwort war kein JSON, generische Meldung unten.
+    } finally {
+      // Der Klon wurde gelesen, das Original nicht, und ein ungelesener
+      // Antwort-Körper hält seinen Stream offen. Auf dem Gerät fällt das nicht
+      // auf, im Testlauf schon: Jest meldete danach einen Worker, der sich
+      // nicht sauber beendet. Gleiches Aufräumen wie in
+      // konto-loeschen/store.ts (`await antwort.body?.cancel()`).
+      void antwort.body?.cancel().catch(() => {});
+    }
+  }
+  const roh = error as { message?: string; context?: { message?: string } } | null;
+  if (istOffline({ message: roh?.context?.message }) || istOffline(roh ?? null)) {
+    return { error: OFFLINE_HINT };
+  }
+  return { error: ENTFERNEN_FEHLER };
 }

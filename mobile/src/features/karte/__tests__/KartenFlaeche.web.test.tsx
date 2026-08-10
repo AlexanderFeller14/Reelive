@@ -58,6 +58,10 @@ const basis: KartenFlaecheProps = {
   linie: [],
   thumbFuer: () => null,
   aufGruppe: () => {},
+  // Die Flaeche rechnet nicht mehr selbst, ob ein Tipp das Sheet oeffnet, sie
+  // fragt (features/karte/typen.ts). `false` ist der Normalfall: eine Gruppe,
+  // in die man noch hineinfahren kann.
+  oeffnetSheet: () => false,
   aufAusschnitt: () => {},
   reducedMotion: false,
 };
@@ -188,6 +192,38 @@ test('die Kacheln kommen von OpenStreetMap', async () => {
   expect(kacheln.mock.calls[0][0]).toBe(KACHEL_URL);
   expect(KACHEL_URL).toContain('tile.openstreetmap.org');
   expect(kacheln.mock.calls[0][1]?.attribution).toBe(KACHEL_NAMENSNENNUNG);
+});
+
+// Was die Kachelrichtlinie der OSM Foundation von einer Anwendung verlangt,
+// soweit eine Seite im Browser es überhaupt beeinflussen kann. Die
+// Namensnennung prüft der Test darüber, hier stehen die beiden Punkte, die
+// die ANZAHL der Anfragen bestimmen.
+describe('die Karte geht sparsam mit fremden Kacheln um', () => {
+  test('sie laedt erst, wenn die Karte steht, nicht waehrend des Ziehens', async () => {
+    const kacheln = jest.spyOn(L, 'tileLayer');
+    await zeichne();
+    // Leaflets Vorgabe ist im Desktop-Browser `false`: dort läuft während
+    // jeder Bewegung nach, und ein Schwenk über den Kontinent fragt Dutzende
+    // Kacheln ab, die im nächsten Frame schon wieder aus dem Bild sind.
+    expect(kacheln.mock.calls[0][1]?.updateWhenIdle).toBe(true);
+  });
+
+  // Kein `{s}`: die drei Namen a/b/c sind ein HTTP/1.1-Workaround, und
+  // tile.openstreetmap.org liefert über HTTP/2 aus. Sie kosten dort zwei
+  // zusätzliche DNS-Auflösungen und TLS-Handshakes und bringen nichts.
+  test('sie verteilt ihre Anfragen nicht auf drei Hosts', async () => {
+    expect(KACHEL_URL).not.toContain('{s}');
+    expect(KACHEL_URL.startsWith('https://tile.openstreetmap.org/')).toBe(true);
+  });
+
+  // Und die Obergrenze: OpenStreetMap liefert bis Stufe 19. Ohne sie fragte
+  // die Karte auf Stufe 20 Kacheln ab, die es nicht gibt, und bekäme für
+  // jede eine 404.
+  test('sie fragt keine Zoomstufe an, die es nicht gibt', async () => {
+    const kacheln = jest.spyOn(L, 'tileLayer');
+    await zeichne();
+    expect(kacheln.mock.calls[0][1]?.maxZoom).toBe(19);
+  });
 });
 
 // Leaflets eigenes Stylesheet MUSS ins Bundle, ohne es liegen die Kacheln als
@@ -336,6 +372,22 @@ test('die Nadel sagt, was ein Klick auf sie tut', async () => {
   const host = await zeichne({ gruppen: [auseinander] });
   expect(nadeln(host)[0].getAttribute('aria-label')).toBe('Auf 2 Momente heranzoomen');
   expect(nadeln(host)[0].getAttribute('role')).toBe('button');
+});
+
+// Wie nativ: die Fläche rechnet die Weiche nicht selbst, sie fragt den Screen.
+// Sie kannte bis zur Zusammenführung nur den halben Grund (`aufEinemFleck`)
+// und versprach an einer festgefahrenen Gruppe weiter einen Zoom, den kein
+// Klick mehr einlöst. Die Gruppe hier hat ausdrücklich zwei verschiedene
+// Koordinaten: was zählt, ist allein die Antwort.
+test('die Flaeche rechnet die Antwort nicht selbst, sie fragt', async () => {
+  const host = await zeichne({ gruppen: [auseinander], oeffnetSheet: () => true });
+  expect(nadeln(host)[0].getAttribute('aria-label')).toBe('2 Momente an diesem Ort ansehen');
+});
+
+test('gefragt wird mit der GANZEN Gruppe, nicht mit ihrem Anker', async () => {
+  const oeffnetSheet = jest.fn(() => false);
+  await zeichne({ gruppen: [auseinander], oeffnetSheet });
+  expect(oeffnetSheet).toHaveBeenCalledWith(auseinander);
 });
 
 test('meldet den Klick auf eine Gruppe nach oben', async () => {

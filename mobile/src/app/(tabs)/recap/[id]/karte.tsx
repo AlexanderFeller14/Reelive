@@ -1,13 +1,5 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import {
-  Animated,
-  Easing,
-  ScrollView,
-  StyleSheet,
-  Text,
-  useWindowDimensions,
-  View,
-} from 'react-native';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Animated, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
@@ -15,7 +7,7 @@ import { Check, ChevronDown, ChevronLeft } from 'lucide-react-native';
 import { Button } from '@/components/Button';
 import { Pille } from '@/components/Pille';
 import { PressScale } from '@/components/PressScale';
-import { Sheet, SHEET_SCROLL_ANTEIL } from '@/components/Sheet';
+import { Sheet } from '@/components/Sheet';
 import { meldeFehler } from '@/lib/fehlermelder';
 import { useTheme } from '@/theme/ThemeProvider';
 import { cinema, motion, radius, spacing, type } from '@/theme/tokens';
@@ -24,14 +16,25 @@ import { useReducedMotion } from '@/theme/useReducedMotion';
 import { fetchRecapMomente } from '@/features/recap/recapApi';
 import { gruppiereNachTagen, sortiereMomente } from '@/features/recap/tage';
 import type { RecapMoment, RecapTag } from '@/features/recap/types';
-import { zeitInZone } from '@/features/recap/uhrzeit';
-import { holeVorrat, type MedienUrl } from '@/features/recap/urlVorrat';
+import { holeVorrat, wiederholenHilft, type MedienUrl } from '@/features/recap/urlVorrat';
 import { fetchTrip } from '@/features/trips/tripsApi';
 import { ausschnittFuer } from '@/features/karte/ausschnitt';
 import { KartenFlaeche } from '@/features/karte/KartenFlaeche';
 import { gruppiere } from '@/features/karte/gruppierung';
 import { zoomAussichtslos, zoomZiel, type ZoomVersuch } from '@/features/karte/gruppenTipp';
 import { zuKartenPunkten } from '@/features/karte/kartenPunkte';
+import { useReiseGebunden } from '@/features/trips/useReiseGebunden';
+import { momentLabel } from '@/features/karte/nadel';
+import {
+  Einblendung,
+  GruppenSheetInhalt,
+  MomentSheetInhalt,
+  SheetScroll,
+  nadelBild,
+  sheetBild,
+  zeilenStile,
+  type SheetForm,
+} from '@/features/karte/MomentSheet';
 import type {
   Ausschnitt,
   Gruppe,
@@ -75,76 +78,10 @@ const LEER_OHNE_MOMENTE = 'Diese Reise ist leer geblieben.';
 // diesen Satz sieht das nach einem Fehler aus statt nach einer Regel.
 const LUECKEN_HINWEIS = 'Tage, an denen kein Moment einen Ort hat, stehen nicht zur Wahl.';
 
-// Eine URL, mit der sich tatsächlich ein Bild laden lässt, oder `null`.
-//
-// `MedienUrl.medium_url` ist als `string` typisiert, wird in urlVorrat.ts aber
-// ungeprüft aus der Antwort der Function übernommen. Fehlt das Feld dort (App
-// und Function werden getrennt ausgerollt, derselbe Grund, aus dem `ausgelassen`
-// weich gelesen wird), lügt der Typ, und ohne diese Prüfung ginge ein
-// `undefined` als Bildquelle an die Nadel.
-function brauchbareUrl(wert: string | null | undefined): string | null {
-  return typeof wert === 'string' && wert.length > 0 ? wert : null;
-}
-
-// Das Bild der Nadel. `thumb_url` fehlt, wenn `media-urls` für den Moment
-// keinen `thumb_key` hatte (siehe supabase/functions/media-urls/index.ts),
-// dann trägt das mittlere Bild die Nadel, genau wie in uebersicht.tsx. Ohne
-// diesen Ausweg bliebe für solche Momente für immer der Skeleton stehen.
-function nadelBild(urls: ReadonlyMap<string, MedienUrl>, momentId: string): string | null {
-  const url = urls.get(momentId);
-  if (!url) return null;
-  return brauchbareUrl(url.thumb_url) ?? brauchbareUrl(url.medium_url);
-}
-
-// Das Bild IM SHEET ist gross (3:2, Spec §5.7), dafür ist das mittlere Bild
-// gedacht, nicht das 44 Punkte breite Nadel-Thumbnail. Die Reihenfolge ist
-// deshalb genau umgekehrt zu `nadelBild`; der Ausweg auf die jeweils andere
-// URL bleibt aus demselben Grund wie dort: `media-urls` lässt je nach Moment
-// die eine oder die andere weg.
-function sheetBild(urls: ReadonlyMap<string, MedienUrl>, momentId: string): string | null {
-  const url = urls.get(momentId);
-  if (!url) return null;
-  return brauchbareUrl(url.medium_url) ?? brauchbareUrl(url.thumb_url);
-}
-
-// Der scrollende Bereich eines Sheets. Beide Sheets dieses Screens benutzen
-// ihn: die Liste einer Gruppe, weil sie beliebig lang werden kann, und der
-// einzelne Moment, weil Bild (3:2), Ort und Caption bei grosser Systemschrift
-// zusammen höher werden als das Sheet, dort bliebe sonst ausgerechnet der
-// Primär-Button unerreichbar. Er steht deshalb AUSSERHALB dieses Bereichs
-// und bleibt stehen, während der Inhalt darüber scrollt.
-function SheetScroll({ testID, children }: { testID: string; children: ReactNode }) {
-  const { height: fensterHoehe } = useWindowDimensions();
-  return (
-    <ScrollView
-      testID={testID}
-      style={{ maxHeight: fensterHoehe * SHEET_SCROLL_ANTEIL }}
-      // Den Abstand zwischen den Kindern hielt vorher `Sheet` selbst
-      // (styles.inhalt, `gap`), innerhalb der ScrollView gilt er nicht mehr,
-      // also steht er hier, mit demselben Wert.
-      contentContainerStyle={styles.scrollInhalt}
-    >
-      {children}
-    </ScrollView>
-  );
-}
-
-// «Mira · 14:32» (Spec §5.7). Die Uhrzeit läuft über dieselbe Formatierung wie
-// im Player und an der Nadel (features/recap/uhrzeit.ts): sie zeigt die Zeit
-// in `captured_tz`, die Uhrzeit von damals vor Ort, nicht die auf die
-// Gerätezeit umgerechnete. Eine zweite eigene Formatierung liefe hier
-// unweigerlich irgendwann auseinander.
-function autorUndZeit(moment: RecapMoment): string {
-  return `${moment.autor_name} · ${zeitInZone(moment.captured_at, moment.captured_tz)}`;
-}
-
-// Was VoiceOver zu einem einzelnen Moment sagt, wortgleich an der Nadel
-// (KartenNadel.tsx), in der Gruppenliste und an den Kacheln der Momente ohne
-// Ort: derselbe Moment, derselbe Weg. Eine zweite Formulierung liefe
-// irgendwann gegen die erste.
-function momentLabel(moment: RecapMoment): string {
-  return `Moment von ${moment.autor_name} um ${zeitInZone(moment.captured_at, moment.captured_tz)} öffnen`;
-}
+// Was die Sheets dieses Screens von denen des geteilten Recaps unterscheidet
+// (features/karte/MomentSheet.tsx): die Beschriftung des Knopfs, und sonst
+// nichts. Der leere testID-Präfix ist Absicht, siehe `SheetForm` dort.
+const SHEET_FORM: SheetForm = { knopfLabel: 'Im Recap ansehen', praefix: '' };
 
 // Die Leiste unten UND der Titel ihres Sheets (Spec §5.8), eine Quelle für
 // beide. Singular/Plural wie überall im Projekt: die Zahl bleibt auch im
@@ -206,6 +143,15 @@ type Ladestand = {
   unterwegs: number;
   ohneBild: number;
   fehlerText: string | null;
+  // Ob ein zweiter Versuch etwas ausrichtet. Im Ladestand und nicht daneben:
+  // die Antwort gehört zu genau diesem Fehlertext und wird mit ihm gesetzt,
+  // getrennt gehalten könnten die beiden auseinanderlaufen und der Knopf
+  // verspräche etwas, was der Text bereits ausschliesst.
+  //
+  // `false` nur bei einer fachlichen Ablehnung des Vorrats (versiegelt, kein
+  // Zugriff, features/recap/urlVorrat.ts). Ohne Fehler ist der Wert
+  // bedeutungslos und steht auf `true`.
+  nochmalHilft: boolean;
 };
 
 // Feste leere Listen statt `[]` bei jedem Ableiten, gleicher Grund wie bei
@@ -273,158 +219,6 @@ function ohneOrtMitIndex(spielliste: RecapMoment[], ohneOrt: RecapMoment[]): Ohn
     .filter((eintrag) => ids.has(eintrag.moment.id));
 }
 
-// Der einzelne Moment im Sheet (Spec §5.7): Bild 3:2 mit Radius 24
-// (DESIGN-LANGUAGE §3), darunter Autor/Uhrzeit, Ort und Caption, und EIN
-// Primär-Button (§4: genau einer pro Screen; die Liste unten hat deshalb
-// keinen).
-function MomentSheetInhalt({
-  punkt, bildUrl, onAnsehen,
-}: {
-  punkt: KartenPunkt;
-  bildUrl: string | null;
-  onAnsehen: (punkt: KartenPunkt) => void;
-}) {
-  const { colors } = useTheme();
-  const { moment } = punkt;
-  return (
-    <>
-      {/* Bild und Text scrollen, der Knopf bleibt: bei grosser Systemschrift
-          reichen Bild (3:2), Ort und Caption sonst über die Unterkante des
-          Sheets hinaus, und «Im Recap ansehen» wäre nicht mehr zu erreichen. */}
-      <SheetScroll testID="moment-inhalt">
-        <View style={[styles.sheetBild, { backgroundColor: colors['bg-1'] }]}>
-          {/* Ohne brauchbare URL bleibt die ruhige bg-1-Fläche stehen, kein
-              Puls: es kommt nichts mehr (gleiche Unterscheidung wie im
-              Nadel-Skelett, KartenNadel.tsx). */}
-          {bildUrl !== null && (
-            <Image
-              testID="sheet-bild"
-              source={{ uri: bildUrl }}
-              style={StyleSheet.absoluteFill}
-              contentFit="cover"
-              transition={motion.duration.fast}
-            />
-          )}
-        </View>
-        <View style={styles.sheetText}>
-          <Text style={[type.secondary, { color: colors['text-2'] }]}>{autorUndZeit(moment)}</Text>
-          {moment.place_name ? (
-            <Text style={[type.bodyMedium, { color: colors['text-1'] }]}>{moment.place_name}</Text>
-          ) : null}
-          {moment.caption ? (
-            <Text style={[type.body, { color: colors['text-1'] }]}>{moment.caption}</Text>
-          ) : null}
-        </View>
-      </SheetScroll>
-      <Button variant="primary" label="Im Recap ansehen" onPress={() => onAnsehen(punkt)} />
-    </>
-  );
-}
-
-// Die Momente einer Gruppe, die sich nicht auseinanderzoomen lässt (Task-8-
-// Brief, Schritt 2b). Jeder Eintrag führt über denselben Weg in den Player wie
-// ein einzelner Moment, und keiner davon ist ein Primär-Button: es gibt genau
-// einen pro Screen, und den trägt das Moment-Sheet.
-function GruppenSheetInhalt({
-  punkte, urls, onAnsehen,
-}: {
-  punkte: KartenPunkt[];
-  urls: ReadonlyMap<string, MedienUrl>;
-  onAnsehen: (punkt: KartenPunkt) => void;
-}) {
-  return (
-    // Die Liste scrollt (siehe SheetScroll): auf einem Fleck können beliebig
-    // viele Momente liegen, `ortBestimmen` fragt ohne Optionen nach der
-    // Position (features/moments/ortUndZeit.ts), und zwei Aufnahmen kurz
-    // nacheinander bekommen regelmässig denselben Fix bitgleich zurück.
-    <SheetScroll testID="gruppe-liste">
-      {punkte.map((p, stelle) => (
-        <GruppenEintrag
-          key={p.moment.id}
-          punkt={p}
-          thumbUrl={nadelBild(urls, p.moment.id)}
-          stelle={stelle}
-          onAnsehen={onAnsehen}
-        />
-      ))}
-    </SheetScroll>
-  );
-}
-
-// Eine Zeile, die sich einblendet. Eigene Komponente, weil jede Zeile ihren
-// eigenen Animated.Value braucht: DESIGN-LANGUAGE §5 verlangt für Listen einen
-// Stagger von 40 ms, und der ist pro Zeile eine eigene Verzögerung. Beide
-// Listen dieses Screens (die Momente einer Gruppe und die Reisetage) benutzen
-// sie, zwei Kopien liefen irgendwann in verschiedenen Rhythmen.
-function Einblendung({ stelle, children }: { stelle: number; children: ReactNode }) {
-  const reducedMotion = useReducedMotion();
-  // `useState` mit Initialisierer statt `useRef(...).current` wie in den
-  // Nachbardateien: beides erzeugt den Wert genau einmal, aber das Lesen eines
-  // Refs beim Rendern ist ein Lint-Fehler (react-hooks/refs), hier neu
-  // geschriebener Code, also gleich in der Form, die stehen bleiben kann.
-  const [opacity] = useState(() => new Animated.Value(0));
-
-  useEffect(() => {
-    // §5: mit Reduced Motion wird alles zu einem 200-ms-Fade, die Zeilen
-    // erscheinen dann gemeinsam, ohne Staffelung. Nur `opacity` wird bewegt,
-    // also läuft die Animation auf dem UI-Thread.
-    Animated.timing(opacity, {
-      toValue: 1,
-      duration: reducedMotion ? REDUZIERTE_DAUER_MS : motion.duration.base,
-      delay: reducedMotion ? 0 : stelle * STAGGER_MS,
-      easing: Easing.bezier(...motion.easeSmooth),
-      useNativeDriver: true,
-    }).start();
-  }, [opacity, reducedMotion, stelle]);
-
-  return <Animated.View style={{ opacity }}>{children}</Animated.View>;
-}
-
-// Eine Zeile der Gruppenliste.
-function GruppenEintrag({
-  punkt, thumbUrl, stelle, onAnsehen,
-}: {
-  punkt: KartenPunkt;
-  thumbUrl: string | null;
-  stelle: number;
-  onAnsehen: (punkt: KartenPunkt) => void;
-}) {
-  const { colors } = useTheme();
-  const { moment } = punkt;
-
-  return (
-    <Einblendung stelle={stelle}>
-      <PressScale
-        scaleTo={0.98}
-        accessibilityRole="button"
-        // Wortgleich zur Beschriftung der einzelnen Nadel
-        // (KartenNadel.tsx): derselbe Moment, derselbe Weg.
-        accessibilityLabel={momentLabel(moment)}
-        testID={`gruppe-eintrag-${moment.id}`}
-        onPress={() => onAnsehen(punkt)}
-      >
-        <View style={styles.eintrag}>
-          {/* Klein und quadratisch: Radius 12 ist der Thumbnail-Wert
-              (DESIGN-LANGUAGE §3), 24 gehört dem grossen Bild oben. */}
-          <View style={[styles.eintragBild, { backgroundColor: colors['bg-1'] }]}>
-            {thumbUrl !== null && (
-              <Image source={{ uri: thumbUrl }} style={StyleSheet.absoluteFill} contentFit="cover" />
-            )}
-          </View>
-          <View style={styles.eintragText}>
-            <Text style={[type.bodyMedium, { color: colors['text-1'] }]}>{autorUndZeit(moment)}</Text>
-            {moment.caption ? (
-              <Text numberOfLines={1} style={[type.secondary, { color: colors['text-2'] }]}>
-                {moment.caption}
-              </Text>
-            ) : null}
-          </View>
-        </View>
-      </PressScale>
-    </Einblendung>
-  );
-}
-
 // Eine Zeile der Tagesliste (Task-9-Brief): «Alle Tage» oder ein einzelner
 // Reisetag. Kein Primär-Button, DESIGN-LANGUAGE §4 lässt genau einen pro
 // Screen zu, und den trägt das Moment-Sheet («Im Recap ansehen»).
@@ -453,8 +247,8 @@ function TagEintrag({
         testID={testID}
         onPress={onWaehlen}
       >
-        <View style={styles.eintrag}>
-          <View style={styles.eintragText}>
+        <View style={zeilenStile.zeile}>
+          <View style={zeilenStile.text}>
             <Text style={[type.bodyMedium, { color: colors['text-1'] }]}>{beschriftung}</Text>
             {/* Der Ort des Tages steht nur da, wenn es einen gibt
                 (tage.ortDesTages liefert sonst null), kein erfundener
@@ -624,6 +418,7 @@ export default function RecapKarte() {
     unterwegs: 0,
     ohneBild: 0,
     fehlerText: null,
+    nochmalHilft: true,
   }));
   // Nur für den Knopf im Fehlerzweig. Ein zweiter Anlauf setzt die Phase
   // bewusst NICHT auf 'laedt' zurück: der Fehlertext soll stehen bleiben,
@@ -646,7 +441,14 @@ export default function RecapKarte() {
   // Zustände leert), und ein stehen gebliebenes Sheet zeigte danach einen
   // Moment der VORHERIGEN Reise, sein Knopf schickte den Player mit deren
   // Index in die neue, wo dieselbe Zahl auf einen ganz anderen Moment zeigt.
-  const [sheet, setSheet] = useState<{ tripId: string; punkte: KartenPunkt[] } | null>(null);
+  //
+  // `useReiseGebunden` haelt den Stempel und wirft den Wert beim Wechsel weg
+  // (features/trips/useReiseGebunden.ts, samt der vollen Begruendung, warum
+  // das beim RENDERN passieren muss und nicht in einem Effekt). Vier Zustaende
+  // dieses Screens brauchen genau das, und viermal derselbe von Hand
+  // geschriebene Vergleich war das Muster, an dem die Phase drei Runden
+  // verloren hat.
+  const [sheetPunkte, setSheetPunkte] = useReiseGebunden<KartenPunkt[] | null>(id, null);
   // Die beiden Hälften, aus denen die Tagesnummern entstehen, jede mit der
   // Reise, aus der sie stammt. Sie kommen aus ZWEI getrennten Abfragen (siehe
   // die Ladewege unten), und eine Mischung aus zwei Reisen ergäbe Nummern, die
@@ -662,45 +464,18 @@ export default function RecapKarte() {
   // Grund wie beim Sheet oben: der Screen bleibt bei einem Wechsel der id
   // gemountet, und ein stehen gebliebener Filterstand öffnete die NÄCHSTE
   // Reise vorgefiltert auf einen Tag, den niemand gewählt hat.
-  const [tagWahl, setTagWahl] = useState<{ tripId: string; nummer: number } | null>(null);
+  const [tagWahl, setTagWahl] = useReiseGebunden<number | null>(id, null);
   // Das offene Tages-Sheet trägt seine Reise aus demselben Grund wie `sheet`,
   // und aus einem eigenen, schärferen: es listet die Tage DER REISE, aus der
   // es geöffnet wurde. Bliebe es bei einem Wechsel stehen, würde ein Tipp auf
   // «Tag 3» die neue Reise auf einen Tag filtern, den niemand in ihr gewählt
   // hat, und `waehleTag` schriebe dabei die NEUE id in die Wahl, der Wächter
   // unten käme also nie zum Zug.
-  const [tageSheet, setTageSheet] = useState<{ tripId: string } | null>(null);
+  const [tageOffen, setTageOffen] = useReiseGebunden(id, false);
   // Und das Sheet der Momente ohne Ort, aus genau denselben Gründen: seine
   // Kacheln tragen Indizes der Reise, aus der es geöffnet wurde.
-  const [ohneOrtSheet, setOhneOrtSheet] = useState<{ tripId: string } | null>(null);
+  const [ohneOrtOffen, setOhneOrtOffen] = useReiseGebunden(id, false);
 
-  // Zurückgesetzt BEIM RENDERN, das dokumentierte React-Muster für «Zustand
-  // beim Wechsel einer Prop verwerfen». React verwirft die Ausgabe dieses
-  // Durchlaufs und rendert sofort neu, es wird also nie ein fremdes Sheet
-  // sichtbar.
-  //
-  // Ein `setState` im Effektkörper wäre ein Lint-Verstoss
-  // (react-hooks/set-state-in-effect) und eines im `.then()` käme zu spät.
-  // Und bloss zu VERSTECKEN (den Zustand stehen lassen und beim Ableiten
-  // vergleichen) reicht nicht: bei t1 → t2 → t1 auf derselben Instanz passte
-  // die Reise-id wieder, und ein Sheet öffnete sich mitsamt seiner
-  // Eintrittsanimation, das niemand angetippt hat, mit einem Index aus dem
-  // früheren Ladevorgang, der inzwischen auf einen anderen Moment zeigen kann.
-  //
-  // Kein zusätzlicher Vergleich beim Ableiten: er wäre nie zu beobachten, weil
-  // die Ausgabe dieses Durchlaufs ohnehin verworfen wird.
-  if (sheet !== null && sheet.tripId !== id) setSheet(null);
-  // Aus demselben Grund und auf demselben Weg: eine Tageswahl der vorherigen
-  // Reise ist in der neuen keine Wahl mehr, sondern ein Filter, den niemand
-  // gesetzt hat, und weil die Tagesnummer in der neuen Reise oft schlicht
-  // existiert, sähe das nicht nach einem Fehler aus, sondern nach einer Reise
-  // mit auffällig wenigen Momenten.
-  if (tagWahl !== null && tagWahl.tripId !== id) setTagWahl(null);
-  if (tageSheet !== null && tageSheet.tripId !== id) setTageSheet(null);
-  if (ohneOrtSheet !== null && ohneOrtSheet.tripId !== id) setOhneOrtSheet(null);
-  const sheetPunkte = sheet?.punkte ?? null;
-  const tageOffen = tageSheet !== null;
-  const ohneOrtOffen = ohneOrtSheet !== null;
 
   // Der Ladestand wird ABGELEITET statt beim Rendern zurückgesetzt, anders
   // als die vier Sheets/Filter darüber, und aus einem Grund, der nur für
@@ -733,8 +508,10 @@ export default function RecapKarte() {
           unterwegs: 0,
           ohneBild: 0,
           fehlerText: null,
+          nochmalHilft: true,
         };
-  const { phase, punkte, ohneOrt, unterwegs, ohneBild, fehlerText } = sichtbarerStand;
+  const { phase, punkte, ohneOrt, unterwegs, ohneBild, fehlerText, nochmalHilft } =
+    sichtbarerStand;
   // Aus demselben Grund abgeleitet wie oben, und hier zusätzlich für den
   // Unterschied zwischen «kein Moment hat einen Ort» und «es gibt gar keine
   // Momente» gebraucht (siehe die beiden Leer-Zweige unten).
@@ -780,10 +557,7 @@ export default function RecapKarte() {
       // sind bereits deutsche Copy in Du-Form (recapApi.ts, urlVorrat.ts),
       // inklusive der beiden fachlichen 403 «Diese Reise ist noch versiegelt.»
       // und «Kein Zugriff auf diese Reise.», die `holeVorrat` zusätzlich als
-      // `grund` maschinenlesbar macht. Der `grund` wird hier NICHT ausgewertet:
-      // was dieser Screen tun kann, ist in allen Fällen dasselbe (den Grund
-      // nennen, einen zweiten Versuch anbieten, den Rückweg offen lassen), und
-      // player.tsx entscheidet an derselben Stelle genauso.
+      // `grund` maschinenlesbar macht.
       //
       // Vorrat vor Momenten, wie in uebersicht.tsx und player.tsx: ohne
       // Bild-URLs ist die Spielliste ohnehin leer (sie filtert auf
@@ -800,6 +574,12 @@ export default function RecapKarte() {
           unterwegs: 0,
           ohneBild: 0,
           fehlerText: fehler,
+          // Nur der Vorrat kennt einen `grund`, und er zählt nur, wenn SEIN
+          // Fehler der angezeigte ist (siehe die Reihenfolge oben). Der
+          // Momente-Fehler ist immer eine Momentaufnahme, dort ist ein
+          // zweiter Versuch die richtige Handlung.
+          nochmalHilft:
+            vorratErgebnis.error !== null ? wiederholenHilft(vorratErgebnis.grund) : true,
         });
         return;
       }
@@ -837,6 +617,7 @@ export default function RecapKarte() {
         unterwegs: momente.data.length - uploaded.length,
         ohneBild: uploaded.length - mitBild.length,
         fehlerText: null,
+        nochmalHilft: true,
       });
     } catch (wurf: unknown) {
       // fetchRecapMomente und holeVorrat geben Fehler als WERT zurück statt
@@ -857,6 +638,7 @@ export default function RecapKarte() {
         unterwegs: 0,
         ohneBild: 0,
         fehlerText: WURF_TEXT,
+        nochmalHilft: true,
       });
     }
   }, [id, leereKarte]);
@@ -981,7 +763,7 @@ export default function RecapKarte() {
   // wieder «Alle Tage», Pille, Nadeln, Linie und Ausschnitt leiten ALLE aus
   // diesem einen Wert ab und können deshalb gar nicht auseinanderlaufen.
   const gewaehlterTag = useMemo(
-    () => tage.find((t) => t.nummer === tagWahl?.nummer) ?? null,
+    () => tage.find((t) => t.nummer === tagWahl) ?? null,
     [tage, tagWahl]
   );
 
@@ -1061,6 +843,34 @@ export default function RecapKarte() {
     stand.current = { ausschnitt };
   }, [ausschnitt]);
 
+  // Was der Tipp auf diese Gruppe tun WIRD, für die Beschriftung, die
+  // VoiceOver vorliest. Dieselbe Frage, dieselbe Antwort, dasselbe
+  // `zoomAussichtslos` wie im Tipp darunter, nur ohne die Folgen.
+  //
+  // Sie steht hier und nicht in der Fläche, obwohl die die Nadeln zeichnet:
+  // sie hängt am Verlauf (welche Gruppe zuletzt vergeblich angefahren wurde),
+  // und der liegt in `letzterZoom`. Die Fläche kannte bis hierher nur die
+  // halbe Regel, bitgleiche Koordinaten, und sagte an einer festgefahrenen
+  // Gruppe weiter «heranzoomen», obwohl der Tipp längst das Sheet öffnete.
+  //
+  // Der Ausschnitt kommt hier aus dem STATE, nicht aus `stand.current` wie im
+  // Tipp darunter, und das ist kein Versehen: diese Frage wird beim RENDERN
+  // gestellt, und der Layout-Effekt, der das Ref nachzieht, läuft erst danach.
+  // Mit dem Ref trug die erste Nadel jeder Reise das Label für «kein
+  // Ausschnitt bekannt», also immer «heranzoomen», auch auf einem Fleck. Vom
+  // Screen-Test gefunden, nicht hergeleitet. Beim Tipp ist es umgekehrt: er
+  // kommt aus einer Closure, die den Stand von damals sähe, deshalb liest er
+  // das Ref.
+  const oeffnetSheet = useCallback(
+    (gruppe: Gruppe) => {
+      // Ohne Ausschnitt gibt es keine Nadeln, die beschriftet werden könnten
+      // (siehe `gruppen` oben). Für den Typ trotzdem nötig.
+      if (!ausschnitt) return false;
+      return zoomAussichtslos(gruppe, ausschnitt, letzterZoom.current);
+    },
+    [ausschnitt]
+  );
+
 
   // Ein Tipp auf eine Gruppe fährt in sie hinein, solange das etwas ausrichtet
   // (Spec §5.5): wer auf der Karte sucht, will die Karte benutzen. Erst wo
@@ -1117,9 +927,9 @@ export default function RecapKarte() {
         // `oeffneTagesfilter` für die Gegenrichtung ausdrücklich NICHT gelten
         // lässt: der Zustand soll eindeutig sein, statt an der
         // Trefferreihenfolge zu hängen.
-        setTageSheet(null);
-        setOhneOrtSheet(null);
-        setSheet({ tripId: id, punkte: gruppe.punkte });
+        setTageOffen(false);
+        setOhneOrtOffen(false);
+        setSheetPunkte(gruppe.punkte);
         return;
       }
 
@@ -1194,21 +1004,21 @@ export default function RecapKarte() {
     // ohnehin ab; dass der Zustand hier trotzdem eindeutig gemacht wird,
     // kostet nichts und macht die Zusicherung prüfbar, statt sie der
     // Trefferreihenfolge zu überlassen.
-    setSheet(null);
-    setOhneOrtSheet(null);
-    setTageSheet({ tripId: id });
+    setSheetPunkte(null);
+    setOhneOrtOffen(false);
+    setTageOffen(true);
   };
 
   // Aus demselben Grund und auf demselben Weg.
   const oeffneOhneOrt = () => {
-    setSheet(null);
-    setTageSheet(null);
-    setOhneOrtSheet({ tripId: id });
+    setSheetPunkte(null);
+    setTageOffen(false);
+    setOhneOrtOffen(true);
   };
 
   const waehleTag = (tag: RecapTag | null) => {
-    setTageSheet(null);
-    setTagWahl(tag ? { tripId: id, nummer: tag.nummer } : null);
+    setTageOffen(false);
+    setTagWahl(tag?.nummer ?? null);
 
     // Der gewählte Tag ändert Nadeln UND Linie UND Ausschnitt: ein Tag, dessen
     // Momente ausserhalb des sichtbaren Ausschnitts liegen, wäre sonst eine
@@ -1267,13 +1077,20 @@ export default function RecapKarte() {
               dazuerfunden. */}
           <Text style={[type.body, { color: colors.danger }]}>{fehlerText}</Text>
           {/* Der einzige Primär-Button dieses Zustands (DESIGN-LANGUAGE §4):
-              der Rückweg oben ist ein Icon, kein Knopf. */}
-          <Button
-            variant="primary"
-            label="Nochmal versuchen"
-            onPress={() => void nochmal()}
-            loading={nochmalLaeuft}
-          />
+              der Rückweg oben ist ein Icon, kein Knopf. Und er steht nur da,
+              wo ein zweiter Versuch etwas ausrichten kann
+              (features/recap/urlVorrat.ts): unter «Diese Reise ist noch
+              versiegelt.» wäre er ein Versprechen ohne Deckung, und der
+              Zustand hat dann gar keinen Primär-Button, was §4 ausdrücklich
+              zulässt. */}
+          {nochmalHilft && (
+            <Button
+              variant="primary"
+              label="Nochmal versuchen"
+              onPress={() => void nochmal()}
+              loading={nochmalLaeuft}
+            />
+          )}
         </View>
       </View>
     );
@@ -1341,6 +1158,7 @@ export default function RecapKarte() {
           linie={linie}
           thumbFuer={thumbFuer}
           aufGruppe={aufGruppe}
+          oeffnetSheet={oeffnetSheet}
           aufAusschnitt={merkeAusschnitt}
           reducedMotion={reducedMotion}
         />
@@ -1450,7 +1268,7 @@ export default function RecapKarte() {
       {/* Wie beim Moment-Sheet erst gemountet, wenn es offen sein soll: `Sheet`
           bringt seine Eintrittsanimation im Effekt mit. */}
       {tageOffen && (
-        <Sheet sichtbar titel="Reisetage" onSchliessen={() => setTageSheet(null)}>
+        <Sheet sichtbar titel="Reisetage" onSchliessen={() => setTageOffen(false)}>
           {/* Scrollt und ist gedeckelt, aus demselben Grund wie die
               Gruppenliste: eine lange Reise hat viele Tage, und `Sheet`
               schnitte den Überhang hart ab (85 % Fensterhöhe, `overflow:
@@ -1488,7 +1306,7 @@ export default function RecapKarte() {
       )}
 
       {ohneOrtOffen && (
-        <Sheet sichtbar titel={ohneOrtText(ohneOrt.length)} onSchliessen={() => setOhneOrtSheet(null)}>
+        <Sheet sichtbar titel={ohneOrtText(ohneOrt.length)} onSchliessen={() => setOhneOrtOffen(false)}>
           {/* Scrollt und ist gedeckelt, aus demselben Grund wie Gruppen- und
               Tagesliste: `Sheet` schnitte den Überhang hart ab (85 %
               Fensterhöhe, `overflow: hidden`), und die abgeschnittenen
@@ -1524,16 +1342,22 @@ export default function RecapKarte() {
           // also wörtlich wahr, anders als bei einer nach Bildschirmpunkten
           // gebildeten Gruppe.
           titel={sheetPunkte.length > 1 ? `${sheetPunkte.length} Momente an diesem Ort` : undefined}
-          onSchliessen={() => setSheet(null)}
+          onSchliessen={() => setSheetPunkte(null)}
         >
           {sheetPunkte.length === 1 ? (
             <MomentSheetInhalt
               punkt={sheetPunkte[0]}
               bildUrl={sheetBild(urls, sheetPunkte[0].moment.id)}
+              form={SHEET_FORM}
               onAnsehen={zumPlayer}
             />
           ) : (
-            <GruppenSheetInhalt punkte={sheetPunkte} urls={urls} onAnsehen={zumPlayer} />
+            <GruppenSheetInhalt
+              punkte={sheetPunkte}
+              urls={urls}
+              form={SHEET_FORM}
+              onAnsehen={zumPlayer}
+            />
           )}
         </Sheet>
       )}
@@ -1565,16 +1389,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.base,
     borderRadius: radius.pill,
   },
-  // Spec §5.7: Bild in 3:2, Radius 24 (DESIGN-LANGUAGE §3, der Cover-Wert).
-  // `overflow: hidden` beschneidet das Bild auf diesen Radius; einen Schatten
-  // trägt es nicht, der gehört dem Sheet darunter.
-  sheetBild: { width: '100%', aspectRatio: 3 / 2, borderRadius: radius.card, overflow: 'hidden' },
-  // Enger als der Abstand, den das Sheet zwischen seinen Kindern hält: die
-  // drei Zeilen gehören zusammen (4er-Raster, §3).
-  sheetText: { gap: spacing.xs },
-  // Derselbe Abstand, den `Sheet` zwischen seinen eigenen Kindern hält, er
-  // gilt innerhalb der ScrollView nicht mehr weiter.
-  scrollInhalt: { gap: spacing.base },
   // Die Leiste der Momente ohne Ort, mittig unten. Waagrecht zentriert statt
   // an einem Rand: links und rechts oben sitzen bereits Rückweg und
   // Tagesfilter, und eine dritte Pille in derselben Ecke sähe aus, als
@@ -1620,10 +1434,4 @@ const styles = StyleSheet.create({
   // von `useOberkante` überschrieben.
   textScreen: { padding: spacing.screen, gap: spacing.xl },
   textBlock: { gap: spacing.m },
-  eintrag: { flexDirection: 'row', alignItems: 'center', gap: spacing.m },
-  eintragBild: { width: 56, height: 56, borderRadius: radius.control, overflow: 'hidden' },
-  // `flex: 1` nimmt den Rest der Zeile, ohne das schöbe eine lange Caption
-  // die Zeile über den Rand hinaus, statt in `numberOfLines` abgeschnitten zu
-  // werden.
-  eintragText: { flex: 1, gap: spacing.xs },
 });

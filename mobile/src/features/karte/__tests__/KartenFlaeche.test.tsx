@@ -95,6 +95,10 @@ const basis: KartenFlaecheProps = {
   linie: [],
   thumbFuer: () => null,
   aufGruppe: () => {},
+  // Die Flaeche rechnet nicht mehr selbst, ob ein Tipp das Sheet oeffnet, sie
+  // fragt (features/karte/typen.ts). `false` ist der Normalfall: eine Gruppe,
+  // in die man noch hineinfahren kann.
+  oeffnetSheet: () => false,
   aufAusschnitt: () => {},
   reducedMotion: false,
 };
@@ -144,17 +148,47 @@ test('die Nadel traegt das Bild ihres Ankers', async () => {
   expect(screen.getByTestId('nadel-bild').props.source.uri).toBe('https://cdn.example/p1.jpg');
 });
 
-// Die Beschriftung muss dieselbe Weiche kennen wie der Tipp: eine Gruppe auf
-// einem Fleck öffnet ein Sheet, eine aufzoombare zoomt. Verspricht das Label
-// das Falsche, bekommt es ausgerechnet der zu hören, der nur das Label hat.
-test('die Nadel einer Gruppe auf einem Fleck kuendigt das Ansehen an', async () => {
-  await wrap({ gruppen: [aufEinemFleck] });
+// Die Beschriftung muss dieselbe Weiche kennen wie der Tipp: öffnet er ein
+// Sheet, kündigt sie das an, fährt er hinein, ebenso. Verspricht das Label das
+// Falsche, bekommt es ausgerechnet der zu hören, der nur das Label hat.
+test('die Nadel einer Gruppe, deren Tipp das Sheet oeffnet, kuendigt das Ansehen an', async () => {
+  await wrap({ gruppen: [aufEinemFleck], oeffnetSheet: () => true });
   expect(screen.getByLabelText('2 Momente an diesem Ort ansehen')).toBeTruthy();
 });
 
 test('die Nadel einer aufzoombaren Gruppe kuendigt den Zoom an', async () => {
-  await wrap({ gruppen: [auseinander] });
+  await wrap({ gruppen: [auseinander], oeffnetSheet: () => false });
   expect(screen.getByLabelText('Auf 2 Momente heranzoomen')).toBeTruthy();
+});
+
+// Der Fall, an dem die frühere Fassung scheiterte. Sie rechnete die Antwort
+// selbst, mit `aufEinemFleck`, und kannte damit nur den halben Grund: seit der
+// Merge-Fixrunde von Phase 7 öffnet der Tipp das Sheet AUCH dann, wenn die
+// Karte am Anschlag ihrer Zoomstufen steht (features/karte/gruppenTipp.ts).
+// Die Momente liegen dort auf VERSCHIEDENEN Koordinaten, `aufEinemFleck` sagt
+// also nein, und die Nadel versprach weiter einen Zoom, den kein Tipp mehr
+// einlöst.
+//
+// Deshalb ist die Gruppe hier ausdrücklich `auseinander`: was zählt, ist
+// allein die Antwort des Screens.
+test('die Flaeche rechnet die Antwort nicht selbst, sie fragt', async () => {
+  await wrap({ gruppen: [auseinander], oeffnetSheet: () => true });
+  expect(screen.getByLabelText('2 Momente an diesem Ort ansehen')).toBeTruthy();
+  expect(screen.queryByLabelText('Auf 2 Momente heranzoomen')).toBeNull();
+});
+
+// Und die Gegenrichtung: eine Gruppe auf einem Fleck, deren Antwort `false`
+// lautet, bekommt das Zoom-Label. Ohne diesen Test bliebe eine Fassung grün,
+// die `aufEinemFleck` zusätzlich zum Prop prüft und die beiden ODER-verknüpft.
+test('auch eine Gruppe auf einem Fleck folgt der Antwort, nicht ihren Koordinaten', async () => {
+  await wrap({ gruppen: [aufEinemFleck], oeffnetSheet: () => false });
+  expect(screen.getByLabelText('Auf 2 Momente heranzoomen')).toBeTruthy();
+});
+
+test('gefragt wird mit der GANZEN Gruppe, nicht mit ihrem Anker', async () => {
+  const oeffnetSheet = jest.fn(() => false);
+  await wrap({ gruppen: [auseinander], oeffnetSheet });
+  expect(oeffnetSheet).toHaveBeenCalledWith(auseinander);
 });
 
 // ---------------------------------------------------------------------------

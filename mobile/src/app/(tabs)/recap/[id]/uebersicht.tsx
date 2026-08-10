@@ -18,7 +18,12 @@ import { fetchRecapMomente } from '@/features/recap/recapApi';
 import { sichereAlleInGalerie, type AlleErgebnis, type AlleFortschritt } from '@/features/recap/exportApi';
 import { gruppiereNachTagen } from '@/features/recap/tage';
 import type { RecapMoment, RecapTag } from '@/features/recap/types';
-import { holeVorrat, type MedienUrl, type Vorrat } from '@/features/recap/urlVorrat';
+import {
+  holeVorrat,
+  wiederholenHilft,
+  type MedienUrl,
+  type Vorrat,
+} from '@/features/recap/urlVorrat';
 import { TeilenSheetInhalt } from '@/features/teilen/TeilenSheetInhalt';
 
 // Nur der Tag selbst, nicht der Wochentag, den will hier niemand wissen.
@@ -257,20 +262,29 @@ export default function RecapUebersicht() {
   // ohnehin bedeutungslos macht.
   const [geladen, setGeladen] = useState(false);
   const [fehler, setFehler] = useState<string | null>(null);
+  // Ob ein zweiter Versuch etwas ausrichtet. Nur `false` bei einer fachlichen
+  // Ablehnung des Vorrats (versiegelt, kein Zugriff, siehe
+  // features/recap/urlVorrat.ts); dort war «Nochmal versuchen» bis hierher ein
+  // Knopf, den man beliebig oft drücken konnte, ohne dass sich je etwas
+  // geändert hätte.
+  const [nochmalHilft, setNochmalHilft] = useState(true);
   const [laedt, setLaedt] = useState(false);
   const aktiv = useRef(true);
 
   const laden = useCallback(async () => {
-    const [{ data: t, error: tFehler }, { data: m, error: mFehler }, { vorrat: v, error: vFehler }] = await Promise.all([
-      fetchTrip(id),
-      fetchRecapMomente(id),
-      holeVorrat(id),
-    ]);
+    const [
+      { data: t, error: tFehler },
+      { data: m, error: mFehler },
+      { vorrat: v, error: vFehler, grund: vGrund },
+    ] = await Promise.all([fetchTrip(id), fetchRecapMomente(id), holeVorrat(id)]);
     if (!aktiv.current) return;
     setTrip(t);
     setMomente(m);
     setVorrat(v);
     setFehler(tFehler ?? vFehler ?? mFehler ?? null);
+    // `grund` gehört zum VORRAT und zählt deshalb nur, wenn dessen Fehler auch
+    // der angezeigte ist (Priorität Reise vor Vorrat vor Momenten, siehe oben).
+    setNochmalHilft(tFehler === null && vFehler !== null ? wiederholenHilft(vGrund) : true);
     setGeladen(true);
   }, [id]);
 
@@ -413,7 +427,14 @@ export default function RecapUebersicht() {
         <View style={[styles.inhalt, { paddingTop: oben }]}>
           {kopf}
           <Text style={[type.body, { color: colors.danger }]}>{fehler ?? 'Diese Reise gibt es nicht mehr.'}</Text>
-          {fehler && <Button variant="secondary" label="Nochmal versuchen" onPress={() => void nochmal()} loading={laedt} />}
+          {fehler && nochmalHilft && (
+            <Button
+              variant="secondary"
+              label="Nochmal versuchen"
+              onPress={() => void nochmal()}
+              loading={laedt}
+            />
+          )}
         </View>
       </View>
     );
@@ -489,7 +510,16 @@ export default function RecapUebersicht() {
         {fehler ? (
           <View style={{ gap: spacing.l, marginTop: spacing.xl }}>
             <Text style={[type.body, { color: colors.danger }]}>{fehler}</Text>
-            <Button variant="secondary" label="Nochmal versuchen" onPress={() => void nochmal()} loading={laedt} />
+            {/* Nur wo ein zweiter Versuch etwas ausrichten kann, siehe
+                `nochmalHilft` oben. */}
+            {nochmalHilft && (
+              <Button
+                variant="secondary"
+                label="Nochmal versuchen"
+                onPress={() => void nochmal()}
+                loading={laedt}
+              />
+            )}
           </View>
         ) : komplettLeer ? (
           <Text style={[type.h2, { color: colors['text-1'], marginTop: spacing.xl }]}>

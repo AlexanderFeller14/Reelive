@@ -52,3 +52,32 @@ test('Schatten: genau drei Stufen, neutral-schwarz', () => {
   expect(shadow.s2.elevation).toBeGreaterThan(shadow.s1.elevation);
   expect(shadow.s3.shadowOpacity).toBeCloseTo(0.28);
 });
+
+// DESIGN-LANGUAGE §2, unter der Typo-Tabelle: «Zahlen immer `tabular-nums`».
+// Die Regel steht bei den allgemeinen Regeln, nicht in der Zeile des
+// Zaehler-Displays, und gilt damit fuer jeden Text. Sie stand bis zu dieser
+// Nacharbeit nur an `display`.
+describe('§2: Zahlen immer tabular-nums', () => {
+  test('JEDER Textstil traegt es, nicht nur das Zaehler-Display', () => {
+    const ohne = Object.entries(type)
+      .filter(([, stil]) => !(stil as { fontVariant?: string[] }).fontVariant?.includes('tabular-nums'))
+      .map(([name]) => name);
+    expect(ohne).toEqual([]);
+  });
+
+  // Und die Gegenprobe zum Testaufbau: dass ueberhaupt Stile geprueft werden.
+  // Ohne sie waere die Zusicherung oben auch bei einem leeren `type` gruen.
+  test('Testaufbau: es gibt neun Stile', () => {
+    expect(Object.keys(type)).toEqual([
+      'display', 'h1', 'h2', 'h3', 'body', 'bodyMedium', 'secondary', 'label', 'tab',
+    ]);
+  });
+
+  // Je ein EIGENES Array pro Stil: React Native darf Style-Objekte einfrieren,
+  // und ein geteiltes Array waere eine Verbindung zwischen Stilen, die nichts
+  // miteinander zu tun haben.
+  test('kein Stil teilt sein Array mit einem anderen', () => {
+    const arrays = Object.values(type).map((stil) => (stil as { fontVariant?: unknown }).fontVariant);
+    expect(new Set(arrays).size).toBe(arrays.length);
+  });
+});

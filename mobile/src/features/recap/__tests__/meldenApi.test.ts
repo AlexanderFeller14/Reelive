@@ -2,10 +2,12 @@
 // sozialApi.test.ts/tripsApi.test.ts).
 const mockGetSession = jest.fn();
 const mockFrom = jest.fn();
+const mockInvoke = jest.fn();
 jest.mock('@/lib/supabase', () => ({
   supabase: {
     auth: { getSession: () => mockGetSession() },
     from: (...args: unknown[]) => mockFrom(...args),
+    functions: { invoke: (...args: unknown[]) => mockInvoke(...args) },
   },
 }));
 
@@ -181,23 +183,73 @@ describe('verwirfMeldung', () => {
   });
 });
 
+// Ein FunctionsHttpError, wie functions-js ihn baut: die Antwort steckt als
+// echte `Response` in `context`, der Klartext im JSON-Body.
+function httpFehler(status: number, body: unknown) {
+  const antwort = new Response(JSON.stringify(body), {
+    status,
+    headers: { 'content-type': 'application/json' },
+  });
+  return { name: 'FunctionsHttpError', message: `Edge Function returned ${status}`, context: antwort };
+}
+
 describe('entferneMoment', () => {
-  test('Erfolg: löscht genau den einen Post', async () => {
-    const kette = deleteKette({ error: null });
+  // Der eigentliche Grund fuer diese Function: der frueher direkte
+  // `from('posts').delete()` loeschte NUR die Zeile, das Medium und sein
+  // Thumbnail blieben fuer immer im Speicher liegen. Ein Test, der nur «kein
+  // Fehler» prueft, haette diesen Wechsel nicht bemerkt, deshalb steht hier
+  // ausdruecklich, dass der Client die Tabelle NICHT mehr selbst anfasst.
+  test('Erfolg: geht ueber die Function, nicht mehr ueber die Tabelle', async () => {
+    mockInvoke.mockResolvedValue({ data: { entfernt: true }, error: null });
     const ergebnis = await entferneMoment('p1');
     expect(ergebnis).toEqual({ error: null });
-    expect(mockFrom).toHaveBeenCalledWith('posts');
-    expect(kette.eq).toHaveBeenCalledWith('id', 'p1');
+    expect(mockInvoke).toHaveBeenCalledWith('moment-entfernen', { body: { post_id: 'p1' } });
+    expect(mockFrom).not.toHaveBeenCalled();
   });
 
-  test('Netzwerkfehler → Offline-Hinweis', async () => {
-    deleteKette({ error: { message: 'Network request failed' } });
+  // Die Function nennt Ursache und Loesung bereits in Du-Form, der Client
+  // erfindet nichts dazu.
+  test('den Klartext der Function reicht der Client unveraendert durch', async () => {
+    mockInvoke.mockResolvedValue({
+      data: null,
+      error: httpFehler(403, { fehler: 'Dieser Moment lässt sich nicht entfernen.' }),
+    });
+    const ergebnis = await entferneMoment('p1');
+    expect(ergebnis.error).toBe('Dieser Moment lässt sich nicht entfernen.');
+  });
+
+  // Und die Grenze davon: ohne JSON im Body gibt es keinen Klartext, dann
+  // springt der eigene Text ein, statt eine leere Meldung zu zeigen.
+  test('eine Antwort ohne JSON faellt auf die eigene Meldung zurueck', async () => {
+    const antwort = new Response('<html>502</html>', { status: 502 });
+    mockInvoke.mockResolvedValue({
+      data: null,
+      error: { name: 'FunctionsHttpError', message: 'Edge Function returned 502', context: antwort },
+    });
+    const ergebnis = await entferneMoment('p1');
+    expect(ergebnis.error).toBe('Der Moment konnte nicht entfernt werden. Probier es gleich nochmal.');
+  });
+
+  // functions-js ersetzt einen echten Netzwerkfehler durch einen festen
+  // englischen Satz und legt die urspruengliche Fetch-Meldung in `context` ab,
+  // beide Stellen muessen geprueft werden (gleiches Muster wie urlVorrat.ts).
+  test('Netzwerkfehler → Offline-Hinweis, auch aus dem context heraus', async () => {
+    mockInvoke.mockResolvedValue({
+      data: null,
+      error: { name: 'FunctionsFetchError', message: 'Failed to send a request to the Edge Function', context: { message: 'Network request failed' } },
+    });
+    const ergebnis = await entferneMoment('p1');
+    expect(ergebnis.error).toBe('Du bist offline. Verbinde dich und probier es nochmal.');
+  });
+
+  test('Netzwerkfehler direkt in message → Offline-Hinweis', async () => {
+    mockInvoke.mockResolvedValue({ data: null, error: { message: 'Network request failed' } });
     const ergebnis = await entferneMoment('p1');
     expect(ergebnis.error).toBe('Du bist offline. Verbinde dich und probier es nochmal.');
   });
 
   test('anderer Fehler → generische deutsche Meldung', async () => {
-    deleteKette({ error: { message: 'kaputt' } });
+    mockInvoke.mockResolvedValue({ data: null, error: { message: 'kaputt' } });
     const ergebnis = await entferneMoment('p1');
     expect(ergebnis.error).toBe('Der Moment konnte nicht entfernt werden. Probier es gleich nochmal.');
   });

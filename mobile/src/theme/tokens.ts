@@ -36,22 +36,44 @@ export const radius = { control: 12, card: 24, pill: 999 } as const;
 // Keys, deren Werte in v2 zufällig beide 24 sind, nicht deduplizieren.
 export const spacing = { xs: 4, s: 8, m: 12, base: 16, screen: 24, l: 24, xl: 32, xxl: 48 } as const;
 
+// DESIGN-LANGUAGE §2, unter der Typo-Tabelle: «Zahlen immer `tabular-nums`».
+// Nicht nur im Zähler-Display, wo die Tabelle es eigens erwähnt, die Regel
+// steht bei den allgemeinen Regeln und gilt für jeden Text.
+//
+// Sie stand bis hierher nur an `display`. Zahlen laufen aber überall: der
+// Tagesfilter der Karte («Tag 3»), die Zähler-Pille an einer Nadel, die
+// Uhrzeit unter jedem Moment, «2 von 15 gesichert». Ohne tabular-nums sind
+// Ziffern unterschiedlich breit, und ein Text, in dem sich nur die Zahl
+// ändert, wackelt bei jedem Schritt seitlich, weil eine «1» schmaler ist als
+// eine «4». Genau das soll die Regel verhindern.
+//
+// `fontVariant` explizit als FontVariant[] typisiert: die äussere `as const`
+// würde das Array sonst zu einem readonly-Tupel machen, das RNs TextStyle
+// (erwartet ein mutable FontVariant[]) ablehnt (TS2769). Und je ein eigenes
+// Array pro Stil, kein gemeinsames: React Native darf Style-Objekte einfrieren,
+// und ein geteiltes Array wäre eine Verbindung zwischen Stilen, die nichts
+// miteinander zu tun haben.
+const ZIFFERN = (): FontVariant[] => ['tabular-nums'];
+
 export const type = {
-  // `fontVariant` explizit als FontVariant[] typisiert: die äussere `as const`
-  // würde das Array sonst zu einem readonly-Tupel machen, das RNs TextStyle
-  // (erwartet ein mutable FontVariant[]) ablehnt (TS2769).
   display: {
     fontFamily: 'Figtree_300Light', fontSize: 84, letterSpacing: -1.7,
-    fontVariant: ['tabular-nums'] as FontVariant[],
+    fontVariant: ZIFFERN(),
   },
-  h1: { fontFamily: 'Figtree_700Bold', fontSize: 30, lineHeight: 36 },
-  h2: { fontFamily: 'Figtree_600SemiBold', fontSize: 22, lineHeight: 28 },
-  h3: { fontFamily: 'Figtree_600SemiBold', fontSize: 18, lineHeight: 23 },
-  body: { fontFamily: 'Figtree_400Regular', fontSize: 16, lineHeight: 24 },
-  bodyMedium: { fontFamily: 'Figtree_500Medium', fontSize: 16, lineHeight: 24 },
-  secondary: { fontFamily: 'Figtree_400Regular', fontSize: 14, lineHeight: 20 },
-  label: { fontFamily: 'Figtree_500Medium', fontSize: 12, letterSpacing: 0.24 },
-  tab: { fontFamily: 'Figtree_500Medium', fontSize: 11 },
+  h1: { fontFamily: 'Figtree_700Bold', fontSize: 30, lineHeight: 36, fontVariant: ZIFFERN() },
+  h2: { fontFamily: 'Figtree_600SemiBold', fontSize: 22, lineHeight: 28, fontVariant: ZIFFERN() },
+  h3: { fontFamily: 'Figtree_600SemiBold', fontSize: 18, lineHeight: 23, fontVariant: ZIFFERN() },
+  body: { fontFamily: 'Figtree_400Regular', fontSize: 16, lineHeight: 24, fontVariant: ZIFFERN() },
+  bodyMedium: {
+    fontFamily: 'Figtree_500Medium', fontSize: 16, lineHeight: 24, fontVariant: ZIFFERN(),
+  },
+  secondary: {
+    fontFamily: 'Figtree_400Regular', fontSize: 14, lineHeight: 20, fontVariant: ZIFFERN(),
+  },
+  label: {
+    fontFamily: 'Figtree_500Medium', fontSize: 12, letterSpacing: 0.24, fontVariant: ZIFFERN(),
+  },
+  tab: { fontFamily: 'Figtree_500Medium', fontSize: 11, fontVariant: ZIFFERN() },
 } as const;
 
 // Drei Schatten-Stufen (DESIGN-LANGUAGE v2 §3), iOS shadow* + Android elevation.

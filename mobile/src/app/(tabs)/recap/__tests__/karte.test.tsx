@@ -30,7 +30,16 @@ jest.mock('expo-router', () => ({
   useLocalSearchParams: () => ({ id: mockId }),
 }));
 jest.mock('@/features/recap/recapApi', () => ({ fetchRecapMomente: jest.fn() }));
-jest.mock('@/features/recap/urlVorrat', () => ({ holeVorrat: jest.fn() }));
+// Nur die IO-Funktion wird gemockt. `wiederholenHilft` bleibt echt: sie ist
+// die Regel, ob «Nochmal versuchen» ueberhaupt etwas ausrichten kann, und ein
+// Mock davon liesse den Test genau die Zusicherung nicht mehr pruefen, um die
+// es hier geht. `jest.requireActual` zieht dabei @/lib/supabase mit, deshalb
+// steht dessen Mock daneben (gleiches Muster wie in player.test.tsx).
+jest.mock('@/lib/supabase', () => ({ supabase: { functions: { invoke: jest.fn() } } }));
+jest.mock('@/features/recap/urlVorrat', () => ({
+  ...jest.requireActual('@/features/recap/urlVorrat'),
+  holeVorrat: jest.fn(),
+}));
 // Ab Task 10 im Spiel: der Ladeweg der Reise gibt seinen Fehler als WERT
 // zurück und hat ihn bisher fallen lassen. Sichtbar wird er auf diesem Screen
 // nicht (der Filter ist Beiwerk, siehe karte.tsx), dass er den Fehlermelder
@@ -221,6 +230,10 @@ const VORRAT_OK = {
   gueltigBis: Date.now() + 999_999,
   ausgelassen: 1,
 };
+
+// Der generische Ladefehler, wortgleich zu urlVorrat.ts und recapApi.ts: eine
+// Momentaufnahme ohne `grund`, bei der ein zweiter Versuch das Richtige ist.
+const LADEFEHLER = 'Die Momente konnten nicht geladen werden. Probier es gleich nochmal.';
 
 // Derselbe Vorrat, aber für p1 ohne Thumbnail: `media-urls` lässt `thumb_url`
 // weg, wenn der Moment keinen `thumb_key` hat (siehe dessen index.ts), für
@@ -891,6 +904,29 @@ test('hat sich der Ausschnitt bewegt, zoomt auch der zweite Tipp weiter', async 
   await fireEvent.press(screen.getByTestId('karte-nadel-p1'));
   expect(screen.queryByText(/an diesem Ort/)).toBeNull();
   expect(mockAnimateToRegion).toHaveBeenCalledTimes(2);
+});
+
+// Und was die Nadel dazu SAGT. Bis zur Zusammenführung rechnete die
+// Kartenfläche die Weiche selbst, mit `aufEinemFleck`, und kannte damit nur
+// den seltenen Grund. Hier liegen die Momente auf verschiedenen Koordinaten,
+// `aufEinemFleck` sagt also nein, der Tipp öffnet trotzdem das Sheet, und die
+// Nadel versprach weiter einen Zoom, den kein Tipp mehr einlöst. Zu hören
+// bekommt das ausgerechnet der, der nur das Label hat.
+//
+// Das zweite `regionChangeComplete` ist die Karte, die ihre Fahrt beendet
+// meldet, ohne sich bewegt zu haben, genau das tut sie am Anschlag. Erst
+// dadurch rendert der Screen neu und die Beschriftung wird neu gebildet.
+test('an einer festgefahrenen Gruppe sagt die Nadel das Sheet an, nicht den Zoom', async () => {
+  ladeErfolg(NAH_BEIEINANDER);
+  await wrap();
+  await fireEvent(screen.getByTestId('karte-flaeche'), 'regionChangeComplete', MITTEL);
+  expect(await screen.findByLabelText('Auf 2 Momente heranzoomen')).toBeTruthy();
+
+  await fireEvent.press(screen.getByTestId('karte-nadel-p1'));
+  await fireEvent(screen.getByTestId('karte-flaeche'), 'regionChangeComplete', { ...MITTEL });
+
+  expect(screen.getByLabelText('2 Momente an diesem Ort ansehen')).toBeTruthy();
+  expect(screen.queryByLabelText('Auf 2 Momente heranzoomen')).toBeNull();
 });
 
 // Eine andere Gruppe liegt woanders: dorthin kann die Kamera fahren, auch wenn
@@ -1972,11 +2008,11 @@ test('auch im Ladezustand fuehrt ein Weg zurueck', async () => {
 test('ein Ladefehler nennt seinen Grund, statt wie eine Reise ohne Orte auszusehen', async () => {
   (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: [], error: null });
   (holeVorrat as jest.Mock).mockResolvedValue({
-    vorrat: null, error: 'Kein Zugriff auf diese Reise.', grund: 'kein_zugriff',
+    vorrat: null, error: LADEFEHLER, grund: null,
   });
   await wrap();
 
-  expect(await screen.findByText('Kein Zugriff auf diese Reise.')).toBeTruthy();
+  expect(await screen.findByText(LADEFEHLER)).toBeTruthy();
   expect(screen.queryByText('Diese Reise hat keine Orte')).toBeNull();
   expect(screen.getByText('Nochmal versuchen')).toBeTruthy();
 });
@@ -2271,13 +2307,46 @@ test('§9: der Ladezustand traegt keinen Primaer-Button', async () => {
   expect(primaerKnoepfe()).toEqual([]);
 });
 
+// Ein Fehler, bei dem ein zweiter Versuch etwas ausrichten kann: kein `grund`,
+// also eine Momentaufnahme (Netz weg, 502 beim Signieren). Nur dort steht der
+// Knopf, siehe den Test darunter.
 test('§9: der Fehler-Zustand traegt genau einen Primaer-Button', async () => {
   (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: [], error: null });
   (holeVorrat as jest.Mock).mockResolvedValue({
-    vorrat: null, error: 'Kein Zugriff auf diese Reise.', grund: 'kein_zugriff',
+    vorrat: null, error: LADEFEHLER, grund: null,
   });
   await wrap();
-  await screen.findByText('Kein Zugriff auf diese Reise.');
+  await screen.findByText(LADEFEHLER);
+  expect(primaerKnoepfe()).toEqual(['Nochmal versuchen']);
+});
+
+// Und der Fall, in dem er verschwindet. «Diese Reise ist noch versiegelt.» und
+// «Kein Zugriff auf diese Reise.» sind ENTSCHEIDUNGEN des Servers, kein
+// Ausfall: sie bleiben so, bis sich etwas ausserhalb dieser App ändert. Der
+// Knopf stand bis hierher trotzdem da, und drücken konnte man ihn beliebig
+// oft. Ein Zustand ganz ohne Primär-Button ist nach §4 zulässig, der Rückweg
+// oben links bleibt in jedem Fall erreichbar.
+test.each([
+  ['Diese Reise ist noch versiegelt.', 'versiegelt'],
+  ['Kein Zugriff auf diese Reise.', 'kein_zugriff'],
+])('§9: unter «%s» steht kein Knopf, den niemand einloesen kann', async (text, grund) => {
+  (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: [], error: null });
+  (holeVorrat as jest.Mock).mockResolvedValue({ vorrat: null, error: text, grund });
+  await wrap();
+  await screen.findByText(text);
+  expect(primaerKnoepfe()).toEqual([]);
+  expect(screen.queryByLabelText('Nochmal versuchen')).toBeNull();
+  // Der Rückweg bleibt: er ist dann die einzige Handlung, die es gibt.
+  expect(screen.getByLabelText('Zurück')).toBeTruthy();
+});
+
+// Die Gegenprobe zur Zuordnung: der `grund` gehört zum VORRAT. Scheitern die
+// MOMENTE, ist die Lage eine andere, dort hilft ein zweiter Versuch sehr wohl.
+test('§9: ein Momente-Fehler behaelt seinen Knopf, auch neben einem gelungenen Vorrat', async () => {
+  (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: [], error: LADEFEHLER });
+  (holeVorrat as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+  await wrap();
+  await screen.findByText(LADEFEHLER);
   expect(primaerKnoepfe()).toEqual(['Nochmal versuchen']);
 });
 
@@ -2289,10 +2358,10 @@ test('§9: der Fehler-Zustand traegt genau einen Primaer-Button', async () => {
 test('§9: auch ein ladender Primaer-Button zaehlt als Primaer-Button', async () => {
   (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: [], error: null });
   (holeVorrat as jest.Mock).mockResolvedValue({
-    vorrat: null, error: 'Kein Zugriff auf diese Reise.', grund: 'kein_zugriff',
+    vorrat: null, error: LADEFEHLER, grund: null,
   });
   await wrap();
-  await screen.findByText('Kein Zugriff auf diese Reise.');
+  await screen.findByText(LADEFEHLER);
 
   // Der zweite Anlauf hängt: der Knopf bleibt im Ladezustand stehen.
   haengenderLadeweg();

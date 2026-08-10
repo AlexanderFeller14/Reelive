@@ -1,18 +1,7 @@
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Animated,
-  Easing,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   useWindowDimensions,
@@ -23,11 +12,10 @@ import { setStatusBarStyle } from 'expo-status-bar';
 import { Image } from 'expo-image';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import * as Haptics from 'expo-haptics';
-import { Button } from '@/components/Button';
 import { PressScale } from '@/components/PressScale';
 import { Fortschrittsbalken } from '@/components/Fortschrittsbalken';
 import { Pille } from '@/components/Pille';
-import { Sheet, SHEET_SCROLL_ANTEIL } from '@/components/Sheet';
+import { Sheet } from '@/components/Sheet';
 import { useTheme } from '@/theme/ThemeProvider';
 import { cinema, motion, radius, spacing, type } from '@/theme/tokens';
 import { useOberkante } from '@/theme/useOberkante';
@@ -53,6 +41,13 @@ import { KartenFlaeche } from '@/features/karte/KartenFlaeche';
 import { gruppiere } from '@/features/karte/gruppierung';
 import { zoomAussichtslos, zoomZiel, type ZoomVersuch } from '@/features/karte/gruppenTipp';
 import { zuKartenPunkten } from '@/features/karte/kartenPunkte';
+import {
+  GruppenSheetInhalt,
+  MomentSheetInhalt,
+  nadelBild,
+  sheetBild,
+  type SheetForm,
+} from '@/features/karte/MomentSheet';
 import type {
   Ausschnitt,
   Gruppe,
@@ -107,18 +102,15 @@ const TAP_SCHWELLE_MS = 250;
 // Beschriftungen stehen immer da; nur welche Hälfte der Knopf ist, wechselt.
 const ANSEHEN_LABEL = 'Ansehen';
 const KARTE_LABEL = 'Auf der Karte';
-// Der Knopf im Moment-Sheet heisst hier anders als in der App («Im Recap
-// ansehen»): es gibt keinen Recap-Player, in den gesprungen würde, sondern
+// Was die Sheets dieser Seite von denen der App-Karte unterscheidet
+// (features/karte/MomentSheet.tsx), und sonst nichts: der Knopf heisst hier
+// anders, weil es keinen Recap-Player gibt, in den gesprungen würde, sondern
 // den geteilten Player auf DIESEM Screen (Spec §5.10).
-const AB_HIER_LABEL = 'Ab hier ansehen';
+const SHEET_FORM: SheetForm = { knopfLabel: 'Ab hier ansehen', praefix: 'teilen-' };
 // Höhe der Segment-Zeile (36 + 2 × 4 Polster), dieselben 44 Punkte wie jede
 // andere Pille dieses Projekts. Als Konstante, weil der Kopfbereich des
 // Players darunter rutscht, sobald es die Zeile gibt.
 const SEGMENT_HOEHE = 44;
-// DESIGN-LANGUAGE §5: «Listen = Stagger 40 ms» / «prefers-reduced-motion:
-// alles wird zu 200-ms-Fades». Gleiche Werte wie in recap/[id]/karte.tsx.
-const STAGGER_MS = 40;
-const REDUZIERTE_DAUER_MS = 200;
 
 type LadePhase = 'laedt' | 'fehler' | 'leer' | 'bereit' | 'ende';
 type MedienLink = { medium_url: string; thumb_url: string | null };
@@ -175,19 +167,6 @@ function tagesueberschrift(tag: RecapTag): string {
   if (tag.ort) teile.push(tag.ort);
   teile.push(formatTagesdatum(tag.datum));
   return teile.join(' · ');
-}
-
-// «Mira · 14:32», Autor und die Uhrzeit VON DAMALS VOR ORT (`captured_tz`),
-// wortgleich zum Moment-Sheet der App-Karte (recap/[id]/karte.tsx).
-function autorUndZeit(moment: RecapMoment): string {
-  return `${moment.autor_name} · ${zeitInZone(moment.captured_at, moment.captured_tz)}`;
-}
-
-// Was VoiceOver zu einem einzelnen Moment sagt, wortgleich an der Nadel
-// (features/karte/nadel.ts) und in der Gruppenliste: derselbe Moment,
-// derselbe Weg.
-function momentLabel(moment: RecapMoment): string {
-  return `Moment von ${moment.autor_name} um ${zeitInZone(moment.captured_at, moment.captured_tz)} öffnen`;
 }
 
 function KinoButton({ label, onPress }: { label: string; onPress: () => void }) {
@@ -328,37 +307,6 @@ function MomentAnzeige({
 // Die Karte (Spec §5.10)
 // ---------------------------------------------------------------------------
 
-// Eine URL, mit der sich tatsächlich ein Bild laden lässt, oder `null`.
-//
-// `MedienLink.medium_url` ist als `string` typisiert, wird in shareApi.ts aber
-// ungeprüft aus der Antwort der Function übernommen (geprüft wird dort die
-// FORM der Antwort, nicht jedes Feld jedes Moments). Fehlt das Feld, lügt der
-// Typ, und ohne diese Prüfung ginge ein `undefined` als Bildquelle an die
-// Nadel. Gleiche Absicherung und gleicher Grund wie in recap/[id]/karte.tsx.
-function brauchbareUrl(wert: string | null | undefined): string | null {
-  return typeof wert === 'string' && wert.length > 0 ? wert : null;
-}
-
-// Das Bild einer Nadel: klein reicht, `thumb_url` zuerst. Fehlt es (die
-// Function hatte für diesen Moment keinen `thumb_key`), trägt das mittlere
-// Bild die Nadel, sonst bliebe für solche Momente für immer die leere
-// Fläche stehen. Gleiche Regel und gleiche Reihenfolge wie in
-// recap/[id]/karte.tsx.
-function nadelBild(urls: ReadonlyMap<string, MedienLink>, momentId: string): string | null {
-  const url = urls.get(momentId);
-  if (!url) return null;
-  return brauchbareUrl(url.thumb_url) ?? brauchbareUrl(url.medium_url);
-}
-
-// Das Bild IM SHEET ist gross (3:2, Spec §5.7), dafür ist das mittlere Bild
-// gedacht, nicht das 44 Punkte breite Nadel-Thumbnail. Die Reihenfolge ist
-// deshalb genau umgekehrt zu `nadelBild`.
-function sheetBild(urls: ReadonlyMap<string, MedienLink>, momentId: string): string | null {
-  const url = urls.get(momentId);
-  if (!url) return null;
-  return brauchbareUrl(url.medium_url) ?? brauchbareUrl(url.thumb_url);
-}
-
 // Momente, die diese Seite gar nicht bekommen hat: die Function konnte für
 // sie keine URL herausgeben (`ausgelassen`, share-link/aufloesung.ts). Sie
 // fehlen im Player UND auf der Karte, ohne diesen Satz fehlten sie spurlos,
@@ -464,171 +412,6 @@ function SegmentZeile({
         />
       </Pille>
     </View>
-  );
-}
-
-// Der scrollende Bereich eines Sheets, der Anteil und seine Begründung
-// stehen in components/Sheet.tsx, weil sie aus dessen eigenem Deckel folgen. Der
-// Primär-Knopf steht AUSSERHALB davon und bleibt stehen, während der Inhalt
-// darüber scrollt: bei grosser Systemschrift reichen Bild (3:2), Ort und
-// Caption sonst über die Unterkante hinaus, und «Ab hier ansehen» wäre nicht
-// mehr zu erreichen.
-function SheetScroll({ testID, children }: { testID: string; children: ReactNode }) {
-  const { height: fensterHoehe } = useWindowDimensions();
-  return (
-    <ScrollView
-      testID={testID}
-      style={{ maxHeight: fensterHoehe * SHEET_SCROLL_ANTEIL }}
-      // Den Abstand zwischen den Kindern hält sonst `Sheet` selbst, innerhalb
-      // der ScrollView gilt er nicht mehr, also steht er hier, mit demselben Wert.
-      contentContainerStyle={styles.scrollInhalt}
-    >
-      {children}
-    </ScrollView>
-  );
-}
-
-// Eine Zeile, die sich einblendet (DESIGN-LANGUAGE §5: Listen = Stagger
-// 40 ms). Eigene Komponente, weil jede Zeile ihren eigenen Animated.Value
-// braucht.
-function Einblendung({ stelle, children }: { stelle: number; children: ReactNode }) {
-  const reducedMotion = useReducedMotion();
-  const [opacity] = useState(() => new Animated.Value(0));
-
-  useEffect(() => {
-    // §5: mit Reduced Motion wird alles zu einem 200-ms-Fade, die Zeilen
-    // erscheinen dann gemeinsam, ohne Staffelung. Nur `opacity` wird bewegt,
-    // die Animation läuft also auf dem UI-Thread.
-    Animated.timing(opacity, {
-      toValue: 1,
-      duration: reducedMotion ? REDUZIERTE_DAUER_MS : motion.duration.base,
-      delay: reducedMotion ? 0 : stelle * STAGGER_MS,
-      easing: Easing.bezier(...motion.easeSmooth),
-      useNativeDriver: true,
-    }).start();
-  }, [opacity, reducedMotion, stelle]);
-
-  return <Animated.View style={{ opacity }}>{children}</Animated.View>;
-}
-
-// Der einzelne Moment im Sheet (Spec §5.7): Bild 3:2 mit Radius 24
-// (DESIGN-LANGUAGE §3), darunter Autor/Uhrzeit, Ort und Caption, und EIN
-// Primär-Button (§4: genau einer pro Screen; die Gruppenliste unten hat
-// deshalb keinen).
-//
-// Ein HELLES Sheet, obwohl der Player dieses Screens Kino ist: es öffnet über
-// der Karte, und die ist wie in der App ein helles Werkzeug zum Finden, kein
-// Medien-Vollbild (Spec §5.3). Derselbe Moment sieht damit im geteilten Recap
-// aus wie in der App.
-function MomentSheetInhalt({
-  punkt, bildUrl, onAbHier,
-}: {
-  punkt: KartenPunkt;
-  bildUrl: string | null;
-  onAbHier: (punkt: KartenPunkt) => void;
-}) {
-  const { colors } = useTheme();
-  const { moment } = punkt;
-  return (
-    <>
-      <SheetScroll testID="teilen-moment-inhalt">
-        <View style={[styles.sheetBild, { backgroundColor: colors['bg-1'] }]}>
-          {/* Ohne brauchbare URL bleibt die ruhige bg-1-Fläche stehen, kein
-              Puls: es kommt nichts mehr. */}
-          {bildUrl !== null && (
-            <Image
-              testID="teilen-sheet-bild"
-              source={{ uri: bildUrl }}
-              style={StyleSheet.absoluteFill}
-              contentFit="cover"
-              transition={motion.duration.fast}
-            />
-          )}
-        </View>
-        <View style={styles.sheetText}>
-          <Text style={[type.secondary, { color: colors['text-2'] }]}>{autorUndZeit(moment)}</Text>
-          {moment.place_name ? (
-            <Text style={[type.bodyMedium, { color: colors['text-1'] }]}>{moment.place_name}</Text>
-          ) : null}
-          {moment.caption ? (
-            <Text style={[type.body, { color: colors['text-1'] }]}>{moment.caption}</Text>
-          ) : null}
-        </View>
-      </SheetScroll>
-      <Button variant="primary" label={AB_HIER_LABEL} onPress={() => onAbHier(punkt)} />
-    </>
-  );
-}
-
-// Eine Zeile der Gruppenliste.
-function GruppenEintrag({
-  punkt, thumbUrl, stelle, onAbHier,
-}: {
-  punkt: KartenPunkt;
-  thumbUrl: string | null;
-  stelle: number;
-  onAbHier: (punkt: KartenPunkt) => void;
-}) {
-  const { colors } = useTheme();
-  const { moment } = punkt;
-  return (
-    <Einblendung stelle={stelle}>
-      <PressScale
-        scaleTo={0.98}
-        accessibilityRole="button"
-        accessibilityLabel={momentLabel(moment)}
-        testID={`teilen-gruppe-eintrag-${moment.id}`}
-        onPress={() => onAbHier(punkt)}
-      >
-        <View style={styles.eintrag}>
-          {/* Klein und quadratisch: Radius 12 ist der Thumbnail-Wert
-              (DESIGN-LANGUAGE §3), 24 gehört dem grossen Bild oben. */}
-          <View style={[styles.eintragBild, { backgroundColor: colors['bg-1'] }]}>
-            {thumbUrl !== null && (
-              <Image source={{ uri: thumbUrl }} style={StyleSheet.absoluteFill} contentFit="cover" />
-            )}
-          </View>
-          <View style={styles.eintragText}>
-            <Text style={[type.bodyMedium, { color: colors['text-1'] }]}>{autorUndZeit(moment)}</Text>
-            {moment.caption ? (
-              <Text numberOfLines={1} style={[type.secondary, { color: colors['text-2'] }]}>
-                {moment.caption}
-              </Text>
-            ) : null}
-          </View>
-        </View>
-      </PressScale>
-    </Einblendung>
-  );
-}
-
-// Die Momente einer Gruppe, die sich nicht auseinanderzoomen lässt
-// (features/karte/gruppierung.ts, `aufEinemFleck`). Jeder Eintrag führt über
-// denselben Weg in den Player wie ein einzelner Moment, und keiner davon ist
-// ein Primär-Button: es gibt genau einen pro Screen, und den trägt das
-// Moment-Sheet.
-function GruppenSheetInhalt({
-  punkte, urls, onAbHier,
-}: {
-  punkte: KartenPunkt[];
-  urls: ReadonlyMap<string, MedienLink>;
-  onAbHier: (punkt: KartenPunkt) => void;
-}) {
-  return (
-    // Die Liste scrollt: auf einem Fleck können beliebig viele Momente
-    // liegen, und Zoomen hilft dort per Definition nicht, abgeschnittene
-    // Einträge wären auf keinem anderen Weg mehr erreichbar.
-    <SheetScroll testID="teilen-gruppe-liste">
-      {punkte.map((p, stelle) => (
-        <GruppenEintrag
-          key={p.moment.id}
-          punkt={p}
-          thumbUrl={nadelBild(urls, p.moment.id)}
-          stelle={stelle}
-          onAbHier={onAbHier}
-        />
-      ))}
-    </SheetScroll>
   );
 }
 
@@ -898,6 +681,20 @@ export default function GeteilterRecapScreen() {
     [zeige]
   );
 
+  // Was der Tipp auf diese Gruppe tun WIRD, für die Beschriftung, die
+  // VoiceOver vorliest. Dieselbe Frage und dieselbe Antwort wie oben, nur ohne
+  // die Folgen; wortgleich zu recap/[id]/karte.tsx, samt der Begründung dort,
+  // warum die Fläche das nicht selbst rechnen kann und warum der Ausschnitt
+  // hier NICHT aus `kartenStand` kommt: diese Frage wird beim Rendern
+  // gestellt, das Ref zieht erst im Layout-Effekt danach nach.
+  const oeffnetSheet = useCallback(
+    (gruppe: Gruppe) => {
+      if (!sichtbarerAusschnitt) return false;
+      return zoomAussichtslos(gruppe, sichtbarerAusschnitt, letzterZoom.current);
+    },
+    [sichtbarerAusschnitt]
+  );
+
   // «Ab hier ansehen» (Spec §5.10). KEIN `router.push`: der geteilte Recap ist
   // EINE URL, der Player steht auf demselben Screen, der Sprung setzt also
   // seinen Index und schaltet die Ansicht um.
@@ -1113,6 +910,7 @@ export default function GeteilterRecapScreen() {
           linie={linie}
           thumbFuer={thumbFuer}
           aufGruppe={aufGruppe}
+          oeffnetSheet={oeffnetSheet}
           aufAusschnitt={merkeAusschnitt}
           reducedMotion={reducedMotion}
         />
@@ -1167,10 +965,16 @@ export default function GeteilterRecapScreen() {
               <MomentSheetInhalt
                 punkt={sheet[0]}
                 bildUrl={sheetBild(urls, sheet[0].moment.id)}
-                onAbHier={abHier}
+                form={SHEET_FORM}
+                onAnsehen={abHier}
               />
             ) : (
-              <GruppenSheetInhalt punkte={sheet} urls={urls} onAbHier={abHier} />
+              <GruppenSheetInhalt
+                punkte={sheet}
+                urls={urls}
+                form={SHEET_FORM}
+                onAnsehen={abHier}
+              />
             )}
           </Sheet>
         )}
@@ -1443,18 +1247,4 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.s,
     borderRadius: radius.control,
   },
-  // Spec §5.7: Bild in 3:2, Radius 24 (DESIGN-LANGUAGE §3, der Cover-Wert).
-  sheetBild: { width: '100%', aspectRatio: 3 / 2, borderRadius: radius.card, overflow: 'hidden' },
-  // Enger als der Abstand, den das Sheet zwischen seinen Kindern hält: die
-  // drei Zeilen gehören zusammen (4er-Raster, §3).
-  sheetText: { gap: spacing.xs },
-  // Derselbe Abstand, den `Sheet` zwischen seinen eigenen Kindern hält, er
-  // gilt innerhalb der ScrollView nicht mehr weiter.
-  scrollInhalt: { gap: spacing.base },
-  eintrag: { flexDirection: 'row', alignItems: 'center', gap: spacing.m },
-  eintragBild: { width: 56, height: 56, borderRadius: radius.control, overflow: 'hidden' },
-  // `flex: 1` nimmt den Rest der Zeile, ohne das schöbe eine lange Caption
-  // die Zeile über den Rand hinaus, statt in `numberOfLines` abgeschnitten zu
-  // werden.
-  eintragText: { flex: 1, gap: spacing.xs },
 });

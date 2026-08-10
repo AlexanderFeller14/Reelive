@@ -30,7 +30,16 @@ jest.mock('expo-image', () => {
 });
 jest.mock('@/features/trips/tripsApi', () => ({ fetchTrip: jest.fn() }));
 jest.mock('@/features/recap/recapApi', () => ({ fetchRecapMomente: jest.fn() }));
-jest.mock('@/features/recap/urlVorrat', () => ({ holeVorrat: jest.fn() }));
+// Nur die IO-Funktion wird gemockt. `wiederholenHilft` bleibt echt: sie ist
+// die Regel, ob «Nochmal versuchen» ueberhaupt etwas ausrichten kann, und ein
+// Mock davon liesse den Test genau die Zusicherung nicht mehr pruefen, um die
+// es hier geht. `jest.requireActual` zieht dabei @/lib/supabase mit, deshalb
+// steht dessen Mock daneben (gleiches Muster wie in player.test.tsx).
+jest.mock('@/lib/supabase', () => ({ supabase: { functions: { invoke: jest.fn() } } }));
+jest.mock('@/features/recap/urlVorrat', () => ({
+  ...jest.requireActual('@/features/recap/urlVorrat'),
+  holeVorrat: jest.fn(),
+}));
 // Task 6: mutierbar, damit einzelne Tests die Owner-Rolle wechseln können
 // (gleiches Muster wie reise/__tests__/detail.test.tsx, mockAuth.userId).
 const mockAuth = { userId: 'u1' };
@@ -629,5 +638,53 @@ describe('Segment-Zeile «Nach Tagen» / «Auf der Karte»', () => {
     leererLadeErfolg();
     await wrap();
     expect(await screen.findByText('Auf der Karte')).toBeTruthy();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// «Nochmal versuchen» nur, wo es etwas ausrichtet
+// ---------------------------------------------------------------------------
+//
+// Dieser Screen hat ZWEI Fehler-Stellen: eine ohne geladene Reise (der Screen
+// besteht dann nur aus Kopf und Fehlertext) und eine mit. Beide boten den
+// Knopf bis hierher immer an, auch unter «Diese Reise ist noch versiegelt.»,
+// wo ein zweiter Versuch nie etwas anderes bekommt. Die Regel steht in
+// features/recap/urlVorrat.ts und ist hier echt, nicht gemockt.
+describe('der Fehler bietet nur an, was er halten kann', () => {
+  const LADEFEHLER = 'Die Momente konnten nicht geladen werden. Probier es gleich nochmal.';
+
+  test.each([
+    ['Diese Reise ist noch versiegelt.', 'versiegelt'],
+    ['Kein Zugriff auf diese Reise.', 'kein_zugriff'],
+  ])('mit geladener Reise steht unter «%s» kein Knopf', async (text, grund) => {
+    (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: [], error: null });
+    (holeVorrat as jest.Mock).mockResolvedValue({ vorrat: null, error: text, grund });
+    await wrap();
+
+    expect(await screen.findByText(text)).toBeTruthy();
+    expect(screen.queryByLabelText('Nochmal versuchen')).toBeNull();
+  });
+
+  // Die zweite Stelle: ohne Reise rendert der Screen einen anderen Zweig, und
+  // ein Fix, der nur den ersten trifft, waere hier stumm.
+  test('ohne geladene Reise steht unter einer fachlichen Ablehnung ebenfalls kein Knopf', async () => {
+    (fetchTrip as jest.Mock).mockResolvedValue({ data: null, error: null });
+    (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: [], error: null });
+    (holeVorrat as jest.Mock).mockResolvedValue({
+      vorrat: null, error: 'Diese Reise ist noch versiegelt.', grund: 'versiegelt',
+    });
+    await wrap();
+
+    expect(await screen.findByText('Diese Reise ist noch versiegelt.')).toBeTruthy();
+    expect(screen.queryByLabelText('Nochmal versuchen')).toBeNull();
+  });
+
+  test('ein Fehler ohne Grund behaelt seinen Knopf', async () => {
+    (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: [], error: null });
+    (holeVorrat as jest.Mock).mockResolvedValue({ vorrat: null, error: LADEFEHLER, grund: null });
+    await wrap();
+
+    expect(await screen.findByText(LADEFEHLER)).toBeTruthy();
+    expect(screen.getByLabelText('Nochmal versuchen')).toBeTruthy();
   });
 });

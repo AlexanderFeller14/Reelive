@@ -91,7 +91,16 @@ jest.mock('@/features/recap/meldenApi', () => ({
   verwirfMeldung: jest.fn(),
   entferneMoment: jest.fn(),
 }));
-jest.mock('@/features/recap/urlVorrat', () => ({ holeVorrat: jest.fn() }));
+// Nur die IO-Funktion wird gemockt. `wiederholenHilft` bleibt echt: sie ist
+// die Regel, ob «Nochmal versuchen» ueberhaupt etwas ausrichten kann, und ein
+// Mock davon liesse den Test genau die Zusicherung nicht mehr pruefen, um die
+// es hier geht. `jest.requireActual` zieht dabei @/lib/supabase mit, deshalb
+// steht dessen Mock daneben (gleiches Muster wie in player.test.tsx).
+jest.mock('@/lib/supabase', () => ({ supabase: { functions: { invoke: jest.fn() } } }));
+jest.mock('@/features/recap/urlVorrat', () => ({
+  ...jest.requireActual('@/features/recap/urlVorrat'),
+  holeVorrat: jest.fn(),
+}));
 // Die Inszenierung selbst (Haptik, Timing, prefers-reduced-motion) ist in
 // RevealInszenierung.test.tsx abgesichert. Hier steht ein steuerbarer
 // Platzhalter: sichtbar rendert einen drückbaren Testknoten, ein Druck darauf
