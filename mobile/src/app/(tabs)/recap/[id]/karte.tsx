@@ -23,6 +23,7 @@ import { KartenFlaeche } from '@/features/karte/KartenFlaeche';
 import { gruppiere } from '@/features/karte/gruppierung';
 import { zoomAussichtslos, zoomZiel, type ZoomVersuch } from '@/features/karte/gruppenTipp';
 import { zuKartenPunkten } from '@/features/karte/kartenPunkte';
+import { useReiseGebunden } from '@/features/trips/useReiseGebunden';
 import { momentLabel } from '@/features/karte/nadel';
 import {
   Einblendung,
@@ -440,7 +441,14 @@ export default function RecapKarte() {
   // Zustände leert), und ein stehen gebliebenes Sheet zeigte danach einen
   // Moment der VORHERIGEN Reise, sein Knopf schickte den Player mit deren
   // Index in die neue, wo dieselbe Zahl auf einen ganz anderen Moment zeigt.
-  const [sheet, setSheet] = useState<{ tripId: string; punkte: KartenPunkt[] } | null>(null);
+  //
+  // `useReiseGebunden` haelt den Stempel und wirft den Wert beim Wechsel weg
+  // (features/trips/useReiseGebunden.ts, samt der vollen Begruendung, warum
+  // das beim RENDERN passieren muss und nicht in einem Effekt). Vier Zustaende
+  // dieses Screens brauchen genau das, und viermal derselbe von Hand
+  // geschriebene Vergleich war das Muster, an dem die Phase drei Runden
+  // verloren hat.
+  const [sheetPunkte, setSheetPunkte] = useReiseGebunden<KartenPunkt[] | null>(id, null);
   // Die beiden Hälften, aus denen die Tagesnummern entstehen, jede mit der
   // Reise, aus der sie stammt. Sie kommen aus ZWEI getrennten Abfragen (siehe
   // die Ladewege unten), und eine Mischung aus zwei Reisen ergäbe Nummern, die
@@ -456,45 +464,18 @@ export default function RecapKarte() {
   // Grund wie beim Sheet oben: der Screen bleibt bei einem Wechsel der id
   // gemountet, und ein stehen gebliebener Filterstand öffnete die NÄCHSTE
   // Reise vorgefiltert auf einen Tag, den niemand gewählt hat.
-  const [tagWahl, setTagWahl] = useState<{ tripId: string; nummer: number } | null>(null);
+  const [tagWahl, setTagWahl] = useReiseGebunden<number | null>(id, null);
   // Das offene Tages-Sheet trägt seine Reise aus demselben Grund wie `sheet`,
   // und aus einem eigenen, schärferen: es listet die Tage DER REISE, aus der
   // es geöffnet wurde. Bliebe es bei einem Wechsel stehen, würde ein Tipp auf
   // «Tag 3» die neue Reise auf einen Tag filtern, den niemand in ihr gewählt
   // hat, und `waehleTag` schriebe dabei die NEUE id in die Wahl, der Wächter
   // unten käme also nie zum Zug.
-  const [tageSheet, setTageSheet] = useState<{ tripId: string } | null>(null);
+  const [tageOffen, setTageOffen] = useReiseGebunden(id, false);
   // Und das Sheet der Momente ohne Ort, aus genau denselben Gründen: seine
   // Kacheln tragen Indizes der Reise, aus der es geöffnet wurde.
-  const [ohneOrtSheet, setOhneOrtSheet] = useState<{ tripId: string } | null>(null);
+  const [ohneOrtOffen, setOhneOrtOffen] = useReiseGebunden(id, false);
 
-  // Zurückgesetzt BEIM RENDERN, das dokumentierte React-Muster für «Zustand
-  // beim Wechsel einer Prop verwerfen». React verwirft die Ausgabe dieses
-  // Durchlaufs und rendert sofort neu, es wird also nie ein fremdes Sheet
-  // sichtbar.
-  //
-  // Ein `setState` im Effektkörper wäre ein Lint-Verstoss
-  // (react-hooks/set-state-in-effect) und eines im `.then()` käme zu spät.
-  // Und bloss zu VERSTECKEN (den Zustand stehen lassen und beim Ableiten
-  // vergleichen) reicht nicht: bei t1 → t2 → t1 auf derselben Instanz passte
-  // die Reise-id wieder, und ein Sheet öffnete sich mitsamt seiner
-  // Eintrittsanimation, das niemand angetippt hat, mit einem Index aus dem
-  // früheren Ladevorgang, der inzwischen auf einen anderen Moment zeigen kann.
-  //
-  // Kein zusätzlicher Vergleich beim Ableiten: er wäre nie zu beobachten, weil
-  // die Ausgabe dieses Durchlaufs ohnehin verworfen wird.
-  if (sheet !== null && sheet.tripId !== id) setSheet(null);
-  // Aus demselben Grund und auf demselben Weg: eine Tageswahl der vorherigen
-  // Reise ist in der neuen keine Wahl mehr, sondern ein Filter, den niemand
-  // gesetzt hat, und weil die Tagesnummer in der neuen Reise oft schlicht
-  // existiert, sähe das nicht nach einem Fehler aus, sondern nach einer Reise
-  // mit auffällig wenigen Momenten.
-  if (tagWahl !== null && tagWahl.tripId !== id) setTagWahl(null);
-  if (tageSheet !== null && tageSheet.tripId !== id) setTageSheet(null);
-  if (ohneOrtSheet !== null && ohneOrtSheet.tripId !== id) setOhneOrtSheet(null);
-  const sheetPunkte = sheet?.punkte ?? null;
-  const tageOffen = tageSheet !== null;
-  const ohneOrtOffen = ohneOrtSheet !== null;
 
   // Der Ladestand wird ABGELEITET statt beim Rendern zurückgesetzt, anders
   // als die vier Sheets/Filter darüber, und aus einem Grund, der nur für
@@ -782,7 +763,7 @@ export default function RecapKarte() {
   // wieder «Alle Tage», Pille, Nadeln, Linie und Ausschnitt leiten ALLE aus
   // diesem einen Wert ab und können deshalb gar nicht auseinanderlaufen.
   const gewaehlterTag = useMemo(
-    () => tage.find((t) => t.nummer === tagWahl?.nummer) ?? null,
+    () => tage.find((t) => t.nummer === tagWahl) ?? null,
     [tage, tagWahl]
   );
 
@@ -946,9 +927,9 @@ export default function RecapKarte() {
         // `oeffneTagesfilter` für die Gegenrichtung ausdrücklich NICHT gelten
         // lässt: der Zustand soll eindeutig sein, statt an der
         // Trefferreihenfolge zu hängen.
-        setTageSheet(null);
-        setOhneOrtSheet(null);
-        setSheet({ tripId: id, punkte: gruppe.punkte });
+        setTageOffen(false);
+        setOhneOrtOffen(false);
+        setSheetPunkte(gruppe.punkte);
         return;
       }
 
@@ -1023,21 +1004,21 @@ export default function RecapKarte() {
     // ohnehin ab; dass der Zustand hier trotzdem eindeutig gemacht wird,
     // kostet nichts und macht die Zusicherung prüfbar, statt sie der
     // Trefferreihenfolge zu überlassen.
-    setSheet(null);
-    setOhneOrtSheet(null);
-    setTageSheet({ tripId: id });
+    setSheetPunkte(null);
+    setOhneOrtOffen(false);
+    setTageOffen(true);
   };
 
   // Aus demselben Grund und auf demselben Weg.
   const oeffneOhneOrt = () => {
-    setSheet(null);
-    setTageSheet(null);
-    setOhneOrtSheet({ tripId: id });
+    setSheetPunkte(null);
+    setTageOffen(false);
+    setOhneOrtOffen(true);
   };
 
   const waehleTag = (tag: RecapTag | null) => {
-    setTageSheet(null);
-    setTagWahl(tag ? { tripId: id, nummer: tag.nummer } : null);
+    setTageOffen(false);
+    setTagWahl(tag?.nummer ?? null);
 
     // Der gewählte Tag ändert Nadeln UND Linie UND Ausschnitt: ein Tag, dessen
     // Momente ausserhalb des sichtbaren Ausschnitts liegen, wäre sonst eine
@@ -1287,7 +1268,7 @@ export default function RecapKarte() {
       {/* Wie beim Moment-Sheet erst gemountet, wenn es offen sein soll: `Sheet`
           bringt seine Eintrittsanimation im Effekt mit. */}
       {tageOffen && (
-        <Sheet sichtbar titel="Reisetage" onSchliessen={() => setTageSheet(null)}>
+        <Sheet sichtbar titel="Reisetage" onSchliessen={() => setTageOffen(false)}>
           {/* Scrollt und ist gedeckelt, aus demselben Grund wie die
               Gruppenliste: eine lange Reise hat viele Tage, und `Sheet`
               schnitte den Überhang hart ab (85 % Fensterhöhe, `overflow:
@@ -1325,7 +1306,7 @@ export default function RecapKarte() {
       )}
 
       {ohneOrtOffen && (
-        <Sheet sichtbar titel={ohneOrtText(ohneOrt.length)} onSchliessen={() => setOhneOrtSheet(null)}>
+        <Sheet sichtbar titel={ohneOrtText(ohneOrt.length)} onSchliessen={() => setOhneOrtOffen(false)}>
           {/* Scrollt und ist gedeckelt, aus demselben Grund wie Gruppen- und
               Tagesliste: `Sheet` schnitte den Überhang hart ab (85 %
               Fensterhöhe, `overflow: hidden`), und die abgeschnittenen
@@ -1361,7 +1342,7 @@ export default function RecapKarte() {
           // also wörtlich wahr, anders als bei einer nach Bildschirmpunkten
           // gebildeten Gruppe.
           titel={sheetPunkte.length > 1 ? `${sheetPunkte.length} Momente an diesem Ort` : undefined}
-          onSchliessen={() => setSheet(null)}
+          onSchliessen={() => setSheetPunkte(null)}
         >
           {sheetPunkte.length === 1 ? (
             <MomentSheetInhalt
