@@ -31,8 +31,11 @@ export type AdminClient = ReturnType<typeof erstelleAdminClient>;
 // in sammleMomente hängt NICHT daran, dass die beiden Zahlen gleich sind.
 export const POSTS_SEITENGROESSE = 1000;
 
-export type TripFuerErstellen = { id: string; owner_id: string; status: TripStatus };
-export type TokenBesitzer = { token: string; trip_id: string; owner_id: string };
+// `name` seit der Teilen-Benachrichtigung mit dabei: der Push-Text nennt die
+// Reise («… euren Recap von «Lissabon» geteilt»), und ihn nachträglich aus
+// einer zweiten Abfrage zu holen hiesse, denselben Datensatz zweimal zu laden.
+export type TripFuerErstellen = { id: string; owner_id: string; status: TripStatus; name: string };
+export type TokenBesitzer = { token: string; trip_id: string; owner_id: string; name: string };
 
 export interface ShareStore {
   // Token-Zeile und Reise in EINER Abfrage.
@@ -49,6 +52,19 @@ export interface ShareStore {
   holeTokenBesitzer(token: string): Promise<{ data: TokenBesitzer | null; error: unknown }>;
 
   widerrufeLink(token: string): Promise<{ error: unknown }>;
+
+  // Die drei Wege der Teilen-Benachrichtigung (benachrichtigung.ts), wortgleich
+  // zu denen des Reveal-Stores: dieselbe Tabelle, dieselbe Einschränkung, und
+  // beim Löschen dieselbe zusätzliche Begrenzung auf den angeschriebenen Kreis.
+  holeMitglieder(tripId: string): Promise<{ data: { user_id: string }[] | null; error: unknown }>;
+
+  holeTokens(userIds: string[]): Promise<{ data: { token: string }[] | null; error: unknown }>;
+
+  loescheTokens(tokens: string[], userIds: string[]): Promise<{ error: unknown }>;
+
+  // Der Anzeigename der Owner-Person fuer den Text der Meldung. Ein Fehler
+  // hier kostet nur den Namen, nicht die Meldung (siehe versendeTeilenPush).
+  holeAnzeigename(userId: string): Promise<{ data: string | null; error: unknown }>;
 }
 
 // Rohform des PostgREST-Embeds: `trips(...)` kommt als eingebettetes Objekt
@@ -195,7 +211,7 @@ export function erstelleShareStore(supabaseAdmin: AdminClient): ShareStore {
     async holeTripFuerErstellen(tripId) {
       const { data, error } = await supabaseAdmin
         .from('trips')
-        .select('id, owner_id, status')
+        .select('id, owner_id, status, name')
         .eq('id', tripId)
         .maybeSingle();
       return { data: data as TripFuerErstellen | null, error };
@@ -223,15 +239,23 @@ export function erstelleShareStore(supabaseAdmin: AdminClient): ShareStore {
     async holeTokenBesitzer(token) {
       const { data, error } = await supabaseAdmin
         .from('share_links')
-        .select('token, trip_id, trips(owner_id)')
+        .select('token, trip_id, trips(owner_id, name)')
         .eq('token', token)
         .maybeSingle();
       if (error) return { data: null, error };
       const roh = data as unknown as
-        | { token: string; trip_id: string; trips: { owner_id: string } | null }
+        | { token: string; trip_id: string; trips: { owner_id: string; name: string } | null }
         | null;
       if (!roh || !roh.trips) return { data: null, error: null };
-      return { data: { token: roh.token, trip_id: roh.trip_id, owner_id: roh.trips.owner_id }, error: null };
+      return {
+        data: {
+          token: roh.token,
+          trip_id: roh.trip_id,
+          owner_id: roh.trips.owner_id,
+          name: roh.trips.name,
+        },
+        error: null,
+      };
     },
 
     // Bewusst kein Löschen: ein widerrufener Link bleibt unterscheidbar von
@@ -249,6 +273,49 @@ export function erstelleShareStore(supabaseAdmin: AdminClient): ShareStore {
         .update({ revoked: true })
         .eq('token', token);
       return { error };
+    },
+
+    // Wortgleich zu erstelleRevealStore (reveal-trip/revealStore.ts): ALLE
+    // Mitglieder, einschliesslich der ausloesenden Person. Der Ausschluss
+    // passiert in `empfaengerKreis` als reine Filterung, damit ein Test ohne
+    // Docker ihn erreicht.
+    async holeMitglieder(tripId) {
+      const { data, error } = await supabaseAdmin
+        .from('trip_members')
+        .select('user_id')
+        .eq('trip_id', tripId);
+      return { data: data as { user_id: string }[] | null, error };
+    },
+
+    async holeTokens(userIds) {
+      const { data, error } = await supabaseAdmin
+        .from('push_tokens')
+        .select('token')
+        .in('user_id', userIds);
+      return { data: data as { token: string }[] | null, error };
+    },
+
+    // userIds zusaetzlich zu tokens, dieselbe Begrenzung und derselbe Grund
+    // wie im Reveal-Store: die Ticket-zu-Token-Zuordnung ist positionsbasiert,
+    // ein versetzter Block duerfte nie ausserhalb des angeschriebenen Kreises
+    // loeschen.
+    async loescheTokens(tokens, userIds) {
+      const { error } = await supabaseAdmin
+        .from('push_tokens')
+        .delete()
+        .in('token', tokens)
+        .in('user_id', userIds);
+      return { error };
+    },
+
+    async holeAnzeigename(userId) {
+      const { data, error } = await supabaseAdmin
+        .from('profiles')
+        .select('display_name')
+        .eq('id', userId)
+        .maybeSingle();
+      const zeile = data as { display_name: string } | null;
+      return { data: zeile?.display_name ?? null, error };
     },
   };
 }

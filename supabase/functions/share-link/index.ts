@@ -56,6 +56,13 @@ import {
 import { erstelleAdminClient, erstelleShareStore } from './store.ts';
 import { berechneAblauf, beurteileErstellen, beurteileWiderrufen } from './verwaltung.ts';
 import { erstelleFehlermelder } from '../_shared/fehlermelder.ts';
+// Der Versand-Baustein liegt bei reveal-trip, weil er dort entstanden ist und
+// nichts kennt ausser der Expo-Push-API. Ein zweiter waere eine zweite Stelle,
+// an der Blockgroesse, Fehlerverhalten und das Aufraeumen abgemeldeter Tokens
+// auseinanderlaufen koennten. Cross-Import zwischen Function-Ordnern ist im
+// Projekt etabliert (konto-loeschen/ablauf.ts zieht media-urls/keys.ts).
+import { sende } from '../reveal-trip/push.ts';
+import { versendeTeilenPush } from './benachrichtigung.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
@@ -354,6 +361,14 @@ Deno.serve(async (req: Request): Promise<Response> => {
       return fehler('Link konnte nicht erstellt werden.', 500);
     }
 
+    // Die Mitreisenden erfahren, dass ihr Recap jetzt hinter einer
+    // oeffentlichen URL steht, samt den Orten der Momente. NACH dem Insert,
+    // nie davor: eine Meldung ueber einen Link, den es nicht gibt, waere
+    // schlimmer als gar keine. Und mit `await`, damit der Edge-Runtime den
+    // Prozess nicht beendet, bevor der Versand hinausgeht; scheitern kann er
+    // nicht, `versendeTeilenPush` wirft nie (Begruendung dort).
+    await versendeTeilenPush(store, sende, erstellUrteil.daten, anfragendeId, 'erstellt');
+
     return json({ token, url: `${TEILEN_BASIS_URL}/teilen/${token}` }, 200);
   }
 
@@ -393,6 +408,24 @@ Deno.serve(async (req: Request): Promise<Response> => {
       await melde(updateError, { user_id: anfragendeId });
       return fehler('Link konnte nicht widerrufen werden.', 500);
     }
+
+    // Die Entwarnung. Sie gehoert genauso dazu wie die Meldung beim Erstellen:
+    // wer erfahren hat, dass sein Recap geteilt ist, soll auch erfahren, dass
+    // er es nicht mehr ist, sonst bleibt eine Sorge stehen, die nicht mehr
+    // besteht.
+    //
+    // Auch beim zweiten, idempotenten Widerruf. Der Alternative, nur beim
+    // ersten zu melden, fehlt die Grundlage: `widerrufeLink` setzt
+    // `revoked = true` ohne zu wissen, ob es vorher schon so war, und das
+    // nachzuruesten hiesse, den Weg fuer eine Meldung umzubauen, die im
+    // schlimmsten Fall zweimal dasselbe Richtige sagt.
+    await versendeTeilenPush(
+      store,
+      sende,
+      { id: widerrufUrteil.daten.trip_id, name: widerrufUrteil.daten.name },
+      anfragendeId,
+      'widerrufen',
+    );
 
     return json({ ok: true }, 200);
   }
