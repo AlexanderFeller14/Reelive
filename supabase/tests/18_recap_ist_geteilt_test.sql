@@ -18,7 +18,7 @@
 
 create extension if not exists pgtap with schema extensions;
 begin;
-select plan(14);
+select plan(22);
 
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-00000000000a', 'anna@test.local'),
@@ -166,7 +166,62 @@ select is(public.recap_ist_geteilt('11111111-1111-1111-1111-111111111111'), true
   'ein Link ohne Ablaufdatum gilt');
 
 -- ----------------------------------------------------------------------------
--- E. Ohne Anmeldung gar nichts
+-- E. Die View traegt die Regel, und sie traegt die RLS mit
+-- ----------------------------------------------------------------------------
+-- `aktive_share_links` (Migration 20260810120000) ist die EINE Stelle, an der
+-- steht, welcher Link gerade traegt. Sie hat zwei Leser mit verschiedenen
+-- Sichtweiten: den Client der Owner-Person (braucht den Token) und
+-- `recap_ist_geteilt` (braucht nur ja/nein).
+--
+-- Das Gefaehrliche an einer View ueber einer Tabelle mit RLS ist der
+-- Vorgabewert: OHNE `security_invoker = on` gehoert sie ihrem Erzeuger, und
+-- jede angemeldete Person saehe darin JEDEN Token JEDER Reise. Die naechsten
+-- Zusicherungen sind genau dagegen.
+
+-- Ausgangslage: ein gueltiger Link, ein widerrufener, ein abgelaufener.
+select pg_temp.as_service();
+update public.share_links set revoked = false, expires_at = null where token = 'link-unbefristet';
+
+select pg_temp.login_as('00000000-0000-0000-0000-00000000000a');
+select is((select count(*)::int from public.aktive_share_links
+            where trip_id = '11111111-1111-1111-1111-111111111111'), 1,
+  'die Owner-Person sieht in der View genau den einen Link, der noch traegt');
+
+select is((select token from public.aktive_share_links
+            where trip_id = '11111111-1111-1111-1111-111111111111'), 'link-unbefristet',
+  'und zwar den richtigen, nicht den widerrufenen oder den abgelaufenen');
+
+-- DIE Zusicherung, wegen der `security_invoker = on` in der Migration steht.
+select pg_temp.login_as('00000000-0000-0000-0000-00000000000b');
+select is((select count(*)::int from public.aktive_share_links), 0,
+  'die Mitreisende sieht in der View KEINE Zeile, die RLS der Tabelle gilt weiter');
+
+select pg_temp.login_as('00000000-0000-0000-0000-00000000000c');
+select is((select count(*)::int from public.aktive_share_links), 0,
+  'eine fremde Person erst recht nicht');
+
+-- Und die Gegenprobe zur Sichtweite: die Auskunft an die Mitreisende sagt
+-- trotzdem ja. Genau das ist der Unterschied zwischen den beiden Lesern, und
+-- ohne dieses Paar waere nicht zu erkennen, ob die Funktion die View
+-- ueberhaupt erreicht oder bloss dieselbe leere Sicht bekommt wie der Client.
+select pg_temp.login_as('00000000-0000-0000-0000-00000000000b');
+select is(public.recap_ist_geteilt('11111111-1111-1111-1111-111111111111'), true,
+  'die Auskunft sagt ja, obwohl dieselbe Person die Zeile nicht sehen darf');
+
+select is(has_table_privilege('anon', 'public.aktive_share_links', 'SELECT'), false,
+  'anon darf die View gar nicht erst lesen');
+select is(has_table_privilege('authenticated', 'public.aktive_share_links', 'SELECT'), true,
+  'authenticated darf sie lesen, RLS entscheidet dann ueber die Zeilen');
+
+-- Die View ist eine SICHT, kein Schreibweg. Ohne Grant scheitert ein Insert am
+-- Tabellenprivileg (42501), noch bevor irgendeine Regel ausgewertet wird.
+select throws_ok($$
+  insert into public.aktive_share_links (token, trip_id)
+  values ('geschmuggelt', '11111111-1111-1111-1111-111111111111')
+$$, '42501', null, 'ueber die View laesst sich kein Link anlegen');
+
+-- ----------------------------------------------------------------------------
+-- F. Ohne Anmeldung gar nichts
 -- ----------------------------------------------------------------------------
 select pg_temp.as_anon();
 select is(has_function_privilege('anon', 'public.recap_ist_geteilt(uuid)', 'EXECUTE'), false,

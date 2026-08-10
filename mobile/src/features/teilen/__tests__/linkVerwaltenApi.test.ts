@@ -19,18 +19,27 @@ beforeEach(() => {
   process.env.EXPO_PUBLIC_TEILEN_BASIS_URL = ENV_BASIS_URL;
 });
 
-// share_links: .select(...).eq('trip_id', …).eq('revoked', false).order(…),
-// jede Stufe ein eigener jest.fn(), damit die AUFRUF-ARGUMENTE selbst
-// prüfbar sind, nicht nur das Endergebnis (Review-Fund-Muster aus
-// recapApi.test.ts: ein Mock, der Argumente verschluckt, liesse eine falsche
-// Spalte/einen falschen Filter unbemerkt durch).
-function shareLinksKette(ergebnis: { data: unknown; error: unknown }) {
-  const order = jest.fn(async () => ergebnis);
-  const eqRevoked = jest.fn(() => ({ order }));
-  const eqTrip = jest.fn(() => ({ eq: eqRevoked }));
+// aktive_share_links: .select(…).eq('trip_id', …).order(…).limit(1).maybeSingle()
+//
+// Jede Stufe ein eigener jest.fn(), damit die AUFRUF-ARGUMENTE selbst prüfbar
+// sind, nicht nur das Endergebnis (Review-Fund-Muster aus recapApi.test.ts:
+// ein Mock, der Argumente verschluckt, liesse eine falsche Spalte oder einen
+// falschen Filter unbemerkt durch).
+//
+// Die Kette hat KEIN `.eq('revoked', false)` mehr und der Aufrufer rechnet
+// nichts mehr gegen die Uhr: was «trägt» heisst, steht seit Migration
+// 20260810120000 in der View. Die Zusicherungen dazu sind damit nicht
+// verschwunden, sie sind umgezogen und liegen jetzt in
+// supabase/tests/18_recap_ist_geteilt_test.sql, wo sie gegen echtes Postgres
+// laufen statt gegen einen Mock, der die Antwort ohnehin vorgibt.
+function aktiveLinksKette(ergebnis: { data: unknown; error: unknown }) {
+  const maybeSingle = jest.fn(async () => ergebnis);
+  const limit = jest.fn(() => ({ maybeSingle }));
+  const order = jest.fn(() => ({ limit }));
+  const eqTrip = jest.fn(() => ({ order }));
   const select = jest.fn(() => ({ eq: eqTrip }));
   mockFrom.mockReturnValue({ select });
-  return { select, eqTrip, eqRevoked, order };
+  return { select, eqTrip, order, limit, maybeSingle };
 }
 
 const httpFehler = (status: number, body: unknown) => ({
@@ -45,77 +54,67 @@ import { holeAktivenLink, erstelleLink, istRecapGeteilt, widerrufeLink } from '.
 
 describe('holeAktivenLink', () => {
   test('kein Treffer: data ist null, kein Fehler', async () => {
-    shareLinksKette({ data: [], error: null });
+    aktiveLinksKette({ data: null, error: null });
     const { data, error } = await holeAktivenLink('t1');
     expect(data).toBeNull();
     expect(error).toBeNull();
   });
 
-  test('fragt genau die erwartete Kette ab (Spalten, trip_id, revoked=false)', async () => {
-    const { select, eqTrip, eqRevoked } = shareLinksKette({ data: [], error: null });
+  // Die Kette liest die VIEW, nicht die Tabelle, und filtert nicht mehr selbst
+  // auf `revoked`. Das ist die Zusammenführung: dieselbe Regel stand vorher
+  // hier UND in `recap_ist_geteilt`, ohne aneinander gebunden zu sein.
+  test('liest die View und filtert nicht mehr selbst auf revoked', async () => {
+    const { select, eqTrip, order, limit } = aktiveLinksKette({ data: null, error: null });
     await holeAktivenLink('t1');
-    expect(mockFrom).toHaveBeenCalledWith('share_links');
-    expect(select).toHaveBeenCalledWith('token, expires_at, created_at');
+    expect(mockFrom).toHaveBeenCalledWith('aktive_share_links');
+    expect(mockFrom).not.toHaveBeenCalledWith('share_links');
+    expect(select).toHaveBeenCalledWith('token, expires_at');
     expect(eqTrip).toHaveBeenCalledWith('trip_id', 't1');
-    expect(eqRevoked).toHaveBeenCalledWith('revoked', false);
+    // Der jüngste zuerst, und genau einer: mehrere gültige Links gleichzeitig
+    // sind möglich, das Sheet zeigt aber einen.
+    expect(order).toHaveBeenCalledWith('created_at', { ascending: false });
+    expect(limit).toHaveBeenCalledWith(1);
   });
 
   test('ein Treffer ohne Ablauf (expires_at null) liefert einen AktiverLink mit gebauter URL', async () => {
-    shareLinksKette({
-      data: [{ token: 'tok123', expires_at: null, created_at: '2026-08-08T10:00:00.000Z' }],
-      error: null,
-    });
+    aktiveLinksKette({ data: { token: 'tok123', expires_at: null }, error: null });
     const { data, error } = await holeAktivenLink('t1');
     expect(error).toBeNull();
     expect(data).toEqual({ token: 'tok123', url: `${ENV_BASIS_URL}/teilen/tok123`, expiresAt: null });
   });
 
-  test('ein Treffer mit Ablauf in der Zukunft zählt als aktiv', async () => {
+  test('ein Treffer mit Ablauf reicht das Datum zur Anzeige durch', async () => {
     const zukunft = new Date(Date.now() + 999_999).toISOString();
-    shareLinksKette({ data: [{ token: 'tok1', expires_at: zukunft, created_at: '2026-08-08T10:00:00.000Z' }], error: null });
+    aktiveLinksKette({ data: { token: 'tok1', expires_at: zukunft }, error: null });
     const { data } = await holeAktivenLink('t1');
     expect(data).toEqual({ token: 'tok1', url: `${ENV_BASIS_URL}/teilen/tok1`, expiresAt: zukunft });
   });
 
-  // Kernfall (Brief: "ein abgelaufener Link zählt wie keiner"): die Zeile
-  // existiert (revoked=false, RLS liefert sie), ist aber in der Vergangenheit
-  // abgelaufen, holeAktivenLink darf sie NICHT als aktiv ausgeben, sonst
-  // böte die Sheet einen toten Link zum Teilen an.
-  test('ein abgelaufener, aber nicht widerrufener Link zählt wie kein Link', async () => {
-    const vergangenheit = new Date(Date.now() - 1000).toISOString();
-    shareLinksKette({ data: [{ token: 'alt', expires_at: vergangenheit, created_at: '2026-08-01T10:00:00.000Z' }], error: null });
-    const { data, error } = await holeAktivenLink('t1');
-    expect(data).toBeNull();
-    expect(error).toBeNull();
-  });
-
-  // `revoked=false` ist bereits Teil der Abfrage (server-seitig gefiltert),
-  // dieser Test hält zusätzlich fest, dass ein GEMISCHTES Ergebnis (ein
-  // abgelaufener VOR einem noch gültigen, absteigend nach created_at) den
-  // ersten GÜLTIGEN nimmt, nicht einfach zeilen[0].
-  test('bei mehreren Zeilen (neuester zuerst) wird der erste GÜLTIGE genommen, nicht zeilen[0] blind', async () => {
-    const vergangenheit = new Date(Date.now() - 1000).toISOString();
-    const zukunft = new Date(Date.now() + 999_999).toISOString();
-    shareLinksKette({
-      data: [
-        { token: 'neu-aber-abgelaufen', expires_at: vergangenheit, created_at: '2026-08-08T12:00:00.000Z' },
-        { token: 'aelter-aber-gueltig', expires_at: zukunft, created_at: '2026-08-01T10:00:00.000Z' },
-      ],
-      error: null,
-    });
+  // Die eigentliche Verhaltensänderung, und sie ist eine Verbesserung: die
+  // alte Fassung verglich `expires_at` gegen `Date.now()`, also gegen die
+  // GERÄTEUHR. Geht das Gerät vor, hielt sie einen tragenden Link für
+  // abgelaufen und bot an, einen zweiten zu erstellen. Jetzt entscheidet die
+  // Uhr in Postgres, dieselbe, an der auch `share-link/aufloesen` misst.
+  //
+  // Der Mock liefert hier bewusst eine Zeile, deren Ablauf nach Geräteuhr
+  // längst vorbei ist: die alte Fassung hätte sie verworfen, die neue reicht
+  // sie durch, weil der Server sie ausgegeben hat.
+  test('die Geraeteuhr entscheidet nicht mehr mit, der Server hat entschieden', async () => {
+    const langeVorbei = new Date(Date.now() - 86_400_000).toISOString();
+    aktiveLinksKette({ data: { token: 'vom-server', expires_at: langeVorbei }, error: null });
     const { data } = await holeAktivenLink('t1');
-    expect(data?.token).toBe('aelter-aber-gueltig');
+    expect(data?.token).toBe('vom-server');
   });
 
   test('ein DB-Fehler wird zu einer deutschen Meldung, kein Absturz', async () => {
-    shareLinksKette({ data: null, error: { message: 'irgendein Postgres-Fehler' } });
+    aktiveLinksKette({ data: null, error: { message: 'irgendein Postgres-Fehler' } });
     const { data, error } = await holeAktivenLink('t1');
     expect(data).toBeNull();
     expect(error).toBe('Der Teilen-Link konnte nicht geladen werden. Probier es gleich nochmal.');
   });
 
   test('ein Netzwerkfehler wird als Offline erkannt', async () => {
-    shareLinksKette({ data: null, error: { message: 'Network request failed' } });
+    aktiveLinksKette({ data: null, error: { message: 'Network request failed' } });
     const { error } = await holeAktivenLink('t1');
     expect(error).toBe('Du bist offline. Verbinde dich und probier es nochmal.');
   });
@@ -125,7 +124,7 @@ describe('holeAktivenLink', () => {
   // das wäre schlechter als ein ehrlicher Konfigurationsfehler.
   test('ein Treffer OHNE gesetzte EXPO_PUBLIC_TEILEN_BASIS_URL liefert einen Konfigurationsfehler statt einer kaputten URL', async () => {
     delete process.env.EXPO_PUBLIC_TEILEN_BASIS_URL;
-    shareLinksKette({ data: [{ token: 'tok1', expires_at: null, created_at: '2026-08-08T10:00:00.000Z' }], error: null });
+    aktiveLinksKette({ data: { token: 'tok1', expires_at: null }, error: null });
     const { data, error } = await holeAktivenLink('t1');
     expect(data).toBeNull();
     expect(error).toBe('Die Teilen-Funktion ist nicht eingerichtet. Wende dich an die Entwicklung.');

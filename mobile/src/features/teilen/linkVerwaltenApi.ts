@@ -74,35 +74,51 @@ function baueUrl(token: string): string {
 
 export type AktiverLink = { token: string; url: string; expiresAt: string | null };
 
-type ShareLinkRow = { token: string; expires_at: string | null; created_at: string };
+// `created_at` steht in der View, wird hier aber nur zum Sortieren gebraucht,
+// nicht gelesen.
+type ShareLinkRow = { token: string; expires_at: string | null };
 
 const LADEFEHLER = 'Der Teilen-Link konnte nicht geladen werden. Probier es gleich nochmal.';
 const ERSTELLEN_FEHLER = 'Der Link konnte nicht erstellt werden. Probier es gleich nochmal.';
 const WIDERRUFEN_FEHLER = 'Der Link konnte nicht deaktiviert werden. Probier es gleich nochmal.';
 
-// Der jüngste NICHT widerrufene, NICHT abgelaufene Link dieser Reise, oder
-// `data: null`, wenn es keinen gibt (nie angelegt, alle widerrufen, oder alle
-// abgelaufen). Ein abgelaufener Link zählt hier bewusst wie gar keiner: die
-// Sheet würde sonst einen toten Link zum Kopieren/Teilen anbieten, statt neu
-// erstellen zu lassen, `aufloesen` lehnt ihn ohnehin serverseitig ab
-// (dieselbe Ablehnung wie ein widerrufener oder unbekannter Token, siehe
-// share-link/aufloesung.ts), diese Prüfung hier verhindert nur, dass die App
-// so tut, als wäre er noch etwas wert.
+// Der jüngste Link dieser Reise, der gerade trägt, oder `data: null`, wenn es
+// keinen gibt (nie angelegt, alle widerrufen, oder alle abgelaufen). Ein
+// abgelaufener Link zählt bewusst wie gar keiner: das Sheet würde sonst einen
+// toten Link zum Kopieren anbieten, statt neu erstellen zu lassen.
 //
-// Direkter Read statt eines Umwegs über die Function, siehe Kopfkommentar.
+// Gelesen wird `aktive_share_links` (Migration 20260810120000), nicht die
+// Tabelle. Was «trägt» heisst, stand vorher zweimal im Projekt: hier als
+// Client-Filterung und in `recap_ist_geteilt` als SQL. Beide sagten dasselbe,
+// waren aber nicht aneinander gebunden, und ein Auseinanderlaufen stünde für
+// dieselbe Reise nebeneinander im Bild: dieses Sheet sagt «kein aktiver Link»,
+// die Zeile im Reise-Screen sagt «dieser Recap ist geteilt».
+//
+// Damit wandert auch die UHR an die richtige Stelle. Die alte Fassung verglich
+// gegen `Date.now()`, also gegen die Geräteuhr; die View vergleicht gegen
+// `now()` in Postgres. Das ist dieselbe Uhr, an der auch
+// `share-link/aufloesen` einen Token misst, und die einzige, die zählt: geht
+// das Gerät zwei Tage vor, hielt die App einen tragenden Link für abgelaufen
+// und bot an, einen zweiten zu erstellen.
+//
+// Die RLS bleibt unverändert: die View trägt `security_invoker = on`, es gilt
+// weiterhin `share_links_select_owner`. Wer nicht Owner ist, sieht hier nichts
+// und bekommt seine Auskunft über `istRecapGeteilt` weiter unten.
 export async function holeAktivenLink(tripId: string): Promise<Gelesen<AktiverLink | null>> {
   const { data, error } = await supabase
-    .from('share_links')
-    .select('token, expires_at, created_at')
+    .from('aktive_share_links')
+    .select('token, expires_at')
     .eq('trip_id', tripId)
-    .eq('revoked', false)
-    .order('created_at', { ascending: false });
+    // Der jüngste zuerst, und nur dieser eine: mehrere gültige Links
+    // gleichzeitig sind möglich (jedes «Link erstellen» legt einen neuen an,
+    // ohne den vorherigen zu widerrufen), das Sheet zeigt aber genau einen.
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
 
   if (error) return { data: null, error: meldung(error, LADEFEHLER) };
 
-  const jetzt = Date.now();
-  const zeilen = (data ?? []) as ShareLinkRow[];
-  const aktiv = zeilen.find((z) => z.expires_at === null || Date.parse(z.expires_at) > jetzt);
+  const aktiv = data as ShareLinkRow | null;
   if (!aktiv) return { data: null, error: null };
 
   if (!teilenBasisUrl()) return { data: null, error: KONFIG_FEHLT_TEXT };
