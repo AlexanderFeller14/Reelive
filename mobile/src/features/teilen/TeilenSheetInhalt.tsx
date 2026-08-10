@@ -19,6 +19,7 @@ import { Pille } from '@/components/Pille';
 import { PressScale } from '@/components/PressScale';
 import { cinema, palette, radius, spacing, type } from '@/theme/tokens';
 import { erstelleLink, holeAktivenLink, widerrufeLink, type AktiverLink } from './linkVerwaltenApi';
+import { LINK_REICHWEITE } from './texte';
 
 // Drei feste Optionen (Brief) statt eines freien Eingabefelds, ein Tippfehler
 // bei einer Gültigkeitsdauer ist ein schlechter Ort für einen Zahlen-Input.
@@ -28,8 +29,9 @@ const ABLAUF_OPTIONEN: { id: string; label: string; tage: number | null }[] = [
   { id: 'unbegrenzt', label: 'Unbegrenzt', tage: null },
 ];
 
-const DISCLOSURE_TEXT =
-  'Wer diesen Link hat, sieht den ganzen Recap: alle Momente aller Mitreisenden samt den Orten, an denen sie entstanden sind, auch ohne eigenes Konto.';
+// Derselbe Satz, den auch der Reise-Screen zeigt, solange ein Link besteht.
+// Er liegt in features/teilen/texte.ts, die Begruendung steht dort.
+const DISCLOSURE_TEXT = LINK_REICHWEITE;
 const LADEFEHLER = 'Der Teilen-Link konnte nicht geladen werden. Probier es gleich nochmal.';
 
 type Phase = 'laedt' | 'kein_link' | 'link_aktiv' | 'fehler';

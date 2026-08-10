@@ -96,7 +96,19 @@ jest.mock('@/features/recap/meldenApi', () => ({
 // Mock davon liesse den Test genau die Zusicherung nicht mehr pruefen, um die
 // es hier geht. `jest.requireActual` zieht dabei @/lib/supabase mit, deshalb
 // steht dessen Mock daneben (gleiches Muster wie in player.test.tsx).
-jest.mock('@/lib/supabase', () => ({ supabase: { functions: { invoke: jest.fn() } } }));
+// `rpc` fuer `istRecapGeteilt` (features/teilen/linkVerwaltenApi.ts): der
+// Screen fragt seit der Teilen-Benachrichtigung nach, ob der Recap gerade
+// geteilt ist. Standard ist «nein», die Tests, die es anders brauchen, setzen
+// `mockRpc` selbst.
+const mockRpc = jest.fn<Promise<{ data: boolean | null; error: { message: string } | null }>, unknown[]>(
+  async () => ({ data: false, error: null })
+);
+jest.mock('@/lib/supabase', () => ({
+  supabase: {
+    functions: { invoke: jest.fn() },
+    rpc: (...args: unknown[]) => mockRpc(...(args as [])),
+  },
+}));
 jest.mock('@/features/recap/urlVorrat', () => ({
   ...jest.requireActual('@/features/recap/urlVorrat'),
   holeVorrat: jest.fn(),
@@ -171,6 +183,10 @@ const wrap = () => render(<ThemeProvider><ReiseDetail /></ThemeProvider>);
 
 beforeEach(() => {
   jest.clearAllMocks();
+  // `clearAllMocks` nimmt auch die Standard-Implementierung mit, sie muss
+  // deshalb hier wieder gesetzt werden, sonst liefert `rpc` undefined und
+  // `istRecapGeteilt` meldete in JEDEM Test einen Fehler.
+  mockRpc.mockResolvedValue({ data: false, error: null });
   mockAuth.userId = 'u1';
   mockRouteId = 't1';
   (fetchTrip as jest.Mock).mockResolvedValue(tripOk);
@@ -1022,5 +1038,81 @@ describe('Moderation (Task 8)', () => {
     await fireEvent.press(await screen.findByText('Ein gemeldeter Moment'));
     expect(await screen.findByText('Zweite Meldung')).toBeTruthy();
     expect(fetchMeldungen).toHaveBeenCalledTimes(2);
+  });
+});
+
+// ===========================================================================
+// «Dieser Recap ist geteilt», fuer ALLE Mitreisenden
+// ===========================================================================
+//
+// Bis hierher wusste nur die Owner-Person, dass ein Link besteht: die
+// SELECT-Policy auf share_links ist owner-only, und sie bleibt es, denn wer
+// die Zeile liest, liest den Token. Alle anderen haben ihre Momente
+// eingesendet, ohne je zu erfahren, dass sie jetzt hinter einer oeffentlichen
+// URL stehen, samt den Orten. Die Auskunft kommt aus
+// `public.recap_ist_geteilt` (Migration 20260810100000).
+describe('der Hinweis auf einen bestehenden Teilen-Link', () => {
+  test('steht da, wenn geteilt wird, samt dem Satz was der Link zeigt', async () => {
+    (fetchTrip as jest.Mock).mockResolvedValue(tripRevealedOk);
+    mockRpc.mockResolvedValue({ data: true, error: null });
+    await wrap();
+
+    expect(await screen.findByTestId('geteilt-hinweis')).toBeTruthy();
+    expect(screen.getByText('Dieser Recap ist geteilt')).toBeTruthy();
+    // Die Orte sind der Grund, aus dem es die Auskunft gibt.
+    expect(screen.getByText(/samt den Orten/)).toBeTruthy();
+  });
+
+  test('sieht ihn auch, wer die Reise NICHT angelegt hat', async () => {
+    mockAuth.userId = 'u2'; // Mitglied, nicht Owner
+    (fetchTrip as jest.Mock).mockResolvedValue(tripRevealedOk);
+    mockRpc.mockResolvedValue({ data: true, error: null });
+    await wrap();
+
+    expect(await screen.findByTestId('geteilt-hinweis')).toBeTruthy();
+  });
+
+  test('ohne Link steht dort nichts, kein «nicht geteilt»-Laerm', async () => {
+    (fetchTrip as jest.Mock).mockResolvedValue(tripRevealedOk);
+    mockRpc.mockResolvedValue({ data: false, error: null });
+    await wrap();
+    // Auf die Antwort warten, sonst prüfte der Test nur, dass der Screen im
+    // Ladezustand nichts zeigt, und wäre auch bei `data: true` grün.
+    await waitFor(() => expect(mockRpc).toHaveBeenCalled());
+
+    expect(screen.queryByTestId('geteilt-hinweis')).toBeNull();
+    expect(screen.queryByTestId('geteilt-unbekannt')).toBeNull();
+  });
+
+  // Die eine Richtung, in die diese Zeile nie irren darf: ein Netzfehler
+  // beantwortet die Frage NICHT mit «nicht geteilt».
+  test('faellt die Abfrage aus, sagt der Screen das, statt Entwarnung zu geben', async () => {
+    (fetchTrip as jest.Mock).mockResolvedValue(tripRevealedOk);
+    mockRpc.mockResolvedValue({ data: null, error: { message: 'Network request failed' } });
+    await wrap();
+
+    expect(await screen.findByTestId('geteilt-unbekannt')).toBeTruthy();
+    expect(screen.queryByTestId('geteilt-hinweis')).toBeNull();
+  });
+
+  // Vor dem Reveal kann es gar keinen Link geben (share-link/verwaltung.ts
+  // lehnt ab), die Abfrage waere fuer jede laufende Reise eine, die nie etwas
+  // sagt.
+  test('eine laufende Reise fragt gar nicht erst nach', async () => {
+    (fetchTrip as jest.Mock).mockResolvedValue(tripOk);
+    await wrap();
+    await screen.findByText(/Momente eingefangen/);
+
+    expect(mockRpc).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('geteilt-hinweis')).toBeNull();
+  });
+
+  test('gefragt wird nach GENAU dieser Reise', async () => {
+    (fetchTrip as jest.Mock).mockResolvedValue(tripRevealedOk);
+    mockRpc.mockResolvedValue({ data: true, error: null });
+    await wrap();
+    await screen.findByTestId('geteilt-hinweis');
+
+    expect(mockRpc).toHaveBeenCalledWith('recap_ist_geteilt', { p_trip_id: 't1' });
   });
 });

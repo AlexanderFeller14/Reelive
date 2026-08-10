@@ -146,3 +146,41 @@ export async function widerrufeLink(token: string): Promise<{ error: string | nu
   if (!ergebnis?.ok) return { error: WIDERRUFEN_FEHLER };
   return { error: null };
 }
+
+// Ob der Recap dieser Reise gerade geteilt ist, für ALLE Mitreisenden.
+//
+// `holeAktivenLink` oben beantwortet dieselbe Frage, aber nur für die
+// Owner-Person: die SELECT-Policy auf share_links ist owner-only, und sie
+// bleibt es, denn wer die Zeile liest, liest den Token, und der Token IST die
+// Berechtigung. Wer mitgereist ist, hat trotzdem ein Recht darauf zu wissen,
+// dass seine Momente gerade hinter einer öffentlichen URL stehen, samt den
+// Orten, an denen sie entstanden sind.
+//
+// Deshalb eine Datenbankfunktion, die nur ja oder nein sagt
+// (`public.recap_ist_geteilt`, Migration 20260810100000). Sie prüft die
+// Mitgliedschaft selbst und wendet dieselben drei Bedingungen an wie
+// `share-link/aufloesen`: nicht widerrufen, nicht abgelaufen, Zeile existiert.
+//
+// Der Fehlerfall gibt `null` statt `false` zurück, und das ist der Punkt:
+// «nicht geteilt» und «wir wissen es gerade nicht» sind zwei verschiedene
+// Auskünfte, und die zweite darf sich nicht als die erste ausgeben. Ein
+// Netzfehler würde sonst zu «dein Recap ist nicht geteilt», und das ist die
+// eine Richtung, in die diese Zeile nie irren darf.
+const GETEILT_LADEFEHLER =
+  'Ob der Recap geteilt ist, liess sich gerade nicht prüfen. Probier es gleich nochmal.';
+
+export async function istRecapGeteilt(tripId: string): Promise<Gelesen<boolean | null>> {
+  // Kein direktes Destrukturieren: in Tests bleibt der rpc-Mock zuweilen
+  // unkonfiguriert und liefert `undefined`, im echten Betrieb löst
+  // `supabase.rpc()` immer zu { data, error } auf (gleiche Absicherung und
+  // gleicher Grund wie in features/trips/tripsApi.ts).
+  const ergebnis = await supabase.rpc('recap_ist_geteilt', { p_trip_id: tripId });
+  const fehler = ergebnis?.error;
+  if (fehler) return { data: null, error: meldung(fehler, GETEILT_LADEFEHLER) };
+  // Die Funktion ist `returns boolean` und kann null nur liefern, wenn etwas
+  // grundlegend anders ist als angenommen. Dann gilt dasselbe wie beim Fehler:
+  // lieber keine Auskunft als eine falsche Entwarnung.
+  const wert = ergebnis?.data;
+  if (typeof wert !== 'boolean') return { data: null, error: GETEILT_LADEFEHLER };
+  return { data: wert, error: null };
+}

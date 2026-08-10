@@ -3,10 +3,12 @@
 // zur Aufrufzeit.
 const mockFrom = jest.fn();
 const mockInvoke = jest.fn();
+const mockRpc = jest.fn();
 jest.mock('@/lib/supabase', () => ({
   supabase: {
     from: (...args: unknown[]) => mockFrom(...args),
     functions: { invoke: (...args: unknown[]) => mockInvoke(...args) },
+    rpc: (...args: unknown[]) => mockRpc(...args),
   },
 }));
 
@@ -39,7 +41,7 @@ const httpFehler = (status: number, body: unknown) => ({
   }),
 });
 
-import { holeAktivenLink, erstelleLink, widerrufeLink } from '../linkVerwaltenApi';
+import { holeAktivenLink, erstelleLink, istRecapGeteilt, widerrufeLink } from '../linkVerwaltenApi';
 
 describe('holeAktivenLink', () => {
   test('kein Treffer: data ist null, kein Fehler', async () => {
@@ -195,5 +197,62 @@ describe('widerrufeLink', () => {
     mockInvoke.mockResolvedValueOnce({ data: {}, error: null });
     const { error } = await widerrufeLink('tok1');
     expect(error).toBe('Der Link konnte nicht deaktiviert werden. Probier es gleich nochmal.');
+  });
+});
+
+// ===========================================================================
+// istRecapGeteilt: die eine Auskunft, die auch Mitreisende bekommen
+// ===========================================================================
+//
+// `holeAktivenLink` oben beantwortet dieselbe Frage, aber nur fuer die
+// Owner-Person: die SELECT-Policy auf share_links ist owner-only, und sie
+// bleibt es, denn wer die Zeile liest, liest den Token. Diese Funktion geht
+// deshalb ueber `public.recap_ist_geteilt`, das nur ja oder nein sagt.
+describe('istRecapGeteilt', () => {
+  test('fragt die Datenbankfunktion mit der Reise-id, nicht die Tabelle', async () => {
+    mockRpc.mockResolvedValue({ data: true, error: null });
+    const ergebnis = await istRecapGeteilt('t1');
+
+    expect(ergebnis).toEqual({ data: true, error: null });
+    expect(mockRpc).toHaveBeenCalledWith('recap_ist_geteilt', { p_trip_id: 't1' });
+    // Der Punkt der ganzen Uebung: der Token wird nie gelesen.
+    expect(mockFrom).not.toHaveBeenCalled();
+  });
+
+  test('«nicht geteilt» kommt als false durch', async () => {
+    mockRpc.mockResolvedValue({ data: false, error: null });
+    expect(await istRecapGeteilt('t1')).toEqual({ data: false, error: null });
+  });
+
+  // Die eine Richtung, in die diese Auskunft nie irren darf: ein Fehler ist
+  // NICHT «nicht geteilt». Käme hier `false` heraus, gäbe die App bei jedem
+  // Netzhänger eine Entwarnung, die sie nicht geprüft hat.
+  test('ein Fehler liefert null, nie false', async () => {
+    mockRpc.mockResolvedValue({ data: null, error: { message: 'kaputt' } });
+    const ergebnis = await istRecapGeteilt('t1');
+    expect(ergebnis.data).toBeNull();
+    expect(ergebnis.error).toBe('Ob der Recap geteilt ist, liess sich gerade nicht prüfen. Probier es gleich nochmal.');
+  });
+
+  test('ein Netzwerkfehler nennt den Offline-Hinweis', async () => {
+    mockRpc.mockResolvedValue({ data: null, error: { message: 'Network request failed' } });
+    const ergebnis = await istRecapGeteilt('t1');
+    expect(ergebnis.data).toBeNull();
+    expect(ergebnis.error).toBe('Du bist offline. Verbinde dich und probier es nochmal.');
+  });
+
+  // Die Funktion ist `returns boolean`; alles andere heisst, dass etwas
+  // grundlegend anders ist als angenommen, und auch dann gilt: lieber keine
+  // Auskunft als eine falsche Entwarnung.
+  test('etwas anderes als ein Boolean gilt ebenfalls als unbekannt', async () => {
+    for (const wert of [null, undefined, 'ja', 1, {}]) {
+      mockRpc.mockResolvedValue({ data: wert, error: null });
+      expect((await istRecapGeteilt('t1')).data).toBeNull();
+    }
+  });
+
+  test('auch eine ganz ausbleibende Antwort kippt nicht auf false', async () => {
+    mockRpc.mockResolvedValue(undefined);
+    expect((await istRecapGeteilt('t1')).data).toBeNull();
   });
 });

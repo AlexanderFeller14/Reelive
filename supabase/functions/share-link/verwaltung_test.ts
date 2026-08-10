@@ -35,12 +35,12 @@ const BEN = '22222222-2222-4222-8222-222222222222';
 const TRIP_ID = 'aaaaaaaa-0000-4000-8000-000000000001';
 
 function trip(status: ErstellenTrip['status'], ownerId = LEA): ErstellenTrip {
-  return { id: TRIP_ID, owner_id: ownerId, status };
+  return { id: TRIP_ID, owner_id: ownerId, status, name: 'Lissabon' };
 }
 
 // Was der Aufrufer daraus macht: Status-Code und Body. Auf dieser Ebene muss
 // verglichen werden, was zurückgeht, sind Bytes.
-function alsHttpAntwort(urteil: VerwaltungsUrteil): string {
+function alsHttpAntwort(urteil: VerwaltungsUrteil<unknown>): string {
   if (urteil.erlaubt) return 'ERLAUBT';
   return `${urteil.status} ${JSON.stringify({ fehler: urteil.nachricht })}`;
 }
@@ -98,8 +98,12 @@ Deno.test('erstellen: unbekannte Reise liefert 404, unabhängig von der anfragen
   });
 });
 
-Deno.test('erstellen: aufgedeckte eigene Reise wird zugelassen', () => {
-  assertEquals(beurteileErstellen(trip('revealed'), LEA), { erlaubt: true });
+// Das Urteil traegt die geprueften Daten mit: «erlaubt» heisst hier immer auch
+// «die Zeile existiert», und der Aufrufer braucht sie fuer die Meldung an die
+// Mitreisenden, ohne ein zweites Mal gegen null zu pruefen.
+Deno.test('erstellen: aufgedeckte eigene Reise wird zugelassen, samt der geprueften Zeile', () => {
+  const zeile = trip('revealed');
+  assertEquals(beurteileErstellen(zeile, LEA), { erlaubt: true, daten: zeile });
 });
 
 // ===========================================================================
@@ -135,7 +139,7 @@ Deno.test('berechneAblauf: alles andere wird abgelehnt, statt still zu einem Inv
 // ===========================================================================
 
 Deno.test('widerrufen: «gibt es nicht» und «gehört jemand anderem» sind byte-gleich', () => {
-  const besitz: TokenBesitz = { token: 'abc', trip_id: TRIP_ID, owner_id: LEA };
+  const besitz: TokenBesitz = { token: 'abc', trip_id: TRIP_ID, owner_id: LEA, name: 'Lissabon' };
 
   const nichtVorhanden = beurteileWiderrufen(null, BEN);
   const fremd = beurteileWiderrufen(besitz, BEN);
@@ -161,9 +165,7 @@ Deno.test('widerrufen: die Ablehnung lässt sich vom Aufrufer nicht verändern',
   assertEquals(alsHttpAntwort(beurteileWiderrufen(null, BEN)), alsHttpAntwort(WIDERRUF_ABLEHNUNG));
 });
 
-Deno.test('widerrufen: die eigene Zeile wird zugelassen', () => {
-  assertEquals(
-    beurteileWiderrufen({ token: 'abc', trip_id: TRIP_ID, owner_id: LEA }, LEA),
-    { erlaubt: true },
-  );
+Deno.test('widerrufen: die eigene Zeile wird zugelassen, samt der geprueften Zeile', () => {
+  const besitz: TokenBesitz = { token: 'abc', trip_id: TRIP_ID, owner_id: LEA, name: 'Lissabon' };
+  assertEquals(beurteileWiderrufen(besitz, LEA), { erlaubt: true, daten: besitz });
 });

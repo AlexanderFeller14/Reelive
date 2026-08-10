@@ -3,7 +3,7 @@ import { ActivityIndicator, Alert, ScrollView, Text, View, StyleSheet } from 're
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
-import { Flag, Lock, X } from 'lucide-react-native';
+import { Flag, Lock, Share2, X } from 'lucide-react-native';
 import { PressScale } from '@/components/PressScale';
 import { Avatar } from '@/components/Avatar';
 import { Badge } from '@/components/Badge';
@@ -24,6 +24,8 @@ import { revealTrip } from '@/features/recap/recapApi';
 import { merkeRevealGesehen, revealGesehen } from '@/features/recap/gesehen';
 import { holeVorrat } from '@/features/recap/urlVorrat';
 import { entferneMoment, fetchMeldungen, verwirfMeldung, type Meldung } from '@/features/recap/meldenApi';
+import { istRecapGeteilt } from '@/features/teilen/linkVerwaltenApi';
+import { LINK_REICHWEITE } from '@/features/teilen/texte';
 
 // DESIGN-LANGUAGE §5: destruktive Dialoge kündigen sich haptisch an (warning).
 // Sparsam eingesetzt, nur die drei Dialoge dieses Screens. Ein fehlender
@@ -145,6 +147,12 @@ function MeldungZeile({
   );
 }
 
+// Kein Kasten und keine Warnfarbe: das ist kein Alarm, sondern eine fehlende
+// Auskunft. Sie nennt Ursache und Weg, ohne sich zu entschuldigen
+// (DESIGN-LANGUAGE §6).
+const GETEILT_UNBEKANNT =
+  'Ob dieser Recap geteilt ist, liess sich gerade nicht prüfen. Schau gleich nochmal rein.';
+
 export default function ReiseDetail() {
   const { colors } = useTheme();
   const router = useRouter();
@@ -235,6 +243,14 @@ export default function ReiseDetail() {
   // Screen schreibt.
   const aktiv = useRef(true);
 
+  // Ob der Recap gerade geteilt ist, fuer ALLE Mitreisenden sichtbar.
+  //
+  // Drei Werte, nicht zwei: `null` heisst «wir wissen es gerade nicht» und ist
+  // ausdruecklich NICHT dasselbe wie `false`. Ein Netzfehler darf sich nicht
+  // als Entwarnung ausgeben, das ist die eine Richtung, in die diese Auskunft
+  // nie irren darf.
+  const [geteilt, setGeteilt] = useState<boolean | null>(false);
+
   const laden = useCallback(async () => {
     const [t, m, z, jobs, abgelehnt, meldungenErgebnis] = await Promise.all([
       fetchTrip(id),
@@ -277,6 +293,19 @@ export default function ReiseDetail() {
     // sichtbar) hat seinen EIGENEN, prominenten Fehlerzustand.
     setMeldungenAnzahl(meldungenErgebnis.error ? 0 : meldungenErgebnis.data.length);
     setGeladen(true);
+
+    // Erst NACH dem Laden der Reise, und nur wenn sie ueberhaupt aufgedeckt
+    // ist: vor dem Reveal entsteht gar kein Link (share-link/verwaltung.ts
+    // lehnt ab), die Abfrage koennte also nur `false` liefern. Sie steht
+    // deshalb bewusst nicht im Promise.all darueber, das fuer jede laufende
+    // Reise eine Abfrage mehr bedeutete, die nie etwas sagt.
+    if (t.data && t.data.status !== 'active') {
+      const geteiltErgebnis = await istRecapGeteilt(id);
+      if (!aktiv.current) return;
+      setGeteilt(geteiltErgebnis.data);
+    } else {
+      setGeteilt(false);
+    }
 
     // Reveal-Entdeckung (V6): keine Benachrichtigung, kein Deep-Link, nur
     // die Tatsache, dass diese Reise beim (Wieder-)Öffnen nicht mehr 'active'
@@ -608,6 +637,34 @@ export default function ReiseDetail() {
         )}
       </View>
 
+      {/* Was jede mitreisende Person wissen sollte: der Recap steht gerade
+          hinter einer oeffentlichen URL, und die zeigt seit Phase 7 auch die
+          Orte, an denen die Momente entstanden sind. Bis hierher wusste das
+          nur die Owner-Person, die den Link erstellt hat.
+          Fuer ALLE sichtbar, nicht nur fuer Mitreisende: auch die
+          Owner-Person soll die Lage im Screen ihrer Reise sehen und nicht
+          erst im Teilen-Sheet nachschauen muessen. */}
+      {geteilt === true && (
+        <View testID="geteilt-hinweis" style={[styles.geteiltBox, { backgroundColor: colors['bg-1'] }]}>
+          <Share2 size={20} color={colors['text-1']} strokeWidth={1.75} />
+          <View style={styles.geteiltText}>
+            <Text style={[type.bodyMedium, { color: colors['text-1'] }]}>Dieser Recap ist geteilt</Text>
+            <Text style={[type.secondary, { color: colors['text-2'] }]}>{LINK_REICHWEITE}</Text>
+          </View>
+        </View>
+      )}
+
+      {/* Und der Fall, in dem die Auskunft ausbleibt. Er bekommt eine eigene,
+          zurueckhaltende Zeile statt gar nichts: «nicht geteilt» und «wir
+          wissen es gerade nicht» sind zwei verschiedene Dinge, und das
+          zweite als das erste auszugeben waere die eine Richtung, in die
+          diese Zeile nie irren darf. */}
+      {geteilt === null && (
+        <Text testID="geteilt-unbekannt" style={[type.secondary, { color: colors['text-2'] }]}>
+          {GETEILT_UNBEKANNT}
+        </Text>
+      )}
+
       {verworfen.length > 0 && (
         <View style={[styles.verworfenBox, { backgroundColor: colors['bg-1'] }]}>
           <Text style={[type.bodyMedium, { color: colors['text-1'] }]}>
@@ -777,6 +834,17 @@ const styles = StyleSheet.create({
   // Abgesetzte Fläche statt Schatten (DESIGN-LANGUAGE §3: ein Schatten heisst
   // «schwebt»). Radius 12 wie jede andere Fläche dieser Grösse.
   verworfenBox: { borderRadius: radius.control, padding: spacing.base, gap: spacing.m },
+  // Dieselbe Form wie meldungenBox darunter: Symbol links, Text rechts. Sie
+  // ist KEIN Knopf, anders als jene, hier gibt es nichts anzutippen, die
+  // Zeile ist eine Auskunft. Deshalb auch kein PressScale darum herum.
+  geteiltBox: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.m,
+    borderRadius: radius.control,
+    padding: spacing.base,
+  },
+  geteiltText: { flex: 1, gap: spacing.xs },
   // Task 8, Phase 6: Moderation.
   meldungenBox: {
     flexDirection: 'row',

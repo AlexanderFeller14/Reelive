@@ -25,6 +25,9 @@ export type ErstellenTrip = {
   id: string;
   owner_id: string;
   status: TripStatus;
+  // Fuer den Text der Teilen-Benachrichtigung («… euren Recap von «Lissabon»
+  // geteilt»). Er kommt aus derselben Abfrage, die ohnehin schon laeuft.
+  name: string;
 };
 
 // Wer einen Token widerrufen will: die Zeile samt Eigentümerschaft der
@@ -34,10 +37,20 @@ export type TokenBesitz = {
   token: string;
   trip_id: string;
   owner_id: string;
+  // Der Reisename, aus demselben Grund wie bei ErstellenTrip.
+  name: string;
 };
 
-export type VerwaltungsUrteil =
-  | { erlaubt: true }
+// Das Urteil traegt die geprueften Daten mit, wenn es erlaubt.
+//
+// Nicht der Bequemlichkeit halber: «erlaubt» heisst bei beiden Urteilen unten
+// IMMER auch «die Zeile existiert», sonst kaeme die Funktion an ihrem ersten
+// `if` gar nicht vorbei. Ohne den Wert im Ergebnis wuesste der Aufrufer das
+// nicht mehr und muesste die Zeile ein zweites Mal gegen `null` pruefen, in
+// einem Zweig, der nie laeuft. Genau die Art Bedingung, die spaeter niemand
+// mehr pruefen kann, weil sie unerreichbar ist.
+export type VerwaltungsUrteil<T> =
+  | { erlaubt: true; daten: T }
   | { erlaubt: false; nachricht: string; status: number };
 
 // ---------------------------------------------------------------------------
@@ -53,7 +66,7 @@ export type VerwaltungsUrteil =
 export function beurteileErstellen(
   trip: ErstellenTrip | null,
   anfragendeId: string,
-): VerwaltungsUrteil {
+): VerwaltungsUrteil<ErstellenTrip> {
   if (!trip) {
     return { erlaubt: false, nachricht: 'Reise nicht gefunden.', status: 404 };
   }
@@ -73,7 +86,7 @@ export function beurteileErstellen(
   if (trip.status !== 'revealed') {
     return { erlaubt: false, nachricht: 'Diese Reise ist archiviert. Für sie entsteht kein neuer Link mehr.', status: 409 };
   }
-  return { erlaubt: true };
+  return { erlaubt: true, daten: trip };
 }
 
 // Obergrenze für `gueltig_tage`. Kein Sicherheitswert, sondern eine
@@ -125,8 +138,8 @@ export const WIDERRUF_ABLEHNUNG: { erlaubt: false; nachricht: string; status: nu
 export function beurteileWiderrufen(
   besitz: TokenBesitz | null,
   anfragendeId: string,
-): VerwaltungsUrteil {
+): VerwaltungsUrteil<TokenBesitz> {
   if (!besitz) return WIDERRUF_ABLEHNUNG;
   if (besitz.owner_id !== anfragendeId) return WIDERRUF_ABLEHNUNG;
-  return { erlaubt: true };
+  return { erlaubt: true, daten: besitz };
 }
