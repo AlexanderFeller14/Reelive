@@ -1,7 +1,7 @@
 import { render, screen, fireEvent } from '@testing-library/react-native';
 import { StyleSheet } from 'react-native';
 import { ThemeProvider } from '@/theme/ThemeProvider';
-import { cinema, palette } from '@/theme/tokens';
+import { cinema, palette, type } from '@/theme/tokens';
 import { Input } from '../Input';
 
 const wrap = (ui: React.ReactElement) => render(<ThemeProvider>{ui}</ThemeProvider>);
@@ -106,4 +106,19 @@ test('der Text beginnt unterhalb des angehobenen Labels', async () => {
   await wrap(<Input label="Name der Reise" value="Norwegen" onChangeText={() => {}} />);
   const feld = StyleSheet.flatten(screen.getByLabelText('Name der Reise').props.style);
   expect(feld.paddingTop).toBeGreaterThanOrEqual(20);
+});
+
+// `type.body` bringt `lineHeight: 24` mit, sinnvoll für Fliesstext, schädlich
+// im einzeiligen TextInput: iOS legt die Glyphen an den unteren Rand der
+// Zeilenbox statt in ihre Mitte, der Text hängt dadurch sichtbar zu tief im
+// Feld. Deshalb übernimmt das Feld aus `type.body` nur Familie, Grösse und
+// Ziffernvariante, nicht die Zeilenhöhe.
+test('das Feld erbt keine lineHeight, die den Text nach unten drückt', async () => {
+  await wrap(<Input label="Name der Reise" value="Abc" onChangeText={() => {}} />);
+  const feld = StyleSheet.flatten(screen.getByLabelText('Name der Reise').props.style);
+  expect(feld.lineHeight).toBeUndefined();
+  // Familie und Grösse müssen aber ankommen, sonst fällt das Feld auf die
+  // Systemschrift zurück (DESIGN-LANGUAGE §2: eine Familie, Figtree).
+  expect(feld.fontFamily).toBe(type.body.fontFamily);
+  expect(feld.fontSize).toBe(type.body.fontSize);
 });

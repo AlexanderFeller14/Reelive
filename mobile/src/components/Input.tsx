@@ -129,19 +129,27 @@ export function Input({ label, error, value, placeholder, style, onFocus, onBlur
             onBlur?.(e);
           }}
           style={[
-            type.body,
+            // BEWUSST nicht `type.body` als Ganzes: dessen `lineHeight: 24` ist
+            // für Fliesstext gedacht und im einzeiligen TextInput schädlich.
+            // iOS legt die Glyphen dann an den UNTEREN Rand der Zeilenbox statt
+            // in ihre Mitte, der Text hängt sichtbar zu tief im Feld. Familie,
+            // Grösse und Ziffernvariante kommen mit, die Zeilenhöhe nicht.
+            {
+              fontFamily: type.body.fontFamily,
+              fontSize: type.body.fontSize,
+              fontVariant: type.body.fontVariant,
+            },
             // `flex: 1` statt der intrinsischen Höhe, und der Rahmen darüber
             // ohne `justifyContent: 'flex-end'`: sonst ist das Feld nur so hoch
             // wie sein Text und klebt an der Unterkante, und die obere Hälfte
             // des Rahmens, genau dort wo das Label steht, gehört zu keinem
-            // Touch-Ziel. Mit der Maus trifft man das untere Drittel, mit dem
-            // Daumen landet man oft oben, und dann passiert nichts.
+            // Touch-Ziel.
             //
-            // `paddingTop: 26` hält den Text dort, wo er vorher sass: das
-            // gehobene Label endet bei 20 (top 8 plus 12 px Schrifthöhe), und
-            // iOS zentriert einzeiligen Text im verbleibenden Raum, was ihn
-            // mittig unter das Label legt statt an die Oberkante.
-            { color: textFarbe, flex: 1, paddingTop: 26, paddingBottom: 4, paddingHorizontal: 0 },
+            // Das gehobene Label endet bei 20 (top 8 plus 12 px Schrifthöhe).
+            // Der Text sitzt im Raum darunter: iOS zentriert einzeiligen Text
+            // zwischen den beiden Paddings, 22 oben und 8 unten legen ihn
+            // mittig zwischen Label-Unterkante und Feldboden.
+            { color: textFarbe, flex: 1, paddingTop: 22, paddingBottom: 8, paddingHorizontal: 0 },
             style,
           ]}
           {...rest}
