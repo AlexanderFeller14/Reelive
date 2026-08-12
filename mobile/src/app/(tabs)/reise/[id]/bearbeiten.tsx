@@ -90,18 +90,22 @@ export default function ReiseBearbeiten() {
   return (
     // Wie im Anlege-Screen: seit der Knopf unten klebt, braucht der Screen
     // Tastatur-Ausweichlogik, sonst verdeckt die Tastatur ihn beim Tippen des
-    // Namens.
+    // Namens. Die Abstände liegen am inneren View, weil `behavior="padding"`
+    // das eigene `paddingBottom` der KeyboardAvoidingView sonst über den
+    // Screen-Rand schreibt und der Knopf auf der Tab-Bar klebt.
     <KeyboardAvoidingView
-      style={[styles.screen, { backgroundColor: colors['bg-0'], paddingTop: oben }]}
+      style={{ flex: 1, backgroundColor: colors['bg-0'] }}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <Text style={[type.h1, { color: colors['text-1'] }]}>Reise bearbeiten</Text>
-      <Input label="Name der Reise" value={name} onChangeText={setName} error={nameFehler} />
-      <Zeitraumfeld wert={zeitraum} onAendern={setZeitraum} fehler={zeitraumFehler} />
-      {/* Wie im Anlege-Screen: Knopf ans untere Ende, Felder bleiben oben. */}
-      <View style={styles.fueller} />
-      {speicherFehler && <Text style={[type.body, { color: colors.danger }]}>{speicherFehler}</Text>}
-      <Button variant="primary" label="Speichern" onPress={speichern} loading={laedt} />
+      <View style={[styles.screen, { paddingTop: oben }]}>
+        <Text style={[type.h1, { color: colors['text-1'] }]}>Reise bearbeiten</Text>
+        <Input label="Name der Reise" value={name} onChangeText={setName} error={nameFehler} />
+        <Zeitraumfeld wert={zeitraum} onAendern={setZeitraum} fehler={zeitraumFehler} />
+        {/* Wie im Anlege-Screen: Knopf ans untere Ende, Felder bleiben oben. */}
+        <View style={styles.fueller} />
+        {speicherFehler && <Text style={[type.body, { color: colors.danger }]}>{speicherFehler}</Text>}
+        <Button variant="primary" label="Speichern" onPress={speichern} loading={laedt} />
+      </View>
     </KeyboardAvoidingView>
   );
 }

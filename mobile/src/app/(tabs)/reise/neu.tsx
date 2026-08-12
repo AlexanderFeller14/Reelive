@@ -52,22 +52,29 @@ export default function NeueReise() {
     // das Namensfeld hat `autoFocus`, die Tastatur steht also sofort und
     // verdeckte ihn sonst. Gleiches Muster wie preview.tsx: `padding` auf iOS,
     // Android regelt das über windowSoftInputMode am Fenster.
+    //
+    // Die Abstände liegen am INNEREN View, nicht an der KeyboardAvoidingView:
+    // die setzt bei `behavior="padding"` ihr eigenes `paddingBottom` und
+    // überschrieb damit den Screen-Rand, sobald keine Tastatur stand. Der Knopf
+    // klebte dadurch direkt auf der Tab-Bar.
     <KeyboardAvoidingView
-      style={[styles.screen, { backgroundColor: colors['bg-0'], paddingTop: oben }]}
+      style={{ flex: 1, backgroundColor: colors['bg-0'] }}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <Text style={[type.h1, { color: colors['text-1'] }]}>Neue Reise</Text>
-      <Text style={[type.secondary, { color: colors['text-2'] }]}>
-        Name und Zeitraum reichen. Freunde lädst du gleich danach ein.
-      </Text>
-      <Input label="Name der Reise" value={name} onChangeText={setName} error={nameFehler} placeholder="Norwegen mit dem Camper" autoFocus />
-      <Zeitraumfeld wert={zeitraum} onAendern={setZeitraum} fehler={zeitraumFehler} />
-      {/* Schiebt den Knopf ans untere Ende, in Daumenreichweite, statt ihn
-          mitten im Bild kleben zu lassen. Die Felder bleiben oben, wo die
-          Leseachse beginnt: bei zentriertem Inhalt spränge der ganze Block,
-          sobald unter einem Feld eine Fehlermeldung erscheint. */}
-      <View style={styles.fueller} />
-      <Button variant="primary" label="Reise anlegen" onPress={absenden} loading={laedt} />
+      <View style={[styles.screen, { paddingTop: oben }]}>
+        <Text style={[type.h1, { color: colors['text-1'] }]}>Neue Reise</Text>
+        <Text style={[type.secondary, { color: colors['text-2'] }]}>
+          Name und Zeitraum reichen. Freunde lädst du gleich danach ein.
+        </Text>
+        <Input label="Name der Reise" value={name} onChangeText={setName} error={nameFehler} placeholder="Norwegen mit dem Camper" autoFocus />
+        <Zeitraumfeld wert={zeitraum} onAendern={setZeitraum} fehler={zeitraumFehler} />
+        {/* Schiebt den Knopf ans untere Ende, in Daumenreichweite, statt ihn
+            mitten im Bild kleben zu lassen. Die Felder bleiben oben, wo die
+            Leseachse beginnt: bei zentriertem Inhalt spränge der ganze Block,
+            sobald unter einem Feld eine Fehlermeldung erscheint. */}
+        <View style={styles.fueller} />
+        <Button variant="primary" label="Reise anlegen" onPress={absenden} loading={laedt} />
+      </View>
     </KeyboardAvoidingView>
   );
 }
