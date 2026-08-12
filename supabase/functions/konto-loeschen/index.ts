@@ -261,7 +261,19 @@ Deno.serve(async (req: Request): Promise<Response> => {
     await melde(avatarError, { user_id: anfragendeId });
     return fehler('Dein Profil konnte nicht gelesen werden.', 500);
   }
-  for (const kandidat of [avatarKey, ...trips.map((t) => t.cover_key)]) {
+  // Der Wächter entscheidet unverändert, ob der Pfad zu dieser Löschung
+  // gehört (pfadGehoertUns, ausführliche Begründung dort). Nur das Ziel ist
+  // ein anderes: der Avatar liegt im Bucket `avatare`, nicht im S3-Bucket der
+  // Momente, und wird darum unten als eigener Speicherschritt gelöscht statt
+  // hier in die Schlüsselliste geworfen.
+  let avatarZumLoeschen: string | null = null;
+  if (pfadGehoertUns(avatarKey, erlaubtePraefixe)) {
+    avatarZumLoeschen = avatarKey;
+  } else if (avatarKey) {
+    ungeklaertePfade.push(avatarKey);
+  }
+
+  for (const kandidat of trips.map((t) => t.cover_key)) {
     if (kandidat === null || kandidat === undefined || kandidat.length === 0) continue;
     if (pfadGehoertUns(kandidat, erlaubtePraefixe)) schluessel.push(kandidat);
     else ungeklaertePfade.push(kandidat);
@@ -283,11 +295,15 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
   // Schritt 2–5: die Reihenfolge, als reine Funktion über benannten Schritten.
   // Speicher zuerst und allein; erst danach die Datenbank, und dort streng
-  // nacheinander.
-  const speicher: Schritt = {
-    name: 'speicher',
-    ausfuehren: () => store.loescheObjekte(schluessel),
-  };
+  // nacheinander. Seit dem Profilbild sind es zwei Speicherorte, siehe
+  // ablauf.ts/fuehreLoeschungAus für die Begründung, warum daraus eine Liste
+  // wurde statt eines zusammengesetzten Einzelschritts.
+  const speicher: Schritt[] = [
+    { name: 'speicher-medien', ausfuehren: () => store.loescheObjekte(schluessel) },
+    // Nach den Medien: scheitert schon jener Schritt, bleibt ohnehin alles
+    // liegen, und die Datenbank wird nicht angefasst.
+    { name: 'speicher-avatar', ausfuehren: () => store.loescheAvatar(avatarZumLoeschen) },
+  ];
   const datenbank: Schritt[] = [
     // VOR der Kaskade und im Namen der Person, sonst rotiert der
     // Einladungscode jeder Reise, in der sie Mitglied war, und reisst allen

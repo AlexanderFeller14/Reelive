@@ -15,13 +15,16 @@
 // lädt. Von den beiden Fehlerrichtungen ist die erste die schlimmere, weil sie
 // unsichtbar und unumkehrbar ist.
 //
-// Also: SPEICHER ZUERST, Datenbank danach. Und scheitert der Speicherschritt,
-// auch nur teilweise, wird die Datenbank GAR NICHT angefasst. Ein Konto, das
-// noch existiert, ist besser als eines, dessen Medien verwaist im Speicher
-// liegen; und weil das Löschen im Speicher idempotent ist (ein bereits
-// gelöschter Schlüssel ist kein Fehler, nachgemessen gegen S3-kompatible
-// Object-Storage-APIs, siehe store.ts/erstelleS3Loescher), führt ein zweiter
-// Versuch die Löschung sauber zu Ende, statt einen Rest zurückzulassen.
+// Also: SPEICHER ZUERST, Datenbank danach. Und scheitert EIN Speicherschritt,
+// auch nur einer von mehreren (seit dem Profilbild sind es zwei: die Momente
+// in R2, der Avatar in Supabase Storage), wird die Datenbank GAR NICHT
+// angefasst. Ein Konto, das noch existiert, ist besser als eines, dessen
+// Medien verwaist im Speicher liegen; und weil das Löschen an beiden Orten
+// idempotent ist (ein bereits gelöschter Schlüssel ist kein Fehler,
+// nachgemessen gegen S3-kompatible Object-Storage-APIs, siehe
+// store.ts/erstelleS3Loescher, und dokumentiert für die Storage-API in
+// store.ts/loescheAvatar), führt ein zweiter Versuch die Löschung sauber zu
+// Ende, statt einen Rest zurückzulassen.
 
 import { erwarteteSchluessel } from '../media-urls/keys.ts';
 
@@ -145,14 +148,25 @@ export type LoeschErgebnis =
   | { ok: true }
   | { ok: false; gescheitertBei: string; fehler: unknown; datenbankBeruehrt: boolean };
 
-// speicher läuft ZUERST und allein. Erst wenn er ohne Fehler zurückkommt,
-// beginnt die Datenbank, und die Schritte darin laufen streng nacheinander,
-// jeder erst nach dem vorigen.
+// speicher läuft ZUERST und allein. Erst wenn ALLE Speicherschritte ohne
+// Fehler zurückkommen, beginnt die Datenbank, und die Schritte darin laufen
+// streng nacheinander, jeder erst nach dem vorigen.
 //
-// Kein Promise.all, nirgends: Die Datenbankschritte hängen voneinander ab
-// (`trips.owner_id → profiles.id` ist die einzige on-delete-restrict-Beziehung
-// im Schema, der Auth-Nutzer lässt sich erst löschen, wenn die eigenen Reisen
-// weg sind), und der Speicherschritt ist die Vorbedingung für alles.
+// Seit dem Profilbild sind es zwei Speicherorte: die Momente in R2 und der
+// Avatar in Supabase Storage. Beide müssen fertig sein, bevor die Datenbank
+// angefasst wird, denn ein Objekt ohne Zeile ist Müll, den niemand mehr
+// findet. Eine Liste statt eines Schritts hält diese Zusicherung und lässt
+// `gescheitertBei` weiterhin benennen, welcher Speicher versagt hat.
+//
+// Kein Promise.all, weder hier noch bei der Datenbank: Die Datenbankschritte
+// hängen voneinander ab (`trips.owner_id → profiles.id` ist die einzige
+// on-delete-restrict-Beziehung im Schema, der Auth-Nutzer lässt sich erst
+// löschen, wenn die eigenen Reisen weg sind), und die Speicherschritte sind
+// die Vorbedingung für alles danach. Nebeneinander laufen hiesse ausserdem:
+// scheitert der erste Speicherschritt, liefe der zweite trotzdem schon los,
+// obwohl das Ergebnis ohnehin verworfen wird, unnötige Arbeit, und eine Falle
+// für den Tag, an dem jemand eine Abhängigkeit zwischen den Schritten
+// einführt.
 //
 // `datenbankBeruehrt` ist Teil des Ergebnisses und nicht nur eine interne
 // Variable: Der Aufrufer soll dem Fehler ansehen können, ob ein zweiter
@@ -160,26 +174,28 @@ export type LoeschErgebnis =
 // aufsetzt. Beide Wege sind wiederholbar, aber sie erzählen dem Menschen davor
 // nicht dasselbe.
 export async function fuehreLoeschungAus(
-  speicher: Schritt,
+  speicher: Schritt[],
   datenbank: Schritt[],
 ): Promise<LoeschErgebnis> {
-  let speicherErgebnis: { fehler: unknown };
-  try {
-    speicherErgebnis = await speicher.ausfuehren();
-  } catch (err) {
-    // Eine geworfene Ausnahme ist derselbe Fall wie ein zurückgegebener
-    // Fehler: die Datenbank bleibt unberührt. Ohne dieses try/catch liefe der
-    // Fehler am Aufrufer vorbei nach oben, was zufällig auch die Datenbank
-    // verschonte, aber eben nur zufällig.
-    return { ok: false, gescheitertBei: speicher.name, fehler: err, datenbankBeruehrt: false };
-  }
-  if (speicherErgebnis.fehler) {
-    return {
-      ok: false,
-      gescheitertBei: speicher.name,
-      fehler: speicherErgebnis.fehler,
-      datenbankBeruehrt: false,
-    };
+  for (const schritt of speicher) {
+    let ergebnis: { fehler: unknown };
+    try {
+      ergebnis = await schritt.ausfuehren();
+    } catch (err) {
+      // Eine geworfene Ausnahme ist derselbe Fall wie ein zurückgegebener
+      // Fehler: die Datenbank bleibt unberührt. Ohne dieses try/catch liefe
+      // der Fehler am Aufrufer vorbei nach oben, was zufällig auch die
+      // Datenbank verschonte, aber eben nur zufällig.
+      return { ok: false, gescheitertBei: schritt.name, fehler: err, datenbankBeruehrt: false };
+    }
+    if (ergebnis.fehler) {
+      return {
+        ok: false,
+        gescheitertBei: schritt.name,
+        fehler: ergebnis.fehler,
+        datenbankBeruehrt: false,
+      };
+    }
   }
 
   for (const schritt of datenbank) {

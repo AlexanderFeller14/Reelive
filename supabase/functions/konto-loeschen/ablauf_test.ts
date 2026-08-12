@@ -46,7 +46,7 @@ const OK = { fehler: null };
 Deno.test('Reihenfolge: Speicher zuerst, danach die Datenbankschritte in genau dieser Folge', async () => {
   const protokoll: string[] = [];
   const ergebnis = await fuehreLoeschungAus(
-    schritt('speicher', OK, protokoll),
+    [schritt('speicher', OK, protokoll)],
     [
       schritt('fremde-reisen-verlassen', OK, protokoll),
       schritt('eigene-reisen-loeschen', OK, protokoll),
@@ -68,7 +68,7 @@ Deno.test('W7: scheitert der Speicherschritt, wird die Datenbank NIE angefasst',
   // kaskadiert worden.
   const protokoll: string[] = [];
   const ergebnis = await fuehreLoeschungAus(
-    schritt('speicher', { fehler: { message: 'S3 nicht erreichbar' } }, protokoll),
+    [schritt('speicher', { fehler: { message: 'S3 nicht erreichbar' } }, protokoll)],
     [
       schritt('fremde-reisen-verlassen', OK, protokoll),
       schritt('eigene-reisen-loeschen', OK, protokoll),
@@ -92,7 +92,7 @@ Deno.test('W7: eine geworfene Ausnahme im Speicherschritt hält die Datenbank ge
   // es zugesichert statt in Kauf genommen.
   const protokoll: string[] = [];
   const ergebnis = await fuehreLoeschungAus(
-    schritt('speicher', 'wirft', protokoll),
+    [schritt('speicher', 'wirft', protokoll)],
     [schritt('eigene-reisen-loeschen', OK, protokoll)],
   );
   assertFalse(ergebnis.ok);
@@ -104,7 +104,7 @@ Deno.test('W7: eine geworfene Ausnahme im Speicherschritt hält die Datenbank ge
 Deno.test('Ein scheiternder Datenbankschritt hält die folgenden auf', async () => {
   const protokoll: string[] = [];
   const ergebnis = await fuehreLoeschungAus(
-    schritt('speicher', OK, protokoll),
+    [schritt('speicher', OK, protokoll)],
     [
       schritt('fremde-reisen-verlassen', OK, protokoll),
       schritt('eigene-reisen-loeschen', { fehler: { code: '23503' } }, protokoll),
@@ -142,15 +142,69 @@ Deno.test('Die Schritte laufen nacheinander, nicht nebeneinander', async () => {
       return Promise.resolve({ fehler: null });
     },
   };
-  await fuehreLoeschungAus(schritt('speicher', OK, protokoll), [langsam, schnell]);
+  await fuehreLoeschungAus([schritt('speicher', OK, protokoll)], [langsam, schnell]);
   assertEquals(protokoll, ['speicher', 'langsam:start', 'langsam:ende', 'schnell:start']);
 });
 
 Deno.test('Ohne Datenbankschritte bleibt es beim Speicherschritt, und der läuft trotzdem', async () => {
   const protokoll: string[] = [];
-  const ergebnis = await fuehreLoeschungAus(schritt('speicher', OK, protokoll), []);
+  const ergebnis = await fuehreLoeschungAus([schritt('speicher', OK, protokoll)], []);
   assertEquals(ergebnis, { ok: true });
   assertEquals(protokoll, ['speicher']);
+});
+
+// Seit dem Profilbild gibt es zwei Speicherorte (R2 für Momente, Supabase
+// Storage für Avatare). Die drei Tests unten prüfen genau die Eigenschaft,
+// die die Signatur-Änderung rechtfertigt: Beide Speicherschritte laufen vor
+// der Datenbank, in Reihenfolge, und ein Fehlschlag in JEDEM von ihnen lässt
+// die Datenbank in Ruhe.
+
+Deno.test('alle Speicherschritte laufen vor der Datenbank', async () => {
+  const reihenfolge: string[] = [];
+  const ergebnis = await fuehreLoeschungAus(
+    [
+      { name: 'medien', ausfuehren: async () => { reihenfolge.push('medien'); return { fehler: null }; } },
+      { name: 'avatar', ausfuehren: async () => { reihenfolge.push('avatar'); return { fehler: null }; } },
+    ],
+    [{ name: 'db', ausfuehren: async () => { reihenfolge.push('db'); return { fehler: null }; } }],
+  );
+  assertEquals(ergebnis.ok, true);
+  assertEquals(reihenfolge, ['medien', 'avatar', 'db']);
+});
+
+// Der Kern der Zusicherung: scheitert IRGENDEIN Speicherschritt, bleibt die
+// Datenbank unberührt. Ein Konto, das noch existiert, ist besser als eines,
+// dessen Bilder verwaist im Speicher liegen.
+Deno.test('ein gescheiterter zweiter Speicherschritt laesst die Datenbank in Ruhe', async () => {
+  let dbLief = false;
+  const ergebnis = await fuehreLoeschungAus(
+    [
+      { name: 'medien', ausfuehren: async () => ({ fehler: null }) },
+      { name: 'avatar', ausfuehren: async () => ({ fehler: new Error('weg') }) },
+    ],
+    [{ name: 'db', ausfuehren: async () => { dbLief = true; return { fehler: null }; } }],
+  );
+  assertEquals(ergebnis.ok, false);
+  assertEquals(dbLief, false);
+  if (!ergebnis.ok) {
+    assertEquals(ergebnis.gescheitertBei, 'avatar');
+    assertEquals(ergebnis.datenbankBeruehrt, false);
+  }
+});
+
+// Nach einem Fehlschlag darf kein weiterer Speicherschritt mehr laufen: der
+// zweite könnte löschen, was der erste noch braucht, wenn jemand später
+// Abhängigkeiten zwischen ihnen einführt.
+Deno.test('nach einem gescheiterten Speicherschritt stoppt die Kette', async () => {
+  let zweiterLief = false;
+  await fuehreLoeschungAus(
+    [
+      { name: 'medien', ausfuehren: async () => ({ fehler: new Error('weg') }) },
+      { name: 'avatar', ausfuehren: async () => { zweiterLief = true; return { fehler: null }; } },
+    ],
+    [],
+  );
+  assertEquals(zweiterLief, false);
 });
 
 // ===========================================================================

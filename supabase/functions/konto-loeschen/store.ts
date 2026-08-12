@@ -4,13 +4,15 @@
 // stehen genau die Abfragen, die kein Unit-Test ersetzen kann und die deshalb
 // konto_loeschen_integration_test.ts gegen den echten Stack prüft.
 //
-// Die vier, auf die es ankommt:
+// Die fünf, auf die es ankommt:
 //   - `verlasseFremdeReisen` läuft mit dem JWT DER PERSON, nicht mit
 //     Service-Role. Der Grund steht dort und ist kein Detail.
 //   - `loescheEigeneTrips` löst die einzige on-delete-restrict-Beziehung des
 //     Schemas auf und stösst damit die grösste Kaskade an.
 //   - `loescheObjekte` blockweise, mit der (nachgemessenen) Eigenschaft, dass
 //     ein bereits gelöschter Schlüssel KEIN Fehler ist.
+//   - `loescheAvatar` im eigenen Bucket `avatare`, dieselbe Eigenschaft,
+//     nur über die Storage-API statt über S3 (Begründung dort).
 //   - die Zählabfragen für den Dialog: sie müssen die Wahrheit sagen.
 //
 // ---------------------------------------------------------------------------
@@ -69,6 +71,12 @@ export const POSTS_SEITENGROESSE = 1000;
 // ist (siehe loescheObjekteBlockweise).
 export const OBJEKT_BLOCKGROESSE = 200;
 
+// Der Avatar-Bucket, konstant statt Umgebungsvariable: anders als die
+// S3-Variablen (die zwischen lokal und R2 wechseln) heisst dieser Bucket
+// lokal und produktiv gleich `avatare` (supabase/config.toml,
+// [storage.buckets.avatare]), es gibt also nichts zu konfigurieren.
+const AVATAR_BUCKET = 'avatare';
+
 export type TripZeile = { id: string; cover_key: string | null };
 export type Zahlen = {
   eigene_reisen: number;
@@ -92,6 +100,7 @@ export interface KontoStore {
   zaehle(userId: string, eigeneTripIds: string[]): Promise<{ data: Zahlen | null; error: unknown }>;
 
   loescheObjekte(schluessel: string[]): Promise<{ fehler: unknown }>;
+  loescheAvatar(key: string | null): Promise<{ fehler: unknown }>;
   verlasseFremdeReisen(userId: string, eigeneTripIds: string[]): Promise<{ fehler: unknown }>;
   loescheEigeneTrips(tripIds: string[]): Promise<{ fehler: unknown }>;
   loescheAuthNutzer(userId: string): Promise<{ fehler: unknown }>;
@@ -319,6 +328,21 @@ export function erstelleKontoStore(
     // variablen baut (erstelleS3Loescher).
     async loescheObjekte(schluessel) {
       return loescheObjekteBlockweise(schluessel, loescheEins);
+    },
+
+    // Der Avatar liegt NICHT im S3-Bucket der Momente, sondern im
+    // Supabase-Storage-Bucket `avatare` (Spec 2026-08-12-profilbild-design.md).
+    // Deshalb dieser Weg statt loescheObjekte/erstelleS3Loescher: derselbe
+    // Admin-Client, den der Store ohnehin hält, und ein Bucket-Name als
+    // Konstante, weil er lokal und produktiv gleich heisst.
+    //
+    // Ein bereits gelöschtes Objekt ist kein Fehler (remove() ist idempotent),
+    // dieselbe Eigenschaft, auf der die Wiederholbarkeit der ganzen Löschung
+    // ruht (siehe erstelleS3Loescher).
+    async loescheAvatar(key: string | null): Promise<{ fehler: unknown }> {
+      if (!key) return { fehler: null };
+      const { error } = await supabaseAdmin.storage.from(AVATAR_BUCKET).remove([key]);
+      return { fehler: error };
     },
 
     // Die eigenen trip_members-Zeilen in FREMDEN Reisen, und zwar im Namen
