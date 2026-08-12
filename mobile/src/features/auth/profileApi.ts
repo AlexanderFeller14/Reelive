@@ -23,14 +23,23 @@ export function validateDisplayName(displayName: string): string | null {
 // Profil konnte nicht gespeichert werden», was mit dem Username nichts zu tun
 // hat. DESIGN-LANGUAGE §4 verlangt feldgenaue Zuordnung, und die kann nur
 // treffen, wer weiss, welches Feld gemeint ist.
+// `avatarKey` ist das vierte, optionale Argument (Default `null`): im
+// Onboarding existiert die Zeile noch nicht, wenn ein Bild gewählt wird
+// (siehe profile-setup.tsx), der Screen lädt es deshalb VOR diesem Aufruf
+// hoch und reicht den fertigen Schlüssel direkt mit, statt ihn per
+// separatem Update nachzutragen — ein zweiter Schreibvorgang könnte
+// scheitern, nachdem die Zeile schon steht. Default `null`, NIE `''`: die
+// RLS-Policy auf `profiles.avatar_key` lehnt einen Leerstring mit 42501 ab
+// (Task 1), nur `NULL` gilt als „kein Bild".
 export async function createProfile(
   userId: string,
   username: string,
-  displayName: string
+  displayName: string,
+  avatarKey: string | null = null
 ): Promise<{ error: string | null; feld: 'username' | null }> {
   const { error } = await supabase
     .from('profiles')
-    .insert({ id: userId, username, display_name: displayName.trim() });
+    .insert({ id: userId, username, display_name: displayName.trim(), avatar_key: avatarKey });
   if (!error) return { error: null, feld: null };
   if (error.code === '23505') {
     return { error: 'Dieser Username ist vergeben, probier einen anderen.', feld: 'username' };

@@ -33,7 +33,43 @@ test('createProfile: Erfolg → error null', async () => {
   mockInsert.mockResolvedValueOnce({ error: null });
   const { error } = await createProfile('uid-1', 'lea', 'Lea');
   expect(error).toBeNull();
-  expect(mockInsert).toHaveBeenCalledWith({ id: 'uid-1', username: 'lea', display_name: 'Lea' });
+  // Scaffolding-Anpassung (Task 7): `createProfile` schreibt jetzt IMMER ein
+  // viertes Feld `avatar_key` mit (Default `null`, siehe Signatur unten).
+  // Diese bereits vorhandene Zusicherung prüfte vorher das Insert ohne dieses
+  // Feld — mit der erweiterten Signatur ruft die Funktion `insert` jetzt
+  // tatsächlich mit `avatar_key: null` auf, die alte Erwartung wäre falsch.
+  expect(mockInsert).toHaveBeenCalledWith({
+    id: 'uid-1', username: 'lea', display_name: 'Lea', avatar_key: null,
+  });
+});
+
+// Task 7: das Onboarding lädt ein gewähltes Bild vor `createProfile` hoch und
+// reicht den fertigen Schlüssel durch, damit die Zeile mit `avatar_key` in
+// einem einzigen Schreibvorgang entsteht (kein nachgelagertes Update).
+test('createProfile schreibt avatar_key mit', async () => {
+  mockInsert.mockResolvedValueOnce({ error: null });
+  await createProfile('u1', 'lea', 'Lea', 'profiles/u1/a.jpg');
+  expect(mockInsert).toHaveBeenCalledWith({
+    id: 'u1',
+    username: 'lea',
+    display_name: 'Lea',
+    avatar_key: 'profiles/u1/a.jpg',
+  });
+});
+
+// Ohne gewähltes Bild bleibt es beim Default `null`, nie ein Leerstring
+// (Leerstrings waren in diesem Schema schon einmal ein Problem, siehe
+// 20260808150000_leerstrings_und_profil_grants.sql, und RLS lehnt `''` mit
+// 42501 ab, siehe Task 1).
+test('createProfile ohne Bild schreibt null', async () => {
+  mockInsert.mockResolvedValueOnce({ error: null });
+  await createProfile('u1', 'lea', 'Lea');
+  expect(mockInsert).toHaveBeenCalledWith({
+    id: 'u1',
+    username: 'lea',
+    display_name: 'Lea',
+    avatar_key: null,
+  });
 });
 
 // `feld` sagt dem Screen, WO die Meldung hingehört. Vorher gab es nur einen

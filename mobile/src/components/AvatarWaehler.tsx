@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { ActivityIndicator, Text, View, StyleSheet } from 'react-native';
+import { Image } from 'expo-image';
 import { Camera } from 'lucide-react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Avatar } from '@/components/Avatar';
@@ -31,10 +32,17 @@ const OPTIONEN: ImagePicker.ImagePickerOptions = {
 };
 
 export function AvatarWaehler({
-  name, avatarKey, onGewaehlt, onEntfernen, laeuft = false,
+  name, avatarKey, lokaleUri = null, onGewaehlt, onEntfernen, laeuft = false,
 }: {
   name: string;
   avatarKey: string | null;
+  // Nur das Onboarding setzt dies (profile-setup.tsx): dort existiert die
+  // Profilzeile noch nicht, wenn ein Bild gewählt wird, also gibt es noch
+  // keinen `avatarKey`, unter dem sich das Bild laden liesse — nur die
+  // lokale Datei-URI aus dem Bildwähler. Ist die Prop gesetzt, zeigt der
+  // Kreis dieses lokale Bild direkt, ohne den Umweg über `Avatar`/`avatarUrl`.
+  // Der Profil-Tab lässt die Prop weg und verhält sich unverändert.
+  lokaleUri?: string | null;
   onGewaehlt: (lokaleUri: string) => void;
   onEntfernen: () => void;
   laeuft?: boolean;
@@ -84,7 +92,13 @@ export function AvatarWaehler({
         onPress={oeffnen}
       >
         <View>
-          <Avatar name={name} avatarKey={avatarKey} size={GROESSE} />
+          {lokaleUri ? (
+            <View style={[styles.lokalerKreis, { borderColor: colors['bg-0'], backgroundColor: colors['bg-1'] }]}>
+              <Image testID="avatar-bild" source={{ uri: lokaleUri }} style={styles.lokalesBild} contentFit="cover" />
+            </View>
+          ) : (
+            <Avatar name={name} avatarKey={avatarKey} size={GROESSE} />
+          )}
           {/* Ohne dieses Badge liest sich der Kreis als blosse Anzeige. Es
               sagt «hier lässt sich etwas ändern», ohne eine zweite Zeile Text. */}
           <View
@@ -135,6 +149,15 @@ export function AvatarWaehler({
 }
 
 const styles = StyleSheet.create({
+  // Gleiche Masse wie Avatar/kreis() (GROESSE=44, 2 px Ring, rund), aber
+  // hier lokal statt importiert: `Avatar` baut seine Kreisform intern über
+  // avatarUrl(avatarKey), das für eine lokale Datei-URI nicht passt (die
+  // Funktion erwartet einen Storage-Schlüssel, keine file://-URI).
+  lokalerKreis: {
+    width: GROESSE, height: GROESSE, borderRadius: radius.pill,
+    borderWidth: 2, overflow: 'hidden',
+  },
+  lokalesBild: { width: '100%', height: '100%' },
   badge: {
     position: 'absolute',
     right: -2,
