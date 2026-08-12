@@ -19,7 +19,7 @@ Airbnb: ein Kalender, zwei Tipper, kein Format.
 
 | Frage | Entscheidung | Grund |
 |---|---|---|
-| Zeitraum am Stück oder zwei Daten? | Am Stück, ein Sheet | Ein Ende vor dem Beginn kann strukturell nicht entstehen |
+| Zeitraum am Stück oder zwei Daten? | Am Stück, ein Modal | Ein Ende vor dem Beginn kann strukturell nicht entstehen |
 | Tippen weiterhin möglich? | Nein, nur Kalender | Ohne Textpfad entfallen Parser, Tastatur und zwei Fehlermeldungen |
 | Welche Tage? | Ein Jahr zurück, zwei Jahre vorwärts | Deckt geplante und bereits laufende Reisen ab, bleibt am Stück renderbar |
 | Fertige Bibliothek? | Nein, eigene Komponente | Die Zeitraum-Markierung schreibt man ohnehin selbst, die Design-Language schlägt Framework-Defaults |
@@ -57,15 +57,26 @@ Zeitzonen, in derselben Linie wie die UTC-Rechnung in `tripDay.ts`.
 Feld «Zeitraum». Es übernimmt die Masse des `Input` aus DESIGN-LANGUAGE §4:
 Höhe 56, `radius.control`, Rand 1 px `line-strong`, Label darüber. Gefüllt
 zeigt es `formatRange(start, end)`, also `1.–14. Aug 2026`. Leer steht nur
-das Label. Es ist kein Textfeld, sondern eine Fläche, die das Sheet öffnet.
+das Label. Es ist kein Textfeld, sondern eine Fläche, die das Modal öffnet.
 
-**Das Sheet.** Titel «Zeitraum», darunter die Wochentagszeile `M D M D F S S`
-fest oben, darunter ein senkrecht scrollender Monatsstapel. Die Woche beginnt
-am Montag. Jeder Monat trägt seinen Namen in `type.h3` über dem Raster. Unten
-sitzt der Primärknopf «Übernehmen», inaktiv bis Beginn und Ende stehen.
+**Das Modal.** Es nimmt die ganze Seite ein. Oben ein Schliessen-Kreuz und der
+Titel «Zeitraum», darunter die Wochentagszeile `M D M D F S S` fest, darunter
+ein senkrecht scrollender Monatsstapel, der den restlichen Platz füllt. Die
+Woche beginnt am Montag. Jeder Monat trägt seinen Namen in `type.h3` über dem
+Raster. Unten sitzt der Primärknopf «Übernehmen», inaktiv bis Beginn und Ende
+stehen.
+
+Ein `Modal` mit `presentationStyle="pageSheet"`, nicht die `Sheet`-Komponente.
+Zwei Gründe, beide am Gerät aufgefallen: `Sheet` positioniert sich mit
+`absoluteFill` relativ zu seinem Elternteil, und dieses Feld sitzt mitten im
+Formular, das Sheet erschien deshalb an der Stelle des Feldes und überlagerte
+die Statusleiste. Und `Sheet` gibt seinem Inhalt keine definite Höhe, worin der
+Kalender null hoch stand. Das Modal liegt immer oben und trägt eine volle Höhe.
+Sein Auftritt bleibt der eines Sheets nach DESIGN-LANGUAGE §4: es kommt von
+unten und lässt sich nach unten wegwischen.
 
 **Die Tageszelle** ist das Touch-Ziel und misst 48 in der Höhe, in der Breite
-ein Siebtel des Rasters, damit die Woche die Sheet-Breite ohne Restspalte
+ein Siebtel des Rasters, damit die Woche die volle Breite ohne Restspalte
 füllt: bei 24 px Screen-Rand sind das rund 50 px auf einem iPhone 17 und rund
 47 px auf einem iPhone SE. Beide Masse liegen über den 44 px, die Apples
 Human Interface Guidelines als kleinstes Touch-Ziel nennen.
@@ -93,7 +104,7 @@ Die Spanne bricht an der Wochenkante ab, ohne Sonderbehandlung. Das ist auch
 bei Airbnb so.
 
 Beginn und Ende liegen bewusst auf `text-1`, nicht auf `accent`: unten im
-Sheet sitzt bereits der Primärknopf, und §4 lässt genau einen Akzent pro
+Modal sitzt bereits der Primärknopf, und §4 lässt genau einen Akzent pro
 Screen zu. Derselbe Grund, aus dem der Input-Fokus in §4 auf `#222222` liegt.
 Bei Airbnb sind die gewählten Tage ebenfalls dunkel gefüllt, die Optik
 stimmt damit überein.
@@ -134,9 +145,9 @@ Rendert Wochentagszeile und Monatsstapel. Zustandslos, bekommt `auswahl` und
 
 ### `src/components/Zeitraumfeld.tsx`
 
-Das Formularfeld samt Sheet. Props:
+Das Formularfeld samt Modal. Props:
 `{ wert: Auswahl; onAendern: (a: Auswahl) => void; fehler?: string }`.
-Hält die vorläufige Auswahl, solange das Sheet offen ist, und meldet erst bei
+Hält die vorläufige Auswahl, solange das Modal offen ist, und meldet erst bei
 «Übernehmen» nach oben. Schliessen ohne Übernehmen verwirft, das Feld behält
 seinen alten Wert.
 
@@ -148,8 +159,10 @@ setzt den Zielmonat, `getItemLayout` liefert die Höhen aus `monatHoehe` und
 `monatVersatz`. Ein Monat ist je nach Lage des Ersten 5 oder 6 Wochenzeilen
 hoch, die Höhe ist also vorab berechenbar und muss nicht gemessen werden.
 
-Das `Sheet` ist dafür vorbereitet: nur der Griffbereich trägt die
-Wischgesten, der Inhalt darunter scrollt frei (`Sheet.tsx:209-216`).
+Der Kalender füllt den Raum, den das Modal ihm gibt (`flex: 1`). Das setzt
+voraus, dass sein Elternteil eine definite Höhe HAT. Im `Sheet` war das nicht
+so, und der Kalender stand dort null hoch im Baum: sichtbar blieben nur Titel
+und Knopf.
 
 ## 7. Datenfluss und Änderungen am Bestand
 
@@ -195,7 +208,7 @@ statt `formatRange` zu verwenden, dessen Kurzform «Aug» vorgelesen nicht
 verlässlich als «August» ankommt. Sichtbar bleibt am Feld die Kurzform.
 
 Press-Feedback läuft über `PressScale` mit 0.97 (§5), das seinerseits
-`prefers-reduced-motion` bereits berücksichtigt. Das Sheet öffnet per
+`prefers-reduced-motion` bereits berücksichtigt. Das Modal öffnet per
 `spring-ui`, wie es das schon tut. Haptik: `selection` beim Wählen eines Tages,
 sparsam gemäss §5.
 
@@ -208,7 +221,7 @@ Monatswechsel, ein Schaltjahr (Februar 2028 mit 29 Tagen), und `zellrolle`
 für alle sechs Rollen.
 
 **Neu, `components/__tests__/Zeitraumfeld.test.tsx`:**
-Feld zeigt den formatierten Bereich, Tipp öffnet das Sheet, zwei Tipps im
+Feld zeigt den formatierten Bereich, Tipp öffnet das Modal, zwei Tipps im
 Kalender füllen die Auswahl, «Übernehmen» meldet ISO-Werte nach oben,
 Schliessen ohne Übernehmen lässt den alten Wert stehen, «Übernehmen» ist bei
 halber Auswahl inaktiv.
@@ -230,7 +243,7 @@ bleiben.
 
 ## 11. Nicht Teil dieser Arbeit
 
-- Ein «Zurücksetzen»-Knopf im Sheet. Ein Tipp auf einen beliebigen Tag
+- Ein «Zurücksetzen»-Knopf im Modal. Ein Tipp auf einen beliebigen Tag
   beginnt die Auswahl ohnehin neu.
 - Unbegrenztes Scrollen mit Nachladen weiterer Monate.
 - Eine Mindest- oder Höchstdauer für eine Reise.

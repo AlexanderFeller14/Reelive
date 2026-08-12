@@ -1,11 +1,12 @@
 import { useState } from 'react';
-import { Text, View } from 'react-native';
+import { Modal, Text, View } from 'react-native';
+import { X } from 'lucide-react-native';
 import { Button } from '@/components/Button';
 import { Kalender } from '@/components/Kalender';
 import { PressScale } from '@/components/PressScale';
-import { Sheet } from '@/components/Sheet';
 import { useTheme } from '@/theme/ThemeProvider';
 import { palette, radius, spacing, type } from '@/theme/tokens';
+import { useOberkante } from '@/theme/useOberkante';
 import { naechsteAuswahl, zeitraumLabel, type Auswahl } from '@/features/trips/kalender';
 import { formatRange } from '@/features/trips/tripDay';
 
@@ -21,6 +22,7 @@ type Props = {
 // deshalb eine Fläche, die das Sheet öffnet.
 export function Zeitraumfeld({ wert, onAendern, fehler, heute }: Props) {
   const { colors } = useTheme();
+  const oben = useOberkante(spacing.l);
   const [offen, setOffen] = useState(false);
   // Der Entwurf lebt nur, solange das Sheet offen ist. Erst «Übernehmen» meldet
   // nach oben, ein Abbruch verwirft ihn folgenlos. Deshalb setzt ihn `oeffnen`
@@ -63,19 +65,55 @@ export function Zeitraumfeld({ wert, onAendern, fehler, heute }: Props) {
       </PressScale>
       {fehler ? <Text style={[type.secondary, { color: palette.danger }]}>{fehler}</Text> : null}
 
-      <Sheet sichtbar={offen} titel="Zeitraum" onSchliessen={() => setOffen(false)}>
-        <Kalender
-          auswahl={entwurf}
-          onTag={(tag) => setEntwurf((bisher) => naechsteAuswahl(bisher, tag))}
-          heute={heute}
-        />
-        <Button
-          variant="primary"
-          label="Übernehmen"
-          onPress={uebernehmen}
-          disabled={!vollstaendig}
-        />
-      </Sheet>
+      {/* Ein Modal, kein `Sheet`. Zwei Gründe: `Sheet` positioniert sich mit
+          absoluteFill relativ zu seinem Elternteil, und dieses Feld sitzt
+          mitten im Formular, das Sheet erschien dadurch an der Stelle des
+          Feldes und überlagerte die Statusleiste. Und `Sheet` gibt seinem
+          Inhalt keine definite Höhe, der Kalender stand darin null hoch. Das
+          Modal löst beides: es liegt immer oben und trägt eine volle Höhe.
+          `pageSheet` kommt von unten und lässt sich nach unten wegwischen, das
+          ist derselbe Auftritt, den DESIGN-LANGUAGE §4 für Sheets vorsieht. */}
+      <Modal
+        visible={offen}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setOffen(false)}
+      >
+        <View
+          testID="zeitraum-modal"
+          style={{
+            flex: 1,
+            backgroundColor: colors['bg-0'],
+            paddingTop: oben,
+            paddingHorizontal: spacing.screen,
+            paddingBottom: spacing.l,
+            gap: spacing.base,
+          }}
+        >
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.base }}>
+            <PressScale
+              accessibilityRole="button"
+              accessibilityLabel="Schliessen"
+              onPress={() => setOffen(false)}
+              hitSlop={spacing.m}
+            >
+              <X size={24} strokeWidth={1.75} color={colors['text-1']} />
+            </PressScale>
+            <Text style={[type.h3, { color: colors['text-1'] }]}>Zeitraum</Text>
+          </View>
+          <Kalender
+            auswahl={entwurf}
+            onTag={(tag) => setEntwurf((bisher) => naechsteAuswahl(bisher, tag))}
+            heute={heute}
+          />
+          <Button
+            variant="primary"
+            label="Übernehmen"
+            onPress={uebernehmen}
+            disabled={!vollstaendig}
+          />
+        </View>
+      </Modal>
     </View>
   );
 }

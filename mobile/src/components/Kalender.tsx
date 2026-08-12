@@ -1,7 +1,6 @@
 import { useMemo, useState } from 'react';
-import { FlatList, Text, useWindowDimensions, View } from 'react-native';
+import { FlatList, Text, View } from 'react-native';
 import { PressScale } from '@/components/PressScale';
-import { SHEET_SCROLL_ANTEIL } from '@/components/Sheet';
 import { useTheme } from '@/theme/ThemeProvider';
 import { radius, spacing, type } from '@/theme/tokens';
 import {
@@ -28,7 +27,6 @@ type Props = {
 
 export function Kalender({ auswahl, onTag, heute }: Props) {
   const { colors } = useTheme();
-  const { height: fensterHoehe } = useWindowDimensions();
   const tagHeute = heuteOderDefault(heute);
   const monate = useMemo(() => monateImBereich(tagHeute), [tagHeute]);
   const ersterTag = monate[0].wochen.flat().find(Boolean) as string;
@@ -40,11 +38,11 @@ export function Kalender({ auswahl, onTag, heute }: Props) {
   const [startIndex] = useState(() => monatIndexFuer(monate, auswahl.start ?? tagHeute));
 
   return (
-    // Bewusst OHNE `flex: 1`: `Sheet` gibt seinem Inhalt keine definite Höhe
-    // (Sheet.tsx, styles.inhalt), ein `flex: 1` hätte hier nichts zu füllen und
-    // kollabierte auf null. Die Höhe kommt stattdessen als Deckel an der Liste
-    // selbst, gleiches Muster wie MomentSheet.
-    <View>
+    // Füllt den Elternteil, statt sich selbst eine Höhe zu geben. Das setzt
+    // voraus, dass dieser eine definite Höhe HAT: im `Sheet`, dessen Inhalt
+    // keine hat, stand der Kalender null hoch im Baum und war unsichtbar.
+    // Deshalb setzt `Zeitraumfeld` ihn in ein Vollbild-Modal.
+    <View testID="kalender" style={{ flex: 1 }}>
       <View testID="kalender-wochentage" style={{ flexDirection: 'row', paddingBottom: spacing.s }}>
         {WOCHENTAGE.map((tag) => (
           <Text
@@ -57,15 +55,7 @@ export function Kalender({ auswahl, onTag, heute }: Props) {
       </View>
       <FlatList
         testID="kalender-monate"
-        // `height`, nicht `maxHeight` wie bei MomentSheet.SheetScroll: dort ist
-        // es eine ScrollView mit direkten Kindern, die aus ihrem Inhalt eine
-        // eigene Höhe bekommt und die der Deckel dann begrenzt. Eine
-        // virtualisierte FlatList hat diese Höhe nicht, sie muss ihre Höhe
-        // KENNEN, um zu wissen, wie viele Monate sie rendert. Mit blossem
-        // maxHeight in einem Elternteil ohne definite Höhe (Sheet, styles.inhalt)
-        // bleibt sie auf null stehen und das Sheet zeigt nur Titel und Knopf.
-        // Der Anteil und seine Begründung stehen in components/Sheet.tsx.
-        style={{ height: fensterHoehe * SHEET_SCROLL_ANTEIL }}
+        style={{ flex: 1 }}
         data={monate}
         keyExtractor={(m) => `${m.jahr}-${m.monat}`}
         initialScrollIndex={startIndex}
