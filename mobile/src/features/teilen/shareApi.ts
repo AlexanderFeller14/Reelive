@@ -17,6 +17,12 @@ import { OFFLINE_HINT, istOffline } from '@/lib/netzfehler';
 export type GeteiltesMoment = {
   post_id: string;
   autor_name: string;
+  // Der Bild-SCHLÜSSEL, nie eine fertige URL (Task 10, share-link/
+  // aufloesung.ts): `avatarUrl()` (features/auth/avatar.ts) bleibt die
+  // einzige Stelle, die das URL-Format kennt, auch für den geteilten Recap.
+  // `null` heisst «kein Bild», der Normalfall, Avatar() zeichnet dann die
+  // Initiale.
+  autor_avatar_key: string | null;
   type: 'photo' | 'video';
   captured_at: string;
   captured_tz: string;
@@ -79,6 +85,11 @@ function funktionMeldung(error: unknown, sonst: string): string {
 type MedienEintrag = {
   post_id: string;
   autor_name: string;
+  // Nicht optional, sondern `string | null`, genau so beschreibt es
+  // `OeffentlicherMoment` in supabase/functions/share-link/aufloesung.ts.
+  // Gelesen wird trotzdem defensiv (siehe `stringOderNull`), aus demselben
+  // Grund wie bei lat/lng: App und Function werden getrennt ausgerollt.
+  autor_avatar_key: string | null;
   type: 'photo' | 'video';
   captured_at: string;
   captured_tz: string;
@@ -114,6 +125,15 @@ function zahlOderNull(wert: unknown): number | null {
   return typeof wert === 'number' && Number.isFinite(wert) ? wert : null;
 }
 
+// Wie zahlOderNull, für den Bild-Schlüssel: ein Wert, der kein String ist
+// (fehlt bei einer älteren Function, oder ist durch eine kaputte 200er-
+// Antwort verunstaltet), wird zu null statt ungeprüft durchzugehen. Avatar()
+// reicht avatarKey unverändert an avatarUrl() weiter, ein nicht-String-Wert
+// baute dort eine URL, die auf kein echtes Objekt zeigt.
+function stringOderNull(wert: unknown): string | null {
+  return typeof wert === 'string' ? wert : null;
+}
+
 export async function loeseTokenAuf(token: string): Promise<Gelesen<GeteilterRecap | null>> {
   const { data, error } = await supabase.functions.invoke('share-link', {
     body: { aktion: 'aufloesen', token },
@@ -144,6 +164,7 @@ export async function loeseTokenAuf(token: string): Promise<Gelesen<GeteilterRec
   const medien: GeteiltesMoment[] = antwort.medien.map((m) => ({
     post_id: m.post_id,
     autor_name: m.autor_name,
+    autor_avatar_key: stringOderNull(m.autor_avatar_key),
     type: m.type,
     captured_at: m.captured_at,
     captured_tz: m.captured_tz,

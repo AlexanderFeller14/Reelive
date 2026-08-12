@@ -12,6 +12,7 @@ import { setStatusBarStyle } from 'expo-status-bar';
 import { Image } from 'expo-image';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import * as Haptics from 'expo-haptics';
+import { Avatar } from '@/components/Avatar';
 import { PressScale } from '@/components/PressScale';
 import { Fortschrittsbalken } from '@/components/Fortschrittsbalken';
 import { Pille } from '@/components/Pille';
@@ -119,16 +120,19 @@ type MedienLink = { medium_url: string; thumb_url: string | null };
 // dauerFuer/gruppiereNachTagen/tagWechselt/sortiereMomente/zuKartenPunkten
 // UNVERÄNDERT wiederverwendbar bleiben (sie sind auf RecapMoment[]
 // typisiert). Die hier aufgefüllten Felder (trip_id, author_id,
-// upload_status, autor_avatar_key) liest KEINE der wiederverwendeten
-// Funktionen jemals, id dient als stabiler Schlüssel (aus post_id), die
-// übrigen sind reine Platzhalter, um die Form zu erfüllen. autor_avatar_key
-// bleibt fest null: GeteiltesMoment (shareApi) trägt noch keinen
-// Bildschlüssel, das ist Aufgabe von Task 10, nicht dieser Funktion hier.
+// upload_status) liest KEINE der wiederverwendeten Funktionen jemals, id
+// dient als stabiler Schlüssel (aus post_id), die übrigen sind reine
+// Platzhalter, um die Form zu erfüllen.
 //
 // lat/lng werden seit Task 15 DURCHGEREICHT statt auf null gesetzt: sie sind
 // die Grundlage der Karte auf dieser Seite (Spec §5.10). shareApi.ts prüft
 // sie beim Lesen auf eine endliche Zahl, hier kommt also entweder eine
 // brauchbare Koordinate an oder `null`.
+//
+// autor_avatar_key wird seit Task 10 ebenso DURCHGEREICHT (vorher fest
+// null, GeteiltesMoment trug damals noch keinen Bildschlüssel): der
+// SCHLÜSSEL, nie eine fertige URL, `<Avatar>` baut die URL selbst über
+// avatarUrl() (features/auth/avatar.ts).
 function zuRecapMoment(m: GeteiltesMoment): RecapMoment {
   return {
     id: m.post_id,
@@ -144,7 +148,7 @@ function zuRecapMoment(m: GeteiltesMoment): RecapMoment {
     lng: m.lng,
     upload_status: 'uploaded',
     autor_name: m.autor_name,
-    autor_avatar_key: null,
+    autor_avatar_key: m.autor_avatar_key,
   };
 }
 
@@ -179,14 +183,6 @@ function KinoButton({ label, onPress }: { label: string; onPress: () => void }) 
         <Text style={[type.bodyMedium, { color: cinema['bg-0'] }]}>{label}</Text>
       </View>
     </PressScale>
-  );
-}
-
-function AvatarInitiale({ name }: { name: string }) {
-  return (
-    <View style={styles.avatarKreis}>
-      <Text style={[type.label, { color: cinema['text-1'] }]}>{(name.trim()[0] ?? '?').toUpperCase()}</Text>
-    </View>
   );
 }
 
@@ -1052,7 +1048,11 @@ export default function GeteilterRecapScreen() {
         />
         <View style={styles.kopfReihe}>
           <Pille style={styles.namePille}>
-            <AvatarInitiale name={aktivMoment.autor_name} />
+            {/* 32 statt Avatars Default 36: unteres Ende der DESIGN-LANGUAGE-§4-
+                Spanne (32–44 px), passend zur kompakten Kopf-Pille — dieselbe
+                Grösse wie im nativen Player (player.tsx), dieselbe Grösse, die
+                die gelöschte lokale AvatarInitiale-Kopie hier trug. */}
+            <Avatar name={aktivMoment.autor_name} avatarKey={aktivMoment.autor_avatar_key} kino size={32} />
             <Text style={[type.bodyMedium, { color: cinema['text-1'] }]}>{aktivMoment.autor_name}</Text>
           </Pille>
           <Pille style={styles.infoPille}>
@@ -1142,16 +1142,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.base,
     paddingVertical: spacing.xs,
     borderRadius: radius.pill,
-  },
-  avatarKreis: {
-    width: 32,
-    height: 32,
-    borderRadius: radius.pill,
-    borderWidth: 2,
-    borderColor: cinema['text-1'],
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: cinema['bg-1'],
   },
   captionPille: {
     position: 'absolute',

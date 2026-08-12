@@ -42,13 +42,15 @@ const gueltigeAntwort = {
   reise: { name: 'Lissabon Städtetrip', start_date: '2026-08-10', end_date: '2026-08-14' },
   medien: [
     {
-      post_id: 'p1', autor_name: 'Lea', type: 'photo', captured_at: '2026-08-10T09:00:00.000Z',
+      post_id: 'p1', autor_name: 'Lea', autor_avatar_key: 'profiles/u1/a.jpg', type: 'photo',
+      captured_at: '2026-08-10T09:00:00.000Z',
       captured_tz: 'Europe/Zurich', place_name: 'Lissabon', caption: 'Schön hier',
       duration_s: null, lat: 38.7139, lng: -9.1301,
       medium_url: 'https://s3/p1', thumb_url: 'https://s3/p1-thumb',
     },
     {
-      post_id: 'p2', autor_name: 'Jonas', type: 'video', captured_at: '2026-08-10T10:00:00.000Z',
+      post_id: 'p2', autor_name: 'Jonas', autor_avatar_key: null, type: 'video',
+      captured_at: '2026-08-10T10:00:00.000Z',
       captured_tz: 'Europe/Zurich', place_name: null, caption: null,
       duration_s: 8, lat: null, lng: null,
       medium_url: 'https://s3/p2', // kein Thumbnail: Feld fehlt ganz
@@ -70,11 +72,43 @@ describe('loeseTokenAuf: Erfolg', () => {
     expect(data?.gueltigBis).toBe(Date.parse('2026-08-08T13:00:00.000Z'));
     expect(data?.medien).toHaveLength(2);
     expect(data?.medien[0]).toEqual({
-      post_id: 'p1', autor_name: 'Lea', type: 'photo', captured_at: '2026-08-10T09:00:00.000Z',
+      post_id: 'p1', autor_name: 'Lea', autor_avatar_key: 'profiles/u1/a.jpg', type: 'photo',
+      captured_at: '2026-08-10T09:00:00.000Z',
       captured_tz: 'Europe/Zurich', place_name: 'Lissabon', caption: 'Schön hier',
       duration_s: null, lat: 38.7139, lng: -9.1301,
       medium_url: 'https://s3/p1', thumb_url: 'https://s3/p1-thumb',
     });
+  });
+
+  // Task 10: der Bild-SCHLÜSSEL geht unverändert durch, share-link gibt nie
+  // eine fertige URL heraus (siehe aufloesung.ts). avatarUrl() bleibt damit
+  // die einzige Stelle im System, die das URL-Format kennt, auch im
+  // geteilten Recap.
+  test('autor_avatar_key geht unverändert durch, auch als null', async () => {
+    mockInvoke.mockResolvedValueOnce({ data: gueltigeAntwort, error: null });
+    const { data } = await loeseTokenAuf('tok123');
+    expect(data?.medien[0].autor_avatar_key).toBe('profiles/u1/a.jpg');
+    expect(data?.medien[1].autor_avatar_key).toBeNull();
+  });
+
+  // Gegenprobe zur Formprüfung, gleiches Muster wie bei lat/lng: eine ältere
+  // Function ohne das Feld (App und Function werden getrennt ausgerollt)
+  // darf keinen kaputten Wert durchreichen. Avatar() liest avatarKey nur als
+  // String oder null (features/auth/avatar.ts), alles andere baute eine
+  // URL auf einen Wert, der gar kein Schlüssel ist.
+  test.each([
+    ['fehlendes Feld', {}],
+    ['eine Zahl statt eines Strings', { autor_avatar_key: 42 }],
+  ])('ein autor_avatar_key, der kein String ist (%s), wird zu null', async (_name, kaputt) => {
+    mockInvoke.mockResolvedValueOnce({
+      data: {
+        ...gueltigeAntwort,
+        medien: [{ ...gueltigeAntwort.medien[0], autor_avatar_key: undefined, ...kaputt }],
+      },
+      error: null,
+    });
+    const { data } = await loeseTokenAuf('tok123');
+    expect(data?.medien[0].autor_avatar_key).toBeNull();
   });
 
   // Die Koordinaten sind seit Phase 7 Teil der Antwort (Spec R4/K13) und die

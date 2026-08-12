@@ -181,6 +181,10 @@ export type MomentZeile = {
   // in die Antwort (er steht im Recap ohnehin auf jedem Moment), die
   // author_id NIE.
   autor_name: string | null;
+  // Wie autor_name aus dem PostgREST-Embed geflacht (store.ts). Der Schlüssel
+  // geht heraus, nie eine fertige URL: die Formel kennt allein der Client
+  // (mobile/src/features/auth/avatar.ts), und sie soll genau einen Ort haben.
+  autor_avatar_key: string | null;
 };
 
 export type SeitenErgebnis = {
@@ -256,15 +260,22 @@ export type OeffentlicheReise = {
   end_date: string;
 };
 
-// Genau die zwölf Felder aus dem Interface-Vertrag (Plan Task 2, seit Phase 7
-// um lat/lng erweitert). thumb_url ist hier `string | null` und nicht optional
-// wie in media-urls: ein Feld, das nur manchmal auftaucht, wird beim Bauen des
-// Players übersehen und fehlt dann genau dann, wenn es gebraucht wird. Aus
-// demselben Grund sind auch lat/lng nicht optional, sondern `number | null`,
-// «kein Ort» ist eine Aussage, «Feld fehlt» ist keine.
+// Genau die dreizehn Felder aus dem Interface-Vertrag (Plan Task 2, seit
+// Phase 7 um lat/lng, seit Task 10 um autor_avatar_key erweitert). thumb_url
+// ist hier `string | null` und nicht optional wie in media-urls: ein Feld,
+// das nur manchmal auftaucht, wird beim Bauen des Players übersehen und
+// fehlt dann genau dann, wenn es gebraucht wird. Aus demselben Grund sind
+// auch lat/lng und autor_avatar_key nicht optional, sondern `T | null`,
+// «kein Ort»/«kein Bild» ist eine Aussage, «Feld fehlt» ist keine.
 export type OeffentlicherMoment = {
   post_id: string;
   autor_name: string;
+  // Der Bild-SCHLÜSSEL, nie eine fertige URL: diese Function gibt nur den
+  // Schlüssel heraus (wie bei medium_url/thumb_url unten sonst üblich wäre
+  // das Gegenteil), damit `avatarUrl()` (mobile/src/features/auth/avatar.ts)
+  // die einzige Stelle im System bleibt, die das URL-Format kennt. Der
+  // Web-Betrachter baut die URL mit derselben Formel selbst.
+  autor_avatar_key: string | null;
   type: 'photo' | 'video';
   captured_at: string;
   captured_tz: string;
@@ -343,6 +354,12 @@ export async function baueMedien(
         // fehlender Name darf trotzdem nie zu `null` oder `undefined` im
         // Vertrag führen.
         autor_name: zeile.autor_name ?? '',
+        // Anders als autor_name kein `?? ''`: ein fehlender Name braucht eine
+        // Initiale zum Zeichnen, ein fehlendes Bild dagegen NICHTS außer
+        // `null`, Avatar() zeichnet dann selbst die Initiale. Ein leerer
+        // String wäre hier ein Schlüssel, den `avatarUrl()` in eine kaputte
+        // URL zu einem nicht existierenden Objekt zusammenbaute.
+        autor_avatar_key: zeile.autor_avatar_key,
         type: zeile.type,
         captured_at: zeile.captured_at,
         captured_tz: zeile.captured_tz,

@@ -10,8 +10,8 @@
 //   - `.eq('trip_id', …)` und `.eq('upload_status', 'uploaded')` beim
 //     Einsammeln der Momente (W1 und «nur fertige Uploads»)
 //   - die Sortierung nach captured_at, id (Global Constraint)
-//   - der Embed auf profiles für den Autorennamen, der NUR display_name holt
-//     und nie die author_id
+//   - der Embed auf profiles für Autorenname UND Bild-Schlüssel (seit
+//     Task 10: display_name, avatar_key), der NIE die author_id holt
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import type { AufloesungsTrip, MomentZeile, SeitenErgebnis, ShareLinkZeile, TripStatus } from './aufloesung.ts';
 
@@ -96,7 +96,11 @@ type PostMitProfil = {
   lng: number | null;
   caption: string | null;
   duration_s: number | null;
-  profiles: { display_name: string } | null;
+  // avatar_key seit Task 10 mit im Embed: derselbe Join, der schon
+  // display_name holt, kostet damit keinen zusätzlichen Round-Trip. Nullable,
+  // weil ein Profil ohne Bild der Normalfall ist (Avatar() zeichnet dann die
+  // Initiale, siehe mobile/src/components/Avatar.tsx).
+  profiles: { display_name: string; avatar_key: string | null } | null;
 };
 
 export function erstelleShareStore(supabaseAdmin: AdminClient): ShareStore {
@@ -165,17 +169,18 @@ export function erstelleShareStore(supabaseAdmin: AdminClient): ShareStore {
     //      in der Filmrolle.
     //   3. captured_at aufsteigend, id als zweites Kriterium (Global
     //      Constraint: nie nach created_at, nie nach Upload-Zeit).
-    //   4. der Embed `profiles!posts_author_id_fkey(display_name)`. Die
-    //      Disambiguierung ist nötig, weil PostgREST zwischen posts und
-    //      profiles ZWEI Beziehungen findet (die Fremdschlüsselspalte
+    //   4. der Embed `profiles!posts_author_id_fkey(display_name, avatar_key)`
+    //      (avatar_key seit Task 10 dazu, derselbe Join, kein zweiter
+    //      Round-Trip). Die Disambiguierung ist nötig, weil PostgREST zwischen
+    //      posts und profiles ZWEI Beziehungen findet (die Fremdschlüsselspalte
     //      author_id und den many-to-many-Weg über reactions) und sonst mit
-    //      PGRST201 abbricht. Geholt wird ausschliesslich display_name,
-    //      author_id steht in keiner Select-Liste dieser Datei.
+    //      PGRST201 abbricht. Geholt werden ausschliesslich display_name und
+    //      avatar_key, author_id steht in keiner Select-Liste dieser Datei.
     async holeMomenteSeite(tripId, von, mitZaehlung) {
       const { data, error, count } = await supabaseAdmin
         .from('posts')
         .select(
-          'id, type, media_ext, storage_key, thumb_key, captured_at, captured_tz, place_name, lat, lng, caption, duration_s, profiles!posts_author_id_fkey(display_name)',
+          'id, type, media_ext, storage_key, thumb_key, captured_at, captured_tz, place_name, lat, lng, caption, duration_s, profiles!posts_author_id_fkey(display_name, avatar_key)',
           mitZaehlung ? { count: 'exact' } : undefined,
         )
         .eq('trip_id', tripId)
@@ -201,6 +206,10 @@ export function erstelleShareStore(supabaseAdmin: AdminClient): ShareStore {
         caption: z.caption,
         duration_s: z.duration_s,
         autor_name: z.profiles?.display_name ?? null,
+        // Analog zu autor_name: `?.` statt eines Absturzes für den (heute
+        // theoretischen) Fall eines fehlenden Profils, `?? null` für den
+        // ECHTEN Normalfall «Profil da, aber ohne Bild».
+        autor_avatar_key: z.profiles?.avatar_key ?? null,
       }));
       return { zeilen, anzahl: mitZaehlung ? (count ?? null) : null, fehler: null };
     },

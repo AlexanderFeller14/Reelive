@@ -230,6 +230,11 @@ function momentZeile(id: string, ueberschreibe: Partial<MomentZeile> = {}): Mome
     caption: null,
     duration_s: null,
     autor_name: 'Mira',
+    // Kein Bild ist die Grundstellung, nicht die Ausnahme: die meisten
+    // Profile in den bestehenden Tests dieser Datei haben nie eines gesetzt.
+    // Wer den Fall mit Bild braucht, überschreibt ihn ausdrücklich (siehe
+    // Abschnitt 4b unten).
+    autor_avatar_key: null,
     ...ueberschreibe,
   };
 }
@@ -445,6 +450,44 @@ Deno.test('baueMedien: ein Moment ohne Ort behält null, statt zu verschwinden',
 });
 
 // ===========================================================================
+// 4b. Der Avatar-Schlüssel geht durch, nie eine fertige URL (Task 10)
+// ===========================================================================
+// Eigene, schlanke Zeilen-Fabrik statt der `momentZeile()` von oben: die
+// beiden Tests hier prüfen NUR das Durchreichen von autor_avatar_key, alle
+// anderen Felder sind für die Aussage irrelevant. `storage_key`/`thumb_key`
+// müssen trotzdem zur Ableitung aus keys.ts passen (`trips/<trip>/<post>.<ext>`),
+// sonst sortiert baueMedien den Moment aus und `medien` wäre leer, ein Test,
+// der dann nichts mehr beweist.
+const zeile = (avatarKey: string | null): MomentZeile => ({
+  id: 'p1',
+  type: 'photo',
+  media_ext: 'jpg',
+  storage_key: 'trips/t1/p1.jpg',
+  thumb_key: 'trips/t1/p1_t.jpg',
+  captured_at: '2026-08-01T10:00:00Z',
+  captured_tz: 'Europe/Zurich',
+  place_name: null,
+  lat: null,
+  lng: null,
+  caption: null,
+  duration_s: null,
+  autor_name: 'Lea',
+  autor_avatar_key: avatarKey,
+});
+
+Deno.test('baueMedien reicht den Avatar-Schluessel durch', async () => {
+  const { medien } = await baueMedien('t1', [zeile('profiles/u1/a.jpg')], async (k) => `https://sig/${k}`);
+  assertEquals(medien[0].autor_avatar_key, 'profiles/u1/a.jpg');
+});
+
+// Wie autor_name: ein fehlender Wert wird zu null, nie zu undefined. Ein Feld,
+// das mal fehlt, wird beim Bauen des Web-Players übersehen.
+Deno.test('ohne Bild steht null im Vertrag, nicht undefined', async () => {
+  const { medien } = await baueMedien('t1', [zeile(null)], async (k) => `https://sig/${k}`);
+  assertEquals(medien[0].autor_avatar_key, null);
+});
+
+// ===========================================================================
 // 5. Die Antwortform, der Beleg für das, was NICHT herausgeht
 // ===========================================================================
 
@@ -513,10 +556,12 @@ Deno.test('die Antwort von aufloesen trägt genau die Felder des Vertrags', asyn
 
   assertEquals(Object.keys(antwort).sort(), ['ausgelassen', 'gueltig_bis', 'medien', 'reise']);
   assertEquals(Object.keys(antwort.reise).sort(), ['end_date', 'name', 'start_date']);
-  // Zwölf Felder seit Phase 7 (vorher zehn): lat und lng sind dazugekommen.
+  // Dreizehn Felder seit Task 10 (vorher zwölf): autor_avatar_key ist
+  // dazugekommen (zuvor waren es zehn, bis Phase 7 lat und lng brachte).
   // Diese Liste ist die Stelle, an der eine unbeabsichtigt hinzugefügte
   // Spalte auffällt, auch eine, die harmlos aussieht.
   assertEquals(Object.keys(antwort.medien[0]).sort(), [
+    'autor_avatar_key',
     'autor_name',
     'caption',
     'captured_at',

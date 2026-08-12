@@ -96,7 +96,7 @@ function reise(overrides: Partial<GeteilterRecap['reise']> = {}) {
 // (Spec K9), sie bleiben damit genau die Story, die sie vorher waren.
 function moment(overrides: Partial<GeteilterRecap['medien'][number]> = {}): GeteilterRecap['medien'][number] {
   return {
-    post_id: 'p0', autor_name: 'Lea', type: 'photo', duration_s: null, caption: null,
+    post_id: 'p0', autor_name: 'Lea', autor_avatar_key: null, type: 'photo', duration_s: null, caption: null,
     captured_at: '2026-08-10T09:00:00.000Z', captured_tz: 'Europe/Zurich', place_name: 'Lissabon',
     lat: null, lng: null,
     medium_url: 'https://s3/p0', thumb_url: null,
@@ -185,6 +185,29 @@ describe('Story-Anzeige', () => {
     await bereit();
     expect(screen.getByTestId('teilen-video')).toBeTruthy();
     expect(screen.getByText('Schön hier')).toBeTruthy();
+  });
+
+  // Task 10: der Screen benutzt jetzt den gemeinsamen Avatar (components/
+  // Avatar.tsx) statt einer eigenen AvatarInitiale-Kopie. Ein Moment mit
+  // autor_avatar_key muss also wirklich ein <Image> zeigen (gleiches Muster
+  // wie player.test.tsx, "der Player zeigt das Profilbild der Autorin"),
+  // nicht bloss das gemappte Feld tragen.
+  test('zeigt das Profilbild der Autorin, wenn der Moment einen Bild-Schlüssel trägt', async () => {
+    mockLoeseTokenAuf.mockResolvedValueOnce(
+      erfolg([moment({ post_id: 'p1', autor_avatar_key: 'profiles/u1/a.jpg' })])
+    );
+    await bereit();
+    expect(await screen.findByTestId('avatar-bild')).toBeTruthy();
+  });
+
+  // Gegenprobe: ohne Bild-Schlüssel bleibt die Initiale, kein <Image> im
+  // Baum, sonst wäre der Test oben kein Beweis, sondern zeigte ein <Image>,
+  // das immer da ist.
+  test('ohne Bild-Schlüssel steht nur die Initiale, kein Profilbild', async () => {
+    mockLoeseTokenAuf.mockResolvedValueOnce(erfolg([moment({ post_id: 'p1', autor_avatar_key: null })]));
+    await bereit();
+    expect(screen.getByText('L')).toBeTruthy();
+    expect(screen.queryByTestId('avatar-bild')).toBeNull();
   });
 
   test('die Fussleiste (Reelive-Wortzug + "Hol dir die App") ist sichtbar und nicht interaktiv', async () => {
