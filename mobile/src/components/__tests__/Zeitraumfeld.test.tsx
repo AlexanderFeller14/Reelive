@@ -1,0 +1,84 @@
+import { render, screen, fireEvent } from '@testing-library/react-native';
+import * as React from 'react';
+import { ThemeProvider } from '@/theme/ThemeProvider';
+import { Zeitraumfeld } from '../Zeitraumfeld';
+
+const wrap = (ui: React.ReactElement) => render(<ThemeProvider>{ui}</ThemeProvider>);
+const HEUTE = '2026-08-12';
+const LEER = { start: null, end: null };
+
+test('zeigt bei leerer Auswahl nur das Label', async () => {
+  await wrap(<Zeitraumfeld wert={LEER} onAendern={jest.fn()} heute={HEUTE} />);
+  expect(screen.getByText('Zeitraum')).toBeTruthy();
+  expect(screen.queryByTestId('sheet-panel')).toBeNull();
+});
+
+test('zeigt einen gesetzten Zeitraum in Kurzform', async () => {
+  const wert = { start: '2026-08-01', end: '2026-08-14' };
+  await wrap(<Zeitraumfeld wert={wert} onAendern={jest.fn()} heute={HEUTE} />);
+  expect(screen.getByText('1.–14. Aug 2026')).toBeTruthy();
+});
+
+test('liest sich vor mit ausgeschriebenen Monaten', async () => {
+  const wert = { start: '2026-08-01', end: '2026-08-14' };
+  await wrap(<Zeitraumfeld wert={wert} onAendern={jest.fn()} heute={HEUTE} />);
+  expect(screen.getByLabelText('Zeitraum, 1. August 2026 bis 14. August 2026')).toBeTruthy();
+});
+
+test('ein Tipp öffnet das Sheet', async () => {
+  await wrap(<Zeitraumfeld wert={LEER} onAendern={jest.fn()} heute={HEUTE} />);
+  await fireEvent.press(screen.getByLabelText('Zeitraum, noch nichts gewählt'));
+  expect(screen.getByTestId('sheet-panel')).toBeTruthy();
+});
+
+test('zwei Tipps im Kalender und Übernehmen melden ISO-Werte nach oben', async () => {
+  const onAendern = jest.fn();
+  await wrap(<Zeitraumfeld wert={LEER} onAendern={onAendern} heute={HEUTE} />);
+  await fireEvent.press(screen.getByLabelText('Zeitraum, noch nichts gewählt'));
+  await fireEvent.press(screen.getByLabelText('5. August 2026'));
+  await fireEvent.press(screen.getByLabelText('14. August 2026'));
+  await fireEvent.press(screen.getByLabelText('Übernehmen'));
+  expect(onAendern).toHaveBeenCalledWith({ start: '2026-08-05', end: '2026-08-14' });
+});
+
+test('Übernehmen bleibt bei halber Auswahl wirkungslos', async () => {
+  const onAendern = jest.fn();
+  await wrap(<Zeitraumfeld wert={LEER} onAendern={onAendern} heute={HEUTE} />);
+  await fireEvent.press(screen.getByLabelText('Zeitraum, noch nichts gewählt'));
+  await fireEvent.press(screen.getByLabelText('5. August 2026'));
+  await fireEvent.press(screen.getByLabelText('Übernehmen'));
+  expect(onAendern).not.toHaveBeenCalled();
+});
+
+test('Schliessen ohne Übernehmen lässt den alten Wert stehen', async () => {
+  const onAendern = jest.fn();
+  const wert = { start: '2026-08-01', end: '2026-08-14' };
+  await wrap(<Zeitraumfeld wert={wert} onAendern={onAendern} heute={HEUTE} />);
+  await fireEvent.press(screen.getByLabelText('Zeitraum, 1. August 2026 bis 14. August 2026'));
+  await fireEvent.press(screen.getByLabelText('3. August 2026'));
+  await fireEvent.press(screen.getByTestId('sheet-backdrop'));
+  expect(onAendern).not.toHaveBeenCalled();
+  expect(screen.getByText('1.–14. Aug 2026')).toBeTruthy();
+});
+
+test('ein verworfener Entwurf ist beim naechsten Oeffnen weg', async () => {
+  const wert = { start: '2026-08-01', end: '2026-08-14' };
+  await wrap(<Zeitraumfeld wert={wert} onAendern={jest.fn()} heute={HEUTE} />);
+  const feld = 'Zeitraum, 1. August 2026 bis 14. August 2026';
+  await fireEvent.press(screen.getByLabelText(feld));
+  await fireEvent.press(screen.getByLabelText('3. August 2026'));
+  await fireEvent.press(screen.getByTestId('sheet-backdrop'));
+  await fireEvent.press(screen.getByLabelText(feld));
+  // Der 3. war nur im verworfenen Entwurf gewählt, das Sheet zeigt wieder den
+  // übernommenen Zeitraum.
+  expect(screen.getByLabelText('1. August 2026').props.accessibilityState.selected).toBe(true);
+  expect(screen.getByLabelText('3. August 2026').props.accessibilityState.selected).toBe(true);
+  expect(screen.getByLabelText('20. August 2026').props.accessibilityState.selected).toBe(false);
+});
+
+test('zeigt einen Fehler unter dem Feld', async () => {
+  await wrap(
+    <Zeitraumfeld wert={LEER} onAendern={jest.fn()} fehler="Trag den Zeitraum ein." heute={HEUTE} />
+  );
+  expect(screen.getByText('Trag den Zeitraum ein.')).toBeTruthy();
+});
