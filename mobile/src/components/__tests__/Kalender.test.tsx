@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from '@testing-library/react-native';
+import { render, screen, fireEvent, within } from '@testing-library/react-native';
 import { StyleSheet } from 'react-native';
 import * as React from 'react';
 import { ThemeProvider } from '@/theme/ThemeProvider';
@@ -49,6 +49,42 @@ test('Kalender und Monatsliste füllen den verfügbaren Raum', async () => {
   const liste = screen.getByTestId('kalender-monate');
   expect(liste.type).toBe('RCTScrollView');
   expect(StyleSheet.flatten(liste.props.style).flex).toBe(1);
+});
+
+// Die Spanne lag zuerst INNERHALB von PressScale. Das reicht sein `style` an
+// das Pressable weiter, wickelt die Kinder aber in einen Animated.View ohne
+// Style (PressScale.tsx:39), und der schrumpft auf seinen Inhalt, also auf den
+// Kreis. Die Fläche mass dadurch 40 statt der vollen Zellbreite: zwischen zwei
+// Tagen der Spanne klaffte eine Lücke, und die halbseitigen Flächen an Beginn
+// und Ende endeten am Kreisrand, statt die Nachbarzelle zu erreichen.
+test('die Spannen-Fläche liegt in der Zelle, nicht im Druckziel', async () => {
+  const auswahl = { start: '2026-08-12', end: '2026-08-15' };
+  await wrap(<Kalender auswahl={auswahl} onTag={jest.fn()} heute={HEUTE} />);
+  const dazwischen = screen.getByTestId('spanne-2026-08-13');
+  const flach = StyleSheet.flatten(dazwischen.props.style);
+  expect(flach.left).toBe(0);
+  expect(flach.right).toBe(0);
+  // Der entscheidende Teil: nicht unterhalb des Pressable, sonst bemisst sie
+  // sich am Kreis statt an der Zelle.
+  expect(within(screen.getByLabelText('13. August 2026')).queryByTestId('spanne-2026-08-13'))
+    .toBeNull();
+});
+
+test('Beginn und Ende reichen mit ihrer halben Fläche zur Nachbarzelle', async () => {
+  const auswahl = { start: '2026-08-12', end: '2026-08-15' };
+  await wrap(<Kalender auswahl={auswahl} onTag={jest.fn()} heute={HEUTE} />);
+  const beginn = StyleSheet.flatten(screen.getByTestId('spanne-2026-08-12').props.style);
+  expect(beginn.left).toBe('50%');
+  expect(beginn.right).toBe(0);
+  const ende = StyleSheet.flatten(screen.getByTestId('spanne-2026-08-15').props.style);
+  expect(ende.left).toBe(0);
+  expect(ende.right).toBe('50%');
+});
+
+test('eine Tagesreise bekommt gar keine Fläche', async () => {
+  const auswahl = { start: '2026-08-12', end: '2026-08-12' };
+  await wrap(<Kalender auswahl={auswahl} onTag={jest.fn()} heute={HEUTE} />);
+  expect(screen.queryByTestId('spanne-2026-08-12')).toBeNull();
 });
 
 test('der Bereich beginnt beim ersten erlaubten Tag', async () => {

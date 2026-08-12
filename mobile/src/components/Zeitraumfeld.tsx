@@ -6,7 +6,7 @@ import { Kalender } from '@/components/Kalender';
 import { PressScale } from '@/components/PressScale';
 import { useTheme } from '@/theme/ThemeProvider';
 import { palette, radius, spacing, type } from '@/theme/tokens';
-import { useOberkante } from '@/theme/useOberkante';
+import { useOberkante, useUnterkante } from '@/theme/useOberkante';
 import { naechsteAuswahl, zeitraumLabel, type Auswahl } from '@/features/trips/kalender';
 import { formatRange } from '@/features/trips/tripDay';
 
@@ -22,7 +22,12 @@ type Props = {
 // deshalb eine Fläche, die das Sheet öffnet.
 export function Zeitraumfeld({ wert, onAendern, fehler, heute }: Props) {
   const { colors } = useTheme();
+  // Das Modal deckt die ganze Seite ab und stösst damit an beide
+  // Systembereiche: oben Statusleiste und Dynamic Island, unten den
+  // Home-Indicator. Ein fester Abstand nach unten liesse «Übernehmen» darunter
+  // geraten.
   const oben = useOberkante(spacing.l);
+  const unten = useUnterkante(spacing.l);
   const [offen, setOffen] = useState(false);
   // Der Entwurf lebt nur, solange das Sheet offen ist. Erst «Übernehmen» meldet
   // nach oben, ein Abbruch verwirft ihn folgenlos. Deshalb setzt ihn `oeffnen`
@@ -86,7 +91,7 @@ export function Zeitraumfeld({ wert, onAendern, fehler, heute }: Props) {
             backgroundColor: colors['bg-0'],
             paddingTop: oben,
             paddingHorizontal: spacing.screen,
-            paddingBottom: spacing.l,
+            paddingBottom: unten,
             gap: spacing.base,
           }}
         >

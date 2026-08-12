@@ -140,16 +140,17 @@ function Tageszelle({
     : null;
 
   return (
-    <PressScale
-      style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}
-      accessibilityRole="button"
-      accessibilityLabel={tagLabel(tag)}
-      accessibilityState={{ selected: gefuellt || rolle === 'dazwischen', disabled: gesperrt }}
-      disabled={gesperrt}
-      onPress={() => onTag(tag)}
-    >
+    // Die Spanne liegt NEBEN dem Druckziel, nicht darin. `PressScale` reicht
+    // sein `style` an das Pressable weiter, wickelt die Kinder aber in einen
+    // Animated.View ohne Style (PressScale.tsx:39), und der schrumpft auf
+    // seinen Inhalt, also auf den Kreis. Innen gelegt mass die Fläche deshalb
+    // 40 statt der vollen Zellbreite: zwischen zwei Tagen der Spanne klaffte
+    // eine Lücke, und die halben Flächen endeten am Kreisrand. Nebenbei
+    // skaliert so beim Drücken nur der Kreis, nicht der Balken.
+    <View style={{ flex: 1 }}>
       {spanne ? (
         <View
+          testID={`spanne-${tag}`}
           style={{
             position: 'absolute',
             top: (ZEILE_HOEHE - KREIS) / 2,
@@ -159,30 +160,39 @@ function Tageszelle({
           }}
         />
       ) : null}
-      <View
-        style={{
-          width: KREIS,
-          height: KREIS,
-          borderRadius: radius.pill,
-          alignItems: 'center',
-          justifyContent: 'center',
-          backgroundColor: gefuellt ? colors['text-1'] : 'transparent',
-        }}
+      <PressScale
+        style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}
+        accessibilityRole="button"
+        accessibilityLabel={tagLabel(tag)}
+        accessibilityState={{ selected: gefuellt || rolle === 'dazwischen', disabled: gesperrt }}
+        disabled={gesperrt}
+        onPress={() => onTag(tag)}
       >
-        <Text style={[type.body, { color: zahlFarbe }]}>{Number(tag.slice(8))}</Text>
-        {istHeute ? (
-          <View
-            style={{
-              position: 'absolute',
-              bottom: 6,
-              width: 4,
-              height: 4,
-              borderRadius: radius.pill,
-              backgroundColor: gefuellt ? colors['bg-0'] : colors['text-2'],
-            }}
-          />
-        ) : null}
-      </View>
-    </PressScale>
+        <View
+          style={{
+            width: KREIS,
+            height: KREIS,
+            borderRadius: radius.pill,
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: gefuellt ? colors['text-1'] : 'transparent',
+          }}
+        >
+          <Text style={[type.body, { color: zahlFarbe }]}>{Number(tag.slice(8))}</Text>
+          {istHeute ? (
+            <View
+              style={{
+                position: 'absolute',
+                bottom: 6,
+                width: 4,
+                height: 4,
+                borderRadius: radius.pill,
+                backgroundColor: gefuellt ? colors['bg-0'] : colors['text-2'],
+              }}
+            />
+          ) : null}
+        </View>
+      </PressScale>
+    </View>
   );
 }

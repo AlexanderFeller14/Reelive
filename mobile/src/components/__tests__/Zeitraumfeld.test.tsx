@@ -1,7 +1,9 @@
 import { render, screen, fireEvent } from '@testing-library/react-native';
 import { StyleSheet } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import * as React from 'react';
 import { ThemeProvider } from '@/theme/ThemeProvider';
+import { spacing } from '@/theme/tokens';
 import { Zeitraumfeld } from '../Zeitraumfeld';
 
 const wrap = (ui: React.ReactElement) => render(<ThemeProvider>{ui}</ThemeProvider>);
@@ -37,6 +39,38 @@ test('ein Tipp öffnet das Modal über die ganze Seite', async () => {
   const modal = screen.getByTestId('zeitraum-modal');
   expect(modal).toBeTruthy();
   expect(StyleSheet.flatten(modal.props.style).flex).toBe(1);
+});
+
+// Das Modal deckt die ganze Seite ab, also stösst es an BEIDE Systembereiche:
+// oben Statusleiste und Dynamic Island, unten den Home-Indicator mit rund 34
+// Punkten. Ein fester Abstand nach unten liesse «Übernehmen» darunter geraten.
+// Die übrigen Suiten laufen über jest.setup.ts mit Insets 0, der interessante
+// Fall ist der andere, deshalb hier ein Provider mit echten Metriken.
+test('das Modal hält beide Systemkanten frei', async () => {
+  await render(
+    <SafeAreaProvider
+      initialMetrics={{
+        frame: { x: 0, y: 0, width: 402, height: 874 },
+        insets: { top: 59, left: 0, right: 0, bottom: 34 },
+      }}
+    >
+      <ThemeProvider>
+        <Zeitraumfeld wert={LEER} onAendern={jest.fn()} heute={HEUTE} />
+      </ThemeProvider>
+    </SafeAreaProvider>
+  );
+  await fireEvent.press(screen.getByLabelText('Zeitraum, noch nichts gewählt'));
+  const flach = StyleSheet.flatten(screen.getByTestId('zeitraum-modal').props.style);
+  expect(flach.paddingTop).toBe(59 + spacing.base);
+  expect(flach.paddingBottom).toBe(34 + spacing.base);
+});
+
+test('auf einem Gerät ohne Systemkanten bleiben die gestalteten Abstände stehen', async () => {
+  await wrap(<Zeitraumfeld wert={LEER} onAendern={jest.fn()} heute={HEUTE} />);
+  await fireEvent.press(screen.getByLabelText('Zeitraum, noch nichts gewählt'));
+  const flach = StyleSheet.flatten(screen.getByTestId('zeitraum-modal').props.style);
+  expect(flach.paddingTop).toBe(spacing.l);
+  expect(flach.paddingBottom).toBe(spacing.l);
 });
 
 test('zwei Tipps im Kalender und Übernehmen melden ISO-Werte nach oben', async () => {
