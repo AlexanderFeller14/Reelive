@@ -23,6 +23,9 @@ export type RecapMoment = {
   // Kommt aus profiles.display_name (Join, siehe recapApi.fetchRecapMomente),
   // ist also kein Feld von posts selbst.
   autor_name: string;
+  // Wie autor_name aus dem profiles-Join (recapApi.fetchRecapMomente). Null
+  // heisst «kein Bild», dann trägt der Kreis die Initiale.
+  autor_avatar_key: string | null;
 };
 
 // Eine Gruppe von Momenten desselben Reise-Tages (siehe tage.ts).

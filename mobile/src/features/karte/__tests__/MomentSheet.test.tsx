@@ -40,6 +40,7 @@ function moment(ueber: Partial<RecapMoment> = {}): RecapMoment {
     lng: -9.1,
     upload_status: 'uploaded',
     autor_name: 'Mira',
+    autor_avatar_key: null,
     ...ueber,
   };
 }

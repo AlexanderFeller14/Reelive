@@ -18,6 +18,7 @@ import { useVideoPlayer, VideoView } from 'expo-video';
 import * as Haptics from 'expo-haptics';
 import * as Linking from 'expo-linking';
 import { Download, MessageCircle, X } from 'lucide-react-native';
+import { Avatar } from '@/components/Avatar';
 import { PressScale } from '@/components/PressScale';
 import { Fortschrittsbalken } from '@/components/Fortschrittsbalken';
 import { Pille } from '@/components/Pille';
@@ -255,17 +256,6 @@ function KommentarZeile({ kommentar }: { kommentar: Kommentar }) {
     <View testID={`kommentar-${kommentar.id}`} style={styles.kommentarZeile}>
       <Text style={[type.bodyMedium, { color: cinema['text-1'] }]}>{kommentar.autor_name}</Text>
       <Text style={[type.body, { color: cinema['text-1'] }]}>{kommentar.text}</Text>
-    </View>
-  );
-}
-
-// Initiale statt echtem Bild (Avatar.tsx macht dasselbe für die helle
-// Palette), hier lokal statt importiert, weil Avatar.tsx über useTheme()
-// die HELLE Palette zieht und auf einem Kino-Screen falsch aussähe.
-function AvatarInitiale({ name }: { name: string }) {
-  return (
-    <View style={styles.avatarKreis}>
-      <Text style={[type.label, { color: cinema['text-1'] }]}>{(name.trim()[0] ?? '?').toUpperCase()}</Text>
     </View>
   );
 }
@@ -1378,7 +1368,7 @@ export default function RecapPlayer() {
           />
           <View style={styles.kopfReihe}>
             <Pille style={styles.namePille}>
-              <AvatarInitiale name={aktivMoment.autor_name} />
+              <Avatar name={aktivMoment.autor_name} avatarKey={aktivMoment.autor_avatar_key} kino />
               <Text style={[type.bodyMedium, { color: cinema['text-1'] }]}>{aktivMoment.autor_name}</Text>
             </Pille>
             <Pille style={styles.infoPille}>
@@ -1662,21 +1652,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.base,
     paddingVertical: spacing.xs,
     borderRadius: radius.pill,
-  },
-  // Klein (Review-Fund): DESIGN-LANGUAGE §4 verlangt "rund, 32–44 px, 2 px
-  // weisser Ring", 32 px (unteres Ende der Spanne, passend zur kompakten
-  // Kopf-Pille) mit 2 px Rand in `cinema['text-1']` (das hellste Kino-Token,
-  // der nächste verfügbare Ersatz für "weiss" innerhalb der festen
-  // Kino-Palette, die kein rohes #FFFFFF kennt).
-  avatarKreis: {
-    width: 32,
-    height: 32,
-    borderRadius: radius.pill,
-    borderWidth: 2,
-    borderColor: cinema['text-1'],
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: cinema['bg-1'],
   },
   // Kein `position:absolute` mehr (anders als vor Task 12): die Pille ist
   // jetzt ein normales Flow-Kind von `sozialBereich`, das seinerseits

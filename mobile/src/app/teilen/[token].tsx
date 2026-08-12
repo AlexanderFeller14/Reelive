@@ -119,9 +119,11 @@ type MedienLink = { medium_url: string; thumb_url: string | null };
 // dauerFuer/gruppiereNachTagen/tagWechselt/sortiereMomente/zuKartenPunkten
 // UNVERÄNDERT wiederverwendbar bleiben (sie sind auf RecapMoment[]
 // typisiert). Die hier aufgefüllten Felder (trip_id, author_id,
-// upload_status) liest KEINE der wiederverwendeten Funktionen jemals, id
-// dient als stabiler Schlüssel (aus post_id), die übrigen sind reine
-// Platzhalter, um die Form zu erfüllen.
+// upload_status, autor_avatar_key) liest KEINE der wiederverwendeten
+// Funktionen jemals, id dient als stabiler Schlüssel (aus post_id), die
+// übrigen sind reine Platzhalter, um die Form zu erfüllen. autor_avatar_key
+// bleibt fest null: GeteiltesMoment (shareApi) trägt noch keinen
+// Bildschlüssel, das ist Aufgabe von Task 10, nicht dieser Funktion hier.
 //
 // lat/lng werden seit Task 15 DURCHGEREICHT statt auf null gesetzt: sie sind
 // die Grundlage der Karte auf dieser Seite (Spec §5.10). shareApi.ts prüft
@@ -142,6 +144,7 @@ function zuRecapMoment(m: GeteiltesMoment): RecapMoment {
     lng: m.lng,
     upload_status: 'uploaded',
     autor_name: m.autor_name,
+    autor_avatar_key: null,
   };
 }
 

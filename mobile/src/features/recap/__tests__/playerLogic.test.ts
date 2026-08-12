@@ -33,6 +33,7 @@ function moment(overrides: Partial<RecapMoment>): RecapMoment {
     lng: null,
     upload_status: 'uploaded',
     autor_name: 'Lea',
+    autor_avatar_key: null,
     ...overrides,
   };
 }

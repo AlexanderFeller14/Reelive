@@ -17,6 +17,7 @@ function moment(id: string): RecapMoment {
     lng: -9.1301,
     upload_status: 'uploaded',
     autor_name: 'Lea',
+    autor_avatar_key: null,
   };
 }
 

@@ -122,7 +122,7 @@ function moment(overrides: Partial<RecapMoment> = {}): RecapMoment {
     id: 'p1', trip_id: 't1', author_id: 'u1', type: 'photo', duration_s: null, caption: null,
     captured_at: '2026-08-10T09:00:00.000Z', captured_tz: 'Europe/Zurich', place_name: null,
     lat: null, lng: null,
-    upload_status: 'uploaded', autor_name: 'Lea',
+    upload_status: 'uploaded', autor_name: 'Lea', autor_avatar_key: null,
     ...overrides,
   };
 }

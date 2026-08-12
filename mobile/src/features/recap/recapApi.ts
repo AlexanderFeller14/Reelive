@@ -37,11 +37,11 @@ function funktionMeldung(error: unknown, sonst: string): string {
 const SPALTEN = [
   'id', 'trip_id', 'author_id', 'type', 'duration_s', 'caption',
   'captured_at', 'captured_tz', 'place_name', 'lat', 'lng', 'upload_status',
-  'profiles!posts_author_id_fkey(display_name)',
+  'profiles!posts_author_id_fkey(display_name, avatar_key)',
 ].join(', ');
 
-type PostRow = Omit<RecapMoment, 'autor_name'> & {
-  profiles: { display_name: string } | null;
+type PostRow = Omit<RecapMoment, 'autor_name' | 'autor_avatar_key'> & {
+  profiles: { display_name: string; avatar_key: string | null } | null;
 };
 
 // Liest alle Momente einer Reise inklusive Autorenname in EINEM Aufruf (kein
@@ -77,6 +77,7 @@ export async function fetchRecapMomente(tripId: string): Promise<Gelesen<RecapMo
     lng: row.lng,
     upload_status: row.upload_status,
     autor_name: row.profiles?.display_name ?? '',
+    autor_avatar_key: row.profiles?.avatar_key ?? null,
   }));
   // Sortierung IMMER über tage.sortiereMomente (CLAUDE.md-Eckpfeiler:
   // captured_at aufsteigend, id als stabiles zweites Kriterium), bewusst

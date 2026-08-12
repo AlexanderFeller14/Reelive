@@ -5,7 +5,7 @@ const moment = (teil: Partial<RecapMoment> & { id: string }): RecapMoment => ({
   trip_id: 't1', author_id: 'u1', type: 'photo', duration_s: null, caption: null,
   captured_at: '2026-05-08T10:00:00Z', captured_tz: 'Europe/Lisbon',
   place_name: null, lat: null, lng: null, upload_status: 'uploaded',
-  autor_name: 'Mira', ...teil,
+  autor_name: 'Mira', autor_avatar_key: null, ...teil,
 });
 
 test('trennt Momente mit Ort von denen ohne', () => {

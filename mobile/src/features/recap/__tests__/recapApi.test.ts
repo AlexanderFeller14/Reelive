@@ -51,6 +51,7 @@ describe('fetchRecapMomente', () => {
         duration_s: null, caption: null,
         captured_at: '2026-08-01T10:00:00.000Z', captured_tz: 'Europe/Zurich',
         place_name: null, upload_status: 'uploaded', autor_name: 'Lea',
+        autor_avatar_key: null,
       },
     ]);
     expect(mockFrom).toHaveBeenCalledWith('posts');
@@ -62,7 +63,7 @@ describe('fetchRecapMomente', () => {
     // Ohne ihn antwortet PostgREST mit HTTP 300 und der Recap bleibt leer,
     // was kein gemockter Test bemerkt, weil der Mock die Abfrage nie stellt.
     expect(select.mock.calls[0][0]).toEqual(
-      expect.stringContaining('profiles!posts_author_id_fkey(display_name)')
+      expect.stringContaining('profiles!posts_author_id_fkey(display_name, avatar_key)')
     );
     expect(eq).toHaveBeenCalledWith('trip_id', 't1');
   });
@@ -75,7 +76,24 @@ describe('fetchRecapMomente', () => {
     expect(spalten).toContain('lng');
     // Der Fremdschlüsselname bleibt zwingend, ohne ihn liefert PostgREST
     // HTTP 300 und der gesamte Recap ist leer (siehe Kommentar in recapApi.ts).
-    expect(spalten).toContain('profiles!posts_author_id_fkey(display_name)');
+    expect(spalten).toContain('profiles!posts_author_id_fkey(display_name, avatar_key)');
+  });
+
+  test('ein Moment traegt den Bildschluessel seiner Autorin', async () => {
+    postsKette({
+      data: [zeile({ profiles: { display_name: 'Lea', avatar_key: 'profiles/u1/a.jpg' } })],
+      error: null,
+    });
+    const { data } = await fetchRecapMomente('t1');
+    expect(data[0].autor_avatar_key).toBe('profiles/u1/a.jpg');
+  });
+
+  // display_name fällt auf '' zurück, wenn das Profil fehlt; der Schlüssel muss
+  // denselben Weg gehen und null werden, nicht undefined.
+  test('ohne Profil bleibt der Bildschluessel null', async () => {
+    postsKette({ data: [zeile({ profiles: null })], error: null });
+    const { data } = await fetchRecapMomente('t1');
+    expect(data[0].autor_avatar_key).toBeNull();
   });
 
   test('fetchRecapMomente reicht lat/lng durch', async () => {

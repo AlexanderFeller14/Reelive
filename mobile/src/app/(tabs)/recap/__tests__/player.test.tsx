@@ -210,7 +210,7 @@ function moment(overrides: Partial<RecapMoment>): RecapMoment {
     id: 'p0', trip_id: 't1', author_id: 'u1', type: 'photo', duration_s: null, caption: null,
     captured_at: '2026-08-10T09:00:00.000Z', captured_tz: 'Europe/Zurich', place_name: 'Lissabon',
     lat: null, lng: null,
-    upload_status: 'uploaded', autor_name: 'Lea',
+    upload_status: 'uploaded', autor_name: 'Lea', autor_avatar_key: null,
     ...overrides,
   };
 }
@@ -368,6 +368,21 @@ describe('Kopf- und Caption-Pillen (Schritt 3)', () => {
     expect(screen.getByText('Lea')).toBeTruthy();
     expect(screen.getByText('L')).toBeTruthy(); // Avatar-Initiale
     expect(screen.getByText('Lissabon · 11:00')).toBeTruthy();
+  });
+
+  // Task 9: der Player benutzt jetzt den gemeinsamen Avatar (Task 3) statt
+  // seiner lokalen Initiale-Kopie, ein Moment mit autor_avatar_key muss also
+  // wirklich ein <Image> zeigen, nicht bloss das gemappte Feld tragen.
+  test('der Player zeigt das Profilbild der Autorin', async () => {
+    const p1MitBild = moment({ id: 'p1', autor_avatar_key: 'profiles/u1/a.jpg' });
+    (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: [p1MitBild], error: null });
+    (holeVorrat as jest.Mock).mockResolvedValue({
+      vorrat: { urls: new Map([['p1', bild('p1')]]), gueltigBis: Date.now() + 999_999, ausgelassen: 0 },
+      error: null,
+      grund: null,
+    });
+    await wrap();
+    expect(await screen.findByTestId('avatar-bild')).toBeTruthy();
   });
 
   // Die zentrale Zusicherung aus dem Brief: NICHT die Gerätezeit, sondern
