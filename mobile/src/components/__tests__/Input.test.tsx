@@ -78,3 +78,32 @@ test('das sichtbare Label bleibt für VoiceOver stumm', async () => {
   expect(screen.queryByText('Beginn')).toBeNull();
   expect(screen.getByText('Beginn', { includeHiddenElements: true })).toBeTruthy();
 });
+
+// Der TextInput hatte keine eigene Höhe und sass per justifyContent 'flex-end'
+// am unteren Rand seines 56er-Rahmens. Er war damit nur rund 28 px hoch, und
+// die obere Hälfte des Feldes, genau dort wo das Label steht, gehörte zu keinem
+// Touch-Ziel: der umgebende View hat keinen Handler. Mit der Maus trifft man
+// das untere Drittel pixelgenau, mit dem Daumen landet man oft oben, und dann
+// passiert nichts. Genau dieses «das Reinklicken ist nicht direkt».
+//
+// Die Jest-Suite sieht das nicht, weil sie kein Layout rechnet: `fireEvent`
+// spricht das Element direkt an, unabhängig davon, wie gross es gerendert wird.
+// Deshalb prüft dieser Test die Ursache, nämlich dass das Feld den Rahmen füllt.
+test('das Eingabefeld füllt den ganzen Rahmen, damit jeder Tipp ankommt', async () => {
+  await wrap(<Input label="Name der Reise" value="" onChangeText={() => {}} />);
+  const feld = StyleSheet.flatten(screen.getByLabelText('Name der Reise').props.style);
+  expect(feld.flex).toBe(1);
+  const rahmen = StyleSheet.flatten(screen.getByTestId('input-rahmen').props.style);
+  // Kein 'flex-end' mehr: das drückte das Feld an die Unterkante, statt es den
+  // Raum füllen zu lassen.
+  expect(rahmen.justifyContent).toBeUndefined();
+  expect(rahmen.height).toBe(56);
+});
+
+// Der Text muss unter dem angehobenen Label sitzen, nicht darauf. Das Label
+// liegt gehoben bei top 8 und misst dann 12 px, endet also bei 20.
+test('der Text beginnt unterhalb des angehobenen Labels', async () => {
+  await wrap(<Input label="Name der Reise" value="Norwegen" onChangeText={() => {}} />);
+  const feld = StyleSheet.flatten(screen.getByLabelText('Name der Reise').props.style);
+  expect(feld.paddingTop).toBeGreaterThanOrEqual(20);
+});

@@ -82,13 +82,13 @@ export function Input({ label, error, value, placeholder, style, onFocus, onBlur
   return (
     <View style={{ gap: spacing.xs }}>
       <View
+        testID="input-rahmen"
         style={{
           height: 56,
           borderWidth: focused ? 2 : 1,
           borderColor,
           borderRadius: radius.control,
           backgroundColor: flaeche,
-          justifyContent: 'flex-end',
           paddingHorizontal: pad,
         }}
       >
@@ -130,7 +130,18 @@ export function Input({ label, error, value, placeholder, style, onFocus, onBlur
           }}
           style={[
             type.body,
-            { color: textFarbe, paddingTop: 0, paddingBottom: 8, paddingHorizontal: 0 },
+            // `flex: 1` statt der intrinsischen Höhe, und der Rahmen darüber
+            // ohne `justifyContent: 'flex-end'`: sonst ist das Feld nur so hoch
+            // wie sein Text und klebt an der Unterkante, und die obere Hälfte
+            // des Rahmens, genau dort wo das Label steht, gehört zu keinem
+            // Touch-Ziel. Mit der Maus trifft man das untere Drittel, mit dem
+            // Daumen landet man oft oben, und dann passiert nichts.
+            //
+            // `paddingTop: 26` hält den Text dort, wo er vorher sass: das
+            // gehobene Label endet bei 20 (top 8 plus 12 px Schrifthöhe), und
+            // iOS zentriert einzeiligen Text im verbleibenden Raum, was ihn
+            // mittig unter das Label legt statt an die Oberkante.
+            { color: textFarbe, flex: 1, paddingTop: 26, paddingBottom: 4, paddingHorizontal: 0 },
             style,
           ]}
           {...rest}
