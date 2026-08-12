@@ -106,6 +106,27 @@ test('ein gewaehltes Bild wird vor dem Anlegen hochgeladen', async () => {
   );
 });
 
+// Review-Fund (Fix Runde 1): `avatarKey` ist im Onboarding strukturell IMMER
+// null (profile-setup.tsx übergibt ihn fest verdrahtet), ein frisch
+// gewähltes, nur lokal vorliegendes Bild liess sich vorher deshalb NICHT
+// wieder entfernen — der «Bild entfernen»-Eintrag im Sheet hing allein an
+// `avatarKey`. Dieser Test wählt ein Bild, öffnet den Wähler erneut, prüft,
+// dass der Eintrag jetzt dasteht, entfernt darüber das Bild und prüft am
+// gerenderten Baum (nicht am internen State), dass es wirklich weg ist:
+// `avatar-bild` (das lokale Vorschaubild) darf danach nicht mehr existieren.
+test('ein gewaehltes Bild laesst sich vor dem Absenden wieder entfernen', async () => {
+  await wrap(<ProfileSetupScreen />);
+  await fireEvent.press(screen.getByTestId('avatar-waehler'));
+  await fireEvent.press(screen.getByText('Foto auswählen'));
+  await waitFor(() => expect(screen.getByTestId('avatar-bild')).toBeTruthy());
+
+  await fireEvent.press(screen.getByTestId('avatar-waehler'));
+  await waitFor(() => expect(screen.getByText('Bild entfernen')).toBeTruthy());
+  await fireEvent.press(screen.getByText('Bild entfernen'));
+
+  await waitFor(() => expect(screen.queryByTestId('avatar-bild')).toBeNull());
+});
+
 // Ein gescheiterter Upload darf das Onboarding nicht blockieren — der Name ist
 // das Pflichtfeld, das Bild ist die Zugabe.
 test('ein gescheiterter Upload legt das Profil trotzdem an', async () => {

@@ -51,6 +51,16 @@ export function AvatarWaehler({
   const [offen, setOffen] = useState(false);
   const [fehler, setFehler] = useState<string | null>(null);
 
+  // Zwei Quellen, eine Bedeutung: Der Profil-Tab kennt nur einen bereits
+  // GESPEICHERTEN Schlüssel (`avatarKey`), das Onboarding nur eine noch
+  // NICHT hochgeladene lokale Datei (`lokaleUri`), aber beides heisst hier
+  // dasselbe — «es gibt gerade ein Bild, das sich entfernen liesse». Vorher
+  // hingen Badge-Beschriftung und der «Bild entfernen»-Eintrag allein an
+  // `avatarKey`; im Onboarding ist der aber strukturell IMMER null (Task 7,
+  // profile-setup.tsx), also blieb ein frisch gewähltes Bild dort für immer
+  // «nicht entfernbar» — ein Review-Fund, der genau diese Lücke aufdeckte.
+  const hatBild = !!avatarKey || !!lokaleUri;
+
   const oeffnen = () => {
     setFehler(null);
     setOffen(true);
@@ -88,7 +98,7 @@ export function AvatarWaehler({
       <PressScale
         testID="avatar-waehler"
         accessibilityRole="button"
-        accessibilityLabel={avatarKey ? 'Profilbild ändern' : 'Profilbild hinzufügen'}
+        accessibilityLabel={hatBild ? 'Profilbild ändern' : 'Profilbild hinzufügen'}
         onPress={oeffnen}
       >
         <View>
@@ -130,7 +140,7 @@ export function AvatarWaehler({
             Selfie aufnehmen
           </Text>
         </PressScale>
-        {avatarKey && (
+        {hatBild && (
           <PressScale
             accessibilityRole="button"
             onPress={() => {
