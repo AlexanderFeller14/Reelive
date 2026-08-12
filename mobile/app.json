@@ -4,11 +4,10 @@
     "slug": "reelive",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/images/reelive-app-icon-white.png",
     "scheme": "reelive",
     "userInterfaceStyle": "light",
     "ios": {
-      "icon": "./assets/expo.icon",
       "bundleIdentifier": "com.reelive.app"
     },
     "android": {
@@ -16,7 +15,6 @@
       "adaptiveIcon": {
         "backgroundColor": "#131110",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false
@@ -30,9 +28,9 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#131110",
-          "image": "./assets/images/splash-icon.png",
-          "imageWidth": 76
+          "backgroundColor": "#FFFFFF",
+          "image": "./assets/images/reelive-splash-wortmarke.png",
+          "imageWidth": 200
         }
       ],
       "expo-secure-store",
@@ -65,7 +63,11 @@
         }
       ],
       "react-native-maps",
-      "@sentry/react-native"
+      "@sentry/react-native",
+      "./plugins/withSceneLifecycle",
+      "./plugins/withPushEntitlement",
+      "./plugins/withSentryOhneUpload",
+      "./plugins/withAppleTeam"
     ],
     "experiments": {
       "typedRoutes": true,

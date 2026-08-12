@@ -2088,3 +2088,68 @@ describe('der Fehler-Zustand bietet nur an, was er halten kann', () => {
     expect(screen.getByText('Nochmal versuchen')).toBeTruthy();
   });
 });
+
+// ——— Geraetekanten (gefunden am echten iPhone, 2026-08-11) ———
+//
+// Der Player zeigt keinen Header und liegt randlos hinter Dynamic Island und
+// Home-Indicator. Bis hierher standen Kopf- und Sozialbereich auf den
+// gestalteten 32 Punkten, am Geraet lag die Fortschrittsleiste damit UNTER
+// der Insel.
+//
+// Warum diese Suite das nie sehen konnte: der globale Mock aus jest.setup.ts
+// meldet Insets von 0 (react-native-safe-area-context/jest/mock), und bei 0
+// liefert useOberkante(32) genau die gestalteten 32 zurueck, richtige wie
+// falsche Fassung sind ununterscheidbar. Erst mit echten Geraetemassen
+// trennen sie sich, deshalb wird der Hook hier gezielt uebersteuert.
+describe('Sicherer Bereich des Geraets', () => {
+  let insetSpion: jest.SpyInstance | undefined;
+
+  const insetsSetzen = (top: number, bottom: number) => {
+    const modul = require('react-native-safe-area-context');
+    insetSpion = jest
+      .spyOn(modul, 'useSafeAreaInsets')
+      .mockReturnValue({ top, bottom, left: 0, right: 0 });
+  };
+
+  // Der Spion ueberlebt jest.clearAllMocks() (das raeumt nur Aufzeichnungen,
+  // nicht Implementierungen), er muss also von Hand zurueck, sonst laufen alle
+  // spaeteren Suiten mit fremden Geraetemassen.
+  afterEach(() => {
+    insetSpion?.mockRestore();
+    insetSpion = undefined;
+  });
+
+  beforeEach(() => {
+    (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
+    (holeVorrat as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+  });
+
+  test('unter der Dynamic Island rueckt die Fortschrittsleiste nach unten', async () => {
+    insetsSetzen(59, 34);
+    await wrap();
+
+    const oben = StyleSheet.flatten(screen.getByTestId('player-kopf-bereich').props.style);
+    expect(oben.top).toBe(59 + 16);
+  });
+
+  test('ueber dem Home-Indicator rueckt die Reaktionsreihe nach oben', async () => {
+    insetsSetzen(59, 34);
+    await wrap();
+
+    const unten = StyleSheet.flatten(screen.getByTestId('player-sozial-bereich').props.style);
+    expect(unten.bottom).toBe(34 + 16);
+  });
+
+  // Gegenprobe: wo das Geraet nichts wegnimmt, bleibt der gestaltete Abstand
+  // exakt stehen. Sonst waere der Fix eine Verschiebung fuer alle statt einer
+  // Ausweichbewegung nur dort, wo sie noetig ist.
+  test('ohne Insets bleiben die gestalteten Abstaende unveraendert', async () => {
+    insetsSetzen(0, 0);
+    await wrap();
+
+    const oben = StyleSheet.flatten(screen.getByTestId('player-kopf-bereich').props.style);
+    const unten = StyleSheet.flatten(screen.getByTestId('player-sozial-bereich').props.style);
+    expect(oben.top).toBe(32);
+    expect(unten.bottom).toBe(32);
+  });
+});

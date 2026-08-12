@@ -37,8 +37,13 @@ jest.mock('expo-splash-screen', () => ({
 
 jest.mock('expo-status-bar', () => ({ StatusBar: () => null }));
 
+// Steuerbar, weil der interessante Fall NICHT «geladen» ist, sondern
+// «fehlgeschlagen»: useFonts liefert ein Tupel [geladen, fehler], und solange
+// der Fehler ignoriert wurde, blieb die App bei einem Ladefehler fuer immer
+// im Splash stehen (am Geraet gesehen, 2026-08-11).
+const mockSchriften: { ergebnis: [boolean, Error | null] } = { ergebnis: [true, null] };
 jest.mock('@expo-google-fonts/figtree', () => ({
-  useFonts: () => [true],
+  useFonts: () => mockSchriften.ergebnis,
   Figtree_300Light: 0,
   Figtree_400Regular: 0,
   Figtree_500Medium: 0,
@@ -232,5 +237,37 @@ describe('Web-Hartsperre (istWebGesperrt)', () => {
 
     await unmount();
     expect(uploadWorker.stoppe).not.toHaveBeenCalled(); // war nie gestartet
+  });
+});
+
+// Die Schriften sind verbindlich (DESIGN-LANGUAGE §2), aber sie duerfen den
+// Start nicht verhindern. Bis zum 2026-08-11 wertete RootLayout nur den
+// ersten Rueckgabewert von useFonts aus und rendert bei `false` null: ein
+// Ladefehler liess die App damit dauerhaft im Splash stehen, ohne Meldung,
+// ohne Ausweg. Am echten Geraet gefunden, von keiner Suite bemerkt.
+describe('Schriften', () => {
+  afterEach(() => {
+    mockSchriften.ergebnis = [true, null];
+  });
+
+  test('solange die Schriften laden, bleibt der Splash stehen', async () => {
+    mockSchriften.ergebnis = [false, null];
+    const { unmount } = await render(<RootLayout />);
+
+    expect(mockStackRender).not.toHaveBeenCalled();
+    await unmount();
+  });
+
+  test('ein Ladefehler haelt die App nicht auf, sie startet mit Systemschrift', async () => {
+    const warnung = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    mockSchriften.ergebnis = [false, new Error('Figtree liess sich nicht laden')];
+    const { unmount } = await render(<RootLayout />);
+
+    expect(mockStackRender).toHaveBeenCalled();
+    // Und es verschwindet nicht stillschweigend: der Grund steht in der Konsole.
+    expect(warnung).toHaveBeenCalled();
+
+    await unmount();
+    warnung.mockRestore();
   });
 });

@@ -1,5 +1,16 @@
 import { render, screen, fireEvent } from '@testing-library/react-native';
 import { ThemeProvider } from '@/theme/ThemeProvider';
+
+// expo-image ist ein natives View, im Test reicht ein Platzhalter, der alle
+// Props durchreicht (gleiches Muster wie recap/__tests__/liste.test.tsx).
+// Nötig, seit das Cover ein Bild trägt: ohne Mock scheitert schon der Import,
+// expo-image/src/observe.ts erwartet eine native Umgebung.
+jest.mock('expo-image', () => {
+  const ReactActual = require('react');
+  const { View } = require('react-native');
+  return { Image: (props: object) => ReactActual.createElement(View, props) };
+});
+
 import { TripCard } from '../TripCard';
 import type { Trip } from '@/features/trips/types';
 
@@ -20,33 +31,56 @@ test('zeigt Name, Zeitraum und eigenen Zähler', async () => {
 });
 
 test('zeigt die Mitreisenden als überlappende Avatare', async () => {
-  await wrap(<TripCard trip={trip} onPress={jest.fn()} />);
+  await wrap(<TripCard trip={{ ...trip, member_names: ['Lea', 'Mira', 'Jonas'] }} onPress={jest.fn()} />);
   // Avatar trägt bis zum Bild-Upload die Initiale
   expect(screen.getByText('L')).toBeTruthy();
   expect(screen.getByText('M')).toBeTruthy();
   expect(screen.getByText('J')).toBeTruthy();
-  expect(screen.getByText('S')).toBeTruthy();
+  expect(screen.queryByTestId('avatar-rest')).toBeNull();
 });
 
-test('ab dem fünften Mitreisenden zählt die Gruppe weiter', async () => {
-  await wrap(
-    <TripCard trip={{ ...trip, member_names: ['Lea', 'Mira', 'Jonas', 'Sofia', 'Ben', 'Nora'] }} onPress={jest.fn()} />
-  );
-  expect(screen.getByText('+2')).toBeTruthy();
-});
-
-test('laufende Reise trägt die Versiegelt-Pille', async () => {
+// Die Karte nutzt dieselbe Facepile wie der Reise-Detail (Avatar.test.tsx
+// prüft ihre Regeln im Detail): ab der vierten Person zählt ein Rest-Kreis
+// weiter, statt weitere Gesichter zu zeigen. Das Fixture hat vier
+// Mitreisende, drei davon sind zu sehen.
+test('ab der vierten Person zählt die Gruppe im Rest-Kreis weiter', async () => {
   await wrap(<TripCard trip={trip} onPress={jest.fn()} />);
-  expect(screen.getByText('Versiegelt')).toBeTruthy();
+  expect(screen.getByText('+1')).toBeTruthy();
+  expect(screen.queryByText('S')).toBeNull();
 });
 
-test('aufgedeckte Reise trägt sie nicht', async () => {
+// Zwei Karten untereinander sollen nicht dasselbe Cover tragen. Die Karte
+// selbst wählt es nicht aus, sie reicht nur ihren Platz durch — geprüft wird
+// hier, dass sie das überhaupt tut.
+test('die Position wählt das Platzhalter-Cover', async () => {
+  // Beide Karten in EINEM Render: ein zwischengeschobenes `unmount()` liesse
+  // die act()-Bereiche überlappen und riss die folgenden Tests dieser Datei
+  // mit.
+  await wrap(
+    <>
+      <TripCard trip={trip} position={0} onPress={jest.fn()} />
+      <TripCard trip={{ ...trip, id: 't2' }} position={1} onPress={jest.fn()} />
+    </>
+  );
+  const [erste, zweite] = screen.getAllByTestId('reise-cover');
+  expect(erste.props.source).not.toBe(zweite.props.source);
+});
+
+// Das Siegel ist ein Bild, kein Text mehr — geprüft wird deshalb sein
+// Accessibility-Label. Es steht dort stellvertretend für das Wort, das die
+// Pille vorher trug: Screenreader müssen den Zustand weiterhin ansagen.
+test('laufende Reise trägt das Wachssiegel', async () => {
+  await wrap(<TripCard trip={trip} onPress={jest.fn()} />);
+  expect(screen.getByLabelText('Versiegelt')).toBeTruthy();
+});
+
+test('aufgedeckte Reise trägt es nicht', async () => {
   await wrap(<TripCard trip={{ ...trip, status: 'revealed' }} onPress={jest.fn()} />);
-  expect(screen.queryByText('Versiegelt')).toBeNull();
+  expect(screen.queryByLabelText('Versiegelt')).toBeNull();
 });
 
-// Task 10: «entwickelte» Reisen (revealed/archived) tragen statt der
-// Versiegelt-Pille eine Play-Einladung, aber NUR wenn der Aufrufer das per
+// Task 10: «entwickelte» Reisen (revealed/archived) tragen statt des
+// Siegels eine Play-Einladung, aber NUR wenn der Aufrufer das per
 // `alsRecap` ausdrücklich anfordert, Gegenprobe zum Test oben, der nur
 // belegt, dass die alte Pille FEHLT, nicht dass etwas Sinnvolles an ihre
 // Stelle tritt.

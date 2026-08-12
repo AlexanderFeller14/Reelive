@@ -1,17 +1,18 @@
 import { useCallback, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, ScrollView, Text, View, StyleSheet } from 'react-native';
+import { ActivityIndicator, Alert, ScrollView, Text, useWindowDimensions, View, StyleSheet } from 'react-native';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
-import { Flag, Lock, Share2, X } from 'lucide-react-native';
+import { Flag, Share2, X } from 'lucide-react-native';
 import { PressScale } from '@/components/PressScale';
-import { Avatar } from '@/components/Avatar';
-import { Badge } from '@/components/Badge';
+import { Avatar, AvatarGroup } from '@/components/Avatar';
 import { Button } from '@/components/Button';
+import { TripCover } from '@/components/TripCover';
 import { RevealInszenierung } from '@/components/RevealInszenierung';
-import { Sheet } from '@/components/Sheet';
+import { Sheet, SHEET_SCROLL_ANTEIL } from '@/components/Sheet';
 import { useTheme } from '@/theme/ThemeProvider';
 import { radius, spacing, type } from '@/theme/tokens';
+import { useOberkante } from '@/theme/useOberkante';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { deleteTrip, fetchMembers, fetchTrip, removeMember } from '@/features/trips/tripsApi';
 import { formatRange, heutigerKalendertag, tripDay, tripLength } from '@/features/trips/tripDay';
@@ -153,10 +154,30 @@ function MeldungZeile({
 const GETEILT_UNBEKANNT =
   'Ob dieser Recap geteilt ist, liess sich gerade nicht prüfen. Schau gleich nochmal rein.';
 
+// Die Facepile zeigt nur Kreise, ein Screenreader hat daran nichts zu lesen.
+// Das Label nennt deshalb beides: wozu sie da ist und wie viele es sind.
+function mitreisendeLabel(anzahl: number): string {
+  return `Wer dabei ist, ${anzahl} ${anzahl === 1 ? 'Person' : 'Personen'}`;
+}
+
 export default function ReiseDetail() {
   const { colors } = useTheme();
   const router = useRouter();
-  const { id } = useLocalSearchParams<{ id: string }>();
+  // Kein Header ueber diesem Screen: der Scroll-Inhalt begann bei den
+  // gestalteten 24 und lag damit hinter Statusleiste und Insel.
+  const oberkante = useOberkante(spacing.screen);
+  // Deckelt die Mitreisenden-Liste im Sheet. Ohne Grenze wüchse sie bis an den
+  // 85-%-Deckel des Panels und verlöre ihre letzten Zeilen ersatzlos, bei
+  // einer grossen Reise ausgerechnet die zuletzt Beigetretenen (siehe
+  // SHEET_SCROLL_ANTEIL in Sheet.tsx).
+  const { height: fensterHoehe } = useWindowDimensions();
+  // `cover` ist kein Datenparameter, sondern der Platz, den die angetippte
+  // Karte in ihrer Liste hatte: Er sorgt dafür, dass hier dasselbe
+  // Platzhalter-Bild steht wie auf der Karte (platzhalterCover.ts). Wer ohne
+  // ihn hier landet — Deep Link, gerade angelegte Reise —, bekommt das erste
+  // Bild. `Number(undefined)` ist NaN, deshalb der Rückfall auf 0.
+  const { id, cover } = useLocalSearchParams<{ id: string; cover?: string }>();
+  const coverPlatz = Number(cover) || 0;
   const { userId } = useAuth();
   const [trip, setTrip] = useState<Trip | null>(null);
   const [mitglieder, setMitglieder] = useState<TripMember[]>([]);
@@ -183,6 +204,10 @@ export default function ReiseDetail() {
   // (`meldungen`) lädt ERST beim Öffnen des Sheets, mit eigenem Fehlerzustand,
   // gleiches Prinzip wie TeilenSheetInhalt.
   const [meldungenAnzahl, setMeldungenAnzahl] = useState(0);
+  // Die Mitreisenden-Verwaltung hinter der Facepile. Anders als beim
+  // Moderations-Sheet gibt es hier nichts nachzuladen: `mitglieder` steht seit
+  // laden() bereit, das Sheet zeigt nur, was der Screen ohnehin schon hat.
+  const [mitgliederSichtbar, setMitgliederSichtbar] = useState(false);
   const [moderationSichtbar, setModerationSichtbar] = useState(false);
   const [moderationPhase, setModerationPhase] = useState<'laedt' | 'bereit' | 'fehler'>('laedt');
   const [moderationFehler, setModerationFehler] = useState<string | null>(null);
@@ -447,6 +472,16 @@ export default function ReiseDetail() {
   const reiseZuEnde = heute >= trip.end_date;
   const zeigtAbschliessen = istOwner && laeuft;
 
+  // Zwei Wege führen hierher: der Knopf am Screen-Ende und der im
+  // Mitreisenden-Sheet. Das Schliessen davor gilt für beide, es kostet den
+  // Screen-Weg nichts (dort ist ohnehin nichts offen) und verhindert, dass
+  // beim Zurückkommen vom Einladen-Screen ein Sheet über der Reise liegt,
+  // das niemand mehr aufgemacht hat.
+  const einladen = () => {
+    setMitgliederSichtbar(false);
+    router.push(`/reise/${id}/einladen`);
+  };
+
   const entfernen = (m: TripMember) => {
     warnhaptik();
     Alert.alert(`${m.display_name} entfernen?`, 'Bereits eingesendete Momente bleiben in der Reise.', [
@@ -590,12 +625,11 @@ export default function ReiseDetail() {
     // ScrollView würde sein StyleSheet.absoluteFill sich auf die (potenziell
     // scrollbare, höhere) Inhaltsfläche beziehen statt auf den festen Screen.
     <>
-    <ScrollView style={{ backgroundColor: colors['bg-0'] }} contentContainerStyle={styles.inhalt}>
-      <View style={{ aspectRatio: 3 / 2, borderRadius: radius.card, backgroundColor: colors['bg-1'], padding: spacing.m }}>
-        {laeuft && (
-          <Badge label="Versiegelt" tone="seal" icon={<Lock size={12} color={colors.seal} strokeWidth={1.75} />} />
-        )}
-      </View>
+    <ScrollView
+      style={{ backgroundColor: colors['bg-0'] }}
+      contentContainerStyle={[styles.inhalt, { paddingTop: oberkante }]}
+    >
+      <TripCover position={coverPlatz} versiegelt={laeuft} />
 
       <View style={{ gap: spacing.xs }}>
         <Text style={[type.h1, { color: colors['text-1'] }]}>{trip.name}</Text>
@@ -605,6 +639,27 @@ export default function ReiseDetail() {
         {laeuft && tag > 0 && (
           <Text style={[type.secondary, { color: colors['text-2'] }]}>{`Tag ${tag} von ${laenge}`}</Text>
         )}
+
+        {/* Wer mitfährt, direkt unter dem Zeitraum: drei Gesichter, der Rest
+            wird gezählt (AvatarGroup). Ein Tipp öffnet die Liste, für die
+            Owner-Person mitsamt Verwaltung.
+            Der Ladefehler tritt an DIESE Stelle, nicht an eine andere: ohne
+            ihn stünde hier stumm nichts, und der Screen behauptete, die Reise
+            habe keine Mitreisenden. */}
+        {mitgliederFehler ? (
+          <Text style={[type.body, { color: colors.danger, marginTop: spacing.m }]}>{mitgliederFehler}</Text>
+        ) : mitglieder.length > 0 ? (
+          <PressScale
+            testID="mitreisende-oeffnen"
+            accessibilityRole="button"
+            accessibilityLabel={mitreisendeLabel(mitglieder.length)}
+            onPress={() => setMitgliederSichtbar(true)}
+          >
+            <View style={{ marginTop: spacing.m, alignSelf: 'flex-start' }}>
+              <AvatarGroup names={mitglieder.map((m) => m.display_name)} />
+            </View>
+          </PressScale>
+        ) : null}
       </View>
 
       {/* Task-8-Brief §Wo der Knopf sitzt: ab dem Enddatum rückt der Auslöser
@@ -620,7 +675,7 @@ export default function ReiseDetail() {
               dieser Knopf hier tritt zurück, sonst stünden zwei Akzentflächen
               gleichzeitig im Baum (§7). */}
           <Button
-            variant={bestaetigenSichtbar ? 'secondary' : 'primary'}
+            variant={bestaetigenSichtbar || mitgliederSichtbar ? 'secondary' : 'primary'}
             label="Reise abschliessen"
             onPress={abschliessenOeffnen}
           />
@@ -698,33 +753,6 @@ export default function ReiseDetail() {
         </PressScale>
       )}
 
-      <View style={{ gap: spacing.m }}>
-        <Text style={[type.h2, { color: colors['text-1'] }]}>Wer dabei ist</Text>
-        {mitgliederFehler && (
-          <Text style={[type.body, { color: colors.danger }]}>{mitgliederFehler}</Text>
-        )}
-        {mitglieder.map((m) => (
-          <View key={m.user_id} style={styles.zeile}>
-            <Avatar name={m.display_name} />
-            <View style={{ flex: 1 }}>
-              <Text style={[type.bodyMedium, { color: colors['text-1'] }]}>{m.display_name}</Text>
-              <Text style={[type.secondary, { color: colors['text-2'] }]}>
-                {m.role === 'owner' ? 'Hat die Reise angelegt' : `@${m.username}`}
-              </Text>
-            </View>
-            {istOwner && m.user_id !== userId && (
-              <PressScale
-                accessibilityRole="button"
-                accessibilityLabel={`${m.display_name} entfernen`}
-                onPress={() => entfernen(m)}
-              >
-                <X size={20} color={colors['text-2']} strokeWidth={1.75} />
-              </PressScale>
-            )}
-          </View>
-        ))}
-      </View>
-
       {/* Review-Entscheidung zu §7 (genau EIN Primär-Button, nicht zwingend
           GENAU einer): vor dem Enddatum bleibt «Freunde einladen» primär,
           das ist die Aktion, die eine LAUFENDE Reise wirklich braucht, und
@@ -738,9 +766,9 @@ export default function ReiseDetail() {
       )}
       {istOwner && laeuft && (
         <Button
-          variant={reiseZuEnde || bestaetigenSichtbar ? 'secondary' : 'primary'}
+          variant={reiseZuEnde || bestaetigenSichtbar || mitgliederSichtbar ? 'secondary' : 'primary'}
           label="Freunde einladen"
-          onPress={() => router.push(`/reise/${id}/einladen`)}
+          onPress={einladen}
         />
       )}
       {/* Task 9, der Screen hatte nach dem Reveal bislang KEINEN
@@ -755,6 +783,11 @@ export default function ReiseDetail() {
           entdeckt einen Reveal (z. B. von einem zweiten Gerät ausgelöst),
           während DIESES Sheet noch offen steht und niemand es geschlossen
           hat. Auch hier tritt der Screen-Knopf zugunsten des Sheets zurück. */}
+      {/* Bewusst OHNE `mitgliederSichtbar`, anders als die beiden Knöpfe
+          darüber: das Mitreisenden-Sheet trägt seinen Einladen-Knopf nur bei
+          laufender Reise, und `revealBereit` schliesst genau die aus. Die
+          beiden können also gar nicht gleichzeitig eine Akzentfläche wollen,
+          und ein Rücktritt hier liesse den Screen mit GAR keiner dastehen. */}
       {revealBereit && (
         <Button
           variant={bestaetigenSichtbar ? 'secondary' : 'primary'}
@@ -789,6 +822,40 @@ export default function ReiseDetail() {
       {revealFehler && <Text style={[type.body, { color: colors.danger }]}>{revealFehler}</Text>}
       <Button variant="primary" label="Abschliessen" onPress={() => void abschliessen()} loading={revealLaedt} />
       <Button variant="secondary" label="Abbrechen" onPress={abschliessenSchliessen} disabled={revealLaedt} />
+    </Sheet>
+
+    {/* Wer dabei ist, hinter der Facepile oben. Gleiches GESCHWISTER-Prinzip
+        wie die Sheets darum herum.
+        Die Verwaltung hängt an `laeuft`, nicht nur an `istOwner`: nach dem
+        Reveal ist das hier eine reine Auskunft. Einladen lehnt der Server für
+        nicht-aktive Reisen ohnehin ab, und wer im Recap zu sehen ist, gehört
+        zur Reise. */}
+    <Sheet sichtbar={mitgliederSichtbar} titel="Wer dabei ist" onSchliessen={() => setMitgliederSichtbar(false)}>
+      <ScrollView style={{ maxHeight: fensterHoehe * SHEET_SCROLL_ANTEIL }}>
+        <View style={{ gap: spacing.base }}>
+          {mitglieder.map((m) => (
+            <View key={m.user_id} style={styles.zeile}>
+              <Avatar name={m.display_name} />
+              <View style={{ flex: 1 }}>
+                <Text style={[type.bodyMedium, { color: colors['text-1'] }]}>{m.display_name}</Text>
+                <Text style={[type.secondary, { color: colors['text-2'] }]}>
+                  {m.role === 'owner' ? 'Hat die Reise angelegt' : `@${m.username}`}
+                </Text>
+              </View>
+              {istOwner && laeuft && m.user_id !== userId && (
+                <PressScale
+                  accessibilityRole="button"
+                  accessibilityLabel={`${m.display_name} entfernen`}
+                  onPress={() => entfernen(m)}
+                >
+                  <X size={20} color={colors['text-2']} strokeWidth={1.75} />
+                </PressScale>
+              )}
+            </View>
+          ))}
+        </View>
+      </ScrollView>
+      {istOwner && laeuft && <Button variant="primary" label="Freunde einladen" onPress={einladen} />}
     </Sheet>
 
     {/* Task 8, Phase 6: gleiches GESCHWISTER-Prinzip wie das Sheet oben. */}

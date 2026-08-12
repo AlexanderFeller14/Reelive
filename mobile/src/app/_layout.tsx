@@ -169,14 +169,23 @@ const styles = StyleSheet.create({
 });
 
 export default function RootLayout() {
-  const [fontsLoaded] = useFonts({
+  // Der zweite Rueckgabewert ist nicht optional: ohne ihn bleibt die App bei
+  // einem Ladefehler FUER IMMER im Splash stehen, weil sie null rendert und
+  // damit weder AuthProvider noch hideAsync() je erreicht. Die SDK-57-Doku
+  // nennt genau dieses Muster («continue with the app if the font fails to
+  // load»). Figtree ist verbindlich (DESIGN-LANGUAGE §2), aber eine Reise, die
+  // sich nicht oeffnen laesst, ist teurer als eine Systemschrift.
+  const [fontsLoaded, fontFehler] = useFonts({
     Figtree_300Light,
     Figtree_400Regular,
     Figtree_500Medium,
     Figtree_600SemiBold,
     Figtree_700Bold,
   });
-  if (!fontsLoaded) return null;
+  if (fontFehler) {
+    console.warn('[start] Schriften nicht geladen, weiter mit Systemschrift:', fontFehler);
+  }
+  if (!fontsLoaded && !fontFehler) return null;
   return (
     // SafeAreaProvider, weil keiner der drei Stacks einen Navigations-Header
     // zeigt: jeder Screen beginnt bei y = 0 und muss selbst wissen, was das

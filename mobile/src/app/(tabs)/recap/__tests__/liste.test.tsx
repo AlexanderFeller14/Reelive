@@ -16,6 +16,15 @@ jest.mock('expo-router', () => {
     Stack: { Screen: () => null },
   };
 });
+// expo-image ist ein natives View, im Test reicht ein Platzhalter, der alle
+// Props durchreicht (gleiches Muster wie uebersicht.test.tsx). Ohne Mock
+// scheitert schon der Import, expo-image/src/observe.ts erwartet eine native
+// Umgebung.
+jest.mock('expo-image', () => {
+  const ReactActual = require('react');
+  const { View } = require('react-native');
+  return { Image: (props: object) => ReactActual.createElement(View, props) };
+});
 jest.mock('@/features/trips/tripsApi', () => ({ fetchTrips: jest.fn() }));
 
 import RecapListe from '../index';
@@ -55,6 +64,32 @@ test('ganz ohne Reisen ist der leere Zustand ebenfalls sichtbar', async () => {
   (fetchTrips as jest.Mock).mockResolvedValue(geladen([]));
   await wrap();
   expect(await screen.findByText('Noch kein Recap')).toBeTruthy();
+});
+
+test('der leere Zustand zeigt die Filmrolle', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([]));
+  await wrap();
+  expect(await screen.findByTestId('leerzustand-filmrolle')).toBeTruthy();
+});
+
+// Gegenprobe zum Test darüber: ohne sie belegte er nur, dass das Bild
+// existiert, nicht, dass es am leeren Zustand hängt. Über einer Liste echter
+// Recap-Karten wäre die Filmrolle blosse Deko (DESIGN-LANGUAGE §7).
+test('neben echten Recaps steht keine Filmrolle', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([recap]));
+  await wrap();
+  await screen.findByText('Lissabon Städtetrip');
+  expect(screen.queryByTestId('leerzustand-filmrolle')).toBeNull();
+});
+
+// Das Bild trägt keine Bedeutung, die der Text nicht schon sagt. Läge es im
+// Accessibility-Baum, sagte VoiceOver vor «Noch kein Recap» ein nutzloses
+// «Bild» an.
+test('die Filmrolle ist für VoiceOver unsichtbar', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([]));
+  await wrap();
+  const bild = await screen.findByTestId('leerzustand-filmrolle');
+  expect(bild.props.accessible).toBe(false);
 });
 
 // Gegenprobe: ohne diesen Test belegt der Test oben nur, dass der Text

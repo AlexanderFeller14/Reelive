@@ -10,6 +10,16 @@ jest.mock('../profileApi', () => ({
 const mockSignOut = jest.fn();
 jest.mock('../authApi', () => ({ signOut: () => mockSignOut() }));
 
+// expo-image ist ein natives View, im Test reicht ein Platzhalter, der alle
+// Props durchreicht (gleiches Muster wie recap/__tests__/liste.test.tsx). Ohne
+// Mock scheitert schon der Import, expo-image/src/observe.ts erwartet eine
+// native Umgebung.
+jest.mock('expo-image', () => {
+  const ReactActual = require('react');
+  const { View } = require('react-native');
+  return { Image: (props: object) => ReactActual.createElement(View, props) };
+});
+
 // Task 9: kontoApi importiert transitiv @/lib/supabase (→ AsyncStorage-
 // Nativmodul, in Jest nicht vorhanden, auch über jest.requireActual nicht
 // umgehbar, der Import steht am Modulkopf), deshalb wie die übrigen
@@ -50,6 +60,18 @@ test('zeigt Profildaten und meldet ab', async () => {
   expect(screen.getByText('@lea')).toBeTruthy();
   await fireEvent.press(screen.getByText('Abmelden'));
   await waitFor(() => expect(mockSignOut).toHaveBeenCalled());
+});
+
+test('zeigt das Reisepass-Bild über dem Namen, stumm für Screenreader', async () => {
+  await render(<ThemeProvider><ProfilScreen /></ThemeProvider>);
+  await screen.findByText('Lea');
+  // Dekoration: das Bild sagt nichts, was der Name darunter nicht schon sagt.
+  expect(screen.getByTestId('profil-reisepass').props.accessible).toBe(false);
+  // «oben» heisst: VOR der Namens-Karte im Baum, nicht bloss irgendwo auf dem
+  // Screen. Der serialisierte Baum bildet die Reihenfolge der Geschwister ab,
+  // «@lea» kommt darin nur in der Namens-Karte vor.
+  const baum = JSON.stringify(screen.toJSON());
+  expect(baum.indexOf('profil-reisepass')).toBeLessThan(baum.indexOf('@lea'));
 });
 
 test('zeigt den WLAN-Schalter mit Erklärung, was er bewirkt', async () => {

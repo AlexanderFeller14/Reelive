@@ -1,5 +1,7 @@
 import { render, screen, fireEvent, act } from '@testing-library/react-native';
 import * as React from 'react';
+import { Animated, Easing, StyleSheet, type StyleProp, type ViewStyle } from 'react-native';
+import { cinema, palette, spacing } from '@/theme/tokens';
 import type { Trip } from '@/features/trips/types';
 
 const mockPush = jest.fn();
@@ -45,6 +47,25 @@ async function erneutFokussieren() {
   });
 }
 
+// expo-image ist ein natives View, im Test reicht ein Platzhalter, der alle
+// Props durchreicht (gleiches Muster wie recap/__tests__/liste.test.tsx). Ohne
+// Mock scheitert schon der Import, expo-image/src/observe.ts erwartet eine
+// native Umgebung.
+jest.mock('expo-image', () => {
+  const ReactActual = require('react');
+  const { View } = require('react-native');
+  return { Image: (props: object) => ReactActual.createElement(View, props) };
+});
+
+// Synchron gemockt statt über AccessibilityInfo (Muster aus Sheet.test.tsx):
+// der echte Hook liefert seinen Wert erst asynchron nach, der Screen liefe
+// dann kurz mit Bewegung an, bevor er sie zurücknimmt, und der Test prüfte
+// diesen Übergang statt der Regel.
+const mockUseReducedMotion = jest.fn(() => false);
+jest.mock('@/theme/useReducedMotion', () => ({
+  useReducedMotion: () => mockUseReducedMotion(),
+}));
+
 jest.mock('@/features/trips/tripsApi', () => ({ fetchTrips: jest.fn() }));
 
 // Der lokale Reise-Bestand (Final-Review, Critical 1) wird hier NICHT gemockt,
@@ -79,6 +100,17 @@ jest.mock('expo-status-bar', () => ({
 
 const mockOpenSettings = jest.fn();
 jest.mock('expo-linking', () => ({ openSettings: () => mockOpenSettings() }));
+
+// jest.setup.ts stellt allen Suiten Insets 0 hin, also ein Gerät ohne Dynamic
+// Island. Für den Sucher ist genau der andere Fall der interessante: was oben
+// auf dem Kamerabild liegt, darf nicht hinter die Uhr geraten, auch wenn das
+// Bild selbst randlos bleibt. Deshalb hier ein steuerbarer Ersatz, der den
+// globalen Mock für diese Datei überschreibt.
+let mockInsets = { top: 0, left: 0, right: 0, bottom: 0 };
+jest.mock('react-native-safe-area-context', () => ({
+  ...require('react-native-safe-area-context/jest/mock').default,
+  useSafeAreaInsets: () => mockInsets,
+}));
 
 const mockTakePictureAsync = jest.fn();
 const mockRecordAsync = jest.fn();
@@ -137,8 +169,10 @@ beforeEach(() => {
   // mockResolvedValue gesetzte Implementierung, sonst sickerte sie in jeden
   // folgenden Test durch (gleiche Falle wie in uploadWorker.test.ts).
   mockEigenerZaehler.mockImplementation(async () => 0);
+  mockUseReducedMotion.mockReturnValue(false);
   mockCameraPermission = GEWAEHRT;
   mockMicPermission = GEWAEHRT;
+  mockInsets = { top: 0, left: 0, right: 0, bottom: 0 };
   mockTakePictureAsync.mockResolvedValue({ uri: 'file://foto.jpg', width: 100, height: 100, format: 'jpg' });
 });
 
@@ -482,4 +516,321 @@ test('scheitert nur der Zähler-Abruf, greift der zuletzt bekannte Stand statt e
   expect(screen.getByText('40 Momente')).toBeTruthy();
   expect(screen.getByText('7 Momente')).toBeTruthy();
   expect(screen.queryByText('0 Momente')).toBeNull();
+});
+
+// «Helles Reisejournal, dunkles Kino» (DESIGN-LANGUAGE, Leitidee): die
+// Kino-Palette gehört den Medien-Screens. In diesem Tab ist das NUR der Sucher.
+// Bis zu dieser Runde lagen auch die vier Zustände ohne Kamera — kein Reise,
+// kein Zugriff, Ladefehler, Reise-Auswahl — im dunklen Saal, obwohl in keinem
+// davon je ein Bild vorkam; neben Reise-, Recap- und Profil-Tab wirkte der
+// Aufnehmen-Tab dadurch wie eine fremde App.
+//
+// Geprüft wird über die tatsächlich gesetzten Flächen statt über eine testID:
+// gemessen wird, was der Nutzer sieht, und die Zusicherung überlebt jedes
+// Umbenennen. Beide Kino-Töne, sonst rutschte eine `bg-1`-Fläche (die
+// Auswahl-Zeilen) unbemerkt durch.
+const KINO_FLAECHEN: readonly string[] = [cinema['bg-0'], cinema['bg-1']];
+
+// Gelesen wird der fertig gerenderte Baum (screen.toJSON), nicht der
+// Komponenten-Baum: dort steht genau das, was an die native Seite ginge.
+type Gerendert = { props?: { style?: StyleProp<ViewStyle> }; children?: unknown[] | null };
+
+function flaechenFarben(): (string | undefined)[] {
+  const farben: (string | undefined)[] = [];
+  const gehe = (knoten: unknown): void => {
+    if (!knoten || typeof knoten !== 'object') return;
+    if (Array.isArray(knoten)) {
+      knoten.forEach(gehe);
+      return;
+    }
+    const { props, children } = knoten as Gerendert;
+    const stil = StyleSheet.flatten(props?.style) as ViewStyle | undefined;
+    if (stil?.backgroundColor) farben.push(stil.backgroundColor as string);
+    (children ?? []).forEach(gehe);
+  };
+  gehe(screen.toJSON());
+  return farben;
+}
+
+const imKinosaal = () => flaechenFarben().some((farbe) => farbe !== undefined && KINO_FLAECHEN.includes(farbe));
+const aufHellemGrund = () => flaechenFarben().includes(palette['bg-0']);
+
+test('«Keine laufende Reise» steht auf hellem Grund, nicht im Kinosaal', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([]));
+  await render(<AufnehmenScreen />);
+  await screen.findByText('Keine laufende Reise');
+
+  expect(aufHellemGrund()).toBe(true);
+  expect(imKinosaal()).toBe(false);
+});
+
+// Je ein eigener Test statt eines Durchlaufs durch alle drei: der Ladefehler
+// erscheint nur, solange es NICHTS Vorgehaltenes gibt, und ein Vorgänger im
+// selben Test hätte den Bestand längst gefüllt (siehe Flugmodus-Test oben).
+// Getrennt startet jeder Fall mit dem frischen Speicher aus beforeEach.
+test('auch der Zugriffs-Hinweis liegt hell', async () => {
+  mockCameraPermission = { status: 'denied', granted: false, canAskAgain: false, expires: 'never' };
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  await render(<AufnehmenScreen />);
+  await screen.findByText('Kamera-Zugriff fehlt');
+
+  expect(aufHellemGrund()).toBe(true);
+  expect(imKinosaal()).toBe(false);
+});
+
+test('auch der Ladefehler liegt hell', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue({ data: [], error: 'Offline, ohne Netz keine aktuellen Daten.', zaehlerFehler: 'Offline' });
+  await render(<AufnehmenScreen />);
+  await screen.findByText('Das hat nicht geklappt');
+
+  expect(aufHellemGrund()).toBe(true);
+  expect(imKinosaal()).toBe(false);
+});
+
+test('auch die Reise-Auswahl liegt hell', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(
+    geladen([reise({ id: 'a', name: 'Norwegen' }), reise({ id: 'b', name: 'Lissabon' })])
+  );
+  await render(<AufnehmenScreen />);
+  await screen.findByText('Für welche Reise?');
+
+  expect(aufHellemGrund()).toBe(true);
+  expect(imKinosaal()).toBe(false);
+});
+
+// Gegenprobe zu den beiden Tests darüber: ohne sie belegten die nur, dass der
+// Kino-Ton nirgends mehr vorkommt — auch dort nicht, wo er hingehört.
+test('der Sucher selbst bleibt der dunkle Kinosaal', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  await render(<AufnehmenScreen />);
+  await screen.findByLabelText('Auslöser');
+
+  expect(flaechenFarben()).toContain(cinema['bg-0']);
+});
+
+// Der Stil hängt jetzt am Zustand, nicht mehr am Tab. Ohne das stünden helle
+// Uhrzeit und Batterie auf weissem Grund, also unsichtbar.
+test('die Status-Bar folgt dem Grund, auf dem sie liegt', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([]));
+  const leer = await render(<AufnehmenScreen />);
+  await screen.findByText('Keine laufende Reise');
+  expect(mockSetStatusBarStyle).toHaveBeenCalledWith('dark');
+  expect(mockSetStatusBarStyle).not.toHaveBeenCalledWith('light');
+  await leer.unmount();
+
+  mockSetStatusBarStyle.mockClear();
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  await render(<AufnehmenScreen />);
+  await screen.findByLabelText('Auslöser');
+  expect(mockSetStatusBarStyle).toHaveBeenCalledWith('light');
+});
+
+// Dritter Leerzustand mit Bild, nach Camper (Reise-Tab) und Filmrolle
+// (Recap-Tab). Bis hierher war «Keine laufende Reise» der einzige leere Screen
+// ohne eines.
+test('«Keine laufende Reise» zeigt das Flugticket', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([]));
+  await render(<AufnehmenScreen />);
+  await screen.findByText('Keine laufende Reise');
+
+  expect(screen.getByTestId('leerzustand-flugticket')).toBeTruthy();
+});
+
+// Gegenprobe: ohne sie belegte der Test darüber nur, dass das Bild existiert,
+// nicht, dass es am leeren Zustand hängt. Über dem Sucher wäre das Ticket
+// blosse Deko (DESIGN-LANGUAGE §7).
+test('über dem Sucher steht kein Flugticket', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  await render(<AufnehmenScreen />);
+  await screen.findByLabelText('Auslöser');
+
+  expect(screen.queryByTestId('leerzustand-flugticket')).toBeNull();
+});
+
+// Das Bild trägt keine Bedeutung, die der Text nicht schon sagt. Läge es im
+// Accessibility-Baum, sagte VoiceOver vor «Keine laufende Reise» ein nutzloses
+// «Bild» an.
+test('das Flugticket ist für VoiceOver unsichtbar', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([]));
+  await render(<AufnehmenScreen />);
+  const bild = await screen.findByTestId('leerzustand-flugticket');
+
+  expect(bild.props.accessible).toBe(false);
+});
+
+test('das Flugticket schwebt', async () => {
+  const loopSpy = jest.spyOn(Animated, 'loop');
+  const timingSpy = jest.spyOn(Animated, 'timing');
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([]));
+  await render(<AufnehmenScreen />);
+  await screen.findByTestId('leerzustand-flugticket');
+
+  expect(loopSpy).toHaveBeenCalled();
+  // Der Hub läuft über `transform`, nicht über Layout-Eigenschaften (§5), und
+  // in einer Dauer, die kein Zappeln ist.
+  expect(timingSpy).toHaveBeenCalledWith(
+    expect.anything(),
+    expect.objectContaining({ duration: 2400, useNativeDriver: true })
+  );
+  loopSpy.mockRestore();
+  timingSpy.mockRestore();
+});
+
+// `linear` ist verboten (DESIGN-LANGUAGE §7). Ohne diesen Test bliebe ein
+// weggelassenes `easing` unbemerkt, der Framework-Default entschiede dann
+// stillschweigend über die Bewegung.
+test('das Schweben läuft nicht linear', async () => {
+  const timingSpy = jest.spyOn(Animated, 'timing');
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([]));
+  await render(<AufnehmenScreen />);
+  await screen.findByTestId('leerzustand-flugticket');
+
+  const konfig = timingSpy.mock.calls.map(([, c]) => c);
+  expect(konfig.length).toBeGreaterThan(0);
+  konfig.forEach((c) => {
+    expect(c.easing).toBeDefined();
+    expect(c.easing).not.toBe(Easing.linear);
+  });
+  timingSpy.mockRestore();
+});
+
+// §5: bei reduzierter Bewegung steht alles still. Eine Dauerschleife ist genau
+// das, was diese Einstellung abstellen soll, ein 200-ms-Fade als Ersatz gäbe es
+// hier nicht, es gibt nichts zu überblenden.
+test('bei reduzierter Bewegung schwebt das Flugticket nicht', async () => {
+  mockUseReducedMotion.mockReturnValue(true);
+  const loopSpy = jest.spyOn(Animated, 'loop');
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([]));
+  await render(<AufnehmenScreen />);
+  await screen.findByTestId('leerzustand-flugticket');
+
+  expect(loopSpy).not.toHaveBeenCalled();
+  // Das Bild steht dabei sichtbar da, statt mit der Animation zu verschwinden.
+  expect(screen.getByTestId('leerzustand-flugticket')).toBeTruthy();
+  loopSpy.mockRestore();
+});
+
+// ——— Oberkante des Suchers ———
+//
+// Das Kamerabild ist randlos (§3: «Fotos randlos in Medien-Screens»), was
+// darauf LIEGT, ist es nicht. Bis hierher stand die Kopfzeile auf festen 32,
+// auf einem Gerät mit Dynamic Island klebte die Reise-Pille damit an der Uhr.
+// Der Kommentar im Screen begründete das sogar ausdrücklich, mit genau dieser
+// Verwechslung von Bild und Bedienung.
+test('die Kopfzeile weicht der Dynamic Island aus', async () => {
+  mockInsets = { top: 59, left: 0, right: 0, bottom: 34 };
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  await render(<AufnehmenScreen />);
+  await screen.findByLabelText('Auslöser');
+
+  const stil = StyleSheet.flatten(screen.getByTestId('sucher-kopfzeile').props.style) as ViewStyle;
+  expect(stil.top).toBe(59 + spacing.base);
+});
+
+// Gegenprobe: ohne sie belegte der Test darüber nur, dass irgendein Abstand
+// entsteht, nicht dass der gestaltete erhalten bleibt, wo das Gerät nichts
+// wegnimmt.
+test('ohne Inset behält die Kopfzeile ihren gestalteten Abstand', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  await render(<AufnehmenScreen />);
+  await screen.findByLabelText('Auslöser');
+
+  const stil = StyleSheet.flatten(screen.getByTestId('sucher-kopfzeile').props.style) as ViewStyle;
+  expect(stil.top).toBe(spacing.xl);
+});
+
+// ——— Trip-Umschalter ———
+//
+// Konzept (docs/reelive-app-konzept.md): «Oben dezent: aktiver Trip-Name (bei
+// mehreren aktiven Reisen wechselbar)» und «Mehrere aktive Reisen gleichzeitig:
+// Trip-Umschalter in der Kamera». Die Kopf-Pille war reine Anzeige, der
+// Auswahl-Screen damit ein Einbahn-Zustand: einmal gewählt, führte kein Weg
+// zurück, für den Rest der Sitzung.
+test('der Reisename in der Kopf-Pille führt zurück in die Auswahl', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(
+    geladen([reise({ id: 'a', name: 'Norwegen' }), reise({ id: 'b', name: 'Lissabon' })])
+  );
+  await render(<AufnehmenScreen />);
+  await screen.findByText('Für welche Reise?');
+  await fireEvent.press(screen.getByText('Lissabon'));
+  await screen.findByLabelText('Auslöser');
+
+  await fireEvent.press(screen.getByLabelText('Reise wechseln, Lissabon'));
+  expect(await screen.findByText('Für welche Reise?')).toBeTruthy();
+
+  await fireEvent.press(screen.getByText('Norwegen'));
+  expect(await screen.findByLabelText('Reise wechseln, Norwegen')).toBeTruthy();
+});
+
+// Auch mit einer einzigen laufenden Reise: der Name ist der Weg zur Auswahl,
+// eine Geste, ein Ziel. Vorher wurde die einzige Reise fest verdrahtet, der
+// Auswahl-Screen war unerreichbar.
+test('auch bei nur einer laufenden Reise öffnet der Name die Auswahl', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  await render(<AufnehmenScreen />);
+  await screen.findByLabelText('Auslöser');
+
+  await fireEvent.press(screen.getByLabelText('Reise wechseln, Norwegen mit dem Camper'));
+  expect(await screen.findByText('Für welche Reise?')).toBeTruthy();
+
+  // Und wieder zurück, ohne Sackgasse.
+  await fireEvent.press(screen.getByText('Norwegen mit dem Camper'));
+  expect(await screen.findByLabelText('Auslöser')).toBeTruthy();
+});
+
+// ——— Kopfzeile während der Aufnahme ———
+//
+// Spec 2026-08-12: Sobald ein Video läuft, blenden Reise-Pille, «Kamera
+// wechseln» und «Blitz» aus. Der Grund ist nicht Ästhetik: Im gesperrten
+// Zustand ist die Hand frei, die Knöpfe wären erreichbar, und ein
+// Kamera-Wechsel mitten in recordAsync kann die laufende Aufnahme abbrechen.
+test('während einer laufenden Aufnahme verschwinden die Bedienelemente im Kopf', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  mockRecordAsync.mockImplementation(() => new Promise(() => {}));
+  await render(<AufnehmenScreen />);
+  await screen.findByLabelText('Auslöser');
+  expect(screen.getByLabelText('Reise wechseln, Norwegen mit dem Camper')).toBeTruthy();
+  expect(screen.getByLabelText('Kamera wechseln')).toBeTruthy();
+
+  jest.useFakeTimers();
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressIn');
+  await act(async () => {
+    jest.advanceTimersByTime(600);
+  });
+  jest.useRealTimers();
+
+  expect(screen.queryByLabelText('Reise wechseln, Norwegen mit dem Camper')).toBeNull();
+  expect(screen.queryByLabelText('Kamera wechseln')).toBeNull();
+  expect(screen.queryByLabelText('Blitz einschalten')).toBeNull();
+  // Der Auslöser bleibt: er ist das Einzige, was jetzt noch zu bedienen ist.
+  expect(screen.getByLabelText('Auslöser')).toBeTruthy();
+});
+
+// Gegenprobe: ohne sie belegte der Test darüber nur, dass etwas verschwindet,
+// nicht dass es zurückkommt.
+test('nach der Aufnahme steht die Kopfzeile wieder', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  let recordAufloesen: (v: { uri: string }) => void = () => {};
+  mockRecordAsync.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        recordAufloesen = resolve;
+      })
+  );
+  await render(<AufnehmenScreen />);
+  await screen.findByLabelText('Auslöser');
+
+  jest.useFakeTimers();
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressIn');
+  await act(async () => {
+    jest.advanceTimersByTime(600);
+  });
+  jest.useRealTimers();
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressOut');
+  await act(async () => {
+    recordAufloesen({ uri: 'file://video.mp4' });
+  });
+
+  expect(await screen.findByLabelText('Reise wechseln, Norwegen mit dem Camper')).toBeTruthy();
+  expect(screen.getByLabelText('Kamera wechseln')).toBeTruthy();
 });

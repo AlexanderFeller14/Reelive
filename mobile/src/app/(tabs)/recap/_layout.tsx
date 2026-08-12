@@ -24,6 +24,21 @@ export default function RecapStackLayout() {
   const { colors } = useTheme();
   return (
     <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors['bg-0'] } }}>
+      {/* `index` MUSS hier stehen, obwohl die Route keine eigenen Optionen
+          braucht. Sobald ein Stack überhaupt <Stack.Screen>-Kinder hat, legt
+          deren Reihenfolge fest, welche Route der Stack zuerst registriert,
+          und die erste ist seine Startroute. Ohne diese Zeile war das
+          `[id]/player`: ein Tippen auf den Recap-Tab öffnete den Player statt
+          der Liste, ohne `id` im Pfad (`/recap/player`), `useLocalSearchParams`
+          lieferte `undefined`, und fetchTrip fragte die Datenbank nach der
+          UUID «undefined», also Postgres 22P02 und ein Ladefehler statt eines
+          leeren Screens. Am Gerät gefunden, nicht hergeleitet: die anderen
+          beiden Tab-Stacks stehen als selbstschliessendes <Stack />, dort
+          gewinnt `index` automatisch.
+          Die übrigen Routen (`[id]/uebersicht`, `[id]/karte`) bleiben
+          absichtlich undeklariert, sie brauchen keine Optionen und erben den
+          Rest aus `screenOptions`. */}
+      <Stack.Screen name="index" />
       <Stack.Screen
         name="[id]/player"
         options={{ animation: 'fade', contentStyle: { backgroundColor: cinema['bg-0'] } }}

@@ -527,6 +527,24 @@ export default function RecapUebersicht() {
           </Text>
         ) : (
           <View style={{ gap: spacing.xl, marginTop: spacing.xl }}>
+            {/* Der Vorhang-Moment vor dem Recap. Er steht bewusst in DIESEM
+                Zweig und nicht über der ganzen Seite: über einem Ladefehler
+                oder einer leer gebliebenen Reise wäre «Dein Recap wartet» ein
+                Versprechen auf etwas, das dieser Screen gerade nicht zeigt.
+                Freigestellt auf `bg-0`, deshalb ohne Rahmen und Schatten. */}
+            <View>
+              <Image
+                testID="recap-popcorn"
+                source={require('@/assets/images/popcornbecher.png')}
+                style={styles.popcorn}
+                contentFit="contain"
+                // Das Bild wiederholt nur, was der Satz darunter sagt.
+                accessible={false}
+              />
+              <Text style={[type.bodyMedium, { color: colors['text-1'], marginTop: spacing.m }]}>
+                {"Dein Recap wartet. Popcorn holen, Licht aus, los geht's."}
+              </Text>
+            </View>
             {tage.map((tag) => (
               <TagesAbschnitt key={tag.nummer} tag={tag} urls={urls} indexById={indexById} onTip={zumPlayer} />
             ))}
@@ -598,4 +616,8 @@ const styles = StyleSheet.create({
   // von der Gerätebreite.
   kachelRaster: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-start', columnGap: spacing.xs, rowGap: spacing.xs },
   kachel: { width: '31.5%', aspectRatio: 1, borderRadius: radius.control, overflow: 'hidden' },
+  // Kleiner als die Bilder der Leerzustände (160): dort trägt das Bild einen
+  // Screen, auf dem sonst nichts steht, hier begleitet es einen Recap, der
+  // gleich darunter selbst anfängt.
+  popcorn: { width: 120, height: 120, alignSelf: 'center' },
 });

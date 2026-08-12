@@ -1,15 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Animated, Easing, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Image } from 'expo-image';
 import { useFocusEffect, useRouter, type Href } from 'expo-router';
 import { setStatusBarStyle } from 'expo-status-bar';
 import * as Linking from 'expo-linking';
 import { CameraView, useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
-import { SwitchCamera, Zap, ZapOff } from 'lucide-react-native';
+import { ChevronDown, SwitchCamera, Zap, ZapOff } from 'lucide-react-native';
 import { Ausloeser } from '@/components/Ausloeser';
+import { Button } from '@/components/Button';
 import { Pille } from '@/components/Pille';
 import { PressScale } from '@/components/PressScale';
 import { cinema, palette, radius, spacing, type } from '@/theme/tokens';
 import { useOberkante } from '@/theme/useOberkante';
+import { useReducedMotion } from '@/theme/useReducedMotion';
 import { fetchTrips } from '@/features/trips/tripsApi';
 import * as tripsCache from '@/features/trips/tripsCache';
 import type { GemerkteReise } from '@/features/trips/tripsCache';
@@ -24,22 +27,19 @@ function momenteText(anzahl: number): string {
   return `${anzahl} ${anzahl === 1 ? 'Moment' : 'Momente'}`;
 }
 
-// Medien-Screen (DESIGN-LANGUAGE v2 §1): feste Kino-Palette, kein useTheme().
-// `accent`/`on-accent` sind bewusst direkt aus den Tokens statt aus dem
-// Theme importiert, sie sind reine Interaktionsfarben und funktionieren
-// unabhängig von Hell/Kino gleich (siehe Button.tsx-Rezept für „primär").
-function KinoButton({ label, onPress }: { label: string; onPress: () => void }) {
-  return (
-    <PressScale accessibilityRole="button" onPress={onPress}>
-      <View style={styles.kinoButton}>
-        <Text style={[type.bodyMedium, { color: palette['on-accent'] }]}>{label}</Text>
-      </View>
-    </PressScale>
-  );
-}
-
-function LeererKinoScreen() {
-  return <View style={styles.screen} />;
+// Kino gilt in diesem Tab NUR dem Sucher (DESIGN-LANGUAGE v2 §1: die feste
+// Kino-Palette gehört den Medien-Screens — und wo kein Bild steht, ist kein
+// Medium). Jeder Zustand, der statt der Kamera nur Text zeigt, ist ein
+// gewöhnlicher Alltags-Screen und liegt auf hellem Grund, wie Reise-, Recap-
+// und Profil-Tab auch. Bis hierher lagen alle vier im dunklen Saal, obwohl
+// nie ein Foto darin vorkam.
+//
+// Auch der Wartezustand ist hell: er führt in der Mehrzahl der Fälle direkt in
+// den Sucher, und genau dieser Wechsel soll laut Leitidee inszeniert werden
+// («das Licht geht aus»), nicht dadurch verschwinden, dass es vorher schon
+// dunkel war.
+function LeererScreen() {
+  return <View style={styles.hell} />;
 }
 
 // Spec §4 verlangt beides wörtlich: «Kamera wechseln und Blitz als translucente
@@ -68,26 +68,99 @@ function PillenKnopf({
 
 function FehlerScreen({ fehler, onRetry }: { fehler: string; onRetry: () => void }) {
   return (
-    <View style={[styles.screen, styles.mitte]}>
+    <View style={[styles.hell, styles.mitte]}>
       <Text style={[type.h2, styles.titel]}>Das hat nicht geklappt</Text>
       <Text style={[type.body, styles.text, { marginTop: spacing.s }]}>{fehler}</Text>
       <View style={{ marginTop: spacing.xl }}>
-        <KinoButton label="Nochmal versuchen" onPress={onRetry} />
+        <Button variant="primary" label="Nochmal versuchen" onPress={onRetry} />
       </View>
+    </View>
+  );
+}
+
+// Hub des Schwebens. 12 aus dem 4er-Raster (§3), gross genug, dass die
+// Bewegung trägt, klein genug, dass sie den Text darunter nicht anschubst.
+const SCHWEBE_HUB = 12;
+
+// Breite des Bildes, zugleich seine Obergrenze (siehe styles.ticketFlaeche).
+const TICKET_BREITE = 288;
+
+// Eine Dauer ausserhalb der Token-Skala, und zwar bewusst: die Skala (§5)
+// bemisst ÜBERGÄNGE, also wie lange etwas braucht, um etwas anderes zu werden.
+// `gentle` (400) reicht dem Skeleton-Puls, ein Schweben in dem Tempo wäre
+// Zappeln, und `feature` (800) ist laut §5 Inszenierungen vorbehalten. 2400 ms
+// pro Richtung sind knapp fünf Sekunden pro Runde: Bewegung, die man bemerkt,
+// wenn man hinsieht, und die einen sonst in Ruhe lässt.
+const SCHWEBE_MS = 2400;
+
+// Freigestellt und schwebend (Wunsch): das Ticket hebt und senkt sich.
+//
+// Ohne Schatten, vorerst ausdrücklich so gewollt. Drei Anläufe scheiterten am
+// selben Punkt: das Ticket liegt im PNG gekippt (4 Grad, an seiner Unterkante
+// gemessen) und endet bei 84 % der Bildhöhe, jede gezeichnete Form darunter
+// muss beides von Hand treffen. Wer ihn nachrüstet, fängt hier an.
+//
+// Animiert werden ausschliesslich `transform` und `opacity` (§5), beides läuft
+// damit über `useNativeDriver`.
+function SchwebendesFlugticket() {
+  const reducedMotion = useReducedMotion();
+  // 0 = unten (Ruhelage), 1 = oben. `useState` statt `useRef`, weil der Wert
+  // beim Rendern gelesen wird (interpolate) und ein Ref dort nichts zu suchen
+  // hat.
+  const [schwebe] = useState(() => new Animated.Value(0));
+
+  useEffect(() => {
+    if (reducedMotion) {
+      schwebe.setValue(0);
+      return;
+    }
+    // Symmetrisches ease-in-out statt `easeSmooth`: das ist ein ease-OUT und
+    // schnellt an jedem Umkehrpunkt los, was bei einem Hin und Her als Ruck
+    // sichtbar wird. Ein Schweben ist eine Sinusbewegung, an beiden Enden
+    // gleich langsam. `linear` bleibt in jedem Fall verboten (§7).
+    const easing = Easing.inOut(Easing.ease);
+    const runde = Animated.loop(
+      Animated.sequence([
+        Animated.timing(schwebe, { toValue: 1, duration: SCHWEBE_MS, easing, useNativeDriver: true }),
+        Animated.timing(schwebe, { toValue: 0, duration: SCHWEBE_MS, easing, useNativeDriver: true }),
+      ])
+    );
+    runde.start();
+    return () => runde.stop();
+  }, [reducedMotion, schwebe]);
+
+  const hoehe = schwebe.interpolate({ inputRange: [0, 1], outputRange: [0, -SCHWEBE_HUB] });
+
+  return (
+    <View style={styles.ticketBuehne}>
+      <Animated.View style={[styles.ticketFlaeche, { transform: [{ translateY: hoehe }] }]}>
+        <Image
+          testID="leerzustand-flugticket"
+          source={require('@/assets/images/flugticket-transparent.png')}
+          style={styles.flugticket}
+          contentFit="contain"
+          // Sagt nichts, was der Text darunter nicht schon sagt.
+          accessible={false}
+        />
+      </Animated.View>
     </View>
   );
 }
 
 function KeineReiseScreen({ onAnlegen }: { onAnlegen: () => void }) {
   return (
-    <View style={[styles.screen, styles.mitte]}>
+    <View style={[styles.hell, styles.mitte]}>
+      {/* Dritter Leerzustand mit eigenem Bild, nach Camper (Reise-Tab) und
+          Filmrolle (Recap-Tab): das Bild steht NUR dort, wo sonst nichts
+          steht. */}
+      <SchwebendesFlugticket />
       <Text style={[type.h2, styles.titel]}>Keine laufende Reise</Text>
       <Text style={[type.body, styles.text, { marginTop: spacing.s }]}>
         Leg deine erste Reise an oder tritt einer per Einladungslink bei. Sobald sie läuft,
         fängt hier deine Kamera an.
       </Text>
       <View style={{ marginTop: spacing.xl }}>
-        <KinoButton label="Neue Reise anlegen" onPress={onAnlegen} />
+        <Button variant="primary" label="Neue Reise anlegen" onPress={onAnlegen} />
       </View>
     </View>
   );
@@ -95,25 +168,32 @@ function KeineReiseScreen({ onAnlegen }: { onAnlegen: () => void }) {
 
 function BerechtigungScreen() {
   return (
-    <View style={[styles.screen, styles.mitte]}>
+    <View style={[styles.hell, styles.mitte]}>
       <Text style={[type.h2, styles.titel]}>Kamera-Zugriff fehlt</Text>
       <Text style={[type.body, styles.text, { marginTop: spacing.s }]}>
         Reelive braucht Zugriff auf Kamera und Mikrofon, um Momente aufzunehmen. Erlaube das in
         den Systemeinstellungen.
       </Text>
       <View style={{ marginTop: spacing.xl }}>
-        <KinoButton label="Einstellungen öffnen" onPress={() => void Linking.openSettings()} />
+        <Button
+          variant="primary"
+          label="Einstellungen öffnen"
+          onPress={() => void Linking.openSettings()}
+        />
       </View>
     </View>
   );
 }
 
 function ReiseWahlScreen({ reisen, onWahl }: { reisen: GemerkteReise[]; onWahl: (id: string) => void }) {
-  // Der einzige Teil dieses Kino-Screens, der von oben nach unten gelesen
-  // wird, der Sucher selbst bleibt randlos und hat oben nichts zu schonen.
+  // Wird von oben nach unten gelesen und braucht darum die geschonte
+  // Oberkante. Der Sucher braucht sie inzwischen ebenso: randlos ist dort das
+  // Kamerabild (§3, «Fotos randlos in Medien-Screens»), nicht die Bedienung,
+  // die darauf liegt. Solange hier «der Sucher hat oben nichts zu schonen»
+  // stand, klebte die Reise-Pille auf Geräten mit Dynamic Island an der Uhr.
   const oben = useOberkante(spacing.xl);
   return (
-    <View style={styles.screen}>
+    <View style={styles.hell}>
       <ScrollView contentContainerStyle={[styles.wahlInhalt, { paddingTop: oben }]}>
         <Text style={[type.h2, styles.titel, { marginBottom: spacing.l }]}>Für welche Reise?</Text>
         {reisen.map((reise) => (
@@ -137,6 +217,12 @@ export default function AufnehmenScreen() {
   const [trips, setTrips] = useState<GemerkteReise[] | null>(null);
   const [fehler, setFehler] = useState<string | null>(null);
   const [ausgewaehlteReiseId, setAusgewaehlteReiseId] = useState<string | null>(null);
+  // Der Trip-Umschalter aus dem Produktkonzept («Oben dezent: aktiver
+  // Trip-Name, bei mehreren aktiven Reisen wechselbar»). Ohne diesen Zustand
+  // war der Auswahl-Screen eine Einbahnstrasse: einmal gewählt, führte kein
+  // Weg zurück, und bei genau einer laufenden Reise war er nie erreichbar,
+  // weil die Reise fest verdrahtet wurde.
+  const [wahlOffen, setWahlOffen] = useState(false);
   const [modus, setModus] = useState<'picture' | 'video'>('picture');
   const [richtung, setRichtung] = useState<'back' | 'front'>('back');
   const [blitz, setBlitz] = useState<'off' | 'on'>('off');
@@ -163,8 +249,12 @@ export default function AufnehmenScreen() {
   // geladen), dann bleibt `aktiveReisen` leer und `reise` `null`, was der
   // Effekt unten und die späteren Returns bereits abfangen.
   const aktiveReisen = (trips ?? []).filter((t) => t.status === 'active');
-  const reise =
-    aktiveReisen.length === 1
+  // `wahlOffen` schlägt alles: wer den Reisenamen antippt, will die Auswahl
+  // sehen, auch wenn nur eine Reise läuft und die Automatik sie sonst sofort
+  // wieder einsetzen würde.
+  const reise = wahlOffen
+    ? null
+    : aktiveReisen.length === 1
       ? aktiveReisen[0]
       : (aktiveReisen.find((t) => t.id === ausgewaehlteReiseId) ?? null);
 
@@ -250,12 +340,28 @@ export default function AufnehmenScreen() {
   // Ein gemountetes <StatusBar style="light" /> würde nicht reichen, weil
   // Tab-Screens gemountet bleiben, daher fokus-abhängig umschalten und beim
   // Verlassen wieder auf 'dark' zurücksetzen (globaler Default in _layout.tsx).
+  //
+  // Seit nur noch der Sucher dunkel ist, hängt der Stil am Zustand statt am
+  // Tab: helle Icons auf weissem Grund wären schlicht unsichtbar. `zeigtSucher`
+  // steht bewusst hier oben bei den Hooks, die Bedingung bildet exakt die Kette
+  // der frühen Returns weiter unten ab — kein Zustand davor erreicht die Kamera.
+  const zeigtSucher =
+    trips !== null &&
+    !fehler &&
+    reise !== null &&
+    cameraPermission?.granted === true &&
+    micPermission?.granted === true;
   useFocusEffect(
     useCallback(() => {
-      setStatusBarStyle('light');
+      setStatusBarStyle(zeigtSucher ? 'light' : 'dark');
       return () => setStatusBarStyle('dark');
-    }, [])
+    }, [zeigtSucher])
   );
+
+  // Steht bei den Hooks, weil die frühen Returns weiter unten dazwischenliegen.
+  // Was oben auf dem Sucher liegt, schont dieselbe Oberkante wie jeder andere
+  // Screen: randlos ist das Kamerabild, nicht die Pille darauf.
+  const sucherOben = useOberkante(spacing.xl);
 
   // Berechtigungen proaktiv anfragen, sobald der aktuelle Stand bekannt ist,
   // kamera-first (Produktkonzept) heisst, der Nutzer soll nicht erst einen
@@ -295,7 +401,7 @@ export default function AufnehmenScreen() {
       .catch(() => {});
   }, [reise?.id, fokusStand]);
 
-  if (trips === null) return <LeererKinoScreen />;
+  if (trips === null) return <LeererScreen />;
   if (fehler) {
     return (
       <FehlerScreen
@@ -313,7 +419,15 @@ export default function AufnehmenScreen() {
   }
 
   if (!reise) {
-    return <ReiseWahlScreen reisen={aktiveReisen} onWahl={setAusgewaehlteReiseId} />;
+    return (
+      <ReiseWahlScreen
+        reisen={aktiveReisen}
+        onWahl={(id) => {
+          setAusgewaehlteReiseId(id);
+          setWahlOffen(false);
+        }}
+      />
+    );
   }
 
   // Die Aufnahme verlässt diesen Screen nur als Dateipfad plus Typ (bewusste
@@ -358,7 +472,7 @@ export default function AufnehmenScreen() {
   //                         ebenfalls warten, NIE den Settings-Screen zeigen
   //   - 'denied'         -> tatsächlich abgelehnt -> erst hier der Weg in die
   //                         Systemeinstellungen
-  if (cameraPermission === null || micPermission === null) return <LeererKinoScreen />;
+  if (cameraPermission === null || micPermission === null) return <LeererScreen />;
   if (cameraPermission.status === 'denied' || micPermission.status === 'denied') {
     return <BerechtigungScreen />;
   }
@@ -366,7 +480,7 @@ export default function AufnehmenScreen() {
     // 'undetermined': weder gefragt noch beantwortet, die Anfrage kann
     // gerade laufen, der Systemdialog kann offen sein. Warten, nichts
     // behaupten, NIE den Settings-Screen zeigen.
-    return <LeererKinoScreen />;
+    return <LeererScreen />;
   }
 
   return (
@@ -382,37 +496,58 @@ export default function AufnehmenScreen() {
         enableTorch={blitz === 'on' && modus === 'video'}
         videoQuality="1080p"
       />
-      <View style={styles.kopfZeile}>
-        <Pille style={styles.kopfPille}>
-          {/* numberOfLines: ein einzelnes langes Wort (Reisenamen sind frei
-              wählbar) würde die geschrumpfte Pille sonst überlaufen statt
-              gekürzt zu werden. */}
-          <Text numberOfLines={1} style={[type.bodyMedium, { color: cinema['text-1'] }]}>
-            {reise.name}
-          </Text>
-          <Text style={[type.secondary, { color: cinema['text-2'] }]}>
-            {momenteText(zaehler ?? reise.my_post_count)}
-          </Text>
-        </Pille>
-        <View style={styles.steuerung}>
-          <PillenKnopf
-            label="Kamera wechseln"
-            onPress={() => setRichtung((r) => (r === 'back' ? 'front' : 'back'))}
+      {/* Läuft ein Video, verschwindet die Kopfzeile (Spec 2026-08-12). Der
+          Grund ist nicht Ästhetik: Im gesperrten Zustand ist die Hand frei,
+          diese Knöpfe wären also erreichbar, und ein Kamera-Wechsel mitten in
+          recordAsync kann die laufende Aufnahme abbrechen. Entfernt statt nur
+          ausgeblendet, damit auch VoiceOver nichts anbietet, was gerade nicht
+          zu bedienen ist. */}
+      {modus !== 'video' && (
+        <View testID="sucher-kopfzeile" style={[styles.kopfZeile, { top: sucherOben }]}>
+          {/* Der Trip-Umschalter (Produktkonzept): der Reisename IST der Knopf,
+              kein zusätzliches Bedienelement auf dem Bild. Das Chevron macht das
+              sichtbar, ohne mehr Platz zu verlangen als ein Icon. */}
+          <PressScale
+            style={styles.kopfWahl}
+            accessibilityRole="button"
+            accessibilityLabel={`Reise wechseln, ${reise.name}`}
+            onPress={() => setWahlOffen(true)}
           >
-            <SwitchCamera size={22} color={cinema['text-1']} strokeWidth={1.75} />
-          </PillenKnopf>
-          <PillenKnopf
-            label={blitz === 'on' ? 'Blitz ausschalten' : 'Blitz einschalten'}
-            onPress={() => setBlitz((b) => (b === 'on' ? 'off' : 'on'))}
-          >
-            {blitz === 'on' ? (
-              <Zap size={22} color={cinema['text-1']} strokeWidth={1.75} />
-            ) : (
-              <ZapOff size={22} color={cinema['text-2']} strokeWidth={1.75} />
+            <Pille style={styles.kopfPille}>
+              <View style={styles.kopfTexte}>
+                {/* numberOfLines: ein einzelnes langes Wort (Reisenamen sind frei
+                    wählbar) würde die geschrumpfte Pille sonst überlaufen statt
+                    gekürzt zu werden. */}
+                <Text numberOfLines={1} style={[type.bodyMedium, { color: cinema['text-1'] }]}>
+                  {reise.name}
+                </Text>
+                <Text style={[type.secondary, { color: cinema['text-2'] }]}>
+                  {momenteText(zaehler ?? reise.my_post_count)}
+                </Text>
+              </View>
+              <ChevronDown size={18} color={cinema['text-2']} strokeWidth={1.75} />
+            </Pille>
+          </PressScale>
+          <View style={styles.steuerung}>
+            <PillenKnopf
+              label="Kamera wechseln"
+              onPress={() => setRichtung((r) => (r === 'back' ? 'front' : 'back'))}
+            >
+              <SwitchCamera size={22} color={cinema['text-1']} strokeWidth={1.75} />
+            </PillenKnopf>
+            <PillenKnopf
+              label={blitz === 'on' ? 'Blitz ausschalten' : 'Blitz einschalten'}
+              onPress={() => setBlitz((b) => (b === 'on' ? 'off' : 'on'))}
+            >
+              {blitz === 'on' ? (
+                <Zap size={22} color={cinema['text-1']} strokeWidth={1.75} />
+              ) : (
+                <ZapOff size={22} color={cinema['text-2']} strokeWidth={1.75} />
             )}
           </PillenKnopf>
         </View>
       </View>
+      )}
       <View style={styles.ausloeserWrap}>
         <Ausloeser
           onFoto={() => void handleFoto()}
@@ -425,27 +560,38 @@ export default function AufnehmenScreen() {
   );
 }
 
+// Die hellen Werte kommen direkt aus `palette` statt über useTheme(): diese
+// Datei führt beide Paletten nebeneinander und bleibt so bei EINEM Muster
+// (StyleSheet mit Token-Werten). Light-only (§1) macht beide Wege ohnehin
+// deckungsgleich — `theme.colors` IST `palette`.
 const styles = StyleSheet.create({
+  // Der Kinosaal: nur noch der Sucher selbst.
   screen: { flex: 1, backgroundColor: cinema['bg-0'] },
+  // Alles andere in diesem Tab, siehe LeererScreen.
+  hell: { flex: 1, backgroundColor: palette['bg-0'] },
   mitte: { justifyContent: 'center', padding: spacing.screen },
-  titel: { color: cinema['text-1'] },
-  text: { color: cinema['text-2'] },
-  kinoButton: {
-    height: 52,
-    borderRadius: radius.control,
-    // DESIGN-LANGUAGE §1: accent ist Interaktionsfarbe, funktioniert
-    // unabhängig von Hell/Kino gleich, deshalb direkt aus `palette`, nicht
-    // aus `cinema` (das nur Hintergrund/Text der Medien-Screens definiert).
-    backgroundColor: palette.accent,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: spacing.l,
-  },
+  // Grösser als Camper und Filmrolle (beide quadratisch auf 160): das Ticket
+  // ist 3:2 quer und trägt diesen Screen allein, auf gleicher Fläche wirkte es
+  // neben dem grossen H2 verloren. 288 × 192, beides im 4er-Raster (§3).
+  //
+  // Die Breite ist eine OBERGRENZE, keine feste Zahl: 288 plus die zweimal 24
+  // Screen-Rand sprengen ein iPhone SE (320 breit), das Bild liefe über den
+  // Rand hinaus. `width: '100%'` + `aspectRatio` lässt es auf schmalen Geräten
+  // mitschrumpfen und hält dabei 3:2. Bei 1536 px Quelle bleiben über 5x
+  // Reserve, scharf bis 3x ohne @2x/@3x-Dateien.
+  ticketBuehne: { alignItems: 'center', marginBottom: spacing.l },
+  // Der Hub bewegt nur das Bild (transform ändert kein Layout), der Schatten
+  // bleibt liegen: genau daraus entsteht der Eindruck von Höhe.
+  ticketFlaeche: { width: '100%', maxWidth: TICKET_BREITE },
+  flugticket: { width: '100%', aspectRatio: 3 / 2 },
+  titel: { color: palette['text-1'] },
+  text: { color: palette['text-2'] },
   wahlInhalt: { padding: spacing.screen, paddingTop: spacing.xl },
   wahlZeile: {
     padding: spacing.base,
     borderRadius: radius.control,
-    backgroundColor: cinema['bg-1'],
+    // §1: `bg-1` ist die abgesetzte Fläche auf hellem Grund.
+    backgroundColor: palette['bg-1'],
     marginBottom: spacing.m,
     gap: spacing.xs,
   },
@@ -456,9 +602,10 @@ const styles = StyleSheet.create({
   // läuft ein langer Reisename darunter. Die Zeile begrenzt die Pille
   // (flexShrink), ohne die Steuerung zu verschieben: sie sitzt weiterhin am
   // rechten Screen-Rand (§3, Ränder 24).
+  // `top` fehlt hier bewusst: es kommt aus useOberkante und damit vom Gerät,
+  // nicht aus dem Stylesheet (siehe sucherOben).
   kopfZeile: {
     position: 'absolute',
-    top: spacing.xl,
     left: spacing.screen,
     right: spacing.screen,
     flexDirection: 'row',
@@ -466,15 +613,24 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: spacing.m,
   },
+  // Das Schrumpfen sitzt am Druckbereich statt an der Pille: seit der Name ein
+  // Knopf ist, liegt zwischen Zeile und Pille noch das Pressable, und ein
+  // flexShrink weiter innen liesse dieses auf voller Breite stehen.
+  kopfWahl: { flexShrink: 1 },
   // Pille auf der Kamera-Vorschau (DESIGN-LANGUAGE §1/§4): translucent, Radius
   // 999, Blur über components/Pille.tsx (kein backgroundColor hier, das
   // übernimmt die Pille-Komponente selbst).
   kopfPille: {
-    flexShrink: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.s,
     paddingHorizontal: spacing.base,
     paddingVertical: spacing.s,
     borderRadius: radius.pill,
   },
+  // Name und Zähler bleiben untereinander, das Chevron steht daneben. Der
+  // Schrumpf-Anteil gehört den Texten, nicht dem Icon.
+  kopfTexte: { flexShrink: 1 },
   // Kamera wechseln und Blitz (Spec §4): rechts oben, auf Höhe der Kopf-Pille,
   // untereinander im 4er-Raster (§3). flexShrink: 0, schrumpfen soll die
   // Pille, nicht die Bedienelemente.

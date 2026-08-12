@@ -24,6 +24,7 @@ import { Pille } from '@/components/Pille';
 import { Sheet } from '@/components/Sheet';
 import { Input } from '@/components/Input';
 import { cinema, motion, palette, radius, spacing, type } from '@/theme/tokens';
+import { useOberkante, useUnterkante } from '@/theme/useOberkante';
 import { useReducedMotion } from '@/theme/useReducedMotion';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { fetchTrip } from '@/features/trips/tripsApi';
@@ -394,6 +395,11 @@ export default function RecapPlayer() {
   const router = useRouter();
   const { id: tripId, start: startParam } = useLocalSearchParams<{ id: string; start?: string }>();
   const reducedMotion = useReducedMotion();
+  // Der Player zeigt keinen Header und liegt randlos hinter Insel und
+  // Home-Indicator. Die gestalteten 32 aus dem StyleSheet reichten am Geraet
+  // nicht: die Fortschrittssegmente lagen unter der Dynamic Island.
+  const oberkante = useOberkante(spacing.xl);
+  const unterkante = useUnterkante(spacing.xl);
   const { userId } = useAuth();
 
   const [phase, setPhase] = useState<LadePhase>('laedt');
@@ -1358,7 +1364,11 @@ export default function RecapPlayer() {
           onFehler={() => beiLadefehler(aktivMoment.id)}
         />
 
-        <View style={styles.kopfBereich} pointerEvents="box-none">
+        <View
+          testID="player-kopf-bereich"
+          style={[styles.kopfBereich, { top: oberkante }]}
+          pointerEvents="box-none"
+        >
           <Fortschrittsbalken
             anzahl={spielliste.length}
             aktivIndex={stand.index}
@@ -1377,7 +1387,11 @@ export default function RecapPlayer() {
           </View>
         </View>
 
-        <View testID="player-sozial-bereich" style={styles.sozialBereich} pointerEvents="box-none">
+        <View
+          testID="player-sozial-bereich"
+          style={[styles.sozialBereich, { bottom: unterkante }]}
+          pointerEvents="box-none"
+        >
           {aktivMoment.caption && (
             <Pille testID="player-caption" style={styles.captionPille} pointerEvents="none">
               <Text style={[type.body, { color: cinema['text-1'] }]}>{aktivMoment.caption}</Text>
@@ -1480,7 +1494,7 @@ export default function RecapPlayer() {
           accessibilityRole="button"
           accessibilityLabel="Schliessen"
           onPress={schliessen}
-          style={styles.schliessenWrap}
+          style={[styles.schliessenWrap, { top: oberkante }]}
         >
           <Pille style={styles.schliessenPille}>
             <X size={18} color={cinema['text-1']} strokeWidth={1.75} />

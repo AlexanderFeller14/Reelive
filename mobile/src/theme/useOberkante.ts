@@ -20,3 +20,15 @@ export function useOberkante(basis: number): number {
   const { top } = useSafeAreaInsets();
   return Math.max(basis, top + spacing.base);
 }
+
+// Das Gegenstueck fuer alles, was am unteren Rand klebt. Dieselbe Begruendung,
+// andere Kante: der Home-Indicator belegt auf randlosen Geraeten rund 34
+// Punkte, und die Reaktionsreihe des Players stand mit ihren gestalteten 32
+// direkt darauf. Am Geraet gesehen, nicht hergeleitet.
+//
+// Auch hier `Math.max` statt Addition, damit Geraete mit Home-Knopf und das
+// Web ihren gestalteten Abstand behalten (dort ist `bottom` schlicht 0).
+export function useUnterkante(basis: number): number {
+  const { bottom } = useSafeAreaInsets();
+  return Math.max(basis, bottom + spacing.base);
+}

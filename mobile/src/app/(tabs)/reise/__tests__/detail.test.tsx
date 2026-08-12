@@ -23,12 +23,23 @@ const mockReplace = jest.fn();
 // statt der tatsächlichen `id` zu verwenden (alle Fixtures heissen `t1`,
 // eine hartkodierte Zeichenkette wäre unterschiedslos "richtig" gewesen).
 let mockRouteId = 't1';
+// Der Platz der angetippten Karte, den die Liste als `cover` mitgibt. Wie in
+// der App eine Zeichenkette, Routen-Parameter sind nie Zahlen.
+let mockRouteCover: string | undefined;
+// Zählt die Fokus-Zyklen. Ein echter Screen wird nicht nur einmal fokussiert:
+// wer ihn verlässt und zurückkehrt, löst `laden()` erneut aus, samt Cleanup
+// (`aktiv.current = false`) des vorigen Laufs. `erneutFokussieren()` unten
+// stellt genau das nach, indem es den Zähler hochdreht und neu rendert, das
+// ändert die Effekt-Abhängigkeiten und lässt den Effekt ein zweites Mal
+// laufen. Bis zur Facepile brauchte kein Test das, weil das Entfernen-X
+// direkt im Screen stand und nebenbei einen zweiten laden()-Aufruf lieferte.
+let mockFokusZyklus = 0;
 jest.mock('expo-router', () => {
   const { useEffect } = require('react');
   return {
     useRouter: () => ({ push: mockPush, replace: mockReplace, back: jest.fn() }),
-    useLocalSearchParams: () => ({ id: mockRouteId }),
-    useFocusEffect: (cb: () => void) => useEffect(cb, [cb]),
+    useLocalSearchParams: () => ({ id: mockRouteId, cover: mockRouteCover }),
+    useFocusEffect: (cb: () => void) => useEffect(cb, [cb, mockFokusZyklus]),
   };
 });
 
@@ -142,6 +153,7 @@ import { revealTrip } from '@/features/recap/recapApi';
 import { revealGesehen, merkeRevealGesehen } from '@/features/recap/gesehen';
 import { fetchMeldungen, verwirfMeldung, entferneMoment } from '@/features/recap/meldenApi';
 import { holeVorrat } from '@/features/recap/urlVorrat';
+import { platzhalterCover } from '@/features/trips/platzhalterCover';
 
 const trip = {
   id: 't1', name: 'Norwegen mit dem Camper', start_date: '2026-08-01', end_date: '2026-08-14',
@@ -181,14 +193,25 @@ const tripRevealedOk = { data: tripRevealed, error: null };
 
 const wrap = () => render(<ThemeProvider><ReiseDetail /></ThemeProvider>);
 
+// Stellt einen erneuten Fokus DESSELBEN Screens nach: gleiche Komponenten-
+// instanz, gleiche Refs, nur der Effekt läuft nochmal (siehe mockFokusZyklus).
+// Ein zweites `render()` wäre ein neuer Mount und würde genau die Refs
+// zurücksetzen, um die es in den Tests darunter geht.
+async function erneutFokussieren() {
+  mockFokusZyklus += 1;
+  await screen.rerender(<ThemeProvider><ReiseDetail /></ThemeProvider>);
+}
+
 beforeEach(() => {
   jest.clearAllMocks();
+  mockFokusZyklus = 0;
   // `clearAllMocks` nimmt auch die Standard-Implementierung mit, sie muss
   // deshalb hier wieder gesetzt werden, sonst liefert `rpc` undefined und
   // `istRecapGeteilt` meldete in JEDEM Test einen Fehler.
   mockRpc.mockResolvedValue({ data: false, error: null });
   mockAuth.userId = 'u1';
   mockRouteId = 't1';
+  mockRouteCover = undefined;
   (fetchTrip as jest.Mock).mockResolvedValue(tripOk);
   (fetchMembers as jest.Mock).mockResolvedValue(mitgliederOk);
   (eigenerZaehler as jest.Mock).mockResolvedValue(0);
@@ -208,12 +231,84 @@ beforeEach(() => {
   (holeVorrat as jest.Mock).mockResolvedValue({ vorrat: { urls: new Map(), gueltigBis: 0, ausgelassen: 0 }, error: null, grund: null });
 });
 
-test('zeigt Name, Zeitraum und Mitglieder', async () => {
+// Das Detail soll dasselbe Platzhalter-Cover tragen wie die Karte, auf die
+// getippt wurde — sonst wechselt beim Öffnen scheinbar das Reiseziel. Die
+// Liste gibt ihren Platz als `cover` mit, hier kommt er an.
+test('zeigt das Cover der angetippten Karte', async () => {
+  mockRouteCover = '1';
+  await wrap();
+  await screen.findByText('Norwegen mit dem Camper');
+  expect(screen.getByTestId('reise-cover').props.source).toBe(platzhalterCover(1));
+});
+
+// Deep Link oder gerade angelegte Reise: ohne den Parameter darf nichts
+// kaputtgehen, es steht dann das erste Bild.
+test('ohne cover-Parameter steht das erste Bild', async () => {
+  await wrap();
+  await screen.findByText('Norwegen mit dem Camper');
+  expect(screen.getByTestId('reise-cover').props.source).toBe(platzhalterCover(0));
+});
+
+test('zeigt Name und Zeitraum', async () => {
   await wrap();
   expect(await screen.findByText('Norwegen mit dem Camper')).toBeTruthy();
   expect(screen.getByText('1.–14. Aug 2026')).toBeTruthy();
-  expect(screen.getByText('Lea')).toBeTruthy();
+});
+
+// === Die Facepile unter dem Datum (Airbnb-Muster) ===
+//
+// Die Namen stehen NICHT mehr als Liste im Screen: das war eine Sektion mit
+// einer Zeile pro Person zwischen Zähler und Aktionen. Oben steht jetzt eine
+// Facepile, die Liste lebt im Sheet dahinter.
+
+test('die Mitreisenden stehen als Facepile, nicht als Liste im Screen', async () => {
+  await wrap();
+  await screen.findByText('Norwegen mit dem Camper');
+  // Die Initialen der Facepile sind da …
+  expect(screen.getByTestId('mitreisende-oeffnen')).toBeTruthy();
+  expect(screen.getByText('L')).toBeTruthy();
+  expect(screen.getByText('J')).toBeTruthy();
+  // … die ausgeschriebenen Namen erst nach dem Antippen.
+  expect(screen.queryByText('Lea')).toBeNull();
+  expect(screen.queryByText('Jonas')).toBeNull();
+});
+
+test('die Facepile sagt vorlesbar, wie viele mitfahren', async () => {
+  await wrap();
+  expect(await screen.findByLabelText('Wer dabei ist, 2 Personen')).toBeTruthy();
+});
+
+test('fährt nur eine Person mit, zählt die Beschriftung im Singular', async () => {
+  (fetchMembers as jest.Mock).mockResolvedValue({ data: [mitglieder[0]], error: null });
+  await wrap();
+  expect(await screen.findByLabelText('Wer dabei ist, 1 Person')).toBeTruthy();
+});
+
+test('Antippen öffnet die Liste der Mitreisenden', async () => {
+  await wrap();
+  await fireEvent.press(await screen.findByTestId('mitreisende-oeffnen'));
+  expect(await screen.findByText('Lea')).toBeTruthy();
   expect(screen.getByText('Jonas')).toBeTruthy();
+  expect(screen.getByText('Hat die Reise angelegt')).toBeTruthy();
+  expect(screen.getByText('@jonas')).toBeTruthy();
+});
+
+// Ab der vierten Person zeigt die Facepile drei Gesichter und zählt weiter
+// (Avatar.test.tsx prüft die Regel für sich), im Sheet stehen trotzdem alle.
+test('bei vielen Mitreisenden zählt die Facepile weiter, das Sheet zeigt alle', async () => {
+  const viele = ['Lea', 'Jonas', 'Mira', 'Sofia', 'Ben'].map((display_name, i) => ({
+    user_id: `u${i + 1}`,
+    role: i === 0 ? ('owner' as const) : ('member' as const),
+    username: display_name.toLowerCase(),
+    display_name,
+  }));
+  (fetchMembers as jest.Mock).mockResolvedValue({ data: viele, error: null });
+  await wrap();
+  expect(await screen.findByText('+2')).toBeTruthy();
+
+  await fireEvent.press(screen.getByTestId('mitreisende-oeffnen'));
+  expect(await screen.findByText('Ben')).toBeTruthy();
+  expect(screen.getByText('Sofia')).toBeTruthy();
 });
 
 test('zeigt den eigenen Zähler mit Erklärung', async () => {
@@ -222,18 +317,41 @@ test('zeigt den eigenen Zähler mit Erklärung', async () => {
   expect(screen.getByText(/Momente eingefangen/)).toBeTruthy();
 });
 
-test('Owner kann einladen, bearbeiten und Mitglieder entfernen', async () => {
+test('Owner kann vom Screen aus einladen', async () => {
   await wrap();
   await fireEvent.press(await screen.findByText('Freunde einladen'));
   expect(mockPush).toHaveBeenCalledWith('/reise/t1/einladen');
+});
 
+// Kurzhand für die Tests unten: die Verwaltung steckt jetzt hinter der
+// Facepile, jeder Test, der sie braucht, muss sie erst öffnen.
+async function mitreisendeOeffnen() {
+  await fireEvent.press(await screen.findByTestId('mitreisende-oeffnen'));
+  await screen.findByText('Lea');
+}
+
+test('Owner kann im Sheet Mitglieder entfernen', async () => {
+  await wrap();
+  await mitreisendeOeffnen();
   await fireEvent.press(screen.getByLabelText('Jonas entfernen'));
   await waitFor(() => expect(removeMember).toHaveBeenCalledWith('t1', 'u2'));
 });
 
+test('Owner kann auch aus dem Sheet heraus einladen; es schliesst sich dabei', async () => {
+  await wrap();
+  await mitreisendeOeffnen();
+  // Zwei Knöpfe dieses Namens im Baum, solange das Sheet offen ist: der im
+  // Sheet ist der zweite (Sheets stehen als Geschwister NACH der ScrollView).
+  const knoepfe = screen.getAllByText('Freunde einladen');
+  expect(knoepfe).toHaveLength(2);
+  await fireEvent.press(knoepfe[1]);
+  expect(mockPush).toHaveBeenCalledWith('/reise/t1/einladen');
+  await waitFor(() => expect(screen.queryByText('Hat die Reise angelegt')).toBeNull());
+});
+
 test('Owner kann sich selbst nicht entfernen', async () => {
   await wrap();
-  await screen.findByText('Lea');
+  await mitreisendeOeffnen();
   expect(screen.queryByLabelText('Lea entfernen')).toBeNull();
 });
 
@@ -242,7 +360,29 @@ test('Mitglied sieht Verlassen statt Löschen', async () => {
   await wrap();
   expect(await screen.findByText('Reise verlassen')).toBeTruthy();
   expect(screen.queryByText('Reise löschen')).toBeNull();
+});
+
+// Wer die Reise nicht angelegt hat, sieht im Sheet nur die Namen: kein X, und
+// auch keinen Weg, weitere Leute einzuladen.
+test('Mitglied sieht im Sheet weder Entfernen noch Einladen', async () => {
+  mockAuth.userId = 'u2';
+  await wrap();
+  await mitreisendeOeffnen();
   expect(screen.queryByLabelText('Jonas entfernen')).toBeNull();
+  expect(screen.queryByLabelText('Lea entfernen')).toBeNull();
+  expect(screen.queryByText('Freunde einladen')).toBeNull();
+});
+
+// Nach dem Reveal ist das Sheet eine reine Auskunft, auch für die
+// Owner-Person: einladen lehnt der Server für nicht-aktive Reisen ohnehin ab,
+// und wer im Recap zu sehen ist, gehört zur Reise.
+test('nach dem Reveal zeigt das Sheet nur die Namen, auch der Owner-Person', async () => {
+  (fetchTrip as jest.Mock).mockResolvedValue(tripRevealedOk);
+  await wrap();
+  await mitreisendeOeffnen();
+  expect(screen.getByText('Jonas')).toBeTruthy();
+  expect(screen.queryByLabelText('Jonas entfernen')).toBeNull();
+  expect(screen.queryByText('Freunde einladen')).toBeNull();
 });
 
 test('Owner sieht Löschen statt Verlassen', async () => {
@@ -317,22 +457,29 @@ test('eine verschwundene Reise sagt das, statt einen Ladefehler zu behaupten', a
   expect(screen.queryByText('Nochmal versuchen')).toBeNull();
 });
 
-test('ein Fehler beim Mitgliederladen bleibt in der Sektion sichtbar', async () => {
+// Der Fehler tritt an die STELLE der Facepile. Ohne ihn stünde dort stumm
+// nichts, und der Screen behauptete, die Reise habe keine Mitreisenden: die
+// eine Richtung, in die diese Stelle nie irren darf.
+test('ein Fehler beim Mitgliederladen tritt an die Stelle der Facepile', async () => {
   const meldung = 'Die Mitglieder konnten nicht geladen werden. Probier es gleich nochmal.';
   (fetchMembers as jest.Mock).mockResolvedValue({ data: [], error: meldung });
   await wrap();
   expect(await screen.findByText(meldung)).toBeTruthy();
+  expect(screen.queryByTestId('mitreisende-oeffnen')).toBeNull();
   // Die Reise selbst kam durch und bleibt bedienbar.
   expect(screen.getByText('Norwegen mit dem Camper')).toBeTruthy();
 });
 
-test.each([
-  ['Jonas entfernen', 'label'],
-  ['Reise löschen', 'text'],
-] as const)('destruktiver Dialog «%s» löst warning-Haptik aus', async (name, art) => {
+test('destruktiver Dialog «Jonas entfernen» löst warning-Haptik aus', async () => {
   await wrap();
-  const knopf = art === 'label' ? screen.getByLabelText(name) : await screen.findByText(name);
-  await fireEvent.press(knopf);
+  await mitreisendeOeffnen();
+  await fireEvent.press(screen.getByLabelText('Jonas entfernen'));
+  expect(Haptics.notificationAsync).toHaveBeenCalledWith('warning');
+});
+
+test('destruktiver Dialog «Reise löschen» löst warning-Haptik aus', async () => {
+  await wrap();
+  await fireEvent.press(await screen.findByText('Reise löschen'));
   expect(Haptics.notificationAsync).toHaveBeenCalledWith('warning');
 });
 
@@ -535,8 +682,12 @@ test('vor dem Enddatum steht «Reise abschliessen» unten als Sekundär-Button, 
   const einladen = StyleSheet.flatten(screen.getByText('Freunde einladen').parent?.props.style);
   expect(einladen.backgroundColor).toBe(palette.accent);
 
+  // Anker ist der Momente-Zähler in der Mitte des Screens: der obere Block
+  // steht davor, der untere dahinter. Bis zur Facepile stand hier «Wer dabei
+  // ist», das war die Sektion in der Mitte; als Beschriftung der Facepile
+  // steht derselbe Text jetzt ganz oben und taugt nicht mehr als Anker.
   const baum = JSON.stringify(screen.toJSON());
-  expect(baum.indexOf('Reise abschliessen')).toBeGreaterThan(baum.indexOf('Wer dabei ist'));
+  expect(baum.indexOf('Reise abschliessen')).toBeGreaterThan(baum.indexOf('Momente eingefangen'));
 
   // DESIGN-LANGUAGE §7: höchstens eine Fläche trägt die Akzentfarbe.
   expect(zaehleAccentFlaechen(screen.toJSON())).toBe(1);
@@ -557,7 +708,7 @@ test('ab dem Enddatum rückt «Reise abschliessen» nach oben und wird zum Prim�
   expect(einladen.backgroundColor).toBe(palette['bg-0']);
 
   const baum = JSON.stringify(screen.toJSON());
-  expect(baum.indexOf('Reise abschliessen')).toBeLessThan(baum.indexOf('Wer dabei ist'));
+  expect(baum.indexOf('Reise abschliessen')).toBeLessThan(baum.indexOf('Momente eingefangen'));
 
   expect(zaehleAccentFlaechen(screen.toJSON())).toBe(1);
 });
@@ -791,8 +942,12 @@ test('ein zweiter Ladevorgang nach abgeschlossener Entscheidung fragt revealGese
   await screen.findByText('Recap starten');
   expect(revealGesehen).toHaveBeenCalledTimes(1);
 
-  await fireEvent.press(screen.getByLabelText('Jonas entfernen'));
-  await waitFor(() => expect(removeMember).toHaveBeenCalledWith('t1', 'u2'));
+  // Der zweite laden()-Aufruf kam bis zur Facepile aus dem Entfernen-X, das
+  // direkt im Screen stand. Es steckt jetzt im Sheet, und das zeigt nach dem
+  // Reveal keine X-Knöpfe mehr (reine Auskunft). Ein erneutes Fokussieren
+  // ist ohnehin der ehrlichere Auslöser: genau so kommt der zweite Aufruf im
+  // Betrieb zustande, wenn jemand den Screen verlässt und zurückkehrt.
+  await erneutFokussieren();
   await waitFor(() => expect((fetchTrip as jest.Mock).mock.calls.length).toBeGreaterThan(1));
 
   expect(revealGesehen).toHaveBeenCalledTimes(1);
@@ -817,8 +972,8 @@ test('zwei überlappende laden()-Aufrufe fragen revealGesehen nur einmal ab (Sch
 
   // Der erste Aufruf (vom Mount) wartet noch auf revealGesehen(), jetzt
   // löst ein zweiter, unabhängiger laden()-Aufruf aus.
-  await fireEvent.press(screen.getByLabelText('Jonas entfernen'));
-  await waitFor(() => expect(removeMember).toHaveBeenCalledWith('t1', 'u2'));
+  await erneutFokussieren();
+  await waitFor(() => expect((fetchTrip as jest.Mock).mock.calls.length).toBeGreaterThan(1));
 
   // Ohne den «läuft gerade»-Schutz (Ref-Zuweisung VOR dem await) hätte der
   // zweite Aufruf revealGesehen ein zweites Mal befragt, obwohl der erste
@@ -856,12 +1011,45 @@ test('ein Reveal während offenem Sheet (z. B. von einem zweiten Gerät) lässt 
   await screen.findByText('Reise abschliessen?');
 
   (fetchTrip as jest.Mock).mockResolvedValue(tripRevealedOk);
-  await fireEvent.press(screen.getByLabelText('Jonas entfernen'));
-  await waitFor(() => expect(removeMember).toHaveBeenCalledWith('t1', 'u2'));
+  await erneutFokussieren();
 
   await screen.findByText('Recap starten');
   // Das Sheet bleibt offen, nichts in diesem Ablauf schliesst es automatisch.
   expect(screen.getByText('Reise abschliessen?')).toBeTruthy();
+  expect(zaehleAccentFlaechen(screen.toJSON())).toBe(1);
+});
+
+// Dasselbe für das Mitreisenden-Sheet: es trägt bei laufender Reise sein
+// eigenes «Freunde einladen» als Akzentfläche, der Screen-Knopf dahinter muss
+// währenddessen zurücktreten (§7).
+test('bei offenem Mitreisenden-Sheet trägt nur dessen «Freunde einladen» die Akzentfarbe', async () => {
+  await wrap();
+  await mitreisendeOeffnen();
+  expect(zaehleAccentFlaechen(screen.toJSON())).toBe(1);
+});
+
+// Und ab dem Enddatum, wo «Reise abschliessen» der Primär-Button des Screens
+// ist: auch der tritt zurück, nicht nur der Einladen-Knopf.
+test('ab dem Enddatum tritt auch «Reise abschliessen» hinter das offene Mitreisenden-Sheet zurück', async () => {
+  (fetchTrip as jest.Mock).mockResolvedValue(tripAmEndeOk);
+  await wrap();
+  await mitreisendeOeffnen();
+  expect(zaehleAccentFlaechen(screen.toJSON())).toBe(1);
+});
+
+// Der Gegenbeweis zum Übergang: wird die Reise aufgedeckt, während das
+// Mitreisenden-Sheet offen steht, verliert das Sheet seinen Knopf und der
+// Screen bekommt «Recap starten». Es bleibt bei genau einer Akzentfläche.
+test('ein Reveal während offenem Mitreisenden-Sheet nimmt dem Sheet seinen Knopf', async () => {
+  (revealGesehen as jest.Mock).mockResolvedValue(true);
+  await wrap();
+  await mitreisendeOeffnen();
+
+  (fetchTrip as jest.Mock).mockResolvedValue(tripRevealedOk);
+  await erneutFokussieren();
+
+  await screen.findByText('Recap starten');
+  expect(screen.queryByText('Freunde einladen')).toBeNull();
   expect(zaehleAccentFlaechen(screen.toJSON())).toBe(1);
 });
 

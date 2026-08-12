@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 import { ScrollView, Text, View, StyleSheet } from 'react-native';
+import { Image } from 'expo-image';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { TripCard } from '@/components/TripCard';
 import { Button } from '@/components/Button';
@@ -81,19 +82,42 @@ export default function ReiseListe() {
         )}
 
         {leer && (
-          <View style={{ gap: spacing.s, marginTop: spacing.xl }}>
-            <Text style={[type.h2, { color: colors['text-1'] }]}>Noch keine Reise</Text>
-            <Text style={[type.body, { color: colors['text-2'] }]}>
-              Leg deine erste Reise an oder tritt einer per Einladungslink bei.
-            </Text>
+          <View style={{ marginTop: spacing.xl }}>
+            {/* Wie die Filmrolle im leeren Recap-Tab (recap/index.tsx): das
+                Bild steht NUR dort, wo sonst nichts steht. Freigestellt auf
+                `bg-0`, deshalb ohne Rahmen, Radius und Schatten. */}
+            <Image
+              testID="leerzustand-camper"
+              source={require('@/assets/images/camper-salbeigruen-transparent.png')}
+              style={styles.camper}
+              contentFit="contain"
+              // Sagt nichts, was der Text darunter nicht schon sagt.
+              accessible={false}
+            />
+            <View style={{ gap: spacing.s, marginTop: spacing.l }}>
+              <Text style={[type.h2, { color: colors['text-1'] }]}>Noch keine Reise</Text>
+              <Text style={[type.body, { color: colors['text-2'] }]}>
+                Leg deine erste Reise an oder tritt einer per Einladungslink bei.
+              </Text>
+            </View>
           </View>
         )}
 
         {laufend.length > 0 && (
           <View style={{ gap: spacing.l }}>
             <Text style={[type.h2, { color: colors['text-1'] }]}>Unterwegs</Text>
-            {laufend.map((t) => (
-              <TripCard key={t.id} trip={t} onPress={() => router.push(`/reise/${t.id}`)} />
+            {/* `cover` reicht den Platz der Karte ans Detail weiter, damit es
+                dasselbe Platzhalter-Bild zeigt wie die Karte, auf die getippt
+                wurde (platzhalterCover.ts). Ein reiner Darstellungs-Parameter:
+                wer ohne ihn im Detail landet (Deep Link, frisch angelegte
+                Reise), sieht das erste Bild. */}
+            {laufend.map((t, i) => (
+              <TripCard
+                key={t.id}
+                trip={t}
+                position={i}
+                onPress={() => router.push(`/reise/${t.id}?cover=${i}`)}
+              />
             ))}
           </View>
         )}
@@ -107,8 +131,13 @@ export default function ReiseListe() {
                 Versprechen, das der Tipp nicht einlöst (Review Task 10,
                 Important 1). Der Recap-Tab setzt `alsRecap`, weil dort ein
                 Tipp tatsächlich die Übersicht öffnet. */}
-            {recaps.map((t) => (
-              <TripCard key={t.id} trip={t} onPress={() => router.push(`/reise/${t.id}`)} />
+            {recaps.map((t, i) => (
+              <TripCard
+                key={t.id}
+                trip={t}
+                position={i}
+                onPress={() => router.push(`/reise/${t.id}?cover=${i}`)}
+              />
             ))}
           </View>
         )}
@@ -123,6 +152,12 @@ export default function ReiseListe() {
 // unterste Reise-Karte nicht dahinter verschwindet.
 const FAB_AUSWEICHRAUM = spacing.screen + 56 + spacing.xl;
 
+// Gleiche Grösse wie die Filmrolle im leeren Recap-Tab: beide Leerzustände
+// sind derselbe Fall und sollen gleich schwer wiegen. Bei 1254 px Quelle
+// reicht das ohne zusätzliche @2x/@3x-Dateien bis zu einem 3x-Display.
+const LEERBILD = 160;
+
 const styles = StyleSheet.create({
   inhalt: { padding: spacing.screen, paddingTop: spacing.xl, paddingBottom: FAB_AUSWEICHRAUM, gap: spacing.xl },
+  camper: { width: LEERBILD, height: LEERBILD, alignSelf: 'center' },
 });

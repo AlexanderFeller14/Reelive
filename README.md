@@ -78,6 +78,107 @@ npm test               # Jest
 Login lokal: Testnummern `+41 79 000 00 01` / `…02`, Code jeweils `123456`
 (supabase/config.toml → [auth.sms.test_otp]).
 
+## Auf einem echten iPhone (nativer Dev-Build)
+
+Expo Go reicht für die Karte nicht, `react-native-maps` ist dort nicht
+enthalten. Für alles ausser Push (das braucht ein bezahltes Apple-Programm)
+führt der Weg über einen nativen Build. Er kostet einmalig Einrichtung, danach
+ist es ein Befehl.
+
+**Voraussetzungen einmalig:**
+
+1. Xcode installieren. **Läuft auf dem iPhone eine iOS-Beta, braucht es die
+   passende Xcode-Beta** von developer.apple.com; das Xcode aus dem App Store
+   meldet sonst «The developer disk image could not be mounted». Parallel
+   installieren als `/Applications/Xcode-beta.app` und per `DEVELOPER_DIR`
+   ansprechen, das erspart ein systemweites `xcode-select`.
+2. Apple ID in Xcode hinterlegen (Einstellungen → Accounts). Eine kostenlose
+   genügt, sie ergibt ein «Personal Team».
+3. Auf dem iPhone den Entwicklermodus einschalten
+   (Einstellungen → Datenschutz & Sicherheit), Gerät per Kabel anschliessen.
+4. **Beide `.env` auf die LAN-IP des Macs**, nicht `127.0.0.1`: das ist für ein
+   Handy es selbst. Betroffen sind `EXPO_PUBLIC_SUPABASE_URL` und
+   `EXPO_PUBLIC_TEILEN_BASIS_URL` in `mobile/.env` sowie `S3_ENDPOINT` und
+   `TEILEN_BASIS_URL` in `supabase/functions/.env`. Die beiden Teilen-Basen
+   müssen übereinstimmen. Aktuelle Adresse: `ipconfig getifaddr en0`.
+
+**Bauen und installieren:**
+
+Der bequeme Weg, sobald das Team einmal in Xcode gesetzt ist:
+
+```bash
+cd mobile
+npx expo start --lan            # Terminal 1: liefert das JavaScript, muss laufen
+npm run ios -- --device "<Geraetename>"   # Terminal 2
+```
+
+Aus Xcode geht es genauso: `ios/Reelive.xcworkspace` oeffnen, Geraet als Ziel
+waehlen, ⌘R. Der ausfuehrliche Weg, wenn etwas klemmt:
+
+```bash
+cd mobile/ios
+DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer \
+SENTRY_DISABLE_AUTO_UPLOAD=true \
+xcodebuild -workspace Reelive.xcworkspace -scheme Reelive -configuration Debug \
+  -destination "id=<UDID>" \
+  -allowProvisioningUpdates -allowProvisioningDeviceRegistration \
+  DEVELOPMENT_TEAM=<TeamID> CODE_SIGN_STYLE=Automatic build
+
+# UDID: xcrun devicectl list devices
+xcrun devicectl device install app --device <UDID> \
+  ~/Library/Developer/Xcode/DerivedData/Reelive-*/Build/Products/Debug-iphoneos/Reelive.app
+```
+
+Neu bauen ist nur bei Aenderungen am **nativen** Teil noetig. Alles unter
+`src/` uebertraegt der laufende Server von selbst.
+
+Danach auf dem iPhone einmalig freigeben: Einstellungen → Allgemein →
+VPN & Geräteverwaltung → Entwickler-App → Vertrauen.
+
+**Warum die ungewöhnlichen Flags nötig sind:**
+
+- `SENTRY_DISABLE_AUTO_UPLOAD=true` — ohne Sentry-Projekt bricht die
+  Build-Phase «Upload Debug Symbols» mit `An organization ID or slug is
+  required` ab, exit 65. Für Builds aus der Xcode-Oberfläche gehört dieselbe
+  Zeile in `ios/.xcode.env.local`, die Terminal-Variable erreicht Xcode nicht.
+- `-allowProvisioningDeviceRegistration` — sonst nimmt das Profil das Gerät
+  nicht auf («doesn't include the currently selected device»). Die Expo-CLI
+  setzt dieses Flag nicht.
+
+**`npx expo prebuild --clean` setzt drei Dinge zurück**, die nicht im Repo
+stehen können und danach von Hand zurück müssen:
+
+| Was | Warum es nicht im Repo steht | Wiederherstellen |
+|---|---|---|
+| Entwicklerteam im Xcode-Projekt | gehört dem jeweiligen Entwickler | `DEVELOPMENT_TEAM=…` am Build, oder in Xcode setzen |
+| `aps-environment` in `Reelive.entitlements` | Push ist **erwünscht**, nur ein Personal Team kann es nicht signieren | Eintrag entfernen, `<dict>` leer lassen |
+| `SENTRY_DISABLE_AUTO_UPLOAD` in `ios/.xcode.env.local` | hängt daran, dass es kein Sentry-Konto gibt | Zeile erneut anfügen |
+
+Der Scene-Lebenszyklus muss **nicht** von Hand nachgezogen werden, dafür sorgt
+`mobile/plugins/withSceneLifecycle.js` (siehe unten).
+
+### plugins/withSceneLifecycle.js
+
+Ab iOS 27 bricht UIKit jede App ab, die ihr Fenster im AppDelegate aufspannt
+statt im Scene-Lebenszyklus. Expos prebuild-Vorlage tut bis heute genau das
+(expo/expo#46663, offen), deshalb trägt dieses Plugin bei jedem `prebuild` das
+`UIApplicationSceneManifest` ein und gibt die Fenster-Erstellung an einen
+`SceneDelegate` ab, samt Weiterleitung der Deep Links: im Scene-Modell erreicht
+`application(_:open:options:)` die App nicht mehr, ohne sie wären Einladungs-
+und Teilen-Links tot.
+
+Dazu setzt es `ENABLE_DEBUG_DYLIB = NO` in die Projektdatei. Xcode 26/27 legt
+den App-Code sonst in eine separate `Reelive.debug.dylib` und lässt das Binary
+sie nur laden; auf einem echten Gerät stirbt die App damit nach rund 250 ms mit
+Signal 5, **ohne Meldung und ohne Absturzbericht**, während im Simulator
+dieselbe App läuft. Die Einstellung gehört ins Projekt und nicht an den
+einzelnen Aufruf, sonst funktioniert nur der Terminal-Build mit dem passenden
+Flag, während ⌘R in Xcode still wieder eine App erzeugt, die nicht startet.
+
+Findet das Plugin seine Ankerstellen im erzeugten Code nicht mehr, **hält es
+den Build an** statt still nichts zu tun. Sobald Expo das Thema selbst löst,
+kann die Datei ersatzlos entfallen.
+
 ## Vor dem ersten Build
 
 Alles bis hier läuft ohne fremde Konten. Ein echter Build (Dev-Build, TestFlight/Internal

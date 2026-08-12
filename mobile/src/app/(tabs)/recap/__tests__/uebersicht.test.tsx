@@ -147,6 +147,37 @@ beforeEach(() => {
   (fetchTrip as jest.Mock).mockResolvedValue({ data: trip, error: null });
 });
 
+const POPCORN_TEXT = "Dein Recap wartet. Popcorn holen, Licht aus, los geht's.";
+
+test('über den Tagen lädt das Popcorn zum Anschauen ein', async () => {
+  (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: VOLLSTAENDIG, error: null });
+  (holeVorrat as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+  await wrap();
+  expect(await screen.findByText(POPCORN_TEXT)).toBeTruthy();
+  expect(screen.getByTestId('recap-popcorn')).toBeTruthy();
+});
+
+// Die Einladung gilt dem, was zu sehen ist. Über einem Ladefehler stünde sie
+// als Versprechen auf einen Recap, den dieser Screen gerade nicht zeigen kann.
+test('bei einem Ladefehler gibt es kein Popcorn', async () => {
+  (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: [], error: null });
+  (holeVorrat as jest.Mock).mockResolvedValue({
+    vorrat: null, error: 'Der Recap konnte nicht geladen werden.', grund: null,
+  });
+  await wrap();
+  await screen.findByText('Der Recap konnte nicht geladen werden.');
+  expect(screen.queryByTestId('recap-popcorn')).toBeNull();
+});
+
+// Dasselbe für eine Reise, in der nie etwas ankam: «Dein Recap wartet» wäre
+// dort eine Vorfreude auf nichts.
+test('eine leer gebliebene Reise zeigt kein Popcorn', async () => {
+  leererLadeErfolg();
+  await wrap();
+  await screen.findByText('Diese Reise ist leer geblieben.');
+  expect(screen.queryByTestId('recap-popcorn')).toBeNull();
+});
+
 test('gruppiert nach Tagen mit Ortsname, und ohne Ortsname entfällt er', async () => {
   (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: VOLLSTAENDIG, error: null });
   (holeVorrat as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });

@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Switch, Text, View, StyleSheet } from 'react-native';
+import { ActivityIndicator, ScrollView, Switch, Text, View, StyleSheet } from 'react-native';
+import { Image } from 'expo-image';
 import { Button } from '@/components/Button';
 import { Card } from '@/components/Card';
 import { PressScale } from '@/components/PressScale';
 import { Sheet } from '@/components/Sheet';
 import { useTheme } from '@/theme/ThemeProvider';
 import { radius, spacing, type } from '@/theme/tokens';
+import { useOberkante } from '@/theme/useOberkante';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { fetchOwnProfile, type Profile } from '@/features/auth/profileApi';
 import { signOut } from '@/features/auth/authApi';
@@ -49,6 +51,17 @@ function GefahrKnopf({
 
 export default function ProfilScreen() {
   const { colors } = useTheme();
+  // Der Screen wird jetzt von oben nach unten gelesen (Bild, Name, Einstellungen),
+  // nicht mehr vertikal zentriert, deshalb dieselbe Oberkante wie Reise- und
+  // Recap-Tab: das Bild soll nicht hinter Statusleiste oder Dynamic Island geraten.
+  //
+  // Plus einen Rasterschritt (§3: 4 · 8 · 12 · 16 · 24 · 32 · 48) obendrauf, weil
+  // der freigestellte Reisepass ohne Rahmen anfängt und dadurch höher wirkt als
+  // eine Karte an derselben Kante. ADDIERT statt als grössere Basis: `useOberkante`
+  // nimmt das Maximum aus Basis und Systembereich, und der ist auf Geräten mit
+  // Insel ohnehin schon grösser (59 + 16), eine Basis von 48 statt 32 bliebe dort
+  // also wirkungslos.
+  const oben = useOberkante(spacing.xl) + spacing.l;
   const { userId } = useAuth();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [nurWlan, setNurWlan] = useState(false);
@@ -127,43 +140,63 @@ export default function ProfilScreen() {
   };
 
   return (
-    <View style={[styles.screen, { backgroundColor: colors['bg-0'] }]}>
-      <Card style={{ gap: spacing.xs }}>
-        <Text style={[type.h1, { color: colors['text-1'] }]}>{profile?.display_name ?? '…'}</Text>
-        <Text style={[type.secondary, { color: colors['text-2'] }]}>
-          {profile ? `@${profile.username}` : ''}
-        </Text>
-      </Card>
-      <Card style={styles.zeile}>
-        <View style={styles.zeileText}>
-          <Text style={[type.bodyMedium, { color: colors['text-1'] }]}>Nur über WLAN einsenden</Text>
-          <Text style={[type.secondary, { color: colors['text-2'] }]}>
-            Spart mobile Daten. Deine Momente warten, bis du wieder im WLAN bist.
-          </Text>
-        </View>
-        <Switch
-          value={nurWlan}
-          onValueChange={umschalten}
-          trackColor={{ false: colors['bg-1'], true: colors.accent }}
-          thumbColor={colors['bg-0']}
-          accessibilityLabel="Nur über WLAN einsenden"
+    <View style={{ flex: 1, backgroundColor: colors['bg-0'] }}>
+      {/* Scrollbar statt fester Höhe: mit dem Bild darüber wird der Inhalt auf
+          kleinen Geräten länger als der Screen, und die destruktive Zone unten
+          darf nie ausserhalb des Sichtbaren enden. */}
+      <ScrollView contentContainerStyle={[styles.inhalt, { paddingTop: oben }]}>
+        {/* Kopfbild des Profil-Tabs. Anders als Camper, Filmrolle und Flugticket
+            steht dieses Bild nicht in einem Leerzustand, sondern über gefülltem
+            Inhalt. Freigestellt auf `bg-0`, also ohne Rahmen, Radius und
+            Schatten, und aus dem Accessibility-Baum genommen: es sagt nichts,
+            was der Name darunter nicht schon sagt. */}
+        <Image
+          testID="profil-reisepass"
+          source={require('@/assets/images/reisepass-rot-transparent.png')}
+          style={styles.reisepass}
+          contentFit="contain"
+          accessible={false}
         />
-      </Card>
-      <Button variant="secondary" label="Abmelden" onPress={() => void signOut()} />
+        <Card style={{ gap: spacing.xs }}>
+          <Text style={[type.h1, { color: colors['text-1'] }]}>{profile?.display_name ?? '…'}</Text>
+          <Text style={[type.secondary, { color: colors['text-2'] }]}>
+            {profile ? `@${profile.username}` : ''}
+          </Text>
+        </Card>
+        <Card style={styles.zeile}>
+          <View style={styles.zeileText}>
+            <Text style={[type.bodyMedium, { color: colors['text-1'] }]}>Nur über WLAN einsenden</Text>
+            <Text style={[type.secondary, { color: colors['text-2'] }]}>
+              Spart mobile Daten. Deine Momente warten, bis du wieder im WLAN bist.
+            </Text>
+          </View>
+          <Switch
+            value={nurWlan}
+            onValueChange={umschalten}
+            trackColor={{ false: colors['bg-1'], true: colors.accent }}
+            thumbColor={colors['bg-0']}
+            accessibilityLabel="Nur über WLAN einsenden"
+          />
+        </Card>
+        <Button variant="secondary" label="Abmelden" onPress={() => void signOut()} />
 
-      {/* Task 9: "unter allem anderen, in danger" (Brief, wörtlich),
-          eigener Abstand, damit die destruktive Zone sich sichtbar vom
-          Rest absetzt, ohne eine zweite Fläche/Karte einzuführen. */}
-      <PressScale
-        testID="konto-loeschen-oeffnen"
-        accessibilityRole="button"
-        onPress={kontoLoeschenOeffnen}
-      >
-        <Text style={[type.bodyMedium, styles.kontoLoeschenText, { color: colors.danger }]}>
-          Konto löschen
-        </Text>
-      </PressScale>
+        {/* Task 9: "unter allem anderen, in danger" (Brief, wörtlich),
+            eigener Abstand, damit die destruktive Zone sich sichtbar vom
+            Rest absetzt, ohne eine zweite Fläche/Karte einzuführen. */}
+        <PressScale
+          testID="konto-loeschen-oeffnen"
+          accessibilityRole="button"
+          onPress={kontoLoeschenOeffnen}
+        >
+          <Text style={[type.bodyMedium, styles.kontoLoeschenText, { color: colors.danger }]}>
+            Konto löschen
+          </Text>
+        </PressScale>
+      </ScrollView>
 
+      {/* Geschwister der ScrollView, nicht ihr Kind: das Sheet legt sich per
+          StyleSheet.absoluteFill über seinen Elternteil, im Scroll-Inhalt läge
+          es am Inhalt statt am Screen. */}
       <Sheet sichtbar={loeschSheetSichtbar} titel="Konto löschen?" onSchliessen={kontoLoeschenSchliessen}>
         {zahlenPhase === 'laedt' && (
           <View style={styles.zahlenLaedt}>
@@ -201,8 +234,21 @@ export default function ProfilScreen() {
   );
 }
 
+// Grösser als die 160 der drei Leerzustands-Bilder (Camper, Filmrolle,
+// Flugticket), obwohl es über gefülltem Inhalt steht: der Reisepass steht
+// hochkant und füllt sein quadratisches Bildfeld nur etwa zur halben Breite,
+// bei gleicher Kantenlänge wöge er also sichtbar leichter als die anderen
+// drei. Bei 1254 px Quelle reicht das ohne @2x/@3x bis zu einem 3x-Display.
+const REISEPASS = 200;
+
 const styles = StyleSheet.create({
-  screen: { flex: 1, justifyContent: 'center', padding: spacing.screen, gap: spacing.l },
+  inhalt: {
+    padding: spacing.screen,
+    paddingTop: spacing.xl,
+    paddingBottom: spacing.xxl,
+    gap: spacing.l,
+  },
+  reisepass: { width: REISEPASS, height: REISEPASS, alignSelf: 'center' },
   zeile: { flexDirection: 'row', alignItems: 'center', gap: spacing.m },
   zeileText: { flex: 1, gap: spacing.xs },
   kontoLoeschenText: { textDecorationLine: 'underline', textAlign: 'center' },

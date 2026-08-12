@@ -56,24 +56,42 @@ const basis: QueueJob = {
   zeile_angelegt: false, medium_geladen: false, thumb_geladen: false,
 };
 
-const globalFetch = jest.fn(async () => ({ ok: true }) as unknown as Response);
+// Hochgeladen wird ueber expo-file-system, nicht ueber fetch: React Native
+// 0.86 lehnt `{ uri }` als fetch-Body ab (siehe uploadWorker.teilHochladen).
+// Der frueher hier stehende fetch-Mock nahm jeden Body klaglos an und hat
+// deshalb nie bemerkt, dass der echte Weg auf dem Geraet gar nicht existiert.
+const mockUpload = jest.fn(async () => ({ status: 200, body: '', headers: {} }));
+const mockFileUris: string[] = [];
+jest.mock('expo-file-system', () => ({
+  File: jest.fn().mockImplementation((uri: string) => {
+    mockFileUris.push(uri);
+    return { upload: mockUpload };
+  }),
+}));
 beforeEach(() => {
   jobs.length = 0;
   jest.clearAllMocks();
-  (global as unknown as { fetch: unknown }).fetch = globalFetch;
+  mockFileUris.length = 0;
+  mockUpload.mockResolvedValue({ status: 200, body: '', headers: {} });
   // jest.clearAllMocks() setzt NUR Aufruf-Historie zurück, nicht eine per
   // .mockImplementation()/.mockResolvedValue() gesetzte Implementierung,
   // zwei Tests unten hängen momentAnlegen bewusst an ein steuerbares Promise.
   // Ohne diese explizite Wiederherstellung würde das in JEDEN nachfolgenden
   // Test durchsickern und dort für immer hängen (beobachtet: Timeout).
   (postsApi.momentAnlegen as jest.Mock).mockResolvedValue({ error: null });
+  // Aus demselben Grund: die Tests zum geteilten Geraet lassen hier sonst
+  // 'person-a'/'person-b' stehen, und jeder danach folgende Test findet fuer
+  // seinen u1-Job keine passende Anmeldung mehr. Er laeuft dann nicht, ohne
+  // dass irgendetwas fehlschlaegt, das faellt nur auf, wenn man wie hier auf
+  // eine Wirkung prueft statt auf eine Ablehnung.
+  (postsApi.aktuelleAutorId as jest.Mock).mockResolvedValue('u1');
 });
 
 test('ein vollständiger Durchlauf legt an, lädt beides hoch, bestätigt und räumt auf', async () => {
   jobs.push({ ...basis });
   await einenJobAbarbeiten();
   expect(postsApi.momentAnlegen).toHaveBeenCalledTimes(1);
-  expect(globalFetch).toHaveBeenCalledTimes(2);
+  expect(mockUpload).toHaveBeenCalledTimes(2);
   expect(postsApi.uploadBestaetigen).toHaveBeenCalledWith('p1');
   expect(queueDb.jobEntfernen).toHaveBeenCalledWith('j1');
   // Critical 2: sonst blieben Medium und Thumbnail jedes hochgeladenen
@@ -82,7 +100,7 @@ test('ein vollständiger Durchlauf legt an, lädt beides hoch, bestätigt und r�
 });
 
 test('ein Fehlschlag lässt die Dateien liegen, der nächste Versuch braucht sie', async () => {
-  globalFetch.mockResolvedValueOnce({ ok: false } as unknown as Response);
+  mockUpload.mockResolvedValueOnce({ status: 500, body: '', headers: {} });
   jobs.push({ ...basis });
   await einenJobAbarbeiten();
   expect(medien.momentDateienEntfernen).not.toHaveBeenCalled();
@@ -93,7 +111,7 @@ test('ein Fehlschlag lässt die Dateien liegen, der nächste Versuch braucht sie
 test('der Content-Type des Mediums folgt dem Speicherschlüssel', async () => {
   jobs.push({ ...basis, typ: 'video', storage_key: 'trips/t1/p1.mov', duration_s: 8 });
   await einenJobAbarbeiten();
-  const [mediumAufruf, thumbAufruf] = globalFetch.mock.calls as unknown as [
+  const [mediumAufruf, thumbAufruf] = mockUpload.mock.calls as unknown as [
     [string, { headers: Record<string, string> }],
     [string, { headers: Record<string, string> }],
   ];
@@ -126,10 +144,10 @@ test('meldet die Bestätigung Unvollständigkeit, wird beim nächsten Anlauf wir
   expect(queueDb.jobEntfernen).not.toHaveBeenCalled();
 
   // Zweiter Durchlauf: beide Objekte gehen tatsächlich erneut raus.
-  globalFetch.mockClear();
+  mockUpload.mockClear();
   gespeichert.naechster_versuch = 0;
   await einenJobAbarbeiten();
-  expect(globalFetch).toHaveBeenCalledTimes(2);
+  expect(mockUpload).toHaveBeenCalledTimes(2);
 });
 
 // Jeder ANDERE Fehlschlag der Bestätigung (Netz weg, Function nicht
@@ -149,11 +167,11 @@ test('ein Wiederanlauf legt die Zeile nicht zweimal an', async () => {
   jobs.push({ ...basis, zeile_angelegt: true, medium_geladen: true });
   await einenJobAbarbeiten();
   expect(postsApi.momentAnlegen).not.toHaveBeenCalled();
-  expect(globalFetch).toHaveBeenCalledTimes(1); // nur noch das Thumbnail
+  expect(mockUpload).toHaveBeenCalledTimes(1); // nur noch das Thumbnail
 });
 
 test('ein fehlgeschlagener Upload zählt hoch statt den Job zu verlieren', async () => {
-  globalFetch.mockResolvedValueOnce({ ok: false } as unknown as Response);
+  mockUpload.mockResolvedValueOnce({ status: 500, body: '', headers: {} });
   jobs.push({ ...basis });
   await einenJobAbarbeiten();
   const [gespeichert] = jobs as unknown as QueueJob[];
@@ -181,7 +199,7 @@ test('eine dauerhafte Ablehnung durch die Policy wird nicht wiederholt, sondern 
   await einenJobAbarbeiten();
   expect(queueDb.jobEntfernen).toHaveBeenCalledWith('j1');
   expect(postsApi.signierteUrls).not.toHaveBeenCalled();
-  expect(globalFetch).not.toHaveBeenCalled();
+  expect(mockUpload).not.toHaveBeenCalled();
   expect(queueDb.jobAktualisieren).not.toHaveBeenCalled();
   // Zweiter Weg aus der Warteschlange, auch hier müssen die Dateien mit
   // (Critical 2).
@@ -220,7 +238,7 @@ test('ein dauerhaft verworfener Moment wird mit Grund festgehalten, bevor der Jo
 // darf niemandem gemeldet werden (Spec §8: Upload-Fehler bleiben unsichtbar,
 // solange die Queue sie wiederholt).
 test('ein wiederholbarer Fehlschlag wird NICHT als verworfen gemeldet', async () => {
-  globalFetch.mockResolvedValueOnce({ ok: false } as unknown as Response);
+  mockUpload.mockResolvedValueOnce({ status: 500, body: '', headers: {} });
   jobs.push({ ...basis });
   await einenJobAbarbeiten();
   expect(queueDb.verworfenenMerken).not.toHaveBeenCalled();
@@ -374,4 +392,16 @@ test('auf einem geteilten Gerät wird nur der Job der gerade angemeldeten Person
   expect(postsApi.momentAnlegen).toHaveBeenCalledTimes(1);
   expect(queueDb.jobEntfernen).toHaveBeenCalledWith('von-b');
   expect(jobs.some((j) => j.id === 'von-a')).toBe(true); // unangetastet liegen geblieben
+});
+
+// Welche Datei hochgeladen wird, stand bis zum Umbau nur im fetch-Body
+// (`{ uri }`) und wurde von keinem Test geprueft. Jetzt entscheidet der
+// File-Konstruktor darueber, und eine Verwechslung von Medium und Thumbnail
+// waere von aussen nicht zu sehen: beide Uploads gingen durch, der Recap
+// zeigte hinterher zwei Vorschaubilder oder zweimal das volle Bild.
+test('hochgeladen werden genau die beiden Dateien des Jobs, Medium zuerst', async () => {
+  jobs.push({ ...basis });
+  await einenJobAbarbeiten();
+
+  expect(mockFileUris).toEqual(['file:///m.jpg', 'file:///t.jpg']);
 });

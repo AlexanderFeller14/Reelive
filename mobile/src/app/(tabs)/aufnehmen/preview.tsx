@@ -19,6 +19,7 @@ import { Pille } from '@/components/Pille';
 import { PressScale } from '@/components/PressScale';
 import { Versiegelung } from '@/components/Versiegelung';
 import { cinema, palette, radius, spacing, type } from '@/theme/tokens';
+import { useOberkante, useUnterkante } from '@/theme/useOberkante';
 import * as medien from '@/features/moments/medien';
 import * as ortUndZeit from '@/features/moments/ortUndZeit';
 import * as uploadWorker from '@/features/moments/uploadWorker';
@@ -94,6 +95,13 @@ function EinsendenButton({
 export default function PreviewScreen() {
   const router = useRouter();
   const { userId } = useAuth();
+  // Randloser Medien-Screen ohne Header: die Pille oben lag unter der Insel,
+  // der Einsenden-Knopf unten auf dem Home-Indicator. Die drei unteren Ebenen
+  // (Fuss, Fehler, Bildunterschrift) stehen in festen Abstaenden zueinander
+  // und muessen deshalb GEMEINSAM ausweichen, sonst ueberlappen sie.
+  const oberkante = useOberkante(spacing.xl);
+  const unterkante = useUnterkante(spacing.xl);
+  const untererVersatz = unterkante - spacing.xl;
   const { uri, typ, dauer, tripId } = useLocalSearchParams<{
     uri: string;
     typ: 'photo' | 'video';
@@ -330,13 +338,16 @@ export default function PreviewScreen() {
         pointerEvents="none"
       />
 
-      <Pille style={styles.kopfPille}>
+      <Pille style={[styles.kopfPille, { top: oberkante }]}>
         <Text style={[type.secondary, { color: cinema['text-1'] }]}>{ortZeitText}</Text>
       </Pille>
 
       <Animated.View
         {...panResponder.panHandlers}
-        style={[styles.captionWrap, { transform: pan.getTranslateTransform() }]}
+        style={[
+          styles.captionWrap,
+          { bottom: 168 + untererVersatz, transform: pan.getTranslateTransform() },
+        ]}
       >
         <Pille style={styles.captionPille}>
           <TextInput
@@ -353,12 +364,12 @@ export default function PreviewScreen() {
       </Animated.View>
 
       {sendeFehler && (
-        <View style={styles.fehlerBox}>
+        <View style={[styles.fehlerBox, { bottom: 108 + untererVersatz }]}>
           <Text style={[type.secondary, { color: palette.danger }]}>{sendeFehler}</Text>
         </View>
       )}
 
-      <View style={styles.fuss}>
+      <View style={[styles.fuss, { bottom: unterkante }]}>
         <PressScale accessibilityRole="button" disabled={sendet} onPress={verwerfen}>
           <Text style={[type.bodyMedium, styles.verwerfenText]}>Verwerfen</Text>
         </PressScale>

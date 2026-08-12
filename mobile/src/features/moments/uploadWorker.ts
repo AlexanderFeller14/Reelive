@@ -1,3 +1,4 @@
+import { File } from 'expo-file-system';
 import * as Network from 'expo-network';
 
 import * as queueDb from './queueDb';
@@ -51,16 +52,29 @@ async function sicherstellenInitialisiert(): Promise<void> {
   initialisiert = true;
 }
 
+// Hochladen ueber expo-file-system statt ueber fetch.
+//
+// Die Vorfassung uebergab `{ uri }` als Body an fetch und verliess sich darauf,
+// dass React Native daraus die lokale Datei streamt. Das galt fuer den alten
+// Netzwerk-Stack; unter React Native 0.86 lehnt fetch das ab, und zwar erst zur
+// LAUFZEIT AUF DEM GERAET: «TypeError: Unsupported BodyInit type». Kein Test
+// konnte das sehen, weil dort global.fetch gemockt ist und ein Mock jeden Body
+// klaglos annimmt. Am 2026-08-11 auf einem iPhone gefunden, wo jeder
+// eingesendete Moment endlos in der Warteschlange kreiste.
+//
+// `File.upload` ist der dafuer vorgesehene Weg (SDK-57-Doku) und streamt die
+// Datei nativ, ohne sie vorher komplett in den Speicher zu lesen. Das ist bei
+// Videos der Unterschied zwischen «laeuft» und «Absturz wegen Speicher».
 async function teilHochladen(url: string, uri: string, contentType: string): Promise<void> {
-  const antwort = await fetch(url, {
-    method: 'PUT',
+  const antwort = await new File(uri).upload(url, {
+    httpMethod: 'PUT',
     headers: { 'Content-Type': contentType },
-    // React Natives fetch/XHR akzeptiert { uri } als Body und streamt die lokale
-    // Datei direkt (siehe react-native/Libraries/Network/convertRequestBody.js,
-    // RequestBody-Union enthält {uri: string}), kein zusätzlicher Lese-Roundtrip.
-    body: { uri } as unknown as BodyInit,
   });
-  if (!antwort.ok) {
+  // upload() wirft NICHT bei 4xx/5xx, es liefert die Antwort zurueck (anders
+  // als bei einem Lesefehler oder Abbruch). Der Status muss also selbst
+  // geprueft werden, sonst gilt ein abgelehnter Upload als erledigt und der
+  // Moment waere verloren.
+  if (antwort.status < 200 || antwort.status >= 300) {
     throw new Error('Hochladen fehlgeschlagen.');
   }
 }

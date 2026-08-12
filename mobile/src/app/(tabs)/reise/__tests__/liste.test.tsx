@@ -7,6 +7,15 @@ jest.mock('expo-router', () => ({
   useFocusEffect: (cb: () => void) => cb(),
   Stack: { Screen: () => null },
 }));
+// expo-image ist ein natives View, im Test reicht ein Platzhalter, der alle
+// Props durchreicht (gleiches Muster wie uebersicht.test.tsx). Ohne Mock
+// scheitert schon der Import, expo-image/src/observe.ts erwartet eine native
+// Umgebung.
+jest.mock('expo-image', () => {
+  const ReactActual = require('react');
+  const { View } = require('react-native');
+  return { Image: (props: object) => ReactActual.createElement(View, props) };
+});
 jest.mock('@/features/trips/tripsApi', () => ({ fetchTrips: jest.fn() }));
 
 import ReiseListe from '../index';
@@ -43,6 +52,32 @@ test('ohne Reisen lädt der leere Zustand zum Handeln ein', async () => {
   expect(screen.queryByText('Unterwegs')).toBeNull();
 });
 
+test('der leere Zustand zeigt den Camper', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([]));
+  await wrap();
+  expect(await screen.findByTestId('leerzustand-camper')).toBeTruthy();
+});
+
+// Gegenprobe: ohne sie belegte der Test darüber nur, dass das Bild existiert,
+// nicht, dass es am leeren Zustand hängt. Über einer Liste echter Reisen wäre
+// der Camper blosse Deko (DESIGN-LANGUAGE §7).
+test('neben echten Reisen steht kein Camper', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([trip]));
+  await wrap();
+  await screen.findByText('Norwegen mit dem Camper');
+  expect(screen.queryByTestId('leerzustand-camper')).toBeNull();
+});
+
+// Das Bild trägt keine Bedeutung, die der Text nicht schon sagt. Läge es im
+// Accessibility-Baum, sagte VoiceOver vor «Noch keine Reise» ein nutzloses
+// «Bild» an.
+test('der Camper ist für VoiceOver unsichtbar', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([]));
+  await wrap();
+  const bild = await screen.findByTestId('leerzustand-camper');
+  expect(bild.props.accessible).toBe(false);
+});
+
 // Gegenprobe zum Test darüber: Ohne sie belegt «Noch keine Reise» nur, dass der
 // Text existiert, nicht, dass er an eine Bedingung geknüpft ist. Bei einem
 // Ladefehler wäre die Aussage schlicht falsch: über die Reisen des Nutzers ist
@@ -73,9 +108,12 @@ test('der Knopf führt zum Anlegen', async () => {
   expect(mockPush).toHaveBeenCalledWith('/reise/neu');
 });
 
-test('eine Karte führt in die Reise', async () => {
+// `cover` hängt am Weg, nicht an der Reise: Es sagt dem Detail, welches
+// Platzhalter-Bild die angetippte Karte trug, damit dort dasselbe steht
+// (platzhalterCover.ts).
+test('eine Karte führt in die Reise, mit ihrem Cover-Platz', async () => {
   (fetchTrips as jest.Mock).mockResolvedValue(geladen([trip]));
   await wrap();
   await fireEvent.press(await screen.findByText('Norwegen mit dem Camper'));
-  expect(mockPush).toHaveBeenCalledWith('/reise/t1');
+  expect(mockPush).toHaveBeenCalledWith('/reise/t1?cover=0');
 });
