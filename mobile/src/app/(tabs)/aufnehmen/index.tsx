@@ -378,10 +378,23 @@ export default function AufnehmenScreen() {
   // `mode` muss committet sein, bevor recordAsync() die native Aufnahme-
   // Pipeline anspricht (CameraViewProps.mode „selects image or video
   // output"), deshalb hier per Effekt statt direkt im Tastendruck-Handler.
+  //
+  // `.catch()` direkt an der Quelle, nicht erst beim Auswerten: Scheitert die
+  // Aufnahme, lehnt dieses Promise ab, und ohne das Abfangen flog der Fehler
+  // in handleVideoStop aus dem `await`. Dann wurde `setModus('picture')` nie
+  // erreicht, `modus` blieb auf 'video', und weil DIESER Effekt an `modus`
+  // hängt, lief er nie wieder an: Der Tab nahm bis zum Neuladen kein Video
+  // mehr auf. Am Simulator passiert das immer («SimulatorNotSupported»,
+  // ExpoCamera/CameraViewModule.swift:290), am Gerät bei Anruf, vollem
+  // Speicher oder entzogener Berechtigung.
+  //
+  // Ein `undefined` heisst hier «kein Video entstanden», und genau das
+  // behandelt handleVideoStop unten schon (`if (!ergebnis?.uri) return`).
   useEffect(() => {
     if (modus !== 'video') return;
     videoPromise.current =
-      cameraRef.current?.recordAsync({ maxDuration: MAX_VIDEO_SEKUNDEN }) ?? null;
+      cameraRef.current?.recordAsync({ maxDuration: MAX_VIDEO_SEKUNDEN }).catch(() => undefined) ??
+      null;
   }, [modus]);
 
   // Zieht den Zähler bei jedem Reise-Wechsel UND bei jedem Fokussieren nach

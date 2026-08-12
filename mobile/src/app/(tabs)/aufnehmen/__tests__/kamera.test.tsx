@@ -834,3 +834,57 @@ test('nach der Aufnahme steht die Kopfzeile wieder', async () => {
   expect(await screen.findByLabelText('Reise wechseln, Norwegen mit dem Camper')).toBeTruthy();
   expect(screen.getByLabelText('Kamera wechseln')).toBeTruthy();
 });
+
+// ——— Gescheiterte Aufnahme ———
+//
+// Am Simulator lehnt recordAsync mit «SimulatorNotSupported» ab (belegt im
+// Geräte-Log, ExpoCamera/CameraViewModule.swift:290), am Gerät kann ein
+// Anruf dazwischenkommen oder der Speicher voll sein. `handleVideoStop`
+// fing das nicht ab: der Fehler flog aus dem await, `setModus('picture')`
+// wurde nie erreicht, und weil der recordAsync-Effekt an `modus` hängt,
+// lief er danach nie wieder an. Der Tab blieb bis zum Neuladen stumm.
+test('scheitert die Aufnahme, kommt die Kopfzeile zurück statt zu verschwinden', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  mockRecordAsync.mockRejectedValue(new Error('SimulatorNotSupported'));
+  await render(<AufnehmenScreen />);
+  await screen.findByLabelText('Auslöser');
+
+  jest.useFakeTimers();
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressIn');
+  await act(async () => {
+    jest.advanceTimersByTime(600);
+  });
+  jest.useRealTimers();
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressOut');
+
+  expect(await screen.findByLabelText('Reise wechseln, Norwegen mit dem Camper')).toBeTruthy();
+});
+
+// Die eigentliche Regression: nach einem Fehlschlag muss der nächste Versuch
+// wieder eine Aufnahme starten. Ohne das war der Tab nach dem ersten
+// gescheiterten Video dauerhaft tot, und genau so fiel es auf.
+test('nach einer gescheiterten Aufnahme startet der nächste Versuch wieder eine', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  mockRecordAsync.mockRejectedValue(new Error('SimulatorNotSupported'));
+  await render(<AufnehmenScreen />);
+  await screen.findByLabelText('Auslöser');
+
+  jest.useFakeTimers();
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressIn');
+  await act(async () => {
+    jest.advanceTimersByTime(600);
+  });
+  jest.useRealTimers();
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressOut');
+  await screen.findByLabelText('Reise wechseln, Norwegen mit dem Camper');
+  expect(mockRecordAsync).toHaveBeenCalledTimes(1);
+
+  jest.useFakeTimers();
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressIn');
+  await act(async () => {
+    jest.advanceTimersByTime(600);
+  });
+  jest.useRealTimers();
+
+  expect(mockRecordAsync).toHaveBeenCalledTimes(2);
+});
