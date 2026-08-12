@@ -5,7 +5,7 @@ import * as Haptics from 'expo-haptics';
 import { Lock } from 'lucide-react-native';
 import { Pille } from '@/components/Pille';
 import { PressScale } from '@/components/PressScale';
-import { cinema, radius } from '@/theme/tokens';
+import { cinema, palette, radius } from '@/theme/tokens';
 
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
@@ -221,7 +221,7 @@ export function Ausloeser({ onFoto, onVideoStart, onVideoStop, maxSekunden }: Pr
         >
           <Lock
             size={22}
-            color={ueberSchwelle ? cinema['seal-glow'] : cinema['text-2']}
+            color={ueberSchwelle ? palette.accent : cinema['text-2']}
             strokeWidth={1.75}
           />
         </Pille>
@@ -252,7 +252,7 @@ export function Ausloeser({ onFoto, onVideoStart, onVideoStop, maxSekunden }: Pr
               cx={GROESSE / 2}
               cy={GROESSE / 2}
               r={RING_RADIUS}
-              stroke={cinema['seal-glow']}
+              stroke={palette.accent}
               strokeWidth={STROKE}
               strokeDasharray={`${UMFANG}, ${UMFANG}`}
               strokeDashoffset={dashOffset}
@@ -307,7 +307,7 @@ const styles = StyleSheet.create({
   // (DESIGN-LANGUAGE §5), kein Opacity-Dimmen.
   kernAktiv: {
     transform: [{ scale: 0.72 }],
-    backgroundColor: cinema['seal-glow'],
+    backgroundColor: palette.accent,
   },
   // Rund heisst «nimmt auf», eckig heisst «beendet die Aufnahme»: das
   // gebräuchliche Stopp-Zeichen. Es ist die einzige Rückmeldung, die den

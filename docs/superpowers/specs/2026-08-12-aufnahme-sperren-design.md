@@ -50,8 +50,15 @@ Sie erscheint, sobald aus dem Halten ein Video wird, und steht rechts neben dem 
 - **Position:** Mitte 96 px rechts vom Auslöser-Zentrum. Auf einem iPhone SE (320 breit)
   endet die Pille bei 278, der Screen-Rand liegt bei 296: sie passt auch schmal.
 - **Schwelle:** 48 px, also die halbe Strecke. Dahinter wechselt das Icon auf
-  `cinema.seal-glow` und ein leichtes haptisches Signal bestätigt, dass die Sperre beim
+  `palette.accent` und ein leichtes haptisches Signal bestätigt, dass die Sperre beim
   Loslassen greift. Kehrt der Daumen zurück, fällt beides zurück.
+
+Zur Farbe: Ring, Kern und Schloss trugen bis 2026-08-12 `cinema.seal-glow`. Das verstiess
+gegen DESIGN-LANGUAGE §1 («`accent` = Interaktion, `seal` = Versiegelungs-Symbolik. Nie
+mischen»), denn eine laufende Aufnahme ist Interaktion, und die Phase-4-Spec nennt
+Gold-Glow allein für den Versiegelungsmoment. Alle drei tragen jetzt `palette.accent`,
+wie es `player.tsx` und `preview.tsx` auf ihren Kino-Screens schon taten. Rot ist zugleich
+die geläufige Farbe für «nimmt auf».
 
 Gemessen wird die horizontale Verschiebung gegenüber dem Punkt, an dem der Druck begann,
 nicht die absolute Bildschirmposition: Der Auslöser sitzt zwar mittig, aber ein Daumen

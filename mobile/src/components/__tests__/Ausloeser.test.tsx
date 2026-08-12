@@ -1,5 +1,6 @@
 import { render, screen, fireEvent, act } from '@testing-library/react-native';
 import { StyleSheet, type ViewStyle } from 'react-native';
+import { cinema, palette } from '@/theme/tokens';
 import { Ausloeser } from '../Ausloeser';
 
 jest.useFakeTimers();
@@ -263,4 +264,43 @@ test('ein Wisch vor dem Videostart bleibt ein Foto', async () => {
 
   expect(onFoto).toHaveBeenCalledTimes(1);
   expect(onVideoStart).not.toHaveBeenCalled();
+});
+
+// ——— Farbe der laufenden Aufnahme ———
+//
+// DESIGN-LANGUAGE §1: «accent = Interaktion, seal = Versiegelungs-Symbolik.
+// Nie mischen.» Eine laufende Aufnahme ist Interaktion; Gold gehoert dem
+// Siegel und dem Reveal, wo die Phase-4-Spec es auch als Einziges nennt.
+// Bis hierher trugen Ring und Kern die Siegel-Farbe.
+function farbenImBaum(): string[] {
+  const treffer: string[] = [];
+  const gehe = (knoten: unknown): void => {
+    if (!knoten || typeof knoten !== 'object') return;
+    if (Array.isArray(knoten)) {
+      knoten.forEach(gehe);
+      return;
+    }
+    const { props, children } = knoten as {
+      props?: Record<string, unknown>;
+      children?: unknown[] | null;
+    };
+    const stil = StyleSheet.flatten(props?.style as ViewStyle) as ViewStyle | undefined;
+    for (const wert of [props?.stroke, props?.color, stil?.backgroundColor]) {
+      if (typeof wert === 'string') treffer.push(wert);
+    }
+    (children ?? []).forEach(gehe);
+  };
+  gehe(screen.toJSON());
+  return treffer;
+}
+
+test('die laufende Aufnahme traegt den Akzent, nicht die Siegel-Farbe', async () => {
+  await render(
+    <Ausloeser onFoto={jest.fn()} onVideoStart={jest.fn()} onVideoStop={jest.fn()} maxSekunden={30} />
+  );
+  await videoLaeuft();
+
+  const farben = farbenImBaum();
+  expect(farben).toContain(palette.accent);
+  expect(farben).not.toContain(cinema['seal-glow']);
 });
