@@ -18,18 +18,23 @@ function meldung(error: { message?: string } | null, sonst: string): string {
 const SPALTEN = 'id, name, start_date, end_date, status, owner_id';
 // Die Karte zeigt überlappende Avatare (DESIGN-LANGUAGE §4), also werden die
 // Anzeigenamen gleich mitgeladen, die Mitgliederzahl fällt dabei ab und
-// braucht keine eigene Aggregation.
-const MIT_MITGLIEDERN = `${SPALTEN}, trip_members(profiles(display_name))`;
+// braucht keine eigene Aggregation. avatar_key reist ab hier mit: Name UND
+// Schlüssel kommen aus DERSELBEN Zeile, nie aus zwei getrennten Abfragen, die
+// bei der ersten Person ohne Profil auseinanderlaufen könnten.
+const MIT_MITGLIEDERN = `${SPALTEN}, trip_members(profiles(display_name, avatar_key))`;
 
 type TripRow = Omit<Trip, 'mitglieder' | 'member_count' | 'my_post_count'> & {
-  trip_members: { profiles: { display_name: string } | null }[] | null;
+  trip_members: { profiles: { display_name: string; avatar_key: string | null } | null }[] | null;
 };
 
 function toTrip(row: TripRow, counts: Map<string, number>): Trip {
+  // Name und Schlüssel bleiben in EINER Abbildung zusammen (nicht zwei
+  // getrennte .map()-Listen für Namen und Schlüssel): sonst trüge bei der
+  // ersten Person ohne Profil ein Gesicht das Bild einer anderen Person.
   const mitglieder: Gesicht[] = (row.trip_members ?? [])
-    .map((m) => m.profiles?.display_name)
-    .filter((n): n is string => !!n)
-    .map((name) => ({ name, avatarKey: null }));
+    .map((m) => m.profiles)
+    .filter((p): p is { display_name: string; avatar_key: string | null } => !!p?.display_name)
+    .map((p) => ({ name: p.display_name, avatarKey: p.avatar_key }));
   return {
     id: row.id,
     name: row.name,
@@ -199,7 +204,7 @@ export async function deleteTrip(id: string): Promise<{ error: string | null }> 
 export async function fetchMembers(tripId: string): Promise<Gelesen<TripMember[]>> {
   const { data, error } = await supabase
     .from('trip_members')
-    .select('user_id, role, profiles(username, display_name)')
+    .select('user_id, role, profiles(username, display_name, avatar_key)')
     .eq('trip_id', tripId)
     .order('joined_at');
   if (error || !data) {
@@ -208,7 +213,11 @@ export async function fetchMembers(tripId: string): Promise<Gelesen<TripMember[]
       error: meldung(error, 'Die Mitglieder konnten nicht geladen werden. Probier es gleich nochmal.'),
     };
   }
-  type Row = { user_id: string; role: 'owner' | 'member'; profiles: { username: string; display_name: string } | null };
+  type Row = {
+    user_id: string;
+    role: 'owner' | 'member';
+    profiles: { username: string; display_name: string; avatar_key: string | null } | null;
+  };
   // Gleicher Grund wie oben: postgrest-js inferiert profiles(...) ohne
   // Database-Typ als Array; unknown als Zwischenschritt behebt nur die
   // statische Typprüfung, Laufzeitverhalten bleibt unverändert.
@@ -218,6 +227,7 @@ export async function fetchMembers(tripId: string): Promise<Gelesen<TripMember[]
       role: r.role,
       username: r.profiles?.username ?? '',
       display_name: r.profiles?.display_name ?? '',
+      avatar_key: r.profiles?.avatar_key ?? null,
     })),
     error: null,
   };

@@ -656,7 +656,9 @@ export default function ReiseDetail() {
             onPress={() => setMitgliederSichtbar(true)}
           >
             <View style={{ marginTop: spacing.m, alignSelf: 'flex-start' }}>
-              <AvatarGroup gesichter={mitglieder.map((m) => ({ name: m.display_name, avatarKey: null }))} />
+              <AvatarGroup
+                gesichter={mitglieder.map((m) => ({ name: m.display_name, avatarKey: m.avatar_key }))}
+              />
             </View>
           </PressScale>
         ) : null}
@@ -848,7 +850,7 @@ export default function ReiseDetail() {
         <View style={{ gap: spacing.base }}>
           {mitglieder.map((m) => (
             <View key={m.user_id} style={styles.zeile}>
-              <Avatar name={m.display_name} avatarKey={null} />
+              <Avatar name={m.display_name} avatarKey={m.avatar_key} />
               <View style={{ flex: 1 }}>
                 <Text style={[type.bodyMedium, { color: colors['text-1'] }]}>{m.display_name}</Text>
                 <Text style={[type.secondary, { color: colors['text-2'] }]}>

@@ -19,6 +19,7 @@ export type TripMember = {
   role: 'owner' | 'member';
   username: string;
   display_name: string;
+  avatar_key: string | null;
 };
 
 export type InvitePreview = {

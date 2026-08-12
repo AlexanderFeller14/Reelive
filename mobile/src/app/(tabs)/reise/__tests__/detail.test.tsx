@@ -1,5 +1,5 @@
 import { Alert, StyleSheet } from 'react-native';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react-native';
 import { ThemeProvider } from '@/theme/ThemeProvider';
 import { palette } from '@/theme/tokens';
 
@@ -164,9 +164,12 @@ const trip = {
   ],
   member_count: 2, my_post_count: 0,
 };
+// Lea traegt einen Bildschluessel, Jonas keinen: der Sheet-Test unten prueft
+// damit in einer einzigen Zusicherung beide Faelle, ein echtes Bild UND den
+// Ruecksturz auf die Initiale, ohne dass sich Name und Bild verschieben.
 const mitglieder = [
-  { user_id: 'u1', role: 'owner' as const, username: 'lea', display_name: 'Lea' },
-  { user_id: 'u2', role: 'member' as const, username: 'jonas', display_name: 'Jonas' },
+  { user_id: 'u1', role: 'owner' as const, username: 'lea', display_name: 'Lea', avatar_key: 'profiles/u1/a.jpg' },
+  { user_id: 'u2', role: 'member' as const, username: 'jonas', display_name: 'Jonas', avatar_key: null },
 ];
 // Stabile Referenzen: der useFocusEffect-Mock ruft bei jedem Render nach, ein
 // jedes Mal neues Objekt würde die Screens endlos neu rendern lassen.
@@ -295,6 +298,17 @@ test('Antippen öffnet die Liste der Mitreisenden', async () => {
   expect(screen.getByText('Jonas')).toBeTruthy();
   expect(screen.getByText('Hat die Reise angelegt')).toBeTruthy();
   expect(screen.getByText('@jonas')).toBeTruthy();
+});
+
+// Die Facepile ÜBER dem Sheet zeigt (nach Aufgabe 8) dasselbe Bild, `within`
+// beschränkt die Suche deshalb auf `sheet-panel`. Ohne diese Eingrenzung fände
+// `findByTestId` zwei Treffer (Facepile UND Sheet) und schlüge mit «multiple
+// elements» fehl, obwohl das Sheet selbst das Bild korrekt zeigt.
+test('das Mitglieder-Sheet zeigt vorhandene Profilbilder', async () => {
+  await wrap();
+  await mitreisendeOeffnen();
+  const sheet = within(screen.getByTestId('sheet-panel'));
+  expect(await sheet.findByTestId('avatar-bild')).toBeTruthy();
 });
 
 // Ab der vierten Person zeigt die Facepile drei Gesichter und zählt weiter

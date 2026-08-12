@@ -51,9 +51,15 @@ test('fetchTrips führt Mitglieder und eigenen Zähler zusammen', async () => {
           {
             id: 't1', name: 'Norwegen', start_date: '2026-08-01', end_date: '2026-08-14',
             status: 'active', owner_id: 'u1',
+            // avatar_key steht hier explizit auf null statt zu fehlen: das
+            // Feld ist eine echte Spalte, PostgREST liefert sie immer mit
+            // (auch ohne Bild als null), nie als fehlenden Schlüssel. Ein
+            // fehlender Schlüssel im Mock würde `p.avatar_key` zu `undefined`
+            // statt zu `null` machen, und `toEqual` unten unterscheidet
+            // `undefined` von `null`.
             trip_members: [
-              { profiles: { display_name: 'Lea' } },
-              { profiles: { display_name: 'Jonas' } },
+              { profiles: { display_name: 'Lea', avatar_key: null } },
+              { profiles: { display_name: 'Jonas', avatar_key: null } },
             ],
           },
         ],
@@ -75,6 +81,37 @@ test('fetchTrips führt Mitglieder und eigenen Zähler zusammen', async () => {
       ],
       member_count: 2, my_post_count: 7,
     },
+  ]);
+});
+
+// Name und Schlüssel gehören zusammen. Zwei getrennte Listen (Namen hier,
+// Schlüssel dort) liefen bei der ersten Person ohne Profil auseinander, und
+// dann trüge ein Gesicht das Bild eines anderen. Lea traegt hier einen
+// Schluessel, Ben keinen: beide Faelle stehen in derselben Zusicherung.
+test('die Reise-Karte bekommt Gesichter samt Bildschluessel', async () => {
+  mockFrom.mockReturnValue({
+    select: () => ({
+      order: async () => ({
+        data: [
+          {
+            id: 't1', name: 'Norwegen', start_date: '2026-08-01', end_date: '2026-08-14',
+            status: 'active', owner_id: 'u1',
+            trip_members: [
+              { profiles: { display_name: 'Lea', avatar_key: 'profiles/u1/a.jpg' } },
+              { profiles: { display_name: 'Ben', avatar_key: null } },
+            ],
+          },
+        ],
+        error: null,
+      }),
+    }),
+  });
+  mockRpc.mockResolvedValueOnce({ data: [], error: null });
+
+  const { data } = await fetchTrips();
+  expect(data[0].mitglieder).toEqual([
+    { name: 'Lea', avatarKey: 'profiles/u1/a.jpg' },
+    { name: 'Ben', avatarKey: null },
   ]);
 });
 
@@ -204,6 +241,26 @@ test('fetchMembers meldet einen Lesefehler statt einer leeren Liste', async () =
   const { data, error } = await fetchMembers('t1');
   expect(data).toEqual([]);
   expect(error).toBe('Die Mitglieder konnten nicht geladen werden. Probier es gleich nochmal.');
+});
+
+test('fetchMembers liefert den Bildschluessel mit', async () => {
+  mockFrom.mockReturnValue({
+    select: () => ({
+      eq: () => ({
+        order: async () => ({
+          data: [
+            {
+              user_id: 'u1', role: 'owner',
+              profiles: { username: 'lea', display_name: 'Lea', avatar_key: 'profiles/u1/a.jpg' },
+            },
+          ],
+          error: null,
+        }),
+      }),
+    }),
+  });
+  const { data } = await fetchMembers('t1');
+  expect(data[0].avatar_key).toBe('profiles/u1/a.jpg');
 });
 
 test('fetchInviteCode meldet einen Lesefehler und liefert sonst den Code', async () => {
