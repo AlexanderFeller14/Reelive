@@ -43,6 +43,13 @@
         }
       ],
       [
+        "expo-image-picker",
+        {
+          "photosPermission": "Reelive braucht Zugriff auf deine Fotos, damit du ein Profilbild auswählen kannst.",
+          "cameraPermission": "Reelive braucht die Kamera, damit du ein Selfie als Profilbild aufnehmen kannst."
+        }
+      ],
+      [
         "expo-location",
         {
           "locationWhenInUsePermission": "Reelive hängt Ort und Zeit an deine Momente, damit der Recap sie einordnen kann."

@@ -21,6 +21,7 @@
     "expo-haptics": "~57.0.1",
     "expo-image": "~57.0.2",
     "expo-image-manipulator": "~57.0.8",
+    "expo-image-picker": "~57.0.9",
     "expo-linear-gradient": "~57.0.1",
     "expo-linking": "~57.0.5",
     "expo-location": "~57.0.8",
