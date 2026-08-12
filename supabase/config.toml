@@ -131,6 +131,16 @@ file_size_limit = "50MiB"
 # oder erzwingt eine falsche Etikettierung (Phase-4-Final-Review, Important 5).
 allowed_mime_types = ["image/jpeg", "video/mp4", "video/quicktime"]
 
+# Profilbilder (Spec 2026-08-12-profilbild-design.md). ÖFFENTLICH, anders als
+# `media`: Avatare hängen nicht an der Versiegelung, werden vor dem Reveal
+# gebraucht und auch von Betrachtern ohne Konto (geteilter Recap). Der Schutz
+# liegt im unratbaren Schlüssel (32 Hex), derselben Klasse wie der Share-Token.
+[storage.buckets.avatare]
+public = true
+file_size_limit = "2MiB"
+# Nur JPEG: der Client rechnet ohnehin nach JPEG (features/auth/avatarApi.ts).
+allowed_mime_types = ["image/jpeg"]
+
 # Allow connections via S3 compatible clients
 [storage.s3_protocol]
 enabled = true
