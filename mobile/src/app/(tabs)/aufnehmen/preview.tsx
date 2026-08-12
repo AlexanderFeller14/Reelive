@@ -154,7 +154,7 @@ export default function PreviewScreen() {
   // Draggable Caption: nur `transform` bewegt sich (DESIGN-LANGUAGE §5),
   // Position akkumuliert über extractOffset() statt bei jedem Loslassen auf
   // 0 zurückzuspringen.
-  const pan = useRef(new Animated.ValueXY()).current;
+  const [pan] = useState(() => new Animated.ValueXY());
   const panResponder = useRef(
     PanResponder.create({
       onMoveShouldSetPanResponder: (_evt, gesture) => Math.abs(gesture.dx) > 2 || Math.abs(gesture.dy) > 2,

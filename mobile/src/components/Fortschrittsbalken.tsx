@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Animated, Easing, StyleSheet, View } from 'react-native';
 import { Pille } from '@/components/Pille';
 import { cinema, radius, spacing } from '@/theme/tokens';
@@ -42,7 +42,7 @@ type Props = {
 // als begründete Ausnahme braucht, kommt ein horizontaler Balken ganz ohne
 // Sonderweg aus.
 export function Fortschrittsbalken({ anzahl, aktivIndex, dauerMs, vergangenMs, pausiert }: Props) {
-  const aktivAnteil = useRef(new Animated.Value(0)).current;
+  const [aktivAnteil] = useState(() => new Animated.Value(0));
 
   useEffect(() => {
     aktivAnteil.stopAnimation();

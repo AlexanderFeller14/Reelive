@@ -100,7 +100,7 @@ function bilanzText(ausgang: Extract<AlleErgebnis, { status: 'fertig' }>): strin
 function SkelettBlock({ style }: { style: object }) {
   const { colors } = useTheme();
   const reducedMotion = useReducedMotion();
-  const opacity = useRef(new Animated.Value(0.6)).current;
+  const [opacity] = useState(() => new Animated.Value(0.6));
 
   useEffect(() => {
     if (reducedMotion) {

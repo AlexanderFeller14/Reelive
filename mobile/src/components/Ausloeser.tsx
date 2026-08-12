@@ -90,7 +90,12 @@ export function Ausloeser({ onFoto, onVideoStart, onVideoStop, maxSekunden }: Pr
   const phase = useRef<Phase>('ruhe');
   const schwellenTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hoechstdauerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const fortschritt = useRef(new Animated.Value(0)).current;
+  // `useState` statt `useRef`, weil der Wert beim Rendern gelesen wird
+  // (`interpolate` weiter unten) und ein Ref dort nichts zu suchen hat. Die
+  // Initialisierung als Funktion erzeugt den Wert genau einmal, die Referenz
+  // ist also so stabil wie beim Ref, nur ohne den Zugriff während des
+  // Renderns. Gleiches Muster wie SchwebendesFlugticket in aufnehmen/index.tsx.
+  const [fortschritt] = useState(() => new Animated.Value(0));
   // Wo der Daumen aufgesetzt hat. Gemessen wird die Verschiebung, nicht die
   // Bildschirmposition: Der Auslöser sitzt zwar mittig, aber ein Daumen setzt
   // selten in seiner Mitte auf.

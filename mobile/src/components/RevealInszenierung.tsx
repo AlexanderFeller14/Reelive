@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Animated, StyleSheet, View } from 'react-native';
 import { Lock, LockOpen, Sparkle } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
@@ -62,7 +62,7 @@ const FUNKEN_AUFSTIEG = 96;
 // `prefers-reduced-motion` verkürzt auf einen 200-ms-Fade.
 export function RevealInszenierung({ sichtbar, onFertig }: Props) {
   const reducedMotion = useReducedMotion();
-  const fortschritt = useRef(new Animated.Value(0)).current;
+  const [fortschritt] = useState(() => new Animated.Value(0));
   const onFertigRef = useRef(onFertig);
   onFertigRef.current = onFertig;
   const haptikGefeuertRef = useRef(false);

@@ -591,7 +591,7 @@ export default function RecapPlayer() {
   // Normalfall) auf `false` auf, ändert sich der State-Wert nicht, React
   // rendert nicht neu, der Effekt läuft kein zweites Mal, keine zusätzliche
   // Animation im Normalfall.
-  const kinoFade = useRef(new Animated.Value(1)).current;
+  const [kinoFade] = useState(() => new Animated.Value(1));
   useEffect(() => {
     Animated.timing(kinoFade, {
       toValue: 0,
@@ -1246,7 +1246,7 @@ export default function RecapPlayer() {
     else router.replace('/recap');
   };
 
-  const pan = useRef(new Animated.ValueXY()).current;
+  const [pan] = useState(() => new Animated.ValueXY());
   // Klein (Review-Fund): true, sobald der PanResponder den Touch tatsächlich
   // übernommen hat (onPanResponderGrant feuert nur bei echter Übernahme,
   // anders als das bloss ANFRAGENDE onMoveShouldSetPanResponderCapture),

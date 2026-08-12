@@ -34,7 +34,7 @@ export function Input({ label, error, value, placeholder, style, onFocus, onBlur
   const { colors } = useTheme();
   const [focused, setFocused] = useState(false);
   const lifted = focused || !!value;
-  const anim = useRef(new Animated.Value(lifted ? 1 : 0)).current;
+  const [anim] = useState(() => new Animated.Value(lifted ? 1 : 0));
   const reducedMotion = useReducedMotion();
 
   // Die Animation haengt am abgeleiteten `lifted`, NICHT an den Fokus-Handlern.

@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import { Animated, Pressable, type PressableProps } from 'react-native';
 import { motion } from '@/theme/tokens';
 import { useReducedMotion } from '@/theme/useReducedMotion';
@@ -8,7 +8,7 @@ type Props = PressableProps & { scaleTo?: number };
 // Press-Feedback gemäss DESIGN-LANGUAGE v2 §5: Scale per Spring (spring-ui),
 // nie Opacity-Dimmen. Buttons/Tabs 0.97, randlose Karten 0.98, FAB 0.94.
 export function PressScale({ scaleTo = 0.97, children, onPressIn, onPressOut, ...rest }: Props) {
-  const scale = useRef(new Animated.Value(1)).current;
+  const [scale] = useState(() => new Animated.Value(1));
   const reducedMotion = useReducedMotion();
   const springTo = (toValue: number) => {
     // Reduced Motion (§5): Scale bleibt bei 1, keine Spring-Animation.

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Animated, StyleSheet, View } from 'react-native';
 import { Lock } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
@@ -21,7 +21,7 @@ type Props = {
 // (UI-Thread), `prefers-reduced-motion` verkürzt auf einen 200-ms-Fade.
 export function Versiegelung({ sichtbar, onFertig }: Props) {
   const reducedMotion = useReducedMotion();
-  const fortschritt = useRef(new Animated.Value(0)).current;
+  const [fortschritt] = useState(() => new Animated.Value(0));
   // Ref statt direkter Closure: `onFertig` darf sich zwischen Start und Ende
   // der Animation ändern (neue Funktionsreferenz bei jedem Render des
   // Elternteils), ohne dass das die laufende Animation neu anstösst.

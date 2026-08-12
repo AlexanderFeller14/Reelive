@@ -64,7 +64,7 @@ type NadelProps = {
 function SkelettKreis({ puls }: { puls: boolean }) {
   const { colors } = useTheme();
   const reducedMotion = useReducedMotion();
-  const opacity = useRef(new Animated.Value(0.6)).current;
+  const [opacity] = useState(() => new Animated.Value(0.6));
 
   useEffect(() => {
     if (!puls) {

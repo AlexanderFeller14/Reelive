@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from 'react';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
 import {
   Animated,
   Easing,
@@ -104,8 +104,8 @@ export function Sheet({ sichtbar, titel, onSchliessen, children, kino }: Props) 
   // Geräts, während das Sheet offen ist.
   const { height: fensterHoehe } = useWindowDimensions();
   const maxHoehe = fensterHoehe * MAX_HOEHE_ANTEIL;
-  const translateY = useRef(new Animated.Value(AUSGANGSPOSITION)).current;
-  const opacity = useRef(new Animated.Value(0)).current;
+  const [translateY] = useState(() => new Animated.Value(AUSGANGSPOSITION));
+  const [opacity] = useState(() => new Animated.Value(0));
   // onSchliessen kann sich zwischen zwei Renderns ändern (neue Funktionsreferenz
   // beim Elternteil), ein Ref hält die aktuelle Version fest, ohne den
   // PanResponder bei jedem Render neu aufzubauen (gleiches Muster wie
