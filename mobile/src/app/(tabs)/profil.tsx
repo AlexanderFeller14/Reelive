@@ -192,7 +192,13 @@ export default function ProfilScreen() {
           contentFit="contain"
           accessible={false}
         />
-        <Card style={styles.profilZeile}>
+        {/* `styles.zeile`/`zeileText` statt eigener `profilZeile`/`profilText`:
+            Bild-links-Text-rechts ist exakt dieselbe Zeilenform wie die
+            WLAN-Karte darunter, wertgleich bis auf den Token (`spacing.m`
+            Aussenabstand, `spacing.xs` innen). Zwei Stylesheet-Einträge mit
+            identischem Inhalt wären keine zweite Bedeutung, nur ein zweiter
+            Name für dieselbe. */}
+        <Card style={styles.zeile}>
           <AvatarWaehler
             name={profile?.display_name ?? ''}
             avatarKey={profile?.avatar_key ?? null}
@@ -200,7 +206,7 @@ export default function ProfilScreen() {
             onGewaehlt={(uri) => void bildSetzen(uri)}
             onEntfernen={() => void bildEntfernen()}
           />
-          <View style={styles.profilText}>
+          <View style={styles.zeileText}>
             <Text style={[type.h1, { color: colors['text-1'] }]}>{profile?.display_name ?? '…'}</Text>
             <Text style={[type.secondary, { color: colors['text-2'] }]}>
               {profile ? `@${profile.username}` : ''}
@@ -296,8 +302,6 @@ const styles = StyleSheet.create({
     gap: spacing.l,
   },
   reisepass: { width: REISEPASS, height: REISEPASS, alignSelf: 'center' },
-  profilZeile: { flexDirection: 'row', alignItems: 'center', gap: spacing.m },
-  profilText: { flex: 1, gap: spacing.xs },
   zeile: { flexDirection: 'row', alignItems: 'center', gap: spacing.m },
   zeileText: { flex: 1, gap: spacing.xs },
   kontoLoeschenText: { textDecorationLine: 'underline', textAlign: 'center' },

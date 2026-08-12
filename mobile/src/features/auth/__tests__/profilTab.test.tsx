@@ -82,14 +82,21 @@ jest.mock('@/features/moments/einstellungen', () => ({
 // nicht mobile/app/, von __tests__/ drei Ebenen hoch zu app/(tabs)/...
 import ProfilScreen from '../../../app/(tabs)/profil';
 import { setzeAvatar } from '@/features/auth/avatarApi';
+import { fetchOwnProfile } from '../profileApi';
 
 const wrap = (ui: React.ReactElement) => render(<ThemeProvider>{ui}</ThemeProvider>);
+
+// Default-Profil ohne Bild. Der Fehlerfall-Test unten überschreibt dies
+// gezielt mit einem BEREITS gesetzten avatar_key, sonst liesse sich "das
+// alte Bild bleibt stehen" von "es gab nie eines" nicht unterscheiden.
+const PROFIL_OHNE_BILD = { id: 'uid-1', username: 'lea', display_name: 'Lea', avatar_key: null };
 
 beforeEach(() => {
   jest.clearAllMocks();
   mockNurUeberWlan.mockResolvedValue(false);
   mockGalerieRecht.mockResolvedValue({ granted: true });
   mockAusGalerie.mockResolvedValue({ canceled: false, assets: [{ uri: 'file:///gewaehlt.jpg' }] });
+  (fetchOwnProfile as jest.Mock).mockResolvedValue(PROFIL_OHNE_BILD);
 });
 
 test('zeigt Profildaten und meldet ab', async () => {
@@ -156,19 +163,39 @@ describe('Profilbild (Task 6)', () => {
     await waitFor(() => expect(screen.getByTestId('avatar-bild')).toBeTruthy());
   });
 
-  test('ein Fehler beim Hochladen steht unter dem Kreis', async () => {
+  // Review-Fund: die ursprüngliche Fassung dieses Tests startete mit
+  // avatar_key: null (Default-Mock) und prüfte nur den Fehlertext. Damit
+  // liess sich "altes Bild korrekt erhalten" nicht von "altes Bild
+  // fälschlich gelöscht" unterscheiden — in BEIDEN Fällen gibt es keinen
+  // avatar-bild-Knoten. Diese Fassung startet deshalb MIT einem gesetzten
+  // avatar_key und prüft danach explizit, dass genau diese URL nach dem
+  // Fehlschlag noch im Baum steht: bräche der Fehlerzweig fälschlich
+  // `avatar_key: null` in den State (statt vorher zurückzukehren, wie
+  // profil.tsx es tut), verschwände der Bild-Knoten, und `getByTestId`
+  // würde hier werfen.
+  test('ein Fehler beim Hochladen steht unter dem Kreis, das alte Bild bleibt stehen', async () => {
+    (fetchOwnProfile as jest.Mock).mockResolvedValue({
+      id: 'uid-1', username: 'lea', display_name: 'Lea', avatar_key: 'profiles/u1/alt.jpg',
+    });
     (setzeAvatar as jest.Mock).mockResolvedValue({
       avatarKey: null,
       error: 'Das Bild konnte nicht hochgeladen werden. Probier es gleich nochmal.',
     });
     await wrap(<ProfilScreen />);
-    await fireEvent.press(await screen.findByTestId('avatar-waehler'));
+    await waitFor(() => expect(screen.getByTestId('avatar-bild')).toBeTruthy());
+    const urlVorher = screen.getByTestId('avatar-bild').props.source.uri;
+
+    await fireEvent.press(screen.getByTestId('avatar-waehler'));
     await fireEvent.press(screen.getByText('Foto auswählen'));
+
     await waitFor(() =>
       expect(
         screen.getByText('Das Bild konnte nicht hochgeladen werden. Probier es gleich nochmal.')
       ).toBeTruthy()
     );
+    // Der eigentliche Kern der Zusicherung, nicht nur "irgendein Bild":
+    // dieselbe URL wie vor dem fehlgeschlagenen Versuch.
+    expect(screen.getByTestId('avatar-bild').props.source.uri).toBe(urlVorher);
   });
 });
 
