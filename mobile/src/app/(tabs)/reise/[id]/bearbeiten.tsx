@@ -3,11 +3,13 @@ import { Text, View, StyleSheet } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Button } from '@/components/Button';
 import { Input } from '@/components/Input';
+import { Zeitraumfeld } from '@/components/Zeitraumfeld';
 import { useTheme } from '@/theme/ThemeProvider';
 import { spacing, type } from '@/theme/tokens';
 import { useOberkante } from '@/theme/useOberkante';
 import { fetchTrip, updateTrip } from '@/features/trips/tripsApi';
-import { formatGermanDate, parseGermanDate, validateDateRange } from '@/features/trips/tripDay';
+import { validateDateRange } from '@/features/trips/tripDay';
+import type { Auswahl } from '@/features/trips/kalender';
 
 export default function ReiseBearbeiten() {
   const { colors } = useTheme();
@@ -15,11 +17,9 @@ export default function ReiseBearbeiten() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
   const [name, setName] = useState('');
-  const [beginn, setBeginn] = useState('');
-  const [ende, setEnde] = useState('');
+  const [zeitraum, setZeitraum] = useState<Auswahl>({ start: null, end: null });
   const [nameFehler, setNameFehler] = useState<string | undefined>();
-  const [beginnFehler, setBeginnFehler] = useState<string | undefined>();
-  const [endeFehler, setEndeFehler] = useState<string | undefined>();
+  const [zeitraumFehler, setZeitraumFehler] = useState<string | undefined>();
   const [laedt, setLaedt] = useState(false);
   // Drei getrennte Zustaende, weil sie drei verschiedene Dinge bedeuten und
   // verschiedene naechste Schritte haben: die Vorschau laedt noch, das Laden
@@ -42,8 +42,9 @@ export default function ReiseBearbeiten() {
       setLadefehler(error ?? (data ? null : 'Diese Reise gibt es nicht mehr.'));
       if (data) {
         setName(data.name);
-        setBeginn(formatGermanDate(data.start_date));
-        setEnde(formatGermanDate(data.end_date));
+        // Ohne Umformatierung: der Kalender rechnet in denselben
+        // ISO-Kalendertagen, die die Datenbank liefert.
+        setZeitraum({ start: data.start_date, end: data.end_date });
       }
       setGeladen(true);
     });
@@ -54,16 +55,14 @@ export default function ReiseBearbeiten() {
 
   const speichern = async () => {
     const nFehler = name.trim().length === 0 ? 'Gib deiner Reise einen Namen.' : null;
-    const start = parseGermanDate(beginn);
-    const end = parseGermanDate(ende);
-    // Feldgenaue Zuordnung wie im Anlege-Screen (DESIGN-LANGUAGE §4).
-    const bFehler = start ? null : 'Trag den Beginn ein, z.B. 01.08.2026.';
-    const eFehler = end ? (start ? validateDateRange(start, end) : null) : 'Trag das Ende ein, z.B. 14.08.2026.';
+    const { start, end } = zeitraum;
+    // Gleiche Prüfung wie im Anlege-Screen: der Kalender liefert entweder beide
+    // Enden oder keines, `validateDateRange` bleibt als letzte Prüfung davor.
+    const zFehler = !start || !end ? 'Trag den Zeitraum ein.' : validateDateRange(start, end);
     setNameFehler(nFehler ?? undefined);
-    setBeginnFehler(bFehler ?? undefined);
-    setEndeFehler(eFehler ?? undefined);
+    setZeitraumFehler(zFehler ?? undefined);
     setSpeicherFehler(null);
-    if (nFehler || bFehler || eFehler || !start || !end) return;
+    if (nFehler || zFehler || !start || !end) return;
 
     setLaedt(true);
     const { error } = await updateTrip(id, { name, startDate: start, endDate: end });
@@ -92,8 +91,7 @@ export default function ReiseBearbeiten() {
     <View style={[styles.screen, { backgroundColor: colors['bg-0'], paddingTop: oben }]}>
       <Text style={[type.h1, { color: colors['text-1'] }]}>Reise bearbeiten</Text>
       <Input label="Name der Reise" value={name} onChangeText={setName} error={nameFehler} />
-      <Input label="Beginn" value={beginn} onChangeText={setBeginn} error={beginnFehler} keyboardType="numbers-and-punctuation" />
-      <Input label="Ende" value={ende} onChangeText={setEnde} error={endeFehler} keyboardType="numbers-and-punctuation" />
+      <Zeitraumfeld wert={zeitraum} onAendern={setZeitraum} fehler={zeitraumFehler} />
       {speicherFehler && <Text style={[type.body, { color: colors.danger }]}>{speicherFehler}</Text>}
       <Button variant="primary" label="Speichern" onPress={speichern} loading={laedt} />
     </View>

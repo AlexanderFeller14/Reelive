@@ -87,7 +87,7 @@ test('gültige Eingabe legt an und führt zum Einladen', async () => {
 test('Bearbeiten kommt mit vorbelegten Werten und speichert', async () => {
   await wrap(<ReiseBearbeiten />);
   expect(await screen.findByDisplayValue('Norwegen')).toBeTruthy();
-  expect(screen.getByDisplayValue('01.08.2026')).toBeTruthy();
+  expect(await screen.findByText('1.–14. Aug 2026')).toBeTruthy();
   await fireEvent.changeText(screen.getByLabelText('Name der Reise'), 'Norwegen 2026');
   await fireEvent.press(screen.getByText('Speichern'));
   await waitFor(() =>
