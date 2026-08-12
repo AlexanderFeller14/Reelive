@@ -2,6 +2,7 @@ import {
   MONATE_VORWAERTS, MONATE_ZURUECK, heuteOderDefault, monatHoehe, monatIndexFuer,
   monatRaster, monatVersatz, monateImBereich, naechsteAuswahl, tagLabel,
   zeitraumLabel, zellrolle, ZEILE_HOEHE, MONAT_KOPF_HOEHE, MONAT_ABSTAND,
+  type Auswahl,
 } from '../kalender';
 
 const LEER = { start: null, end: null };
@@ -73,7 +74,10 @@ describe('zellrolle', () => {
   const auswahl = { start: '2026-08-05', end: '2026-08-14' };
   const ersterTag = '2025-08-01';
   const letzterTag = '2028-08-31';
-  const rolle = (tag: string, a = auswahl) => zellrolle(tag, a, ersterTag, letzterTag);
+  // Der Typ steht ausdrücklich dran: ohne ihn verengt der Default-Wert `a` auf
+  // eine Auswahl mit gesetztem Ende, und die Fälle mit `end: null` gingen nicht
+  // mehr durch.
+  const rolle = (tag: string, a: Auswahl = auswahl) => zellrolle(tag, a, ersterTag, letzterTag);
 
   test('erkennt Beginn und Ende', () => {
     expect(rolle('2026-08-05')).toBe('beginn');

@@ -11,23 +11,6 @@ function toUtc(iso: string): number {
   return Date.UTC(y, m - 1, d);
 }
 
-export function parseGermanDate(input: string): string | null {
-  const match = /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/.exec(input.trim());
-  if (!match) return null;
-  const [, d, m, y] = match.map(Number);
-  const date = new Date(Date.UTC(y, m - 1, d));
-  // Rollover erkennen: der 32.01. wird sonst still zum 01.02.
-  if (date.getUTCFullYear() !== y || date.getUTCMonth() !== m - 1 || date.getUTCDate() !== d) {
-    return null;
-  }
-  return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-}
-
-export function formatGermanDate(iso: string): string {
-  const [y, m, d] = iso.split('-');
-  return `${d}.${m}.${y}`;
-}
-
 export function validateDateRange(startIso: string | null, endIso: string | null): string | null {
   if (!startIso || !endIso) return 'Trag Beginn und Ende ein, z.B. 01.08.2026.';
   if (toUtc(endIso) < toUtc(startIso)) return 'Das Ende darf nicht vor dem Beginn liegen.';

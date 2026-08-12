@@ -43,7 +43,7 @@ export function Kalender({ auswahl, onTag, heute }: Props) {
         {WOCHENTAGE.map((tag) => (
           <Text
             key={tag}
-            style={[type.caption, { flex: 1, textAlign: 'center', color: colors['text-2'] }]}
+            style={[type.label, { flex: 1, textAlign: 'center', color: colors['text-2'] }]}
           >
             {tag}
           </Text>

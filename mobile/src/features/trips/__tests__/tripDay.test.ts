@@ -1,24 +1,6 @@
-import { heutigerKalendertag,
-  parseGermanDate, formatGermanDate, validateDateRange,
+import { heutigerKalendertag, validateDateRange,
   tripDay, tripLength, formatRange, groupTrips,
 } from '../tripDay';
-
-test.each([
-  ['06.08.2026', '2026-08-06'],
-  ['1.1.2026', '2026-01-01'],
-  ['31.12.2025', '2025-12-31'],
-  ['32.01.2026', null],
-  ['06.13.2026', null],
-  ['29.02.2025', null], // 2025 ist kein Schaltjahr
-  ['6.8.26', null],
-  ['', null],
-])('parseGermanDate(%s) → %s', (input, expected) => {
-  expect(parseGermanDate(input)).toBe(expected);
-});
-
-test('formatGermanDate kehrt parseGermanDate um', () => {
-  expect(formatGermanDate('2026-08-06')).toBe('06.08.2026');
-});
 
 test.each([
   ['2026-08-01', '2026-08-14', null],

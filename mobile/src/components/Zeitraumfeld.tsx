@@ -58,7 +58,7 @@ export function Zeitraumfeld({ wert, onAendern, fehler, heute }: Props) {
           justifyContent: 'center',
         }}
       >
-        <Text style={[type.caption, { color: colors['text-2'] }]}>Zeitraum</Text>
+        <Text style={[type.label, { color: colors['text-2'] }]}>Zeitraum</Text>
         {anzeige ? <Text style={[type.body, { color: colors['text-1'] }]}>{anzeige}</Text> : null}
       </PressScale>
       {fehler ? <Text style={[type.secondary, { color: palette.danger }]}>{fehler}</Text> : null}
