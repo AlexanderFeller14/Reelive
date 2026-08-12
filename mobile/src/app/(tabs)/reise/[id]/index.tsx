@@ -753,6 +753,14 @@ export default function ReiseDetail() {
         </PressScale>
       )}
 
+      {/* Die Aktionen sind EIN Block, nicht vier. Der Screen-Gap (spacing.xl)
+          trennt Blöcke voneinander: Cover, Titel, Zähler, Hinweise. Zwischen
+          Knöpfen, die zusammengehören, ist er zu viel, sie lasen sich dadurch
+          als vier unabhängige Abschnitte. Innen deshalb spacing.m, aussen
+          bleibt der grosse Abstand, der die Gruppe vom Zähler darüber und vom
+          destruktiven Link darunter absetzt (§3: Flächentrennung über
+          Weissraum, und der ist gestuft, nicht überall gleich). */}
+      <View style={styles.aktionen}>
       {/* Review-Entscheidung zu §7 (genau EIN Primär-Button, nicht zwingend
           GENAU einer): vor dem Enddatum bleibt «Freunde einladen» primär,
           das ist die Aktion, die eine LAUFENDE Reise wirklich braucht, und
@@ -798,6 +806,11 @@ export default function ReiseDetail() {
       {istOwner && (
         <Button variant="secondary" label="Reise bearbeiten" onPress={() => router.push(`/reise/${id}/bearbeiten`)} />
       )}
+      </View>
+
+      {/* Bleibt ausserhalb der Gruppe: «Reise löschen»/«Reise verlassen» ist
+          destruktiv und soll sich nicht versehentlich mit dem Knopf darüber
+          verwechseln lassen. Der grosse Screen-Gap ist hier genau richtig. */}
       <Button
         variant="text"
         label={istOwner ? 'Reise löschen' : 'Reise verlassen'}
@@ -898,6 +911,9 @@ const styles = StyleSheet.create({
   inhalt: { padding: spacing.screen, paddingBottom: spacing.xxl, gap: spacing.xl },
   leer: { flex: 1, justifyContent: 'center', padding: spacing.screen, gap: spacing.l },
   zeile: { flexDirection: 'row', alignItems: 'center', gap: spacing.m },
+  // Siehe Kommentar am Aktionsblock im JSX: Knöpfe, die zusammengehören,
+  // stehen enger als die Blöcke des Screens.
+  aktionen: { gap: spacing.m },
   // Abgesetzte Fläche statt Schatten (DESIGN-LANGUAGE §3: ein Schatten heisst
   // «schwebt»). Radius 12 wie jede andere Fläche dieser Grösse.
   verworfenBox: { borderRadius: radius.control, padding: spacing.base, gap: spacing.m },
