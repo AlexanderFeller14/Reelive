@@ -19,7 +19,7 @@ dazwischen nahtlos um.
 | Woher die Zahlen | AVFoundation über ein eigenes Native-Modul, keine Gerätetabelle |
 | Wie gezoomt wird | Virtuelle Mehrfach-Kamera, iOS wechselt die Linsen selbst |
 | Pinch | Stufenlos, multiplikativ, begrenzt auf die Gerätegrenzen |
-| Während der Videoaufnahme | Zoom bleibt bedienbar, die Kopfzeile bleibt verschwunden |
+| Während der Videoaufnahme | Zoom bleibt bedienbar, sobald die Aufnahme gesperrt ist |
 | Nach einer Aufnahme | Faktor bleibt stehen |
 | Frontkamera | Keine Stufen (nur eine Linse), Faktor zurück auf 1× |
 | Android | Keine Stufen, kein Pinch — die Linsen-API gibt es dort nicht |
@@ -137,9 +137,16 @@ wie in DESIGN-LANGUAGE §5 bereits für Zoom festgelegt.
 - **Tippen:** springt sanft auf die Stufe, Haptik `selection`.
 - **Pinch:** multipliziert den Faktor mit der Geste, begrenzt auf
   `[min, max]` des Geräts. Keine Haptik, kein Rasten.
-- **Videoaufnahme:** Zoom bleibt bedienbar. Er ändert nur eine
-  Geräteeigenschaft und baut die Session nicht um — anders als der
+- **Videoaufnahme:** Der Zoom selbst ist gefahrlos — er ändert nur eine
+  Geräteeigenschaft und baut die Session nicht um, anders als der
   Kamerawechsel, dessentwegen die Kopfzeile während der Aufnahme verschwindet.
+  Die Bedienung ist es nicht: Solange der Finger den Auslöser HÄLT, entzöge
+  ihm jede zweite Berührung die Kontrolle — React Native kennt genau einen
+  Responder, das Loslassen käme an und die Aufnahme endete mitten im Zoomen.
+  Die Reihe verschwindet deshalb mit dem Beginn einer gehaltenen Aufnahme und
+  kommt zurück, sobald sie gesperrt ist und die Hand frei. Der Pinch verhält
+  sich gleich: Er greift erst wieder, wenn niemand mehr drückt. Dafür meldet
+  `Ausloeser` seinen Sperrzustand nach oben (`onSperre`).
 - **Kamerawechsel:** Faktor zurück auf 1×, an der Frontkamera keine Reihe.
 - **Rückkehr aus der Vorschau:** Faktor bleibt stehen.
 
