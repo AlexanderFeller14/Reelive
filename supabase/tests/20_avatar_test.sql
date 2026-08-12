@@ -7,7 +7,7 @@
 -- eigenes ausgeben, ohne die zweite ein fremdes überschreiben.
 create extension if not exists pgtap with schema extensions;
 begin;
-select plan(12);
+select plan(13);
 
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-00000000000a', 'anna@test.local'),
@@ -127,6 +127,28 @@ with aktualisiert as (
 )
 select is((select count(*)::int from aktualisiert), 0,
   'fremdes Objekt umbenennen trifft keine Zeile');
+
+-- Die andere Richtung: Anna besitzt die Zeile, die ALTE-Zeile-Pruefung (using)
+-- geht also durch. Erst die NEUE Zeile faellt durch: Ein UPDATE ohne eigenes
+-- `with check` zieht dafuer die `using`-Bedingung heran, und die verlangt den
+-- eigenen Ordner. Das ist die Regel, auf der der Schutz vor dem Verschieben
+-- des eigenen Objekts in einen fremden Ordner ruht, und sie steht nirgends im
+-- Code — nur hier.
+--
+-- throws_ok statt einer Zeilenzahl: eine verletzte NEUE-Zeile-Pruefung wirft
+-- 42501 fuer die ganze Anweisung, sie trifft nicht still null Zeilen (das ist
+-- der Unterschied zum Test direkt darueber, verifiziert per Hand vor dem
+-- Schreiben dieses Tests).
+select pg_temp.login_as('00000000-0000-0000-0000-00000000000a');
+select throws_ok(
+  $$update storage.objects
+      set name = 'profiles/00000000-0000-0000-0000-00000000000b/erschlichen.jpg'
+      where bucket_id = 'avatare'
+        and name = 'profiles/00000000-0000-0000-0000-00000000000a/abc123.jpg'$$,
+  '42501',
+  null,
+  'eigenes Objekt in einen fremden Ordner verschieben scheitert'
+);
 
 -- avatare_select_authenticated: jetzt auf authenticated beschränkt (Review-
 -- Finding: anon-Lesen erlaubte das Auflisten aller Objektnamen und damit
