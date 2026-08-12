@@ -1,6 +1,8 @@
 import { render, screen, fireEvent } from '@testing-library/react-native';
+import { Dimensions, StyleSheet } from 'react-native';
 import * as React from 'react';
 import { ThemeProvider } from '@/theme/ThemeProvider';
+import { SHEET_SCROLL_ANTEIL } from '@/components/Sheet';
 import { Kalender } from '../Kalender';
 
 const wrap = (ui: React.ReactElement) => render(<ThemeProvider>{ui}</ThemeProvider>);
@@ -33,6 +35,21 @@ test('gewählte Tage sind als selected ausgezeichnet', async () => {
   expect(screen.getByLabelText('5. August 2026').props.accessibilityState.selected).toBe(true);
   expect(screen.getByLabelText('14. August 2026').props.accessibilityState.selected).toBe(true);
   expect(screen.getByLabelText('20. August 2026').props.accessibilityState.selected).toBe(false);
+});
+
+// Der Kalender war im Sheet zweimal unsichtbar, erst mit `flex: 1`, dann mit
+// blossem `maxHeight`. Beide Male stand er im Baum, war aber null hoch, und das
+// Sheet zeigte nur Titel und Knopf. `Sheet` gibt seinem Inhalt keine definite
+// Höhe (styles.inhalt), und eine virtualisierte FlatList leitet sich keine ab.
+// Die Jest-Suite sieht das nicht, weil sie kein Layout rechnet, deshalb prüft
+// dieser Test die Ursache: eine ausgerechnete Höhe, nicht bloss einen Deckel.
+test('die Monatsliste hat eine ausgerechnete Höhe, nicht nur einen Deckel', async () => {
+  await wrap(<Kalender auswahl={LEER} onTag={jest.fn()} heute={HEUTE} />);
+  const liste = screen.getByTestId('kalender-monate');
+  expect(liste.type).toBe('RCTScrollView');
+  const flach = StyleSheet.flatten(liste.props.style);
+  expect(flach.height).toBe(Dimensions.get('window').height * SHEET_SCROLL_ANTEIL);
+  expect(flach.flex).toBeUndefined();
 });
 
 test('der Bereich beginnt beim ersten erlaubten Tag', async () => {
