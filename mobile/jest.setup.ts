@@ -57,3 +57,10 @@ jest.mock('react-native-maps', () => {
     PROVIDER_DEFAULT: undefined,
   };
 });
+
+// avatarUrl() (src/features/auth/avatar.ts) baut die öffentliche Bild-URL aus
+// dieser Variable. Ohne sie liefert sie null, und jeder Test, der ein
+// Profilbild erwartet, prüfte in Wahrheit nur den Initialen-Fall. Der Wert ist
+// frei erfunden und absichtlich keine echte Adresse: es wird nichts geladen,
+// die Tests vergleichen nur die zusammengebaute Zeichenkette.
+process.env.EXPO_PUBLIC_SUPABASE_URL ??= 'http://test.local:54321';
