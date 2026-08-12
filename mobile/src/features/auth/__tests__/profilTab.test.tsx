@@ -5,10 +5,43 @@ jest.mock('../AuthProvider', () => ({
   useAuth: () => ({ status: 'signedIn', userId: 'uid-1', refreshProfile: jest.fn() }),
 }));
 jest.mock('../profileApi', () => ({
-  fetchOwnProfile: jest.fn(async () => ({ id: 'uid-1', username: 'lea', display_name: 'Lea' })),
+  fetchOwnProfile: jest.fn(async () => ({
+    id: 'uid-1', username: 'lea', display_name: 'Lea', avatar_key: null,
+  })),
 }));
 const mockSignOut = jest.fn();
 jest.mock('../authApi', () => ({ signOut: () => mockSignOut() }));
+
+// Task 6: setzeAvatar/entferneAvatar sind in avatarApi.test.ts bereits voll
+// geprüft (Reihenfolge Upload→Spalte→Aufräumen), hier zählt nur, DASS
+// profil.tsx ihr Ergebnis übernimmt (Kreis, Fehlertext). Volles
+// Factory-Mock statt `jest.mock('@/features/auth/avatarApi')` ohne Factory
+// (Automock): Automock müsste die echte Datei laden, um ihre Exporte zu
+// erkennen, und die zieht transitiv expo-file-system, expo-image-manipulator
+// und @/lib/supabase mit (siehe die Mocks in avatarApi.test.ts) — hier reicht
+// ein reiner Ersatz, ohne diese Kette mitzuschleppen.
+//
+// Die Exporte sind hier direkt `jest.fn()` (keine Variable von aussen
+// referenziert, also auch ohne "mock"-Präfix hebbar): so lässt sich der
+// importierte `setzeAvatar` in den Tests unten unmittelbar als `jest.Mock`
+// ansprechen, ohne einen zusätzlichen Umweg über eine eigene Variable.
+jest.mock('@/features/auth/avatarApi', () => ({
+  setzeAvatar: jest.fn(),
+  entferneAvatar: jest.fn(),
+}));
+
+// profil.tsx rendert jetzt AvatarWaehler (Task 5), und die importiert
+// expo-image-picker direkt. Gleiches Mock-Muster wie AvatarWaehler.test.tsx:
+// "Foto auswählen" ruft echte Berechtigungs-/Auswahlfunktionen, die es im
+// Jest-Environment ohne diesen Mock nicht sinnvoll gibt.
+const mockGalerieRecht = jest.fn();
+const mockAusGalerie = jest.fn();
+jest.mock('expo-image-picker', () => ({
+  launchImageLibraryAsync: (...a: unknown[]) => mockAusGalerie(...a),
+  launchCameraAsync: jest.fn(),
+  requestMediaLibraryPermissionsAsync: () => mockGalerieRecht(),
+  requestCameraPermissionsAsync: async () => ({ granted: true }),
+}));
 
 // expo-image ist ein natives View, im Test reicht ein Platzhalter, der alle
 // Props durchreicht (gleiches Muster wie recap/__tests__/liste.test.tsx). Ohne
@@ -48,10 +81,15 @@ jest.mock('@/features/moments/einstellungen', () => ({
 // Pfad-Anpassung (Task-10-Kontext, Abweichung 2): Router-Root ist mobile/src/app/,
 // nicht mobile/app/, von __tests__/ drei Ebenen hoch zu app/(tabs)/...
 import ProfilScreen from '../../../app/(tabs)/profil';
+import { setzeAvatar } from '@/features/auth/avatarApi';
+
+const wrap = (ui: React.ReactElement) => render(<ThemeProvider>{ui}</ThemeProvider>);
 
 beforeEach(() => {
   jest.clearAllMocks();
   mockNurUeberWlan.mockResolvedValue(false);
+  mockGalerieRecht.mockResolvedValue({ granted: true });
+  mockAusGalerie.mockResolvedValue({ canceled: false, assets: [{ uri: 'file:///gewaehlt.jpg' }] });
 });
 
 test('zeigt Profildaten und meldet ab', async () => {
@@ -95,6 +133,43 @@ test('ein bereits gespeichertes „Nur über WLAN" zeigt sich beim Öffnen', asy
   mockNurUeberWlan.mockResolvedValue(true);
   await render(<ThemeProvider><ProfilScreen /></ThemeProvider>);
   await waitFor(() => expect(screen.getByLabelText('Nur über WLAN einsenden').props.value).toBe(true));
+});
+
+describe('Profilbild (Task 6)', () => {
+  test('der Profil-Tab zeigt den Bildwaehler neben dem Namen', async () => {
+    await wrap(<ProfilScreen />);
+    expect(await screen.findByTestId('avatar-waehler')).toBeTruthy();
+  });
+
+  // Der gewählte Pfad muss ohne erneutes Laden sichtbar werden, sonst wirkt
+  // der Tap folgenlos, bis der Screen zufällig neu lädt. profileApi wird
+  // hier absichtlich NICHT erneut aufgerufen (kein zweiter fetchOwnProfile),
+  // die Antwort von setzeAvatar IST der neue Stand.
+  test('ein gewaehltes Bild erscheint sofort im Kreis', async () => {
+    (setzeAvatar as jest.Mock).mockResolvedValue({
+      avatarKey: 'profiles/u1/neu.jpg',
+      error: null,
+    });
+    await wrap(<ProfilScreen />);
+    await fireEvent.press(await screen.findByTestId('avatar-waehler'));
+    await fireEvent.press(screen.getByText('Foto auswählen'));
+    await waitFor(() => expect(screen.getByTestId('avatar-bild')).toBeTruthy());
+  });
+
+  test('ein Fehler beim Hochladen steht unter dem Kreis', async () => {
+    (setzeAvatar as jest.Mock).mockResolvedValue({
+      avatarKey: null,
+      error: 'Das Bild konnte nicht hochgeladen werden. Probier es gleich nochmal.',
+    });
+    await wrap(<ProfilScreen />);
+    await fireEvent.press(await screen.findByTestId('avatar-waehler'));
+    await fireEvent.press(screen.getByText('Foto auswählen'));
+    await waitFor(() =>
+      expect(
+        screen.getByText('Das Bild konnte nicht hochgeladen werden. Probier es gleich nochmal.')
+      ).toBeTruthy()
+    );
+  });
 });
 
 // Task 9: Konto-Löschung. Fixzahlen, deckungsgleich mit dem Brief-Beispiel

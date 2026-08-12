@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, ScrollView, Switch, Text, View, StyleSheet } from 'react-native';
 import { Image } from 'expo-image';
+import { AvatarWaehler } from '@/components/AvatarWaehler';
 import { Button } from '@/components/Button';
 import { Card } from '@/components/Card';
 import { PressScale } from '@/components/PressScale';
@@ -9,6 +10,7 @@ import { useTheme } from '@/theme/ThemeProvider';
 import { radius, spacing, type } from '@/theme/tokens';
 import { useOberkante } from '@/theme/useOberkante';
 import { useAuth } from '@/features/auth/AuthProvider';
+import { entferneAvatar, setzeAvatar } from '@/features/auth/avatarApi';
 import { fetchOwnProfile, type Profile } from '@/features/auth/profileApi';
 import { signOut } from '@/features/auth/authApi';
 import { nurUeberWlan, setzeNurUeberWlan } from '@/features/moments/einstellungen';
@@ -79,6 +81,13 @@ export default function ProfilScreen() {
   const [loeschtLaeuft, setLoeschtLaeuft] = useState(false);
   const [loeschFehler, setLoeschFehler] = useState<string | null>(null);
 
+  // Task 6: Profilbild setzen/entfernen. `bildLaeuft` teilen sich beide
+  // Vorgänge (nur einer kann gleichzeitig laufen, der Wähler ist währenddessen
+  // ohnehin geschlossen), `bildFehler` steht unter dem Kreis, bis der nächste
+  // Versuch ihn löscht.
+  const [bildLaeuft, setBildLaeuft] = useState(false);
+  const [bildFehler, setBildFehler] = useState<string | null>(null);
+
   useEffect(() => {
     if (userId) void fetchOwnProfile(userId).then(setProfile);
   }, [userId]);
@@ -139,6 +148,32 @@ export default function ProfilScreen() {
     await signOut();
   };
 
+  // Der neue Schlüssel wird lokal in den State geschrieben, statt das Profil
+  // neu zu laden: die Antwort von setzeAvatar IST der neue Stand, ein zweiter
+  // Rundgang zur Datenbank brächte dasselbe Ergebnis eine Netzlatenz später.
+  const bildSetzen = async (uri: string) => {
+    if (!userId) return;
+    setBildLaeuft(true);
+    setBildFehler(null);
+    const { avatarKey, error } = await setzeAvatar(userId, uri, profile?.avatar_key ?? null);
+    setBildLaeuft(false);
+    // Bei einem Fehler bleibt das bisherige Bild stehen: der Aufruf schreibt
+    // NICHTS in den State, `avatarKey` ist hier ohnehin `null` und würde ein
+    // vorhandenes Bild sonst fälschlich löschen.
+    if (error) return setBildFehler(error);
+    setProfile((vorher) => (vorher ? { ...vorher, avatar_key: avatarKey } : vorher));
+  };
+
+  const bildEntfernen = async () => {
+    if (!userId) return;
+    setBildLaeuft(true);
+    setBildFehler(null);
+    const { error } = await entferneAvatar(userId, profile?.avatar_key ?? null);
+    setBildLaeuft(false);
+    if (error) return setBildFehler(error);
+    setProfile((vorher) => (vorher ? { ...vorher, avatar_key: null } : vorher));
+  };
+
   return (
     <View style={{ flex: 1, backgroundColor: colors['bg-0'] }}>
       {/* Scrollbar statt fester Höhe: mit dem Bild darüber wird der Inhalt auf
@@ -157,12 +192,24 @@ export default function ProfilScreen() {
           contentFit="contain"
           accessible={false}
         />
-        <Card style={{ gap: spacing.xs }}>
-          <Text style={[type.h1, { color: colors['text-1'] }]}>{profile?.display_name ?? '…'}</Text>
-          <Text style={[type.secondary, { color: colors['text-2'] }]}>
-            {profile ? `@${profile.username}` : ''}
-          </Text>
+        <Card style={styles.profilZeile}>
+          <AvatarWaehler
+            name={profile?.display_name ?? ''}
+            avatarKey={profile?.avatar_key ?? null}
+            laeuft={bildLaeuft}
+            onGewaehlt={(uri) => void bildSetzen(uri)}
+            onEntfernen={() => void bildEntfernen()}
+          />
+          <View style={styles.profilText}>
+            <Text style={[type.h1, { color: colors['text-1'] }]}>{profile?.display_name ?? '…'}</Text>
+            <Text style={[type.secondary, { color: colors['text-2'] }]}>
+              {profile ? `@${profile.username}` : ''}
+            </Text>
+          </View>
         </Card>
+        {bildFehler && (
+          <Text style={[type.secondary, { color: colors.danger }]}>{bildFehler}</Text>
+        )}
         <Card style={styles.zeile}>
           <View style={styles.zeileText}>
             <Text style={[type.bodyMedium, { color: colors['text-1'] }]}>Nur über WLAN einsenden</Text>
@@ -249,6 +296,8 @@ const styles = StyleSheet.create({
     gap: spacing.l,
   },
   reisepass: { width: REISEPASS, height: REISEPASS, alignSelf: 'center' },
+  profilZeile: { flexDirection: 'row', alignItems: 'center', gap: spacing.m },
+  profilText: { flex: 1, gap: spacing.xs },
   zeile: { flexDirection: 'row', alignItems: 'center', gap: spacing.m },
   zeileText: { flex: 1, gap: spacing.xs },
   kontoLoeschenText: { textDecorationLine: 'underline', textAlign: 'center' },

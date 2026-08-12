@@ -1,6 +1,11 @@
 import { supabase } from '@/lib/supabase';
 
-export type Profile = { id: string; username: string; display_name: string };
+export type Profile = {
+  id: string;
+  username: string;
+  display_name: string;
+  avatar_key: string | null;
+};
 
 export function validateUsername(username: string): string | null {
   return /^[a-z0-9_]{3,20}$/.test(username)
@@ -36,7 +41,7 @@ export async function createProfile(
 export async function fetchOwnProfile(userId: string): Promise<Profile | null> {
   const { data } = await supabase
     .from('profiles')
-    .select('id, username, display_name')
+    .select('id, username, display_name, avatar_key')
     .eq('id', userId)
     .maybeSingle();
   return data;
