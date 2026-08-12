@@ -138,3 +138,23 @@ test('die Kino-Variante nimmt die dunkle Palette', async () => {
   const kreis = screen.getByTestId('avatar-kreis');
   expect(StyleSheet.flatten(kreis.props.style).backgroundColor).toBe(cinema['bg-1']);
 });
+
+// Fix-Runde 1 (Review-Fund, Important): dieser Test prüfte bislang NUR die
+// Füllfarbe. Genau dadurch fiel unbemerkt durch, dass Ring UND Initiale-Text
+// versehentlich `cinema['bg-0']`/`cinema['text-2']` erbten (dieselbe
+// Ternary-Form wie die Fläche, aber die FALSCHE Kino-Farbe) — auf dem
+// dunklen `bg-1`-Kreis liegt ein fast-schwarzer `bg-0`-Ring praktisch
+// unsichtbar, wo DESIGN-LANGUAGE §4 wörtlich einen «2 px weisser Ring»
+// verlangt. Ring und Text müssen `cinema['text-1']` sein (die hellste
+// Kino-Farbe, der einzige verfügbare Ersatz für Weiss), NICHT `bg-0`/
+// `text-2`, damit ein künftiger Rückfall auf die falsche Ternary sofort rot
+// wird, nicht erst auf einem echten Screen auffällt.
+test('die Kino-Variante zeichnet Ring und Initiale in der hellsten Kino-Farbe, nicht im Facepile-Separator-Ton', async () => {
+  await wrap(<Avatar name="Lea" avatarKey={null} kino />);
+  const kreis = StyleSheet.flatten(screen.getByTestId('avatar-kreis').props.style);
+  expect(kreis.borderColor).toBe(cinema['text-1']);
+  expect(kreis.borderColor).not.toBe(cinema['bg-0']);
+  const initiale = StyleSheet.flatten(screen.getByText('L').props.style);
+  expect(initiale.color).toBe(cinema['text-1']);
+  expect(initiale.color).not.toBe(cinema['text-2']);
+});

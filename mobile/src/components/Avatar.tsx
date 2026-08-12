@@ -45,8 +45,23 @@ export function Avatar({
 }) {
   const { colors } = useTheme();
   const flaeche = kino ? cinema['bg-1'] : colors['bg-1'];
-  const ring = kino ? cinema['bg-0'] : colors['bg-0'];
-  const schrift = kino ? cinema['text-2'] : colors['text-2'];
+  // In der hellen Palette trennt der Ring überlappende Gesichter von der
+  // Fläche dahinter (Facepile, DESIGN-LANGUAGE §4) — deshalb dieselbe Farbe
+  // wie der Seiten-Hintergrund (`bg-0`), der Ring verschwindet dort mit
+  // Absicht optisch in die Umgebung.
+  //
+  // Im Kino gilt eine andere Lesart derselben Regel, nicht dieselbe Farbwahl:
+  // beide bisherigen Einsatzorte (Recap-Player, geteilter Recap) zeigen genau
+  // EIN Gesicht auf einem Foto, keine überlappende Gruppe, die sich vom
+  // Hintergrund abheben müsste. Dort gilt §4s WÖRTLICHES «2 px weisser Ring»
+  // direkt, `cinema['text-1']` ist die hellste Kino-Farbe und der nächste
+  // verfügbare Ersatz für Weiss innerhalb der Palette (dieselbe Wahl traf
+  // schon die gelöschte lokale AvatarInitiale-Kopie in player.tsx vor
+  // Task 9). NICHT mit der hellen Zeile oben vereinheitlichen: die beiden
+  // Ringe beantworten unterschiedliche Fragen (Facepile-Separator vs.
+  // wörtlicher weisser Ring), sie treffen nur zufällig auf denselben Namen.
+  const ring = kino ? cinema['text-1'] : colors['bg-0'];
+  const schrift = kino ? cinema['text-1'] : colors['text-2'];
   const url = avatarUrl(avatarKey);
 
   return (
