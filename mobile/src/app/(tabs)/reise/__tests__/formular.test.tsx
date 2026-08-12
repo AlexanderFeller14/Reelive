@@ -20,6 +20,15 @@ jest.mock('@/features/trips/tripsApi', () => ({
   })),
 }));
 
+// Der Kalender spannt seinen Bereich um den heutigen Tag auf. Ohne festen Tag
+// hinge jeder Test hier am Systemdatum und bräche, sobald der August 2026 aus
+// dem Bereich läuft. Gezielt diese eine Funktion statt jest.useFakeTimers:
+// Fake Timers griffen in Animated ein, und Sheet wie PressScale animieren.
+jest.mock('@/features/trips/tripDay', () => ({
+  ...jest.requireActual('@/features/trips/tripDay'),
+  heutigerKalendertag: () => '2026-08-12',
+}));
+
 import NeueReise from '../neu';
 import ReiseBearbeiten from '../[id]/bearbeiten';
 import { createTrip, updateTrip, fetchTrip } from '@/features/trips/tripsApi';
@@ -36,44 +45,36 @@ const feldZeile = (labelText: string) => {
 
 beforeEach(() => jest.clearAllMocks());
 
+// Wählt einen Zeitraum über das Sheet: zwei Tipps plus «Übernehmen», genau wie
+// ein Nutzer es täte. Seit der Umstellung auf den Kalender gibt es keinen
+// Textpfad mehr, den ein Test abkürzen könnte.
+const zeitraumWaehlen = async (vonLabel: string, bisLabel: string) => {
+  await fireEvent.press(screen.getByLabelText('Zeitraum, noch nichts gewählt'));
+  await fireEvent.press(screen.getByLabelText(vonLabel));
+  await fireEvent.press(screen.getByLabelText(bisLabel));
+  await fireEvent.press(screen.getByLabelText('Übernehmen'));
+};
+
 test('leerer Name wird abgefangen', async () => {
   await wrap(<NeueReise />);
-  await fireEvent.changeText(screen.getByLabelText('Beginn'), '01.08.2026');
-  await fireEvent.changeText(screen.getByLabelText('Ende'), '14.08.2026');
+  await zeitraumWaehlen('1. August 2026', '14. August 2026');
   await fireEvent.press(screen.getByText('Reise anlegen'));
   expect(await screen.findByText('Gib deiner Reise einen Namen.')).toBeTruthy();
   expect(createTrip).not.toHaveBeenCalled();
 });
 
-test('Ende vor Beginn wird abgefangen, Fehler landet am Ende-Feld', async () => {
+test('fehlender Zeitraum wird am Zeitraum-Feld gemeldet', async () => {
   await wrap(<NeueReise />);
   await fireEvent.changeText(screen.getByLabelText('Name der Reise'), 'Norwegen');
-  await fireEvent.changeText(screen.getByLabelText('Beginn'), '14.08.2026');
-  await fireEvent.changeText(screen.getByLabelText('Ende'), '01.08.2026');
   await fireEvent.press(screen.getByText('Reise anlegen'));
-  const meldung = 'Das Ende darf nicht vor dem Beginn liegen.';
-  expect(await feldZeile('Ende').findByText(meldung)).toBeTruthy();
-  expect(feldZeile('Beginn').queryByText(meldung)).toBeNull();
-  expect(createTrip).not.toHaveBeenCalled();
-});
-
-test('unlesbares Datum wird dem betroffenen Feld zugeordnet', async () => {
-  await wrap(<NeueReise />);
-  await fireEvent.changeText(screen.getByLabelText('Name der Reise'), 'Norwegen');
-  await fireEvent.changeText(screen.getByLabelText('Beginn'), '32.13.2026');
-  await fireEvent.changeText(screen.getByLabelText('Ende'), '14.08.2026');
-  await fireEvent.press(screen.getByText('Reise anlegen'));
-  const meldung = 'Trag den Beginn ein, z.B. 01.08.2026.';
-  expect(await feldZeile('Beginn').findByText(meldung)).toBeTruthy();
-  expect(feldZeile('Ende').queryByText(meldung)).toBeNull();
+  expect(await screen.findByText('Trag den Zeitraum ein.')).toBeTruthy();
   expect(createTrip).not.toHaveBeenCalled();
 });
 
 test('gültige Eingabe legt an und führt zum Einladen', async () => {
   await wrap(<NeueReise />);
   await fireEvent.changeText(screen.getByLabelText('Name der Reise'), 'Norwegen');
-  await fireEvent.changeText(screen.getByLabelText('Beginn'), '01.08.2026');
-  await fireEvent.changeText(screen.getByLabelText('Ende'), '14.08.2026');
+  await zeitraumWaehlen('1. August 2026', '14. August 2026');
   await fireEvent.press(screen.getByText('Reise anlegen'));
   await waitFor(() =>
     expect(createTrip).toHaveBeenCalledWith({
