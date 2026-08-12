@@ -90,6 +90,12 @@ export default function Einladen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, padding: spacing.screen, paddingTop: spacing.xxl, gap: spacing.l },
-  qr: { alignItems: 'center', paddingVertical: spacing.xl },
+  // Der QR-Code ist das eine Element, das dieser Screen zeigen will, und
+  // bekommt deshalb den Raum zwischen Text und Knöpfen, statt mit festem
+  // Abstand unter dem Text zu kleben. Der Titel bleibt oben, wo die Leseachse
+  // beginnt (DESIGN-LANGUAGE §2: Headlines tragen den Screen), die Knöpfe
+  // rutschen ans untere Ende, in Daumenreichweite. Nur `flex: 1` an dieser
+  // einen Stelle, der Rest des Screens bleibt unverändert.
+  qr: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   skeleton: { width: 220, height: 220, borderRadius: radius.card },
 });

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Text, View, StyleSheet } from 'react-native';
+import { KeyboardAvoidingView, Platform, Text, View, StyleSheet } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Button } from '@/components/Button';
 import { Input } from '@/components/Input';
@@ -88,16 +88,25 @@ export default function ReiseBearbeiten() {
   }
 
   return (
-    <View style={[styles.screen, { backgroundColor: colors['bg-0'], paddingTop: oben }]}>
+    // Wie im Anlege-Screen: seit der Knopf unten klebt, braucht der Screen
+    // Tastatur-Ausweichlogik, sonst verdeckt die Tastatur ihn beim Tippen des
+    // Namens.
+    <KeyboardAvoidingView
+      style={[styles.screen, { backgroundColor: colors['bg-0'], paddingTop: oben }]}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    >
       <Text style={[type.h1, { color: colors['text-1'] }]}>Reise bearbeiten</Text>
       <Input label="Name der Reise" value={name} onChangeText={setName} error={nameFehler} />
       <Zeitraumfeld wert={zeitraum} onAendern={setZeitraum} fehler={zeitraumFehler} />
+      {/* Wie im Anlege-Screen: Knopf ans untere Ende, Felder bleiben oben. */}
+      <View style={styles.fueller} />
       {speicherFehler && <Text style={[type.body, { color: colors.danger }]}>{speicherFehler}</Text>}
       <Button variant="primary" label="Speichern" onPress={speichern} loading={laedt} />
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
   screen: { flex: 1, padding: spacing.screen, paddingTop: spacing.xxl, gap: spacing.l },
+  fueller: { flex: 1 },
 });
