@@ -153,7 +153,7 @@ const reise = (over: Partial<Trip> = {}): Trip => ({
   end_date: '2026-08-14',
   status: 'active',
   owner_id: 'u1',
-  member_names: ['Lea'],
+  mitglieder: [{ name: 'Lea', avatarKey: null }],
   member_count: 1,
   my_post_count: 4,
   ...over,
