@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - **DESIGN-LANGUAGE.md schlägt Framework-Defaults und eigenen Geschmack.** Avatare: rund, 32–44 px, 2 px Ring, Gruppen −8 px überlappend (§4). Radius nur 12 / 24 / 999. Icons: Lucide Outline.
-- **Avatar-Grösse überall 44 px** (Obergrenze §4, zugleich iOS-Minimum für ein Tap-Ziel).
+- **Avatar-Grösse: 44 px im Profil-Tab und im Onboarding** (Obergrenze §4, zugleich iOS-Minimum für ein Tap-Ziel, weil der Kreis dort ein Tap-Ziel IST). Überall sonst bleibt es bei den bestehenden 36 px — Facepile, Mitglieder-Sheet, Recap-Player und geteilter Recap zeigen Avatare an, sie sind dort nicht drückbar. `Avatar` behält deshalb `size = 36` als Vorgabe, und nur `AvatarWaehler` setzt 44.
 - **UI-Sprache Deutsch, Du-Form.**
 - **Schlüsselschema `profiles/{user_id}/{32 Hex-Zeichen}.jpg`** — unveränderlich, weil `konto-loeschen/index.ts:255` genau dieses Präfix als erlaubt führt.
 - **Bucket-Name `avatare`** als Konstante im Code, nie als Umgebungsvariable.
