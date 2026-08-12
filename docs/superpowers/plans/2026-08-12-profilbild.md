@@ -84,13 +84,23 @@ allowed_mime_types = ["image/jpeg"]
 -- ---------------------------------------------------------------------------
 -- 1. Der Bucket
 -- ---------------------------------------------------------------------------
--- Auch in supabase/config.toml deklariert (Limits, MIME-Typen), hier trotzdem
--- ein Insert: config.toml wirkt nur über die lokale CLI. In der Produktion
--- entsteht der Bucket allein durch diese Migration, und die pgTAP-Tests unten
--- brauchen ihn ebenfalls, unabhängig davon, ob die CLI ihn gerade angelegt hat.
-insert into storage.buckets (id, name, public)
-  values ('avatare', 'avatare', true)
-  on conflict (id) do nothing;
+-- Auch in supabase/config.toml deklariert, hier trotzdem MIT den Limits:
+-- config.toml wirkt nur über die lokale CLI. In der Produktion entsteht der
+-- Bucket allein durch diese Migration, und ein öffentlicher Bucket ohne
+-- Grössen- und Typgrenze nimmt beliebig grosse Dateien beliebigen Typs an,
+-- direkt vom Client geschrieben und über eine öffentliche URL ausgeliefert.
+-- Lokal fällt das nicht auf, weil die CLI die Werte NACH der Migration
+-- nachträgt.
+--
+-- `do update` statt `do nothing`: Bei `do nothing` bekäme ein Bucket, den die
+-- CLI oder jemand von Hand schon angelegt hat, die Limits nie, und ein
+-- späterer Lauf könnte das auch nicht mehr reparieren.
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+  values ('avatare', 'avatare', true, 2097152, array['image/jpeg'])
+  on conflict (id) do update
+    set public = excluded.public,
+        file_size_limit = excluded.file_size_limit,
+        allowed_mime_types = excluded.allowed_mime_types;
 
 -- ---------------------------------------------------------------------------
 -- 2. avatar_key an die eigene uid binden
@@ -155,11 +165,18 @@ create policy avatare_delete_own on storage.objects
     and (storage.foldername(name))[2] = auth.uid()::text
   );
 
--- Lesen für alle. Der Bucket ist öffentlich, das Objekt ginge also ohnehin über
--- den public-Pfad heraus; die Policy hält den Zustand auch dann, wenn der
--- Bucket später auf privat gestellt würde.
-create policy avatare_select_alle on storage.objects
-  for select to anon, authenticated
+-- Lesen NUR für Angemeldete, obwohl der Bucket öffentlich ist. Das ist kein
+-- Widerspruch: Ein Objekt aus einem public-Bucket geht über den
+-- `/object/public/`-Pfad auch ohne jede Sitzung heraus, diese Policy betrifft
+-- die Storage-API. Stünde `anon` hier, könnte jeder den Bucket AUFLISTEN, und
+-- damit wäre jeder Schlüssel und jede user_id aufzählbar — womit die
+-- Begründung, auf der die ganze Speicherwahl ruht («der Schutz liegt im
+-- unratbaren Schlüssel», Spec §2), keinen Boden mehr hätte.
+--
+-- Der geteilte Recap bleibt intakt, weil er die öffentliche URL benutzt und
+-- nicht die API. Das ist zu VERIFIZIEREN, nicht anzunehmen (Schritt 4).
+create policy avatare_select_angemeldete on storage.objects
+  for select to authenticated
   using (bucket_id = 'avatare');
 ```
 
