@@ -33,7 +33,11 @@ import { fetchTrips } from '@/features/trips/tripsApi';
 const aktiveReise = {
   id: 't1', name: 'Norwegen mit dem Camper', start_date: '2026-08-01', end_date: '2026-08-14',
   status: 'active' as const, owner_id: 'u1',
-  member_names: ['Lea', 'Jonas'], member_count: 2, my_post_count: 7,
+  mitglieder: [
+    { name: 'Lea', avatarKey: null },
+    { name: 'Jonas', avatarKey: null },
+  ],
+  member_count: 2, my_post_count: 7,
 };
 const recap = { ...aktiveReise, id: 't2', name: 'Lissabon Städtetrip', status: 'revealed' as const };
 const archiv = { ...aktiveReise, id: 't3', name: 'Alte Reise nach Kreta', status: 'archived' as const };

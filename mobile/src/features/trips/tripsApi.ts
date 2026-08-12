@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { OFFLINE_HINT, istOffline } from '@/lib/netzfehler';
+import type { Gesicht } from '@/components/Avatar';
 import type { InvitePreview, RedeemResult, Trip, TripMember } from './types';
 
 // Jede Lesefunktion liefert Daten UND Fehler getrennt. Ein nacktes [] bzw. null
@@ -20,14 +21,15 @@ const SPALTEN = 'id, name, start_date, end_date, status, owner_id';
 // braucht keine eigene Aggregation.
 const MIT_MITGLIEDERN = `${SPALTEN}, trip_members(profiles(display_name))`;
 
-type TripRow = Omit<Trip, 'member_names' | 'member_count' | 'my_post_count'> & {
+type TripRow = Omit<Trip, 'mitglieder' | 'member_count' | 'my_post_count'> & {
   trip_members: { profiles: { display_name: string } | null }[] | null;
 };
 
 function toTrip(row: TripRow, counts: Map<string, number>): Trip {
-  const names = (row.trip_members ?? [])
+  const mitglieder: Gesicht[] = (row.trip_members ?? [])
     .map((m) => m.profiles?.display_name)
-    .filter((n): n is string => !!n);
+    .filter((n): n is string => !!n)
+    .map((name) => ({ name, avatarKey: null }));
   return {
     id: row.id,
     name: row.name,
@@ -35,8 +37,8 @@ function toTrip(row: TripRow, counts: Map<string, number>): Trip {
     end_date: row.end_date,
     status: row.status,
     owner_id: row.owner_id,
-    member_names: names,
-    member_count: names.length,
+    mitglieder,
+    member_count: mitglieder.length,
     my_post_count: counts.get(row.id) ?? 0,
   };
 }

@@ -1,3 +1,5 @@
+import type { Gesicht } from '@/components/Avatar';
+
 export type TripStatus = 'active' | 'revealed' | 'archived';
 
 export type Trip = {
@@ -7,7 +9,7 @@ export type Trip = {
   end_date: string;
   status: TripStatus;
   owner_id: string;
-  member_names: string[]; // Anzeigenamen für die überlappenden Avatare auf der Karte
+  mitglieder: Gesicht[]; // Gesichter für die überlappenden Avatare auf der Karte
   member_count: number;
   my_post_count: number;
 };

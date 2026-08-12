@@ -69,7 +69,11 @@ test('fetchTrips führt Mitglieder und eigenen Zähler zusammen', async () => {
     {
       id: 't1', name: 'Norwegen', start_date: '2026-08-01', end_date: '2026-08-14',
       status: 'active', owner_id: 'u1',
-      member_names: ['Lea', 'Jonas'], member_count: 2, my_post_count: 7,
+      mitglieder: [
+        { name: 'Lea', avatarKey: null },
+        { name: 'Jonas', avatarKey: null },
+      ],
+      member_count: 2, my_post_count: 7,
     },
   ]);
 });

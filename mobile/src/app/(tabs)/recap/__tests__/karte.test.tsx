@@ -266,7 +266,7 @@ const wrap = () => render(<ThemeProvider><RecapKarte /></ThemeProvider>);
 // weil `Trip` ihn verlangt.
 const REISE: Trip = {
   id: 't1', name: 'Lissabon Städtetrip', start_date: '2026-08-10', end_date: '2026-08-14',
-  status: 'revealed', owner_id: 'u1', member_names: [], member_count: 1, my_post_count: 0,
+  status: 'revealed', owner_id: 'u1', mitglieder: [], member_count: 1, my_post_count: 0,
 };
 
 function ladeErfolg(momente = VOLLSTAENDIG, vorrat = VORRAT_OK, reise: Partial<Trip> = {}) {
