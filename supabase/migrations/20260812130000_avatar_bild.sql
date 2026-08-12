@@ -12,9 +12,22 @@
 -- ein Insert: config.toml wirkt nur über die lokale CLI. In der Produktion
 -- entsteht der Bucket allein durch diese Migration, und die pgTAP-Tests unten
 -- brauchen ihn ebenfalls, unabhängig davon, ob die CLI ihn gerade angelegt hat.
-insert into storage.buckets (id, name, public)
-  values ('avatare', 'avatare', true)
-  on conflict (id) do nothing;
+--
+-- Limits und MIME-Typ stehen HIER MIT, nicht nur in config.toml: die Datei
+-- wirkt nie in der Produktion (nur lokale CLI), ohne diese Spalten hätte der
+-- Bucket dort weder Grössen- noch Typ-Riegel, obwohl er öffentlich ist und
+-- direkt vom Client beschrieben wird — eine gültige Session könnte beliebig
+-- grosse Dateien beliebigen Typs unter dem eigenen Ordner ablegen.
+--
+-- `do update`, nicht `do nothing`: existiert der Bucket schon (von der lokalen
+-- CLI aus config.toml angelegt, oder von Hand), würde `do nothing` ihn nie auf
+-- diese Limits bringen, und ein erneuter Lauf könnte das nie nachholen.
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+  values ('avatare', 'avatare', true, 2097152, array['image/jpeg'])
+  on conflict (id) do update
+    set public = excluded.public,
+        file_size_limit = excluded.file_size_limit,
+        allowed_mime_types = excluded.allowed_mime_types;
 
 -- ---------------------------------------------------------------------------
 -- 2. avatar_key an die eigene uid binden
@@ -79,9 +92,15 @@ create policy avatare_delete_own on storage.objects
     and (storage.foldername(name))[2] = auth.uid()::text
   );
 
--- Lesen für alle. Der Bucket ist öffentlich, das Objekt ginge also ohnehin über
--- den public-Pfad heraus; die Policy hält den Zustand auch dann, wenn der
--- Bucket später auf privat gestellt würde.
-create policy avatare_select_alle on storage.objects
-  for select to anon, authenticated
+-- Lesen NUR für authenticated, nicht für anon. Der Bucket selbst bleibt
+-- öffentlich lesbar (die Bild-URL braucht keine Session, siehe Spec §3) —
+-- das läuft über den public-Objektpfad der Storage-API, nicht über diese
+-- Tabellenzeilen. Ein `select` auf storage.objects ist dagegen ein Listing:
+-- anon hier zuzulassen würde jeden Schlüssel und damit jede user_id
+-- enumerierbar machen, genau das, was der unratbare Schlüssel verhindern
+-- soll (Spec §3: «der Schutz liegt im unratbaren Schlüssel»). Verifiziert
+-- (siehe Task-1-Fix-Report): der öffentliche Lesepfad funktioniert weiterhin
+-- ohne Authorization-Header, ein anonymes Listing scheitert.
+create policy avatare_select_authenticated on storage.objects
+  for select to authenticated
   using (bucket_id = 'avatare');
