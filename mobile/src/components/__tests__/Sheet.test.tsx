@@ -263,9 +263,32 @@ describe('Review Important 2, Maximalhöhe und Kino-Variante', () => {
   });
 });
 
+// Gerätefund 2026-08-13 (Namen-ändern-Sheet im Profil-Tab): die Tastatur
+// verdeckte das Panel vollständig und liess sich scheinbar nicht mehr
+// schliessen. Die KeyboardAvoidingView setzt bei behavior="padding" nur ein
+// paddingBottom AN SICH SELBST, und Padding erreicht absolut positionierte
+// Kinder nicht — derselbe Befund steht seit dem Caption-Feld wörtlich in
+// vorschau.tsx. Das Panel muss deshalb ein normales Flex-Kind sein (Wurzel
+// justifyContent 'flex-end', Panel ohne position:'absolute'), erst dann
+// schiebt das Padding es über die Tastatur. Jest führt kein Yoga-Layout aus;
+// prüfbar ist die STRUKTUR, aus der die Geometrie folgt, wie beim
+// Baumstellungs-Test in profilTab.test.tsx.
+test('das Panel ist ein Flex-Kind am unteren Rand, nicht absolut positioniert (sonst verdeckt die Tastatur es)', async () => {
+  await wrap(
+    <Sheet sichtbar onSchliessen={jest.fn()}>
+      <Text>Inhalt</Text>
+    </Sheet>
+  );
+  const wurzel = StyleSheet.flatten(screen.getByTestId('sheet-root').props.style);
+  expect(wurzel.justifyContent).toBe('flex-end');
+  const schatten = StyleSheet.flatten(screen.getByTestId('sheet-schatten').props.style);
+  expect(schatten.position).toBeUndefined();
+  expect(schatten.bottom).toBeUndefined();
+});
+
 // Review Important 2: ein Eingabefeld am unteren Rand (Task 12) braucht
 // Tastatur-Ausweichlogik, die sich aus einem Kind heraus ebenfalls nicht
-// nachrüsten lässt (das Sheet selbst ist `bottom:0`-positioniert).
+// nachrüsten lässt (das Sheet selbst hängt am unteren Rand).
 test('weicht der Tastatur aus (iOS: behavior="padding", gleiche Konvention wie preview.tsx)', async () => {
   await wrap(
     <Sheet sichtbar onSchliessen={jest.fn()}>

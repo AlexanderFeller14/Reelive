@@ -179,12 +179,18 @@ export function Sheet({ sichtbar, titel, onSchliessen, children, kino }: Props) 
   return (
     // Review Important 2: ein Eingabefeld am unteren Rand (Task 12: Kommentar-
     // Eingabe) braucht Tastatur-Ausweichlogik, das lässt sich aus einem Kind
-    // heraus nicht nachrüsten, weil das Sheet selbst `bottom:0`-positioniert
-    // ist. Gleiches Muster wie preview.tsx: `padding` auf iOS, Android regelt
-    // das über windowSoftInputMode am Fenster.
+    // heraus nicht nachrüsten. Gleiches Muster wie reise/neu.tsx: `padding`
+    // auf iOS, Android regelt das über windowSoftInputMode am Fenster.
+    //
+    // Gerätefund 2026-08-13 (Namen-ändern-Sheet): das Padding allein reichte
+    // NICHT, solange das Panel `position:'absolute', bottom:0` war — Padding
+    // erreicht absolut positionierte Kinder nicht (derselbe Befund wie beim
+    // Caption-Feld, ausführlich in vorschau.tsx). Deshalb ist das Panel ein
+    // normales Flex-Kind und `justifyContent:'flex-end'` hält es unten: so
+    // schiebt das Tastatur-Padding es tatsächlich hoch.
     <KeyboardAvoidingView
       testID="sheet-root"
-      style={StyleSheet.absoluteFill}
+      style={[StyleSheet.absoluteFill, styles.wurzel]}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <Pressable
@@ -226,11 +232,15 @@ const styles = StyleSheet.create({
   // denselben Wert («Scrim rgba(0,0,0,0.4) faded 250 ms», siehe dort) und
   // gilt für beide Sheets (hell UND Kino) unverändert.
   hintergrund: { backgroundColor: backdrop },
+  wurzel: { justifyContent: 'flex-end' },
   schatten: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
+    // KEIN position:'absolute' (Gerätefund 2026-08-13, Kommentar im JSX): als
+    // Flex-Kind am unteren Rand (wurzel: flex-end) hebt das Tastatur-Padding
+    // der KeyboardAvoidingView das Panel an, ein absolutes bottom:0 ignorierte
+    // es. `flexShrink: 1` gehört zum selben Fix: wird der Platz über der
+    // Tastatur knapp, staucht sich das Panel, statt oben aus dem Bild zu
+    // laufen (die volle Breite bringt `alignSelf: stretch` von allein mit).
+    flexShrink: 1,
     borderTopLeftRadius: radius.card,
     borderTopRightRadius: radius.card,
     ...shadow.s3,
