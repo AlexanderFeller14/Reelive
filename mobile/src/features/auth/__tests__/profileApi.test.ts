@@ -95,32 +95,22 @@ test('createProfile ordnet einen allgemeinen Fehler keinem Feld zu', async () =>
   expect(feld).toBeNull();
 });
 
-// «Namen bearbeiten» im Profil-Tab: dieselben Regeln wie beim Anlegen —
-// display_name getrimmt, Unique-Verletzung feldgenau dem Username zugeordnet.
-// Nur die eigene Zeile: die Spalten-Grants aus
-// 20260808150000_leerstrings_und_profil_grants.sql erlauben authenticated
-// genau username/display_name/avatar_key, die Policy profiles_update_own den
-// Rest.
-test('updateProfile schreibt beide Namen getrimmt auf die eigene Zeile', async () => {
+// «Anzeigename ändern» im Profil-Tab. Der Username ist hier BEWUSST nicht
+// dabei (Entscheid 2026-08-13): er soll später möglicherweise ein
+// Login-Identifikator werden, und ein freigewordener alter Name wäre dann
+// ein Verwechslungs-Risiko. Ohne serverseitige Bremse (Cooldown, Sperrfrist)
+// bleibt er fest — die Zusicherung hier ist deshalb auch, dass NUR
+// display_name im Update steht.
+test('updateProfile schreibt nur den getrimmten Anzeigenamen, nie den Username', async () => {
   mockUpdateEq.mockResolvedValueOnce({ error: null });
-  const { error, feld } = await updateProfile('uid-1', 'lea_neu', ' Lea Neu ');
+  const { error } = await updateProfile('uid-1', ' Lea Neu ');
   expect(error).toBeNull();
-  expect(feld).toBeNull();
-  expect(mockUpdate).toHaveBeenCalledWith({ username: 'lea_neu', display_name: 'Lea Neu' });
+  expect(mockUpdate).toHaveBeenCalledWith({ display_name: 'Lea Neu' });
   expect(mockUpdateEq).toHaveBeenCalledWith('id', 'uid-1');
 });
 
-test('updateProfile weist den vergebenen Username dem Username-Feld zu', async () => {
-  mockUpdateEq.mockResolvedValueOnce({ error: { code: '23505', message: 'duplicate key' } });
-  await expect(updateProfile('uid-1', 'lea', 'Lea')).resolves.toEqual({
-    error: 'Dieser Username ist vergeben, probier einen anderen.',
-    feld: 'username',
-  });
-});
-
-test('updateProfile ordnet einen allgemeinen Fehler keinem Feld zu', async () => {
+test('updateProfile meldet einen Fehler mit Ursache und Lösung', async () => {
   mockUpdateEq.mockResolvedValueOnce({ error: { code: '08006', message: 'connection failure' } });
-  const { error, feld } = await updateProfile('uid-1', 'lea', 'Lea');
+  const { error } = await updateProfile('uid-1', 'Lea');
   expect(error).toBe('Das Profil konnte nicht gespeichert werden. Probier es gleich nochmal.');
-  expect(feld).toBeNull();
 });

@@ -47,27 +47,26 @@ export async function createProfile(
   return { error: 'Das Profil konnte nicht gespeichert werden. Probier es gleich nochmal.', feld: null };
 }
 
-// «Namen bearbeiten» im Profil-Tab: dieselben Regeln und dieselbe
-// Fehler-Zuordnung wie createProfile, nur als UPDATE auf die eigene Zeile.
-// Serverseitig erlaubt: die Spalten-Grants aus
-// 20260808150000_leerstrings_und_profil_grants.sql geben authenticated genau
-// username/display_name/avatar_key frei, profiles_update_own bindet das an
-// die eigene id. avatar_key gehört NICHT hierher, das Bild läuft über
-// avatarApi (Upload und Aufräumen hängen dort dran).
+// «Anzeigename ändern» im Profil-Tab, als UPDATE auf die eigene Zeile
+// (profiles_update_own bindet es an die eigene id). Der USERNAME ist bewusst
+// nicht dabei (Entscheid 2026-08-13): er soll später möglicherweise ein
+// Login-Identifikator werden, und ein freigewordener alter Name wäre dann
+// ein Verwechslungs-Risiko. Änderbar wird er erst wieder mit einer
+// SERVERSEITIGEN Bremse (Cooldown, Sperrfrist für alte Namen) — eine reine
+// UI-Sperre wie diese hält einen gebastelten API-Aufruf nicht auf, die
+// Spalten-Grants (20260808150000) erlauben das Update technisch weiterhin.
+// avatar_key gehört ebenfalls nicht hierher, das Bild läuft über avatarApi
+// (Upload und Aufräumen hängen dort dran).
 export async function updateProfile(
   userId: string,
-  username: string,
   displayName: string,
-): Promise<{ error: string | null; feld: 'username' | null }> {
+): Promise<{ error: string | null }> {
   const { error } = await supabase
     .from('profiles')
-    .update({ username, display_name: displayName.trim() })
+    .update({ display_name: displayName.trim() })
     .eq('id', userId);
-  if (!error) return { error: null, feld: null };
-  if (error.code === '23505') {
-    return { error: 'Dieser Username ist vergeben, probier einen anderen.', feld: 'username' };
-  }
-  return { error: 'Das Profil konnte nicht gespeichert werden. Probier es gleich nochmal.', feld: null };
+  if (!error) return { error: null };
+  return { error: 'Das Profil konnte nicht gespeichert werden. Probier es gleich nochmal.' };
 }
 
 export async function fetchOwnProfile(userId: string): Promise<Profile | null> {

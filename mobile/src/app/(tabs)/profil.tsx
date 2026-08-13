@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, ScrollView, Switch, Text, View, StyleSheet } from 'react-native';
 import { Image } from 'expo-image';
+import { Pencil } from 'lucide-react-native';
 import { AvatarSheetInhalt, AvatarWaehler } from '@/components/AvatarWaehler';
 import { Button } from '@/components/Button';
 import { Card } from '@/components/Card';
@@ -15,7 +16,7 @@ import { Input } from '@/components/Input';
 import { entferneAvatar, setzeAvatar } from '@/features/auth/avatarApi';
 import type { Ausschnitt } from '@/features/auth/zuschnitt';
 import {
-  fetchOwnProfile, updateProfile, validateDisplayName, validateUsername, type Profile,
+  fetchOwnProfile, updateProfile, validateDisplayName, type Profile,
 } from '@/features/auth/profileApi';
 import { signOut } from '@/features/auth/authApi';
 import { nurUeberWlan, setzeNurUeberWlan } from '@/features/moments/einstellungen';
@@ -112,13 +113,17 @@ export default function ProfilScreen() {
   >(null);
   const [bildFehler, setBildFehler] = useState<string | null>(null);
 
-  // «Namen bearbeiten»: derselbe Schnitt wie beim Bild- und Lösch-Sheet — der
-  // Screen hält den Sheet-Zustand. Der Entwurf ist bewusst eigener State und
-  // kein Schreiben in `profile`: solange nicht gespeichert ist, bleibt der
+  // «Anzeigename ändern»: KEIN Bottom-Sheet, sondern ein Vollbild-Overlay wie
+  // der AvatarZuschnitt (Gerätefund + Entscheid 2026-08-13): im Sheet am
+  // unteren Rand sassen die Eingabefelder genau dort, wo die Tastatur steht.
+  // Im Vollbild stehen sie oben, die Tastatur hat den Platz darunter für
+  // sich. Der USERNAME hat hier bewusst kein Feld (Entscheid 2026-08-13,
+  // Begründung an updateProfile in profileApi.ts): fest, bis es eine
+  // serverseitige Bremse gibt. Der Entwurf ist eigener State und kein
+  // Schreiben in `profile`: solange nicht gespeichert ist, bleibt der
   // gespeicherte Stand die einzige Wahrheit auf dem Screen dahinter.
-  const [nameSheetSichtbar, setNameSheetSichtbar] = useState(false);
-  const [nameEntwurf, setNameEntwurf] = useState({ username: '', displayName: '' });
-  const [nameUsernameFehler, setNameUsernameFehler] = useState<string | undefined>();
+  const [nameEditorSichtbar, setNameEditorSichtbar] = useState(false);
+  const [nameEntwurf, setNameEntwurf] = useState('');
   const [nameAnzeigeFehler, setNameAnzeigeFehler] = useState<string | undefined>();
   const [nameFormFehler, setNameFormFehler] = useState<string | null>(null);
   const [nameLaeuft, setNameLaeuft] = useState(false);
@@ -239,41 +244,35 @@ export default function ProfilScreen() {
     setProfile((vorher) => (vorher ? { ...vorher, avatar_key: null } : vorher));
   };
 
-  // Öffnet mit den GESPEICHERTEN Werten, nicht mit einem etwaigen alten
-  // Entwurf: wer das Sheet zumacht und wieder öffnet, fängt beim Stand der
+  // Öffnet mit dem GESPEICHERTEN Wert, nicht mit einem etwaigen alten
+  // Entwurf: wer den Editor zumacht und wieder öffnet, fängt beim Stand der
   // Wahrheit an, nicht bei einem halb getippten Versuch.
   const nameBearbeitenOeffnen = () => {
     if (!profile) return;
-    setNameEntwurf({ username: profile.username, displayName: profile.display_name });
-    setNameUsernameFehler(undefined);
+    setNameEntwurf(profile.display_name);
     setNameAnzeigeFehler(undefined);
     setNameFormFehler(null);
-    setNameSheetSichtbar(true);
+    setNameEditorSichtbar(true);
   };
 
   const nameSpeichern = async () => {
     if (!userId) return;
-    // Dieselbe Reihenfolge wie das Onboarding (profile-setup.tsx): erst beide
-    // Validatoren, beide Meldungen feldgenau setzen, erst dann zum Server.
-    const uErr = validateUsername(nameEntwurf.username);
-    const dErr = validateDisplayName(nameEntwurf.displayName);
-    setNameUsernameFehler(uErr ?? undefined);
+    // Dieselbe Reihenfolge wie das Onboarding (profile-setup.tsx): erst der
+    // Validator mit feldgenauer Meldung, erst dann zum Server.
+    const dErr = validateDisplayName(nameEntwurf);
     setNameAnzeigeFehler(dErr ?? undefined);
     setNameFormFehler(null);
-    if (uErr || dErr) return;
+    if (dErr) return;
     setNameLaeuft(true);
-    const { error, feld } = await updateProfile(userId, nameEntwurf.username, nameEntwurf.displayName);
+    const { error } = await updateProfile(userId, nameEntwurf);
     setNameLaeuft(false);
-    if (error) {
-      if (feld === 'username') return setNameUsernameFehler(error);
-      return setNameFormFehler(error);
-    }
+    if (error) return setNameFormFehler(error);
     // Wie beim Profilbild: die Antwort IST der neue Stand, kein zweiter
     // Rundgang zur Datenbank. Getrimmt wie updateProfile es schreibt.
     setProfile((vorher) => (vorher
-      ? { ...vorher, username: nameEntwurf.username, display_name: nameEntwurf.displayName.trim() }
+      ? { ...vorher, display_name: nameEntwurf.trim() }
       : vorher));
-    setNameSheetSichtbar(false);
+    setNameEditorSichtbar(false);
   };
 
   return (
@@ -311,7 +310,7 @@ export default function ProfilScreen() {
         <PressScale
           testID="name-bearbeiten-oeffnen"
           accessibilityRole="button"
-          accessibilityLabel="Namen ändern"
+          accessibilityLabel="Anzeigename ändern"
           onPress={nameBearbeitenOeffnen}
         >
           <Card style={styles.zeile}>
@@ -331,6 +330,15 @@ export default function ProfilScreen() {
               <Text style={[type.secondary, { color: colors['text-2'] }]}>
                 {profile ? `@${profile.username}` : ''}
               </Text>
+            </View>
+            {/* Der Stift sagt «hier lässt sich etwas ändern», dieselbe Rolle
+                wie das Kamera-Badge am Profilbild oben. Lucide-Outline, nie
+                Emoji (§7); in text-2, weil er Hinweis ist, nicht Aktion —
+                das Tap-Ziel bleibt die ganze Karte. Im View-Wrapper wie das
+                Badge in AvatarWaehler.tsx: Lucide reicht testID nicht an den
+                gerenderten Knoten durch. */}
+            <View testID="name-bearbeiten-stift">
+              <Pencil size={20} color={colors['text-2']} strokeWidth={1.75} />
             </View>
           </Card>
         </PressScale>
@@ -398,30 +406,36 @@ export default function ProfilScreen() {
         />
       </Sheet>
 
-      {/* «Namen bearbeiten»: Sheet-Zustand und -Position folgen dem Bild-Sheet
-          darüber, die Feld-Reihenfolge dem Onboarding (Username zuerst). */}
-      <Sheet sichtbar={nameSheetSichtbar} titel="Namen ändern" onSchliessen={() => setNameSheetSichtbar(false)}>
-        <View style={{ gap: spacing.base }}>
-          <Input
-            label="Username"
-            value={nameEntwurf.username}
-            onChangeText={(t) => setNameEntwurf((e) => ({ ...e, username: t.toLowerCase() }))}
-            error={nameUsernameFehler}
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
-          <Input
-            label="Anzeigename"
-            value={nameEntwurf.displayName}
-            onChangeText={(t) => setNameEntwurf((e) => ({ ...e, displayName: t }))}
-            error={nameAnzeigeFehler}
-          />
-          {nameFormFehler && (
-            <Text style={[type.body, { color: colors.danger }]}>{nameFormFehler}</Text>
-          )}
-          <Button variant="primary" label="Speichern" onPress={() => void nameSpeichern()} loading={nameLaeuft} />
+      {/* «Anzeigename ändern» als Vollbild-Overlay (Begründung am State oben):
+          dasselbe Muster wie der AvatarZuschnitt darunter, nur hell statt
+          Kino, weil hier ein Formular steht und kein Foto (§1). Das Feld
+          steht oben, die Tastatur hat den Rest des Screens für sich. */}
+      {nameEditorSichtbar && (
+        <View testID="name-editor" style={[styles.nameEditor, { backgroundColor: colors['bg-0'] }]}>
+          <View style={[styles.nameEditorInhalt, { paddingTop: oben }]}>
+            <Text style={[type.h1, { color: colors['text-1'] }]}>Anzeigename ändern</Text>
+            <Text style={[type.secondary, { color: colors['text-2'] }]}>
+              Dein Username {profile ? `@${profile.username}` : ''} bleibt gleich.
+            </Text>
+            <Input
+              label="Anzeigename"
+              value={nameEntwurf}
+              onChangeText={setNameEntwurf}
+              error={nameAnzeigeFehler}
+            />
+            {nameFormFehler && (
+              <Text style={[type.body, { color: colors.danger }]}>{nameFormFehler}</Text>
+            )}
+            <Button variant="primary" label="Speichern" onPress={() => void nameSpeichern()} loading={nameLaeuft} />
+            <Button
+              variant="secondary"
+              label="Abbrechen"
+              onPress={() => setNameEditorSichtbar(false)}
+              disabled={nameLaeuft}
+            />
+          </View>
         </View>
-      </Sheet>
+      )}
 
       {/* Der Zuschnitt liegt über allem und ist deshalb der letzte Knoten:
           `allowsEditing` musste aus dem Bildwähler raus (es liess grosse
@@ -494,6 +508,11 @@ const styles = StyleSheet.create({
   },
   kopfbild: { alignItems: 'center' },
   reisepass: { width: REISEPASS, height: REISEPASS },
+  // `absoluteFill` gespreadet wie in AvatarZuschnitt.flaeche (dort steht auch,
+  // warum nicht absoluteFillObject). Die Fläche selbst kommt inline aus dem
+  // Theme.
+  nameEditor: { ...StyleSheet.absoluteFill },
+  nameEditorInhalt: { padding: spacing.screen, gap: spacing.l },
   zeile: { flexDirection: 'row', alignItems: 'center', gap: spacing.m },
   zeileText: { flex: 1, gap: spacing.xs },
   kontoLoeschenText: { textDecorationLine: 'underline', textAlign: 'center' },

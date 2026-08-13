@@ -346,57 +346,85 @@ describe('Benachrichtigungen', () => {
   });
 });
 
-// «Namen bearbeiten»: die Namens-Karte ist das Tap-Ziel, das Sheet gehört dem
-// Screen (Geschwister der ScrollView, wie Bild- und Lösch-Sheet).
-describe('Namen bearbeiten', () => {
-  test('die Namens-Karte öffnet das Sheet mit vorbefüllten Feldern', async () => {
+// «Anzeigename ändern»: die Namens-Karte ist das Tap-Ziel, ein Stift rechts
+// zeigt die Bearbeitbarkeit an. Der Editor ist KEIN Bottom-Sheet, sondern
+// ein Vollbild-Overlay wie der AvatarZuschnitt (Gerätefund + Entscheid
+// 2026-08-13): in einem Sheet am unteren Rand sassen die Felder genau dort,
+// wo die Tastatur steht. Der USERNAME ist bewusst NICHT dabei (Entscheid
+// 2026-08-13): er soll später möglicherweise ein Login-Identifikator werden,
+// ein freigewordener alter Name wäre dann ein Verwechslungs-Risiko.
+describe('Anzeigename ändern', () => {
+  test('die Namens-Karte trägt einen Stift als Bearbeiten-Hinweis', async () => {
     await wrap(<ProfilScreen />);
     await screen.findByText('Lea');
-    await fireEvent.press(screen.getByTestId('name-bearbeiten-oeffnen'));
-    // Vorbefüllt heisst: die GESPEICHERTEN Werte stehen in den Feldern, nicht
-    // leere Inputs (getByDisplayValue trifft nur TextInputs, nicht den
-    // Kartentext daneben).
-    expect(screen.getByDisplayValue('lea')).toBeTruthy();
-    expect(screen.getByDisplayValue('Lea')).toBeTruthy();
+    const karte = screen.getByTestId('name-bearbeiten-oeffnen');
+    expect(within(karte).getByTestId('name-bearbeiten-stift')).toBeTruthy();
   });
 
-  test('Speichern schreibt beide Namen und zeigt sie sofort an', async () => {
-    (updateProfile as jest.Mock).mockResolvedValue({ error: null, feld: null });
+  test('die Namens-Karte öffnet den Vollbild-Editor: Anzeigename vorbefüllt, KEIN Username-Feld', async () => {
     await wrap(<ProfilScreen />);
     await screen.findByText('Lea');
     await fireEvent.press(screen.getByTestId('name-bearbeiten-oeffnen'));
-    await fireEvent.changeText(screen.getByDisplayValue('lea'), 'lea_neu');
+    // Vorbefüllt heisst: der GESPEICHERTE Wert steht im Feld (getByDisplayValue
+    // trifft nur TextInputs, nicht den Kartentext daneben). Der Username hat
+    // kein Eingabefeld — fest, bis es eine serverseitige Bremse gibt.
+    expect(screen.getByDisplayValue('Lea')).toBeTruthy();
+    expect(screen.queryByDisplayValue('lea')).toBeNull();
+    // Vollbild-Overlay, kein Sheet: der Editor liegt wie der Zuschnitt als
+    // Geschwister ÜBER dem Screen, nicht im Scroll-Inhalt (Baumstellung wie
+    // beim Bild-Sheet-Test unten — aus ihr folgt die Geometrie).
+    expect(screen.getByTestId('name-editor')).toBeTruthy();
+    expect(screen.queryByTestId('sheet-root')).toBeNull();
+    expect(within(screen.getByTestId('profil-inhalt')).queryByTestId('name-editor')).toBeNull();
+  });
+
+  test('Speichern schreibt den Anzeigenamen und zeigt ihn sofort an, der Username bleibt', async () => {
+    (updateProfile as jest.Mock).mockResolvedValue({ error: null });
+    await wrap(<ProfilScreen />);
+    await screen.findByText('Lea');
+    await fireEvent.press(screen.getByTestId('name-bearbeiten-oeffnen'));
     await fireEvent.changeText(screen.getByDisplayValue('Lea'), 'Lea Neu');
     await fireEvent.press(screen.getByText('Speichern'));
-    await waitFor(() => expect(updateProfile).toHaveBeenCalledWith('uid-1', 'lea_neu', 'Lea Neu'));
+    await waitFor(() => expect(updateProfile).toHaveBeenCalledWith('uid-1', 'Lea Neu'));
     // Wie beim Profilbild: die Antwort IST der neue Stand, kein zweiter
     // fetchOwnProfile-Rundgang.
     expect(await screen.findByText('Lea Neu')).toBeTruthy();
-    expect(screen.getByText('@lea_neu')).toBeTruthy();
-    expect((fetchOwnProfile as jest.Mock).mock.calls.length).toBe(1);
-    // Das Sheet ist zu.
-    expect(screen.queryByTestId('sheet-root')).toBeNull();
-  });
-
-  test('ein vergebener Username steht am Feld, das Sheet bleibt offen, der alte Name bleibt stehen', async () => {
-    (updateProfile as jest.Mock).mockResolvedValue({ error: 'VERGEBEN', feld: 'username' });
-    await wrap(<ProfilScreen />);
-    await screen.findByText('Lea');
-    await fireEvent.press(screen.getByTestId('name-bearbeiten-oeffnen'));
-    await fireEvent.changeText(screen.getByDisplayValue('lea'), 'lea_neu');
-    await fireEvent.press(screen.getByText('Speichern'));
-    expect(await screen.findByText('VERGEBEN')).toBeTruthy();
-    expect(screen.getByTestId('sheet-root')).toBeTruthy();
     expect(screen.getByText('@lea')).toBeTruthy();
+    expect((fetchOwnProfile as jest.Mock).mock.calls.length).toBe(1);
+    // Der Editor ist zu.
+    expect(screen.queryByTestId('name-editor')).toBeNull();
   });
 
-  test('ein ungültiger Username ruft die API gar nicht erst', async () => {
+  test('ein Serverfehler steht im Editor, der bleibt offen, der alte Name bleibt stehen', async () => {
+    (updateProfile as jest.Mock).mockResolvedValue({ error: 'KAPUTT' });
     await wrap(<ProfilScreen />);
     await screen.findByText('Lea');
     await fireEvent.press(screen.getByTestId('name-bearbeiten-oeffnen'));
-    await fireEvent.changeText(screen.getByDisplayValue('lea'), 'X');
+    await fireEvent.changeText(screen.getByDisplayValue('Lea'), 'Lea Neu');
     await fireEvent.press(screen.getByText('Speichern'));
-    expect(await screen.findByText('USERNAME-REGEL')).toBeTruthy();
+    expect(await screen.findByText('KAPUTT')).toBeTruthy();
+    expect(screen.getByTestId('name-editor')).toBeTruthy();
+    expect(screen.getByText('Lea')).toBeTruthy();
+  });
+
+  test('«Abbrechen» schliesst den Editor, ohne zu speichern', async () => {
+    await wrap(<ProfilScreen />);
+    await screen.findByText('Lea');
+    await fireEvent.press(screen.getByTestId('name-bearbeiten-oeffnen'));
+    await fireEvent.changeText(screen.getByDisplayValue('Lea'), 'Lea Neu');
+    await fireEvent.press(screen.getByText('Abbrechen'));
+    expect(screen.queryByTestId('name-editor')).toBeNull();
+    expect(updateProfile).not.toHaveBeenCalled();
+    expect(screen.getByText('Lea')).toBeTruthy();
+  });
+
+  test('ein leerer Anzeigename ruft die API gar nicht erst', async () => {
+    await wrap(<ProfilScreen />);
+    await screen.findByText('Lea');
+    await fireEvent.press(screen.getByTestId('name-bearbeiten-oeffnen'));
+    await fireEvent.changeText(screen.getByDisplayValue('Lea'), '   ');
+    await fireEvent.press(screen.getByText('Speichern'));
+    expect(await screen.findByText('NAME-REGEL')).toBeTruthy();
     expect(updateProfile).not.toHaveBeenCalled();
   });
 });
