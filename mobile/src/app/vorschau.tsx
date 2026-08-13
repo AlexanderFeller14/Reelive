@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Animated,
-  Image,
   Keyboard,
   LayoutAnimation,
   PanResponder,
@@ -15,8 +14,9 @@ import {
 } from 'react-native';
 import { Pencil, X } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { setStatusBarStyle } from 'expo-status-bar';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { Pille } from '@/components/Pille';
@@ -26,6 +26,7 @@ import { cinema, palette, radius, spacing, type } from '@/theme/tokens';
 import { useOberkante, useUnterkante } from '@/theme/useOberkante';
 import * as medien from '@/features/moments/medien';
 import * as ortUndZeit from '@/features/moments/ortUndZeit';
+import * as uebergabe from '@/features/kamera/uebergabe';
 import * as uploadWorker from '@/features/moments/uploadWorker';
 import { useAuth } from '@/features/auth/AuthProvider';
 import type { QueueJob } from '@/features/moments/types';
@@ -111,7 +112,7 @@ export default function PreviewScreen() {
   const insets = useSafeAreaInsets();
   const unterkante = Math.max(spacing.base, insets.bottom);
   const { uri, typ, dauer, tripId } = useLocalSearchParams<{
-    uri: string;
+    uri?: string;
     typ: 'photo' | 'video';
     dauer: string;
     tripId?: string;
@@ -131,12 +132,19 @@ export default function PreviewScreen() {
   // Tastenanschlag an der Caption weiterbewegen.
   const [zeit] = useState(() => ortUndZeit.jetzt());
 
+  // Das Foto kommt seit dem Instant-Foto (Spec 2026-08-13 §4) als natives
+  // Speicher-Objekt über das Übergabe-Modul, nicht als Datei-URI: EINMAL
+  // beim Erscheinen abgeholt, wie `zeit` daneben. Videos (und der
+  // Deep-Link-Fall) tragen weiterhin eine uri in den Params — `foto` ist
+  // dann null und alles läuft den alten Weg.
+  const [foto] = useState(() => (typ === 'photo' ? uebergabe.abholen() : null));
+
   // Nachzug aus Task 8 (Video-Nachzug): «das Aufgenommene formatfüllend» gilt
   // auch für Videos, dieser Screen ist der letzte Blick vor dem Versiegeln.
   // Stumm und in Schleife, ohne Bedienelemente: eine Vorschau, kein Player.
   // `source: null` bei Fotos, damit kein Player für eine Bild-URI angelegt
   // wird (Hooks laufen unabhängig von `typ` unbedingt, siehe Hook-Regeln).
-  const player = useVideoPlayer(typ === 'video' ? uri : null, (p) => {
+  const player = useVideoPlayer(typ === 'video' ? (uri ?? null) : null, (p) => {
     p.loop = true;
     p.muted = true;
     p.play();
@@ -146,6 +154,13 @@ export default function PreviewScreen() {
     setStatusBarStyle('light');
     return () => setStatusBarStyle('dark');
   }, []);
+
+  // Weder Übergabe noch uri: per Deep Link geöffnet, ohne dass je eine
+  // Aufnahme entstand. Zurück zur Kamera statt eines leeren Screens.
+  const quelleFehlt = typ === 'photo' ? !foto && !uri : !uri;
+  useEffect(() => {
+    if (quelleFehlt) router.replace('/aufnehmen');
+  }, [quelleFehlt, router]);
 
   // Höhe der stehenden Tastatur, 0 heisst geschlossen.
   //
@@ -256,11 +271,16 @@ export default function PreviewScreen() {
 
   const verwerfen = () => {
     if (sendet) return;
-    // Final-Review, Critical 2: auch der Verwerfen-Weg hinterliess bisher eine
-    // Datei, die Rohaufnahme aus der Kamera. Sie liegt im Cache, wird von hier
-    // an von niemandem mehr gebraucht und darf nicht zum Speicherdruck
-    // beitragen, der die Warteschlange gefährdet.
-    medien.dateiVerwerfen(uri);
+    // Final-Review, Critical 2 (unverändert gültig): auch der Verwerfen-Weg
+    // darf keine Datei hinterlassen. Beim Instant-Foto entsteht sie im
+    // Hintergrund und ist womöglich noch nicht fertig — deshalb hängt das
+    // Abräumen am Promise statt an einem Wert. Scheiterte das Speichern,
+    // gibt es nichts zu räumen.
+    if (foto) {
+      void foto.datei.then((d) => medien.dateiVerwerfen(d.uri)).catch(() => {});
+    } else if (uri) {
+      medien.dateiVerwerfen(uri);
+    }
     zurueckZurKamera();
   };
 
@@ -295,9 +315,21 @@ export default function PreviewScreen() {
     // Ausserhalb des try: der catch-Zweig muss wissen, was schon entstanden
     // ist, um genau das Abgeleitete freizugeben, und nichts sonst.
     let aufbereitet: { medium: string; thumb: string } | null = null;
+    // Die Quelle der Aufnahme: beim Instant-Foto die im Hintergrund
+    // gespeicherte Datei (das await unten wartet, falls sie noch schreibt,
+    // und wirft, falls sie scheiterte — voller Speicher landet damit im
+    // selben catch wie bisher), sonst die uri aus den Params.
+    let quelle: string | null = null;
     try {
+      quelle = foto ? (await foto.datei).uri : (uri ?? null);
+      if (!quelle) {
+        // quelleFehlt leitet bereits um, hierher kommt es nie — aber wenn
+        // doch, darf der Knopf nicht für immer im Lade-Zustand hängen.
+        setSendet(false);
+        return;
+      }
       aufbereitet =
-        typ === 'video' ? await medien.videoAufbereiten(uri) : await medien.fotoAufbereiten(uri);
+        typ === 'video' ? await medien.videoAufbereiten(quelle) : await medien.fotoAufbereiten(quelle);
 
       // Final-Review, Critical 2: Kamera, Bildbearbeitung und Video-Standbild
       // schreiben alle nach Library/Caches, ein Verzeichnis, das iOS unter
@@ -348,8 +380,8 @@ export default function PreviewScreen() {
       // die Quellen weg: die Rohaufnahme aus der Kamera und alles daraus
       // Abgeleitete im Cache. Vorher wäre bei einem Video die einzige Kopie
       // dran (Re-Review).
-      medien.dateiVerwerfen(uri);
-      medien.zwischenfassungenVerwerfen(uri, aufbereitet);
+      medien.dateiVerwerfen(quelle);
+      medien.zwischenfassungenVerwerfen(quelle, aufbereitet);
 
       // Der Moment ist ab hier bereits sicher in der Warteschlange, die
       // Versiegelungs-Inszenierung (Gold-Glow, 700–900 ms, Haptik success,
@@ -372,7 +404,7 @@ export default function PreviewScreen() {
       // bleibt stehen und ein zweiter Versuch braucht sie noch. Bei einem Video
       // IST sie das Medium, und zwischenfassungenVerwerfen lässt genau sie in
       // Ruhe.
-      if (aufbereitet) medien.zwischenfassungenVerwerfen(uri, aufbereitet);
+      if (aufbereitet && quelle) medien.zwischenfassungenVerwerfen(quelle, aufbereitet);
       console.error('[preview] Einsenden fehlgeschlagen', fehler);
       setSendeFehler(SENDEN_FEHLGESCHLAGEN_MELDUNG);
       setSendet(false);
@@ -393,8 +425,16 @@ export default function PreviewScreen() {
   // ist. `spacing.xl` ist nur der Stand, bis der Fuss sich einmal gemessen hat.
   const ruhePosition = unterkante + (fussHoehe || spacing.xl) + spacing.base;
 
+  if (quelleFehlt) return null;
+
   return (
     <View style={styles.screen}>
+      {/* Ohne Slide, als dokumentierte §5-Ausnahme (Spec 2026-08-13 §6):
+          eingefrorenes Sucherbild und Aufnahme sind deckungsgleich, ein
+          Parallax-Slide würde dasselbe Vollbild wegschieben und wieder
+          hereinholen — er inszeniert einen Ortswechsel, den es nicht gibt. */}
+      <Stack.Screen options={{ animation: 'none' }} />
+
       {typ === 'video' ? (
         <VideoView
           testID="video-vorschau"
@@ -405,7 +445,12 @@ export default function PreviewScreen() {
           allowsPictureInPicture={false}
         />
       ) : (
-        <Image source={{ uri }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+        <Image
+          testID="foto-vorschau"
+          source={foto ? foto.ref : { uri }}
+          style={StyleSheet.absoluteFill}
+          contentFit="cover"
+        />
       )}
 
       {/* Foto-Scrims: der einzige erlaubte Gradient der App (DESIGN-LANGUAGE §1). */}

@@ -23,7 +23,16 @@ jest.mock('expo-router', () => ({
     canGoBack: () => mockKannZurueck,
   }),
   useLocalSearchParams: () => mockParams,
+  Stack: { Screen: () => null },
 }));
+
+// expo-image ist ein natives View; der Platzhalter reicht den source-Prop
+// durch, damit die Tests prüfen können, ob Ref oder URI ankommt.
+jest.mock('expo-image', () => {
+  const ReactActual = require('react');
+  const { View } = require('react-native');
+  return { Image: (props: object) => ReactActual.createElement(View, props) };
+});
 
 const mockSetStatusBarStyle = jest.fn();
 jest.mock('expo-status-bar', () => ({
@@ -112,6 +121,7 @@ jest.mock('@/components/Versiegelung', () => {
   };
 });
 
+import * as uebergabe from '@/features/kamera/uebergabe';
 import PreviewScreen from '../vorschau';
 
 // Nicht hart auf "14:34" verdrahtet: welche lokale Uhrzeit aus dem UTC-ISO-Wert
@@ -152,6 +162,9 @@ beforeEach(() => {
   // Antwort braucht, überschreibt das explizit. So bleibt sichtbar, dass die
   // Anzeige nicht auf den Ort wartet, bevor sie den Screen zeigt.
   mockOrtBestimmen.mockImplementation(() => new Promise(() => {}));
+  // Leert den Holder zwischen den Tests: ohne Test-Foto läuft jeder
+  // bestehende Foto-Test über den alten uri-Weg (foto === null).
+  uebergabe.abholen();
 });
 
 test('die Aufnahme erscheint sofort, ohne auf den Ort zu warten', async () => {
@@ -768,4 +781,67 @@ test('das Eingabefeld setzt keine Zeilenhöhe', async () => {
   const stil = StyleSheet.flatten(screen.getByLabelText('Bildunterschrift').props.style);
   expect(stil.lineHeight).toBeUndefined();
   expect(stil.fontSize).toBe(16);
+});
+
+// ——— Instant-Foto (Spec 2026-08-13-aufnahme-tempo-design.md §4) ———
+//
+// Das Foto kommt als natives Speicher-Objekt über das Übergabe-Modul, nicht
+// mehr als Datei-URI durch die Params. Die Datei entsteht im Hintergrund;
+// Einsenden wartet auf sie, der Rest der Pipeline bleibt unverändert.
+const fakeRef = { breite: 1920 } as never;
+
+test('ein übergebenes Foto wird aus dem Speicher angezeigt', async () => {
+  mockParams = { typ: 'photo', dauer: '0', tripId: 't1' };
+  uebergabe.uebergeben({ ref: fakeRef, datei: Promise.resolve({ uri: 'file://gespeichert.jpg' }) });
+  await render(<PreviewScreen />);
+  expect(screen.getByTestId('foto-vorschau').props.source).toBe(fakeRef);
+});
+
+test('Einsenden wartet auf die im Hintergrund gespeicherte Datei', async () => {
+  mockParams = { typ: 'photo', dauer: '0', tripId: 't1' };
+  let dateiAufloesen: (v: { uri: string }) => void = () => {};
+  uebergabe.uebergeben({
+    ref: fakeRef,
+    datei: new Promise((resolve) => {
+      dateiAufloesen = resolve;
+    }),
+  });
+  await render(<PreviewScreen />);
+  await fireEvent.press(screen.getByTestId('einsenden-knopf'));
+
+  // Vor der Datei darf nichts aufbereitet werden.
+  expect(mockFotoAufbereiten).not.toHaveBeenCalled();
+
+  await act(async () => {
+    dateiAufloesen({ uri: 'file://gespeichert.jpg' });
+  });
+  await waitFor(() => expect(mockFotoAufbereiten).toHaveBeenCalledWith('file://gespeichert.jpg'));
+});
+
+test('scheitert das Hintergrund-Speichern, sagt es der bestehende Fehlerpfad', async () => {
+  mockParams = { typ: 'photo', dauer: '0', tripId: 't1' };
+  uebergabe.uebergeben({ ref: fakeRef, datei: Promise.reject(new Error('voll')) });
+  await render(<PreviewScreen />);
+  await fireEvent.press(screen.getByTestId('einsenden-knopf'));
+  expect(
+    await screen.findByText(
+      'Der Moment konnte nicht gesichert werden, oft weil kein Speicherplatz mehr frei ist. Räum etwas Platz frei und versuch es nochmal.'
+    )
+  ).toBeTruthy();
+  expect(mockJobEinreihen).not.toHaveBeenCalled();
+});
+
+test('Verwerfen räumt auch die im Hintergrund entstandene Datei ab', async () => {
+  mockParams = { typ: 'photo', dauer: '0', tripId: 't1' };
+  uebergabe.uebergeben({ ref: fakeRef, datei: Promise.resolve({ uri: 'file://gespeichert.jpg' }) });
+  await render(<PreviewScreen />);
+  await fireEvent.press(screen.getByTestId('verwerfen-knopf'));
+  await waitFor(() => expect(mockDateiVerwerfen).toHaveBeenCalledWith('file://gespeichert.jpg'));
+  expect(mockBack).toHaveBeenCalled();
+});
+
+test('ohne Übergabe und ohne uri führt die Vorschau zurück zur Kamera', async () => {
+  mockParams = { typ: 'photo', dauer: '0', tripId: 't1' };
+  await render(<PreviewScreen />);
+  await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/aufnehmen'));
 });
