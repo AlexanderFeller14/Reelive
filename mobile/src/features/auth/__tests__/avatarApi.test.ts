@@ -15,6 +15,21 @@ const mockHochgeladen = jest.fn();
 const mockEntfernt = jest.fn();
 const mockAktualisiert = jest.fn();
 
+// Der HTTP-Status, den der gemockte Upload zurückgibt — steuerbar pro Test.
+//
+// Vorher stand hier fest `{ status: 200 }`, und damit war der Statuszweig in
+// avatarApi.hochladen() von KEINEM Test erreichbar: man konnte die Prüfung
+// ersatzlos löschen, die Suite blieb grün. Genau diese Prüfung trägt aber die
+// Zusicherung aus Spec §5.4 — `File.upload()` wirft bei 4xx/5xx nicht, sondern
+// liefert die Antwort zurück. Ohne sie setzte ein abgelehnter Upload (413 über
+// dem 2-MiB-Bucket-Limit, 403 bei verletzter Ordner-Policy) `avatar_key` auf
+// einen Schlüssel ohne Bytes dahinter: eine kaputte Kachel für jeden
+// Mitreisenden und im geteilten Recap.
+//
+// "mock"-Präfix aus demselben Hebungs-Grund wie oben; die Variable wird erst
+// zur Aufrufzeit von upload() gelesen, nicht beim Hochziehen der Factory.
+let mockUploadStatus = 200;
+
 // avatarApi ruft neuerAvatarSchluessel (avatar.ts) auf, und die nutzt echtes
 // expo-crypto. Im Jest-Environment ersetzt jest-expo jedes native Modul
 // automatisch durch den generierten No-op-Mock aus
@@ -54,7 +69,7 @@ jest.mock('expo-file-system', () => ({
     }
     upload = (...args: unknown[]) => {
       mockHochgeladen(...args);
-      return Promise.resolve({ status: 200 });
+      return Promise.resolve({ status: mockUploadStatus });
     };
   },
 }));
@@ -82,6 +97,7 @@ beforeEach(() => {
   mockHochgeladen.mockReset();
   mockEntfernt.mockReset();
   mockAktualisiert.mockReset();
+  mockUploadStatus = 200;
 });
 
 test('setzeAvatar laedt hoch, setzt die Spalte und raeumt das alte Objekt weg', async () => {
@@ -115,6 +131,23 @@ test('ein gescheitertes Aufraeumen laesst das neue Bild stehen', async () => {
 test('ein gescheiterter Upload setzt die Spalte nicht', async () => {
   mockHochgeladen.mockImplementation(() => { throw new Error('kein Netz'); });
   const { avatarKey, error } = await setzeAvatar(UID, 'file:///gewaehlt.jpg', null);
+  expect(avatarKey).toBeNull();
+  expect(error).toBe('Das Bild konnte nicht hochgeladen werden. Probier es gleich nochmal.');
+  expect(mockAktualisiert).not.toHaveBeenCalled();
+});
+
+// Der Fall, der ohne steuerbaren Status unprüfbar war (siehe mockUploadStatus
+// oben): der Upload läuft technisch DURCH, `File.upload()` wirft nicht, aber
+// der Server lehnt ab. 413 ist der realistische Fall — der Bucket `avatare`
+// begrenzt auf 2 MiB (Migration 20260812130000), 403 wäre der zweite (Ordner-
+// Policy). Die Spalte darf danach nichts wissen wollen von einem Schlüssel,
+// hinter dem keine Bytes liegen.
+test('ein mit 4xx abgelehnter Upload setzt die Spalte nicht', async () => {
+  mockUploadStatus = 413;
+  const { avatarKey, error } = await setzeAvatar(UID, 'file:///zu-gross.jpg', null);
+  // Der Versuch fand statt — sonst prüfte dieser Test nur, dass gar nichts
+  // passierte, und wäre auch bei einem kaputten Mock grün.
+  expect(mockHochgeladen).toHaveBeenCalledTimes(1);
   expect(avatarKey).toBeNull();
   expect(error).toBe('Das Bild konnte nicht hochgeladen werden. Probier es gleich nochmal.');
   expect(mockAktualisiert).not.toHaveBeenCalled();
