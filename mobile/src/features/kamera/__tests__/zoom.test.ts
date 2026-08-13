@@ -82,6 +82,11 @@ test.each([
   [12, '12×'],
   [2.34, '2,3×'],
   [1.96, '2×'],
+  // Ab zweistellig ohne Nachkommastelle, wie in der Kamera-App: «12,5×» wäre
+  // fünf Zeichen und liefe aus der schmalen Stufe heraus.
+  [12.4, '12×'],
+  [12.5, '13×'],
+  [27.8, '28×'],
 ])('%p steht als %p auf der Stufe', (faktor, erwartet) => {
   expect(beschriftung(faktor)).toBe(erwartet);
 });

@@ -37,6 +37,11 @@ export function ZoomWahl({ stufen, faktor, onWahl }: Props) {
             accessibilityRole="button"
             accessibilityLabel={`Zoom ${text}`}
             accessibilityState={{ selected: istAktiv }}
+            // Die Stufen sind flacher als eine bequeme Druckfläche, also wird
+            // sie nach oben und unten erweitert: sichtbar 24, treffbar 48. Zur
+            // Seite nicht, dort stossen die Nachbarn an und ihre Flächen
+            // überlappten sonst.
+            hitSlop={{ top: spacing.m, bottom: spacing.m }}
             onPress={() => {
               // Beiwerk (§5): eine verweigerte Haptik darf den Zoom nie
               // aufhalten, gleiches Muster wie im Auslöser.
@@ -44,8 +49,10 @@ export function ZoomWahl({ stufen, faktor, onWahl }: Props) {
               onWahl(stufe);
             }}
           >
-            <View style={[styles.stufe, istAktiv && styles.stufeAktiv]}>
-              <Text style={[type.label, istAktiv ? styles.textAktiv : styles.text]}>{text}</Text>
+            <View style={styles.stufe}>
+              <Text numberOfLines={1} style={[type.label, istAktiv ? styles.textAktiv : styles.text]}>
+                {text}
+              </Text>
             </View>
           </PressScale>
         );
@@ -62,19 +69,24 @@ const styles = StyleSheet.create({
     padding: spacing.xs,
     borderRadius: radius.pill,
   },
-  // 44 ist die Mindestgrösse einer Druckfläche und zugleich das Mass der
-  // Steuer-Pillen oben im Sucher. Kein Abstand dazwischen: die Kreise stossen
-  // aneinander, wie in der Kamera-App, und die Druckflächen überlappen sich
-  // dadurch nicht.
+  // Flach gehalten: 24 hoch aus dem 4er-Raster (§3), deutlich weniger als die
+  // 44 der Steuer-Pillen oben. Die Reihe liegt mitten im Bild und soll es
+  // nicht beschweren; da die Stufen keine Fläche mehr tragen, zählt ohnehin
+  // nur, wie viel Höhe die Zeile im Bild einnimmt. Die Breite ist eine
+  // Untergrenze, damit ein langer Wert («2,3×» während des Pinchs) die Stufe
+  // dehnt, statt überzulaufen.
   stufe: {
-    width: 44,
-    height: 44,
+    minWidth: 32,
+    height: 24,
+    paddingHorizontal: spacing.xs,
     borderRadius: radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  stufeAktiv: { backgroundColor: cinema['text-1'] },
-  text: { color: cinema['text-1'] },
-  // Auf heller Füllung kehrt sich der Kontrast um.
-  textAktiv: { color: cinema['bg-0'] },
+  // Die aktive Stufe trägt keine gefüllte Scheibe mehr, sondern nur die
+  // hellere Schrift — dasselbe Mittel, mit dem die Tab-Bar aktiv von inaktiv
+  // trennt (§4). Auf einem Kamerabild ist jede zusätzliche Fläche eine, die
+  // das Motiv verdeckt.
+  text: { color: cinema['text-2'] },
+  textAktiv: { color: cinema['text-1'] },
 });

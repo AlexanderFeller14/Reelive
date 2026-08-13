@@ -88,10 +88,16 @@ export function begrenzen(
   return Math.min(Math.max(anzeige, grenzen.min * basis), grenzen.max * basis);
 }
 
+// Ab wann die Nachkommastelle entfällt. Zweistellig plus Komma plus Ziffer
+// wären fünf Zeichen, und die Stufe ist ein kleiner Kreis — die Kamera-App
+// macht an derselben Grenze dasselbe.
+const OHNE_NACHKOMMA_AB = 10;
+
 // Eine Nachkommastelle, und die nur, wenn sie etwas sagt: «1×» statt «1,0×».
 // Komma statt Punkt, weil die Oberfläche deutsch ist (DESIGN-LANGUAGE §6).
 export function beschriftung(faktor: number): string {
-  const gerundet = Math.round(faktor * 10) / 10;
+  const gerundet =
+    faktor >= OHNE_NACHKOMMA_AB ? Math.round(faktor) : Math.round(faktor * 10) / 10;
   return `${String(gerundet).replace('.', ',')}×`;
 }
 

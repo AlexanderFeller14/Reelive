@@ -82,16 +82,26 @@ const TIPP_RADIUS = 24;
 // liegt, rechnet ab dieser Zahl.
 const AUSLOESER_GROESSE = 76;
 
-// Höhe der Zoom-Reihe: 44 Druckfläche plus zweimal 4 Innenabstand der Pille
+// Wie weit der Auslöser über dem unteren Rand sitzt, und damit die ganze
+// untere Bedienung: Die Zoom-Reihe und die Fehlermeldung stapeln sich darüber.
+// In zwei Schritten von 48 auf 16 gesunken, beide Male nach dem Blick aufs
+// Gerät — die Bedienung stand zu weit im Bild. Darunter beginnt die Tab-Bar
+// (49 + 8 + Geräte-Inset), viel tiefer geht es also nicht.
+const AUSLOESER_UNTEN = spacing.base;
+
+// Wie dicht die Zoom-Reihe über dem Auslöser sitzt.
+const ZOOM_ABSTAND = spacing.s;
+
+// Höhe der Zoom-Reihe: 24 Stufe plus zweimal 4 Innenabstand der Pille
 // (components/ZoomWahl.tsx).
-const ZOOM_REIHE_HOEHE = 44 + 2 * spacing.xs;
+const ZOOM_REIHE_HOEHE = 24 + 2 * spacing.xs;
 
 // Wo die Fehlermeldung steht: über dem Auslöser, und über der Zoom-Reihe,
 // falls das Gerät eine hat. Ohne diese Verschiebung lägen beide übereinander,
 // denn die Meldung erscheint direkt nach einer Aufnahme — also genau dann,
 // wenn die Reihe wieder im Bild steht.
 function fehlerUnten(mitZoomReihe: boolean): number {
-  const ueberDemAusloeser = spacing.xxl + AUSLOESER_GROESSE + spacing.l;
+  const ueberDemAusloeser = AUSLOESER_UNTEN + AUSLOESER_GROESSE + spacing.l;
   return mitZoomReihe ? ueberDemAusloeser + ZOOM_REIHE_HOEHE + spacing.m : ueberDemAusloeser;
 }
 
@@ -971,14 +981,14 @@ const styles = StyleSheet.create({
   },
   ausloeserWrap: {
     position: 'absolute',
-    bottom: spacing.xxl,
+    bottom: AUSLOESER_UNTEN,
     alignSelf: 'center',
   },
-  // Direkt über dem Auslöser, wie in der Kamera-App: 48 Bodenabstand plus
-  // dessen Durchmesser plus ein Layout-Abstand.
+  // Dicht über dem Auslöser, wie in der Kamera-App: dessen Bodenabstand plus
+  // Durchmesser plus der knappe Abstand dazwischen.
   zoomWrap: {
     position: 'absolute',
-    bottom: spacing.xxl + AUSLOESER_GROESSE + spacing.m,
+    bottom: AUSLOESER_UNTEN + AUSLOESER_GROESSE + ZOOM_ABSTAND,
     alignSelf: 'center',
   },
   // Über dem Auslöser, nicht darunter (dort liegt die Tab-Bar) und nicht
