@@ -74,7 +74,8 @@
       "./plugins/withSceneLifecycle",
       "./plugins/withPushEntitlement",
       "./plugins/withSentryOhneUpload",
-      "./plugins/withAppleTeam"
+      "./plugins/withAppleTeam",
+      "./plugins/withPodWarnungenStumm"
     ],
     "experiments": {
       "typedRoutes": true,
