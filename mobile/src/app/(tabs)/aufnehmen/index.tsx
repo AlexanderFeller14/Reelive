@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
+  Dimensions,
   Easing,
   ScrollView,
   StyleSheet,
@@ -20,7 +21,7 @@ import { Pille } from '@/components/Pille';
 import { PressScale } from '@/components/PressScale';
 import { ZoomWahl } from '@/components/ZoomWahl';
 import * as nativeZoom from '@/features/kamera/nativeZoom';
-import { begrenzen, fingerAbstand, nativerFaktor, zoomGeraet } from '@/features/kamera/zoom';
+import { begrenzen, fingerAbstand, nativerFaktor, zoomGeraet, zugFaktor } from '@/features/kamera/zoom';
 import { cinema, palette, radius, spacing, type } from '@/theme/tokens';
 import { useOberkante } from '@/theme/useOberkante';
 import { useReducedMotion } from '@/theme/useReducedMotion';
@@ -74,6 +75,15 @@ const DOPPELTIPP_MS = 300;
 // und wie weit die beiden Tipper voneinander entfernt liegen dürfen. 24 aus
 // dem 4er-Raster (§3).
 const TIPP_RADIUS = 24;
+
+// Die Strecken des Zug-Zooms (Spec 2026-08-13 §7). Nach oben deckt ein
+// fester Anteil der Fensterhöhe den Weg vom Startfaktor zum Maximum ab —
+// Anteil statt Punkte, damit sich ein iPhone SE und ein Pro Max gleich
+// anfühlen. Nach unten bleibt vom Auslöser (sitzt fast am Boden) nur eine
+// kurze Reststrecke bis zum Rand, sie führt zurück zum Minimum. Beides
+// Feintuning-Kandidaten für den Gerätetest.
+const ZUG_WEG_HOCH_ANTEIL = 0.4;
+const ZUG_WEG_RUNTER = 96;
 
 // Durchmesser des Auslösers (components/Ausloeser.tsx). Alles, was über ihm
 // liegt, rechnet ab dieser Zahl.
@@ -359,6 +369,9 @@ export default function AufnehmenScreen() {
     faktor: number;
     grenzen: { min: number; max: number };
   } | null>(null);
+  // Was beim Start der Aufnahme galt: der Zug-Zoom rechnet relativ dazu,
+  // wie der Pinch relativ zu seinem Aufsetzen.
+  const zugStart = useRef<{ faktor: number; grenzen: { min: number; max: number } } | null>(null);
   // Wo der Finger aufgesetzt hat, und wann zuletzt getippt wurde: daraus
   // entsteht der Doppeltipp (siehe zoomGeste unten).
   const tippStart = useRef<{ pageX: number; pageY: number } | null>(null);
@@ -525,6 +538,19 @@ export default function AufnehmenScreen() {
     nativeZoom.setzeZoom(zoom.name, nativerFaktor(faktorRef.current, zoom.basis), false);
   }, [zoom]);
 
+  // Die Grenzen des aktiven Formats, mit demselben Fallback, den bisher nur
+  // der Pinch kannte: kennt das Modul keine Grenzen, dient die oberste
+  // Stufe als Maximum. Von Pinch UND Zug-Zoom benutzt.
+  const zoomGrenzenAktuell = useCallback(() => {
+    if (!zoom) return null;
+    return (
+      nativeZoom.zoomGrenzen(zoom.name) ?? {
+        min: 1,
+        max: nativerFaktor(zoom.stufen[zoom.stufen.length - 1], zoom.basis),
+      }
+    );
+  }, [zoom]);
+
   // Läuft, sobald die Mehrfach-Kamera bekannt ist. Der Wechsel des GERÄTS
   // meldet sich dagegen von selbst, siehe onAvailableLensesChanged an der
   // CameraView.
@@ -637,6 +663,21 @@ export default function AufnehmenScreen() {
     setFaktor(1);
   };
 
+  // Der Zug-Zoom (Spec 2026-08-13 §7): Hochziehen ab Aufnahmestart zoomt
+  // rein, zurück nach unten wieder raus. Hart gesetzt wie der Pinch — der
+  // Zoom folgt dem Finger, nicht hinterher.
+  const zoomZug = (hub: number) => {
+    const start = zugStart.current;
+    if (!zoom || !start) return;
+    zoomSetzen(
+      zugFaktor(hub, start.faktor, start.grenzen, zoom.basis, {
+        hoch: Dimensions.get('window').height * ZUG_WEG_HOCH_ANTEIL,
+        runter: ZUG_WEG_RUNTER,
+      }),
+      false
+    );
+  };
+
   // Berührungen auf dem Kamerabild: zwei Finger zoomen, zwei Tipper wechseln
   // die Kamera (Snapchat-Muster).
   //
@@ -663,10 +704,7 @@ export default function AufnehmenScreen() {
       pinchStart.current = {
         abstand,
         faktor: faktorRef.current,
-        grenzen: nativeZoom.zoomGrenzen(zoom.name) ?? {
-          min: 1,
-          max: nativerFaktor(zoom.stufen[zoom.stufen.length - 1], zoom.basis),
-        },
+        grenzen: zoomGrenzenAktuell()!,
       };
     },
     onResponderMove: (e?: GestureResponderEvent) => {
@@ -747,6 +785,10 @@ export default function AufnehmenScreen() {
     // während schon wieder aufgenommen wird.
     setAufnahmeFehler(null);
     setNimmtAuf(true);
+    // Anker des Zug-Zooms: Faktor und Grenzen beim Aufnahmestart. Grenzen
+    // erst jetzt erfragen, nicht beim Rendern — sie hängen am aktiven Format.
+    const grenzen = zoomGrenzenAktuell();
+    zugStart.current = zoom && grenzen ? { faktor: faktorRef.current, grenzen } : null;
     // Direkt starten statt über einen Effekt am Modus: die Session ist im
     // dauerhaften Video-Modus längst bereit, es gibt nichts zu committen.
     // Wiederholt wird trotzdem (siehe VIDEO_START_VERSUCHE oben) — und am
@@ -923,6 +965,7 @@ export default function AufnehmenScreen() {
           onFoto={() => void handleFoto()}
           onVideoStart={handleVideoStart}
           onVideoStop={() => void handleVideoStop()}
+          onZoomZug={zoomZug}
           maxSekunden={MAX_VIDEO_SEKUNDEN}
           onSperre={setAufnahmeGesperrt}
         />

@@ -1485,3 +1485,42 @@ test('die Kamera läuft dauerhaft im Video-Modus, das Mikrofon ist im Fokus an',
   expect(letzteKameraProps().mode).toBe('video');
   expect(letzteKameraProps().mute).toBe(false);
 });
+
+// ——— Zug-Zoom (Spec 2026-08-13-aufnahme-tempo-design.md §7) ———
+//
+// Der Auslöser meldet den Hub (Task «Ausloeser»), der Screen rechnet ihn
+// über zugFaktor in einen Faktor um und setzt HART (sanft=false), damit der
+// Zoom dem Finger folgt. Deterministisch geprüft werden die beiden Enden:
+// weit über den vollen Weg hinaus steht das Gerätemaximum, zurück am
+// Aufsetzpunkt der Startfaktor — beides unabhängig von der Fensterhöhe des
+// Testgeräts.
+test('Hochziehen während der Aufnahme zoomt bis zum Maximum, Zurückziehen stellt den Start wieder her', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  mockRecordAsync.mockImplementation(() => new Promise(() => {}));
+  await render(<AufnehmenScreen />);
+  await screen.findByLabelText('Auslöser');
+
+  jest.useFakeTimers();
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressIn', {
+    nativeEvent: { pageX: 100, pageY: 600 },
+  });
+  await act(async () => {
+    jest.advanceTimersByTime(600);
+  });
+  jest.useRealTimers();
+
+  mockSetzeZoom.mockClear();
+  // Hub 1600 pt: jenseits jedes 40-%-Wegs, also geklemmt aufs Maximum des
+  // Geräts (zoomGrenzen-Mock: max 120 nativ).
+  await fireEvent(screen.getByLabelText('Auslöser'), 'touchMove', {
+    nativeEvent: { pageX: 100, pageY: -1000 },
+  });
+  expect(mockSetzeZoom).toHaveBeenLastCalledWith('Rückseitige Dreifach-Kamera', 120, false);
+
+  // Zurück am Aufsetzpunkt: Startfaktor 1× — auf dem Ultraweitwinkel-Gerät
+  // ist das nativ 2,0 (Basis 0,5).
+  await fireEvent(screen.getByLabelText('Auslöser'), 'touchMove', {
+    nativeEvent: { pageX: 100, pageY: 600 },
+  });
+  expect(mockSetzeZoom).toHaveBeenLastCalledWith('Rückseitige Dreifach-Kamera', 2, false);
+});
