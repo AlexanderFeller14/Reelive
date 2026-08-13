@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { StyleSheet } from 'react-native';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react-native';
 import { ThemeProvider } from '@/theme/ThemeProvider';
 import { Sheet } from '@/components/Sheet';
@@ -109,6 +110,38 @@ test('ein Tap auf den Kreis meldet nach oben und rendert selbst kein Sheet', asy
   expect(onOeffnen).toHaveBeenCalledTimes(1);
   expect(screen.queryByTestId('sheet-root')).toBeNull();
   expect(screen.queryByText('Foto auswählen')).toBeNull();
+});
+
+// Der Profil-Tab zeigt das eigene Bild seit dem Tausch vom 2026-08-13 als
+// grosses Kopfbild. `gross` skaliert Kreis UND Badge: ein 18-px-Badge an
+// einem 160er-Kreis läse sich als Staubkorn, nicht als «hier lässt sich
+// etwas ändern».
+test('gross zeichnet den Hero-Kreis mit mitwachsendem Badge', async () => {
+  await wrap(<AvatarWaehler name="Lea" avatarKey={null} onOeffnen={jest.fn()} gross />);
+  expect(StyleSheet.flatten(screen.getByTestId('avatar-kreis').props.style).width).toBe(160);
+  const badge = StyleSheet.flatten(screen.getByTestId('avatar-waehler-badge').props.style);
+  expect(badge.width).toBe(32);
+  expect(badge.height).toBe(32);
+});
+
+// Onboarding und Karten bleiben unverändert: ohne `gross` gilt weiter die
+// §4-Obergrenze von 44.
+test('ohne gross bleibt der Kreis bei 44', async () => {
+  await wrap(<AvatarWaehler name="Lea" avatarKey={null} onOeffnen={jest.fn()} />);
+  expect(StyleSheet.flatten(screen.getByTestId('avatar-kreis').props.style).width).toBe(44);
+  expect(StyleSheet.flatten(screen.getByTestId('avatar-waehler-badge').props.style).width).toBe(18);
+});
+
+// Auch der lokale-URI-Zweig (Onboarding-Pfad) muss mitwachsen, sonst stünde
+// bei `gross` + lokaler Datei ein 44er-Kreis unter einem 32er-Badge.
+test('gross gilt auch fuer den lokalen-URI-Kreis', async () => {
+  await wrap(
+    <AvatarWaehler name="Lea" avatarKey={null} lokaleUri="file:///gewaehlt.jpg" onOeffnen={jest.fn()} gross />
+  );
+  // Der Bild-Knoten füllt seinen Kreis prozentual, die Grösse trägt der
+  // Wrapper darum: also dort messen.
+  const wrapper = screen.getByTestId('avatar-waehler-lokal');
+  expect(StyleSheet.flatten(wrapper.props.style).width).toBe(160);
 });
 
 test('ein Tap auf den Kreis oeffnet das Sheet des Screens', async () => {

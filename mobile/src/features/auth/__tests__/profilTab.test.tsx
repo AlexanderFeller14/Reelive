@@ -1,3 +1,4 @@
+import { StyleSheet } from 'react-native';
 import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react-native';
 import { ThemeProvider } from '@/theme/ThemeProvider';
 
@@ -110,16 +111,22 @@ test('zeigt Profildaten und meldet ab', async () => {
   await waitFor(() => expect(mockSignOut).toHaveBeenCalled());
 });
 
-test('zeigt das Reisepass-Bild über dem Namen, stumm für Screenreader', async () => {
+// Getauscht (2026-08-13): das Kopfbild des Tabs ist jetzt das eigene
+// Profilbild, der Reisepass die kleine Dekoration in der Namens-Karte, wo
+// vorher der 44-px-Kreis stand.
+test('das Profilbild steht gross über der Namens-Karte, der Reisepass klein darin', async () => {
   await render(<ThemeProvider><ProfilScreen /></ThemeProvider>);
   await screen.findByText('Lea');
-  // Dekoration: das Bild sagt nichts, was der Name darunter nicht schon sagt.
-  expect(screen.getByTestId('profil-reisepass').props.accessible).toBe(false);
-  // «oben» heisst: VOR der Namens-Karte im Baum, nicht bloss irgendwo auf dem
-  // Screen. Der serialisierte Baum bildet die Reihenfolge der Geschwister ab,
-  // «@lea» kommt darin nur in der Namens-Karte vor.
+  // «über» heisst: VOR dem Reisepass im Baum. Der serialisierte Baum bildet
+  // die Reihenfolge der Geschwister ab, und der Reisepass kommt nur noch in
+  // der Namens-Karte vor. Gegen die alte Fassung (Reisepass zuerst) ist die
+  // Zusicherung rot.
   const baum = JSON.stringify(screen.toJSON());
-  expect(baum.indexOf('profil-reisepass')).toBeLessThan(baum.indexOf('@lea'));
+  expect(baum.indexOf('avatar-waehler')).toBeLessThan(baum.indexOf('profil-reisepass'));
+  // Hero-Grösse statt der 44 der Karten-Avatare.
+  expect(StyleSheet.flatten(screen.getByTestId('avatar-kreis').props.style).width).toBe(160);
+  // Dekoration: der Reisepass sagt nichts, was die Karte nicht schon sagt.
+  expect(screen.getByTestId('profil-reisepass').props.accessible).toBe(false);
 });
 
 test('zeigt den WLAN-Schalter mit Erklärung, was er bewirkt', async () => {
@@ -146,7 +153,7 @@ test('ein bereits gespeichertes „Nur über WLAN" zeigt sich beim Öffnen', asy
 });
 
 describe('Profilbild (Task 6)', () => {
-  test('der Profil-Tab zeigt den Bildwaehler neben dem Namen', async () => {
+  test('der Profil-Tab zeigt den Bildwaehler als Kopfbild', async () => {
     await wrap(<ProfilScreen />);
     expect(await screen.findByTestId('avatar-waehler')).toBeTruthy();
   });

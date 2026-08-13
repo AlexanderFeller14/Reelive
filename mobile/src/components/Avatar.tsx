@@ -63,6 +63,11 @@ export function Avatar({
   const ring = kino ? cinema['text-1'] : colors['bg-0'];
   const schrift = kino ? cinema['text-1'] : colors['text-2'];
   const url = avatarUrl(avatarKey);
+  // §4 endet bei 44 px, alles darüber ist das Hero-Kopfbild des Profil-Tabs
+  // (Bildertausch 2026-08-13). Dort wäre die 12-px-Label-Initiale verloren;
+  // das Display-Format ist die einzige Grösse der Skala (§2: keine neuen
+  // erfinden), die einen 160er-Kreis trägt.
+  const initialeStil = size > 44 ? type.display : type.label;
 
   return (
     <View testID="avatar-kreis" style={kreis(size, flaeche, ring)}>
@@ -70,7 +75,7 @@ export function Avatar({
           trägt der Kreis während des Ladens etwas (sonst blitzt eine leere
           Fläche auf und die ganze Facepile springt), und ein Bild, das nicht
           lädt, fällt auf die Initiale zurück statt auf ein Loch. */}
-      <Text style={[type.label, { color: schrift }]}>
+      <Text style={[initialeStil, { color: schrift }]}>
         {(name.trim()[0] ?? '?').toUpperCase()}
       </Text>
       {url && (

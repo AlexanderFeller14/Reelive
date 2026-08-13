@@ -1,7 +1,7 @@
 import { StyleSheet } from 'react-native';
 import { render, screen } from '@testing-library/react-native';
 import { ThemeProvider } from '@/theme/ThemeProvider';
-import { cinema, palette, spacing } from '@/theme/tokens';
+import { cinema, palette, spacing, type } from '@/theme/tokens';
 
 // expo-image ist ein natives View, im Test reicht ein Platzhalter, der alle
 // Props durchreicht (gleiches Muster wie TripCard.test.tsx). Ohne Mock
@@ -32,6 +32,22 @@ const ACHT = ['Lea', 'Mira', 'Jonas', 'Sofia', 'Ben', 'Nora', 'Timo', 'Ida'];
 test('ein Avatar trägt die Initiale seines Namens', async () => {
   await wrap(<Avatar name="lea" />);
   expect(screen.getByText('L')).toBeTruthy();
+});
+
+// Hero-Grösse des Profil-Tabs (Bildertausch 2026-08-13): §4 endet bei 44 px,
+// alles darüber ist das grosse Kopfbild. Dort wäre die 12-px-Label-Initiale
+// verloren, sie wechselt auf das Display-Format — die einzige Grösse der
+// Skala (§2: keine neuen erfinden), die einen 160er-Kreis trägt.
+test('über Kartengrösse trägt die Initiale das Display-Format', async () => {
+  await wrap(<Avatar name="Lea" size={160} />);
+  const initiale = StyleSheet.flatten(screen.getByText('L').props.style);
+  expect(initiale.fontSize).toBe(type.display.fontSize);
+});
+
+test('bis 44 px bleibt die Initiale im Label-Format', async () => {
+  await wrap(<Avatar name="Lea" size={44} />);
+  const initiale = StyleSheet.flatten(screen.getByText('L').props.style);
+  expect(initiale.fontSize).toBe(type.label.fontSize);
 });
 
 // Airbnb-Muster: drei Gesichter, dann wird gezählt. Die vierte Person ist

@@ -60,7 +60,7 @@ export default function ProfilScreen() {
   // Recap-Tab: das Bild soll nicht hinter Statusleiste oder Dynamic Island geraten.
   //
   // Plus einen Rasterschritt (§3: 4 · 8 · 12 · 16 · 24 · 32 · 48) obendrauf, weil
-  // der freigestellte Reisepass ohne Rahmen anfängt und dadurch höher wirkt als
+  // das freigestellte Kopfbild ohne Rahmen anfängt und dadurch höher wirkt als
   // eine Karte an derselben Kante. ADDIERT statt als grössere Basis: `useOberkante`
   // nimmt das Maximum aus Basis und Systembereich, und der ist auf Geräten mit
   // Insel ohnehin schon grösser (59 + 16), eine Basis von 48 statt 32 bliebe dort
@@ -196,18 +196,22 @@ export default function ProfilScreen() {
           kleinen Geräten länger als der Screen, und die destruktive Zone unten
           darf nie ausserhalb des Sichtbaren enden. */}
       <ScrollView testID="profil-inhalt" contentContainerStyle={[styles.inhalt, { paddingTop: oben }]}>
-        {/* Kopfbild des Profil-Tabs. Anders als Camper, Filmrolle und Flugticket
-            steht dieses Bild nicht in einem Leerzustand, sondern über gefülltem
-            Inhalt. Freigestellt auf `bg-0`, also ohne Rahmen, Radius und
-            Schatten, und aus dem Accessibility-Baum genommen: es sagt nichts,
-            was der Name darunter nicht schon sagt. */}
-        <Image
-          testID="profil-reisepass"
-          source={require('@/assets/images/reisepass-rot-transparent.png')}
-          style={styles.reisepass}
-          contentFit="contain"
-          accessible={false}
-        />
+        {/* Kopfbild des Profil-Tabs, seit dem Bildertausch vom 2026-08-13 das
+            eigene Profilbild statt des Reisepasses: gross, mittig, und
+            weiterhin DAS Tap-Ziel zum Ändern — der Sheet-Zustand liegt
+            unverändert beim Screen (Begründung am State oben). */}
+        <View style={styles.kopfbild}>
+          <AvatarWaehler
+            gross
+            name={profile?.display_name ?? ''}
+            avatarKey={profile?.avatar_key ?? null}
+            laeuft={bildLaeuft}
+            onOeffnen={() => setBildSheetSichtbar(true)}
+          />
+        </View>
+        {bildFehler && (
+          <Text style={[type.secondary, { color: colors.danger }]}>{bildFehler}</Text>
+        )}
         {/* `styles.zeile`/`zeileText` statt eigener `profilZeile`/`profilText`:
             Bild-links-Text-rechts ist exakt dieselbe Zeilenform wie die
             WLAN-Karte darunter, wertgleich bis auf den Token (`spacing.m`
@@ -215,11 +219,16 @@ export default function ProfilScreen() {
             identischem Inhalt wären keine zweite Bedeutung, nur ein zweiter
             Name für dieselbe. */}
         <Card style={styles.zeile}>
-          <AvatarWaehler
-            name={profile?.display_name ?? ''}
-            avatarKey={profile?.avatar_key ?? null}
-            laeuft={bildLaeuft}
-            onOeffnen={() => setBildSheetSichtbar(true)}
+          {/* Der Reisepass, klein in derselben 44er-Kante, in der vorher der
+              Avatar-Kreis stand. Freigestellt auf der Karte, ohne Rahmen und
+              Radius, und aus dem Accessibility-Baum genommen: er sagt nichts,
+              was Name und Handle daneben nicht schon sagen. */}
+          <Image
+            testID="profil-reisepass"
+            source={require('@/assets/images/reisepass-rot-transparent.png')}
+            style={styles.reisepass}
+            contentFit="contain"
+            accessible={false}
           />
           <View style={styles.zeileText}>
             <Text style={[type.h1, { color: colors['text-1'] }]}>{profile?.display_name ?? '…'}</Text>
@@ -228,9 +237,6 @@ export default function ProfilScreen() {
             </Text>
           </View>
         </Card>
-        {bildFehler && (
-          <Text style={[type.secondary, { color: colors.danger }]}>{bildFehler}</Text>
-        )}
         <Card style={styles.zeile}>
           <View style={styles.zeileText}>
             <Text style={[type.bodyMedium, { color: colors['text-1'] }]}>Nur über WLAN einsenden</Text>
@@ -331,12 +337,13 @@ export default function ProfilScreen() {
   );
 }
 
-// Grösser als die 160 der drei Leerzustands-Bilder (Camper, Filmrolle,
-// Flugticket), obwohl es über gefülltem Inhalt steht: der Reisepass steht
-// hochkant und füllt sein quadratisches Bildfeld nur etwa zur halben Breite,
-// bei gleicher Kantenlänge wöge er also sichtbar leichter als die anderen
-// drei. Bei 1254 px Quelle reicht das ohne @2x/@3x bis zu einem 3x-Display.
-const REISEPASS = 200;
+// Seit dem Bildertausch (2026-08-13) steht der Reisepass klein in der
+// Namens-Karte: dieselbe 44er-Kante wie der Avatar-Kreis, der vorher dort
+// stand, damit die Zeile ihre Form behält. Das grosse Kopfbild ist jetzt das
+// Profilbild (AvatarWaehler `gross`, 160). Die 1254-px-Quelle ist für 44
+// weit überdimensioniert, aber dieselbe Datei zweimal abzulegen wäre nur
+// Gewicht im Bundle.
+const REISEPASS = 44;
 
 const styles = StyleSheet.create({
   inhalt: {
@@ -345,7 +352,8 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.xxl,
     gap: spacing.l,
   },
-  reisepass: { width: REISEPASS, height: REISEPASS, alignSelf: 'center' },
+  kopfbild: { alignItems: 'center' },
+  reisepass: { width: REISEPASS, height: REISEPASS },
   zeile: { flexDirection: 'row', alignItems: 'center', gap: spacing.m },
   zeileText: { flex: 1, gap: spacing.xs },
   kontoLoeschenText: { textDecorationLine: 'underline', textAlign: 'center' },

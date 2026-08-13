@@ -48,9 +48,21 @@ import { radius, spacing, type } from '@/theme/tokens';
 
 // DESIGN-LANGUAGE §4 begrenzt Avatare auf 32–44 px. 44 ist die Obergrenze und
 // zugleich das iOS-Minimum für ein Tap-Ziel — beides zusammen ist der Grund,
-// warum hier genau dieser Wert steht und kein grösserer Profil-Kreis.
+// warum in Karten und im Onboarding genau dieser Wert steht.
 const GROESSE = 44;
 const BADGE = 18;
+// Die Hero-Variante des Profil-Tabs (Bildertausch 2026-08-13): dort ist der
+// Kreis kein Karten-Avatar nach §4, sondern das Kopfbild des Tabs, dieselbe
+// Kante wie die 160er-Leerzustandsbilder (Camper, Filmrolle, Flugticket).
+// Das Badge wächst mit, 18 px an einem 160er-Kreis läse sich als Staubkorn.
+const GROSS_GROESSE = 160;
+const GROSS_BADGE = 32;
+// Der Badge-Mittelpunkt sitzt auf dem Kreisrand bei 45°. Der Abstand zur
+// Kastenkante folgt daraus: groesse − badge/2 − (groesse/2)·(1 + 1/√2),
+// also −2.6 bzw. 7.4 — gerundet die beiden Werte hier. Fest notiert statt
+// gerechnet, damit die bisherige Badge-Lage der 44er-Kreise exakt bleibt.
+const BADGE_VERSATZ = -2;
+const GROSS_BADGE_VERSATZ = 8;
 
 // Beide Aufrufe mit denselben Optionen. `aspect` wirkt laut SDK-57-Doku nur
 // unter Android; auf iOS erzwingt der System-Editor bei allowsEditing ohnehin
@@ -100,7 +112,7 @@ function hatProfilbild(avatarKey: string | null, lokaleUri: string | null): bool
 }
 
 export function AvatarWaehler({
-  name, avatarKey, lokaleUri = null, onOeffnen, laeuft = false,
+  name, avatarKey, lokaleUri = null, onOeffnen, laeuft = false, gross = false,
 }: {
   name: string;
   avatarKey: string | null;
@@ -115,9 +127,15 @@ export function AvatarWaehler({
   // beim Lösch-Sheet ohnehin schon fährt (`loeschSheetSichtbar`).
   onOeffnen: () => void;
   laeuft?: boolean;
+  // Hero-Kopfbild des Profil-Tabs (siehe GROSS_GROESSE oben). Onboarding und
+  // Karten lassen die Prop weg und bleiben bei den 44 aus §4.
+  gross?: boolean;
 }) {
   const { colors } = useTheme();
   const hatBild = hatProfilbild(avatarKey, lokaleUri);
+  const groesse = gross ? GROSS_GROESSE : GROESSE;
+  const badge = gross ? GROSS_BADGE : BADGE;
+  const versatz = gross ? GROSS_BADGE_VERSATZ : BADGE_VERSATZ;
 
   return (
     <PressScale
@@ -128,19 +146,29 @@ export function AvatarWaehler({
     >
       <View>
         {lokaleUri ? (
-          <View style={[styles.lokalerKreis, { borderColor: colors['bg-0'], backgroundColor: colors['bg-1'] }]}>
+          <View
+            testID="avatar-waehler-lokal"
+            style={[styles.lokalerKreis, {
+              width: groesse, height: groesse,
+              borderColor: colors['bg-0'], backgroundColor: colors['bg-1'],
+            }]}
+          >
             <Image testID="avatar-bild" source={{ uri: lokaleUri }} style={styles.lokalesBild} contentFit="cover" />
           </View>
         ) : (
-          <Avatar name={name} avatarKey={avatarKey} size={GROESSE} />
+          <Avatar name={name} avatarKey={avatarKey} size={groesse} />
         )}
         {/* Ohne dieses Badge liest sich der Kreis als blosse Anzeige. Es
-            sagt «hier lässt sich etwas ändern», ohne eine zweite Zeile Text. */}
+            sagt «hier lässt sich etwas ändern», ohne eine zweite Zeile Text.
+            Die Icon-Grösse folgt dem Badge im Verhältnis der 18er-Fassung. */}
         <View
           testID="avatar-waehler-badge"
-          style={[styles.badge, { backgroundColor: colors.accent, borderColor: colors['bg-0'] }]}
+          style={[styles.badge, {
+            width: badge, height: badge, right: versatz, bottom: versatz,
+            backgroundColor: colors.accent, borderColor: colors['bg-0'],
+          }]}
         >
-          <Camera size={10} color={colors['on-accent']} strokeWidth={1.75} />
+          <Camera size={gross ? 16 : 10} color={colors['on-accent']} strokeWidth={1.75} />
         </View>
         {laeuft && (
           <View style={[styles.spinner, { backgroundColor: colors['bg-0'] }]}>
@@ -256,21 +284,20 @@ export function AvatarSheetInhalt({
 }
 
 const styles = StyleSheet.create({
-  // Gleiche Masse wie Avatar/kreis() (GROESSE=44, 2 px Ring, rund), aber
-  // hier lokal statt importiert: `Avatar` baut seine Kreisform intern über
-  // avatarUrl(avatarKey), das für eine lokale Datei-URI nicht passt (die
-  // Funktion erwartet einen Storage-Schlüssel, keine file://-URI).
+  // Gleiche Form wie Avatar/kreis() (2 px Ring, rund), aber hier lokal statt
+  // importiert: `Avatar` baut seine Kreisform intern über avatarUrl(avatarKey),
+  // das für eine lokale Datei-URI nicht passt (die Funktion erwartet einen
+  // Storage-Schlüssel, keine file://-URI). Die Kantenlänge kommt inline aus
+  // `groesse`, weil sie seit der Hero-Variante zwei Werte kennt.
   lokalerKreis: {
-    width: GROESSE, height: GROESSE, borderRadius: radius.pill,
+    borderRadius: radius.pill,
     borderWidth: 2, overflow: 'hidden',
   },
   lokalesBild: { width: '100%', height: '100%' },
+  // Masse und Lage kommen inline (badge/versatz), Begründung bei den
+  // Konstanten oben.
   badge: {
     position: 'absolute',
-    right: -2,
-    bottom: -2,
-    width: BADGE,
-    height: BADGE,
     borderRadius: radius.pill,
     borderWidth: 2,
     alignItems: 'center',
