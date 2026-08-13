@@ -18,7 +18,7 @@ jest.mock('../medien', () => ({
   endungAus: (uri: string) => uri.slice(uri.lastIndexOf('.') + 1).toLowerCase(),
 }));
 
-import { momentAnlegen, aktuelleAutorId, uploadBestaetigen } from '../postsApi';
+import { momentAnlegen, aktuelleAutorId, uploadBestaetigen, signierteUrls } from '../postsApi';
 import type { QueueJob } from '../types';
 
 const job: QueueJob = {
@@ -110,6 +110,108 @@ test('media_ext kommt aus dem Speicherschlüssel (iOS liefert mov, Android mp4)'
   expect(mockInsert).toHaveBeenLastCalledWith(expect.objectContaining({ media_ext: 'jpg' }));
 });
 
+// === 2026-08-13: die stumme Fehlermeldung ===
+// `signierteUrls` protokollierte nur das error-Objekt, im Metro-Log stand
+// deshalb bloss «FunctionsHttpError: Edge Function returned a non-2xx status
+// code» — der Grund lag im Response-Body, den niemand las. Bei der Fehlersuche
+// am Gerät kostete das eine Stunde, obwohl uploadBestaetigen den Klartext
+// nebenan seit jeher auswertet.
+describe('signierteUrls protokolliert den Klartext der Function', () => {
+  let fehlerLog: jest.SpyInstance;
+  beforeEach(() => {
+    fehlerLog = jest.spyOn(console, 'error').mockImplementation(() => {});
+  });
+  afterEach(() => {
+    fehlerLog.mockRestore();
+  });
+
+  test('der Klartext aus dem Body landet samt Status im Log', async () => {
+    mockInvoke.mockResolvedValueOnce({
+      data: null,
+      error: Object.assign(new Error('http'), {
+        name: 'FunctionsHttpError',
+        context: new Response(JSON.stringify({ fehler: 'Reise ist bereits aufgedeckt.' }), {
+          status: 403,
+        }),
+      }),
+    });
+
+    await expect(signierteUrls('p1')).resolves.toMatchObject({ urls: null });
+
+    const zeile = fehlerLog.mock.calls[0].join(' ');
+    expect(zeile).toContain('403');
+    expect(zeile).toContain('Reise ist bereits aufgedeckt.');
+    // Ohne die post_id ist bei mehreren wartenden Jobs nicht erkennbar,
+    // welcher Moment gemeint ist.
+    expect(zeile).toContain('p1');
+  });
+
+  // 404: die posts-Zeile existiert serverseitig nicht mehr. Das ist endgültig,
+  // der Worker muss es von einem Netz- oder Serverfehler unterscheiden können.
+  // Der Fall, den jsdom verdeckt hat: Unter Hermes ist die Antwort im
+  // `context` NICHT das globale `Response`, `instanceof` schlug still fehl und
+  // machte die ganze Auswertung unerreichbar — im Jest-Lauf unsichtbar, weil
+  // dort beide Seiten dasselbe Response benutzen. Deshalb hier bewusst ein
+  // Objekt, das nur die Form hat.
+  const antwortOhneKlasse = (status: number, body: unknown) => ({
+    data: null,
+    error: Object.assign(new Error('http'), {
+      name: 'FunctionsHttpError',
+      context: { status, json: async () => body, text: async () => JSON.stringify(body) },
+    }),
+  });
+
+  test('eine Antwort, die kein echtes Response ist, wird trotzdem ausgewertet', async () => {
+    mockInvoke.mockResolvedValueOnce(antwortOhneKlasse(404, { fehler: 'Moment nicht gefunden.' }));
+
+    const ergebnis = await signierteUrls('p1');
+
+    expect(ergebnis.dauerhaftAbgelehnt).toBe(true);
+    const zeile = fehlerLog.mock.calls[0].join(' ');
+    expect(zeile).toContain('404');
+    expect(zeile).toContain('Moment nicht gefunden.');
+  });
+
+  test('404 wird als dauerhaft gemeldet', async () => {
+    mockInvoke.mockResolvedValueOnce({
+      data: null,
+      error: Object.assign(new Error('http'), {
+        name: 'FunctionsHttpError',
+        context: new Response(JSON.stringify({ fehler: 'Moment nicht gefunden.' }), { status: 404 }),
+      }),
+    });
+
+    await expect(signierteUrls('p1')).resolves.toEqual({ urls: null, dauerhaftAbgelehnt: true });
+  });
+
+  test('jeder andere Fehler bleibt wiederholbar', async () => {
+    mockInvoke.mockResolvedValueOnce({
+      data: null,
+      error: Object.assign(new Error('http'), {
+        name: 'FunctionsHttpError',
+        context: new Response(JSON.stringify({ fehler: 'Server nicht konfiguriert.' }), {
+          status: 500,
+        }),
+      }),
+    });
+
+    await expect(signierteUrls('p1')).resolves.toEqual({ urls: null, dauerhaftAbgelehnt: false });
+  });
+
+  test('eine Antwort ohne JSON-Body verliert wenigstens den Status nicht', async () => {
+    mockInvoke.mockResolvedValueOnce({
+      data: null,
+      error: Object.assign(new Error('http'), {
+        name: 'FunctionsHttpError',
+        context: new Response('Service Unavailable', { status: 503 }),
+      }),
+    });
+
+    await expect(signierteUrls('p1')).resolves.toMatchObject({ urls: null });
+    expect(fehlerLog.mock.calls[0].join(' ')).toContain('503');
+  });
+});
+
 // === Final-Review, Important 4 ===
 // Antwortet confirm mit 409, liegt im Speicher kein vollständiges Objekt. Das
 // ist der einzige Fehlschlag, bei dem ERNEUT HOCHLADEN hilft statt nur erneut
@@ -132,6 +234,27 @@ describe('uploadBestaetigen', () => {
   test('409 wird als unvollständig gemeldet, mit dem Klartext der Function', async () => {
     mockInvoke.mockResolvedValueOnce(httpFehler(409, { fehler: 'Upload ist noch nicht vollständig.' }));
     const ergebnis = await uploadBestaetigen('p1');
+    expect(ergebnis.unvollstaendig).toBe(true);
+    expect(ergebnis.error).toBe('Upload ist noch nicht vollständig.');
+  });
+
+  // Gegenstück zum Test in signierteUrls: derselbe Klassentest hat hier
+  // seit jeher gestanden und auf dem Gerät nie gegriffen — die 409-Erkennung
+  // war dort wirkungslos.
+  test('auch ohne echtes Response wird 409 als unvollständig erkannt', async () => {
+    mockInvoke.mockResolvedValueOnce({
+      data: null,
+      error: Object.assign(new Error('http'), {
+        name: 'FunctionsHttpError',
+        context: {
+          status: 409,
+          json: async () => ({ fehler: 'Upload ist noch nicht vollständig.' }),
+        },
+      }),
+    });
+
+    const ergebnis = await uploadBestaetigen('p1');
+
     expect(ergebnis.unvollstaendig).toBe(true);
     expect(ergebnis.error).toBe('Upload ist noch nicht vollständig.');
   });

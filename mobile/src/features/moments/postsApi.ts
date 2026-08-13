@@ -116,17 +116,87 @@ export async function momentAnlegen(
   return { error: meldung(error, 'Der Moment konnte nicht angelegt werden. Probier es gleich nochmal.') };
 }
 
+// Der Klartext, den die Function im Body mitschickt, plus ihr HTTP-Status.
+// Ohne beides steht im Log nur «Edge Function returned a non-2xx status code»,
+// und das trifft auf jede erdenkliche Ursache gleichermassen zu: fehlender
+// Container, abgelehnte Policy, unbekannter Post. Am 2026-08-13 hat genau
+// diese Unschärfe eine Stunde Fehlersuche gekostet.
+// Bewusst KEIN `instanceof Response` (am 2026-08-13 auf dem iPhone gefunden):
+// Die Antwort, die @supabase/functions-js im `context` mitgibt, ist unter
+// Hermes nicht dieselbe Klasse wie das globale `Response`, der Test schlug
+// still fehl und jeder HTTP-Fehler landete im generischen Zweig. Im Jest-Lauf
+// fiel das nie auf, weil dort beide Seiten dasselbe `Response` aus jsdom
+// benutzen — der Test war grün, das Gerät nicht. Geprüft wird deshalb, was
+// gebraucht wird: ein Status und ein lesbarer Körper.
+type AntwortAehnlich = {
+  status: number;
+  clone?: () => AntwortAehnlich;
+  json?: () => Promise<unknown>;
+  text?: () => Promise<string>;
+};
+
+function alsAntwort(kontext: unknown): AntwortAehnlich | null {
+  if (!kontext || typeof kontext !== 'object') return null;
+  const kandidat = kontext as AntwortAehnlich;
+  if (typeof kandidat.status !== 'number') return null;
+  if (typeof kandidat.json !== 'function' && typeof kandidat.text !== 'function') return null;
+  return kandidat;
+}
+
+// Der Klartext, den die Function im Body mitschickt, plus ihr HTTP-Status.
+// Ohne beides steht im Log nur «Edge Function returned a non-2xx status code»,
+// und das trifft auf jede erdenkliche Ursache gleichermassen zu: fehlender
+// Container, abgelehnte Policy, unbekannter Post. Am 2026-08-13 hat genau
+// diese Unschärfe eine Stunde Fehlersuche gekostet.
+async function funktionKlartext(fehler: unknown): Promise<string> {
+  const httpFehler = fehler as { message?: string; context?: unknown };
+  const antwort = alsAntwort(httpFehler?.context);
+  if (!antwort) return httpFehler?.message ?? String(fehler);
+
+  // Ein Körper lässt sich nur einmal lesen. Wo geklont werden kann, wird
+  // geklont; sonst bleibt es beim ersten Versuch, und der Status allein ist
+  // immer noch mehr als vorher.
+  const lesbar = typeof antwort.clone === 'function' ? antwort.clone() : antwort;
+  try {
+    if (typeof lesbar.json === 'function') {
+      const body = (await lesbar.json()) as { fehler?: string } | null;
+      if (typeof body?.fehler === 'string') return `${antwort.status} ${body.fehler}`;
+    }
+  } catch {
+    // Kein JSON — der Rohtext tut es auch.
+  }
+  try {
+    const roh = typeof antwort.clone === 'function' ? antwort.clone() : antwort;
+    if (typeof roh.text === 'function') return `${antwort.status} ${await roh.text()}`;
+  } catch {
+    // Körper schon gelesen oder nicht lesbar.
+  }
+  return String(antwort.status);
+}
+
+// 404 «Moment nicht gefunden»: Die Function liest die posts-Zeile selbst und
+// findet keine. Das ist endgültig — eine Zeile, die es nicht gibt, entsteht
+// nicht von selbst wieder. Praktisch passiert das, wenn die lokale
+// Warteschlange einen Datenbankstand überlebt (Reset der Entwicklungs-DB,
+// gelöschter Moment): Der Job trägt `zeile_angelegt`, serverseitig ist nichts
+// da. Ohne diese Unterscheidung liefe er bis zum Deinstallieren der App alle
+// zehn Minuten erneut ins Leere.
+const NICHT_GEFUNDEN_STATUS = 404;
+
+export type SignierteUrls = { medium_url: string; thumb_url: string };
+
 export async function signierteUrls(
   postId: string
-): Promise<{ medium_url: string; thumb_url: string } | null> {
+): Promise<{ urls: SignierteUrls | null; dauerhaftAbgelehnt: boolean }> {
   const { data, error } = await supabase.functions.invoke('media-urls', {
     body: { aktion: 'sign', post_id: postId },
   });
   if (error || !data) {
-    console.error('[postsApi] signierteUrls fehlgeschlagen', error);
-    return null;
+    console.error('[postsApi] signierteUrls fehlgeschlagen', postId, await funktionKlartext(error));
+    const antwort = alsAntwort((error as { context?: unknown })?.context);
+    return { urls: null, dauerhaftAbgelehnt: antwort?.status === NICHT_GEFUNDEN_STATUS };
   }
-  return data as { medium_url: string; thumb_url: string };
+  return { urls: data as SignierteUrls, dauerhaftAbgelehnt: false };
 }
 
 // Antwortet die Function mit 409, liegt im Speicher kein vollständiges Objekt
@@ -144,12 +214,16 @@ export async function uploadBestaetigen(
   if (error) {
     // Die Function liefert bei einem HTTP-Fehler ihren deutschen Klartext im
     // Response-Body mit, der landet über FunctionsHttpError im `context`.
-    const httpFehler = error as { name?: string; context?: unknown };
-    if (httpFehler?.name === 'FunctionsHttpError' && httpFehler.context instanceof Response) {
-      const unvollstaendig = httpFehler.context.status === UNVOLLSTAENDIG_STATUS;
+    // Erkannt wird die Antwort über ihre Form, nicht über `instanceof
+    // Response` — siehe alsAntwort() oben, der Klassentest schlug auf dem
+    // Gerät still fehl und hat diesen ganzen Zweig unerreichbar gemacht.
+    const antwort = alsAntwort((error as { context?: unknown })?.context);
+    if (antwort) {
+      const unvollstaendig = antwort.status === UNVOLLSTAENDIG_STATUS;
       try {
-        const body = (await httpFehler.context.clone().json()) as { fehler?: string };
-        if (typeof body.fehler === 'string') return { error: body.fehler, unvollstaendig };
+        const lesbar = typeof antwort.clone === 'function' ? antwort.clone() : antwort;
+        const body = (await lesbar.json?.()) as { fehler?: string } | null;
+        if (typeof body?.fehler === 'string') return { error: body.fehler, unvollstaendig };
       } catch {
         // Antwort war kein JSON, generische Meldung, der Status zählt trotzdem.
       }

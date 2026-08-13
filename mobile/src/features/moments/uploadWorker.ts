@@ -65,8 +65,26 @@ async function sicherstellenInitialisiert(): Promise<void> {
 // `File.upload` ist der dafuer vorgesehene Weg (SDK-57-Doku) und streamt die
 // Datei nativ, ohne sie vorher komplett in den Speicher zu lesen. Das ist bei
 // Videos der Unterschied zwischen «laeuft» und «Absturz wegen Speicher».
+
+// Die lokale Aufnahme ist weg (am 2026-08-13 auf einem iPhone: die App stürzte
+// bei JEDEM Start ab, sobald ein solcher Job in der Warteschlange lag).
+// `File.upload()` wirft in diesem Fall NICHT nach JavaScript, sondern lässt
+// eine native Ausnahme durch («Cannot read file at file:///…/medium.jpg»), die
+// den Prozess mit signal 6 beendet — der try/catch unten kommt nie zum Zug.
+// Deshalb wird vorher geprüft. Ein eigener Fehlertyp, weil dieser Fall
+// dauerhaft ist wie eine Ablehnung durch die Policy: eine gelöschte Datei
+// kommt nicht zurück, Wiederholen führt nur wieder in denselben Absturz.
+export class LokaleDateiFehlt extends Error {
+  constructor(readonly uri: string) {
+    super('Diese Aufnahme ist auf dem Gerät nicht mehr auffindbar.');
+    this.name = 'LokaleDateiFehlt';
+  }
+}
+
 async function teilHochladen(url: string, uri: string, contentType: string): Promise<void> {
-  const antwort = await new File(uri).upload(url, {
+  const datei = new File(uri);
+  if (!datei.exists) throw new LokaleDateiFehlt(uri);
+  const antwort = await datei.upload(url, {
     httpMethod: 'PUT',
     headers: { 'Content-Type': contentType },
   });
@@ -77,6 +95,30 @@ async function teilHochladen(url: string, uri: string, contentType: string): Pro
   if (antwort.status < 200 || antwort.status >= 300) {
     throw new Error('Hochladen fehlgeschlagen.');
   }
+}
+
+// Der eine Weg, auf dem ein Moment die Warteschlange OHNE Erfolg verlässt.
+// Zwei Fälle enden hier: die dauerhafte Ablehnung durch die Policy und die
+// fehlende lokale Datei. Beide sind endgültig, und Spec §8 verspricht für
+// beide «mit Erklärung verworfen».
+//
+// Die Reihenfolge ist nicht beliebig (Final-Review, Important 9): ZUERST
+// festhalten, dann verwerfen. Bricht es zwischen den beiden Schritten ab,
+// bleibt der Job liegen und läuft erneut hier durch (insert or replace macht
+// das folgenlos). Umgekehrt wäre der Moment wortlos weg. Die Dateien gehen
+// zuletzt (Critical 2): ohne Aufräumen blieben Medium und Thumbnail für immer
+// liegen, und niemand käme je wieder daran vorbei.
+async function jobVerwerfen(job: QueueJob, grund: string, meineGeneration: number): Promise<void> {
+  await queueDb.verworfenenMerken({
+    id: job.post_id,
+    trip_id: job.trip_id,
+    author_id: job.author_id,
+    grund,
+    verworfen_am: Date.now(),
+  });
+  if (!gehoertZurLaufendenGeneration(meineGeneration)) return;
+  await queueDb.jobEntfernen(job.id);
+  medien.momentDateienEntfernen(job.post_id);
 }
 
 // Arbeitet EINEN bereits ausgewählten Job komplett ab (alle fälligen Schritte),
@@ -97,25 +139,7 @@ async function verarbeiteJob(job: QueueJob, jetzt: number, meineGeneration: numb
           // Nachzügler von vorher). Wiederholen hilft nie, Job verwerfen, Grund
           // festhalten, statt ihn endlos zu wiederholen (Task-6-Brief §Step 4).
           if (!gehoertZurLaufendenGeneration(meineGeneration)) return;
-          // Final-Review, Important 9: ZUERST festhalten, dann verwerfen.
-          // Spec §8 verspricht «mit Erklärung verworfen», bis hierher war es
-          // eine Konsolenzeile, die niemand sieht. Reihenfolge nicht beliebig:
-          // bricht es zwischen den beiden Schritten ab, bleibt der Job liegen
-          // und läuft erneut hier durch (insert or replace macht das
-          // folgenlos). Umgekehrt wäre der Moment wortlos weg.
-          await queueDb.verworfenenMerken({
-            id: aktuell.post_id,
-            trip_id: aktuell.trip_id,
-            author_id: aktuell.author_id,
-            grund: angelegt.error,
-            verworfen_am: Date.now(),
-          });
-          if (!gehoertZurLaufendenGeneration(meineGeneration)) return;
-          await queueDb.jobEntfernen(aktuell.id);
-          // Zweiter Ort, an dem ein Job die Warteschlange verlässt (Critical 2):
-          // ohne Aufräumen blieben Medium und Thumbnail für immer liegen, und
-          // niemand käme je wieder daran vorbei.
-          medien.momentDateienEntfernen(aktuell.post_id);
+          await jobVerwerfen(aktuell, angelegt.error, meineGeneration);
           console.error(
             '[uploadWorker] Moment dauerhaft von der Policy abgelehnt, Job verworfen',
             aktuell.id,
@@ -130,8 +154,23 @@ async function verarbeiteJob(job: QueueJob, jetzt: number, meineGeneration: numb
       await queueDb.jobAktualisieren(aktuell);
     }
 
-    const urls = await postsApi.signierteUrls(aktuell.post_id);
-    if (!urls) throw new Error('Signierte URLs konnten nicht geholt werden.');
+    const { urls, dauerhaftAbgelehnt } = await postsApi.signierteUrls(aktuell.post_id);
+    if (!urls) {
+      // Dritter dauerhafter Fall (404, siehe postsApi.signierteUrls): die
+      // posts-Zeile gibt es serverseitig nicht mehr. Erneut anlegen wäre
+      // falsch — der Moment gehört zu einem Stand, den es nicht mehr gibt.
+      if (dauerhaftAbgelehnt) {
+        if (!gehoertZurLaufendenGeneration(meineGeneration)) return;
+        await jobVerwerfen(
+          aktuell,
+          'Dieser Moment ist auf dem Server nicht mehr vorhanden.',
+          meineGeneration
+        );
+        console.error('[uploadWorker] Moment serverseitig verschwunden, Job verworfen', aktuell.id);
+        return;
+      }
+      throw new Error('Signierte URLs konnten nicht geholt werden.');
+    }
 
     if (!aktuell.medium_geladen) {
       if (!gehoertZurLaufendenGeneration(meineGeneration)) return;
@@ -189,6 +228,18 @@ async function verarbeiteJob(job: QueueJob, jetzt: number, meineGeneration: numb
     // Auch der Fehlschlag-Zähler ist ein Schreibvorgang: eine beendete
     // Generation darf ihn nicht mehr hinterlassen (siehe Kommentar oben).
     if (!gehoertZurLaufendenGeneration(meineGeneration)) return;
+    // Zweiter dauerhafter Fall neben der Policy-Ablehnung oben: die Aufnahme
+    // liegt nicht mehr auf dem Gerät. Der Job darf hier NICHT in den normalen
+    // Backoff, sonst liefe er bei jedem App-Start erneut in dieselbe Wand.
+    if (fehler instanceof LokaleDateiFehlt) {
+      await jobVerwerfen(aktuell, fehler.message, meineGeneration);
+      console.error(
+        '[uploadWorker] lokale Aufnahme fehlt, Job verworfen',
+        aktuell.id,
+        fehler.uri
+      );
+      return;
+    }
     const nachher = queueLogic.nachFehlschlag(aktuell, jetzt);
     await queueDb.jobAktualisieren(nachher);
     console.error('[uploadWorker] Job fehlgeschlagen, wird erneut versucht', aktuell.id, fehler);

@@ -17,7 +17,10 @@ jest.mock('../queueDb', () => ({
 }));
 jest.mock('../postsApi', () => ({
   momentAnlegen: jest.fn(async () => ({ error: null })),
-  signierteUrls: jest.fn(async () => ({ medium_url: 'https://s3/m', thumb_url: 'https://s3/t' })),
+  signierteUrls: jest.fn(async () => ({
+    urls: { medium_url: 'https://s3/m', thumb_url: 'https://s3/t' },
+    dauerhaftAbgelehnt: false,
+  })),
   uploadBestaetigen: jest.fn(async () => ({ error: null })),
   // Task-13-Fix-Runde-2: die gerade angemeldete Person, Standard passt zu
   // basis.author_id, einzelne Tests überschreiben mit mockResolvedValueOnce.
@@ -62,16 +65,31 @@ const basis: QueueJob = {
 // deshalb nie bemerkt, dass der echte Weg auf dem Geraet gar nicht existiert.
 const mockUpload = jest.fn(async () => ({ status: 200, body: '', headers: {} }));
 const mockFileUris: string[] = [];
+// Am 2026-08-13 auf dem iPhone: fehlt die lokale Datei, wirft `File.upload()`
+// keine JS-Ausnahme, die der try/catch in verarbeiteJob fangen könnte, sondern
+// eine native ObjC-Ausnahme («Cannot read file at file:///…/medium.jpg»), und
+// die killt den Prozess mit signal 6, bevor irgendein JS wieder dran ist. Die
+// App stürzte dadurch bei JEDEM Start ab, sobald ein solcher Job in der
+// Warteschlange lag. Dieser Mock kann den nativen Absturz nicht nachstellen —
+// prüfbar ist nur, dass der Worker gar nicht erst hochlädt, wenn die Datei
+// fehlt. Genau darauf zielen die Tests unten.
+const mockDatei = { existiert: true };
 jest.mock('expo-file-system', () => ({
   File: jest.fn().mockImplementation((uri: string) => {
     mockFileUris.push(uri);
-    return { upload: mockUpload };
+    return {
+      upload: mockUpload,
+      get exists() {
+        return mockDatei.existiert;
+      },
+    };
   }),
 }));
 beforeEach(() => {
   jobs.length = 0;
   jest.clearAllMocks();
   mockFileUris.length = 0;
+  mockDatei.existiert = true;
   mockUpload.mockResolvedValue({ status: 200, body: '', headers: {} });
   // jest.clearAllMocks() setzt NUR Aufruf-Historie zurück, nicht eine per
   // .mockImplementation()/.mockResolvedValue() gesetzte Implementierung,
@@ -232,6 +250,94 @@ test('ein dauerhaft verworfener Moment wird mit Grund festgehalten, bevor der Jo
   const merkAufruf = (queueDb.verworfenenMerken as jest.Mock).mock.invocationCallOrder[0];
   const entfernAufruf = (queueDb.jobEntfernen as jest.Mock).mock.invocationCallOrder[0];
   expect(merkAufruf).toBeLessThan(entfernAufruf);
+});
+
+// === Der serverseitig verschwundene Moment (2026-08-13) ===
+// Die lokale Warteschlange kann einen Datenbankstand überleben: Der Job trägt
+// `zeile_angelegt`, die posts-Zeile ist weg (Reset der Entwicklungs-DB,
+// gelöschter Moment). Die Function antwortet dann dauerhaft mit 404, und ohne
+// diese Unterscheidung lief der Job alle zehn Minuten erneut ins Leere — auf
+// dem Gerät gesehen, drei Stück, bis zum Deinstallieren der App.
+test('ein serverseitig verschwundener Moment wird verworfen statt ewig wiederholt', async () => {
+  (postsApi.signierteUrls as jest.Mock).mockResolvedValueOnce({
+    urls: null,
+    dauerhaftAbgelehnt: true,
+  });
+  jobs.push({ ...basis, zeile_angelegt: true });
+
+  await einenJobAbarbeiten();
+
+  expect(mockUpload).not.toHaveBeenCalled();
+  expect(queueDb.jobEntfernen).toHaveBeenCalledWith('j1');
+  expect(queueDb.verworfenenMerken).toHaveBeenCalledWith(
+    expect.objectContaining({ id: 'p1', grund: expect.stringContaining('nicht mehr vorhanden') })
+  );
+  expect(medien.momentDateienEntfernen).toHaveBeenCalledWith('p1');
+});
+
+// Die Abgrenzung, an der alles hängt: ein gewöhnlicher Fehlschlag beim Holen
+// der URLs (Server weg, Netz weg) ist NICHT dauerhaft und darf den Moment
+// nicht kosten.
+test('ein wiederholbarer Fehlschlag beim Holen der URLs behält den Job', async () => {
+  (postsApi.signierteUrls as jest.Mock).mockResolvedValueOnce({
+    urls: null,
+    dauerhaftAbgelehnt: false,
+  });
+  jobs.push({ ...basis, zeile_angelegt: true });
+
+  await einenJobAbarbeiten();
+
+  expect(queueDb.jobEntfernen).not.toHaveBeenCalled();
+  expect(queueDb.verworfenenMerken).not.toHaveBeenCalled();
+  expect(jobs[0].versuche).toBe(1);
+});
+
+// === Die fehlende lokale Datei (2026-08-13, Absturz auf dem iPhone) ===
+// Ohne diese Prüfung ging der Job in `File.upload()` und riss die App mit
+// (siehe Mock oben). Wiederholen hilft nie: eine gelöschte Aufnahme kommt
+// nicht zurück, der Job liefe sonst bis zum Deinstallieren der App bei jedem
+// Start erneut in denselben Absturz.
+test('fehlt die lokale Aufnahme, wird gar nicht erst hochgeladen', async () => {
+  mockDatei.existiert = false;
+  jobs.push({ ...basis, zeile_angelegt: true });
+
+  await einenJobAbarbeiten();
+
+  expect(mockUpload).not.toHaveBeenCalled();
+  expect(queueDb.jobEntfernen).toHaveBeenCalledWith('j1');
+});
+
+// Spec §8: «mit Erklärung verworfen» — dieselbe Zusage wie bei der Ablehnung
+// durch die Policy, hier gilt sie genauso: der Moment ist weg, und das darf
+// die betroffene Person nicht erst am fehlenden Beitrag im Recap merken.
+test('die fehlende Aufnahme wird mit Grund festgehalten, bevor der Job verschwindet', async () => {
+  mockDatei.existiert = false;
+  jobs.push({ ...basis, zeile_angelegt: true });
+
+  await einenJobAbarbeiten();
+
+  expect(queueDb.verworfenenMerken).toHaveBeenCalledWith({
+    id: 'p1',
+    trip_id: 't1',
+    author_id: 'u1',
+    grund: expect.stringContaining('nicht mehr'),
+    verworfen_am: expect.any(Number),
+  });
+  const merkAufruf = (queueDb.verworfenenMerken as jest.Mock).mock.invocationCallOrder[0];
+  const entfernAufruf = (queueDb.jobEntfernen as jest.Mock).mock.invocationCallOrder[0];
+  expect(merkAufruf).toBeLessThan(entfernAufruf);
+});
+
+// Das Thumbnail zählt genauso: liegt das Medium noch, das Vorschaubild aber
+// nicht, scheiterte der zweite PUT an derselben nativen Ausnahme.
+test('auch ein fehlendes Vorschaubild führt zum Verwerfen statt in den Absturz', async () => {
+  jobs.push({ ...basis, zeile_angelegt: true, medium_geladen: true });
+  mockDatei.existiert = false;
+
+  await einenJobAbarbeiten();
+
+  expect(mockUpload).not.toHaveBeenCalled();
+  expect(queueDb.jobEntfernen).toHaveBeenCalledWith('j1');
 });
 
 // Ein gewöhnlicher Fehlschlag ist keine Ablehnung, er wird wiederholt und
