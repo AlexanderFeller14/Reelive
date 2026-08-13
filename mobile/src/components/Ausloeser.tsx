@@ -34,6 +34,17 @@ const SPERR_SCHWELLE = SCHLOSS_ABSTAND / 2;
 // Auslöser aus der Bildmitte schieben. 236 passen auch auf ein iPhone SE.
 const BUEHNE_BREITE = 2 * (SCHLOSS_ABSTAND + SCHLOSS_GROESSE / 2);
 
+// Solange der Daumen hält, darf er den ganzen Bildschirm bereisen: nach
+// rechts zum Schloss, nach oben und unten für den Zug-Zoom. Pressable gibt
+// den Druck ab, sobald die Berührung den Haltebereich verlässt — dann kommt
+// onPressOut an und die Aufnahme endet mitten im Zoomen (Gerätefund vom
+// 2026-08-13: mit 40 pt brach sie ab, sobald der Finger den Auslöser
+// verliess; die Sperr-Geste war nur nach rechts abgedeckt). 1000 überdeckt
+// jede iPhone-Abmessung (Pro Max: 956 pt logische Höhe). Das Stoppen beim
+// LOSLASSEN ist davon unberührt: das Heben des Fingers feuert onPressOut
+// überall.
+const DRUCK_HALTE_BEREICH = 1000;
+
 // DESIGN-LANGUAGE §5, bewusste und eng begrenzte Ausnahme (im Review vom
 // 2026-08-07 bestätigt als vertretbarer Weg, siehe Fix-Runde-1-Anhang in
 // task-7-report.md): Der Fortschrittsring animiert `strokeDashoffset`, weder
@@ -253,9 +264,14 @@ export function Ausloeser({ onFoto, onVideoStart, onVideoStop, maxSekunden, onSp
         onPressOut={onPressOut}
         onTouchMove={onTouchMove}
         // Ohne das gäbe `Pressable` den Druck ab, sobald der Daumen den
-        // Auslöser verlässt, und stoppte das Video genau auf dem Weg zum
-        // Schloss. Der Bereich deckt die Strecke mit Reserve ab.
-        pressRetentionOffset={{ top: 40, bottom: 40, left: 40, right: SCHLOSS_ABSTAND + SCHLOSS_GROESSE }}
+        // Auslöser verlässt — und stoppte das Video auf dem Weg zum Schloss
+        // oder mitten im Zug-Zoom (siehe DRUCK_HALTE_BEREICH oben).
+        pressRetentionOffset={{
+          top: DRUCK_HALTE_BEREICH,
+          bottom: DRUCK_HALTE_BEREICH,
+          left: DRUCK_HALTE_BEREICH,
+          right: DRUCK_HALTE_BEREICH,
+        }}
       >
         <View style={styles.wrap}>
         <Svg width={GROESSE} height={GROESSE} style={StyleSheet.absoluteFill}>

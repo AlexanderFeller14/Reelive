@@ -427,3 +427,32 @@ test('die Sperr-Geste funktioniert auch mit gleichzeitigem Hub', async () => {
   expect(onSperre).toHaveBeenCalledWith(true);
   expect(onVideoStop).not.toHaveBeenCalled();
 });
+
+// Gerätefund vom 2026-08-13: Der Zug-Zoom führt den Daumen weit über den
+// Auslöser hinaus (nach oben bis ~40 % der Bildschirmhöhe, nach unten bis an
+// den Rand). Pressable gibt den Druck ab, sobald die Berührung den
+// Haltebereich verlässt — das Loslassen kam an und stoppte die Aufnahme
+// mitten im Zoomen. Die Gesten-Tests oben feuern pressIn/touchMove
+// synthetisch und sehen die native Geometrie nicht, deshalb nagelt dieser
+// Test den Bereich selbst fest: er muss jede iPhone-Abmessung überdecken
+// (Pro Max: 956 pt logische Höhe).
+test('der Druck-Haltebereich überdeckt den ganzen Bildschirm, nicht nur den Weg zum Schloss', async () => {
+  await render(
+    <Ausloeser onFoto={jest.fn()} onVideoStart={jest.fn()} onVideoStop={jest.fn()} maxSekunden={30} />
+  );
+  // Pressable KONSUMIERT den Haltebereich (er geht in die Pressability-
+  // Konfiguration, nicht ans Host-View), im Host-Baum der Testing Library
+  // ist er darum unsichtbar. Das einzige Fenster ist der Fiber-Pfad nach
+  // oben — gesucht wird nach dem Prop selbst statt nach einer Komponenten-
+  // Identität, damit der Test React-Upgrades übersteht.
+  let fiber = screen.getByLabelText('Auslöser').unstable_fiber;
+  while (fiber && fiber.memoizedProps?.pressRetentionOffset === undefined) {
+    fiber = fiber.return;
+  }
+  const bereich = fiber?.memoizedProps?.pressRetentionOffset;
+  expect(bereich).toBeDefined();
+  expect(bereich.top).toBeGreaterThanOrEqual(1000);
+  expect(bereich.bottom).toBeGreaterThanOrEqual(1000);
+  expect(bereich.left).toBeGreaterThanOrEqual(1000);
+  expect(bereich.right).toBeGreaterThanOrEqual(1000);
+});
