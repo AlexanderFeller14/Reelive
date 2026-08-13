@@ -768,13 +768,22 @@ export default function AufnehmenScreen() {
       // SDK-Doku rät von takePictureAsync bei pausierter Vorschau ab, und
       // der Reihenfolge sieht man den Unterschied nicht an, beides läuft im
       // selben Tick. Das eingefrorene Bild ist der gefühlte Shutter.
+      //
+      // Das gilt nur OHNE Blitz, wo das Bild in wenigen Dutzend ms da ist
+      // (Spec 2026-08-13 §4). MIT Blitz fährt iOS erst die Messsequenz
+      // (Vorblitz, Belichtungs-Konvergenz, Hauptblitz), 1–2 s — ein sofort
+      // eingefrorener Sucher stünde die ganze Zeit als dunkler Freeze da
+      // (Gerätetest 2026-08-13). Er bleibt darum live, man SIEHT den Blitz
+      // zünden (Kamera-App-Muster), und eingefroren wird erst, wenn das Bild
+      // da ist: als ruhiger Stand für den Übergang, wie beim Video-Stopp.
       const versprochen = cameraRef.current?.takePictureAsync({
         pictureRef: true,
         shutterSound: false,
       });
-      void cameraRef.current?.pausePreview();
+      if (blitz === 'off') void cameraRef.current?.pausePreview();
       const ref = await versprochen;
       if (!ref) throw new Error('keine Kamera');
+      if (blitz === 'on') void cameraRef.current?.pausePreview();
       // Der Ref ist in Millisekunden da (kein JPEG, kein Platten-I/O);
       // gespeichert wird ab jetzt im Hintergrund, «Einsenden» in der
       // Vorschau wartet auf genau dieses Promise (Spec 2026-08-13 §4).

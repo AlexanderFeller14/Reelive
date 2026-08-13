@@ -390,6 +390,46 @@ test('ein Tipp friert den Sucher ein, übergibt das Foto im Speicher und navigie
   );
 });
 
+// Mit Blitz ist das Bild NICHT in wenigen Dutzend ms da: iOS fährt erst die
+// Messsequenz (Vorblitz, Belichtungs-Konvergenz, Hauptblitz), 1–2 s. Ein
+// sofort eingefrorener Sucher stünde die ganze Zeit als dunkler Freeze da
+// (Gerätetest 2026-08-13). Er bleibt darum live — man sieht den Blitz zünden,
+// wie in der Kamera-App — und friert erst ein, wenn das Bild da ist.
+test('mit Blitz bleibt der Sucher bis zum fertigen Bild live und friert erst dann ein', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  let aufloesen: (v: { width: number; height: number; savePictureAsync: typeof mockSavePictureAsync }) => void =
+    () => {};
+  // Löst erst auf Kommando auf: das Zeitfenster der Blitz-Sequenz.
+  mockTakePictureAsync.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        aufloesen = resolve;
+      })
+  );
+  await render(<AufnehmenScreen />);
+  await screen.findByLabelText('Auslöser');
+  await fireEvent.press(screen.getByLabelText('Blitz einschalten'));
+
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressIn');
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressOut');
+
+  // Solange die Blitz-Sequenz läuft: kein Einfrieren, keine Navigation.
+  expect(mockPausePreview).not.toHaveBeenCalled();
+  expect(mockPush).not.toHaveBeenCalled();
+
+  await act(async () => {
+    aufloesen({ width: 1920, height: 1080, savePictureAsync: mockSavePictureAsync });
+  });
+
+  // Erst mit dem fertigen Bild friert der Sucher ein (ruhiger Stand für den
+  // Übergang, wie beim Video-Stopp), dann kommt die Vorschau.
+  expect(mockPausePreview).toHaveBeenCalledTimes(1);
+  expect(mockPush).toHaveBeenCalledWith({
+    pathname: '/vorschau',
+    params: { typ: 'photo', dauer: '0', tripId: 't1' },
+  });
+});
+
 // Ohne dieses Auftauen bliebe der Sucher nach einem gescheiterten Foto
 // eingefroren — pausePreview ist gelaufen, und niemand navigiert weg.
 test('scheitert das Foto, läuft der Sucher weiter und der Screen sagt es', async () => {
