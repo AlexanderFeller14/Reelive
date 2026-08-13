@@ -186,7 +186,7 @@ export default function ProfilScreen() {
       {/* Scrollbar statt fester Höhe: mit dem Bild darüber wird der Inhalt auf
           kleinen Geräten länger als der Screen, und die destruktive Zone unten
           darf nie ausserhalb des Sichtbaren enden. */}
-      <ScrollView contentContainerStyle={[styles.inhalt, { paddingTop: oben }]}>
+      <ScrollView testID="profil-inhalt" contentContainerStyle={[styles.inhalt, { paddingTop: oben }]}>
         {/* Kopfbild des Profil-Tabs. Anders als Camper, Filmrolle und Flugticket
             steht dieses Bild nicht in einem Leerzustand, sondern über gefülltem
             Inhalt. Freigestellt auf `bg-0`, also ohne Rahmen, Radius und

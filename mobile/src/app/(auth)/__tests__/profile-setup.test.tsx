@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react-native';
 import { ThemeProvider } from '@/theme/ThemeProvider';
 import ProfileSetupScreen from '../profile-setup';
 import { createProfile } from '@/features/auth/profileApi';
@@ -63,6 +63,30 @@ beforeEach(() => {
 test('das Onboarding zeigt den Bildwaehler', async () => {
   await wrap(<ProfileSetupScreen />);
   expect(screen.getByTestId('avatar-waehler')).toBeTruthy();
+});
+
+// Review-Fund (CRITICAL, Merge-Fixrunde): das Sheet hing im Wrapper des
+// Avatar-Kreises, der wiederum in der (zentrierten, ~72 px hohen) Bildzeile
+// des Formulars sitzt. `Sheet` ist kein `Modal` — es legt `StyleSheet.
+// absoluteFill` über seinen UNMITTELBAREN Elternteil, und Yoga löst sein
+// `bottom:0`-Panel gegen ebendiesen auf. Auf dem Gerät war das ein kurzes Band
+// mitten im Formular statt eines Sheets von unten.
+//
+// Der Onboarding-Screen hat keine ScrollView, deshalb steht das Formular jetzt
+// als eigene Ebene unter einem reinen Rahmen (profile-setup.tsx), und das
+// Sheet ist dessen Geschwister. Geometrie prüft Jest nicht (kein Yoga), die
+// Baumstellung schon — und aus ihr folgt die Geometrie.
+test('das Bild-Sheet haengt am Screen-Rahmen, nicht im Formular', async () => {
+  await wrap(<ProfileSetupScreen />);
+  await fireEvent.press(screen.getByTestId('avatar-waehler'));
+  await screen.findByText('Foto auswählen');
+
+  const formular = screen.getByTestId('onboarding-formular');
+  // Kontrolle zuerst: der Kreis liegt wirklich im Formular. Ohne sie wäre die
+  // Zusicherung darunter auch bei einem nicht mehr passenden testID grün.
+  expect(within(formular).getByTestId('avatar-waehler')).toBeTruthy();
+  expect(within(formular).queryByTestId('sheet-root')).toBeNull();
+  expect(screen.getByTestId('sheet-root')).toBeTruthy();
 });
 
 // Überspringbar heisst: ohne Bild kommt man durch, und createProfile bekommt

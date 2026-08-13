@@ -1,4 +1,3 @@
-import { ScrollView } from 'react-native';
 import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react-native';
 import { ThemeProvider } from '@/theme/ThemeProvider';
 
@@ -162,6 +161,31 @@ describe('Profilbild (Task 6)', () => {
     await fireEvent.press(await screen.findByTestId('avatar-waehler'));
     await fireEvent.press(screen.getByText('Foto auswählen'));
     await waitFor(() => expect(screen.getByTestId('avatar-bild')).toBeTruthy());
+  });
+
+  // Review-Fund (CRITICAL, Merge-Fixrunde): das Sheet hing im 44-px-Wrapper
+  // des Avatar-Kreises, also IN der ScrollView, IN einer Karten-Zeile. Weil
+  // `Sheet` kein `Modal` ist, sondern `StyleSheet.absoluteFill` über seinen
+  // unmittelbaren Elternteil legt, war es damit auf dem Gerät ein 44 px
+  // breiter, mitscrollender Streifen — «Foto auswählen» hätte bei 2 × 24 px
+  // Innenabstand negative Restbreite gehabt.
+  //
+  // Jest führt kein Yoga-Layout aus, die Geometrie selbst ist hier also nicht
+  // prüfbar. Die BAUMSTELLUNG ist es, und aus ihr folgt die Geometrie: das
+  // Sheet muss ein Geschwister der ScrollView sein, so wie das Lösch-Sheet
+  // darunter es immer war. Gegen die alte Fassung wird dieser Test rot.
+  test('das Bild-Sheet haengt am Screen, nicht in der ScrollView', async () => {
+    await wrap(<ProfilScreen />);
+    await fireEvent.press(await screen.findByTestId('avatar-waehler'));
+    await screen.findByText('Foto auswählen');
+
+    const inhalt = screen.getByTestId('profil-inhalt');
+    // Kontrolle zuerst: der Kreis liegt tatsächlich in dieser ScrollView.
+    // Ohne sie wäre die Zusicherung darunter auch dann grün, wenn `within`
+    // ins Leere griffe oder das testID nicht mehr passte.
+    expect(within(inhalt).getByTestId('avatar-waehler')).toBeTruthy();
+    expect(within(inhalt).queryByTestId('sheet-root')).toBeNull();
+    expect(screen.getByTestId('sheet-root')).toBeTruthy();
   });
 
   // Review-Fund: die ursprüngliche Fassung dieses Tests startete mit
