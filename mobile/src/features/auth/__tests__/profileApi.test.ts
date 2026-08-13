@@ -1,9 +1,13 @@
 const mockInsert = jest.fn();
+// `update(...).eq(...)` ist eine Kette: `update` liefert das Objekt mit `eq`,
+// erst `eq` löst das Promise mit `{ error }` auf — wie PostgREST es tut.
+const mockUpdateEq = jest.fn();
+const mockUpdate = jest.fn(() => ({ eq: mockUpdateEq }));
 jest.mock('@/lib/supabase', () => ({
-  supabase: { from: () => ({ insert: mockInsert, select: jest.fn() }) },
+  supabase: { from: () => ({ insert: mockInsert, update: mockUpdate, select: jest.fn() }) },
 }));
 
-import { validateUsername, validateDisplayName, createProfile } from '../profileApi';
+import { validateUsername, validateDisplayName, createProfile, updateProfile } from '../profileApi';
 
 test.each([
   ['lea', null],
@@ -87,6 +91,36 @@ test('createProfile weist den vergebenen Username dem Username-Feld zu', async (
 test('createProfile ordnet einen allgemeinen Fehler keinem Feld zu', async () => {
   mockInsert.mockResolvedValueOnce({ error: { code: '08006', message: 'connection failure' } });
   const { error, feld } = await createProfile('uid-1', 'lea', 'Lea');
+  expect(error).toBe('Das Profil konnte nicht gespeichert werden. Probier es gleich nochmal.');
+  expect(feld).toBeNull();
+});
+
+// «Namen bearbeiten» im Profil-Tab: dieselben Regeln wie beim Anlegen —
+// display_name getrimmt, Unique-Verletzung feldgenau dem Username zugeordnet.
+// Nur die eigene Zeile: die Spalten-Grants aus
+// 20260808150000_leerstrings_und_profil_grants.sql erlauben authenticated
+// genau username/display_name/avatar_key, die Policy profiles_update_own den
+// Rest.
+test('updateProfile schreibt beide Namen getrimmt auf die eigene Zeile', async () => {
+  mockUpdateEq.mockResolvedValueOnce({ error: null });
+  const { error, feld } = await updateProfile('uid-1', 'lea_neu', ' Lea Neu ');
+  expect(error).toBeNull();
+  expect(feld).toBeNull();
+  expect(mockUpdate).toHaveBeenCalledWith({ username: 'lea_neu', display_name: 'Lea Neu' });
+  expect(mockUpdateEq).toHaveBeenCalledWith('id', 'uid-1');
+});
+
+test('updateProfile weist den vergebenen Username dem Username-Feld zu', async () => {
+  mockUpdateEq.mockResolvedValueOnce({ error: { code: '23505', message: 'duplicate key' } });
+  await expect(updateProfile('uid-1', 'lea', 'Lea')).resolves.toEqual({
+    error: 'Dieser Username ist vergeben, probier einen anderen.',
+    feld: 'username',
+  });
+});
+
+test('updateProfile ordnet einen allgemeinen Fehler keinem Feld zu', async () => {
+  mockUpdateEq.mockResolvedValueOnce({ error: { code: '08006', message: 'connection failure' } });
+  const { error, feld } = await updateProfile('uid-1', 'lea', 'Lea');
   expect(error).toBe('Das Profil konnte nicht gespeichert werden. Probier es gleich nochmal.');
   expect(feld).toBeNull();
 });

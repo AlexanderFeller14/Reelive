@@ -47,6 +47,29 @@ export async function createProfile(
   return { error: 'Das Profil konnte nicht gespeichert werden. Probier es gleich nochmal.', feld: null };
 }
 
+// «Namen bearbeiten» im Profil-Tab: dieselben Regeln und dieselbe
+// Fehler-Zuordnung wie createProfile, nur als UPDATE auf die eigene Zeile.
+// Serverseitig erlaubt: die Spalten-Grants aus
+// 20260808150000_leerstrings_und_profil_grants.sql geben authenticated genau
+// username/display_name/avatar_key frei, profiles_update_own bindet das an
+// die eigene id. avatar_key gehört NICHT hierher, das Bild läuft über
+// avatarApi (Upload und Aufräumen hängen dort dran).
+export async function updateProfile(
+  userId: string,
+  username: string,
+  displayName: string,
+): Promise<{ error: string | null; feld: 'username' | null }> {
+  const { error } = await supabase
+    .from('profiles')
+    .update({ username, display_name: displayName.trim() })
+    .eq('id', userId);
+  if (!error) return { error: null, feld: null };
+  if (error.code === '23505') {
+    return { error: 'Dieser Username ist vergeben, probier einen anderen.', feld: 'username' };
+  }
+  return { error: 'Das Profil konnte nicht gespeichert werden. Probier es gleich nochmal.', feld: null };
+}
+
 export async function fetchOwnProfile(userId: string): Promise<Profile | null> {
   const { data } = await supabase
     .from('profiles')

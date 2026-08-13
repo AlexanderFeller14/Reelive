@@ -5,10 +5,22 @@ import { ThemeProvider } from '@/theme/ThemeProvider';
 jest.mock('../AuthProvider', () => ({
   useAuth: () => ({ status: 'signedIn', userId: 'uid-1', refreshProfile: jest.fn() }),
 }));
+// Die Validatoren bekommen Sentinel-Texte statt der echten Meldungen —
+// dasselbe Muster wie `zahlenText` unten: die echten Formulierungen und
+// Regeln sind in profileApi.test.ts abgedeckt, hier zählt nur, DASS der
+// Screen die Meldung des Validators am richtigen Feld zeigt. Kein
+// requireActual: das echte Modul zieht @/lib/supabase und damit das
+// AsyncStorage-Nativmodul mit (siehe kontoApi-Kommentar unten).
 jest.mock('../profileApi', () => ({
   fetchOwnProfile: jest.fn(async () => ({
     id: 'uid-1', username: 'lea', display_name: 'Lea', avatar_key: null,
   })),
+  updateProfile: jest.fn(),
+  validateUsername: (u: string) => (/^[a-z0-9_]{3,20}$/.test(u) ? null : 'USERNAME-REGEL'),
+  validateDisplayName: (d: string) => {
+    const l = d.trim().length;
+    return l >= 1 && l <= 40 ? null : 'NAME-REGEL';
+  },
 }));
 const mockSignOut = jest.fn();
 jest.mock('../authApi', () => ({ signOut: () => mockSignOut() }));
@@ -79,11 +91,28 @@ jest.mock('@/features/moments/einstellungen', () => ({
   setzeNurUeberWlan: (wert: boolean) => mockSetzeNurUeberWlan(wert),
 }));
 
+// Der Benachrichtigungs-Schalter: Einstellung (Default AN, siehe
+// push/einstellungen.ts) und pushApi. Letztere als Factory-Mock aus demselben
+// Grund wie kontoApi unten: das echte Modul zieht @/lib/supabase,
+// expo-notifications und expo-device mit.
+const mockBenachrichtigungenAktiv = jest.fn(async () => true);
+const mockSetzeBenachrichtigungen = jest.fn(async (_wert: boolean) => {});
+jest.mock('@/features/push/einstellungen', () => ({
+  benachrichtigungenAktiv: () => mockBenachrichtigungenAktiv(),
+  setzeBenachrichtigungen: (wert: boolean) => mockSetzeBenachrichtigungen(wert),
+}));
+const mockRegistrierePush = jest.fn(async (_userId: string) => 'ok');
+const mockDeregistrierePush = jest.fn(async () => {});
+jest.mock('@/features/push/pushApi', () => ({
+  registrierePushToken: (userId: string) => mockRegistrierePush(userId),
+  deregistrierePushToken: () => mockDeregistrierePush(),
+}));
+
 // Pfad-Anpassung (Task-10-Kontext, Abweichung 2): Router-Root ist mobile/src/app/,
 // nicht mobile/app/, von __tests__/ drei Ebenen hoch zu app/(tabs)/...
 import ProfilScreen from '../../../app/(tabs)/profil';
 import { setzeAvatar } from '@/features/auth/avatarApi';
-import { fetchOwnProfile } from '../profileApi';
+import { fetchOwnProfile, updateProfile } from '../profileApi';
 
 const wrap = (ui: React.ReactElement) => render(<ThemeProvider>{ui}</ThemeProvider>);
 
@@ -95,6 +124,8 @@ const PROFIL_OHNE_BILD = { id: 'uid-1', username: 'lea', display_name: 'Lea', av
 beforeEach(() => {
   jest.clearAllMocks();
   mockNurUeberWlan.mockResolvedValue(false);
+  mockBenachrichtigungenAktiv.mockResolvedValue(true);
+  mockRegistrierePush.mockResolvedValue('ok');
   mockGalerieRecht.mockResolvedValue({ granted: true });
   mockAusGalerie.mockResolvedValue({
     canceled: false,
@@ -235,6 +266,138 @@ describe('Profilbild (Task 6)', () => {
     // Der eigentliche Kern der Zusicherung, nicht nur "irgendein Bild":
     // dieselbe URL wie vor dem fehlgeschlagenen Versuch.
     expect(screen.getByTestId('avatar-bild').props.source.uri).toBe(urlVorher);
+  });
+});
+
+// Der Benachrichtigungs-Schalter steuert die Geräte-Registrierung: aus löscht
+// den Token, an registriert ihn. Nur die abgelehnte Systemberechtigung
+// bekommt Rückmeldung; 'fehler'/'nicht-unterstuetzt' sind Alltag (Expo Go,
+// Simulator, Task-4-Brief) und bleiben stumm.
+describe('Benachrichtigungen', () => {
+  test('zeigt den Schalter mit Erklärung, Standard an', async () => {
+    await wrap(<ProfilScreen />);
+    expect(await screen.findByText('Benachrichtigungen')).toBeTruthy();
+    expect(
+      screen.getByText('Sagt dir Bescheid, wenn in deinen Reisen etwas passiert.')
+    ).toBeTruthy();
+    await waitFor(() =>
+      expect(screen.getByLabelText('Benachrichtigungen').props.value).toBe(true)
+    );
+  });
+
+  test('ein gespeichertes AUS zeigt sich beim Öffnen', async () => {
+    mockBenachrichtigungenAktiv.mockResolvedValue(false);
+    await wrap(<ProfilScreen />);
+    await waitFor(() =>
+      expect(screen.getByLabelText('Benachrichtigungen').props.value).toBe(false)
+    );
+  });
+
+  test('Ausschalten speichert die Wahl und meldet das Gerät ab', async () => {
+    await wrap(<ProfilScreen />);
+    const schalter = await screen.findByLabelText('Benachrichtigungen');
+    await fireEvent(schalter, 'valueChange', false);
+    await waitFor(() => expect(mockSetzeBenachrichtigungen).toHaveBeenCalledWith(false));
+    await waitFor(() => expect(mockDeregistrierePush).toHaveBeenCalledTimes(1));
+    expect(mockRegistrierePush).not.toHaveBeenCalled();
+    expect(screen.getByLabelText('Benachrichtigungen').props.value).toBe(false);
+  });
+
+  test('Einschalten speichert die Wahl und registriert das Gerät', async () => {
+    mockBenachrichtigungenAktiv.mockResolvedValue(false);
+    await wrap(<ProfilScreen />);
+    const schalter = await screen.findByLabelText('Benachrichtigungen');
+    await fireEvent(schalter, 'valueChange', true);
+    await waitFor(() => expect(mockSetzeBenachrichtigungen).toHaveBeenCalledWith(true));
+    await waitFor(() => expect(mockRegistrierePush).toHaveBeenCalledWith('uid-1'));
+    expect(mockDeregistrierePush).not.toHaveBeenCalled();
+  });
+
+  test('eine abgelehnte Berechtigung springt zurück und erklärt sich', async () => {
+    mockBenachrichtigungenAktiv.mockResolvedValue(false);
+    mockRegistrierePush.mockResolvedValue('keine-berechtigung');
+    await wrap(<ProfilScreen />);
+    const schalter = await screen.findByLabelText('Benachrichtigungen');
+    await fireEvent(schalter, 'valueChange', true);
+    expect(
+      await screen.findByText(
+        'Ohne Zugriff auf Mitteilungen geht es nicht. Du kannst das in den Einstellungen ändern.'
+      )
+    ).toBeTruthy();
+    expect(screen.getByLabelText('Benachrichtigungen').props.value).toBe(false);
+    // Auch gespeichert, nicht nur angezeigt: sonst käme der Schalter beim
+    // nächsten Öffnen fälschlich als AN zurück.
+    expect(mockSetzeBenachrichtigungen).toHaveBeenLastCalledWith(false);
+  });
+
+  test("ein stiller Fehlschlag ('fehler') lässt den Schalter an und zeigt nichts", async () => {
+    mockBenachrichtigungenAktiv.mockResolvedValue(false);
+    mockRegistrierePush.mockResolvedValue('fehler');
+    await wrap(<ProfilScreen />);
+    const schalter = await screen.findByLabelText('Benachrichtigungen');
+    await fireEvent(schalter, 'valueChange', true);
+    await waitFor(() => expect(mockRegistrierePush).toHaveBeenCalled());
+    expect(screen.getByLabelText('Benachrichtigungen').props.value).toBe(true);
+    expect(
+      screen.queryByText(
+        'Ohne Zugriff auf Mitteilungen geht es nicht. Du kannst das in den Einstellungen ändern.'
+      )
+    ).toBeNull();
+  });
+});
+
+// «Namen bearbeiten»: die Namens-Karte ist das Tap-Ziel, das Sheet gehört dem
+// Screen (Geschwister der ScrollView, wie Bild- und Lösch-Sheet).
+describe('Namen bearbeiten', () => {
+  test('die Namens-Karte öffnet das Sheet mit vorbefüllten Feldern', async () => {
+    await wrap(<ProfilScreen />);
+    await screen.findByText('Lea');
+    await fireEvent.press(screen.getByTestId('name-bearbeiten-oeffnen'));
+    // Vorbefüllt heisst: die GESPEICHERTEN Werte stehen in den Feldern, nicht
+    // leere Inputs (getByDisplayValue trifft nur TextInputs, nicht den
+    // Kartentext daneben).
+    expect(screen.getByDisplayValue('lea')).toBeTruthy();
+    expect(screen.getByDisplayValue('Lea')).toBeTruthy();
+  });
+
+  test('Speichern schreibt beide Namen und zeigt sie sofort an', async () => {
+    (updateProfile as jest.Mock).mockResolvedValue({ error: null, feld: null });
+    await wrap(<ProfilScreen />);
+    await screen.findByText('Lea');
+    await fireEvent.press(screen.getByTestId('name-bearbeiten-oeffnen'));
+    await fireEvent.changeText(screen.getByDisplayValue('lea'), 'lea_neu');
+    await fireEvent.changeText(screen.getByDisplayValue('Lea'), 'Lea Neu');
+    await fireEvent.press(screen.getByText('Speichern'));
+    await waitFor(() => expect(updateProfile).toHaveBeenCalledWith('uid-1', 'lea_neu', 'Lea Neu'));
+    // Wie beim Profilbild: die Antwort IST der neue Stand, kein zweiter
+    // fetchOwnProfile-Rundgang.
+    expect(await screen.findByText('Lea Neu')).toBeTruthy();
+    expect(screen.getByText('@lea_neu')).toBeTruthy();
+    expect((fetchOwnProfile as jest.Mock).mock.calls.length).toBe(1);
+    // Das Sheet ist zu.
+    expect(screen.queryByTestId('sheet-root')).toBeNull();
+  });
+
+  test('ein vergebener Username steht am Feld, das Sheet bleibt offen, der alte Name bleibt stehen', async () => {
+    (updateProfile as jest.Mock).mockResolvedValue({ error: 'VERGEBEN', feld: 'username' });
+    await wrap(<ProfilScreen />);
+    await screen.findByText('Lea');
+    await fireEvent.press(screen.getByTestId('name-bearbeiten-oeffnen'));
+    await fireEvent.changeText(screen.getByDisplayValue('lea'), 'lea_neu');
+    await fireEvent.press(screen.getByText('Speichern'));
+    expect(await screen.findByText('VERGEBEN')).toBeTruthy();
+    expect(screen.getByTestId('sheet-root')).toBeTruthy();
+    expect(screen.getByText('@lea')).toBeTruthy();
+  });
+
+  test('ein ungültiger Username ruft die API gar nicht erst', async () => {
+    await wrap(<ProfilScreen />);
+    await screen.findByText('Lea');
+    await fireEvent.press(screen.getByTestId('name-bearbeiten-oeffnen'));
+    await fireEvent.changeText(screen.getByDisplayValue('lea'), 'X');
+    await fireEvent.press(screen.getByText('Speichern'));
+    expect(await screen.findByText('USERNAME-REGEL')).toBeTruthy();
+    expect(updateProfile).not.toHaveBeenCalled();
   });
 });
 

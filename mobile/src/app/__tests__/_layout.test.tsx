@@ -74,6 +74,13 @@ jest.mock('@/features/push/pushApi', () => ({
   registrierePushToken: jest.fn(async () => 'ok'),
 }));
 
+// Der Benachrichtigungs-Schalter (Profil-Tab): das Layout registriert nur,
+// wenn die Einstellung AN ist. Default AN wie in push/einstellungen.ts.
+const mockBenachrichtigungenAktiv = jest.fn(async () => true);
+jest.mock('@/features/push/einstellungen', () => ({
+  benachrichtigungenAktiv: () => mockBenachrichtigungenAktiv(),
+}));
+
 import RootLayout from '../_layout';
 import * as uploadWorker from '@/features/moments/uploadWorker';
 import * as pushApi from '@/features/push/pushApi';
@@ -83,6 +90,7 @@ beforeEach(() => {
   mockAuth.status = 'loading';
   mockAuth.userId = null;
   mockSegments[0] = '(tabs)';
+  mockBenachrichtigungenAktiv.mockResolvedValue(true);
   Platform.OS = 'ios';
 });
 
@@ -171,6 +179,23 @@ test('sobald Sitzung und Profil stehen (signedIn), wird die Push-Registrierung m
   });
 
   expect(pushApi.registrierePushToken).toHaveBeenCalledWith('u1');
+  await unmount();
+});
+
+// Wer den Schalter im Profil-Tab ausgeschaltet hat, dessen Gerät darf sich
+// beim nächsten Start nicht klammheimlich wieder registrieren — sonst wäre
+// der Schalter nur Deko bis zum nächsten App-Start.
+test('mit ausgeschalteten Benachrichtigungen registriert das Layout NICHT', async () => {
+  mockBenachrichtigungenAktiv.mockResolvedValue(false);
+  const { rerender, unmount } = await render(<RootLayout />);
+
+  mockAuth.status = 'signedIn';
+  mockAuth.userId = 'u1';
+  await act(async () => {
+    rerender(<RootLayout />);
+  });
+
+  expect(pushApi.registrierePushToken).not.toHaveBeenCalled();
   await unmount();
 });
 

@@ -26,6 +26,7 @@ import { redeemInvite } from '@/features/trips/tripsApi';
 import { redeemPendingInvite } from '@/features/trips/joinFlow';
 import * as uploadWorker from '@/features/moments/uploadWorker';
 import { registrierePushToken } from '@/features/push/pushApi';
+import { benachrichtigungenAktiv } from '@/features/push/einstellungen';
 import { initFehlermelder } from '@/lib/fehlermelder';
 
 void SplashScreen.preventAutoHideAsync();
@@ -134,9 +135,17 @@ function Guarded() {
   // Cleanup, registrierePushToken() wirft nie (Task-4-Brief) und schreibt
   // höchstens eine Zeile per upsert auf token; ein doppelter Aufruf bei
   // erneutem signedIn (z.B. nach kurzem Session-Verlust) ist harmlos.
+  //
+  // Seit dem Schalter im Profil-Tab hinter der gespeicherten Einstellung:
+  // wer Benachrichtigungen ausgeschaltet hat, dessen Gerät darf sich beim
+  // nächsten Start nicht klammheimlich wieder registrieren. Das AUSSCHALTEN
+  // selbst löscht den Token sofort (profil.tsx), hier wird nur noch das
+  // Wieder-Anlegen verhindert.
   useEffect(() => {
     if (webGesperrt || status !== 'signedIn' || !userId) return;
-    void registrierePushToken(userId);
+    void benachrichtigungenAktiv().then((aktiv) => {
+      if (aktiv) void registrierePushToken(userId);
+    });
   }, [status, userId, webGesperrt]);
 
   // Web-Hartsperre: KEIN <Stack/>, nicht nur ein Redirect. Ohne <Stack/>

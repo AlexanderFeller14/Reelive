@@ -11,11 +11,16 @@ import { radius, spacing, type } from '@/theme/tokens';
 import { useOberkante } from '@/theme/useOberkante';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { AvatarZuschnitt } from '@/components/AvatarZuschnitt';
+import { Input } from '@/components/Input';
 import { entferneAvatar, setzeAvatar } from '@/features/auth/avatarApi';
 import type { Ausschnitt } from '@/features/auth/zuschnitt';
-import { fetchOwnProfile, type Profile } from '@/features/auth/profileApi';
+import {
+  fetchOwnProfile, updateProfile, validateDisplayName, validateUsername, type Profile,
+} from '@/features/auth/profileApi';
 import { signOut } from '@/features/auth/authApi';
 import { nurUeberWlan, setzeNurUeberWlan } from '@/features/moments/einstellungen';
+import { benachrichtigungenAktiv, setzeBenachrichtigungen } from '@/features/push/einstellungen';
+import { deregistrierePushToken, registrierePushToken } from '@/features/push/pushApi';
 import { holeLoeschZahlen, loescheKonto, zahlenText, type LoeschZahlen } from '@/features/konto/kontoApi';
 
 // Task 9, Phase 6: der destruktive Bestätigungsknopf im Löschdialog. Kein
@@ -69,6 +74,11 @@ export default function ProfilScreen() {
   const { userId } = useAuth();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [nurWlan, setNurWlan] = useState(false);
+  // Default AN wie in push/einstellungen.ts dokumentiert: die Registrierung
+  // lief bisher bei jedem signedIn automatisch, der Schalter darf bestehende
+  // Installationen nicht stummschalten.
+  const [benachrichtigungen, setBenachrichtigungen] = useState(true);
+  const [pushHinweis, setPushHinweis] = useState<string | null>(null);
 
   // Task 9: Konto-Löschung. `zahlenPhase`/`zahlen` trennen "noch nicht
   // geladen" von "geladen" so scharf, dass der Bestätigungsknopf STRUKTURELL
@@ -102,15 +112,28 @@ export default function ProfilScreen() {
   >(null);
   const [bildFehler, setBildFehler] = useState<string | null>(null);
 
+  // «Namen bearbeiten»: derselbe Schnitt wie beim Bild- und Lösch-Sheet — der
+  // Screen hält den Sheet-Zustand. Der Entwurf ist bewusst eigener State und
+  // kein Schreiben in `profile`: solange nicht gespeichert ist, bleibt der
+  // gespeicherte Stand die einzige Wahrheit auf dem Screen dahinter.
+  const [nameSheetSichtbar, setNameSheetSichtbar] = useState(false);
+  const [nameEntwurf, setNameEntwurf] = useState({ username: '', displayName: '' });
+  const [nameUsernameFehler, setNameUsernameFehler] = useState<string | undefined>();
+  const [nameAnzeigeFehler, setNameAnzeigeFehler] = useState<string | undefined>();
+  const [nameFormFehler, setNameFormFehler] = useState<string | null>(null);
+  const [nameLaeuft, setNameLaeuft] = useState(false);
+
   useEffect(() => {
     if (userId) void fetchOwnProfile(userId).then(setProfile);
   }, [userId]);
 
   // Task 10: der gespeicherte Stand lädt einmalig beim Öffnen, der Screen
   // hat kein Fokus-Refresh-Muster wie reise/[id]/index.tsx, weil hier nichts
-  // ausserhalb der App selbst den Wert verändern kann.
+  // ausserhalb der App selbst den Wert verändern kann. Gilt für beide
+  // Schalter gleichermassen.
   useEffect(() => {
     void nurUeberWlan().then(setNurWlan);
+    void benachrichtigungenAktiv().then(setBenachrichtigungen);
   }, []);
 
   // Sofort sichtbar (kein Warten auf den Schreibvorgang), ein liegen-
@@ -119,6 +142,32 @@ export default function ProfilScreen() {
   const umschalten = (wert: boolean) => {
     setNurWlan(wert);
     void setzeNurUeberWlan(wert);
+  };
+
+  // Der Schalter steuert die Geräte-Registrierung: aus löscht den eigenen
+  // Token (nur dieses Gerät, siehe deregistrierePushToken), an registriert
+  // ihn und fragt dabei bei Bedarf die Systemberechtigung an.
+  // 'fehler'/'nicht-unterstuetzt' bleiben stumm und lassen den Wunsch AN
+  // stehen: das ist der Alltag in Expo Go und im Simulator (Task-4-Brief),
+  // und beim nächsten App-Start versucht das Root-Layout es erneut. Nur die
+  // ABGELEHNTE Berechtigung ist behebbar und bekommt deshalb Rückmeldung —
+  // der Schalter springt zurück, damit er nie AN zeigt, während das System
+  // nie etwas zustellen wird.
+  const benachrichtigungenUmschalten = async (wert: boolean) => {
+    setBenachrichtigungen(wert);
+    setPushHinweis(null);
+    await setzeBenachrichtigungen(wert);
+    if (!wert) {
+      void deregistrierePushToken();
+      return;
+    }
+    if (!userId) return;
+    const ergebnis = await registrierePushToken(userId);
+    if (ergebnis === 'keine-berechtigung') {
+      setBenachrichtigungen(false);
+      await setzeBenachrichtigungen(false);
+      setPushHinweis('Ohne Zugriff auf Mitteilungen geht es nicht. Du kannst das in den Einstellungen ändern.');
+    }
   };
 
   // Öffnet den Dialog und holt die Zahlen SOFORT, es gibt keinen Weg, den
@@ -190,6 +239,43 @@ export default function ProfilScreen() {
     setProfile((vorher) => (vorher ? { ...vorher, avatar_key: null } : vorher));
   };
 
+  // Öffnet mit den GESPEICHERTEN Werten, nicht mit einem etwaigen alten
+  // Entwurf: wer das Sheet zumacht und wieder öffnet, fängt beim Stand der
+  // Wahrheit an, nicht bei einem halb getippten Versuch.
+  const nameBearbeitenOeffnen = () => {
+    if (!profile) return;
+    setNameEntwurf({ username: profile.username, displayName: profile.display_name });
+    setNameUsernameFehler(undefined);
+    setNameAnzeigeFehler(undefined);
+    setNameFormFehler(null);
+    setNameSheetSichtbar(true);
+  };
+
+  const nameSpeichern = async () => {
+    if (!userId) return;
+    // Dieselbe Reihenfolge wie das Onboarding (profile-setup.tsx): erst beide
+    // Validatoren, beide Meldungen feldgenau setzen, erst dann zum Server.
+    const uErr = validateUsername(nameEntwurf.username);
+    const dErr = validateDisplayName(nameEntwurf.displayName);
+    setNameUsernameFehler(uErr ?? undefined);
+    setNameAnzeigeFehler(dErr ?? undefined);
+    setNameFormFehler(null);
+    if (uErr || dErr) return;
+    setNameLaeuft(true);
+    const { error, feld } = await updateProfile(userId, nameEntwurf.username, nameEntwurf.displayName);
+    setNameLaeuft(false);
+    if (error) {
+      if (feld === 'username') return setNameUsernameFehler(error);
+      return setNameFormFehler(error);
+    }
+    // Wie beim Profilbild: die Antwort IST der neue Stand, kein zweiter
+    // Rundgang zur Datenbank. Getrimmt wie updateProfile es schreibt.
+    setProfile((vorher) => (vorher
+      ? { ...vorher, username: nameEntwurf.username, display_name: nameEntwurf.displayName.trim() }
+      : vorher));
+    setNameSheetSichtbar(false);
+  };
+
   return (
     <View style={{ flex: 1, backgroundColor: colors['bg-0'] }}>
       {/* Scrollbar statt fester Höhe: mit dem Bild darüber wird der Inhalt auf
@@ -218,25 +304,36 @@ export default function ProfilScreen() {
             Aussenabstand, `spacing.xs` innen). Zwei Stylesheet-Einträge mit
             identischem Inhalt wären keine zweite Bedeutung, nur ein zweiter
             Name für dieselbe. */}
-        <Card style={styles.zeile}>
-          {/* Der Reisepass, klein in derselben 44er-Kante, in der vorher der
-              Avatar-Kreis stand. Freigestellt auf der Karte, ohne Rahmen und
-              Radius, und aus dem Accessibility-Baum genommen: er sagt nichts,
-              was Name und Handle daneben nicht schon sagen. */}
-          <Image
-            testID="profil-reisepass"
-            source={require('@/assets/images/reisepass-rot-transparent.png')}
-            style={styles.reisepass}
-            contentFit="contain"
-            accessible={false}
-          />
-          <View style={styles.zeileText}>
-            <Text style={[type.h1, { color: colors['text-1'] }]}>{profile?.display_name ?? '…'}</Text>
-            <Text style={[type.secondary, { color: colors['text-2'] }]}>
-              {profile ? `@${profile.username}` : ''}
-            </Text>
-          </View>
-        </Card>
+        {/* Die ganze Karte ist das Tap-Ziel für «Namen bearbeiten» — sie
+            enthält seit dem Bildertausch kein eigenes Tap-Ziel mehr (der
+            Bildwähler steht oben), ein zweites darin würde sie zerteilen
+            (dieselbe Begründung wie bei der Reise-Karte in Avatar.tsx). */}
+        <PressScale
+          testID="name-bearbeiten-oeffnen"
+          accessibilityRole="button"
+          accessibilityLabel="Namen ändern"
+          onPress={nameBearbeitenOeffnen}
+        >
+          <Card style={styles.zeile}>
+            {/* Der Reisepass, klein in derselben 44er-Kante, in der vorher der
+                Avatar-Kreis stand. Freigestellt auf der Karte, ohne Rahmen und
+                Radius, und aus dem Accessibility-Baum genommen: er sagt nichts,
+                was Name und Handle daneben nicht schon sagen. */}
+            <Image
+              testID="profil-reisepass"
+              source={require('@/assets/images/reisepass-rot-transparent.png')}
+              style={styles.reisepass}
+              contentFit="contain"
+              accessible={false}
+            />
+            <View style={styles.zeileText}>
+              <Text style={[type.h1, { color: colors['text-1'] }]}>{profile?.display_name ?? '…'}</Text>
+              <Text style={[type.secondary, { color: colors['text-2'] }]}>
+                {profile ? `@${profile.username}` : ''}
+              </Text>
+            </View>
+          </Card>
+        </PressScale>
         <Card style={styles.zeile}>
           <View style={styles.zeileText}>
             <Text style={[type.bodyMedium, { color: colors['text-1'] }]}>Nur über WLAN einsenden</Text>
@@ -252,6 +349,24 @@ export default function ProfilScreen() {
             accessibilityLabel="Nur über WLAN einsenden"
           />
         </Card>
+        <Card style={styles.zeile}>
+          <View style={styles.zeileText}>
+            <Text style={[type.bodyMedium, { color: colors['text-1'] }]}>Benachrichtigungen</Text>
+            <Text style={[type.secondary, { color: colors['text-2'] }]}>
+              Sagt dir Bescheid, wenn in deinen Reisen etwas passiert.
+            </Text>
+          </View>
+          <Switch
+            value={benachrichtigungen}
+            onValueChange={(wert) => void benachrichtigungenUmschalten(wert)}
+            trackColor={{ false: colors['bg-1'], true: colors.accent }}
+            thumbColor={colors['bg-0']}
+            accessibilityLabel="Benachrichtigungen"
+          />
+        </Card>
+        {pushHinweis && (
+          <Text style={[type.secondary, { color: colors.danger }]}>{pushHinweis}</Text>
+        )}
         <Button variant="secondary" label="Abmelden" onPress={() => void signOut()} />
 
         {/* Task 9: "unter allem anderen, in danger" (Brief, wörtlich),
@@ -281,6 +396,31 @@ export default function ProfilScreen() {
           onEntfernen={() => void bildEntfernen()}
           onSchliessen={() => setBildSheetSichtbar(false)}
         />
+      </Sheet>
+
+      {/* «Namen bearbeiten»: Sheet-Zustand und -Position folgen dem Bild-Sheet
+          darüber, die Feld-Reihenfolge dem Onboarding (Username zuerst). */}
+      <Sheet sichtbar={nameSheetSichtbar} titel="Namen ändern" onSchliessen={() => setNameSheetSichtbar(false)}>
+        <View style={{ gap: spacing.base }}>
+          <Input
+            label="Username"
+            value={nameEntwurf.username}
+            onChangeText={(t) => setNameEntwurf((e) => ({ ...e, username: t.toLowerCase() }))}
+            error={nameUsernameFehler}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+          <Input
+            label="Anzeigename"
+            value={nameEntwurf.displayName}
+            onChangeText={(t) => setNameEntwurf((e) => ({ ...e, displayName: t }))}
+            error={nameAnzeigeFehler}
+          />
+          {nameFormFehler && (
+            <Text style={[type.body, { color: colors.danger }]}>{nameFormFehler}</Text>
+          )}
+          <Button variant="primary" label="Speichern" onPress={() => void nameSpeichern()} loading={nameLaeuft} />
+        </View>
       </Sheet>
 
       {/* Der Zuschnitt liegt über allem und ist deshalb der letzte Knoten:
