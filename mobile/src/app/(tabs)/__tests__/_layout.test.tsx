@@ -11,10 +11,12 @@ import * as React from 'react';
 // erzeugen, ohne die eigentliche Zusicherung (welcher `display`-Wert für
 // welche Route) schärfer zu machen.
 let letzteScreenOptions: { tabBarStyle?: { display?: string } } | undefined;
+let letzteScreenListeners: { tabPress?: (e: { preventDefault: () => void }) => void } | undefined;
 const mockUseSegments = jest.fn(() => ['(tabs)'] as string[]);
 jest.mock('expo-router', () => {
-  function Tabs(props: { screenOptions: unknown; children: React.ReactNode }) {
+  function Tabs(props: { screenOptions: unknown; screenListeners?: unknown; children: React.ReactNode }) {
     letzteScreenOptions = props.screenOptions as typeof letzteScreenOptions;
+    letzteScreenListeners = props.screenListeners as typeof letzteScreenListeners;
     return null;
   }
   Tabs.Screen = () => null;
@@ -25,10 +27,13 @@ jest.mock('expo-router', () => {
 });
 
 import TabsLayout from '../_layout';
+import * as aufnahmeSperre from '@/features/kamera/aufnahmeSperre';
 
 beforeEach(() => {
   letzteScreenOptions = undefined;
+  letzteScreenListeners = undefined;
   mockUseSegments.mockReturnValue(['(tabs)']);
+  aufnahmeSperre.sperren(false);
 });
 
 test('auf einer beliebigen Nicht-Player-Route bleibt die Tab-Bar sichtbar', async () => {
@@ -102,4 +107,28 @@ test('der Kamera-Screen (aufnehmen) behält die Tab-Bar', async () => {
   mockUseSegments.mockReturnValue(['(tabs)', 'aufnehmen']);
   await render(<TabsLayout />);
   expect(letzteScreenOptions?.tabBarStyle?.display).not.toBe('none');
+});
+
+// Während einer laufenden Aufnahme (Foto-Zyklus oder Video, der Kamera-Screen
+// setzt die Sperre, siehe aufnehmen/__tests__/kamera.test.tsx) darf ein Tipp
+// auf einen Tab NICHT wechseln: das Fokus-Cleanup feuerte sonst mitten in die
+// laufende Session. Die Leiste bleibt stehen (kein display:'none': das nähme
+// der Szene mitten in der Aufnahme die Höhe, der Sucher spränge) — der Tipp
+// läuft per preventDefault ins Leere.
+test('während einer laufenden Aufnahme läuft ein Tab-Tipp ins Leere', async () => {
+  await render(<TabsLayout />);
+  aufnahmeSperre.sperren(true);
+  const ereignis = { preventDefault: jest.fn() };
+  letzteScreenListeners?.tabPress?.(ereignis);
+  expect(ereignis.preventDefault).toHaveBeenCalled();
+});
+
+// Gegenprobe: ohne Sperre bleibt der Tab-Wechsel unangetastet. Der Listener
+// liest zum Ereignis-Zeitpunkt (kein Re-Render nötig), deshalb genügt es,
+// die Sperre nach dem Rendern umzulegen.
+test('ohne laufende Aufnahme wechselt der Tab-Tipp wie immer', async () => {
+  await render(<TabsLayout />);
+  const ereignis = { preventDefault: jest.fn() };
+  letzteScreenListeners?.tabPress?.(ereignis);
+  expect(ereignis.preventDefault).not.toHaveBeenCalled();
 });

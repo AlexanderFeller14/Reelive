@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Camera, Map, Play, User } from 'lucide-react-native';
 import { useTheme } from '@/theme/ThemeProvider';
 import { spacing, type } from '@/theme/tokens';
+import * as aufnahmeSperre from '@/features/kamera/aufnahmeSperre';
 
 // Die UIKit-Standardhöhe der Tab-Bar in React Navigation (49 Punkte Inhalt,
 // der Home-Indicator-Streifen kommt als Safe-Area-Inset obendrauf). Der Wert
@@ -51,6 +52,20 @@ export default function TabsLayout() {
   const { bottom } = useSafeAreaInsets();
   return (
     <Tabs
+      // Während einer laufenden Aufnahme (Foto-Zyklus oder Video) läuft ein
+      // Tab-Tipp ins Leere: ein Wechsel feuerte das Fokus-Cleanup mitten in
+      // die laufende Kamera-Session und navigierte von einer Aufnahme weg,
+      // die gleich in die Vorschau will (siehe aufnahmeSperre.ts). Die Leiste
+      // bleibt dabei stehen — display:'none' nähme der Szene mitten in der
+      // Aufnahme die Höhe, und der Sucher spränge sichtbar. Der Listener
+      // liest die Sperre synchron zum Ereignis, ein Re-Render ist nicht
+      // nötig; damit blockiert er auch VoiceOver-Tab-Wechsel, die durch
+      // dasselbe Navigations-Ereignis laufen.
+      screenListeners={{
+        tabPress: (e) => {
+          if (aufnahmeSperre.istGesperrt()) e.preventDefault();
+        },
+      }}
       screenOptions={{
         headerShown: false,
         sceneStyle: { backgroundColor: colors['bg-0'] },

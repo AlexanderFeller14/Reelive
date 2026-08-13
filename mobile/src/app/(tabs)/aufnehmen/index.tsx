@@ -31,6 +31,7 @@ import type { GemerkteReise } from '@/features/trips/tripsCache';
 import { eigenerZaehler } from '@/features/moments/zaehler';
 import { useAuth } from '@/features/auth/AuthProvider';
 import * as uebergabe from '@/features/kamera/uebergabe';
+import * as aufnahmeSperre from '@/features/kamera/aufnahmeSperre';
 
 // Höchstdauer eines Videos (Produktkonzept: Snapchat-Muster, Ring stoppt hier
 // von selbst), dieselbe Zahl geht an den Auslöser UND an CameraView.recordAsync.
@@ -479,6 +480,11 @@ export default function AufnehmenScreen() {
       return () => {
         aktiv.current = false;
         setFokussiert(false);
+        // Sicherheitsnetz: verlässt der Screen die Bühne, während die Sperre
+        // steht (Deep Link, Unmount — per Tab geht es ja nicht mehr), darf
+        // die Tab-Bar nicht app-weit tot bleiben. Die regulären Ausgänge
+        // lösen selbst (handleFoto/handleVideoStop); hier fängt der Rest.
+        aufnahmeSperre.sperren(false);
       };
     }, [laden])
   );
@@ -763,6 +769,10 @@ export default function AufnehmenScreen() {
     // diese Sperre einen zweiten Zyklus an (siehe laeuftFoto oben).
     if (laeuftFoto.current) return;
     laeuftFoto.current = true;
+    // Solange der Zyklus läuft, wechselt kein Tab (aufnahmeSperre.ts) — mit
+    // Blitz ist das Fenster 1–2 s breit, und ein Wechsel mitten im Capture
+    // liesse die Übergabe verwaisen und die Vorschau von fremden Tabs starten.
+    aufnahmeSperre.sperren(true);
     try {
       // Erst die Aufnahme anstossen, DANN die Vorschau einfrieren: die
       // SDK-Doku rät von takePictureAsync bei pausierter Vorschau ab, und
@@ -800,6 +810,7 @@ export default function AufnehmenScreen() {
       // committet — ein erneuter Tipp trifft diesen Screen erst nach der
       // Rückkehr aus der Vorschau wieder.
       laeuftFoto.current = false;
+      aufnahmeSperre.sperren(false);
     }
   };
 
@@ -810,6 +821,10 @@ export default function AufnehmenScreen() {
     // während schon wieder aufgenommen wird.
     setAufnahmeFehler(null);
     setNimmtAuf(true);
+    // Kein Tab-Wechsel, solange aufgenommen wird: das Fokus-Cleanup hinge
+    // sonst mitten in der laufenden Movie-File-Aufnahme (siehe den
+    // mute-Kommentar an der CameraView und aufnahmeSperre.ts).
+    aufnahmeSperre.sperren(true);
     // Anker des Zug-Zooms: Faktor und Grenzen beim Aufnahmestart. Grenzen
     // erst jetzt erfragen, nicht beim Rendern — sie hängen am aktiven Format.
     const grenzen = zoomGrenzenAktuell();
@@ -856,6 +871,9 @@ export default function AufnehmenScreen() {
     const ergebnis = await videoPromise.current;
     videoPromise.current = null;
     setNimmtAuf(false);
+    // Vor beiden Ausgängen (Fehler-Pille wie Navigation): die Aufnahme ist
+    // vorbei, die Tabs gehören wieder bedient.
+    aufnahmeSperre.sperren(false);
     if (!ergebnis?.uri) {
       void cameraRef.current?.resumePreview();
       setAufnahmeFehler(FEHLER_TEXT);

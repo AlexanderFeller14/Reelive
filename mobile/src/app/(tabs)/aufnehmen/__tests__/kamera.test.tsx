@@ -173,6 +173,7 @@ jest.mock('@/features/kamera/nativeZoom', () => ({
 import AufnehmenScreen from '../index';
 import { fetchTrips } from '@/features/trips/tripsApi';
 import * as uebergabe from '@/features/kamera/uebergabe';
+import * as aufnahmeSperre from '@/features/kamera/aufnahmeSperre';
 
 const reise = (over: Partial<Trip> = {}): Trip => ({
   id: 't1',
@@ -206,6 +207,8 @@ beforeEach(() => {
   // reicht ein Objekt, das savePictureAsync trägt.
   mockTakePictureAsync.mockResolvedValue({ width: 1920, height: 1080, savePictureAsync: mockSavePictureAsync });
   uebergabe.abholen();
+  // Modul-Zustand, überlebt Tests: immer entsperrt beginnen.
+  aufnahmeSperre.sperren(false);
 });
 
 afterEach(() => {
@@ -477,6 +480,101 @@ test('ein zweiter, schneller Tipp löst während der ersten Aufnahme kein zweite
 
   expect(mockTakePictureAsync).toHaveBeenCalledTimes(1);
   expect(mockPush).toHaveBeenCalledTimes(1);
+});
+
+// Ein Tab-Wechsel mitten in einer Aufnahme feuert das Fokus-Cleanup in die
+// laufende Session (das mute-Umhängen wäre eine Session-Rekonfiguration) und
+// navigiert von einer Aufnahme weg, die gleich in die Vorschau will. Der
+// Screen setzt darum die Aufnahme-Sperre; dass der Tab-Navigator sie im
+// tabPress liest, prüft __tests__/_layout.test.tsx.
+test('während des Foto-Zyklus ist die Tab-Bar gesperrt, mit dem fertigen Bild wieder frei', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  let aufloesen: (v: { width: number; height: number; savePictureAsync: typeof mockSavePictureAsync }) => void =
+    () => {};
+  mockTakePictureAsync.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        aufloesen = resolve;
+      })
+  );
+  await render(<AufnehmenScreen />);
+  await screen.findByLabelText('Auslöser');
+
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressIn');
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressOut');
+  expect(aufnahmeSperre.istGesperrt()).toBe(true);
+
+  await act(async () => {
+    aufloesen({ width: 1920, height: 1080, savePictureAsync: mockSavePictureAsync });
+  });
+  expect(aufnahmeSperre.istGesperrt()).toBe(false);
+});
+
+// Der Fehlerfall muss die Sperre ebenso lösen, sonst bleibt die Tab-Bar nach
+// einem gescheiterten Foto für den Rest der Sitzung tot.
+test('scheitert das Foto, ist die Tab-Bar danach wieder frei', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  mockTakePictureAsync.mockRejectedValue(new Error('SimulatorNotSupported'));
+  await render(<AufnehmenScreen />);
+  await screen.findByLabelText('Auslöser');
+
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressIn');
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressOut');
+
+  await screen.findByText('Das Foto hat nicht geklappt. Versuch es nochmal.');
+  expect(aufnahmeSperre.istGesperrt()).toBe(false);
+});
+
+test('während der Video-Aufnahme ist die Tab-Bar gesperrt, nach dem Stopp wieder frei', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  let recordAufloesen: (v: { uri: string }) => void = () => {};
+  mockRecordAsync.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        recordAufloesen = resolve;
+      })
+  );
+  await render(<AufnehmenScreen />);
+  await screen.findByLabelText('Auslöser');
+
+  jest.useFakeTimers();
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressIn');
+  await act(async () => {
+    jest.advanceTimersByTime(600);
+  });
+  jest.useRealTimers();
+  expect(aufnahmeSperre.istGesperrt()).toBe(true);
+
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressOut');
+  await act(async () => {
+    recordAufloesen({ uri: 'file://video.mp4' });
+  });
+  expect(aufnahmeSperre.istGesperrt()).toBe(false);
+});
+
+// Sicherheitsnetz: verlässt der Screen die Bühne, während die Sperre steht
+// (etwa ein Deep Link mitten in der Aufnahme), muss das Blur-Cleanup sie
+// lösen — sonst bleibt die Tab-Bar app-weit dauerhaft tot.
+test('ein Unmount während laufender Aufnahme löst die Sperre', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  mockRecordAsync.mockImplementation(() => new Promise(() => {}));
+  const gerendert = await render(<AufnehmenScreen />);
+  await screen.findByLabelText('Auslöser');
+
+  jest.useFakeTimers();
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressIn');
+  await act(async () => {
+    jest.advanceTimersByTime(600);
+  });
+  jest.useRealTimers();
+  expect(aufnahmeSperre.istGesperrt()).toBe(true);
+
+  // In act eingehüllt: React flusht den Unmount (und damit das
+  // Effekt-Cleanup) nicht synchron im Aufruf selbst.
+  await act(async () => {
+    gerendert.unmount();
+  });
+  expect(aufnahmeSperre.istGesperrt()).toBe(false);
 });
 
 test('beim Video-Stopp friert der Sucher ein, die Rückkehr taut ihn auf', async () => {
