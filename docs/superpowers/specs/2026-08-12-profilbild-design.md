@@ -168,14 +168,40 @@ Ein Tap öffnet ein `Sheet` (die bestehende Komponente) mit:
 - «Selfie aufnehmen» → `launchCameraAsync`
 - «Bild entfernen» in `danger`, nur wenn schon eines da ist
 
-Beide Aufrufe mit `mediaTypes: 'images'`, `allowsEditing: true`,
-`aspect: [1, 1]`, `quality: 1`. `aspect` wirkt laut SDK-57-Doku nur unter
-Android; auf iOS erzwingt der System-Editor bei `allowsEditing` ohnehin ein
-Quadrat.
+Beide Aufrufe mit `mediaTypes: 'images'` und `quality: 1`.
+
+> **Nachtrag 2026-08-13 — `allowsEditing` ist verboten.**
+> Ursprünglich stand hier `allowsEditing: true` mit `aspect: [1, 1]`, damit der
+> System-Editor das Quadrat erzwingt. Am Gerät liess sich damit kein grosses
+> Bild mehr auswählen: Die Option zwingt expo-image-picker auf iOS in den alten
+> `UIImagePickerController` (nur der kann zuschneiden), der die Vorlage
+> vollständig in den Speicher lädt und bei grossen Bildern vom System abgeräumt
+> wird. In der App kommt dann `canceled: true` an — von einem echten Abbruch
+> nicht zu unterscheiden, ohne Ausnahme, ohne Meldung. Gemessen: ein
+> 1320×1320-Bild kam durch, ein grösseres wortlos nicht.
+>
+> Der Zuschnitt ist deshalb in die App gewandert (§5.2a). Wer `allowsEditing`
+> zurückholt, holt den Fehler mit zurück.
 
 Berechtigungen über `requestMediaLibraryPermissionsAsync` bzw.
 `requestCameraPermissionsAsync`, mit deutschen Texten über das Config-Plugin in
 `app.json`. Bei Ablehnung eine Meldung im Sheet statt eines stummen Nichts.
+
+### 5.2a Der Zuschnitt (seit 2026-08-13)
+
+Nach der Auswahl aus der Galerie legt sich `AvatarZuschnitt` als Vollbild über
+den Screen: das Bild in einem **runden** Rahmen (er zeigt genau das, was später
+im Avatar-Kreis steht — ein eckiger Rahmen liesse Ecken mitwählen, die nie zu
+sehen sind), verschiebbar mit einem Finger, zoombar mit zwei. Gesten über
+`PanResponder`, wie `Sheet.tsx` und der Kamera-Zoom; kein zweites Gestenmodell.
+
+Die Umrechnung Bildschirm → Originalkoordinaten liegt als reine Funktion in
+`features/auth/zuschnitt.ts` und ist dort getestet, samt der Zusicherung, dass
+der Ausschnitt nie über den Bildrand läuft.
+
+Ein Selfie aus der Kamera geht **nicht** durch den Zuschnitt: Es kommt
+aufnahmefertig, und ein zusätzlicher Schritt stünde nur im Weg. Ohne gewählten
+Ausschnitt wird mittig auf die kürzere Kante beschnitten.
 
 Danach `expo-image-manipulator`: auf 512×512 rechnen, JPEG bei Qualität 0.8.
 512 trägt den grössten Anzeigeort (Profil-Tab) auch auf einem 3x-Display.
