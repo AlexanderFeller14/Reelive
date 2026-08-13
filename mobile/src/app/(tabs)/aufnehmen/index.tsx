@@ -788,7 +788,16 @@ export default function AufnehmenScreen() {
         style={StyleSheet.absoluteFill}
         facing={richtung}
         mode="video"
-        mute={!fokussiert}
+        // Nicht `!fokussiert` allein: die Tab-Bar bleibt sichtbar, eine
+        // GESPERRTE Aufnahme läuft nach dem Loslassen weiter, und ein Tipp
+        // auf einen anderen Tab feuert das Fokus-Cleanup mitten drin.
+        // `mute` wechselt dort aber keinen reinen Schalter — expo-camera baut
+        // dafür `session.beginConfiguration()` + `removeInput(audio)`, und
+        // eine Session-Rekonfiguration MITTEN in einer laufenden
+        // AVCaptureMovieFileOutput-Aufnahme bricht sie ab. Solange `nimmtAuf`
+        // gilt, bleibt das Mikrofon also an, unabhängig vom Fokus — es nimmt
+        // ja gerade auf. Danach greift die Blur-Regel wie geplant.
+        mute={!fokussiert && !nimmtAuf}
         // `flash` gilt für Fotos; beim Video braucht es stattdessen das
         // Dauerlicht, derselbe Schalter, zwei Prop-Namen. Ob der Foto-Blitz
         // im Video-Preset am Gerät wirklich feuert, prüft die Geräte-

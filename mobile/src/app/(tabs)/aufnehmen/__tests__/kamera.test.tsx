@@ -861,10 +861,12 @@ test('nach der Aufnahme steht die Kopfzeile wieder', async () => {
 //
 // Am Simulator lehnt recordAsync mit «SimulatorNotSupported» ab (belegt im
 // Geräte-Log, ExpoCamera/CameraViewModule.swift:290), am Gerät kann ein
-// Anruf dazwischenkommen oder der Speicher voll sein. `handleVideoStop`
-// fing das nicht ab: der Fehler flog aus dem await, `setModus('picture')`
-// wurde nie erreicht, und weil der recordAsync-Effekt an `modus` hängt,
-// lief er danach nie wieder an. Der Tab blieb bis zum Neuladen stumm.
+// Anruf dazwischenkommen oder der Speicher voll sein. Die Startschleife in
+// `handleVideoStart` fängt jeden einzelnen Fehlschlag selbst ab (siehe
+// VIDEO_START_VERSUCHE), aber `handleVideoStop` muss danach trotzdem
+// unbedingt `setNimmtAuf(false)` erreichen — sonst bliebe die Kopfzeile
+// (Reise-Pille, Kamera-Wechsel, Blitz) nach einem gescheiterten Video
+// weiterhin ausgeblendet, obwohl gar keine Aufnahme mehr läuft.
 test('scheitert die Aufnahme, kommt die Kopfzeile zurück statt zu verschwinden', async () => {
   (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
   mockRecordAsync.mockRejectedValue(new Error('SimulatorNotSupported'));
