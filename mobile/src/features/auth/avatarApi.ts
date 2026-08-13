@@ -1,6 +1,7 @@
 import { File } from 'expo-file-system';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import { supabase } from '@/lib/supabase';
+import { supabaseBasis } from '@/lib/supabaseAdresse';
 import { AVATAR_BUCKET, neuerAvatarSchluessel } from './avatar';
 
 // Grösster Anzeigeort ist der 44-px-Kreis, das trägt 512 auch auf einem
@@ -8,13 +9,49 @@ import { AVATAR_BUCKET, neuerAvatarSchluessel } from './avatar';
 const KANTE = 512;
 const JPEG_QUALITAET = 0.8;
 
-// Das Bild kommt quadratisch aus dem System-Zuschnitt (allowsEditing), beide
-// Kanten zu setzen verzerrt es also nicht. Dasselbe kontextbasierte Muster wie
-// features/moments/medien.ts, inklusive release() im finally: die SharedObjects
-// werden auch im Fehlerfall freigegeben.
+// Das Bild kommt NICHT mehr quadratisch herein: der System-Zuschnitt
+// (`allowsEditing`) ist raus, weil er auf iOS den alten
+// UIImagePickerController erzwingt und bei grossen Vorlagen vom System
+// abgeräumt wird — die App bekommt dann ein «abgebrochen», das von einem
+// echten Abbruch nicht zu unterscheiden ist (Fehlersuche 2026-08-13,
+// gemessen: canceled=true ohne jede Ausnahme). Also schneidet die App selbst
+// zu, und der Zuschnitt gehört hierher, wo das Bild ohnehin durchläuft.
+//
+// Mittig auf die KÜRZERE Kante, dann skalieren. Nicht einfach beide Kanten auf
+// 512 setzen: das staucht ein Hoch- oder Querformat zum Quadrat, und im runden
+// Rahmen sieht man das sofort an gequetschten Gesichtern.
+//
+// Dasselbe kontextbasierte Muster wie features/moments/medien.ts, inklusive
+// release() im finally: die SharedObjects werden auch im Fehlerfall frei.
 async function alsQuadratJpeg(uri: string): Promise<string> {
+  // Die Masse kennt die kontextbasierte API erst nach renderAsync(), also
+  // einmal unverändert laden, nur um sie zu erfahren — gleiches Vorgehen wie
+  // quellmasseErmitteln() in medien.ts.
+  const messkontext = ImageManipulator.manipulate(uri);
+  let breite: number;
+  let hoehe: number;
+  try {
+    const original = await messkontext.renderAsync();
+    try {
+      breite = original.width;
+      hoehe = original.height;
+    } finally {
+      original.release();
+    }
+  } finally {
+    messkontext.release();
+  }
+
+  const seite = Math.min(breite, hoehe);
+  const originX = Math.round((breite - seite) / 2);
+  const originY = Math.round((hoehe - seite) / 2);
+
   const kontext = ImageManipulator.manipulate(uri);
   try {
+    // Erst beschneiden, dann skalieren: andersherum würde auf dem vollen,
+    // ungeschnittenen Bild skaliert und der Ausschnitt danach nicht mehr
+    // passen.
+    kontext.crop({ originX, originY, width: seite, height: seite });
     kontext.resize({ width: KANTE, height: KANTE });
     const gerendert = await kontext.renderAsync();
     try {
@@ -39,7 +76,7 @@ async function hochladen(schluessel: string, uri: string): Promise<void> {
   const { data } = await supabase.auth.getSession();
   const token = data.session?.access_token;
   if (!token) throw new Error('Nicht angemeldet.');
-  const basis = process.env.EXPO_PUBLIC_SUPABASE_URL;
+  const basis = supabaseBasis;
   if (!basis) throw new Error('Supabase-URL fehlt.');
 
   const antwort = await new File(uri).upload(

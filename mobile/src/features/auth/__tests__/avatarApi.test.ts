@@ -14,6 +14,8 @@ const ALT = `profiles/${UID}/alt.jpg`;
 const mockHochgeladen = jest.fn();
 const mockEntfernt = jest.fn();
 const mockAktualisiert = jest.fn();
+const mockCrop = jest.fn();
+const mockResize = jest.fn();
 
 // Der HTTP-Status, den der gemockte Upload zurückgibt — steuerbar pro Test.
 //
@@ -47,12 +49,23 @@ jest.mock('expo-crypto', () => ({
   },
 }));
 
+// Die Quellmasse sind einstellbar, weil der Zuschnitt seit dem Fehler vom
+// 2026-08-13 in avatarApi passiert und nicht mehr im System-Editor: Nur mit
+// einem NICHT-quadratischen Original lässt sich prüfen, dass mittig auf die
+// kürzere Kante geschnitten wird statt zu stauchen.
+let mockQuellBreite = 4000;
+let mockQuellHoehe = 3000;
+
 jest.mock('expo-image-manipulator', () => ({
   SaveFormat: { JPEG: 'jpeg' },
   ImageManipulator: {
     manipulate: () => ({
-      resize: jest.fn(),
+      crop: (...a: unknown[]) => mockCrop(...a),
+      resize: (...a: unknown[]) => mockResize(...a),
       renderAsync: async () => ({
+        // renderAsync liefert die Masse — genau daraus liest avatarApi sie ab.
+        get width() { return mockQuellBreite; },
+        get height() { return mockQuellHoehe; },
         saveAsync: async () => ({ uri: 'file:///cache/fertig.jpg' }),
         release: jest.fn(),
       }),
@@ -97,7 +110,47 @@ beforeEach(() => {
   mockHochgeladen.mockReset();
   mockEntfernt.mockReset();
   mockAktualisiert.mockReset();
+  mockCrop.mockReset();
+  mockResize.mockReset();
   mockUploadStatus = 200;
+  mockQuellBreite = 4000;
+  mockQuellHoehe = 3000;
+});
+
+// Der Zuschnitt ist seit dem 2026-08-13 Sache der App: `allowsEditing` musste
+// aus dem Bildwähler raus, weil es auf iOS den alten UIImagePickerController
+// erzwingt, der bei grossen Vorlagen vom System abgeräumt wird (die App sieht
+// dann nur ein ununterscheidbares `canceled`). Damit wandert die Zusicherung
+// «kein gestauchtes Gesicht im runden Rahmen» hierher.
+test('ein Querformat wird mittig auf die kuerzere Kante beschnitten, nicht gestaucht', async () => {
+  mockQuellBreite = 4000;
+  mockQuellHoehe = 3000;
+  await setzeAvatar(UID, 'file:///quer.jpg', null);
+  // Kürzere Kante ist die Höhe: 3000er Quadrat, waagrecht zentriert.
+  expect(mockCrop).toHaveBeenCalledWith({
+    originX: 500, originY: 0, width: 3000, height: 3000,
+  });
+  expect(mockResize).toHaveBeenCalledWith({ width: 512, height: 512 });
+});
+
+test('ein Hochformat wird senkrecht zentriert beschnitten', async () => {
+  mockQuellBreite = 1000;
+  mockQuellHoehe = 2500;
+  await setzeAvatar(UID, 'file:///hoch.jpg', null);
+  expect(mockCrop).toHaveBeenCalledWith({
+    originX: 0, originY: 750, width: 1000, height: 1000,
+  });
+});
+
+// Die Reihenfolge ist nicht beliebig: erst beschneiden, dann skalieren. Wird
+// zuerst auf 512×512 skaliert, sitzt der Ausschnitt danach auf dem falschen
+// Bild und der Zuschnitt greift ins Leere.
+test('beschnitten wird vor dem Skalieren', async () => {
+  const reihenfolge: string[] = [];
+  mockCrop.mockImplementation(() => reihenfolge.push('crop'));
+  mockResize.mockImplementation(() => reihenfolge.push('resize'));
+  await setzeAvatar(UID, 'file:///quer.jpg', null);
+  expect(reihenfolge).toEqual(['crop', 'resize']);
 });
 
 test('setzeAvatar laedt hoch, setzt die Spalte und raeumt das alte Objekt weg', async () => {

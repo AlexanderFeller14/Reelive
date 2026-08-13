@@ -144,16 +144,42 @@ test('die Galerie liefert die URI an onGewaehlt und schliesst das Sheet', async 
   expect(screen.queryByTestId('sheet-root')).toBeNull();
 });
 
-// Quadratischer Zuschnitt ist eine Zusicherung, keine Kosmetik: ein
-// nicht-quadratisches Bild stünde im runden Kreis verzerrt.
-test('die Auswahl verlangt einen quadratischen Zuschnitt', async () => {
+// Diese Zusicherung hat sich am 2026-08-13 UMGEDREHT, und das ist der Kern
+// eines behobenen Fehlers: Vorher stand hier, die Auswahl müsse
+// `allowsEditing: true` verlangen. Genau das war die Ursache — auf iOS
+// erzwingt die Option den alten UIImagePickerController (nur der kann
+// zuschneiden), der die Vorlage vollständig in den Speicher lädt und bei
+// grossen Bildern vom System abgeräumt wird. In der App kam dann ein
+// `canceled: true` an, ununterscheidbar von einem echten Abbruch, ohne
+// Ausnahme und ohne Meldung: ein grosses Bild liess sich schlicht nicht
+// auswählen.
+//
+// Das Quadrat entsteht jetzt in features/auth/avatarApi.ts (mittiger Zuschnitt
+// auf die kürzere Kante, dort getestet). Hier wird nur noch bewacht, dass die
+// Option NICHT zurückkehrt.
+test('die Auswahl fordert keinen System-Zuschnitt an', async () => {
   await wrap(<Buehne />);
   await fireEvent.press(screen.getByTestId('avatar-waehler'));
   await fireEvent.press(screen.getByText('Foto auswählen'));
+  await waitFor(() => expect(mockAusGalerie).toHaveBeenCalled());
+  const optionen = mockAusGalerie.mock.calls[0][0];
+  expect(optionen.allowsEditing).toBeUndefined();
+  expect(optionen.mediaTypes).toBe('images');
+});
+
+// Ein geworfener Fehler darf nicht spurlos verschwinden. Der Aufruf lautet
+// `void waehlen(…)`, eine Ablehnung wäre also eine unbehandelte Promise —
+// beim Fehler vom 2026-08-13 genau der Grund, warum nichts zu sehen war.
+test('wirft der Bildwaehler, steht die Meldung im Sheet', async () => {
+  mockAusGalerie.mockRejectedValueOnce(new Error('kaputt'));
+  await wrap(<Buehne />);
+  await fireEvent.press(screen.getByTestId('avatar-waehler'));
+  await fireEvent.press(screen.getByText('Foto auswählen'));
+  const panel = await screen.findByTestId('sheet-panel');
   await waitFor(() =>
-    expect(mockAusGalerie).toHaveBeenCalledWith(
-      expect.objectContaining({ allowsEditing: true, aspect: [1, 1], mediaTypes: 'images' })
-    )
+    expect(
+      within(panel).getByText('Das Bild liess sich nicht öffnen. Probier es nochmal oder nimm ein anderes.')
+    ).toBeTruthy()
   );
 });
 

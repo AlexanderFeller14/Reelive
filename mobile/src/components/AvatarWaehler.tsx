@@ -61,10 +61,25 @@ const BADGE = 18;
 // hätte es zu `readonly [1, 1]` eingefroren und liesse sich dann nicht mehr an
 // launchImageLibraryAsync/launchCameraAsync übergeben (TS2345). Dieselbe Falle
 // wie bei `fontVariant` in theme/tokens.ts.
+// ---------------------------------------------------------------------------
+// KEIN `allowsEditing`. Das ist der Kern eines Fehlers vom 2026-08-13.
+// ---------------------------------------------------------------------------
+// Mit `allowsEditing: true` benutzt expo-image-picker auf iOS nicht den
+// modernen Foto-Picker, sondern den alten UIImagePickerController — nur der
+// kann zuschneiden. Der lädt die Vorlage vollständig in den Speicher, und bei
+// einem grossen Bild räumt das System ihn ab. Was in der App ankommt, ist dann
+// `canceled: true`: nicht von einem echten Abbruch zu unterscheiden, ohne
+// Ausnahme, ohne Meldung. Gemessen genau so — ein 1320×1320-Bild kam durch, ein
+// grösseres lieferte wortlos `canceled`.
+//
+// Das Quadrat entsteht deshalb jetzt in der App: features/auth/avatarApi.ts
+// schneidet mittig auf die kürzere Kante zu. Wer `allowsEditing` hier
+// zurückholt, holt den Fehler mit zurück.
+//
+// `quality` bleibt bei 1: heruntergerechnet wird ohnehin in avatarApi, und eine
+// zweite verlustbehaftete Stufe davor kostet nur Qualität.
 const OPTIONEN: ImagePicker.ImagePickerOptions = {
   mediaTypes: 'images',
-  allowsEditing: true,
-  aspect: [1, 1],
   quality: 1,
 };
 
@@ -174,12 +189,30 @@ export function AvatarSheetInhalt({
       return;
     }
 
-    const ergebnis = quelle === 'galerie'
-      ? await ImagePicker.launchImageLibraryAsync(OPTIONEN)
-      : await ImagePicker.launchCameraAsync(OPTIONEN);
+    // try/catch, weil der Aufrufer `void waehlen(…)` schreibt: eine geworfene
+    // Ausnahme wäre sonst eine unbehandelte Promise-Ablehnung und damit für
+    // die Person vor dem Gerät ein stummes Nichts. Genau das war beim Fehler
+    // vom 2026-08-13 der Grund, warum nichts zu sehen war.
+    let ergebnis: ImagePicker.ImagePickerResult;
+    try {
+      ergebnis = quelle === 'galerie'
+        ? await ImagePicker.launchImageLibraryAsync(OPTIONEN)
+        : await ImagePicker.launchCameraAsync(OPTIONEN);
+    } catch (fehlerObjekt) {
+      console.error('[AvatarWaehler] Bildwaehler hat geworfen', fehlerObjekt);
+      setFehler('Das Bild liess sich nicht öffnen. Probier es nochmal oder nimm ein anderes.');
+      return;
+    }
 
     onSchliessen();
     // Abbruch ist kein Fehler: das Sheet schliesst, sonst nichts.
+    //
+    // Achtung, hier steckt eine Grenze der Plattform: Ein gescheiterter
+    // Bildwähler meldet sich GENAUSO — `canceled: true`, ohne Ausnahme. Die
+    // beiden Fälle sind an dieser Stelle nicht auseinanderzuhalten, deshalb
+    // steht hier auch keine Fehlermeldung: Sie träfe jeden echten Abbruch mit.
+    // Der Weg dagegen ist, das Scheitern gar nicht erst zu provozieren — siehe
+    // die Begründung bei OPTIONEN, warum `allowsEditing` fehlt.
     if (ergebnis.canceled || !ergebnis.assets?.[0]) return;
     onGewaehlt(ergebnis.assets[0].uri);
   };
