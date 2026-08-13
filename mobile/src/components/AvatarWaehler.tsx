@@ -159,7 +159,10 @@ export function AvatarSheetInhalt({
 }: {
   avatarKey: string | null;
   lokaleUri?: string | null;
-  onGewaehlt: (lokaleUri: string) => void;
+  // Die Masse kommen mit, weil der Zuschnitt-Screen sie braucht und der
+  // Bildwähler sie ohnehin liefert. Sie nachträglich noch einmal zu messen
+  // hiesse, ein grosses Original ein zweites Mal zu dekodieren.
+  onGewaehlt: (lokaleUri: string, breite: number, hoehe: number) => void;
   onEntfernen: () => void;
   onSchliessen: () => void;
 }) {
@@ -214,7 +217,8 @@ export function AvatarSheetInhalt({
     // Der Weg dagegen ist, das Scheitern gar nicht erst zu provozieren — siehe
     // die Begründung bei OPTIONEN, warum `allowsEditing` fehlt.
     if (ergebnis.canceled || !ergebnis.assets?.[0]) return;
-    onGewaehlt(ergebnis.assets[0].uri);
+    const gewaehlt = ergebnis.assets[0];
+    onGewaehlt(gewaehlt.uri, gewaehlt.width, gewaehlt.height);
   };
 
   return (

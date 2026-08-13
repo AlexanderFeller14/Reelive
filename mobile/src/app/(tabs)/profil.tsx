@@ -10,7 +10,9 @@ import { useTheme } from '@/theme/ThemeProvider';
 import { radius, spacing, type } from '@/theme/tokens';
 import { useOberkante } from '@/theme/useOberkante';
 import { useAuth } from '@/features/auth/AuthProvider';
+import { AvatarZuschnitt } from '@/components/AvatarZuschnitt';
 import { entferneAvatar, setzeAvatar } from '@/features/auth/avatarApi';
+import type { Ausschnitt } from '@/features/auth/zuschnitt';
 import { fetchOwnProfile, type Profile } from '@/features/auth/profileApi';
 import { signOut } from '@/features/auth/authApi';
 import { nurUeberWlan, setzeNurUeberWlan } from '@/features/moments/einstellungen';
@@ -93,6 +95,11 @@ export default function ProfilScreen() {
   // oben in der Karte.
   const [bildSheetSichtbar, setBildSheetSichtbar] = useState(false);
   const [bildLaeuft, setBildLaeuft] = useState(false);
+  // Das gewählte, noch nicht zugeschnittene Bild. Solange es steht, liegt der
+  // Zuschnitt-Screen über allem.
+  const [zuschnitt, setZuschnitt] = useState<
+    { uri: string; breite: number; hoehe: number } | null
+  >(null);
   const [bildFehler, setBildFehler] = useState<string | null>(null);
 
   useEffect(() => {
@@ -158,11 +165,13 @@ export default function ProfilScreen() {
   // Der neue Schlüssel wird lokal in den State geschrieben, statt das Profil
   // neu zu laden: die Antwort von setzeAvatar IST der neue Stand, ein zweiter
   // Rundgang zur Datenbank brächte dasselbe Ergebnis eine Netzlatenz später.
-  const bildSetzen = async (uri: string) => {
+  const bildSetzen = async (uri: string, ausschnitt: Ausschnitt) => {
     if (!userId) return;
     setBildLaeuft(true);
     setBildFehler(null);
-    const { avatarKey, error } = await setzeAvatar(userId, uri, profile?.avatar_key ?? null);
+    const { avatarKey, error } = await setzeAvatar(
+      userId, uri, profile?.avatar_key ?? null, ausschnitt,
+    );
     setBildLaeuft(false);
     // Bei einem Fehler bleibt das bisherige Bild stehen: der Aufruf schreibt
     // NICHTS in den State, `avatarKey` ist hier ohnehin `null` und würde ein
@@ -262,11 +271,28 @@ export default function ProfilScreen() {
       <Sheet sichtbar={bildSheetSichtbar} titel="Profilbild" onSchliessen={() => setBildSheetSichtbar(false)}>
         <AvatarSheetInhalt
           avatarKey={profile?.avatar_key ?? null}
-          onGewaehlt={(uri) => void bildSetzen(uri)}
+          onGewaehlt={(uri, breite, hoehe) => setZuschnitt({ uri, breite, hoehe })}
           onEntfernen={() => void bildEntfernen()}
           onSchliessen={() => setBildSheetSichtbar(false)}
         />
       </Sheet>
+
+      {/* Der Zuschnitt liegt über allem und ist deshalb der letzte Knoten:
+          `allowsEditing` musste aus dem Bildwähler raus (es liess grosse
+          Bilder scheitern), also wählt man den Ausschnitt hier. */}
+      {zuschnitt && (
+        <AvatarZuschnitt
+          uri={zuschnitt.uri}
+          breite={zuschnitt.breite}
+          hoehe={zuschnitt.hoehe}
+          onAbbrechen={() => setZuschnitt(null)}
+          onFertig={(bereich) => {
+            const gewaehlt = zuschnitt;
+            setZuschnitt(null);
+            void bildSetzen(gewaehlt.uri, bereich);
+          }}
+        />
+      )}
 
       <Sheet sichtbar={loeschSheetSichtbar} titel="Konto löschen?" onSchliessen={kontoLoeschenSchliessen}>
         {zahlenPhase === 'laedt' && (

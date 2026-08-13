@@ -3,6 +3,7 @@ import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import { supabase } from '@/lib/supabase';
 import { supabaseBasis } from '@/lib/supabaseAdresse';
 import { AVATAR_BUCKET, neuerAvatarSchluessel } from './avatar';
+import type { Ausschnitt } from './zuschnitt';
 
 // Grösster Anzeigeort ist der 44-px-Kreis, das trägt 512 auch auf einem
 // 3x-Display mit Reserve. Bei Qualität 0.8 sind das rund 50 KB.
@@ -23,28 +24,43 @@ const JPEG_QUALITAET = 0.8;
 //
 // Dasselbe kontextbasierte Muster wie features/moments/medien.ts, inklusive
 // release() im finally: die SharedObjects werden auch im Fehlerfall frei.
-async function alsQuadratJpeg(uri: string): Promise<string> {
-  // Die Masse kennt die kontextbasierte API erst nach renderAsync(), also
-  // einmal unverändert laden, nur um sie zu erfahren — gleiches Vorgehen wie
-  // quellmasseErmitteln() in medien.ts.
-  const messkontext = ImageManipulator.manipulate(uri);
-  let breite: number;
-  let hoehe: number;
-  try {
-    const original = await messkontext.renderAsync();
+async function alsQuadratJpeg(uri: string, gewaehlt?: Ausschnitt): Promise<string> {
+  let bereich: Ausschnitt;
+  if (gewaehlt) {
+    // Die Person hat den Ausschnitt selbst gewählt (AvatarZuschnitt). Dann
+    // entfällt das Messen: die Masse kennt der Zuschnitt-Screen bereits, und
+    // ein zweites renderAsync() auf ein grosses Original wäre reine Arbeit.
+    bereich = gewaehlt;
+  } else {
+    // Kein gewählter Ausschnitt (Kamera-Selfie): mittig auf die kürzere Kante.
+    // Die Masse kennt die kontextbasierte API erst nach renderAsync(), also
+    // einmal unverändert laden — gleiches Vorgehen wie quellmasseErmitteln()
+    // in medien.ts.
+    const messkontext = ImageManipulator.manipulate(uri);
+    let breite: number;
+    let hoehe: number;
     try {
-      breite = original.width;
-      hoehe = original.height;
+      const original = await messkontext.renderAsync();
+      try {
+        breite = original.width;
+        hoehe = original.height;
+      } finally {
+        original.release();
+      }
     } finally {
-      original.release();
+      messkontext.release();
     }
-  } finally {
-    messkontext.release();
+    const seite = Math.min(breite, hoehe);
+    bereich = {
+      originX: Math.round((breite - seite) / 2),
+      originY: Math.round((hoehe - seite) / 2),
+      width: seite,
+      height: seite,
+    };
   }
 
-  const seite = Math.min(breite, hoehe);
-  const originX = Math.round((breite - seite) / 2);
-  const originY = Math.round((hoehe - seite) / 2);
+  const { originX, originY } = bereich;
+  const seite = bereich.width;
 
   const kontext = ImageManipulator.manipulate(uri);
   try {
@@ -113,11 +129,15 @@ export async function setzeAvatar(
   userId: string,
   lokaleUri: string,
   alterKey: string | null,
+  // Optional, weil nicht jeder Weg einen gewählten Ausschnitt hat: aus der
+  // Galerie kommt einer (AvatarZuschnitt), ein Kamera-Selfie ist bereits
+  // aufnahmefertig und wird mittig beschnitten.
+  ausschnitt?: Ausschnitt,
 ): Promise<{ avatarKey: string | null; error: string | null }> {
   const schluessel = neuerAvatarSchluessel(userId);
 
   try {
-    const fertig = await alsQuadratJpeg(lokaleUri);
+    const fertig = await alsQuadratJpeg(lokaleUri, ausschnitt);
     await hochladen(schluessel, fertig);
   } catch (fehler) {
     console.error('[avatarApi] Hochladen fehlgeschlagen', fehler);

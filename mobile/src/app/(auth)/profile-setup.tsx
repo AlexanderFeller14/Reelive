@@ -8,7 +8,9 @@ import { useTheme } from '@/theme/ThemeProvider';
 import { spacing, type } from '@/theme/tokens';
 import { useOberkante } from '@/theme/useOberkante';
 import { useAuth } from '@/features/auth/AuthProvider';
+import { AvatarZuschnitt } from '@/components/AvatarZuschnitt';
 import { setzeAvatar } from '@/features/auth/avatarApi';
+import type { Ausschnitt } from '@/features/auth/zuschnitt';
 import { createProfile, validateDisplayName, validateUsername } from '@/features/auth/profileApi';
 
 export default function ProfileSetupScreen() {
@@ -25,6 +27,14 @@ export default function ProfileSetupScreen() {
   // als im Profil-Tab (Task 6) gibt es hier noch nichts, was ein Upload
   // sofort persistieren könnte — der Upload folgt erst in submit().
   const [bildUri, setBildUri] = useState<string | null>(null);
+  // Der gewählte Ausschnitt gehört zum gewählten Bild und muss deshalb bis zum
+  // Absenden mitwandern: hochgeladen wird hier erst in `submit`, weil die
+  // Profilzeile vorher noch nicht existiert.
+  const [bildAusschnitt, setBildAusschnitt] = useState<Ausschnitt | null>(null);
+  // Das eben gewählte Bild, solange sein Ausschnitt noch bestimmt wird.
+  const [zuschnitt, setZuschnitt] = useState<
+    { uri: string; breite: number; hoehe: number } | null
+  >(null);
   // Der Screen hält den Zustand des Sheets, nicht der Kreis: das Sheet legt
   // sich per StyleSheet.absoluteFill über seinen Elternteil und muss deshalb
   // neben dem Formular stehen, nicht darin (Begründung in AvatarWaehler.tsx).
@@ -48,7 +58,7 @@ export default function ProfileSetupScreen() {
     // lassen, weil ein Foto nicht durchkam, wäre die falsche Gewichtung.
     let avatarKey: string | null = null;
     if (bildUri) {
-      const ergebnis = await setzeAvatar(userId, bildUri, null);
+      const ergebnis = await setzeAvatar(userId, bildUri, null, bildAusschnitt ?? undefined);
       avatarKey = ergebnis.avatarKey;
     }
     // Achtung: setzeAvatar() setzt intern `profiles.avatar_key` per UPDATE —
@@ -114,11 +124,30 @@ export default function ProfileSetupScreen() {
         <AvatarSheetInhalt
           avatarKey={null}
           lokaleUri={bildUri}
-          onGewaehlt={setBildUri}
-          onEntfernen={() => setBildUri(null)}
+          onGewaehlt={(uri, breite, hoehe) => setZuschnitt({ uri, breite, hoehe })}
+          onEntfernen={() => {
+            setBildUri(null);
+            setBildAusschnitt(null);
+          }}
           onSchliessen={() => setBildSheetSichtbar(false)}
         />
       </Sheet>
+
+      {/* Wie im Profil-Tab: der Ausschnitt wird in der App gewählt, seit
+          `allowsEditing` den Bildwähler an grossen Bildern scheitern liess. */}
+      {zuschnitt && (
+        <AvatarZuschnitt
+          uri={zuschnitt.uri}
+          breite={zuschnitt.breite}
+          hoehe={zuschnitt.hoehe}
+          onAbbrechen={() => setZuschnitt(null)}
+          onFertig={(bereich) => {
+            setBildUri(zuschnitt.uri);
+            setBildAusschnitt(bereich);
+            setZuschnitt(null);
+          }}
+        />
+      )}
     </View>
   );
 }

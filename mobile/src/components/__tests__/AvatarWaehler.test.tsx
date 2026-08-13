@@ -54,7 +54,11 @@ beforeEach(() => {
   // clearAllMocks löscht nur Aufrufe, keine Implementierungen — die Defaults
   // darunter gelten also unverändert weiter.
   jest.clearAllMocks();
-  mockAusGalerie.mockResolvedValue({ canceled: false, assets: [{ uri: 'file:///gewaehlt.jpg' }] });
+  mockAusGalerie.mockResolvedValue({
+    canceled: false,
+    // Masse gehören dazu: der Zuschnitt-Screen rechnet damit.
+    assets: [{ uri: 'file:///gewaehlt.jpg', width: 4000, height: 3000 }],
+  });
   mockAusKamera.mockResolvedValue({ canceled: true, assets: null });
   mockGalerieRecht.mockResolvedValue({ granted: true });
   mockKameraRecht.mockResolvedValue({ granted: true });
@@ -70,7 +74,7 @@ function Buehne({
 }: {
   avatarKey?: string | null;
   lokaleUri?: string | null;
-  onGewaehlt?: (uri: string) => void;
+  onGewaehlt?: (uri: string, breite: number, hoehe: number) => void;
   onEntfernen?: () => void;
 }) {
   const [offen, setOffen] = useState(false);
@@ -135,12 +139,17 @@ test('eine blosse lokale URI zaehlt ebenfalls als Bild', async () => {
   expect(screen.getByText('Bild entfernen')).toBeTruthy();
 });
 
-test('die Galerie liefert die URI an onGewaehlt und schliesst das Sheet', async () => {
+// Die Masse reisen mit: Der Zuschnitt-Screen braucht sie, um zu rechnen, und
+// der Bildwähler liefert sie ohnehin — sie später noch einmal zu messen hiesse,
+// ein grosses Original ein zweites Mal zu dekodieren.
+test('die Galerie liefert URI und Masse an onGewaehlt und schliesst das Sheet', async () => {
   const onGewaehlt = jest.fn();
   await wrap(<Buehne onGewaehlt={onGewaehlt} />);
   await fireEvent.press(screen.getByTestId('avatar-waehler'));
   await fireEvent.press(screen.getByText('Foto auswählen'));
-  await waitFor(() => expect(onGewaehlt).toHaveBeenCalledWith('file:///gewaehlt.jpg'));
+  await waitFor(() =>
+    expect(onGewaehlt).toHaveBeenCalledWith('file:///gewaehlt.jpg', 4000, 3000)
+  );
   expect(screen.queryByTestId('sheet-root')).toBeNull();
 });
 

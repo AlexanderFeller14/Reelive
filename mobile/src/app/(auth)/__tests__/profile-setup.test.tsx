@@ -25,7 +25,10 @@ jest.mock('@/features/auth/AuthProvider', () => ({
   useAuth: () => ({ userId: 'u1', refreshProfile: jest.fn() }),
 }));
 jest.mock('expo-image-picker', () => ({
-  launchImageLibraryAsync: async () => ({ canceled: false, assets: [{ uri: 'file:///gewaehlt.jpg' }] }),
+  launchImageLibraryAsync: async () => ({
+    canceled: false,
+    assets: [{ uri: 'file:///gewaehlt.jpg', width: 4000, height: 3000 }],
+  }),
   launchCameraAsync: async () => ({ canceled: true, assets: null }),
   requestMediaLibraryPermissionsAsync: async () => ({ granted: true }),
   requestCameraPermissionsAsync: async () => ({ granted: true }),
@@ -121,6 +124,9 @@ test('ein gewaehltes Bild wird vor dem Anlegen hochgeladen', async () => {
   await wrap(<ProfileSetupScreen />);
   await fireEvent.press(screen.getByTestId('avatar-waehler'));
   await fireEvent.press(screen.getByText('Foto auswählen'));
+  // Der Zuschnitt liegt seit dem 2026-08-13 dazwischen (der System-Editor
+  // musste raus, er liess grosse Bilder scheitern).
+  await fireEvent.press(await screen.findByTestId('zuschnitt-uebernehmen'));
   await waitFor(() => expect(screen.getByTestId('avatar-bild')).toBeTruthy());
   await fireEvent.changeText(usernameFeld(), 'lea_2026');
   await fireEvent.changeText(anzeigenameFeld(), 'Lea');
@@ -142,6 +148,9 @@ test('ein gewaehltes Bild laesst sich vor dem Absenden wieder entfernen', async 
   await wrap(<ProfileSetupScreen />);
   await fireEvent.press(screen.getByTestId('avatar-waehler'));
   await fireEvent.press(screen.getByText('Foto auswählen'));
+  // Der Zuschnitt liegt seit dem 2026-08-13 dazwischen (der System-Editor
+  // musste raus, er liess grosse Bilder scheitern).
+  await fireEvent.press(await screen.findByTestId('zuschnitt-uebernehmen'));
   await waitFor(() => expect(screen.getByTestId('avatar-bild')).toBeTruthy());
 
   await fireEvent.press(screen.getByTestId('avatar-waehler'));
@@ -158,6 +167,9 @@ test('ein gescheiterter Upload legt das Profil trotzdem an', async () => {
   await wrap(<ProfileSetupScreen />);
   await fireEvent.press(screen.getByTestId('avatar-waehler'));
   await fireEvent.press(screen.getByText('Foto auswählen'));
+  // Der Zuschnitt liegt seit dem 2026-08-13 dazwischen (der System-Editor
+  // musste raus, er liess grosse Bilder scheitern).
+  await fireEvent.press(await screen.findByTestId('zuschnitt-uebernehmen'));
   await waitFor(() => expect(screen.getByTestId('avatar-bild')).toBeTruthy());
   await fireEvent.changeText(usernameFeld(), 'lea_2026');
   await fireEvent.changeText(anzeigenameFeld(), 'Lea');

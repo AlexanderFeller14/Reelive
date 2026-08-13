@@ -95,7 +95,10 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockNurUeberWlan.mockResolvedValue(false);
   mockGalerieRecht.mockResolvedValue({ granted: true });
-  mockAusGalerie.mockResolvedValue({ canceled: false, assets: [{ uri: 'file:///gewaehlt.jpg' }] });
+  mockAusGalerie.mockResolvedValue({
+    canceled: false,
+    assets: [{ uri: 'file:///gewaehlt.jpg', width: 4000, height: 3000 }],
+  });
   (fetchOwnProfile as jest.Mock).mockResolvedValue(PROFIL_OHNE_BILD);
 });
 
@@ -160,6 +163,9 @@ describe('Profilbild (Task 6)', () => {
     await wrap(<ProfilScreen />);
     await fireEvent.press(await screen.findByTestId('avatar-waehler'));
     await fireEvent.press(screen.getByText('Foto auswählen'));
+    // Seit dem Fehler vom 2026-08-13 liegt der Zuschnitt dazwischen: der
+    // System-Editor musste raus, also wählt man den Ausschnitt in der App.
+    await fireEvent.press(await screen.findByTestId('zuschnitt-uebernehmen'));
     await waitFor(() => expect(screen.getByTestId('avatar-bild')).toBeTruthy());
   });
 
@@ -212,6 +218,7 @@ describe('Profilbild (Task 6)', () => {
 
     await fireEvent.press(screen.getByTestId('avatar-waehler'));
     await fireEvent.press(screen.getByText('Foto auswählen'));
+    await fireEvent.press(await screen.findByTestId('zuschnitt-uebernehmen'));
 
     await waitFor(() =>
       expect(
