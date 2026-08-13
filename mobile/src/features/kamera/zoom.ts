@@ -119,3 +119,28 @@ export function aktiveStufe(faktor: number, stufen: number[]): number {
   }
   return aktiv;
 }
+
+// Der Zug-Zoom des Auslösers (Snapchat-Muster): Halten und nach oben ziehen.
+// `hub` ist die Fingerbewegung seit dem Aufsetzen (nach oben positiv, pt),
+// `start` der Anzeige-Faktor beim Aufnahmestart, `wege` die Strecken, die
+// den vollen Bereich abdecken — nach oben bis zum Maximum, nach unten bis
+// zum Minimum (der Auslöser sitzt fast am Boden, viel Weg gibt es dort
+// nicht, deshalb zwei getrennte Strecken).
+//
+// Exponentiell statt linear: Zoom ist multiplikativ. Linear gemappt läge
+// zwischen 30× und 60× die halbe Strecke, obwohl es EIN Verdopplungsschritt
+// ist — das fühlt sich oben träge und unten hektisch an. So trägt jeder
+// Zentimeter Weg denselben Faktor.
+export function zugFaktor(
+  hub: number,
+  start: number,
+  grenzen: { min: number; max: number },
+  basis: number,
+  wege: { hoch: number; runter: number }
+): number {
+  const ziel =
+    hub >= 0
+      ? start * Math.pow((grenzen.max * basis) / start, Math.min(hub / wege.hoch, 1))
+      : start * Math.pow((grenzen.min * basis) / start, Math.min(-hub / wege.runter, 1));
+  return begrenzen(ziel, grenzen, basis);
+}

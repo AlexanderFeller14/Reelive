@@ -5,6 +5,7 @@ import {
   fingerAbstand,
   nativerFaktor,
   zoomGeraet,
+  zugFaktor,
   type Linse,
 } from '../zoom';
 
@@ -127,4 +128,52 @@ test('liegen mehr als zwei Finger auf, zählen die ersten beiden', () => {
       { pageX: 300, pageY: 300 },
     ])
   ).toBe(8);
+});
+
+// ——— Zug-Zoom (Spec 2026-08-13-aufnahme-tempo-design.md §7) ———
+//
+// Der Hub ist die vertikale Fingerbewegung seit dem Aufsetzen, nach oben
+// positiv. Das Mapping ist exponentiell (Zoom ist multiplikativ, ein
+// linearer Weg fühlt sich am oberen Ende träge an) und die Referenz ist der
+// Faktor beim Aufnahmestart, nicht 1×.
+describe('zugFaktor', () => {
+  const GRENZEN = { min: 1, max: 120 }; // Geräte-Zählung, wie zoomGrenzen liefert
+  const BASIS = 0.5; // Ultraweitwinkel-Gerät: Anzeige-Grenzen sind 0,5× bis 60×
+  const WEGE = { hoch: 500, runter: 100 };
+
+  test('Hub 0 gibt den Startfaktor zurück', () => {
+    expect(zugFaktor(0, 1, GRENZEN, BASIS, WEGE)).toBe(1);
+  });
+
+  test('der volle Weg nach oben erreicht das Maximum', () => {
+    expect(zugFaktor(500, 1, GRENZEN, BASIS, WEGE)).toBeCloseTo(60);
+  });
+
+  test('über den Weg hinaus bleibt es beim Maximum', () => {
+    expect(zugFaktor(1600, 1, GRENZEN, BASIS, WEGE)).toBeCloseTo(60);
+  });
+
+  test('exponentiell: der halbe Weg steht beim geometrischen Mittel', () => {
+    // Von 1× nach 60× ist die Hälfte des Weges √60, nicht 30,5.
+    expect(zugFaktor(250, 1, GRENZEN, BASIS, WEGE)).toBeCloseTo(Math.sqrt(60));
+  });
+
+  test('der volle Weg nach unten erreicht das Minimum', () => {
+    expect(zugFaktor(-100, 1, GRENZEN, BASIS, WEGE)).toBeCloseTo(0.5);
+  });
+
+  test('unter dem Weg nach unten bleibt es beim Minimum', () => {
+    expect(zugFaktor(-400, 1, GRENZEN, BASIS, WEGE)).toBeCloseTo(0.5);
+  });
+
+  test('ein Start am Maximum bleibt beim Hochziehen dort', () => {
+    expect(zugFaktor(300, 60, GRENZEN, BASIS, WEGE)).toBeCloseTo(60);
+  });
+
+  test('die Referenz ist der Startfaktor, nicht 1×', () => {
+    // Wer bei 4× startet und den vollen Weg zieht, landet ebenfalls beim
+    // Maximum — der Weg deckt immer die Strecke Startfaktor → Grenze ab.
+    expect(zugFaktor(500, 4, GRENZEN, BASIS, WEGE)).toBeCloseTo(60);
+    expect(zugFaktor(-100, 4, GRENZEN, BASIS, WEGE)).toBeCloseTo(0.5);
+  });
 });
