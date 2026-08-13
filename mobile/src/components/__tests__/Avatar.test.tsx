@@ -158,3 +158,20 @@ test('die Kino-Variante zeichnet Ring und Initiale in der hellsten Kino-Farbe, n
   expect(initiale.color).toBe(cinema['text-1']);
   expect(initiale.color).not.toBe(cinema['text-2']);
 });
+
+// Merge-Fixrunde (Review-Fund, Minor): Fix-Runde 1 korrigierte nur `Avatar`,
+// der «+N»-Kreis der Gruppe behielt `cinema['bg-0']`/`cinema['text-2']`. In
+// EINER überlappenden Reihe wären das zwei verschiedene Ringe gewesen. Der
+// Test vergleicht deshalb nicht gegen einen fest notierten Token, sondern
+// gegen den Ring, den die Gesichter DANEBEN tatsächlich tragen: so bleibt er
+// gültig, falls die Kino-Gruppe irgendwann auf die Separator-Lesart umgestellt
+// wird — solange beide Stellen gemeinsam umgestellt werden, was die einzige
+// Zusicherung ist, um die es hier geht.
+test('in der Kino-Gruppe traegt der Rest-Kreis denselben Ring wie die Gesichter daneben', async () => {
+  await wrap(<AvatarGroup gesichter={ohneBild(ACHT)} kino />);
+  const gesicht = StyleSheet.flatten(screen.getAllByTestId('avatar-kreis')[0].props.style);
+  const rest = StyleSheet.flatten(screen.getByTestId('avatar-rest').props.style);
+  expect(rest.borderColor).toBe(gesicht.borderColor);
+  expect(StyleSheet.flatten(screen.getByText('+5').props.style).color)
+    .toBe(StyleSheet.flatten(screen.getByText('L').props.style).color);
+});

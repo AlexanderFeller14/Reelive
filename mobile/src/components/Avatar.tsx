@@ -108,8 +108,29 @@ export function AvatarGroup({
   const sichtbar = gesichter.slice(0, max);
   const rest = gesichter.length - sichtbar.length;
   const flaeche = kino ? cinema['bg-1'] : colors['bg-1'];
-  const ring = kino ? cinema['bg-0'] : colors['bg-0'];
-  const schrift = kino ? cinema['text-2'] : colors['text-2'];
+  // Ring und Schrift folgen DERSELBEN Zeile wie in `Avatar` oben, nicht einer
+  // zweiten: der «+N»-Kreis steht in derselben überlappenden Reihe wie die
+  // Gesichter davor, gezeichnet von derselben `kreis()`-Funktion. Zwei
+  // verschiedene Ringe in einer Reihe liest niemand als Absicht, sondern als
+  // Fehler.
+  //
+  // Bis zur Merge-Fixrunde standen hier `cinema['bg-0']`/`cinema['text-2']`,
+  // also genau die Werte, die `Avatar` VOR Fix-Runde 1 (Commit 7b95f51) trug.
+  // Die Korrektur dort liess die Gruppe absichtlich stehen, weil sie mit
+  // `kino` bis heute nirgends gerendert wird — das Ergebnis war aber ein Riss
+  // mitten durch eine einzige Komponente, und «heute unbenutzt» ist kein Grund
+  // für zwei Antworten auf dieselbe Frage.
+  //
+  // WELCHE Lesart am Ende gilt, ist damit NICHT entschieden, nur
+  // vereinheitlicht. Für eine überlappende Facepile auf dunklem Grund spricht
+  // die Separator-Lesart (Ring in `cinema['bg-0']`, der Farbe des Kino-
+  // Hintergrunds — dieselbe Logik, mit der die helle Palette `bg-0` nimmt)
+  // mehr als §4s wörtlicher «2 px weisser Ring», den `Avatar` heute umsetzt,
+  // weil seine beiden Einsatzorte einzelne Gesichter auf Fotos zeigen. Wer
+  // beim ersten echten Kino-Facepile darauf umstellt, stellt BEIDE Stellen um,
+  // Kinder UND «+N»; sonst ist der Riss nur auf die andere Seite gewandert.
+  const ring = kino ? cinema['text-1'] : colors['bg-0'];
+  const schrift = kino ? cinema['text-1'] : colors['text-2'];
 
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center' }}>
