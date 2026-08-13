@@ -18,7 +18,11 @@
 //   6. `widerrufen` ist kein Orakel: ein fremder Token und ein nicht
 //      existierender liefern dieselbe Antwort.
 //   7. Die Antwort enthält nirgends author_id, invite_code oder owner_id,
-//      geprüft am rohen Antworttext, inklusive der echten UUID-Werte.
+//      geprüft am rohen Antworttext, inklusive der echten UUID-Werte. Die
+//      UUID-Hälfte davon hängt seit dem Profilbild-Feature (2026-08-12) an der
+//      Fixture: hätte Lea ein Profilbild, stünde ihre uid als Teil von
+//      `autor_avatar_key` (`profiles/<author_id>/<32 hex>.jpg`) im Text. Das
+//      ist bewusst so akzeptiert, siehe die Stelle selbst.
 //   8. Das Blättern über die max_rows-Grenze gegen echtes PostgREST.
 //
 // Ausführen (Terminal 1 offen lassen):
@@ -468,6 +472,19 @@ Deno.test({
       }
       // Und die echten Werte, nicht nur die Feldnamen: LEA_ID ist die
       // author_id aller Momente und zugleich owner_id der Reise.
+      //
+      // Diese Zeile ist seit dem Profilbild-Feature (2026-08-12) an die
+      // Fixture gebunden: Lea hat hier KEIN Profilbild, `autor_avatar_key` ist
+      // deshalb null. Bekäme sie eines, stünde ihre uid als Teil des
+      // Schlüssels (`profiles/<author_id>/<32 hex>.jpg`) im Antworttext, und
+      // die Zusicherung fiele — nicht wegen einer Regression, sondern weil sie
+      // dann eine andere Frage stellte als die, die sie beantworten soll (kein
+      // Klartext-owner_id, kein durchgereichtes author_id-FELD). Die
+      // Preisgabe der uid über den Avatar-Schlüssel ist bewusst akzeptiert:
+      // Nachtrag in
+      // docs/superpowers/specs/2026-08-08-phase-6-teilen-export-store-design.md
+      // §5.1. Wer die Fixture je um ein Bild erweitert, ersetzt diese Zeile
+      // durch eine Prüfung auf owner_id/invite_code im Klartext.
       assertFalse(offen.text.includes(LEA_ID), 'die Antwort enthält die author_id/owner_id im Klartext');
       const [tripZeile] = (await erwarteJson(
         await fetch(`${SUPABASE_URL}/rest/v1/trips?id=eq.${tripId}&select=invite_code`, {

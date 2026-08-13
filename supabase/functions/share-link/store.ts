@@ -11,7 +11,9 @@
 //     Einsammeln der Momente (W1 und «nur fertige Uploads»)
 //   - die Sortierung nach captured_at, id (Global Constraint)
 //   - der Embed auf profiles für Autorenname UND Bild-Schlüssel (seit
-//     Task 10: display_name, avatar_key), der NIE die author_id holt
+//     Task 10: display_name, avatar_key). Die author_id steht in keiner
+//     Select-Liste — geheim ist sie damit trotzdem nicht mehr, sie steckt im
+//     avatar_key. Begründung an der Abfrage selbst (holeMomenteSeite, Punkt 4)
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import type { AufloesungsTrip, MomentZeile, SeitenErgebnis, ShareLinkZeile, TripStatus } from './aufloesung.ts';
 
@@ -175,7 +177,18 @@ export function erstelleShareStore(supabaseAdmin: AdminClient): ShareStore {
     //      posts und profiles ZWEI Beziehungen findet (die Fremdschlüsselspalte
     //      author_id und den many-to-many-Weg über reactions) und sonst mit
     //      PGRST201 abbricht. Geholt werden ausschliesslich display_name und
-    //      avatar_key, author_id steht in keiner Select-Liste dieser Datei.
+    //      avatar_key — author_id steht zwar in keiner Select-Liste dieser
+    //      Datei, ZURÜCKGEHALTEN wird sie seit dem Profilbild-Feature
+    //      (2026-08-12) aber nicht mehr: `avatar_key` lautet
+    //      `profiles/<author_id>/<32 hex>.jpg` und trägt die Auth-UUID der
+    //      Autorin damit in die anonyme Antwort, sobald sie ein Bild hat.
+    //      Bewusst akzeptiert (siehe Nachtrag in
+    //      docs/superpowers/specs/2026-08-08-phase-6-teilen-export-store-design.md
+    //      §5.1): die UUID gewährt für sich keinen Zugriff — profiles-RLS
+    //      verlangt gemeinsame Mitgliedschaft, `select` auf storage.objects
+    //      verlangt authenticated, und kein anonymer Endpunkt nimmt eine rohe
+    //      uid entgegen. Ablesbar ist einzig, dass zwei geteilte Recaps
+    //      dieselbe Autorin haben; ihren Namen zeigt die Antwort ohnehin.
     async holeMomenteSeite(tripId, von, mitZaehlung) {
       const { data, error, count } = await supabaseAdmin
         .from('posts')

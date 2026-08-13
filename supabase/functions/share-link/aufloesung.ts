@@ -178,12 +178,23 @@ export type MomentZeile = {
   caption: string | null;
   duration_s: number | null;
   // Schon aus dem PostgREST-Embed geflacht (store.ts). Der Autorenname gehört
-  // in die Antwort (er steht im Recap ohnehin auf jedem Moment), die
-  // author_id NIE.
+  // in die Antwort — er steht im Recap ohnehin auf jedem Moment.
   autor_name: string | null;
   // Wie autor_name aus dem PostgREST-Embed geflacht (store.ts). Der Schlüssel
   // geht heraus, nie eine fertige URL: die Formel kennt allein der Client
   // (mobile/src/features/auth/avatar.ts), und sie soll genau einen Ort haben.
+  //
+  // Hier stand früher, die author_id gehe «NIE» heraus. Das stimmt seit dem
+  // Profilbild-Feature (2026-08-12) nicht mehr: der Schlüssel lautet
+  // `profiles/<author_id>/<32 hex>.jpg`, die Auth-UUID der Autorin reist also
+  // in dieser Zeile mit, sobald sie ein Profilbild hat. Bewusst akzeptiert
+  // (Nachtrag in
+  // docs/superpowers/specs/2026-08-08-phase-6-teilen-export-store-design.md
+  // §5.1): eine nackte UUID öffnet nichts — profiles-RLS verlangt gemeinsame
+  // Mitgliedschaft, `select` auf storage.objects verlangt authenticated, und
+  // kein anonymer Endpunkt nimmt eine rohe uid entgegen. Wer den Link hat,
+  // kann daraus nur ablesen, dass zwei geteilte Recaps dieselbe Autorin
+  // haben — deren Namen die Antwort ohnehin nennt.
   autor_avatar_key: string | null;
 };
 

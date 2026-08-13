@@ -23,8 +23,16 @@
 //   4. Die Schlüssel werden ABGELEITET, nie aus storage_key übernommen, und
 //      eine Zeile, deren storage_key woanders hinzeigt, fällt heraus.
 //   5. Die Antwort trägt GENAU die Felder des Vertrags. Reaktionen,
-//      Kommentare, Mitglieder, invite_code und author_id sind nicht dabei,
-//      auch dann nicht, wenn sie in den Eingabezeilen stehen.
+//      Kommentare, Mitglieder, invite_code und ein FELD author_id sind nicht
+//      dabei, auch dann nicht, wenn sie in den Eingabezeilen stehen.
+//      Achtung, seit dem Profilbild-Feature (2026-08-12) keine Aussage mehr
+//      über die UUID selbst: `autor_avatar_key` lautet
+//      `profiles/<author_id>/<32 hex>.jpg`. Die Fixtures unten setzen den
+//      Schlüssel auf null, deshalb greift die Textprüfung gegen
+//      VERBOTENE_FELDER hier weiterhin sauber. Warum die Preisgabe in Ordnung
+//      geht: Nachtrag in
+//      docs/superpowers/specs/2026-08-08-phase-6-teilen-export-store-design.md
+//      §5.1.
 //   6. Seit Phase 7 gehören lat/lng dazu (Spec R4): sie gehen unverändert
 //      durch, `null` bleibt `null`, und ein Moment ohne Ort verschwindet
 //      nicht. Dass sie NUR hinter einem bestandenen Urteil herausgehen,
@@ -576,8 +584,10 @@ Deno.test('die Antwort von aufloesen trägt genau die Felder des Vertrags', asyn
     'type',
   ]);
 
-  // Der Autorenname gehört dazu (er steht im Recap ohnehin auf jedem Moment),
-  // die author_id nie.
+  // Der Autorenname gehört dazu — er steht im Recap ohnehin auf jedem Moment.
+  // Ein FELD author_id gibt es weiterhin nicht; die UUID selbst reist seit dem
+  // Profilbild-Feature aber in `autor_avatar_key` mit, sobald die Autorin ein
+  // Bild hat (hier: null, siehe momentZeile()).
   assertEquals(antwort.medien[0].autor_name, 'Mira');
 
   // Und zum Schluss der grobe, aber wirksame Griff: die ganze Antwort als

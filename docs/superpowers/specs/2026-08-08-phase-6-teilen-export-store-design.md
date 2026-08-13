@@ -103,8 +103,20 @@ Erst dann liest sie Reise, Momente (`upload_status = 'uploaded'`) und Profile, l
 Schlüssel **selbst** her (wie `media-urls`, nie aus `storage_key`) und gibt presignte GET-URLs
 zurück. Gültigkeit **eine Stunde**, wie beim Mitglieder-Leseweg.
 
-**Was `aufloesen` nicht zurückgibt:** Reaktionen, Kommentare, Mitgliederliste, Einladungscode,
-`author_id`. Der Autorenname ja — er steht im Recap ohnehin auf jedem Moment.
+**Was `aufloesen` nicht zurückgibt:** Reaktionen, Kommentare, Mitgliederliste, Einladungscode.
+Der Autorenname ja — er steht im Recap ohnehin auf jedem Moment.
+
+> **Nachtrag 2026-08-12 (Profilbild):** `author_id` stand bis dahin auch auf dieser Liste.
+> Seit dem Profilbild-Feature enthält die Antwort `autor_avatar_key`, und der Schlüssel
+> lautet `profiles/<author_id>/<32 hex>.jpg` — die Auth-UUID der Autorin steht damit in der
+> anonymen Antwort, wenn sie ein Profilbild hat. Bewusst akzeptiert statt umgangen: die UUID
+> gewährt für sich genommen keinerlei Zugriff (`profiles`-RLS verlangt gemeinsame
+> Mitgliedschaft, `select` auf `storage.objects` verlangt `authenticated`, und kein anonymer
+> Endpunkt nimmt eine rohe uid entgegen). Wer den Link hat, kann daraus einzig ablesen, dass
+> zwei geteilte Recaps dieselbe Autorin haben — und den Autorennamen zeigt die Antwort
+> ohnehin. Die Alternative wäre ein zweiter, umgeschriebener Schlüsselnamensraum allein für
+> den geteilten Weg gewesen: mehr bewegliche Teile und ein zweiter URL-Bauplan neben
+> `avatarUrl()`, gegen einen Gewinn, den es nicht gibt.
 
 **Ratenbegrenzung:** Der Endpunkt ist öffentlich und nimmt einen 32-stelligen Hex-Token. Der
 Raum ist gross genug, dass Raten sinnlos ist; eine Begrenzung baue ich trotzdem nicht selbst,
