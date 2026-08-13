@@ -87,3 +87,19 @@ test('ein "player"-Segment ausserhalb von recap/[id]/ schaltet die Tab-Bar NICHT
   await render(<TabsLayout />);
   expect(letzteScreenOptions?.tabBarStyle?.display).not.toBe('none');
 });
+
+// Der Kamera-Screen behält die Leiste: Er ist der Tab, von dem aus man in die
+// anderen wechselt.
+//
+// Die Aufnahme-Vorschau braucht hier bewusst KEINE Ausnahme, obwohl auch sie
+// ein Vollbild-Medienscreen ist. Sie liegt gar nicht mehr im Tab-Navigator,
+// sondern daneben (app/vorschau.tsx). Eine Ausnahme an dieser Stelle wirkt
+// erst, wenn der Navigator nach dem Routenwechsel neu rendert, und die Leiste
+// blieb dadurch nach dem Auslösen noch sichtbar stehen, während die Vorschau
+// schon da war. Die Begründung für den Umzug steht in guard.ts bei
+// istFlaecheFuerAngemeldete().
+test('der Kamera-Screen (aufnehmen) behält die Tab-Bar', async () => {
+  mockUseSegments.mockReturnValue(['(tabs)', 'aufnehmen']);
+  await render(<TabsLayout />);
+  expect(letzteScreenOptions?.tabBarStyle?.display).not.toBe('none');
+});

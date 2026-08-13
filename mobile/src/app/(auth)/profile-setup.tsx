@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { Text, View, StyleSheet } from 'react-native';
-import { AvatarWaehler } from '@/components/AvatarWaehler';
+import { AvatarSheetInhalt, AvatarWaehler } from '@/components/AvatarWaehler';
 import { Button } from '@/components/Button';
 import { Input } from '@/components/Input';
+import { Sheet } from '@/components/Sheet';
 import { useTheme } from '@/theme/ThemeProvider';
 import { spacing, type } from '@/theme/tokens';
 import { useOberkante } from '@/theme/useOberkante';
@@ -24,6 +25,10 @@ export default function ProfileSetupScreen() {
   // als im Profil-Tab (Task 6) gibt es hier noch nichts, was ein Upload
   // sofort persistieren könnte — der Upload folgt erst in submit().
   const [bildUri, setBildUri] = useState<string | null>(null);
+  // Der Screen hält den Zustand des Sheets, nicht der Kreis: das Sheet legt
+  // sich per StyleSheet.absoluteFill über seinen Elternteil und muss deshalb
+  // neben dem Formular stehen, nicht darin (Begründung in AvatarWaehler.tsx).
+  const [bildSheetSichtbar, setBildSheetSichtbar] = useState(false);
 
   const submit = async () => {
     const uErr = validateUsername(username);
@@ -63,46 +68,68 @@ export default function ProfileSetupScreen() {
   };
 
   return (
-    <View style={[styles.screen, { backgroundColor: colors['bg-0'], paddingTop: oben }]}>
-      <Text style={[type.h1, { color: colors['text-1'] }]}>Fast geschafft</Text>
-      <Text style={[type.secondary, { color: colors['text-2'] }]}>
-        So sehen dich deine Freunde im Recap.
-      </Text>
-      <View style={styles.bildZeile}>
-        <AvatarWaehler
-          name={displayName}
+    // Zwei Ebenen statt einer: das Formular trägt die Innenabstände (und wäre
+    // als Elternteil des Sheets ein 24-px-eingerücktes Band mitten im Screen),
+    // dieser Rahmen hier trägt nur Fläche und Höhe und ist der Elternteil, den
+    // `StyleSheet.absoluteFill` im Sheet meint. Dieselbe Aufteilung wie in
+    // profil.tsx, dort mit einer ScrollView statt des Formulars.
+    <View style={[styles.rahmen, { backgroundColor: colors['bg-0'] }]}>
+      <View testID="onboarding-formular" style={[styles.formular, { paddingTop: oben }]}>
+        <Text style={[type.h1, { color: colors['text-1'] }]}>Fast geschafft</Text>
+        <Text style={[type.secondary, { color: colors['text-2'] }]}>
+          So sehen dich deine Freunde im Recap.
+        </Text>
+        <View style={styles.bildZeile}>
+          <AvatarWaehler
+            name={displayName}
+            avatarKey={null}
+            lokaleUri={bildUri}
+            onOeffnen={() => setBildSheetSichtbar(true)}
+          />
+          <Text style={[type.secondary, { color: colors['text-2'] }]}>Profilbild (optional)</Text>
+        </View>
+        <Input
+          label="Username"
+          value={username}
+          onChangeText={(t) => setUsername(t.toLowerCase())}
+          error={usernameError}
+          autoCapitalize="none"
+          autoCorrect={false}
+          placeholder="lea_2026"
+        />
+        <Input
+          label="Anzeigename"
+          value={displayName}
+          onChangeText={setDisplayName}
+          error={displayNameError}
+          placeholder="Lea"
+        />
+        {formularFehler && (
+          <Text style={[type.body, { color: colors.danger }]}>{formularFehler}</Text>
+        )}
+        <Button variant="primary" label="Los geht's" onPress={submit} loading={loading} />
+      </View>
+
+      <Sheet sichtbar={bildSheetSichtbar} titel="Profilbild" onSchliessen={() => setBildSheetSichtbar(false)}>
+        <AvatarSheetInhalt
           avatarKey={null}
           lokaleUri={bildUri}
           onGewaehlt={setBildUri}
           onEntfernen={() => setBildUri(null)}
+          onSchliessen={() => setBildSheetSichtbar(false)}
         />
-        <Text style={[type.secondary, { color: colors['text-2'] }]}>Profilbild (optional)</Text>
-      </View>
-      <Input
-        label="Username"
-        value={username}
-        onChangeText={(t) => setUsername(t.toLowerCase())}
-        error={usernameError}
-        autoCapitalize="none"
-        autoCorrect={false}
-        placeholder="lea_2026"
-      />
-      <Input
-        label="Anzeigename"
-        value={displayName}
-        onChangeText={setDisplayName}
-        error={displayNameError}
-        placeholder="Lea"
-      />
-      {formularFehler && (
-        <Text style={[type.body, { color: colors.danger }]}>{formularFehler}</Text>
-      )}
-      <Button variant="primary" label="Los geht's" onPress={submit} loading={loading} />
+      </Sheet>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, padding: spacing.screen, paddingTop: spacing.xxl, gap: spacing.l },
+  // `rahmen` trägt nur Fläche und Höhe — er ist der Bezugsrahmen des Sheets
+  // und darf deshalb KEINE Innenabstände haben, sonst sässe das Sheet 24 px
+  // vom Rand entfernt. Alles Formularhafte (Polster, Abstände) liegt eine
+  // Ebene tiefer in `formular`; zusammen ergeben sie exakt die Masse, die
+  // vorher am einzelnen `screen`-Style hingen.
+  rahmen: { flex: 1 },
+  formular: { flex: 1, padding: spacing.screen, paddingTop: spacing.xxl, gap: spacing.l },
   bildZeile: { alignItems: 'center', gap: spacing.s },
 });

@@ -304,3 +304,51 @@ test('die laufende Aufnahme traegt den Akzent, nicht die Siegel-Farbe', async ()
   expect(farben).toContain(palette.accent);
   expect(farben).not.toContain(cinema['seal-glow']);
 });
+
+// ——— Meldung der Sperre (Spec 2026-08-12-kamera-zoom-design.md) ———
+//
+// Nur im gesperrten Zustand ist die Hand frei, und nur dann lässt sich neben
+// der laufenden Aufnahme noch etwas anderes bedienen. Ein zweiter Finger auf
+// einem anderen Bedienelement würde dem haltenden Druck sonst die Berührung
+// entziehen (React Native kennt genau einen Responder) — das Loslassen käme
+// an, und die Aufnahme endete mitten im Zoomen. Der Sucher blendet die
+// Zoom-Reihe deshalb genau dann ein, wenn diese Meldung `true` sagt.
+test('meldet die greifende Sperre', async () => {
+  const onSperre = jest.fn();
+  await render(
+    <Ausloeser
+      onFoto={jest.fn()}
+      onVideoStart={jest.fn()}
+      onVideoStop={jest.fn()}
+      maxSekunden={30}
+      onSperre={onSperre}
+    />
+  );
+  await videoLaeuft();
+  expect(onSperre).not.toHaveBeenCalledWith(true);
+
+  await fireEvent(knopf(), 'touchMove', JENSEITS);
+  await fireEvent(knopf(), 'pressOut');
+
+  expect(onSperre).toHaveBeenLastCalledWith(true);
+});
+
+test('meldet das Ende der Sperre, wenn die Aufnahme endet', async () => {
+  const onSperre = jest.fn();
+  await render(
+    <Ausloeser
+      onFoto={jest.fn()}
+      onVideoStart={jest.fn()}
+      onVideoStop={jest.fn()}
+      maxSekunden={30}
+      onSperre={onSperre}
+    />
+  );
+  await videoLaeuft();
+  await fireEvent(knopf(), 'touchMove', JENSEITS);
+  await fireEvent(knopf(), 'pressOut');
+
+  await fireEvent(screen.getByLabelText('Aufnahme beenden'), 'pressIn');
+
+  expect(onSperre).toHaveBeenLastCalledWith(false);
+});

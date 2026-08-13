@@ -1,5 +1,13 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { Animated, Easing, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Animated,
+  Easing,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+  type GestureResponderEvent,
+} from 'react-native';
 import { Image } from 'expo-image';
 import { useFocusEffect, useRouter, type Href } from 'expo-router';
 import { setStatusBarStyle } from 'expo-status-bar';
@@ -10,6 +18,9 @@ import { Ausloeser } from '@/components/Ausloeser';
 import { Button } from '@/components/Button';
 import { Pille } from '@/components/Pille';
 import { PressScale } from '@/components/PressScale';
+import { ZoomWahl } from '@/components/ZoomWahl';
+import * as nativeZoom from '@/features/kamera/nativeZoom';
+import { begrenzen, fingerAbstand, nativerFaktor, zoomGeraet } from '@/features/kamera/zoom';
 import { cinema, palette, radius, spacing, type } from '@/theme/tokens';
 import { useOberkante } from '@/theme/useOberkante';
 import { useReducedMotion } from '@/theme/useReducedMotion';
@@ -22,6 +33,67 @@ import { useAuth } from '@/features/auth/AuthProvider';
 // Höchstdauer eines Videos (Produktkonzept: Snapchat-Muster, Ring stoppt hier
 // von selbst), dieselbe Zahl geht an den Auslöser UND an CameraView.recordAsync.
 const MAX_VIDEO_SEKUNDEN = 30;
+
+// Wie lange die Meldung nach einer gescheiterten Aufnahme stehen bleibt. Lang
+// genug zum Lesen, kurz genug, dass sie nicht zur Tapete wird und den Sucher
+// verdeckt. Ausserhalb der Motion-Skala (§5), weil die Übergänge bemisst, nicht
+// Lesezeiten.
+const FEHLER_MS = 4000;
+
+// Am Simulator scheitert jede Videoaufnahme (dort gibt es keine Kamera), am
+// Gerät kann ein Anruf dazwischenkommen oder der Speicher voll sein. Ohne
+// diese Meldung tippt man auf Stopp und steht vor einem Bildschirm, der
+// nichts sagt (DESIGN-LANGUAGE §6: Fehler erklären Ursache und Lösung).
+const FEHLER_TEXT = 'Das Video hat nicht geklappt. Versuch es nochmal.';
+
+// Wie oft der Start einer Videoaufnahme wiederholt wird, und wie lange
+// dazwischen gewartet wird.
+//
+// Der Wechsel auf `mode="video"` baut die native Kamera-Session um, und das
+// läuft asynchron auf einer EIGENEN Queue: `var mode { didSet {
+// sessionQueue.async { setCameraMode() } } }` (expo-camera 57,
+// ios/Current/CameraView.swift:107). Erst dort entsteht das
+// `videoFileOutput`. Bis dahin findet `record()` kein
+// `currentVideoFileOutput` und lehnt sofort ab, mit «Camera is not ready
+// yet» (CameraView.swift:303, CameraExceptions.swift:15).
+//
+// Dass `mode` im React-Baum committet ist, heisst also NICHT, dass die
+// Kamera aufnehmen kann. Ein Ereignis für «Umbau fertig» gibt es nicht:
+// `onCameraReady` feuert genau einmal beim Start der Session
+// (`startSessionIfNeeded`, bewacht durch `didStartSession`,
+// CameraView.swift:192), nicht bei jedem Moduswechsel. Deshalb wird der
+// Start wiederholt versucht, statt die Dauer des Umbaus zu raten: sie hängt
+// am Gerät und daran, was die Session sonst gerade tut.
+const VIDEO_START_VERSUCHE = 10;
+const VIDEO_START_WARTE_MS = 100;
+
+// Wie viel Zeit zwischen den beiden Tippern des Kamera-Wechsels liegen darf.
+// 300 ms ist iOS' eigenes Mass für einen Doppeltipp. Ausserhalb der
+// Motion-Skala (§5), und zwar richtig so: die bemisst Übergänge, nicht die
+// Geduld einer Geste.
+const DOPPELTIPP_MS = 300;
+
+// Wie weit ein Finger wandern darf, ohne dass aus dem Tipp ein Wischen wird —
+// und wie weit die beiden Tipper voneinander entfernt liegen dürfen. 24 aus
+// dem 4er-Raster (§3).
+const TIPP_RADIUS = 24;
+
+// Durchmesser des Auslösers (components/Ausloeser.tsx). Alles, was über ihm
+// liegt, rechnet ab dieser Zahl.
+const AUSLOESER_GROESSE = 76;
+
+// Höhe der Zoom-Reihe: 44 Druckfläche plus zweimal 4 Innenabstand der Pille
+// (components/ZoomWahl.tsx).
+const ZOOM_REIHE_HOEHE = 44 + 2 * spacing.xs;
+
+// Wo die Fehlermeldung steht: über dem Auslöser, und über der Zoom-Reihe,
+// falls das Gerät eine hat. Ohne diese Verschiebung lägen beide übereinander,
+// denn die Meldung erscheint direkt nach einer Aufnahme — also genau dann,
+// wenn die Reihe wieder im Bild steht.
+function fehlerUnten(mitZoomReihe: boolean): number {
+  const ueberDemAusloeser = spacing.xxl + AUSLOESER_GROESSE + spacing.l;
+  return mitZoomReihe ? ueberDemAusloeser + ZOOM_REIHE_HOEHE + spacing.m : ueberDemAusloeser;
+}
 
 function momenteText(anzahl: number): string {
   return `${anzahl} ${anzahl === 1 ? 'Moment' : 'Momente'}`;
@@ -234,14 +306,39 @@ export default function AufnehmenScreen() {
   // den zuletzt bekannten Serverstand statt kurz „0 Momente" aufblitzen zu
   // lassen (siehe Fallback beim Rendern unten).
   const [zaehler, setZaehler] = useState<number | null>(null);
+  const [aufnahmeFehler, setAufnahmeFehler] = useState(false);
+  // Der ANGEZEIGTE Faktor (0,5 / 1 / 4 …), nicht der des Geräts. Zwischen
+  // beiden liegt die Basis, siehe zoom.ts.
+  const [faktor, setFaktor] = useState(1);
+  // Ob die laufende Aufnahme gesperrt ist, die Hand also frei.
+  const [aufnahmeGesperrt, setAufnahmeGesperrt] = useState(false);
   // Wird bei jedem Fokussieren hochgezählt und hängt am Zähler-Effekt unten
   // (siehe dort und useFocusEffect).
   const [fokusStand, setFokusStand] = useState(0);
   const cameraRef = useRef<CameraView>(null);
   const videoStartZeit = useRef(0);
   const videoPromise = useRef<Promise<{ uri: string } | undefined> | null>(null);
+  // Ob der Auslöser seit dem Start dieser Aufnahme losgelassen wurde. Als Ref,
+  // weil die Startschleife den Wert zwischen zwei Runden synchron lesen muss;
+  // ein State-Wert wäre dort noch der alte.
+  const videoGestoppt = useRef(false);
   // Schirmt setState nach Blur/Unmount ab (gleiches Muster wie reise/index.tsx).
   const aktiv = useRef(true);
+  // Derselbe Wert wie `faktor`, nur synchron lesbar: das Nachsetzen und die
+  // Pinch-Geste brauchen ihn ausserhalb des Renderns, wo ein State-Wert noch
+  // der alte wäre.
+  const faktorRef = useRef(1);
+  // Was beim Aufsetzen der zwei Finger galt. Alles Weitere ist Verhältnis
+  // dazu, deshalb wird es beim Loslassen wieder geräumt.
+  const pinchStart = useRef<{
+    abstand: number;
+    faktor: number;
+    grenzen: { min: number; max: number };
+  } | null>(null);
+  // Wo der Finger aufgesetzt hat, und wann zuletzt getippt wurde: daraus
+  // entsteht der Doppeltipp (siehe zoomGeste unten).
+  const tippStart = useRef<{ pageX: number; pageY: number } | null>(null);
+  const letzterTipp = useRef<{ zeit: number; pageX: number; pageY: number } | null>(null);
 
   // Vor den frühen Returns berechnet (Rules of Hooks: der Effekt weiter unten
   // braucht `reise?.id` als Abhängigkeit, und Hooks dürfen nicht hinter einem
@@ -363,6 +460,58 @@ export default function AufnehmenScreen() {
   // Screen: randlos ist das Kamerabild, nicht die Pille darauf.
   const sucherOben = useOberkante(spacing.xl);
 
+  // ——— Zoom (Spec 2026-08-12-kamera-zoom-design.md) ———
+  //
+  // Die Stufen kommen vom Gerät, nicht aus einer gepflegten Tabelle: eine
+  // virtuelle Mehrfach-Kamera kennt die Faktoren, bei denen iOS die Linse
+  // wechselt, und genau das sind die Stufen der Kamera-App (siehe zoom.ts).
+  // Jede Blickrichtung hat eigene Linsen, und die Frontkamera meist nur eine.
+  // Abgeleitet statt in einem Effekt gespeichert: das Auflisten der Kameras
+  // ist eine Abfrage ohne Nebenwirkung, ein Zustand daneben wäre eine zweite
+  // Wahrheit. Zurückgesetzt wird der Faktor dort, wo die Richtung wechselt
+  // (siehe «Kamera wechseln»), nicht hier.
+  const linsen = useMemo(() => nativeZoom.linsen(richtung), [richtung]);
+  const zoom = useMemo(() => zoomGeraet(linsen), [linsen]);
+
+  const zoomSetzen = useCallback(
+    (neu: number, sanft: boolean) => {
+      if (!zoom) return;
+      faktorRef.current = neu;
+      setFaktor(neu);
+      nativeZoom.setzeZoom(zoom.name, nativerFaktor(neu, zoom.basis), sanft);
+    },
+    [zoom]
+  );
+
+  // Der Fallstrick dieser Funktion: auf dem virtuellen Gerät IST der native
+  // Faktor 1,0 die weiteste Linse, also 0,5×. Und genau diese 1,0 setzt
+  // expo-camera bei jedem Gerätewechsel selbst (addDevice → updateZoom mit
+  // unserem zoom-Prop 0, CameraSessionManager.swift:354). Ohne Nachsetzen
+  // begänne der Sucher bei 0,5× und spränge nach jedem Kamerawechsel dorthin
+  // zurück.
+  const zoomNachsetzen = useCallback(() => {
+    if (!zoom) return;
+    nativeZoom.setzeZoom(zoom.name, nativerFaktor(faktorRef.current, zoom.basis), false);
+  }, [zoom]);
+
+  // Läuft, sobald die Mehrfach-Kamera bekannt ist, und erneut bei jedem
+  // Moduswechsel: der tauscht das Kameraformat (setCameraMode →
+  // updateSessionPreset), und mit ihm können sich die Zoom-Grenzen
+  // verschieben. Der Wechsel des GERÄTS meldet sich dagegen von selbst,
+  // siehe onAvailableLensesChanged an der CameraView.
+  useEffect(() => {
+    zoomNachsetzen();
+  }, [zoomNachsetzen, modus]);
+
+  // Räumt die Meldung nach FEHLER_MS wieder ab. Der Timer hängt am Zustand
+  // selbst, nicht am Auslöser: So setzt ihn ein zweiter Fehlschlag neu auf,
+  // statt dass die erste Uhr die zweite Meldung wegwischt.
+  useEffect(() => {
+    if (!aufnahmeFehler) return;
+    const uhr = setTimeout(() => setAufnahmeFehler(false), FEHLER_MS);
+    return () => clearTimeout(uhr);
+  }, [aufnahmeFehler]);
+
   // Berechtigungen proaktiv anfragen, sobald der aktuelle Stand bekannt ist,
   // kamera-first (Produktkonzept) heisst, der Nutzer soll nicht erst einen
   // Knopf suchen müssen, um überhaupt gefragt zu werden. Erst wenn eine
@@ -389,12 +538,37 @@ export default function AufnehmenScreen() {
   // Speicher oder entzogener Berechtigung.
   //
   // Ein `undefined` heisst hier «kein Video entstanden», und genau das
-  // behandelt handleVideoStop unten schon (`if (!ergebnis?.uri) return`).
+  // behandelt handleVideoStop unten schon.
+  //
+  // Wiederholt wird, weil der erste Versuch die Session regelmässig noch
+  // mitten im Umbau trifft (siehe VIDEO_START_VERSUCHE oben). Am Simulator
+  // scheitert JEDER Versuch, dort gibt es keine Kamera
+  // («SimulatorNotSupported»), am Ende bleibt es dann beim `undefined` und
+  // der Screen sagt es.
   useEffect(() => {
     if (modus !== 'video') return;
-    videoPromise.current =
-      cameraRef.current?.recordAsync({ maxDuration: MAX_VIDEO_SEKUNDEN }).catch(() => undefined) ??
-      null;
+    const starten = async (): Promise<{ uri: string } | undefined> => {
+      let letzterFehler: unknown = null;
+      for (let versuch = 0; versuch < VIDEO_START_VERSUCHE; versuch++) {
+        // Wer den Auslöser schon losgelassen hat, will kein Video mehr. Ohne
+        // diese Abfrage begänne die nächste Runde eine Aufnahme, die niemand
+        // mehr stoppt: `stopRecording()` ist längst gelaufen und war ein
+        // Schlag ins Leere, die Aufnahme liefe bis `maxDuration`.
+        if (videoGestoppt.current) return undefined;
+        try {
+          return await cameraRef.current?.recordAsync({ maxDuration: MAX_VIDEO_SEKUNDEN });
+        } catch (fehler) {
+          letzterFehler = fehler;
+          await new Promise((weiter) => setTimeout(weiter, VIDEO_START_WARTE_MS));
+        }
+      }
+      // Alle Runden verbraucht. Was zuletzt schiefging, gehört ins Log: sonst
+      // steht auf dem Gerät nur FEHLER_TEXT, und die eigentliche Ursache
+      // (Simulator, kein Speicher, Berechtigung entzogen) ist verschluckt.
+      console.error('[aufnehmen] Videoaufnahme kam nicht zustande', letzterFehler);
+      return undefined;
+    };
+    videoPromise.current = starten();
   }, [modus]);
 
   // Zieht den Zähler bei jedem Reise-Wechsel UND bei jedem Fokussieren nach
@@ -452,7 +626,109 @@ export default function AufnehmenScreen() {
   // Cast über `unknown` (statt `any`, siehe Präzedenz in joinFlow.ts) ist
   // bewusst temporär: sobald Task 8 die Route anlegt, entfällt er ersatzlos.
   const zurPreview = (params: { uri: string; typ: 'photo' | 'video'; dauer: string; tripId: string }) => {
-    router.push({ pathname: '/aufnehmen/preview', params } as unknown as Href);
+    router.push({ pathname: '/vorschau', params } as unknown as Href);
+  };
+
+  // Während einer GEHALTENEN Aufnahme liegt der Finger auf dem Auslöser.
+  // React Native kennt genau einen Responder: ein zweiter Finger auf der
+  // Reihe entzöge dem Druck die Berührung, das Loslassen käme an, und die
+  // Aufnahme endete mitten im Zoomen. Ist sie dagegen gesperrt, ist die Hand
+  // frei — dann bleibt der Zoom bedienbar, wie in der Kamera-App.
+  const zoomBedienbar = modus !== 'video' || aufnahmeGesperrt;
+  const zoomSichtbar = zoom !== null && zoomBedienbar;
+
+  // Der Pinch, von Hand statt über einen Gesten-Erkenner: gebraucht wird der
+  // Abstand zweier Finger, mehr nicht. `onStartShouldSetResponder: false`
+  // lässt jede einzelne Berührung durch — sie gehört dem Auslöser und der
+  // übrigen Bedienung. Erst die Bewegung mit zwei Fingern übernimmt.
+  // Ein Kamerawechsel baut die Kamera-Session um und bricht eine laufende
+  // recordAsync ab — derselbe Grund, aus dem die Kopfzeile während der
+  // Aufnahme verschwindet. Der Doppeltipp schweigt dort also, gesperrt oder
+  // nicht.
+  const darfWechseln = modus !== 'video';
+
+  const kameraWechseln = () => {
+    setRichtung((r) => (r === 'back' ? 'front' : 'back'));
+    // Die andere Seite hat andere Linsen — der Faktor der einen bedeutet auf
+    // der anderen etwas anderes, also zurück auf 1×.
+    faktorRef.current = 1;
+    setFaktor(1);
+  };
+
+  // Berührungen auf dem Kamerabild: zwei Finger zoomen, zwei Tipper wechseln
+  // die Kamera (Snapchat-Muster).
+  //
+  // Das Ereignis ist überall optional angefasst (`e?.`), gleiches Muster wie
+  // im Auslöser: Wer nur wissen will, OB dieses Element Berührungen annimmt,
+  // ruft die Prüffrage ohne Ereignis auf.
+  const zoomGeste = {
+    // Einzelne Berührungen nimmt die Fläche nur an, wenn aus ihnen ein
+    // Doppeltipp werden darf. Während einer gehaltenen Aufnahme muss sie sie
+    // durchlassen: React Native kennt genau einen Responder, und der gehört
+    // dann dem Auslöser — nähme die Fläche ihn an sich, endete die Aufnahme.
+    onStartShouldSetResponder: () => darfWechseln,
+    onMoveShouldSetResponder: (e?: GestureResponderEvent) =>
+      zoomSichtbar && (e?.nativeEvent?.touches?.length ?? 0) >= 2,
+    onResponderGrant: (e?: GestureResponderEvent) => {
+      tippStart.current = {
+        pageX: e?.nativeEvent?.pageX ?? 0,
+        pageY: e?.nativeEvent?.pageY ?? 0,
+      };
+      const abstand = fingerAbstand(e?.nativeEvent?.touches ?? []);
+      if (!zoom || abstand === null) return;
+      // Die Grenzen erst jetzt erfragen: sie hängen am aktiven Kameraformat
+      // und damit daran, ob gerade ein Foto oder ein Video ansteht.
+      pinchStart.current = {
+        abstand,
+        faktor: faktorRef.current,
+        grenzen: nativeZoom.zoomGrenzen(zoom.name) ?? {
+          min: 1,
+          max: nativerFaktor(zoom.stufen[zoom.stufen.length - 1], zoom.basis),
+        },
+      };
+    },
+    onResponderMove: (e?: GestureResponderEvent) => {
+      const start = pinchStart.current;
+      const abstand = fingerAbstand(e?.nativeEvent?.touches ?? []);
+      if (!zoom || !start || abstand === null || start.abstand === 0) return;
+      // Hart gesetzt, nicht sanft: der Zoom soll dem Finger folgen, nicht
+      // hinterherfahren.
+      zoomSetzen(begrenzen((start.faktor * abstand) / start.abstand, start.grenzen, zoom.basis), false);
+    },
+    onResponderRelease: (e?: GestureResponderEvent) => {
+      const warPinch = pinchStart.current !== null;
+      const start = tippStart.current;
+      pinchStart.current = null;
+      tippStart.current = null;
+      // Wer gezoomt hat, wollte nicht die Kamera wechseln.
+      if (warPinch || !darfWechseln || !start) return;
+
+      const ende = {
+        pageX: e?.nativeEvent?.pageX ?? 0,
+        pageY: e?.nativeEvent?.pageY ?? 0,
+      };
+      // Gewandert heisst gewischt, nicht getippt. Ein Wischen setzt die
+      // Zählung zurück, sonst würde es zur ersten Hälfte eines Doppeltipps.
+      if ((fingerAbstand([start, ende]) ?? 0) > TIPP_RADIUS) {
+        letzterTipp.current = null;
+        return;
+      }
+
+      const vorher = letzterTipp.current;
+      const jetzt = Date.now();
+      const schnellGenug = vorher !== null && jetzt - vorher.zeit <= DOPPELTIPP_MS;
+      const naheGenug = vorher !== null && (fingerAbstand([vorher, ende]) ?? 0) <= TIPP_RADIUS;
+      if (schnellGenug && naheGenug) {
+        letzterTipp.current = null;
+        kameraWechseln();
+        return;
+      }
+      letzterTipp.current = { zeit: jetzt, ...ende };
+    },
+    onResponderTerminate: () => {
+      pinchStart.current = null;
+      tippStart.current = null;
+    },
   };
 
   const handleFoto = async () => {
@@ -463,15 +739,26 @@ export default function AufnehmenScreen() {
 
   const handleVideoStart = () => {
     videoStartZeit.current = Date.now();
+    videoGestoppt.current = false;
+    // Eine neue Aufnahme räumt die alte Klage weg, sonst stünde sie noch da,
+    // während schon wieder aufgenommen wird.
+    setAufnahmeFehler(false);
     setModus('video');
   };
 
   const handleVideoStop = async () => {
+    // Vor dem Stoppen gesetzt: Der Startversuch oben liest dieses Zeichen
+    // zwischen zwei Runden und gibt dann auf, statt hinter dem Loslassen noch
+    // eine Aufnahme zu beginnen.
+    videoGestoppt.current = true;
     cameraRef.current?.stopRecording();
     const ergebnis = await videoPromise.current;
     videoPromise.current = null;
     setModus('picture');
-    if (!ergebnis?.uri) return;
+    if (!ergebnis?.uri) {
+      setAufnahmeFehler(true);
+      return;
+    }
     const dauer = Math.round((Date.now() - videoStartZeit.current) / 1000);
     zurPreview({ uri: ergebnis.uri, typ: 'video', dauer: String(dauer), tripId: reise.id });
   };
@@ -508,7 +795,19 @@ export default function AufnehmenScreen() {
         flash={blitz}
         enableTorch={blitz === 'on' && modus === 'video'}
         videoQuality="1080p"
+        // Die Mehrfach-Kamera als EIN Gerät: darin schaltet iOS zwischen den
+        // Linsen selbst um, nahtlos und ohne die Session neu aufzubauen. Nur
+        // so führt der Zoom über 0,5× hinweg, ohne zu stocken.
+        selectedLens={zoom?.name}
+        // Feuert nach jedem Gerätewechsel, und zwar NACH expo-cameras
+        // eigenem updateZoom (addDevice, defer-Block): genau der Moment, in
+        // dem unser Faktor wiederhergestellt gehört.
+        onAvailableLensesChanged={zoomNachsetzen}
       />
+      {/* Fängt die Bewegung zweier Finger ab. Liegt über dem Kamerabild, aber
+          unter allem Bedienbaren: was danach kommt, bekommt seine
+          Berührungen zuerst. */}
+      <View testID="sucher-zoomflaeche" style={StyleSheet.absoluteFill} {...zoomGeste} />
       {/* Läuft ein Video, verschwindet die Kopfzeile (Spec 2026-08-12). Der
           Grund ist nicht Ästhetik: Im gesperrten Zustand ist die Hand frei,
           diese Knöpfe wären also erreichbar, und ein Kamera-Wechsel mitten in
@@ -542,10 +841,7 @@ export default function AufnehmenScreen() {
             </Pille>
           </PressScale>
           <View style={styles.steuerung}>
-            <PillenKnopf
-              label="Kamera wechseln"
-              onPress={() => setRichtung((r) => (r === 'back' ? 'front' : 'back'))}
-            >
+            <PillenKnopf label="Kamera wechseln" onPress={kameraWechseln}>
               <SwitchCamera size={22} color={cinema['text-1']} strokeWidth={1.75} />
             </PillenKnopf>
             <PillenKnopf
@@ -561,12 +857,27 @@ export default function AufnehmenScreen() {
         </View>
       </View>
       )}
+      {aufnahmeFehler && (
+        <Pille style={[styles.fehlerPille, { bottom: fehlerUnten(zoomSichtbar) }]}>
+          <Text style={[type.secondary, styles.fehlerText]}>{FEHLER_TEXT}</Text>
+        </Pille>
+      )}
+      {zoomSichtbar && zoom && (
+        <View style={styles.zoomWrap}>
+          <ZoomWahl
+            stufen={zoom.stufen}
+            faktor={faktor}
+            onWahl={(stufe) => zoomSetzen(stufe, true)}
+          />
+        </View>
+      )}
       <View style={styles.ausloeserWrap}>
         <Ausloeser
           onFoto={() => void handleFoto()}
           onVideoStart={handleVideoStart}
           onVideoStop={() => void handleVideoStop()}
           maxSekunden={MAX_VIDEO_SEKUNDEN}
+          onSperre={setAufnahmeGesperrt}
         />
       </View>
     </View>
@@ -663,4 +974,27 @@ const styles = StyleSheet.create({
     bottom: spacing.xxl,
     alignSelf: 'center',
   },
+  // Direkt über dem Auslöser, wie in der Kamera-App: 48 Bodenabstand plus
+  // dessen Durchmesser plus ein Layout-Abstand.
+  zoomWrap: {
+    position: 'absolute',
+    bottom: spacing.xxl + AUSLOESER_GROESSE + spacing.m,
+    alignSelf: 'center',
+  },
+  // Über dem Auslöser, nicht darunter (dort liegt die Tab-Bar) und nicht
+  // oben, wo sie beim nächsten Versuch unter der Kopfzeile klemmte. `bottom`
+  // fehlt hier bewusst: es hängt daran, ob die Zoom-Reihe dazwischenliegt,
+  // und kommt darum aus fehlerUnten().
+  fehlerPille: {
+    position: 'absolute',
+    left: spacing.screen,
+    right: spacing.screen,
+    paddingHorizontal: spacing.base,
+    paddingVertical: spacing.m,
+    borderRadius: radius.pill,
+    alignItems: 'center',
+  },
+  // Zentriert, weil ein einzelner kurzer Satz in einer Pille keine Textwüste
+  // ist, die §7 meint, sondern eine Beschriftung.
+  fehlerText: { color: cinema['text-1'], textAlign: 'center' },
 });

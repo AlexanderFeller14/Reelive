@@ -66,6 +66,13 @@ type Props = {
   onVideoStop: () => void;
   /** Höchstdauer eines Videos in Sekunden, der Ring stoppt von selbst hier. */
   maxSekunden: number;
+  /**
+   * Meldet, ob die laufende Aufnahme gesperrt ist — also ob die Hand frei ist.
+   * Nur dann kann daneben etwas anderes bedient werden: React Native kennt
+   * genau einen Responder, ein zweiter Finger auf einem anderen Element
+   * entzöge dem haltenden Druck die Berührung und beendete die Aufnahme.
+   */
+  onSperre?: (gesperrt: boolean) => void;
 };
 
 type Phase = 'ruhe' | 'haelt' | 'video' | 'gesperrt';
@@ -81,7 +88,7 @@ function leichtesFeedback() {
 // stoppen. Zwei Timer stecken das ab (Schwelle + Höchstdauer) und werden
 // sowohl beim Loslassen als auch beim Unmount aufgeräumt, ein hängender
 // Timer würde nach dem Verlassen des Screens weiter onVideoStart/-Stop feuern.
-export function Ausloeser({ onFoto, onVideoStart, onVideoStop, maxSekunden }: Props) {
+export function Ausloeser({ onFoto, onVideoStart, onVideoStop, maxSekunden, onSperre }: Props) {
   const [nimmtAuf, setNimmtAuf] = useState(false);
   const [gesperrt, setGesperrt] = useState(false);
   const [ueberSchwelle, setUeberSchwelle] = useState(false);
@@ -128,6 +135,7 @@ export function Ausloeser({ onFoto, onVideoStart, onVideoStop, maxSekunden }: Pr
     setNimmtAuf(false);
     setGesperrt(false);
     setUeberSchwelle(false);
+    onSperre?.(false);
     onVideoStop();
   };
 
@@ -196,6 +204,7 @@ export function Ausloeser({ onFoto, onVideoStart, onVideoStop, maxSekunden }: Pr
         jenseits.current = false;
         setGesperrt(true);
         setUeberSchwelle(false);
+        onSperre?.(true);
         return;
       }
       videoStoppen();

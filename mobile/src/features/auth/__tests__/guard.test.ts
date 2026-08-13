@@ -38,3 +38,21 @@ test.each([
 ] as const)('istWebGesperrt(%s, %s) → %s', (platformOS, area, erwartet) => {
   expect(istWebGesperrt(platformOS, area)).toBe(erwartet);
 });
+
+import { istFlaecheFuerAngemeldete } from '../guard';
+
+// Die Aufnahme-Vorschau liegt bewusst NEBEN dem Tab-Navigator statt darin
+// (siehe app/vorschau.tsx): Nur so deckt sie die Tab-Bar sofort ab, statt sie
+// einen Wimpernschlag später verschwinden zu lassen. Damit ist sie aber die
+// erste Fläche für Angemeldete ausserhalb von '(tabs)', und der Guard hätte
+// sie ohne diese Ausnahme sofort zurück nach /aufnehmen geworfen.
+test.each([
+  ['(tabs)', true],
+  ['vorschau', true],
+  ['(auth)', false],
+  ['join', false],
+  ['teilen', false],
+  [undefined, false],
+])('istFlaecheFuerAngemeldete(%s) → %s', (area, expected) => {
+  expect(istFlaecheFuerAngemeldete(area)).toBe(expected);
+});

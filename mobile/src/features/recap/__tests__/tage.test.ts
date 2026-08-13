@@ -322,7 +322,7 @@ describe('gruppiereNachTagen', () => {
 
   // Review-Fund, Important (halb behoben): formatToParts() liefert auf
   // manchen Intl-Teilimplementierungen (Hermes/iOS historisch, siehe
-  // Kommentar in mobile/src/app/(tabs)/aufnehmen/preview.tsx, der Intl
+  // Kommentar in mobile/src/app/vorschau.tsx, der Intl
   // gerade DESHALB meidet) 'year'/'month'/'day' nicht als eigene Parts,
   // sondern alles als einen einzigen 'literal'-Part. Nachgestellt über einen
   // Spy auf Intl.DateTimeFormat.prototype.formatToParts.

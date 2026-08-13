@@ -1,16 +1,20 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Animated,
   Image,
-  KeyboardAvoidingView,
+  Keyboard,
+  LayoutAnimation,
   PanResponder,
   Platform,
+  Pressable,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native';
+import { Pencil, X } from 'lucide-react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { setStatusBarStyle } from 'expo-status-bar';
@@ -100,8 +104,12 @@ export default function PreviewScreen() {
   // (Fuss, Fehler, Bildunterschrift) stehen in festen Abstaenden zueinander
   // und muessen deshalb GEMEINSAM ausweichen, sonst ueberlappen sie.
   const oberkante = useOberkante(spacing.xl);
-  const unterkante = useUnterkante(spacing.xl);
-  const untererVersatz = unterkante - spacing.xl;
+  // Der Fuss steht bewusst näher am Rand als useUnterkante() vorgibt: Auf
+  // diesem Screen trägt er nur EINEN Knopf, und der gehört in Daumenreichweite
+  // ans untere Ende. `insets.bottom` heisst «direkt über dem Home-Indicator»,
+  // nicht darauf; Geräte ohne Indicator behalten den gestalteten Mindestrand.
+  const insets = useSafeAreaInsets();
+  const unterkante = Math.max(spacing.base, insets.bottom);
   const { uri, typ, dauer, tripId } = useLocalSearchParams<{
     uri: string;
     typ: 'photo' | 'video';
@@ -139,6 +147,68 @@ export default function PreviewScreen() {
     return () => setStatusBarStyle('dark');
   }, []);
 
+  // Höhe der stehenden Tastatur, 0 heisst geschlossen.
+  //
+  // Der Screen weicht ihr selbst aus, statt sich auf eine
+  // KeyboardAvoidingView zu verlassen: die setzt bei `behavior="padding"` nur
+  // ein `paddingBottom` an ihrem eigenen View, und das erreicht absolut
+  // positionierte Kinder nicht. Hier ist aber JEDE Ebene absolut positioniert.
+  //
+  // Was hier NICHT hineinzählen darf, ist eine eigene InputAccessoryView: Sie
+  // wird in die gemeldete Tastaturhöhe eingerechnet, auch wenn man sie nicht
+  // sieht, und das Feld sass dadurch rund 100 Punkte zu hoch. Es gibt sie
+  // nicht mehr, das «Fertig» sitzt jetzt auf der Tastatur selbst.
+  const [tastatur, setTastatur] = useState(0);
+  // Gemessene Höhe des unteren Blocks (Fehlermeldung + Einsenden-Knopf), an
+  // der die Bildunterschrift in Ruhe hängt.
+  const [fussHoehe, setFussHoehe] = useState(0);
+  // Ob das Eingabefeld gerade offen ist. In Ruhe steht an seiner Stelle nur
+  // ein Chip, so breit wie sein Text: Ein leeres Eingabefeld über die ganze
+  // Breite ist ein Kasten, der nichts zeigt und dem Foto den Platz nimmt. Erst
+  // ein Tipp darauf holt das Feld (und mit `autoFocus` die Tastatur) hervor,
+  // und es erscheint gleich dort, wo man es beim Schreiben braucht.
+  const [feldOffen, setFeldOffen] = useState(false);
+
+  useEffect(() => {
+    // iOS meldet die Tastatur an, BEVOR sie steht, und liefert Dauer und
+    // Kurve ihrer Bewegung gleich mit. Android meldet erst danach.
+    const istIOS = Platform.OS === 'ios';
+    const mitfahren = (dauer?: number, kurve?: keyof typeof LayoutAnimation.Types) => {
+      if (!dauer) return;
+      // Dasselbe Mittel, mit dem die KeyboardAvoidingView ihr Padding
+      // animiert: die Pille fährt mit der Tastatur statt vor ihr her zu
+      // springen. `prefers-reduced-motion` bleibt hier bewusst unbefragt,
+      // weil das die Bewegung des Systems selbst ist, nicht unsere
+      // Inszenierung; iOS dämpft sie dort bereits an der Quelle.
+      LayoutAnimation.configureNext({
+        duration: dauer,
+        update: { duration: dauer, type: LayoutAnimation.Types[kurve ?? 'keyboard'] },
+      });
+    };
+    const auf = Keyboard.addListener(istIOS ? 'keyboardWillShow' : 'keyboardDidShow', (e) => {
+      mitfahren(e.duration, e.easing);
+      // Die grösste gemeldete Höhe gewinnt, solange die Tastatur steht: Beim
+      // Tippen tauscht iOS die Leiste über den Tasten aus (der «Write with
+      // Siri»-Hinweis weicht den Wortvorschlägen) und meldet dabei eine neue,
+      // oft kleinere Höhe. Folgte das Feld jeder Meldung, ruckte es mitten im
+      // Schreiben auf und ab. Nach oben geht es weiterhin mit, sonst
+      // verschwände es hinter einer Tastatur, die wächst (Emoji, andere
+      // Sprache). Zurückgesetzt wird beim Schliessen.
+      setTastatur((bisher) => Math.max(bisher, e.endCoordinates.height));
+    });
+    const zu = Keyboard.addListener(istIOS ? 'keyboardWillHide' : 'keyboardDidHide', (e) => {
+      mitfahren(e.duration, e.easing);
+      setTastatur(0);
+      // Mit der Tastatur geht auch das Feld: Was geschrieben wurde, steht
+      // danach im Chip, und ein leeres Feld bleibt nicht als Kasten stehen.
+      setFeldOffen(false);
+    });
+    return () => {
+      auf.remove();
+      zu.remove();
+    };
+  }, []);
+
   // Die Ortsbestimmung darf die Aufnahme nie kosten: sie läuft im Hintergrund
   // los, der Screen wartet nicht auf sie, um zu erscheinen (Task-8-Kontext).
   useEffect(() => {
@@ -155,7 +225,10 @@ export default function PreviewScreen() {
   // Position akkumuliert über extractOffset() statt bei jedem Loslassen auf
   // 0 zurückzuspringen.
   const [pan] = useState(() => new Animated.ValueXY());
-  const panResponder = useRef(
+  // Über useState statt useRef, wie schon bei `pan`: die Wisch-Handler werden
+  // beim Rendern gelesen, und ein Ref darf beim Rendern nicht gelesen werden
+  // (react-hooks/refs). Erzeugt wird der Responder trotzdem nur einmal.
+  const [panResponder] = useState(() =>
     PanResponder.create({
       onMoveShouldSetPanResponder: (_evt, gesture) => Math.abs(gesture.dx) > 2 || Math.abs(gesture.dy) > 2,
       onPanResponderMove: Animated.event([null, { dx: pan.x, dy: pan.y }], { useNativeDriver: false }),
@@ -163,7 +236,7 @@ export default function PreviewScreen() {
         pan.extractOffset();
       },
     })
-  ).current;
+  );
 
   // Final-Review, Important 3: die Vorfassung navigierte mit
   // router.replace('/aufnehmen') zurück. replace ersetzt aber nur den
@@ -308,11 +381,20 @@ export default function PreviewScreen() {
 
   const ortZeitText = ort.place_name ? `${ort.place_name} · ${zeitAnzeige(zeit.captured_at)}` : zeitAnzeige(zeit.captured_at);
 
+  const schreibt = tastatur > 0;
+  // Wo die Bildunterschrift beim Schreiben steht: direkt über der Tastatur,
+  // einen gestalteten Abstand darüber. Auf iOS bleibt das Fenster gleich
+  // gross, der Screen überbrückt die volle Tastaturhöhe selbst (die gemeldete
+  // Höhe schliesst die Tastaturleiste mit ein). Auf Android verkleinert das
+  // Fenster sich bereits von aussen (softwareKeyboardLayoutMode «resize», der
+  // Expo-Standard), dort wäre die Höhe ein zweites Mal gerechnet.
+  const schreibPosition = (Platform.OS === 'ios' ? tastatur : 0) + spacing.base;
+  // Und wo sie in Ruhe steht: direkt über dem Fuss, wie hoch der auch gerade
+  // ist. `spacing.xl` ist nur der Stand, bis der Fuss sich einmal gemessen hat.
+  const ruhePosition = unterkante + (fussHoehe || spacing.xl) + spacing.base;
+
   return (
-    <KeyboardAvoidingView
-      style={styles.screen}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
+    <View style={styles.screen}>
       {typ === 'video' ? (
         <VideoView
           testID="video-vorschau"
@@ -338,48 +420,124 @@ export default function PreviewScreen() {
         pointerEvents="none"
       />
 
+      {/* Zweiter Ausweg aus dem Feld, neben der Fertig-Taste auf der Tastatur:
+          ein Tipp irgendwohin auf das Foto. Er liegt bewusst NUR über dem
+          Medium und unter allem Bedienbaren, sonst verschluckte er den ersten
+          Tipp auf «Einsenden». */}
+      {schreibt && (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Tastatur schliessen"
+          style={StyleSheet.absoluteFill}
+          onPress={() => Keyboard.dismiss()}
+        />
+      )}
+
       <Pille style={[styles.kopfPille, { top: oberkante }]}>
         <Text style={[type.secondary, { color: cinema['text-1'] }]}>{ortZeitText}</Text>
       </Pille>
 
+      {/* Verwerfen sitzt als X in der Kopfzeile, gegenüber von Ort und Zeit:
+          Es ist der Rückweg aus diesem Screen, keine gleichrangige Alternative
+          zum Einsenden. Unten stand es vorher neben dem Primär-Knopf und nahm
+          ihm ein Drittel der Breite. */}
+      <PressScale
+        testID="verwerfen-knopf"
+        accessibilityRole="button"
+        accessibilityLabel="Aufnahme verwerfen"
+        disabled={sendet}
+        onPress={verwerfen}
+        style={[styles.verwerfenWrap, { top: oberkante }]}
+      >
+        <Pille style={styles.verwerfenPille}>
+          <X size={18} color={cinema['text-1']} strokeWidth={1.75} />
+        </Pille>
+      </PressScale>
+
+      {/* Beim Schreiben steht die Bildunterschrift über der Tastatur, in Ruhe
+          direkt über dem Einsenden-Knopf: die beiden gehören zusammen, sie
+          sollen nicht als zwei Bänder mit Leere dazwischen dastehen. Die
+          Wisch-Geste ruht beim Schreiben, sonst zöge jeder Tippfehler-Wisch
+          das Feld wieder unter die Tastatur; der Versatz bleibt erhalten und
+          kommt beim Schliessen zurück. */}
       <Animated.View
-        {...panResponder.panHandlers}
+        testID="bildunterschrift-feld"
+        {...(schreibt ? {} : panResponder.panHandlers)}
         style={[
           styles.captionWrap,
-          { bottom: 168 + untererVersatz, transform: pan.getTranslateTransform() },
+          schreibt
+            ? { bottom: schreibPosition }
+            : { bottom: ruhePosition, transform: pan.getTranslateTransform() },
         ]}
       >
-        <Pille style={styles.captionPille}>
-          <TextInput
-            accessibilityLabel="Bildunterschrift"
-            value={caption}
-            onChangeText={(text) => setCaption(text.slice(0, CAPTION_MAX))}
-            placeholder="Schreib etwas dazu"
-            placeholderTextColor={cinema['text-2']}
-            maxLength={CAPTION_MAX}
-            multiline
-            style={[type.body, styles.captionInput, { color: cinema['text-1'] }]}
-          />
-        </Pille>
+        {feldOffen ? (
+          <Pille style={styles.captionPille}>
+            <TextInput
+              accessibilityLabel="Bildunterschrift"
+              value={caption}
+              onChangeText={(text) => setCaption(text.slice(0, CAPTION_MAX))}
+              placeholder="Schreib etwas dazu"
+              placeholderTextColor={cinema['text-2']}
+              maxLength={CAPTION_MAX}
+              autoFocus
+              // Einzeilig, und damit steht auf der Eingabetaste unten rechts
+              // «Fertig» statt eines Zeilenumbruchs: der Weg aus der Tastatur,
+              // den iOS selbst anbietet. Bei `multiline` gibt es ihn nicht,
+              // dort setzt dieselbe Taste eine neue Zeile, und genau deshalb
+              // kam man aus diesem Feld vorher nicht mehr heraus. Für eine
+              // Bildunterschrift von höchstens 120 Zeichen braucht es keine
+              // Absätze.
+              returnKeyType="done"
+              submitBehavior="blurAndSubmit"
+              onSubmitEditing={() => Keyboard.dismiss()}
+              // Android setzt Text in einem Eingabefeld sonst an die Oberkante.
+              textAlignVertical="center"
+              style={[styles.captionInput, { color: cinema['text-1'] }]}
+            />
+          </Pille>
+        ) : (
+          <PressScale
+            testID="bildunterschrift-chip"
+            accessibilityRole="button"
+            accessibilityLabel={caption ? `Bildunterschrift ändern: ${caption}` : 'Etwas dazu schreiben'}
+            onPress={() => setFeldOffen(true)}
+            style={styles.chipWrap}
+          >
+            <Pille style={styles.chipPille}>
+              {/* Der Stift lädt zum Schreiben ein. Steht schon etwas da,
+                  spricht der Text für sich und der Stift wäre Rauschen. */}
+              {!caption && <Pencil size={14} color={cinema['text-2']} strokeWidth={1.75} />}
+              <Text
+                style={[type.body, { color: caption ? cinema['text-1'] : cinema['text-2'] }]}
+                numberOfLines={2}
+              >
+                {caption || 'Schreib etwas dazu'}
+              </Text>
+            </Pille>
+          </PressScale>
+        )}
       </Animated.View>
 
-      {sendeFehler && (
-        <View style={[styles.fehlerBox, { bottom: 108 + untererVersatz }]}>
-          <Text style={[type.secondary, { color: palette.danger }]}>{sendeFehler}</Text>
-        </View>
-      )}
-
-      <View style={[styles.fuss, { bottom: unterkante }]}>
-        <PressScale accessibilityRole="button" disabled={sendet} onPress={verwerfen}>
-          <Text style={[type.bodyMedium, styles.verwerfenText]}>Verwerfen</Text>
-        </PressScale>
-        <View style={styles.einsendenWrap}>
-          <EinsendenButton onPress={() => void absenden()} loading={sendet} />
-        </View>
+      {/* Fehlermeldung und Knopf stehen als EIN Block am unteren Rand und
+          werden zusammen gemessen (onLayout). Die Bildunterschrift hängt sich
+          an diese Höhe, statt an eine geratene Zahl: sonst überlappte sie den
+          Text, sobald eine Meldung dazukommt und den Block wachsen lässt. */}
+      <View
+        testID="fuss"
+        style={[styles.fuss, { bottom: unterkante }]}
+        onLayout={(e) => setFussHoehe(e.nativeEvent.layout.height)}
+      >
+        {sendeFehler && (
+          <Text style={[type.secondary, styles.fehlerText, { color: palette.danger }]}>
+            {sendeFehler}
+          </Text>
+        )}
+        <EinsendenButton onPress={() => void absenden()} loading={sendet} />
       </View>
 
+
       <Versiegelung sichtbar={versiegelt} onFertig={zurueckZurKamera} />
-    </KeyboardAvoidingView>
+    </View>
   );
 }
 
@@ -418,34 +576,59 @@ const styles = StyleSheet.create({
     right: spacing.screen,
     bottom: 168,
   },
+  // Dieselbe Form wie der Chip, aus dem sie hervorgeht: Beim Antippen soll sich
+  // die Pille öffnen, nicht in einen Kasten umspringen. `minHeight` +
+  // `justifyContent` halten den Text auf halber Höhe, statt ihn oben kleben zu
+  // lassen.
+  // Wie `type.body`, aber bewusst OHNE dessen `lineHeight: 24`: Auf iOS legt
+  // eine gesetzte Zeilenhöhe einen Absatz-Stil über den EINGEGEBENEN Text,
+  // nicht aber über den Platzhalter. Der Text sprang dadurch beim ersten
+  // Zeichen ein paar Punkte nach unten. Für eine einzeilige Bildunterschrift
+  // trägt die Zeilenhöhe ohnehin nichts bei.
+  captionInput: {
+    fontFamily: type.body.fontFamily,
+    fontSize: type.body.fontSize,
+    fontVariant: type.body.fontVariant,
+  },
   captionPille: {
-    borderRadius: radius.control,
+    minHeight: 44,
+    justifyContent: 'center',
+    borderRadius: radius.pill,
     paddingHorizontal: spacing.base,
     paddingVertical: spacing.s,
   },
-  captionInput: {
-    maxHeight: 96,
+  // Der Chip nimmt nur die Breite, die sein Text braucht: `flex-start` am
+  // Halter, der über die volle Screenbreite geht. Die Pille selbst ist rund
+  // (radius.pill) wie jede andere UI auf einem Foto, DESIGN-LANGUAGE §4.
+  chipWrap: { alignSelf: 'flex-start', maxWidth: '100%' },
+  chipPille: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.s,
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.base,
+    paddingVertical: spacing.s,
   },
-  fehlerBox: {
+  // Das X liegt der Ort-und-Zeit-Pille gegenüber, auf gleicher Höhe.
+  verwerfenWrap: {
     position: 'absolute',
-    left: spacing.screen,
     right: spacing.screen,
-    bottom: 108,
   },
+  verwerfenPille: {
+    width: 36,
+    height: 36,
+    borderRadius: radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  fehlerText: { textAlign: 'center' },
   fuss: {
     position: 'absolute',
     left: spacing.screen,
     right: spacing.screen,
     bottom: spacing.xl,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.base,
+    gap: spacing.m,
   },
-  verwerfenText: {
-    color: cinema['text-1'],
-    textDecorationLine: 'underline',
-  },
-  einsendenWrap: { flex: 1 },
   einsendenButton: {
     height: 52,
     borderRadius: radius.control,

@@ -24,6 +24,23 @@ export function isPublicArea(area: string | undefined): boolean {
   return area === 'join' || area === 'teilen';
 }
 
+// Wo eine angemeldete Person stehen bleiben darf, ohne nach /aufnehmen
+// zurückgeschickt zu werden. Lange war das genau '(tabs)'; die Aufnahme-
+// Vorschau (app/vorschau.tsx) ist die erste Fläche daneben.
+//
+// Sie liegt bewusst NICHT im Tab-Navigator: Dessen Szene endet an der
+// Oberkante der Tab-Bar, jedes `bottom` im Screen mass dadurch ab dieser Kante
+// statt ab dem Bildschirmrand (das Eingabefeld sass eine Tab-Bar-Höhe zu
+// hoch), und die Leiste blieb nach dem Auslösen noch einen Wimpernschlag
+// stehen, weil sie erst nach dem Routenwechsel neu gerendert wird. Als
+// Nachbarin des Tab-Navigators deckt die Vorschau sie sofort ab.
+//
+// Die Web-Hartsperre bleibt davon unberührt: istWebGesperrt() lässt weiterhin
+// nur 'teilen' durch, die Vorschau wird auf Web also gar nicht erst gemountet.
+export function istFlaecheFuerAngemeldete(area: string | undefined): boolean {
+  return area === '(tabs)' || area === 'vorschau';
+}
+
 // Web-Hartsperre (Koordinator-Entscheid, Task 5, aus einem Fund von Task 4):
 // der Web-Export bündelt die GANZE App als SPA, (auth)/phone, (auth)/otp
 // und alle (tabs)-Routen sind einzeln abrufbar. isPublicArea() oben schützt
@@ -57,7 +74,7 @@ export function isPublicArea(area: string | undefined): boolean {
 // Redirect: alle anderen Routen-Screens werden auf Web dadurch nie
 // gemountet, ihre Effekte laufen nie an (schliesst auch den in Task 4
 // gemeldeten stillen Job-Verlust über jobEinreihen() ein, weil
-// aufnehmen/preview.tsx dafür erst gemountet werden müsste).
+// vorschau.tsx dafür erst gemountet werden müsste).
 export function istWebGesperrt(platformOS: string, area: string | undefined): boolean {
   return platformOS === 'web' && area !== 'teilen';
 }

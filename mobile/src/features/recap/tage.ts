@@ -162,7 +162,7 @@ function berechneRohTagesnummer(moment: RecapMoment, startDate: string): number 
     // Number.isFinite statt blindem Vertrauen (Review-Fund, Important 3 war
     // nur halb behoben): formatToParts() liefert auf manchen Intl-Teil-
     // implementierungen (Hermes/iOS historisch, siehe Kommentar in
-    // mobile/src/app/(tabs)/aufnehmen/preview.tsx) 'year'/'month'/'day' NICHT
+    // mobile/src/app/vorschau.tsx) 'year'/'month'/'day' NICHT
     // als eigene Parts, sondern alles als einen einzigen 'literal'-Part,
     // dann liefert teile.find(...)?.value undefined, Number(undefined) ist
     // NaN, und OHNE diesen Guard würde NaN + 1 als "gültige" Tagesnummer

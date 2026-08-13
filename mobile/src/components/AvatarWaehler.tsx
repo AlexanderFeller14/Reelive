@@ -5,9 +5,46 @@ import { Camera } from 'lucide-react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Avatar } from '@/components/Avatar';
 import { PressScale } from '@/components/PressScale';
-import { Sheet } from '@/components/Sheet';
 import { useTheme } from '@/theme/ThemeProvider';
 import { radius, spacing, type } from '@/theme/tokens';
+
+// Der Bildwähler besteht aus ZWEI Teilen, die im Baum an verschiedenen Stellen
+// hängen müssen — genau deshalb der Schnitt:
+//
+//   `AvatarWaehler`     — der 44-px-Kreis mit Kamera-Badge, ein Tap-Ziel. Er
+//                         steht dort, wo das Profilbild hingehört (Profil-
+//                         Karte, Onboarding-Zeile), und meldet den Tap per
+//                         `onOeffnen` nach oben.
+//   `AvatarSheetInhalt` — die drei Einträge samt Auswahl-Flow. Sie stehen im
+//                         `Sheet`, und das `Sheet` gehört dem SCREEN.
+//
+// Warum das nicht eine Komponente sein kann: `Sheet` ist kein `Modal`. Seine
+// Wurzel ist ein `KeyboardAvoidingView` mit `StyleSheet.absoluteFill`, sein
+// Panel liegt `position:'absolute'` an `left/right/bottom: 0` (Sheet.tsx). In
+// Yoga löst ein absolut positioniertes Kind gegen seinen UNMITTELBAREN
+// Elternteil auf, nicht gegen den Screen. Hing das Sheet — wie bis zur
+// Merge-Fixrunde — im Wrapper des Kreises, dann war es genau so gross wie
+// dieser Wrapper: im Profil-Tab ein 44 px breiter, mitscrollender Streifen an
+// der Stelle des Avatars, mit einem 44 × 44 grossen «Vollbild»-Hintergrund und
+// negativer Restbreite für «Foto auswählen» (das Panel hat 2 × 24 px
+// Innenabstand); im Onboarding ein kurzes Band mitten im Formular.
+//
+// Jedes andere Sheet dieser App ist Geschwister der ScrollView seines Screens
+// (reise/[id]/index.tsx, recap/[id]/karte|player|uebersicht.tsx), und
+// profil.tsx schreibt die Regel über seinem Lösch-Sheet sogar hin.
+//
+// Kein Test hatte das gefunden, und keiner konnte es: Jest führt kein
+// Yoga-Layout aus, RNTL findet den Text im Elementbaum unabhängig von jeder
+// Geometrie. Was sich stattdessen prüfen lässt, ist die Baumstellung selbst —
+// und genau das tun die Screen-Tests jetzt (profilTab.test.tsx,
+// profile-setup.test.tsx: `sheet-root` liegt NICHT in der ScrollView bzw.
+// nicht in der Bildzeile).
+//
+// Warum die Einträge nicht einfach in beiden Screens stehen: dann stünde der
+// ganze Auswahl-Flow zweimal da (Berechtigung, Zuschnitt, Abbruch,
+// Fehlermeldung). Dasselbe Muster wie `TeilenSheetInhalt`
+// (features/teilen/TeilenSheetInhalt.tsx): der Inhalt ist eine eigene
+// Komponente, das `Sheet` steht an der Stelle, an der es hingehört.
 
 // DESIGN-LANGUAGE §4 begrenzt Avatare auf 32–44 px. 44 ist die Obergrenze und
 // zugleich das iOS-Minimum für ein Tap-Ziel — beides zusammen ist der Grund,
@@ -31,8 +68,24 @@ const OPTIONEN: ImagePicker.ImagePickerOptions = {
   quality: 1,
 };
 
+// Zwei Quellen, eine Bedeutung: Der Profil-Tab kennt nur einen bereits
+// GESPEICHERTEN Schlüssel (`avatarKey`), das Onboarding nur eine noch NICHT
+// hochgeladene lokale Datei (`lokaleUri`), aber beides heisst dasselbe — «es
+// gibt gerade ein Bild, das sich entfernen liesse». Vorher hingen
+// Badge-Beschriftung und der «Bild entfernen»-Eintrag allein an `avatarKey`;
+// im Onboarding ist der aber strukturell IMMER null (profile-setup.tsx), also
+// blieb ein frisch gewähltes Bild dort für immer «nicht entfernbar» — ein
+// Review-Fund, der genau diese Lücke aufdeckte.
+//
+// Als Funktion und nicht zweimal ausgeschrieben: seit dem Schnitt oben brauchen
+// BEIDE Hälften die Antwort (der Kreis für sein Accessibility-Label, der
+// Sheet-Inhalt für den Entfernen-Eintrag), und sie müssen dieselbe geben.
+function hatProfilbild(avatarKey: string | null, lokaleUri: string | null): boolean {
+  return !!avatarKey || !!lokaleUri;
+}
+
 export function AvatarWaehler({
-  name, avatarKey, lokaleUri = null, onGewaehlt, onEntfernen, laeuft = false,
+  name, avatarKey, lokaleUri = null, onOeffnen, laeuft = false,
 }: {
   name: string;
   avatarKey: string | null;
@@ -43,28 +96,64 @@ export function AvatarWaehler({
   // Kreis dieses lokale Bild direkt, ohne den Umweg über `Avatar`/`avatarUrl`.
   // Der Profil-Tab lässt die Prop weg und verhält sich unverändert.
   lokaleUri?: string | null;
-  onGewaehlt: (lokaleUri: string) => void;
-  onEntfernen: () => void;
+  // Der Screen öffnet sein eigenes Sheet — dieselbe Aufteilung, die profil.tsx
+  // beim Lösch-Sheet ohnehin schon fährt (`loeschSheetSichtbar`).
+  onOeffnen: () => void;
   laeuft?: boolean;
 }) {
   const { colors } = useTheme();
-  const [offen, setOffen] = useState(false);
+  const hatBild = hatProfilbild(avatarKey, lokaleUri);
+
+  return (
+    <PressScale
+      testID="avatar-waehler"
+      accessibilityRole="button"
+      accessibilityLabel={hatBild ? 'Profilbild ändern' : 'Profilbild hinzufügen'}
+      onPress={onOeffnen}
+    >
+      <View>
+        {lokaleUri ? (
+          <View style={[styles.lokalerKreis, { borderColor: colors['bg-0'], backgroundColor: colors['bg-1'] }]}>
+            <Image testID="avatar-bild" source={{ uri: lokaleUri }} style={styles.lokalesBild} contentFit="cover" />
+          </View>
+        ) : (
+          <Avatar name={name} avatarKey={avatarKey} size={GROESSE} />
+        )}
+        {/* Ohne dieses Badge liest sich der Kreis als blosse Anzeige. Es
+            sagt «hier lässt sich etwas ändern», ohne eine zweite Zeile Text. */}
+        <View
+          testID="avatar-waehler-badge"
+          style={[styles.badge, { backgroundColor: colors.accent, borderColor: colors['bg-0'] }]}
+        >
+          <Camera size={10} color={colors['on-accent']} strokeWidth={1.75} />
+        </View>
+        {laeuft && (
+          <View style={[styles.spinner, { backgroundColor: colors['bg-0'] }]}>
+            <ActivityIndicator testID="avatar-laeuft" size="small" color={colors['text-1']} />
+          </View>
+        )}
+      </View>
+    </PressScale>
+  );
+}
+
+// Gehört in ein `<Sheet titel="Profilbild">` des Screens. Rendert nur die
+// Einträge; Höhe, Griff, Hintergrund und das Schliessen per Wisch macht Sheet.
+export function AvatarSheetInhalt({
+  avatarKey, lokaleUri = null, onGewaehlt, onEntfernen, onSchliessen,
+}: {
+  avatarKey: string | null;
+  lokaleUri?: string | null;
+  onGewaehlt: (lokaleUri: string) => void;
+  onEntfernen: () => void;
+  onSchliessen: () => void;
+}) {
+  const { colors } = useTheme();
+  // Kein Zurücksetzen beim Öffnen nötig: `Sheet` gibt `null` zurück, solange
+  // es unsichtbar ist (Sheet.tsx), diese Komponente wird dabei ausgehängt und
+  // startet beim nächsten Öffnen mit frischem State.
   const [fehler, setFehler] = useState<string | null>(null);
-
-  // Zwei Quellen, eine Bedeutung: Der Profil-Tab kennt nur einen bereits
-  // GESPEICHERTEN Schlüssel (`avatarKey`), das Onboarding nur eine noch
-  // NICHT hochgeladene lokale Datei (`lokaleUri`), aber beides heisst hier
-  // dasselbe — «es gibt gerade ein Bild, das sich entfernen liesse». Vorher
-  // hingen Badge-Beschriftung und der «Bild entfernen»-Eintrag allein an
-  // `avatarKey`; im Onboarding ist der aber strukturell IMMER null (Task 7,
-  // profile-setup.tsx), also blieb ein frisch gewähltes Bild dort für immer
-  // «nicht entfernbar» — ein Review-Fund, der genau diese Lücke aufdeckte.
-  const hatBild = !!avatarKey || !!lokaleUri;
-
-  const oeffnen = () => {
-    setFehler(null);
-    setOffen(true);
-  };
+  const hatBild = hatProfilbild(avatarKey, lokaleUri);
 
   const waehlen = async (quelle: 'galerie' | 'kamera') => {
     setFehler(null);
@@ -72,6 +161,11 @@ export function AvatarWaehler({
       ? await ImagePicker.requestMediaLibraryPermissionsAsync()
       : await ImagePicker.requestCameraPermissionsAsync();
     if (!recht.granted) {
+      // Das Sheet bleibt mit Absicht OFFEN: die Meldung steht darin, zwischen
+      // den Einträgen, und wäre auf dem Screen darunter vom Hintergrund des
+      // Sheets verdeckt. Spec §5.2 verlangt «eine Meldung im Sheet statt eines
+      // stummen Nichts» — bis zur Merge-Fixrunde stand der Text ausserhalb,
+      // also unter dem Backdrop, und war damit genau dieses stumme Nichts.
       setFehler(
         quelle === 'galerie'
           ? 'Ohne Zugriff auf deine Fotos geht es nicht. Du kannst das in den Einstellungen ändern.'
@@ -84,77 +178,43 @@ export function AvatarWaehler({
       ? await ImagePicker.launchImageLibraryAsync(OPTIONEN)
       : await ImagePicker.launchCameraAsync(OPTIONEN);
 
+    onSchliessen();
     // Abbruch ist kein Fehler: das Sheet schliesst, sonst nichts.
-    if (ergebnis.canceled || !ergebnis.assets?.[0]) {
-      setOffen(false);
-      return;
-    }
-    setOffen(false);
+    if (ergebnis.canceled || !ergebnis.assets?.[0]) return;
     onGewaehlt(ergebnis.assets[0].uri);
   };
 
   return (
-    <View>
-      <PressScale
-        testID="avatar-waehler"
-        accessibilityRole="button"
-        accessibilityLabel={hatBild ? 'Profilbild ändern' : 'Profilbild hinzufügen'}
-        onPress={oeffnen}
-      >
-        <View>
-          {lokaleUri ? (
-            <View style={[styles.lokalerKreis, { borderColor: colors['bg-0'], backgroundColor: colors['bg-1'] }]}>
-              <Image testID="avatar-bild" source={{ uri: lokaleUri }} style={styles.lokalesBild} contentFit="cover" />
-            </View>
-          ) : (
-            <Avatar name={name} avatarKey={avatarKey} size={GROESSE} />
-          )}
-          {/* Ohne dieses Badge liest sich der Kreis als blosse Anzeige. Es
-              sagt «hier lässt sich etwas ändern», ohne eine zweite Zeile Text. */}
-          <View
-            testID="avatar-waehler-badge"
-            style={[styles.badge, { backgroundColor: colors.accent, borderColor: colors['bg-0'] }]}
-          >
-            <Camera size={10} color={colors['on-accent']} strokeWidth={1.75} />
-          </View>
-          {laeuft && (
-            <View style={[styles.spinner, { backgroundColor: colors['bg-0'] }]}>
-              <ActivityIndicator testID="avatar-laeuft" size="small" color={colors['text-1']} />
-            </View>
-          )}
-        </View>
+    <>
+      <PressScale accessibilityRole="button" onPress={() => void waehlen('galerie')}>
+        <Text style={[type.bodyMedium, styles.eintrag, { color: colors['text-1'] }]}>
+          Foto auswählen
+        </Text>
       </PressScale>
-
-      {fehler && (
-        <Text style={[type.secondary, styles.fehler, { color: colors.danger }]}>{fehler}</Text>
+      <PressScale accessibilityRole="button" onPress={() => void waehlen('kamera')}>
+        <Text style={[type.bodyMedium, styles.eintrag, { color: colors['text-1'] }]}>
+          Selfie aufnehmen
+        </Text>
+      </PressScale>
+      {hatBild && (
+        <PressScale
+          accessibilityRole="button"
+          onPress={() => {
+            onSchliessen();
+            onEntfernen();
+          }}
+        >
+          <Text style={[type.bodyMedium, styles.eintrag, { color: colors.danger }]}>
+            Bild entfernen
+          </Text>
+        </PressScale>
       )}
-
-      <Sheet sichtbar={offen} titel="Profilbild" onSchliessen={() => setOffen(false)}>
-        <PressScale accessibilityRole="button" onPress={() => void waehlen('galerie')}>
-          <Text style={[type.bodyMedium, styles.eintrag, { color: colors['text-1'] }]}>
-            Foto auswählen
-          </Text>
-        </PressScale>
-        <PressScale accessibilityRole="button" onPress={() => void waehlen('kamera')}>
-          <Text style={[type.bodyMedium, styles.eintrag, { color: colors['text-1'] }]}>
-            Selfie aufnehmen
-          </Text>
-        </PressScale>
-        {hatBild && (
-          <PressScale
-            accessibilityRole="button"
-            onPress={() => {
-              setOffen(false);
-              onEntfernen();
-            }}
-          >
-            <Text style={[type.bodyMedium, styles.eintrag, { color: colors.danger }]}>
-              Bild entfernen
-            </Text>
-          </PressScale>
-        )}
-      </Sheet>
-    </View>
+      {fehler && (
+        <Text testID="avatar-waehler-fehler" style={[type.secondary, { color: colors.danger }]}>
+          {fehler}
+        </Text>
+      )}
+    </>
   );
 }
 
@@ -190,5 +250,4 @@ const styles = StyleSheet.create({
     opacity: 0.85,
   },
   eintrag: { paddingVertical: spacing.m },
-  fehler: { marginTop: spacing.xs },
 });

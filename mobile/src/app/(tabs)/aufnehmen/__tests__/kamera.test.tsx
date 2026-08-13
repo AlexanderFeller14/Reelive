@@ -143,6 +143,28 @@ jest.mock('expo-camera', () => {
   };
 });
 
+// Die Zoom-Stufen kommen vom Gerät (modules/kamera-zoom, Swift). Im Test gibt
+// es kein natives Modul und am Simulator keine Kamera, hier steht darum ein
+// nachgebautes iPhone 17 Pro Max: Ultraweitwinkel, Haupt und Tele in einem
+// virtuellen Gerät, das bei den Faktoren 2 und 8 die Linse wechselt — was der
+// Oberfläche als 0,5× / 1× / 4× erscheint.
+const DREIFACH = {
+  name: 'Rückseitige Dreifach-Kamera',
+  typ: 'triple',
+  bestandteile: ['ultraWide', 'wide', 'telephoto'],
+  umschaltpunkte: [2, 8],
+};
+const EINZELN = { name: 'Frontkamera', typ: 'wide', bestandteile: [], umschaltpunkte: [] };
+
+const mockNativeLinsen = jest.fn((position: string) => (position === 'back' ? [DREIFACH] : [EINZELN]));
+const mockSetzeZoom = jest.fn();
+const mockZoomGrenzen = jest.fn((_name: string) => ({ min: 1, max: 120 }));
+jest.mock('@/features/kamera/nativeZoom', () => ({
+  linsen: (position: string) => mockNativeLinsen(position),
+  setzeZoom: (name: string, faktor: number, sanft: boolean) => mockSetzeZoom(name, faktor, sanft),
+  zoomGrenzen: (name: string) => mockZoomGrenzen(name),
+}));
+
 import AufnehmenScreen from '../index';
 import { fetchTrips } from '@/features/trips/tripsApi';
 
@@ -343,7 +365,7 @@ test('ein Tipp auf den Auslöser nimmt ein Foto auf und navigiert zur Vorschau',
 
   expect(mockTakePictureAsync).toHaveBeenCalledTimes(1);
   expect(mockPush).toHaveBeenCalledWith({
-    pathname: '/aufnehmen/preview',
+    pathname: '/vorschau',
     params: { uri: 'file://foto.jpg', typ: 'photo', dauer: '0', tripId: 't1' },
   });
 });
@@ -381,7 +403,7 @@ test('ein Halten auf dem Auslöser nimmt ein Video auf und navigiert nach dem Lo
   });
 
   expect(mockPush).toHaveBeenCalledWith({
-    pathname: '/aufnehmen/preview',
+    pathname: '/vorschau',
     params: { uri: 'file://video.mp4', typ: 'video', dauer: expect.any(String), tripId: 't1' },
   });
 });
@@ -854,6 +876,9 @@ test('scheitert die Aufnahme, kommt die Kopfzeile zurück statt zu verschwinden'
   await act(async () => {
     jest.advanceTimersByTime(600);
   });
+  // Am Simulator scheitert jeder Startversuch, die Schleife gibt erst nach
+  // ihrer letzten Runde auf.
+  await startversucheDurchlaufen();
   jest.useRealTimers();
   await fireEvent(screen.getByLabelText('Auslöser'), 'pressOut');
 
@@ -874,10 +899,15 @@ test('nach einer gescheiterten Aufnahme startet der nächste Versuch wieder eine
   await act(async () => {
     jest.advanceTimersByTime(600);
   });
+  await startversucheDurchlaufen();
   jest.useRealTimers();
   await fireEvent(screen.getByLabelText('Auslöser'), 'pressOut');
   await screen.findByLabelText('Reise wechseln, Norwegen mit dem Camper');
-  expect(mockRecordAsync).toHaveBeenCalledTimes(1);
+  // Nicht auf eine feste Zahl festgenagelt, seit der Start wiederholt wird
+  // (siehe den Wettlauf weiter unten). Die Frage dieses Tests ist nicht, WIE
+  // OFT versucht wurde, sondern ob danach überhaupt noch versucht wird.
+  const nachDemFehlschlag = mockRecordAsync.mock.calls.length;
+  expect(nachDemFehlschlag).toBeGreaterThan(0);
 
   jest.useFakeTimers();
   await fireEvent(screen.getByLabelText('Auslöser'), 'pressIn');
@@ -886,5 +916,487 @@ test('nach einer gescheiterten Aufnahme startet der nächste Versuch wieder eine
   });
   jest.useRealTimers();
 
+  expect(mockRecordAsync.mock.calls.length).toBeGreaterThan(nachDemFehlschlag);
+});
+
+// ——— Rückmeldung bei gescheiterter Aufnahme ———
+//
+// Bis hierher schluckte der Screen den Fehlschlag stumm: Man tippte auf
+// Stopp und stand vor einem Bildschirm, der nichts sagte. DESIGN-LANGUAGE §6
+// verlangt das Gegenteil, Fehler erklären Ursache und Lösung.
+const FEHLERTEXT = 'Das Video hat nicht geklappt. Versuch es nochmal.';
+
+// Lässt die Startschleife des Videos zu Ende laufen (der Screen versucht den
+// Start mehrfach, solange die Kamera-Session noch umbaut, siehe den Wettlauf
+// weiter unten). Ein einzelnes advanceTimersByTime reicht dafür nicht:
+// zwischen zwei Runden liegt eine Promise-Auflösung, und die nächste
+// Wartezeit entsteht erst danach. Grosszügig über die Zahl der Runden hinaus,
+// damit der Test nicht auf sie festgenagelt ist.
+async function startversucheDurchlaufen() {
+  for (let runde = 0; runde < 15; runde++) {
+    await act(async () => {
+      jest.advanceTimersByTime(200);
+    });
+  }
+}
+// Grosszügig über der Standzeit im Screen, damit der Test nicht auf die Zahl
+// dort festgenagelt ist: geprüft wird, DASS die Meldung von selbst geht.
+const FEHLER_MS_TEST = 10_000;
+
+test('scheitert die Aufnahme, sagt der Screen es statt stumm zu bleiben', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  mockRecordAsync.mockRejectedValue(new Error('SimulatorNotSupported'));
+  await render(<AufnehmenScreen />);
+  await screen.findByLabelText('Auslöser');
+
+  jest.useFakeTimers();
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressIn');
+  await act(async () => {
+    jest.advanceTimersByTime(600);
+  });
+  await startversucheDurchlaufen();
+  jest.useRealTimers();
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressOut');
+
+  expect(await screen.findByText(FEHLERTEXT)).toBeTruthy();
+});
+
+// Gegenprobe: ohne sie stünde die Meldung womöglich nach jeder Aufnahme da,
+// auch nach einer geglückten.
+test('nach einer geglückten Aufnahme steht keine Fehlermeldung', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  let recordAufloesen: (v: { uri: string }) => void = () => {};
+  mockRecordAsync.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        recordAufloesen = resolve;
+      })
+  );
+  await render(<AufnehmenScreen />);
+  await screen.findByLabelText('Auslöser');
+
+  jest.useFakeTimers();
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressIn');
+  await act(async () => {
+    jest.advanceTimersByTime(600);
+  });
+  jest.useRealTimers();
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressOut');
+  await act(async () => {
+    recordAufloesen({ uri: 'file://video.mp4' });
+  });
+
+  expect(screen.queryByText(FEHLERTEXT)).toBeNull();
+});
+
+// Eine Meldung, die stehen bleibt, wird zur Tapete und verdeckt den Sucher.
+test('die Fehlermeldung verschwindet von selbst', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  mockRecordAsync.mockRejectedValue(new Error('SimulatorNotSupported'));
+  await render(<AufnehmenScreen />);
+  await screen.findByLabelText('Auslöser');
+
+  // Die Uhr bleibt über den ganzen Ablauf dieselbe: Wird erst nach dem
+  // Fehlschlag auf Fake Timers gewechselt, läuft der Ausblend-Timer bereits
+  // als echter, und advanceTimersByTime erreicht ihn nicht mehr.
+  jest.useFakeTimers();
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressIn');
+  await act(async () => {
+    jest.advanceTimersByTime(600);
+  });
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressOut');
+  // Lässt die Promise-Kette in handleVideoStop durchlaufen. Die Startschleife
+  // gibt nach dem Loslassen in ihrer nächsten Runde auf, dafür muss deren
+  // Wartezeit erst ablaufen.
+  await startversucheDurchlaufen();
+  expect(screen.getByText(FEHLERTEXT)).toBeTruthy();
+
+  await act(async () => {
+    jest.advanceTimersByTime(FEHLER_MS_TEST);
+  });
+
+  expect(screen.queryByText(FEHLERTEXT)).toBeNull();
+  jest.useRealTimers();
+});
+
+// ——— Der Wettlauf beim Umschalten in den Videomodus ———
+//
+// Am echten Gerät kam «Das Video hat nicht geklappt» auch dann, wenn mit der
+// Kamera alles in Ordnung war. Grund ist eine Grenze zwischen zwei
+// Warteschlangen: `mode="video"` erreicht die native View sofort, der Umbau
+// der Capture-Session läuft aber asynchron auf der sessionQueue
+// (expo-camera 57, ios/Current/CameraView.swift:107). Trifft recordAsync sie
+// mitten im Umbau, gibt es noch kein `currentVideoFileOutput` und der Aufruf
+// wird abgelehnt: «Camera is not ready yet» (CameraView.swift:303).
+//
+// Dass `mode` im React-Baum committet ist, beweist also nichts über die
+// native Session. Ein Ereignis für «fertig umgebaut» gibt es nicht,
+// `onCameraReady` feuert nur beim Start der Session. Also wird wiederholt.
+test('wird die Kamera mitten im Umschalten getroffen, wird der Start wiederholt statt aufzugeben', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  let recordAufloesen: (v: { uri: string }) => void = () => {};
+  mockRecordAsync
+    .mockRejectedValueOnce(new Error('Camera is not ready yet. Wait for onCameraReady callback'))
+    .mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          recordAufloesen = resolve;
+        })
+    );
+
+  await render(<AufnehmenScreen />);
+  await screen.findByLabelText('Auslöser');
+
+  jest.useFakeTimers();
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressIn');
+  await act(async () => {
+    jest.advanceTimersByTime(600);
+  });
+  expect(mockRecordAsync).toHaveBeenCalledTimes(1);
+
+  // Die Wartezeit zwischen zwei Startversuchen.
+  await act(async () => {
+    jest.advanceTimersByTime(200);
+  });
+  jest.useRealTimers();
   expect(mockRecordAsync).toHaveBeenCalledTimes(2);
+
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressOut');
+  await act(async () => {
+    recordAufloesen({ uri: 'file://video.mp4' });
+  });
+
+  expect(screen.queryByText(FEHLERTEXT)).toBeNull();
+  expect(mockPush).toHaveBeenCalledWith({
+    pathname: '/vorschau',
+    params: { uri: 'file://video.mp4', typ: 'video', dauer: expect.any(String), tripId: 't1' },
+  });
+});
+
+// Die Gegenprobe zur Wiederholung: Sie darf nicht hinter dem Loslassen noch
+// eine Aufnahme beginnen. Die liefe sonst bis `maxDuration` weiter, denn das
+// `stopRecording()` beim Loslassen ist dann längst verpufft.
+test('nach dem Loslassen wird kein weiterer Startversuch mehr unternommen', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  mockRecordAsync.mockRejectedValue(new Error('Camera is not ready yet'));
+
+  await render(<AufnehmenScreen />);
+  await screen.findByLabelText('Auslöser');
+
+  jest.useFakeTimers();
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressIn');
+  await act(async () => {
+    jest.advanceTimersByTime(600);
+  });
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressOut');
+  await act(async () => {});
+  const nachDemLoslassen = mockRecordAsync.mock.calls.length;
+
+  // Grosszügig über allem, was die Startschleife zusammen abwarten könnte.
+  await act(async () => {
+    jest.advanceTimersByTime(5000);
+  });
+  jest.useRealTimers();
+
+  expect(mockRecordAsync).toHaveBeenCalledTimes(nachDemLoslassen);
+});
+
+// ——— Zoom-Stufen (Spec 2026-08-12-kamera-zoom-design.md) ———
+
+// Die Stufen sind echte Linsen, kein vergrösserter Ausschnitt. Erreichbar
+// sind sie nur über das virtuelle Gerät, in dem iOS selbst zwischen den
+// Linsen umschaltet — die einzelne Weitwinkel-Kamera käme nie unter 1×.
+test('die Kamera bekommt die Mehrfach-Linse gesagt', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  await render(<AufnehmenScreen />);
+  await screen.findByLabelText('Auslöser');
+
+  expect(letzteKameraProps().selectedLens).toBe('Rückseitige Dreifach-Kamera');
+});
+
+test('die Reihe zeigt die Stufen, die das Gerät hergibt', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  await render(<AufnehmenScreen />);
+  await screen.findByLabelText('Auslöser');
+
+  expect(screen.getByText('0,5×')).toBeTruthy();
+  expect(screen.getByText('1×')).toBeTruthy();
+  expect(screen.getByText('4×')).toBeTruthy();
+});
+
+test('der Sucher beginnt bei 1×, nicht bei der weitesten Linse', async () => {
+  // Der Fallstrick dieser Funktion: auf dem virtuellen Gerät IST der native
+  // Faktor 1,0 die Ultraweitwinkel-Linse, und genau diese 1,0 setzt
+  // expo-camera bei jedem Gerätewechsel (addDevice → updateZoom, zoom-Prop 0).
+  // Ohne aktives Nachsetzen stünde der Sucher beim Start auf 0,5×.
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  await render(<AufnehmenScreen />);
+  await screen.findByLabelText('Auslöser');
+
+  expect(mockSetzeZoom).toHaveBeenCalledWith('Rückseitige Dreifach-Kamera', 2, false);
+});
+
+test('ein Tipp auf 4× stellt das Gerät auf den Faktor 8', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  await render(<AufnehmenScreen />);
+  await screen.findByLabelText('Auslöser');
+
+  await fireEvent.press(screen.getByText('4×'));
+
+  // Sanft: der Tipp fährt hinein wie in der Kamera-App, er springt nicht.
+  expect(mockSetzeZoom).toHaveBeenLastCalledWith('Rückseitige Dreifach-Kamera', 8, true);
+});
+
+test('nach einem Gerätewechsel setzt der Sucher den Zoom nach', async () => {
+  // expo-camera meldet den Wechsel über onAvailableLensesChanged, und zwar
+  // NACH seinem eigenen updateZoom (addDevice, defer-Block). Erst dieses
+  // Signal ist der Beleg, dass der Zoom soeben zurückgesetzt wurde.
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  await render(<AufnehmenScreen />);
+  await screen.findByLabelText('Auslöser');
+  await fireEvent.press(screen.getByText('4×'));
+  mockSetzeZoom.mockClear();
+
+  await act(async () => {
+    (letzteKameraProps().onAvailableLensesChanged as (e: { lenses: string[] }) => void)({ lenses: [] });
+  });
+
+  expect(mockSetzeZoom).toHaveBeenCalledWith('Rückseitige Dreifach-Kamera', 8, false);
+});
+
+// Die Handler werden direkt über die Props aufgerufen statt über fireEvent.
+// Der Grund steckt in der Sache selbst: die Fläche lehnt einzelne Berührungen
+// ausdrücklich ab (`onStartShouldSetResponder: false`, sie gehören dem
+// Auslöser), und fireEvent hält ein Element, das das tut, für nicht bedienbar
+// und reicht das Ereignis an die Eltern weiter. Diese Props SIND die
+// Schnittstelle zu React Natives Responder-System, sie zu rufen prüft genau
+// den Weg, den das Gerät nimmt.
+async function pinch(abstandVorher: number, abstandNachher: number) {
+  const flaeche = screen.getByTestId('sucher-zoomflaeche') as unknown as {
+    props: {
+      onResponderGrant: (e: object) => void;
+      onResponderMove: (e: object) => void;
+    };
+  };
+  const finger = (abstand: number) => ({
+    nativeEvent: {
+      touches: [
+        { pageX: 0, pageY: 0 },
+        { pageX: 0, pageY: abstand },
+      ],
+    },
+  });
+  await act(async () => {
+    flaeche.props.onResponderGrant(finger(abstandVorher));
+  });
+  await act(async () => {
+    flaeche.props.onResponderMove(finger(abstandNachher));
+  });
+}
+
+test('zwei Finger zoomen stufenlos', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  await render(<AufnehmenScreen />);
+  await screen.findByLabelText('Auslöser');
+
+  await pinch(100, 150);
+
+  // Die Finger stehen anderthalb mal so weit auseinander: aus 1× wird 1,5×,
+  // für das Gerät also der Faktor 3. Hart gesetzt, damit es dem Finger folgt.
+  expect(mockSetzeZoom).toHaveBeenLastCalledWith('Rückseitige Dreifach-Kamera', 3, false);
+  expect(screen.getByText('1,5×')).toBeTruthy();
+});
+
+test('der Pinch endet an der Grenze des Geräts', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  await render(<AufnehmenScreen />);
+  await screen.findByLabelText('Auslöser');
+
+  await pinch(100, 1);
+
+  // Weiter als die weiteste Linse geht es nicht: 0,5× ist Schluss.
+  expect(mockSetzeZoom).toHaveBeenLastCalledWith('Rückseitige Dreifach-Kamera', 1, false);
+});
+
+test('ohne Mehrfach-Kamera steht keine Reihe im Bild', async () => {
+  // iPhone SE, und jede Frontkamera: eine Linse, nichts zu wählen.
+  mockNativeLinsen.mockImplementation(() => [EINZELN]);
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  await render(<AufnehmenScreen />);
+  await screen.findByLabelText('Auslöser');
+
+  expect(screen.queryByTestId('zoom-wahl')).toBeNull();
+  mockNativeLinsen.mockImplementation((position: string) =>
+    position === 'back' ? [DREIFACH] : [EINZELN]
+  );
+});
+
+test('die Frontkamera hat keine Reihe', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  await render(<AufnehmenScreen />);
+  await screen.findByLabelText('Auslöser');
+  expect(screen.getByTestId('zoom-wahl')).toBeTruthy();
+
+  await fireEvent.press(screen.getByLabelText('Kamera wechseln'));
+
+  expect(screen.queryByTestId('zoom-wahl')).toBeNull();
+});
+
+test('während einer gehaltenen Aufnahme verschwindet die Reihe', async () => {
+  // React Native kennt genau einen Responder: ein zweiter Finger auf der
+  // Reihe entzöge dem haltenden Druck die Berührung, das Loslassen käme an
+  // und die Aufnahme endete mitten im Zoomen.
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  mockRecordAsync.mockImplementation(() => new Promise(() => {}));
+  await render(<AufnehmenScreen />);
+  await screen.findByLabelText('Auslöser');
+
+  jest.useFakeTimers();
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressIn', { nativeEvent: { pageX: 100 } });
+  await act(async () => {
+    jest.advanceTimersByTime(600);
+  });
+  jest.useRealTimers();
+
+  expect(screen.queryByTestId('zoom-wahl')).toBeNull();
+});
+
+test('ist die Aufnahme gesperrt, ist die Hand frei und die Reihe wieder da', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  mockRecordAsync.mockImplementation(() => new Promise(() => {}));
+  await render(<AufnehmenScreen />);
+  await screen.findByLabelText('Auslöser');
+
+  jest.useFakeTimers();
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressIn', { nativeEvent: { pageX: 100 } });
+  await act(async () => {
+    jest.advanceTimersByTime(600);
+  });
+  // Über die Sperrschwelle wischen und loslassen: die Aufnahme läuft weiter.
+  await fireEvent(screen.getByLabelText('Auslöser'), 'touchMove', { nativeEvent: { pageX: 160 } });
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressOut');
+  jest.useRealTimers();
+
+  expect(screen.getByTestId('zoom-wahl')).toBeTruthy();
+});
+
+// ——— Doppeltipp wechselt die Kamera (Snapchat-Muster) ———
+
+// Gleicher Weg wie beim Pinch: die Props SIND die Schnittstelle zum
+// Responder-System (siehe die Begründung bei pinch() weiter oben).
+function sucherFlaeche() {
+  return screen.getByTestId('sucher-zoomflaeche') as unknown as {
+    props: {
+      onStartShouldSetResponder: () => boolean;
+      onResponderGrant: (e: object) => void;
+      onResponderRelease: (e: object) => void;
+    };
+  };
+}
+
+async function tippen(x = 100, y = 300, bis = { x: 100, y: 300 }) {
+  const flaeche = sucherFlaeche();
+  await act(async () => {
+    flaeche.props.onResponderGrant({ nativeEvent: { touches: [{ pageX: x, pageY: y }], pageX: x, pageY: y } });
+  });
+  await act(async () => {
+    flaeche.props.onResponderRelease({ nativeEvent: { touches: [], pageX: bis.x, pageY: bis.y } });
+  });
+}
+
+test('ein Doppeltipp auf den Sucher wechselt die Kamera', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  await render(<AufnehmenScreen />);
+  await screen.findByLabelText('Auslöser');
+  expect(letzteKameraProps().facing).toBe('back');
+
+  await tippen();
+  await tippen();
+
+  expect(letzteKameraProps().facing).toBe('front');
+});
+
+test('ein einzelner Tipp wechselt nichts', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  await render(<AufnehmenScreen />);
+  await screen.findByLabelText('Auslöser');
+
+  await tippen();
+
+  expect(letzteKameraProps().facing).toBe('back');
+});
+
+test('zwei Tipper mit Pause dazwischen sind kein Doppeltipp', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  await render(<AufnehmenScreen />);
+  await screen.findByLabelText('Auslöser');
+
+  jest.useFakeTimers();
+  await tippen();
+  await act(async () => {
+    jest.advanceTimersByTime(600);
+  });
+  await tippen();
+  jest.useRealTimers();
+
+  expect(letzteKameraProps().facing).toBe('back');
+});
+
+test('zwei Tipper an verschiedenen Ecken sind kein Doppeltipp', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  await render(<AufnehmenScreen />);
+  await screen.findByLabelText('Auslöser');
+
+  await tippen(40, 120, { x: 40, y: 120 });
+  await tippen(300, 600, { x: 300, y: 600 });
+
+  expect(letzteKameraProps().facing).toBe('back');
+});
+
+test('ein Wischen über den Sucher ist kein Tipp', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  await render(<AufnehmenScreen />);
+  await screen.findByLabelText('Auslöser');
+
+  // Aufgesetzt und weitergezogen: wer wischt, meint keinen Kamerawechsel.
+  await tippen(100, 300, { x: 100, y: 500 });
+  await tippen(100, 300, { x: 100, y: 500 });
+
+  expect(letzteKameraProps().facing).toBe('back');
+});
+
+test('der Doppeltipp beginnt auf der neuen Kamera wieder bei 1×', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  await render(<AufnehmenScreen />);
+  await screen.findByLabelText('Auslöser');
+  await fireEvent.press(screen.getByText('4×'));
+
+  await tippen();
+  await tippen();
+  await fireEvent.press(screen.getByLabelText('Kamera wechseln'));
+
+  // Zurück auf der Rückkamera: die Reihe steht wieder auf 1×, nicht auf 4×.
+  expect(screen.getByLabelText('Zoom 1×').props.accessibilityState.selected).toBe(true);
+});
+
+test('während einer laufenden Aufnahme wechselt der Doppeltipp die Kamera nicht', async () => {
+  // Ein Kamerawechsel baut die Session um und bricht recordAsync ab —
+  // derselbe Grund, aus dem die Kopfzeile während der Aufnahme verschwindet.
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  mockRecordAsync.mockImplementation(() => new Promise(() => {}));
+  await render(<AufnehmenScreen />);
+  await screen.findByLabelText('Auslöser');
+
+  jest.useFakeTimers();
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressIn', { nativeEvent: { pageX: 100 } });
+  await act(async () => {
+    jest.advanceTimersByTime(600);
+  });
+  jest.useRealTimers();
+
+  expect(sucherFlaeche().props.onStartShouldSetResponder()).toBe(false);
+  await tippen();
+  await tippen();
+
+  expect(letzteKameraProps().facing).toBe('back');
 });

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, ScrollView, Switch, Text, View, StyleSheet } from 'react-native';
 import { Image } from 'expo-image';
-import { AvatarWaehler } from '@/components/AvatarWaehler';
+import { AvatarSheetInhalt, AvatarWaehler } from '@/components/AvatarWaehler';
 import { Button } from '@/components/Button';
 import { Card } from '@/components/Card';
 import { PressScale } from '@/components/PressScale';
@@ -85,6 +85,13 @@ export default function ProfilScreen() {
   // Vorgänge (nur einer kann gleichzeitig laufen, der Wähler ist währenddessen
   // ohnehin geschlossen), `bildFehler` steht unter dem Kreis, bis der nächste
   // Versuch ihn löscht.
+  //
+  // `bildSheetSichtbar` liegt aus demselben Grund HIER wie
+  // `loeschSheetSichtbar` darüber: das Sheet muss ein Geschwister der
+  // ScrollView sein (Begründung am Lösch-Sheet unten und ausführlich in
+  // AvatarWaehler.tsx), also hält der Screen seinen Zustand, nicht der Kreis
+  // oben in der Karte.
+  const [bildSheetSichtbar, setBildSheetSichtbar] = useState(false);
   const [bildLaeuft, setBildLaeuft] = useState(false);
   const [bildFehler, setBildFehler] = useState<string | null>(null);
 
@@ -203,8 +210,7 @@ export default function ProfilScreen() {
             name={profile?.display_name ?? ''}
             avatarKey={profile?.avatar_key ?? null}
             laeuft={bildLaeuft}
-            onGewaehlt={(uri) => void bildSetzen(uri)}
-            onEntfernen={() => void bildEntfernen()}
+            onOeffnen={() => setBildSheetSichtbar(true)}
           />
           <View style={styles.zeileText}>
             <Text style={[type.h1, { color: colors['text-1'] }]}>{profile?.display_name ?? '…'}</Text>
@@ -247,9 +253,21 @@ export default function ProfilScreen() {
         </PressScale>
       </ScrollView>
 
-      {/* Geschwister der ScrollView, nicht ihr Kind: das Sheet legt sich per
-          StyleSheet.absoluteFill über seinen Elternteil, im Scroll-Inhalt läge
-          es am Inhalt statt am Screen. */}
+      {/* Beide Sheets sind Geschwister der ScrollView, nicht ihre Kinder: ein
+          Sheet legt sich per StyleSheet.absoluteFill über seinen Elternteil,
+          im Scroll-Inhalt läge es am Inhalt statt am Screen. Das Bild-Sheet
+          hing bis zur Merge-Fixrunde im Kreis-Wrapper der Karte oben und war
+          dort 44 px breit — die ausführliche Begründung steht in
+          AvatarWaehler.tsx. */}
+      <Sheet sichtbar={bildSheetSichtbar} titel="Profilbild" onSchliessen={() => setBildSheetSichtbar(false)}>
+        <AvatarSheetInhalt
+          avatarKey={profile?.avatar_key ?? null}
+          onGewaehlt={(uri) => void bildSetzen(uri)}
+          onEntfernen={() => void bildEntfernen()}
+          onSchliessen={() => setBildSheetSichtbar(false)}
+        />
+      </Sheet>
+
       <Sheet sichtbar={loeschSheetSichtbar} titel="Konto löschen?" onSchliessen={kontoLoeschenSchliessen}>
         {zahlenPhase === 'laedt' && (
           <View style={styles.zahlenLaedt}>

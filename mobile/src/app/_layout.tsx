@@ -14,7 +14,12 @@ import {
 import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
 import { ThemeProvider, useTheme } from '@/theme/ThemeProvider';
 import { AuthProvider, useAuth } from '@/features/auth/AuthProvider';
-import { resolveRoute, isPublicArea, istWebGesperrt } from '@/features/auth/guard';
+import {
+  resolveRoute,
+  isPublicArea,
+  istWebGesperrt,
+  istFlaecheFuerAngemeldete,
+} from '@/features/auth/guard';
 import { spacing, type } from '@/theme/tokens';
 import { peekRememberedInvite, discardRememberedInvite } from '@/features/trips/inviteLink';
 import { redeemInvite } from '@/features/trips/tripsApi';
@@ -62,7 +67,7 @@ function Guarded() {
   const segments = useSegments() as string[];
   const router = useRouter();
   const { colors } = useTheme();
-  const area = segments[0]; // '(auth)' | '(tabs)' | 'join' | 'teilen' | undefined
+  const area = segments[0]; // '(auth)' | '(tabs)' | 'vorschau' | 'join' | 'teilen' | undefined
   const webGesperrt = istWebGesperrt(Platform.OS, area);
 
   useEffect(() => {
@@ -75,7 +80,7 @@ function Guarded() {
     void SplashScreen.hideAsync();
     // Der Beitritts-Screen bleibt in jedem Status stehen.
     if (isPublicArea(area)) return;
-    if (status === 'signedIn' && area !== '(tabs)') router.replace(target);
+    if (status === 'signedIn' && !istFlaecheFuerAngemeldete(area)) router.replace(target);
     if (status !== 'signedIn' && area !== '(auth)') router.replace(target);
     if (status === 'needsProfile' && segments[1] !== 'profile-setup') router.replace(target);
   }, [status, segments, router, webGesperrt, area]);

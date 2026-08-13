@@ -1,5 +1,7 @@
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react-native';
+import { Keyboard, Platform, StyleSheet } from 'react-native';
 import * as React from 'react';
+import { spacing } from '@/theme/tokens';
 
 const mockReplace = jest.fn();
 const mockBack = jest.fn();
@@ -110,7 +112,7 @@ jest.mock('@/components/Versiegelung', () => {
   };
 });
 
-import PreviewScreen from '../preview';
+import PreviewScreen from '../vorschau';
 
 // Nicht hart auf "14:34" verdrahtet: welche lokale Uhrzeit aus dem UTC-ISO-Wert
 // wird, hängt von der Zeitzone der ausführenden Maschine ab (hier zufällig
@@ -121,6 +123,13 @@ function erwarteteZeit(iso: string): string {
   const datum = new Date(iso);
   const zweistellig = (n: number) => String(n).padStart(2, '0');
   return `${zweistellig(datum.getHours())}:${zweistellig(datum.getMinutes())}`;
+}
+
+// In Ruhe steht an der Stelle der Bildunterschrift nur ein Chip; das
+// Eingabefeld entsteht erst mit dem Tipp darauf (und holt sich per autoFocus
+// die Tastatur). Wer im Test schreiben will, muss es also erst öffnen.
+async function bildunterschriftOeffnen() {
+  await fireEvent.press(screen.getByTestId('bildunterschrift-chip'));
 }
 
 beforeEach(() => {
@@ -153,6 +162,7 @@ test('die Aufnahme erscheint sofort, ohne auf den Ort zu warten', async () => {
 test('eine Caption über 120 Zeichen wird begrenzt', async () => {
   mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
   await render(<PreviewScreen />);
+  await bildunterschriftOeffnen();
   const eingabe = screen.getByLabelText('Bildunterschrift');
   await fireEvent.changeText(eingabe, 'a'.repeat(150));
   expect((eingabe.props.value as string).length).toBe(120);
@@ -185,6 +195,7 @@ test('ohne Ortsnamen zeigt die Pille nur die Zeit', async () => {
 test('Einsenden reiht genau einen Job ein und navigiert zur Kamera zurück', async () => {
   mockOrtBestimmen.mockResolvedValue({ lat: 47.05, lng: 8.31, place_name: 'Luzern' });
   await render(<PreviewScreen />);
+  await bildunterschriftOeffnen();
   await fireEvent.changeText(screen.getByLabelText('Bildunterschrift'), 'Was für ein Abend');
 
   await act(async () => {
@@ -338,7 +349,9 @@ test('Verwerfen reiht nichts ein, räumt die Rohaufnahme weg und geht zurück zu
   mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
   await render(<PreviewScreen />);
 
-  await fireEvent.press(screen.getByText('Verwerfen'));
+  // Verwerfen ist das X in der Kopfzeile, kein Textknopf mehr neben dem
+  // Einsenden: es ist der Rückweg, keine gleichrangige Alternative.
+  await fireEvent.press(screen.getByTestId('verwerfen-knopf'));
 
   expect(mockJobEinreihen).not.toHaveBeenCalled();
   expect(mockFotoAufbereiten).not.toHaveBeenCalled();
@@ -548,4 +561,211 @@ test('ein zweiter Tipp auf Einsenden während des Sendens reiht keinen zweiten J
 
   expect(mockFotoAufbereiten).toHaveBeenCalledTimes(1);
   expect(mockJobEinreihen).toHaveBeenCalledTimes(1);
+});
+
+// Die Bildunterschrift lag hinter der stehenden Tastatur, und aus dem
+// mehrzeiligen Feld kam man nicht mehr heraus: Return setzt dort einen
+// Zeilenumbruch, iOS bietet keine Fertig-Taste an, und alle anderen
+// Bedienelemente des Screens lagen selbst unter der Tastatur. Die
+// KeyboardAvoidingView, die das verhindern sollte, konnte hier nie wirken:
+// sie setzt bei `behavior="padding"` nur ein `paddingBottom` an ihrem eigenen
+// View, und dieses Padding erreicht absolut positionierte Kinder nicht. Auf
+// diesem Screen ist aber JEDE Ebene absolut positioniert. Der Screen weicht
+// deshalb selbst aus, anhand der gemeldeten Tastaturhöhe.
+describe('stehende Tastatur', () => {
+  const zuhoerer: Record<string, (e: unknown) => void> = {};
+  let dismiss: jest.SpyInstance;
+
+  // Der Name des Ereignisses ist plattformabhängig: iOS meldet die Tastatur
+  // an, bevor sie steht (will), Android erst danach (did). Der Test spricht
+  // denselben Zuhörer an, den der Screen auf der jeweiligen Plattform bestellt.
+  const ZEIGEN = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+  const VERBERGEN = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+  const TASTATUR_HOEHE = 336;
+
+  beforeEach(() => {
+    for (const schluessel of Object.keys(zuhoerer)) delete zuhoerer[schluessel];
+    jest
+      .spyOn(Keyboard, 'addListener')
+      .mockImplementation(((typ: string, rueckruf: (e: unknown) => void) => {
+        zuhoerer[typ] = rueckruf;
+        return { remove: jest.fn() };
+      }) as unknown as typeof Keyboard.addListener);
+    dismiss = jest.spyOn(Keyboard, 'dismiss').mockImplementation(() => {});
+    mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  async function tastaturAuf(hoehe = TASTATUR_HOEHE) {
+    await act(async () => {
+      zuhoerer[ZEIGEN]?.({
+        endCoordinates: { height: hoehe, screenX: 0, screenY: 812 - hoehe, width: 390 },
+        duration: 250,
+        easing: 'keyboard',
+      });
+    });
+  }
+
+  async function tastaturZu() {
+    await act(async () => {
+      zuhoerer[VERBERGEN]?.({
+        endCoordinates: { height: 0, screenX: 0, screenY: 812, width: 390 },
+        duration: 250,
+        easing: 'keyboard',
+      });
+    });
+  }
+
+  function unterkanteDerBildunterschrift(): number {
+    const feld = screen.getByTestId('bildunterschrift-feld');
+    return StyleSheet.flatten(feld.props.style).bottom as number;
+  }
+
+  test('die Bildunterschrift rückt direkt über die stehende Tastatur', async () => {
+    await render(<PreviewScreen />);
+    await tastaturAuf();
+
+    // Auf iOS bleibt das Fenster gleich gross, der Screen muss die volle
+    // Tastaturhöhe selbst überbrücken. Auf Android verkleinert das Fenster
+    // sich bereits (softwareKeyboardLayoutMode "resize", Expo-Standard), dort
+    // zählt nur noch der gestaltete Abstand zur neuen Unterkante.
+    const erwartet = Platform.OS === 'ios' ? TASTATUR_HOEHE + spacing.base : spacing.base;
+    expect(unterkanteDerBildunterschrift()).toBe(erwartet);
+  });
+
+  // Beim Tippen tauscht iOS die Leiste über den Tasten aus (der
+  // «Write with Siri»-Hinweis weicht den Wortvorschlägen) und meldet dabei
+  // eine andere Tastaturhöhe. Folgte das Feld jeder Meldung, ruckte es beim
+  // Schreiben auf und ab. Es hält deshalb die grösste gemeldete Höhe: lieber
+  // ein paar Punkte zu hoch stehen als wackeln.
+  test('eine schrumpfende Tastatur zieht das Feld nicht mit nach unten', async () => {
+    await render(<PreviewScreen />);
+    await bildunterschriftOeffnen();
+    await tastaturAuf(TASTATUR_HOEHE);
+    const stand = unterkanteDerBildunterschrift();
+
+    await tastaturAuf(TASTATUR_HOEHE - 45);
+
+    expect(unterkanteDerBildunterschrift()).toBe(stand);
+  });
+
+  // Andersherum muss es mitgehen, sonst verschwände das Feld hinter einer
+  // Tastatur, die höher wird (Emoji-Tastatur, andere Sprache).
+  test('eine wachsende Tastatur schiebt das Feld weiter hoch', async () => {
+    await render(<PreviewScreen />);
+    await bildunterschriftOeffnen();
+    await tastaturAuf(TASTATUR_HOEHE);
+    const stand = unterkanteDerBildunterschrift();
+
+    await tastaturAuf(TASTATUR_HOEHE + 60);
+
+    expect(unterkanteDerBildunterschrift()).toBeGreaterThan(stand);
+  });
+
+  test('nach dem Schliessen steht die Bildunterschrift wieder an ihrem Platz', async () => {
+    await render(<PreviewScreen />);
+    const ruhe = unterkanteDerBildunterschrift();
+
+    await tastaturAuf();
+    await tastaturZu();
+
+    expect(unterkanteDerBildunterschrift()).toBe(ruhe);
+  });
+
+  // Der Weg aus dem Feld, den die Tastatur selbst anbietet: Bei einem
+  // EINZEILIGEN Feld heisst die Eingabetaste unten rechts «Fertig» und
+  // schliesst. Bei `multiline` setzt dieselbe Taste einen Zeilenumbruch, es
+  // gibt dann gar keine Fertig-Taste, und genau daran blieb man hängen.
+  test('die Eingabetaste schliesst die Tastatur, statt eine Zeile umzubrechen', async () => {
+    await render(<PreviewScreen />);
+    await bildunterschriftOeffnen();
+    const feld = screen.getByLabelText('Bildunterschrift');
+
+    expect(feld.props.multiline).toBeFalsy();
+    expect(feld.props.returnKeyType).toBe('done');
+
+    await fireEvent(feld, 'submitEditing');
+
+    expect(dismiss).toHaveBeenCalledTimes(1);
+  });
+
+  test('ein Tipp neben das Feld schliesst die Tastatur', async () => {
+    await render(<PreviewScreen />);
+    expect(screen.queryByLabelText('Tastatur schliessen')).toBeNull();
+
+    await tastaturAuf();
+    await fireEvent.press(screen.getByLabelText('Tastatur schliessen'));
+
+    expect(dismiss).toHaveBeenCalledTimes(1);
+  });
+
+  // Der Auffangbereich liegt über dem ganzen Medium. Läge er über den
+  // Bedienelementen, wäre der erste Tipp auf «Einsenden» nach dem Schreiben
+  // verschluckt.
+  test('bei stehender Tastatur bleibt das Feld selbst bedienbar', async () => {
+    await render(<PreviewScreen />);
+    await bildunterschriftOeffnen();
+    await tastaturAuf();
+
+    await fireEvent.changeText(screen.getByLabelText('Bildunterschrift'), 'Abendlicht');
+
+    expect(screen.getByLabelText('Bildunterschrift').props.value).toBe('Abendlicht');
+    expect(dismiss).not.toHaveBeenCalled();
+  });
+});
+
+// Die Bildunterschrift und der Einsenden-Knopf gehören zusammen: Vorher stand
+// sie an einer festen Zahl (168) und liess eine Lücke von einem halben
+// Bildschirm zwischen sich und dem Knopf. Jetzt hängt sie an der GEMESSENEN
+// Höhe des Fusses, damit sie auch dann direkt darüber steht, wenn eine
+// Fehlermeldung den Fuss wachsen lässt.
+test('die Bildunterschrift hängt an der gemessenen Höhe des Fusses, nicht an einer festen Zahl', async () => {
+  mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
+  await render(<PreviewScreen />);
+
+  // Im Test gibt es keine Layout-Phase, die Höhe kommt darum von Hand.
+  await act(async () => {
+    fireEvent(screen.getByTestId('fuss'), 'layout', {
+      nativeEvent: { layout: { x: 0, y: 0, width: 320, height: 52 } },
+    });
+  });
+
+  // Insets sind im Test 0 (siehe jest.setup.ts). Ohne Home-Indicator bleibt
+  // vom Fuss-Abstand der gestaltete Mindestrand spacing.base.
+  const unterkante = spacing.base;
+  const feld = screen.getByTestId('bildunterschrift-feld');
+  expect(StyleSheet.flatten(feld.props.style).bottom).toBe(unterkante + 52 + spacing.base);
+});
+
+// Ein leeres Eingabefeld über die ganze Breite ist ein Kasten, der nichts
+// zeigt und dem Foto den Platz nimmt. In Ruhe steht deshalb nur ein Chip da,
+// so breit wie sein Text; das Feld entsteht erst mit dem Tipp darauf.
+test('in Ruhe steht nur ein Chip, das Eingabefeld kommt erst mit dem Tipp darauf', async () => {
+  mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
+  await render(<PreviewScreen />);
+
+  expect(screen.queryByLabelText('Bildunterschrift')).toBeNull();
+  expect(screen.getByText('Schreib etwas dazu')).toBeTruthy();
+
+  await bildunterschriftOeffnen();
+
+  expect(screen.getByLabelText('Bildunterschrift')).toBeTruthy();
+  expect(screen.queryByTestId('bildunterschrift-chip')).toBeNull();
+});
+
+// Auf iOS legt eine gesetzte Zeilenhöhe im Eingabefeld einen Absatz-Stil über
+// den EINGEGEBENEN Text, nicht aber über den Platzhalter: Der Text sprang
+// dadurch beim ersten Zeichen ein paar Punkte nach unten. `type.body` bringt
+// eine mit (24), das Feld darf sie deshalb nicht übernehmen.
+test('das Eingabefeld setzt keine Zeilenhöhe', async () => {
+  mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
+  await render(<PreviewScreen />);
+  await bildunterschriftOeffnen();
+
+  const stil = StyleSheet.flatten(screen.getByLabelText('Bildunterschrift').props.style);
+  expect(stil.lineHeight).toBeUndefined();
+  expect(stil.fontSize).toBe(16);
 });

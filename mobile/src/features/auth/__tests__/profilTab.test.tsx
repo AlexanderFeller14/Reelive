@@ -1,4 +1,5 @@
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react-native';
+import { ScrollView } from 'react-native';
+import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react-native';
 import { ThemeProvider } from '@/theme/ThemeProvider';
 
 jest.mock('../AuthProvider', () => ({
