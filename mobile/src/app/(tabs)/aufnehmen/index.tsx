@@ -350,6 +350,12 @@ export default function AufnehmenScreen() {
   // (siehe dort und useFocusEffect).
   const [fokusStand, setFokusStand] = useState(0);
   const cameraRef = useRef<CameraView>(null);
+  // Ob gerade ein Foto-Zyklus läuft (Tipp bis Navigations-Commit). Der
+  // Auslöser bleibt zwischen Tipp und Navigation bedienbar; ein zweiter
+  // Zyklus würde den Übergabe-Holder überschreiben und die erste Aufnahme
+  // (samt Hintergrund-Datei) verwaisen lassen. Als Ref, weil der Wert
+  // synchron im selben Tick gelesen werden muss.
+  const laeuftFoto = useRef(false);
   const videoStartZeit = useRef(0);
   const videoPromise = useRef<Promise<{ uri: string } | undefined> | null>(null);
   // Ob der Auslöser seit dem Start dieser Aufnahme losgelassen wurde. Als Ref,
@@ -625,13 +631,13 @@ export default function AufnehmenScreen() {
     );
   }
 
-  // Die Aufnahme verlässt diesen Screen nur als Dateipfad plus Typ (bewusste
-  // Grenze, siehe Auftrag), dazu kommt `tripId`, weil Task 8 daraus den
-  // Speicherschlüssel und den Queue-Job baut; eine Kennung ist nichts
-  // Bibliotheksspezifisches, verletzt die Grenze also nicht. `/aufnehmen/
-  // preview` selbst entsteht erst in Task 8 und fehlt darum noch in der
-  // generierten (gitignorten) Routen-Liste `.expo/types/router.d.ts`. Der
-  // Cast über `unknown` (statt `any`, siehe Präzedenz in joinFlow.ts) ist
+  // Videos verlassen diesen Screen als Dateipfad, Fotos über die Übergabe im
+  // Speicher (bewusste Grenze, siehe Auftrag); dazu kommt `tripId`, weil
+  // Task 8 daraus den Speicherschlüssel und den Queue-Job baut; eine Kennung
+  // ist nichts Bibliotheksspezifisches, verletzt die Grenze also nicht.
+  // `/aufnehmen/preview` selbst entsteht erst in Task 8 und fehlt darum noch
+  // in der generierten (gitignorten) Routen-Liste `.expo/types/router.d.ts`.
+  // Der Cast über `unknown` (statt `any`, siehe Präzedenz in joinFlow.ts) ist
   // bewusst temporär: sobald Task 8 die Route anlegt, entfällt er ersatzlos.
   const zurPreview = (params: { typ: 'photo' | 'video'; dauer: string; tripId: string; uri?: string }) => {
     router.push({ pathname: '/vorschau', params } as unknown as Href);
@@ -752,6 +758,11 @@ export default function AufnehmenScreen() {
   };
 
   const handleFoto = async () => {
+    // Re-Entry-Schutz: Zwischen `pressOut` und dem Navigations-Commit bleibt
+    // der Auslöser bedienbar, ein zweiter Tipp in diesem Fenster stiesse ohne
+    // diese Sperre einen zweiten Zyklus an (siehe laeuftFoto oben).
+    if (laeuftFoto.current) return;
+    laeuftFoto.current = true;
     try {
       // Erst die Aufnahme anstossen, DANN die Vorschau einfrieren: die
       // SDK-Doku rät von takePictureAsync bei pausierter Vorschau ab, und
@@ -775,6 +786,11 @@ export default function AufnehmenScreen() {
       // ist gelaufen, und niemand navigiert weg.
       void cameraRef.current?.resumePreview();
       setAufnahmeFehler(FOTO_FEHLER_TEXT);
+    } finally {
+      // Deckt Erfolg wie Fehler ab; nach Erfolg ist die Navigation dann
+      // committet — ein erneuter Tipp trifft diesen Screen erst nach der
+      // Rückkehr aus der Vorschau wieder.
+      laeuftFoto.current = false;
     }
   };
 

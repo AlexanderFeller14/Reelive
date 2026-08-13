@@ -406,6 +406,39 @@ test('scheitert das Foto, läuft der Sucher weiter und der Screen sagt es', asyn
   expect(mockPush).not.toHaveBeenCalled();
 });
 
+// Zwischen `pressOut` und dem Navigations-Commit bleibt der Auslöser
+// bedienbar (die Navigation selbst ist async): Ein zweiter, schneller Tipp
+// würde ohne Sperre einen zweiten Foto-Zyklus anstossen — zweites
+// `pausePreview`, der Übergabe-Holder überschrieben (die erste Aufnahme samt
+// Hintergrund-Datei verwaist), zwei gestapelte Vorschauen.
+test('ein zweiter, schneller Tipp löst während der ersten Aufnahme kein zweites Foto aus', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  let aufloesen: (v: { width: number; height: number; savePictureAsync: typeof mockSavePictureAsync }) => void =
+    () => {};
+  // Löst erst NACH dem zweiten Tipp auf: genau das Zeitfenster, in dem ein
+  // zweiter Zyklus ohne Sperre starten würde.
+  mockTakePictureAsync.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        aufloesen = resolve;
+      })
+  );
+  await render(<AufnehmenScreen />);
+  await screen.findByLabelText('Auslöser');
+
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressIn');
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressOut');
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressIn');
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressOut');
+
+  await act(async () => {
+    aufloesen({ width: 1920, height: 1080, savePictureAsync: mockSavePictureAsync });
+  });
+
+  expect(mockTakePictureAsync).toHaveBeenCalledTimes(1);
+  expect(mockPush).toHaveBeenCalledTimes(1);
+});
+
 test('beim Video-Stopp friert der Sucher ein, die Rückkehr taut ihn auf', async () => {
   (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
   let recordAufloesen: (v: { uri: string }) => void = () => {};
