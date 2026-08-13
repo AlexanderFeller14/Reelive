@@ -73,6 +73,12 @@ type Props = {
    * entzöge dem haltenden Druck die Berührung und beendete die Aufnahme.
    */
   onSperre?: (gesperrt: boolean) => void;
+  /**
+   * Meldet ab Aufnahmestart die vertikale Fingerbewegung seit dem Aufsetzen
+   * (nach oben positiv, pt). Der Screen macht daraus den Zug-Zoom; was vor
+   * der Halte-Schwelle passiert, ist ein Tipp und meldet nichts.
+   */
+  onZoomZug?: (hub: number) => void;
 };
 
 type Phase = 'ruhe' | 'haelt' | 'video' | 'gesperrt';
@@ -88,7 +94,7 @@ function leichtesFeedback() {
 // stoppen. Zwei Timer stecken das ab (Schwelle + Höchstdauer) und werden
 // sowohl beim Loslassen als auch beim Unmount aufgeräumt, ein hängender
 // Timer würde nach dem Verlassen des Screens weiter onVideoStart/-Stop feuern.
-export function Ausloeser({ onFoto, onVideoStart, onVideoStop, maxSekunden, onSperre }: Props) {
+export function Ausloeser({ onFoto, onVideoStart, onVideoStop, maxSekunden, onSperre, onZoomZug }: Props) {
   const [nimmtAuf, setNimmtAuf] = useState(false);
   const [gesperrt, setGesperrt] = useState(false);
   const [ueberSchwelle, setUeberSchwelle] = useState(false);
@@ -107,6 +113,9 @@ export function Ausloeser({ onFoto, onVideoStart, onVideoStop, maxSekunden, onSp
   // Bildschirmposition: Der Auslöser sitzt zwar mittig, aber ein Daumen setzt
   // selten in seiner Mitte auf.
   const startX = useRef(0);
+  // Wo der Daumen aufgesetzt hat, vertikal: daraus wird der Hub des
+  // Zug-Zooms, wie startX für die Sperr-Geste.
+  const startY = useRef(0);
   // Dasselbe Wissen wie `ueberSchwelle`, nur synchron lesbar. onPressOut
   // entscheidet damit zwischen Sperren und Stoppen, und ein State-Wert wäre
   // dort womöglich noch der alte.
@@ -148,6 +157,7 @@ export function Ausloeser({ onFoto, onVideoStart, onVideoStop, maxSekunden, onSp
       return;
     }
     startX.current = e?.nativeEvent?.pageX ?? 0;
+    startY.current = e?.nativeEvent?.pageY ?? 0;
     phase.current = 'haelt';
     schwellenTimer.current = setTimeout(() => {
       phase.current = 'video';
@@ -174,6 +184,7 @@ export function Ausloeser({ onFoto, onVideoStart, onVideoStop, maxSekunden, onSp
   // bleibt ein Tippen, also ein Foto.
   const onTouchMove = (e?: GestureResponderEvent) => {
     if (phase.current !== 'video') return;
+    onZoomZug?.(startY.current - (e?.nativeEvent?.pageY ?? 0));
     const jetzt = (e?.nativeEvent?.pageX ?? 0) - startX.current >= SPERR_SCHWELLE;
     if (jetzt === jenseits.current) return;
     jenseits.current = jetzt;

@@ -352,3 +352,78 @@ test('meldet das Ende der Sperre, wenn die Aufnahme endet', async () => {
 
   expect(onSperre).toHaveBeenLastCalledWith(false);
 });
+
+// ——— Zug-Zoom (Spec 2026-08-13-aufnahme-tempo-design.md §7) ———
+//
+// Der Auslöser meldet nur die Bewegung; was sie am Zoom bewirkt, entscheidet
+// der Screen (zugFaktor in zoom.ts). Gemessen wird gegen den Aufsetzpunkt,
+// wie bei der Sperr-Geste — ein Daumen setzt selten mittig auf.
+test('während der Aufnahme meldet der Auslöser den Hub nach oben', async () => {
+  const onZoomZug = jest.fn();
+  await render(
+    <Ausloeser
+      onFoto={jest.fn()}
+      onVideoStart={jest.fn()}
+      onVideoStop={jest.fn()}
+      maxSekunden={30}
+      onZoomZug={onZoomZug}
+    />
+  );
+  await fireEvent(knopf(), 'pressIn', { nativeEvent: { pageX: 100, pageY: 500 } });
+  await act(() => {
+    jest.advanceTimersByTime(600);
+  });
+
+  await fireEvent(knopf(), 'touchMove', { nativeEvent: { pageX: 100, pageY: 300 } });
+  expect(onZoomZug).toHaveBeenLastCalledWith(200);
+
+  // Unter den Aufsetzpunkt gezogen: negativ, der Screen zoomt dann raus.
+  await fireEvent(knopf(), 'touchMove', { nativeEvent: { pageX: 100, pageY: 560 } });
+  expect(onZoomZug).toHaveBeenLastCalledWith(-60);
+});
+
+test('vor der Halte-Schwelle meldet der Auslöser keinen Hub', async () => {
+  const onZoomZug = jest.fn();
+  await render(
+    <Ausloeser
+      onFoto={jest.fn()}
+      onVideoStart={jest.fn()}
+      onVideoStop={jest.fn()}
+      maxSekunden={30}
+      onZoomZug={onZoomZug}
+    />
+  );
+  await fireEvent(knopf(), 'pressIn', { nativeEvent: { pageX: 100, pageY: 500 } });
+  // Schwelle (500 ms) bewusst NICHT erreicht: das hier wird ein Foto-Tipp.
+  await fireEvent(knopf(), 'touchMove', { nativeEvent: { pageX: 100, pageY: 300 } });
+  expect(onZoomZug).not.toHaveBeenCalled();
+});
+
+test('die Sperr-Geste funktioniert auch mit gleichzeitigem Hub', async () => {
+  const onZoomZug = jest.fn();
+  const onVideoStop = jest.fn();
+  const onSperre = jest.fn();
+  await render(
+    <Ausloeser
+      onFoto={jest.fn()}
+      onVideoStart={jest.fn()}
+      onVideoStop={onVideoStop}
+      maxSekunden={30}
+      onSperre={onSperre}
+      onZoomZug={onZoomZug}
+    />
+  );
+  await fireEvent(knopf(), 'pressIn', { nativeEvent: { pageX: 100, pageY: 500 } });
+  await act(() => {
+    jest.advanceTimersByTime(600);
+  });
+
+  // Diagonal: 60 pt nach rechts (jenseits der Sperr-Schwelle 48) und 100 pt
+  // nach oben — beide Achsen melden, keine verdrängt die andere.
+  await fireEvent(knopf(), 'touchMove', { nativeEvent: { pageX: 160, pageY: 400 } });
+  expect(onZoomZug).toHaveBeenLastCalledWith(100);
+
+  await fireEvent(knopf(), 'pressOut');
+  expect(onSperre).toHaveBeenCalledWith(true);
+  expect(onVideoStop).not.toHaveBeenCalled();
+});
