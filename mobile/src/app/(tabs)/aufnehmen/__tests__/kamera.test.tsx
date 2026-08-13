@@ -927,8 +927,8 @@ test('nach einer gescheiterten Aufnahme startet der nächste Versuch wieder eine
 const FEHLERTEXT = 'Das Video hat nicht geklappt. Versuch es nochmal.';
 
 // Lässt die Startschleife des Videos zu Ende laufen (der Screen versucht den
-// Start mehrfach, solange die Kamera-Session noch umbaut, siehe den Wettlauf
-// weiter unten). Ein einzelnes advanceTimersByTime reicht dafür nicht:
+// Start mehrfach, siehe VIDEO_START_VERSUCHE und den Wettlauf weiter unten).
+// Ein einzelnes advanceTimersByTime reicht dafür nicht:
 // zwischen zwei Runden liegt eine Promise-Auflösung, und die nächste
 // Wartezeit entsteht erst danach. Grosszügig über die Zahl der Runden hinaus,
 // damit der Test nicht auf sie festgenagelt ist.
@@ -1019,20 +1019,19 @@ test('die Fehlermeldung verschwindet von selbst', async () => {
   jest.useRealTimers();
 });
 
-// ——— Der Wettlauf beim Umschalten in den Videomodus ———
+// ——— Der Wettlauf um eine beschäftigte Session ———
 //
-// Am echten Gerät kam «Das Video hat nicht geklappt» auch dann, wenn mit der
-// Kamera alles in Ordnung war. Grund ist eine Grenze zwischen zwei
-// Warteschlangen: `mode="video"` erreicht die native View sofort, der Umbau
-// der Capture-Session läuft aber asynchron auf der sessionQueue
-// (expo-camera 57, ios/Current/CameraView.swift:107). Trifft recordAsync sie
-// mitten im Umbau, gibt es noch kein `currentVideoFileOutput` und der Aufruf
-// wird abgelehnt: «Camera is not ready yet» (CameraView.swift:303).
-//
-// Dass `mode` im React-Baum committet ist, beweist also nichts über die
-// native Session. Ein Ereignis für «fertig umgebaut» gibt es nicht,
-// `onCameraReady` feuert nur beim Start der Session. Also wird wiederholt.
-test('wird die Kamera mitten im Umschalten getroffen, wird der Start wiederholt statt aufzugeben', async () => {
+// Seit die Kamera dauerhaft im Video-Modus läuft (Spec 2026-08-13 §3), baut
+// der Start eines Videos die native Session nicht mehr um — der Umbau, an
+// dem dieser Test früher hing (`mode="video"` erreicht die View sofort, der
+// Wechsel der Capture-Session lief aber asynchron auf der sessionQueue),
+// entfällt. Die Wiederholung bleibt trotzdem als Sicherheitsnetz: Die Session
+// kann aus anderem Grund beschäftigt sein, genau in dem Moment, in dem der
+// Startversuch sie trifft (Tab-Wechsel, ein Anruf), und lehnt dann mit
+// «Camera is not ready yet» ab (CameraView.swift:303). Ein Ereignis für
+// «wieder frei» gibt es nicht, `onCameraReady` feuert nur beim Start der
+// Session. Also wird wiederholt.
+test('wird die Session beim Start beschäftigt getroffen, wird der Start wiederholt statt aufzugeben', async () => {
   (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
   let recordAufloesen: (v: { uri: string }) => void = () => {};
   mockRecordAsync
@@ -1399,4 +1398,20 @@ test('während einer laufenden Aufnahme wechselt der Doppeltipp die Kamera nicht
   await tippen();
 
   expect(letzteKameraProps().facing).toBe('back');
+});
+
+// ——— Dauerhafter Video-Modus (Spec 2026-08-13-aufnahme-tempo-design.md §3) ———
+//
+// Der Moduswechsel Foto↔Video baute die native Session um und kostete den
+// Video-Start bis zu ~1 s. Jetzt läuft die Kamera fest im Video-Modus; das
+// Mikrofon hängt dauerhaft an der Session (oranger Punkt im Sucher, bewusst
+// entschieden), bei Tab-Blur wird es über `mute` ausgehängt — sonst
+// leuchtete der Punkt app-weit, Tab-Screens bleiben ja gemountet.
+test('die Kamera läuft dauerhaft im Video-Modus, das Mikrofon ist im Fokus an', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  await render(<AufnehmenScreen />);
+  await screen.findByLabelText('Auslöser');
+
+  expect(letzteKameraProps().mode).toBe('video');
+  expect(letzteKameraProps().mute).toBe(false);
 });

@@ -49,21 +49,12 @@ const FEHLER_TEXT = 'Das Video hat nicht geklappt. Versuch es nochmal.';
 // Wie oft der Start einer Videoaufnahme wiederholt wird, und wie lange
 // dazwischen gewartet wird.
 //
-// Der Wechsel auf `mode="video"` baut die native Kamera-Session um, und das
-// läuft asynchron auf einer EIGENEN Queue: `var mode { didSet {
-// sessionQueue.async { setCameraMode() } } }` (expo-camera 57,
-// ios/Current/CameraView.swift:107). Erst dort entsteht das
-// `videoFileOutput`. Bis dahin findet `record()` kein
-// `currentVideoFileOutput` und lehnt sofort ab, mit «Camera is not ready
-// yet» (CameraView.swift:303, CameraExceptions.swift:15).
-//
-// Dass `mode` im React-Baum committet ist, heisst also NICHT, dass die
-// Kamera aufnehmen kann. Ein Ereignis für «Umbau fertig» gibt es nicht:
-// `onCameraReady` feuert genau einmal beim Start der Session
-// (`startSessionIfNeeded`, bewacht durch `didStartSession`,
-// CameraView.swift:192), nicht bei jedem Moduswechsel. Deshalb wird der
-// Start wiederholt versucht, statt die Dauer des Umbaus zu raten: sie hängt
-// am Gerät und daran, was die Session sonst gerade tut.
+// Seit die Kamera dauerhaft im Video-Modus läuft (Spec 2026-08-13 §3), ist
+// die Session beim Druck aufs Halten längst gebaut und der erste Versuch
+// trifft. Die Schleife bleibt als Sicherheitsnetz: ein Tab-Wechsel oder ein
+// Unterbruch (Anruf) kann die Session genau dann beschäftigen, wenn der
+// Startversuch sie trifft, und ein Ereignis «Session bereit» gibt es nicht
+// (onCameraReady feuert genau einmal beim Sessionstart, nicht danach).
 const VIDEO_START_VERSUCHE = 10;
 const VIDEO_START_WARTE_MS = 100;
 
@@ -305,7 +296,21 @@ export default function AufnehmenScreen() {
   // Weg zurück, und bei genau einer laufenden Reise war er nie erreichbar,
   // weil die Reise fest verdrahtet wurde.
   const [wahlOffen, setWahlOffen] = useState(false);
-  const [modus, setModus] = useState<'picture' | 'video'>('picture');
+  // Die Kamera läuft DAUERHAFT im Video-Modus (Spec 2026-08-13 §3): der
+  // Wechsel des mode-Props baute die native Session um (Preset + Outputs,
+  // setCameraMode auf der sessionQueue) und kostete den Video-Start bis zu
+  // ~1 s. Fotos nimmt der Foto-Output derselben Session auf — er bleibt im
+  // Video-Modus angeschlossen, liefert dann 16:9 mit 1920×1080, und die
+  // Pipeline skaliert ohnehin auf 1080 px lange Kante (medien.ts).
+  // `nimmtAuf` ersetzt die frühere Frage `modus === 'video'`: läuft gerade
+  // eine Aufnahme?
+  const [nimmtAuf, setNimmtAuf] = useState(false);
+  // Ob dieser Tab gerade im Fokus steht: daran hängt `mute`. Das Mikrofon
+  // gehört dauerhaft an die laufende Video-Session (sonst fehlte dem
+  // Videoanfang der Ton), aber NUR solange der Sucher zu sehen ist — die
+  // Tab-Screens bleiben gemountet, und der orange Mikrofon-Punkt soll nicht
+  // app-weit leuchten, während man im Reise-Tab liest.
+  const [fokussiert, setFokussiert] = useState(true);
   const [richtung, setRichtung] = useState<'back' | 'front'>('back');
   const [blitz, setBlitz] = useState<'off' | 'on'>('off');
   // Zähler-Nachzug aus Task 9 (Task-10-Auftrag): Serverstand PLUS wartende
@@ -316,7 +321,10 @@ export default function AufnehmenScreen() {
   // den zuletzt bekannten Serverstand statt kurz „0 Momente" aufblitzen zu
   // lassen (siehe Fallback beim Rendern unten).
   const [zaehler, setZaehler] = useState<number | null>(null);
-  const [aufnahmeFehler, setAufnahmeFehler] = useState(false);
+  // Der Text der Meldung, oder null: seit dem Instant-Foto gibt es zwei
+  // Quellen (Foto und Video), die Pille zeigt, was auch immer zuletzt
+  // schiefging.
+  const [aufnahmeFehler, setAufnahmeFehler] = useState<string | null>(null);
   // Der ANGEZEIGTE Faktor (0,5 / 1 / 4 …), nicht der des Geräts. Zwischen
   // beiden liegt die Basis, siehe zoom.ts.
   const [faktor, setFaktor] = useState(1);
@@ -428,6 +436,7 @@ export default function AufnehmenScreen() {
   useFocusEffect(
     useCallback(() => {
       aktiv.current = true;
+      setFokussiert(true);
       // Zählt jedes Fokussieren hoch. Der Zähler-Effekt weiter unten hängt
       // daran (Important 3): bis zur Fix-Welle wirkte er nur deshalb richtig,
       // weil preview.tsx per replace bei JEDER Aufnahme einen neuen
@@ -439,6 +448,7 @@ export default function AufnehmenScreen() {
       void laden();
       return () => {
         aktiv.current = false;
+        setFokussiert(false);
       };
     }, [laden])
   );
@@ -504,21 +514,19 @@ export default function AufnehmenScreen() {
     nativeZoom.setzeZoom(zoom.name, nativerFaktor(faktorRef.current, zoom.basis), false);
   }, [zoom]);
 
-  // Läuft, sobald die Mehrfach-Kamera bekannt ist, und erneut bei jedem
-  // Moduswechsel: der tauscht das Kameraformat (setCameraMode →
-  // updateSessionPreset), und mit ihm können sich die Zoom-Grenzen
-  // verschieben. Der Wechsel des GERÄTS meldet sich dagegen von selbst,
-  // siehe onAvailableLensesChanged an der CameraView.
+  // Läuft, sobald die Mehrfach-Kamera bekannt ist. Der Wechsel des GERÄTS
+  // meldet sich dagegen von selbst, siehe onAvailableLensesChanged an der
+  // CameraView.
   useEffect(() => {
     zoomNachsetzen();
-  }, [zoomNachsetzen, modus]);
+  }, [zoomNachsetzen]);
 
   // Räumt die Meldung nach FEHLER_MS wieder ab. Der Timer hängt am Zustand
   // selbst, nicht am Auslöser: So setzt ihn ein zweiter Fehlschlag neu auf,
   // statt dass die erste Uhr die zweite Meldung wegwischt.
   useEffect(() => {
     if (!aufnahmeFehler) return;
-    const uhr = setTimeout(() => setAufnahmeFehler(false), FEHLER_MS);
+    const uhr = setTimeout(() => setAufnahmeFehler(null), FEHLER_MS);
     return () => clearTimeout(uhr);
   }, [aufnahmeFehler]);
 
@@ -533,53 +541,6 @@ export default function AufnehmenScreen() {
   useEffect(() => {
     if (micPermission?.status === 'undetermined') void requestMicPermission();
   }, [micPermission, requestMicPermission]);
-
-  // `mode` muss committet sein, bevor recordAsync() die native Aufnahme-
-  // Pipeline anspricht (CameraViewProps.mode „selects image or video
-  // output"), deshalb hier per Effekt statt direkt im Tastendruck-Handler.
-  //
-  // `.catch()` direkt an der Quelle, nicht erst beim Auswerten: Scheitert die
-  // Aufnahme, lehnt dieses Promise ab, und ohne das Abfangen flog der Fehler
-  // in handleVideoStop aus dem `await`. Dann wurde `setModus('picture')` nie
-  // erreicht, `modus` blieb auf 'video', und weil DIESER Effekt an `modus`
-  // hängt, lief er nie wieder an: Der Tab nahm bis zum Neuladen kein Video
-  // mehr auf. Am Simulator passiert das immer («SimulatorNotSupported»,
-  // ExpoCamera/CameraViewModule.swift:290), am Gerät bei Anruf, vollem
-  // Speicher oder entzogener Berechtigung.
-  //
-  // Ein `undefined` heisst hier «kein Video entstanden», und genau das
-  // behandelt handleVideoStop unten schon.
-  //
-  // Wiederholt wird, weil der erste Versuch die Session regelmässig noch
-  // mitten im Umbau trifft (siehe VIDEO_START_VERSUCHE oben). Am Simulator
-  // scheitert JEDER Versuch, dort gibt es keine Kamera
-  // («SimulatorNotSupported»), am Ende bleibt es dann beim `undefined` und
-  // der Screen sagt es.
-  useEffect(() => {
-    if (modus !== 'video') return;
-    const starten = async (): Promise<{ uri: string } | undefined> => {
-      let letzterFehler: unknown = null;
-      for (let versuch = 0; versuch < VIDEO_START_VERSUCHE; versuch++) {
-        // Wer den Auslöser schon losgelassen hat, will kein Video mehr. Ohne
-        // diese Abfrage begänne die nächste Runde eine Aufnahme, die niemand
-        // mehr stoppt: `stopRecording()` ist längst gelaufen und war ein
-        // Schlag ins Leere, die Aufnahme liefe bis `maxDuration`.
-        if (videoGestoppt.current) return undefined;
-        try {
-          return await cameraRef.current?.recordAsync({ maxDuration: MAX_VIDEO_SEKUNDEN });
-        } catch (fehler) {
-          letzterFehler = fehler;
-          await new Promise((weiter) => setTimeout(weiter, VIDEO_START_WARTE_MS));
-        }
-      }
-      // Alle Runden verbraucht. Was zuletzt schiefging, gehört ins Log: sonst
-      // steht auf dem Gerät nur FEHLER_TEXT, und die eigentliche Ursache
-      // (Simulator, kein Speicher, Berechtigung entzogen) ist verschluckt.
-      console.error('[aufnehmen] Videoaufnahme kam nicht zustande', letzterFehler);
-      return undefined;
-    };
-    videoPromise.current = starten();
-  }, [modus]);
 
   // Zieht den Zähler bei jedem Reise-Wechsel UND bei jedem Fokussieren nach
   // (`fokusStand`, Important 3), ohne `reise` gibt es nichts zu zählen.
@@ -644,7 +605,7 @@ export default function AufnehmenScreen() {
   // Reihe entzöge dem Druck die Berührung, das Loslassen käme an, und die
   // Aufnahme endete mitten im Zoomen. Ist sie dagegen gesperrt, ist die Hand
   // frei — dann bleibt der Zoom bedienbar, wie in der Kamera-App.
-  const zoomBedienbar = modus !== 'video' || aufnahmeGesperrt;
+  const zoomBedienbar = !nimmtAuf || aufnahmeGesperrt;
   const zoomSichtbar = zoom !== null && zoomBedienbar;
 
   // Der Pinch, von Hand statt über einen Gesten-Erkenner: gebraucht wird der
@@ -655,7 +616,7 @@ export default function AufnehmenScreen() {
   // recordAsync ab — derselbe Grund, aus dem die Kopfzeile während der
   // Aufnahme verschwindet. Der Doppeltipp schweigt dort also, gesperrt oder
   // nicht.
-  const darfWechseln = modus !== 'video';
+  const darfWechseln = !nimmtAuf;
 
   const kameraWechseln = () => {
     setRichtung((r) => (r === 'back' ? 'front' : 'back'));
@@ -752,8 +713,35 @@ export default function AufnehmenScreen() {
     videoGestoppt.current = false;
     // Eine neue Aufnahme räumt die alte Klage weg, sonst stünde sie noch da,
     // während schon wieder aufgenommen wird.
-    setAufnahmeFehler(false);
-    setModus('video');
+    setAufnahmeFehler(null);
+    setNimmtAuf(true);
+    // Direkt starten statt über einen Effekt am Modus: die Session ist im
+    // dauerhaften Video-Modus längst bereit, es gibt nichts zu committen.
+    // Wiederholt wird trotzdem (siehe VIDEO_START_VERSUCHE oben) — und am
+    // Simulator scheitert weiterhin JEDER Versuch («SimulatorNotSupported»),
+    // am Ende bleibt es beim `undefined` und der Screen sagt es.
+    const starten = async (): Promise<{ uri: string } | undefined> => {
+      let letzterFehler: unknown = null;
+      for (let versuch = 0; versuch < VIDEO_START_VERSUCHE; versuch++) {
+        // Wer den Auslöser schon losgelassen hat, will kein Video mehr. Ohne
+        // diese Abfrage begänne die nächste Runde eine Aufnahme, die niemand
+        // mehr stoppt: `stopRecording()` ist längst gelaufen und war ein
+        // Schlag ins Leere, die Aufnahme liefe bis `maxDuration`.
+        if (videoGestoppt.current) return undefined;
+        try {
+          return await cameraRef.current?.recordAsync({ maxDuration: MAX_VIDEO_SEKUNDEN });
+        } catch (fehler) {
+          letzterFehler = fehler;
+          await new Promise((weiter) => setTimeout(weiter, VIDEO_START_WARTE_MS));
+        }
+      }
+      // Alle Runden verbraucht. Was zuletzt schiefging, gehört ins Log: sonst
+      // steht auf dem Gerät nur FEHLER_TEXT, und die eigentliche Ursache
+      // (Simulator, kein Speicher, Berechtigung entzogen) ist verschluckt.
+      console.error('[aufnehmen] Videoaufnahme kam nicht zustande', letzterFehler);
+      return undefined;
+    };
+    videoPromise.current = starten();
   };
 
   const handleVideoStop = async () => {
@@ -764,9 +752,9 @@ export default function AufnehmenScreen() {
     cameraRef.current?.stopRecording();
     const ergebnis = await videoPromise.current;
     videoPromise.current = null;
-    setModus('picture');
+    setNimmtAuf(false);
     if (!ergebnis?.uri) {
-      setAufnahmeFehler(true);
+      setAufnahmeFehler(FEHLER_TEXT);
       return;
     }
     const dauer = Math.round((Date.now() - videoStartZeit.current) / 1000);
@@ -799,11 +787,14 @@ export default function AufnehmenScreen() {
         ref={cameraRef}
         style={StyleSheet.absoluteFill}
         facing={richtung}
-        mode={modus}
+        mode="video"
+        mute={!fokussiert}
         // `flash` gilt für Fotos; beim Video braucht es stattdessen das
-        // Dauerlicht, derselbe Schalter, zwei Prop-Namen.
+        // Dauerlicht, derselbe Schalter, zwei Prop-Namen. Ob der Foto-Blitz
+        // im Video-Preset am Gerät wirklich feuert, prüft die Geräte-
+        // Checkliste (Spec 2026-08-13 §9); Fallback wäre die Torch.
         flash={blitz}
-        enableTorch={blitz === 'on' && modus === 'video'}
+        enableTorch={blitz === 'on' && nimmtAuf}
         videoQuality="1080p"
         // Die Mehrfach-Kamera als EIN Gerät: darin schaltet iOS zwischen den
         // Linsen selbst um, nahtlos und ohne die Session neu aufzubauen. Nur
@@ -824,7 +815,7 @@ export default function AufnehmenScreen() {
           recordAsync kann die laufende Aufnahme abbrechen. Entfernt statt nur
           ausgeblendet, damit auch VoiceOver nichts anbietet, was gerade nicht
           zu bedienen ist. */}
-      {modus !== 'video' && (
+      {!nimmtAuf && (
         <View testID="sucher-kopfzeile" style={[styles.kopfZeile, { top: sucherOben }]}>
           {/* Der Trip-Umschalter (Produktkonzept): der Reisename IST der Knopf,
               kein zusätzliches Bedienelement auf dem Bild. Das Chevron macht das
@@ -869,7 +860,7 @@ export default function AufnehmenScreen() {
       )}
       {aufnahmeFehler && (
         <Pille style={[styles.fehlerPille, { bottom: fehlerUnten(zoomSichtbar) }]}>
-          <Text style={[type.secondary, styles.fehlerText]}>{FEHLER_TEXT}</Text>
+          <Text style={[type.secondary, styles.fehlerText]}>{aufnahmeFehler}</Text>
         </Pille>
       )}
       {zoomSichtbar && zoom && (
