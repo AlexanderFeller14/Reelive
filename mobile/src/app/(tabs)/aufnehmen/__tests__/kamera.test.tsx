@@ -115,6 +115,9 @@ jest.mock('react-native-safe-area-context', () => ({
 const mockTakePictureAsync = jest.fn();
 const mockRecordAsync = jest.fn();
 const mockStopRecording = jest.fn();
+const mockPausePreview = jest.fn();
+const mockResumePreview = jest.fn();
+const mockSavePictureAsync = jest.fn();
 
 type PermissionMock = { status: string; granted: boolean; canAskAgain: boolean; expires: 'never' };
 const GEWAEHRT: PermissionMock = { status: 'granted', granted: true, canAskAgain: true, expires: 'never' };
@@ -135,6 +138,8 @@ jest.mock('expo-camera', () => {
         takePictureAsync: mockTakePictureAsync,
         recordAsync: mockRecordAsync,
         stopRecording: mockStopRecording,
+        pausePreview: mockPausePreview,
+        resumePreview: mockResumePreview,
       }));
       return null;
     }),
@@ -167,6 +172,7 @@ jest.mock('@/features/kamera/nativeZoom', () => ({
 
 import AufnehmenScreen from '../index';
 import { fetchTrips } from '@/features/trips/tripsApi';
+import * as uebergabe from '@/features/kamera/uebergabe';
 
 const reise = (over: Partial<Trip> = {}): Trip => ({
   id: 't1',
@@ -195,7 +201,11 @@ beforeEach(() => {
   mockCameraPermission = GEWAEHRT;
   mockMicPermission = GEWAEHRT;
   mockInsets = { top: 0, left: 0, right: 0, bottom: 0 };
-  mockTakePictureAsync.mockResolvedValue({ uri: 'file://foto.jpg', width: 100, height: 100, format: 'jpg' });
+  mockSavePictureAsync.mockResolvedValue({ uri: 'file://gespeichert.jpg', width: 1920, height: 1080 });
+  // takePictureAsync liefert mit pictureRef:true einen PictureRef — im Test
+  // reicht ein Objekt, das savePictureAsync trägt.
+  mockTakePictureAsync.mockResolvedValue({ width: 1920, height: 1080, savePictureAsync: mockSavePictureAsync });
+  uebergabe.abholen();
 });
 
 afterEach(() => {
@@ -355,7 +365,7 @@ test('eigenerZaehler schlägt fehl: die Pille zeigt trotzdem den Serverstand, ke
   expect(screen.getByText('4 Momente')).toBeTruthy();
 });
 
-test('ein Tipp auf den Auslöser nimmt ein Foto auf und navigiert zur Vorschau', async () => {
+test('ein Tipp friert den Sucher ein, übergibt das Foto im Speicher und navigiert sofort', async () => {
   (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
   await render(<AufnehmenScreen />);
   await screen.findByLabelText('Auslöser');
@@ -363,11 +373,69 @@ test('ein Tipp auf den Auslöser nimmt ein Foto auf und navigiert zur Vorschau',
   await fireEvent(screen.getByLabelText('Auslöser'), 'pressIn');
   await fireEvent(screen.getByLabelText('Auslöser'), 'pressOut');
 
-  expect(mockTakePictureAsync).toHaveBeenCalledTimes(1);
+  // Ohne Shutter-Sound (die Haptik bleibt das Feedback) und als Ref im
+  // Speicher statt als JPEG auf der Platte — DAS ist der Instant-Anteil.
+  expect(mockTakePictureAsync).toHaveBeenCalledWith({ pictureRef: true, shutterSound: false });
+  expect(mockPausePreview).toHaveBeenCalledTimes(1);
+
+  // Die Navigation trägt kein uri mehr: das Bild geht über die Übergabe.
   expect(mockPush).toHaveBeenCalledWith({
     pathname: '/vorschau',
-    params: { uri: 'file://foto.jpg', typ: 'photo', dauer: '0', tripId: 't1' },
+    params: { typ: 'photo', dauer: '0', tripId: 't1' },
   });
+  const abgeholt = uebergabe.abholen();
+  expect(abgeholt).not.toBeNull();
+  await expect(abgeholt!.datei).resolves.toEqual(
+    expect.objectContaining({ uri: 'file://gespeichert.jpg' })
+  );
+});
+
+// Ohne dieses Auftauen bliebe der Sucher nach einem gescheiterten Foto
+// eingefroren — pausePreview ist gelaufen, und niemand navigiert weg.
+test('scheitert das Foto, läuft der Sucher weiter und der Screen sagt es', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  mockTakePictureAsync.mockRejectedValue(new Error('SimulatorNotSupported'));
+  await render(<AufnehmenScreen />);
+  await screen.findByLabelText('Auslöser');
+
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressIn');
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressOut');
+
+  expect(await screen.findByText('Das Foto hat nicht geklappt. Versuch es nochmal.')).toBeTruthy();
+  expect(mockResumePreview).toHaveBeenCalled();
+  expect(mockPush).not.toHaveBeenCalled();
+});
+
+test('beim Video-Stopp friert der Sucher ein, die Rückkehr taut ihn auf', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  let recordAufloesen: (v: { uri: string }) => void = () => {};
+  mockRecordAsync.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        recordAufloesen = resolve;
+      })
+  );
+  await render(<AufnehmenScreen />);
+  await screen.findByLabelText('Auslöser');
+
+  jest.useFakeTimers();
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressIn');
+  await act(async () => {
+    jest.advanceTimersByTime(600);
+  });
+  jest.useRealTimers();
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressOut');
+
+  // Das letzte Bild steht ruhig, während die Datei finalisiert.
+  expect(mockPausePreview).toHaveBeenCalled();
+
+  await act(async () => {
+    recordAufloesen({ uri: 'file://video.mp4' });
+  });
+
+  // Zurück aus der Vorschau: der Sucher läuft wieder.
+  await erneutFokussieren();
+  expect(mockResumePreview).toHaveBeenCalled();
 });
 
 test('ein Halten auf dem Auslöser nimmt ein Video auf und navigiert nach dem Loslassen zur Vorschau', async () => {

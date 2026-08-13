@@ -29,6 +29,7 @@ import * as tripsCache from '@/features/trips/tripsCache';
 import type { GemerkteReise } from '@/features/trips/tripsCache';
 import { eigenerZaehler } from '@/features/moments/zaehler';
 import { useAuth } from '@/features/auth/AuthProvider';
+import * as uebergabe from '@/features/kamera/uebergabe';
 
 // Höchstdauer eines Videos (Produktkonzept: Snapchat-Muster, Ring stoppt hier
 // von selbst), dieselbe Zahl geht an den Auslöser UND an CameraView.recordAsync.
@@ -45,6 +46,11 @@ const FEHLER_MS = 4000;
 // diese Meldung tippt man auf Stopp und steht vor einem Bildschirm, der
 // nichts sagt (DESIGN-LANGUAGE §6: Fehler erklären Ursache und Lösung).
 const FEHLER_TEXT = 'Das Video hat nicht geklappt. Versuch es nochmal.';
+
+// Das Foto-Gegenstück: scheitert takePictureAsync (am Simulator immer, am
+// Gerät bei vollem Speicher oder entzogener Berechtigung), bleibt man im
+// Sucher und die Pille sagt es (DESIGN-LANGUAGE §6).
+const FOTO_FEHLER_TEXT = 'Das Foto hat nicht geklappt. Versuch es nochmal.';
 
 // Wie oft der Start einer Videoaufnahme wiederholt wird, und wie lange
 // dazwischen gewartet wird.
@@ -437,6 +443,11 @@ export default function AufnehmenScreen() {
     useCallback(() => {
       aktiv.current = true;
       setFokussiert(true);
+      // Rückkehr aus der Vorschau: der Sucher war fürs Foto oder den
+      // Video-Stopp eingefroren (pausePreview) und läuft jetzt weiter. Beim
+      // allerersten Fokus ist die Kamera noch nicht gemountet, das optionale
+      // Chaining macht den Aufruf dann zum No-op.
+      void cameraRef.current?.resumePreview();
       // Zählt jedes Fokussieren hoch. Der Zähler-Effekt weiter unten hängt
       // daran (Important 3): bis zur Fix-Welle wirkte er nur deshalb richtig,
       // weil preview.tsx per replace bei JEDER Aufnahme einen neuen
@@ -596,7 +607,7 @@ export default function AufnehmenScreen() {
   // generierten (gitignorten) Routen-Liste `.expo/types/router.d.ts`. Der
   // Cast über `unknown` (statt `any`, siehe Präzedenz in joinFlow.ts) ist
   // bewusst temporär: sobald Task 8 die Route anlegt, entfällt er ersatzlos.
-  const zurPreview = (params: { uri: string; typ: 'photo' | 'video'; dauer: string; tripId: string }) => {
+  const zurPreview = (params: { typ: 'photo' | 'video'; dauer: string; tripId: string; uri?: string }) => {
     router.push({ pathname: '/vorschau', params } as unknown as Href);
   };
 
@@ -703,9 +714,30 @@ export default function AufnehmenScreen() {
   };
 
   const handleFoto = async () => {
-    const foto = await cameraRef.current?.takePictureAsync();
-    if (!foto?.uri) return;
-    zurPreview({ uri: foto.uri, typ: 'photo', dauer: '0', tripId: reise.id });
+    try {
+      // Erst die Aufnahme anstossen, DANN die Vorschau einfrieren: die
+      // SDK-Doku rät von takePictureAsync bei pausierter Vorschau ab, und
+      // der Reihenfolge sieht man den Unterschied nicht an, beides läuft im
+      // selben Tick. Das eingefrorene Bild ist der gefühlte Shutter.
+      const versprochen = cameraRef.current?.takePictureAsync({
+        pictureRef: true,
+        shutterSound: false,
+      });
+      void cameraRef.current?.pausePreview();
+      const ref = await versprochen;
+      if (!ref) throw new Error('keine Kamera');
+      // Der Ref ist in Millisekunden da (kein JPEG, kein Platten-I/O);
+      // gespeichert wird ab jetzt im Hintergrund, «Einsenden» in der
+      // Vorschau wartet auf genau dieses Promise (Spec 2026-08-13 §4).
+      uebergabe.uebergeben({ ref, datei: ref.savePictureAsync() });
+      zurPreview({ typ: 'photo', dauer: '0', tripId: reise.id });
+    } catch (fehler) {
+      console.error('[aufnehmen] Foto kam nicht zustande', fehler);
+      // Ohne das Auftauen bliebe der Sucher eingefroren stehen: pausePreview
+      // ist gelaufen, und niemand navigiert weg.
+      void cameraRef.current?.resumePreview();
+      setAufnahmeFehler(FOTO_FEHLER_TEXT);
+    }
   };
 
   const handleVideoStart = () => {
@@ -750,10 +782,15 @@ export default function AufnehmenScreen() {
     // eine Aufnahme zu beginnen.
     videoGestoppt.current = true;
     cameraRef.current?.stopRecording();
+    // Das letzte Bild steht ruhig, während die Datei finalisiert (~100 bis
+    // 300 ms) — statt dass der Sucher weiterläuft und die Vorschau dann
+    // sichtbar zurückspringt.
+    void cameraRef.current?.pausePreview();
     const ergebnis = await videoPromise.current;
     videoPromise.current = null;
     setNimmtAuf(false);
     if (!ergebnis?.uri) {
+      void cameraRef.current?.resumePreview();
       setAufnahmeFehler(FEHLER_TEXT);
       return;
     }
