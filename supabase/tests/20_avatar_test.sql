@@ -7,7 +7,7 @@
 -- eigenes ausgeben, ohne die zweite ein fremdes überschreiben.
 create extension if not exists pgtap with schema extensions;
 begin;
-select plan(13);
+select plan(14);
 
 insert into auth.users (id, email) values
   ('00000000-0000-0000-0000-00000000000a', 'anna@test.local'),
@@ -109,6 +109,30 @@ select throws_ok(
   '42501',
   null,
   'Objekt im fremden Ordner anlegen scheitert'
+);
+
+-- Der `media`-Bucket bleibt zu. Diese Migration ist die ERSTE, die überhaupt
+-- Policies auf storage.objects legt; vorher gab es dort keine einzige, und
+-- genau darauf ruht die Versiegelung: an die Momente kommt niemand per Client-
+-- SQL, jeder Zugriff läuft über kurzlebige presignte URLs aus
+-- supabase/functions/media-urls (service_role, an RLS vorbei).
+--
+-- Jede neue Klausel oben ist auf `bucket_id = 'avatare'` eingeschränkt, dieser
+-- Test geht also sofort durch. Er steht trotzdem hier, weil «geht sofort
+-- durch» eine Aussage über HEUTE ist: eine spätere Policy, die die
+-- Bucket-Bedingung vergisst oder lockert (`for insert to authenticated` ohne
+-- `bucket_id`-Prüfung wäre ein Einzeiler), öffnete den Momente-Speicher für
+-- jede angemeldete Person — die zentrale Zusage dieses Projekts, gebrochen
+-- durch eine Zeile in einer Migration, die von Avataren handelt. Das gehört
+-- angenagelt, nicht aus dem Lesen der Klauseln erschlossen.
+select throws_ok(
+  $$insert into storage.objects (bucket_id, name, owner)
+      values ('media',
+              'trips/00000000-0000-0000-0000-00000000000a/moment.jpg',
+              '00000000-0000-0000-0000-00000000000a')$$,
+  '42501',
+  null,
+  'Schreiben in den media-Bucket bleibt auch fuer authenticated verwehrt'
 );
 
 -- avatare_update_own ist die Policy hinter der eigentlichen Bedrohung, gegen
