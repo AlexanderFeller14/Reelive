@@ -22,6 +22,7 @@ dazwischen nahtlos um.
 | Während der Videoaufnahme | Zoom bleibt bedienbar, sobald die Aufnahme gesperrt ist |
 | Nach einer Aufnahme | Faktor bleibt stehen |
 | Frontkamera | Keine Stufen (nur eine Linse), Faktor zurück auf 1× |
+| Kamerawechsel | Doppeltipp auf den Sucher, zusätzlich zur Pille oben rechts |
 | Android | Keine Stufen, kein Pinch — die Linsen-API gibt es dort nicht |
 
 ## 3. Warum ein eigenes Native-Modul
@@ -147,6 +148,13 @@ wie in DESIGN-LANGUAGE §5 bereits für Zoom festgelegt.
   kommt zurück, sobald sie gesperrt ist und die Hand frei. Der Pinch verhält
   sich gleich: Er greift erst wieder, wenn niemand mehr drückt. Dafür meldet
   `Ausloeser` seinen Sperrzustand nach oben (`onSperre`).
+- **Doppeltipp auf den Sucher:** wechselt zwischen Rück- und Frontkamera
+  (Snapchat-Muster), zusätzlich zur Pille oben rechts. Zwei Tipper innerhalb
+  von 300 ms und 24 px voneinander; ein gewanderter Finger ist ein Wischen und
+  zählt nicht. Während einer laufenden Aufnahme schweigt er, gesperrt oder
+  nicht: Ein Kamerawechsel baut die Session um und bricht `recordAsync` ab.
+  Dafür nimmt die Gestenfläche einzelne Berührungen dort auch gar nicht erst
+  an — sie gehören dem Auslöser.
 - **Kamerawechsel:** Faktor zurück auf 1×, an der Frontkamera keine Reihe.
 - **Rückkehr aus der Vorschau:** Faktor bleibt stehen.
 
