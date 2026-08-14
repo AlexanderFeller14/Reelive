@@ -53,7 +53,11 @@ public class KameraAufnahmeModule: Module {
       // Lehnt NUR ab, wenn eine Aufnahme läuft, die noch NICHT gestoppt ist.
       // Eine gestoppte `aktuelle` bleibt nach dem Stopp absichtlich stehen
       // (die Vorschau-View aus Task 8 braucht sie) und wird hier einfach
-      // ersetzt — das Freigeben ihres StartFensters kommt erst mit Task 7.
+      // ersetzt — ihr StartFenster braucht kein explizites Freigeben: die
+      // ersetzte Referenz fällt mit der ganzen Aufnahme ARC anheim. Explizites
+      // Freigeben (startFensterFreigeben) braucht nur der Weiterbetrieb
+      // derselben Aufnahme (Übernahme in die Datei-Vorschau oder Verwerfen,
+      // Task 9).
       if let vorhandene = Self.aktuelle, !vorhandene.istGestoppt {
         promise.reject("laeuft_schon", "Es läuft bereits eine Aufnahme")
         return
@@ -121,6 +125,10 @@ public class KameraAufnahmeModule: Module {
       Self.aktuelle = nil
       promise.resolve()
     }.runOnQueue(.main)
+
+    View(SofortVorschauView.self) {
+      ViewName("SofortVorschau")
+    }
   }
 
   private static func outputsAnhaengen(
