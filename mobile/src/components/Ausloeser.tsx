@@ -131,6 +131,13 @@ export function Ausloeser({ onFoto, onVideoStart, onVideoStop, maxSekunden, onSp
   // entscheidet damit zwischen Sperren und Stoppen, und ein State-Wert wäre
   // dort womöglich noch der alte.
   const jenseits = useRef(false);
+  // Welcher Finger den Druck begonnen hat. Weil der Druck den Responder
+  // behält (cancelable, siehe unten), landen die Ereignisse ALLER Finger
+  // hier — onTouchMove folgt nur diesem einen, sonst verstellt ein zweiter
+  // Tipp rechts im Bild die Sperr-Schwelle oder reisst den Zug-Zoom herum.
+  // Der Typ kommt aus RNs Ereignis-Deklaration (dort string, am Gerät
+  // faktisch eine Zahl) — verglichen wird nur auf Gleichheit, nie gerechnet.
+  const startFinger = useRef<GestureResponderEvent['nativeEvent']['identifier'] | undefined>(undefined);
 
   useEffect(() => {
     // Unmount-Aufräumen: ohne dies liefe ein zum Verlassen-Zeitpunkt noch
@@ -169,6 +176,7 @@ export function Ausloeser({ onFoto, onVideoStart, onVideoStop, maxSekunden, onSp
     }
     startX.current = e?.nativeEvent?.pageX ?? 0;
     startY.current = e?.nativeEvent?.pageY ?? 0;
+    startFinger.current = e?.nativeEvent?.identifier;
     phase.current = 'haelt';
     schwellenTimer.current = setTimeout(() => {
       phase.current = 'video';
@@ -195,6 +203,8 @@ export function Ausloeser({ onFoto, onVideoStart, onVideoStop, maxSekunden, onSp
   // bleibt ein Tippen, also ein Foto.
   const onTouchMove = (e?: GestureResponderEvent) => {
     if (phase.current !== 'video') return;
+    // Fremde Finger sagen hier nichts (siehe startFinger oben).
+    if (e?.nativeEvent?.identifier !== startFinger.current) return;
     onZoomZug?.(startY.current - (e?.nativeEvent?.pageY ?? 0));
     const jetzt = (e?.nativeEvent?.pageX ?? 0) - startX.current >= SPERR_SCHWELLE;
     if (jetzt === jenseits.current) return;
@@ -272,6 +282,14 @@ export function Ausloeser({ onFoto, onVideoStart, onVideoStop, maxSekunden, onSp
           left: DRUCK_HALTE_BEREICH,
           right: DRUCK_HALTE_BEREICH,
         }}
+        // Und ohne DAS gäbe er ihn her, sobald ein zweiter Finger irgendein
+        // anderes Touchable antippt (ein Tab-Bar-Knopf reicht): Pressable
+        // beantwortet die Responder-Anforderung per Default mit Ja
+        // (`cancelable ?? true`, Pressability.js), das Abgeben feuert
+        // onPressOut, und der stoppt das Video (Gerätefund 2026-08-13).
+        // `false` lehnt ab — der Druck überlebt, das fremde Touchable feuert
+        // gar nicht erst.
+        cancelable={false}
       >
         <View style={styles.wrap}>
         <Svg width={GROESSE} height={GROESSE} style={StyleSheet.absoluteFill}>

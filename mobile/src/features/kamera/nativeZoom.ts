@@ -24,6 +24,7 @@ type KameraZoomModul = {
   linsen(position: 'back' | 'front'): NativeLinse[];
   zoomGrenzen(name: string): { min: number; max: number } | null;
   setzeZoom(name: string, faktor: number, sanft: boolean): void;
+  fokussiere(x: number, y: number): Promise<void>;
 };
 
 // `undefined` heisst «noch nicht nachgesehen», `null` heisst «gibt es hier
@@ -71,4 +72,16 @@ export function zoomGrenzen(name: string): { min: number; max: number } | null {
 /** `sanft` fährt hinein (Rampe wie in der Kamera-App), sonst folgt es dem Finger. */
 export function setzeZoom(name: string, faktor: number, sanft: boolean): void {
   nativesModul()?.setzeZoom(name, faktor, sanft);
+}
+
+/**
+ * Fokus und Belichtung auf den Punkt, in Fenster-Koordinaten (pageX/pageY).
+ * Die Umrechnung in Geräte-Koordinaten übernimmt nativ die Preview-Layer
+ * (Orientierung und Aspect-Fill-Beschnitt inklusive), zurückgestellt wird
+ * von selbst, sobald sich die Szene ändert (Subject-Area-Monitoring). Auch
+ * das steckt im eigenen Modul: expo-camera kennt nur den globalen
+ * autoFocus-Modus, keinen Fokus-Punkt.
+ */
+export function fokussiere(x: number, y: number): void {
+  void nativesModul()?.fokussiere(x, y).catch(() => {});
 }

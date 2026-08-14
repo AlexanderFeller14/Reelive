@@ -22,7 +22,7 @@ import { PressScale } from '@/components/PressScale';
 import { ZoomWahl } from '@/components/ZoomWahl';
 import * as nativeZoom from '@/features/kamera/nativeZoom';
 import { begrenzen, fingerAbstand, nativerFaktor, zoomGeraet, zugFaktor } from '@/features/kamera/zoom';
-import { cinema, palette, radius, spacing, type } from '@/theme/tokens';
+import { cinema, motion, palette, radius, spacing, type } from '@/theme/tokens';
 import { useOberkante } from '@/theme/useOberkante';
 import { useReducedMotion } from '@/theme/useReducedMotion';
 import { fetchTrips } from '@/features/trips/tripsApi';
@@ -165,6 +165,67 @@ function FehlerScreen({ fehler, onRetry }: { fehler: string; onRetry: () => void
         <Button variant="primary" label="Nochmal versuchen" onPress={onRetry} />
       </View>
     </View>
+  );
+}
+
+// Grösse des Fokus-Rings: zwischen Bedienknopf (44) und Auslöser (76), im
+// 4er-Raster (§3). Gross genug, dass er als Antwort auffällt, klein genug,
+// dass er das Motiv nicht verstellt.
+const FOKUS_RING_GROESSE = 72;
+
+// Wie lange der Ring nach dem Erscheinen stehen bleibt. Ausserhalb der
+// Motion-Skala (§5), die bemisst Übergänge — das hier ist eine Standzeit,
+// wie FEHLER_MS eine Lesezeit ist.
+const FOKUS_RING_STAND_MS = 600;
+
+// Die sichtbare Antwort auf den Fokus-Tipp (Kamera-App-Muster): der Ring
+// erscheint leicht zu gross am Punkt, setzt sich auf seine Grösse, steht
+// kurz und geht von selbst. Animiert werden nur transform und opacity (§5),
+// beides über useNativeDriver; `fast` fürs Erscheinen und Gehen — das ist
+// Mikro-Feedback, kein Übergang.
+function FokusRing({ x, y, onFertig }: { x: number; y: number; onFertig: () => void }) {
+  const reducedMotion = useReducedMotion();
+  // Beide per useState statt useRef: gelesen beim Rendern (interpolate),
+  // gleiches Muster wie SchwebendesFlugticket unten.
+  const [auftritt] = useState(() => new Animated.Value(0));
+  const [deckung] = useState(() => new Animated.Value(0));
+
+  useEffect(() => {
+    const dauer = reducedMotion ? 0 : motion.duration.fast;
+    const easing = Easing.bezier(...motion.easeSmooth);
+    const lauf = Animated.sequence([
+      Animated.parallel([
+        Animated.timing(auftritt, { toValue: 1, duration: dauer, easing, useNativeDriver: true }),
+        Animated.timing(deckung, { toValue: 1, duration: dauer, easing, useNativeDriver: true }),
+      ]),
+      Animated.delay(FOKUS_RING_STAND_MS),
+      Animated.timing(deckung, { toValue: 0, duration: dauer, easing, useNativeDriver: true }),
+    ]);
+    // Nur ein VOLLENDETER Lauf räumt auf: ein Abbruch heisst, ein neuer Ring
+    // (neuer key) hat übernommen — dessen Lauf räumt dann für beide.
+    lauf.start(({ finished }) => {
+      if (finished) onFertig();
+    });
+    return () => lauf.stop();
+  }, [auftritt, deckung, onFertig, reducedMotion]);
+
+  const groesse = auftritt.interpolate({ inputRange: [0, 1], outputRange: [1.4, 1] });
+  return (
+    <Animated.View
+      testID="fokus-ring"
+      pointerEvents="none"
+      // Sagt nichts, was der Tipp nicht schon selbst gesagt hat.
+      accessible={false}
+      style={[
+        styles.fokusRing,
+        {
+          left: x - FOKUS_RING_GROESSE / 2,
+          top: y - FOKUS_RING_GROESSE / 2,
+          opacity: deckung,
+          transform: [{ scale: groesse }],
+        },
+      ]}
+    />
   );
 }
 
@@ -347,6 +408,10 @@ export default function AufnehmenScreen() {
   const [faktor, setFaktor] = useState(1);
   // Ob die laufende Aufnahme gesperrt ist, die Hand also frei.
   const [aufnahmeGesperrt, setAufnahmeGesperrt] = useState(false);
+  // Wo der letzte Fokus-Tipp sass, oder null. `stand` zählt hoch und ist der
+  // key des Rings: ein neuer Tipp ersetzt den stehenden Ring durch einen
+  // frischen, statt dessen ablaufende Animation weiterzuzeigen.
+  const [fokusPunkt, setFokusPunkt] = useState<{ x: number; y: number; stand: number } | null>(null);
   // Wird bei jedem Fokussieren hochgezählt und hängt am Zähler-Effekt unten
   // (siehe dort und useFocusEffect).
   const [fokusStand, setFokusStand] = useState(0);
@@ -570,6 +635,17 @@ export default function AufnehmenScreen() {
     zoomNachsetzen();
   }, [zoomNachsetzen]);
 
+  // Ein sauberer Tipp auf den Sucher: Fokus und Belichtung an diesen Punkt
+  // (Kamera-App-Muster, siehe onResponderRelease der Zoomfläche unten). Der
+  // Ring ist die sichtbare Antwort darauf.
+  const fokusAuf = (punkt: { pageX: number; pageY: number }) => {
+    nativeZoom.fokussiere(punkt.pageX, punkt.pageY);
+    setFokusPunkt((alt) => ({ x: punkt.pageX, y: punkt.pageY, stand: (alt?.stand ?? 0) + 1 }));
+  };
+  // Stabil über useCallback: der Ring hängt seinen Animations-Effekt daran,
+  // eine neue Identität bei jedem Rendern würde den Lauf neu starten.
+  const fokusRingFertig = useCallback(() => setFokusPunkt(null), []);
+
   // Räumt die Meldung nach FEHLER_MS wieder ab. Der Timer hängt am Zustand
   // selbst, nicht am Auslöser: So setzt ihn ein zweiter Fehlschlag neu auf,
   // statt dass die erste Uhr die zweite Meldung wegwischt.
@@ -697,11 +773,13 @@ export default function AufnehmenScreen() {
   // im Auslöser: Wer nur wissen will, OB dieses Element Berührungen annimmt,
   // ruft die Prüffrage ohne Ereignis auf.
   const zoomGeste = {
-    // Einzelne Berührungen nimmt die Fläche nur an, wenn aus ihnen ein
-    // Doppeltipp werden darf. Während einer gehaltenen Aufnahme muss sie sie
-    // durchlassen: React Native kennt genau einen Responder, und der gehört
-    // dann dem Auslöser — nähme die Fläche ihn an sich, endete die Aufnahme.
-    onStartShouldSetResponder: () => darfWechseln,
+    // Einzelne Berührungen nimmt die Fläche an, wenn aus ihnen ein Tipp
+    // werden darf: im Ruhezustand (Fokus und Doppeltipp-Wechsel) und während
+    // einer GESPERRTEN Aufnahme (nur Fokus, die Hand ist frei). Während einer
+    // GEHALTENEN Aufnahme muss sie sie durchlassen: React Native kennt genau
+    // einen Responder, und der gehört dann dem Auslöser — nähme die Fläche
+    // ihn an sich, endete die Aufnahme.
+    onStartShouldSetResponder: () => darfWechseln || aufnahmeGesperrt,
     onMoveShouldSetResponder: (e?: GestureResponderEvent) =>
       zoomSichtbar && (e?.nativeEvent?.touches?.length ?? 0) >= 2,
     onResponderGrant: (e?: GestureResponderEvent) => {
@@ -732,8 +810,8 @@ export default function AufnehmenScreen() {
       const start = tippStart.current;
       pinchStart.current = null;
       tippStart.current = null;
-      // Wer gezoomt hat, wollte nicht die Kamera wechseln.
-      if (warPinch || !darfWechseln || !start) return;
+      // Wer gezoomt hat, meinte weder Wechsel noch Fokus.
+      if (warPinch || !start) return;
 
       const ende = {
         pageX: e?.nativeEvent?.pageX ?? 0,
@@ -750,12 +828,18 @@ export default function AufnehmenScreen() {
       const jetzt = Date.now();
       const schnellGenug = vorher !== null && jetzt - vorher.zeit <= DOPPELTIPP_MS;
       const naheGenug = vorher !== null && (fingerAbstand([vorher, ende]) ?? 0) <= TIPP_RADIUS;
-      if (schnellGenug && naheGenug) {
+      // Der Doppeltipp wechselt die Kamera — aber nur im Ruhezustand
+      // (darfWechseln): ein Session-Umbau bräche die laufende recordAsync ab.
+      if (darfWechseln && schnellGenug && naheGenug) {
         letzterTipp.current = null;
         kameraWechseln();
         return;
       }
       letzterTipp.current = { zeit: jetzt, ...ende };
+      // Jeder andere saubere Tipp fokussiert an seinem Punkt — auch der
+      // erste eines Doppeltipps (die Kamera-App tut dasselbe; der Wechsel
+      // danach macht den Fokus einfach hinfällig).
+      fokusAuf(ende);
     },
     onResponderTerminate: () => {
       pinchStart.current = null;
@@ -940,6 +1024,14 @@ export default function AufnehmenScreen() {
           unter allem Bedienbaren: was danach kommt, bekommt seine
           Berührungen zuerst. */}
       <View testID="sucher-zoomflaeche" style={StyleSheet.absoluteFill} {...zoomGeste} />
+      {fokusPunkt && (
+        <FokusRing
+          key={fokusPunkt.stand}
+          x={fokusPunkt.x}
+          y={fokusPunkt.y}
+          onFertig={fokusRingFertig}
+        />
+      )}
       {/* Läuft ein Video, verschwindet die Kopfzeile (Spec 2026-08-12). Der
           Grund ist nicht Ästhetik: Im gesperrten Zustand ist die Hand frei,
           diese Knöpfe wären also erreichbar, und ein Kamera-Wechsel mitten in
@@ -1130,4 +1222,14 @@ const styles = StyleSheet.create({
   // Zentriert, weil ein einzelner kurzer Satz in einer Pille keine Textwüste
   // ist, die §7 meint, sondern eine Beschriftung.
   fehlerText: { color: cinema['text-1'], textAlign: 'center' },
+  // Der Fokus-Ring: eine feine helle Linie auf dem Kamerabild, Radius 999
+  // (§4). `left`/`top` fehlen bewusst — sie kommen vom Tipp-Punkt.
+  fokusRing: {
+    position: 'absolute',
+    width: FOKUS_RING_GROESSE,
+    height: FOKUS_RING_GROESSE,
+    borderRadius: radius.pill,
+    borderWidth: 2,
+    borderColor: cinema['text-1'],
+  },
 });

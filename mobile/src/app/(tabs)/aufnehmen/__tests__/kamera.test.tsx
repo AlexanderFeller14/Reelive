@@ -164,10 +164,12 @@ const EINZELN = { name: 'Frontkamera', typ: 'wide', bestandteile: [], umschaltpu
 const mockNativeLinsen = jest.fn((position: string) => (position === 'back' ? [DREIFACH] : [EINZELN]));
 const mockSetzeZoom = jest.fn();
 const mockZoomGrenzen = jest.fn((_name: string) => ({ min: 1, max: 120 }));
+const mockFokussiere = jest.fn();
 jest.mock('@/features/kamera/nativeZoom', () => ({
   linsen: (position: string) => mockNativeLinsen(position),
   setzeZoom: (name: string, faktor: number, sanft: boolean) => mockSetzeZoom(name, faktor, sanft),
   zoomGrenzen: (name: string) => mockZoomGrenzen(name),
+  fokussiere: (x: number, y: number) => mockFokussiere(x, y),
 }));
 
 import AufnehmenScreen from '../index';
@@ -1639,6 +1641,104 @@ test('während einer laufenden Aufnahme wechselt der Doppeltipp die Kamera nicht
   await tippen();
 
   expect(letzteKameraProps().facing).toBe('back');
+});
+
+// ——— Tap-to-Focus (Wunsch vom 2026-08-13) ———
+//
+// expo-camera kennt nur den globalen autoFocus-Modus, keinen Fokus-Punkt —
+// fokussiere() lebt darum im eigenen Native-Modul (kamera-zoom). Hier wird
+// nur geprüft, dass der Tipp dort ankommt; die Geräte-Koordinaten rechnet
+// die Preview-Layer nativ um.
+test('ein Tipp auf den Sucher fokussiert an genau diesem Punkt', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  await render(<AufnehmenScreen />);
+  await screen.findByLabelText('Auslöser');
+
+  await tippen(140, 420, { x: 140, y: 420 });
+
+  expect(mockFokussiere).toHaveBeenCalledWith(140, 420);
+});
+
+test('ein Wischen über den Sucher fokussiert nicht', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  await render(<AufnehmenScreen />);
+  await screen.findByLabelText('Auslöser');
+
+  await tippen(100, 300, { x: 100, y: 520 });
+
+  expect(mockFokussiere).not.toHaveBeenCalled();
+});
+
+// Während einer GESPERRTEN Aufnahme ist die Hand frei — der Tipp fokussiert,
+// wie in der Kamera-App. (Während der GEHALTENEN nimmt die Fläche weiterhin
+// nichts an, der Responder gehört dem Auslöser; Test weiter oben.)
+test('auch während einer gesperrten Aufnahme fokussiert der Tipp', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  mockRecordAsync.mockImplementation(() => new Promise(() => {}));
+  await render(<AufnehmenScreen />);
+  await screen.findByLabelText('Auslöser');
+
+  jest.useFakeTimers();
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressIn', { nativeEvent: { pageX: 100 } });
+  await act(async () => {
+    jest.advanceTimersByTime(600);
+  });
+  jest.useRealTimers();
+  // Wisch übers Schloss und loslassen: die Aufnahme läuft gesperrt weiter.
+  await fireEvent(screen.getByLabelText('Auslöser'), 'touchMove', { nativeEvent: { pageX: 160 } });
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressOut');
+
+  expect(sucherFlaeche().props.onStartShouldSetResponder()).toBe(true);
+  await tippen(200, 350, { x: 200, y: 350 });
+
+  expect(mockFokussiere).toHaveBeenCalledWith(200, 350);
+});
+
+// Der Kamerawechsel bliebe auch hier ein Session-Umbau und bräche die
+// laufende recordAsync ab — der Doppeltipp bleibt also gesperrt, obwohl die
+// Fläche fürs Fokussieren wieder Tipps annimmt.
+test('während einer gesperrten Aufnahme wechselt der Doppeltipp die Kamera weiterhin nicht', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  mockRecordAsync.mockImplementation(() => new Promise(() => {}));
+  await render(<AufnehmenScreen />);
+  await screen.findByLabelText('Auslöser');
+
+  jest.useFakeTimers();
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressIn', { nativeEvent: { pageX: 100 } });
+  await act(async () => {
+    jest.advanceTimersByTime(600);
+  });
+  jest.useRealTimers();
+  await fireEvent(screen.getByLabelText('Auslöser'), 'touchMove', { nativeEvent: { pageX: 160 } });
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressOut');
+
+  await tippen();
+  await tippen();
+
+  expect(letzteKameraProps().facing).toBe('back');
+});
+
+// Ohne sichtbare Antwort fühlt sich der Tipp tot an: ein kleiner Ring steht
+// kurz am Punkt (transform/opacity, §5) und räumt sich selbst wieder weg.
+test('der Fokus-Ring steht am Tipp-Punkt und räumt sich selbst weg', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  await render(<AufnehmenScreen />);
+  await screen.findByLabelText('Auslöser');
+
+  jest.useFakeTimers();
+  await tippen(140, 420, { x: 140, y: 420 });
+
+  const ring = screen.getByTestId('fokus-ring');
+  const stil = StyleSheet.flatten(ring.props.style) as { left: number; top: number };
+  // Zentriert über dem Punkt, nicht mit der Ecke daran.
+  expect(stil.left).toBeLessThan(140);
+  expect(stil.top).toBeLessThan(420);
+
+  await act(async () => {
+    jest.advanceTimersByTime(5000);
+  });
+  jest.useRealTimers();
+  expect(screen.queryByTestId('fokus-ring')).toBeNull();
 });
 
 // ——— Dauerhafter Video-Modus (Spec 2026-08-13-aufnahme-tempo-design.md §3) ———

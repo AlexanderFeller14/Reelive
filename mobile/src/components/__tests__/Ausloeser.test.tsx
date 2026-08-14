@@ -456,3 +456,70 @@ test('der Druck-Haltebereich überdeckt den ganzen Bildschirm, nicht nur den Weg
   expect(bereich.left).toBeGreaterThanOrEqual(1000);
   expect(bereich.right).toBeGreaterThanOrEqual(1000);
 });
+
+// Gerätefund vom 2026-08-13: Ein Tipp irgendwo anders hin brach das Filmen
+// ab. React Native kennt genau einen Responder; jedes andere Touchable (ein
+// Tab-Bar-Knopf reicht) fordert ihn beim Antippen an, und Pressable gibt ihn
+// per Default her (`cancelable ?? true`, Pressability.js). Das Abgeben feuert
+// onPressOut, und der stoppt das Video. `cancelable: false` lehnt die
+// Anforderung ab: der Druck überlebt, das fremde Touchable feuert gar nicht.
+// Wie der Haltebereich ist das Prop nur über den Fiber-Pfad sichtbar.
+test('der haltende Druck gibt den Responder nicht her (cancelable: false)', async () => {
+  await render(
+    <Ausloeser onFoto={jest.fn()} onVideoStart={jest.fn()} onVideoStop={jest.fn()} maxSekunden={30} />
+  );
+  let fiber = screen.getByLabelText('Auslöser').unstable_fiber;
+  while (fiber && fiber.memoizedProps?.cancelable === undefined) {
+    fiber = fiber.return;
+  }
+  expect(fiber?.memoizedProps?.cancelable).toBe(false);
+});
+
+// ——— Finger-Wächter ———
+//
+// Weil der Druck den Responder behält (cancelable: false), landen die
+// Ereignisse ALLER Finger beim Auslöser. onTouchMove darf nur dem Finger
+// folgen, der den Druck begonnen hat — sonst verstellt ein zweiter Tipp
+// rechts im Bild die Sperr-Schwelle oder reisst den Zug-Zoom herum.
+test('ein zweiter Finger jenseits der Schwelle sperrt nicht', async () => {
+  const onVideoStop = jest.fn();
+  await render(
+    <Ausloeser onFoto={jest.fn()} onVideoStart={jest.fn()} onVideoStop={onVideoStop} maxSekunden={30} />
+  );
+  await fireEvent(knopf(), 'pressIn', { nativeEvent: { pageX: 100, identifier: 1 } });
+  await act(() => {
+    jest.advanceTimersByTime(600);
+  });
+
+  // Der fremde Finger tippt weit rechts auf — für den haltenden Finger wäre
+  // das jenseits der Sperr-Schwelle.
+  await fireEvent(knopf(), 'touchMove', { nativeEvent: { pageX: 300, identifier: 2 } });
+  await fireEvent(knopf(), 'pressOut');
+
+  // Nicht gesperrt: das Loslassen beendet die Aufnahme wie immer.
+  expect(onVideoStop).toHaveBeenCalledTimes(1);
+});
+
+test('ein zweiter Finger bewegt den Zug-Zoom nicht', async () => {
+  const onZoomZug = jest.fn();
+  await render(
+    <Ausloeser
+      onFoto={jest.fn()}
+      onVideoStart={jest.fn()}
+      onVideoStop={jest.fn()}
+      maxSekunden={30}
+      onZoomZug={onZoomZug}
+    />
+  );
+  await fireEvent(knopf(), 'pressIn', { nativeEvent: { pageX: 100, pageY: 500, identifier: 1 } });
+  await act(() => {
+    jest.advanceTimersByTime(600);
+  });
+
+  await fireEvent(knopf(), 'touchMove', { nativeEvent: { pageX: 100, pageY: 100, identifier: 2 } });
+  expect(onZoomZug).not.toHaveBeenCalled();
+
+  // Der eigene Finger meldet weiter: der Wächter filtert, er verstummt nicht.
+  await fireEvent(knopf(), 'touchMove', { nativeEvent: { pageX: 100, pageY: 300, identifier: 1 } });
+  expect(onZoomZug).toHaveBeenLastCalledWith(200);
+});

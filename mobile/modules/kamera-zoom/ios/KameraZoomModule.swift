@@ -1,5 +1,6 @@
 import AVFoundation
 import ExpoModulesCore
+import UIKit
 
 // Zoom-Stufen für den Sucher. Die JS-Seite steht in
 // src/features/kamera/nativeZoom.ts, gerechnet wird in zoom.ts.
@@ -43,8 +44,38 @@ public class KameraZoomModule: Module {
     return typen
   }
 
+  // Der Beobachter fürs Zurückstellen des Fokus (siehe «fokussiere» unten).
+  // Statisch, weil die Hilfsfunktionen des Moduls statisch sind; es gibt ihn
+  // höchstens einmal, OnCreate/OnDestroy halten ihn im Gleichgewicht.
+  private static var szenenBeobachter: NSObjectProtocol?
+
   public func definition() -> ModuleDefinition {
     Name("KameraZoom")
+
+    // Tap-to-Focus braucht seinen Rückweg: nach einem gesetzten Punkt bleibt
+    // der Fokus dort stehen, bis sich die Szene merklich ändert — dann meldet
+    // sich AVFoundation (Subject-Area-Monitoring wird in «fokussiere»
+    // eingeschaltet) und es geht zurück zu kontinuierlich über die Mitte.
+    // Das ist das Muster aus Apples AVCam-Beispiel und der Kamera-App.
+    OnCreate {
+      Self.szenenBeobachter = NotificationCenter.default.addObserver(
+        forName: .AVCaptureDeviceSubjectAreaDidChange,
+        object: nil,
+        queue: .main
+      ) { mitteilung in
+        guard let geraet = mitteilung.object as? AVCaptureDevice else {
+          return
+        }
+        Self.fokusZuruecksetzen(geraet)
+      }
+    }
+
+    OnDestroy {
+      if let beobachter = Self.szenenBeobachter {
+        NotificationCenter.default.removeObserver(beobachter)
+        Self.szenenBeobachter = nil
+      }
+    }
 
     // Alle Kameras einer Blickrichtung. Virtuelle Geräte (Dreifach-,
     // Zweifach-Kamera) tragen ihre Bestandteile und die Faktoren, bei denen
@@ -103,6 +134,108 @@ public class KameraZoomModule: Module {
         // die nächste Bedienung setzt ihn ohnehin neu.
       }
     }
+
+    // Tap-to-Focus: Fokus und Belichtung einmalig auf den Punkt, in
+    // Fenster-Punkten (pageX/pageY). Warum auch das hier liegt: expo-camera
+    // kennt nur den globalen autoFocus-Modus, keinen Fokus-Punkt.
+    //
+    // Die Umrechnung in Geräte-Koordinaten macht die Preview-Layer selbst
+    // (captureDevicePointConverted kennt Orientierung, Spiegelung und den
+    // Aspect-Fill-Beschnitt — von Hand nachgerechnet wäre jede dieser drei
+    // Stellen ein eigener Fehlerkandidat). Die Layer gehört expo-camera:
+    // dessen CameraView IST seine Preview-Layer (layerClass), gefunden wird
+    // sie über die View-Hierarchie — die App hat höchstens einen Sucher.
+    // Main-Queue, weil UIKit-Hierarchie und Layer-Geometrie dort wohnen.
+    AsyncFunction("fokussiere") { (x: Double, y: Double) in
+      guard
+        let sucher = Self.sucherView(),
+        let layer = sucher.layer as? AVCaptureVideoPreviewLayer,
+        let geraet = layer.session?.inputs
+          .compactMap({ ($0 as? AVCaptureDeviceInput)?.device })
+          .first(where: { $0.hasMediaType(.video) })
+      else {
+        return
+      }
+      let imSucher = sucher.convert(CGPoint(x: x, y: y), from: nil)
+      let punkt = layer.captureDevicePointConverted(fromLayerPoint: imSucher)
+
+      do {
+        try geraet.lockForConfiguration()
+        defer { geraet.unlockForConfiguration() }
+        // Der Punkt MUSS vor dem Modus gesetzt werden: der Moduswechsel
+        // stösst die Messung an, und die soll den neuen Punkt schon sehen.
+        if geraet.isFocusPointOfInterestSupported {
+          geraet.focusPointOfInterest = punkt
+        }
+        if geraet.isFocusModeSupported(.autoFocus) {
+          geraet.focusMode = .autoFocus
+        }
+        if geraet.isExposurePointOfInterestSupported {
+          geraet.exposurePointOfInterest = punkt
+        }
+        if geraet.isExposureModeSupported(.autoExpose) {
+          geraet.exposureMode = .autoExpose
+        }
+        // Ab jetzt meldet sich die Szene, wenn sie sich ändert — der
+        // Beobachter in OnCreate stellt dann auf kontinuierlich zurück.
+        geraet.isSubjectAreaChangeMonitoringEnabled = true
+      } catch {
+        // Wie beim Zoom: ein nicht gesetzter Fokus ist harmloser als ein
+        // Absturz, der nächste Tipp versucht es neu.
+      }
+    }.runOnQueue(.main)
+  }
+
+  // Zurück zu dem, was vor dem Tipp galt: kontinuierlicher Fokus und
+  // kontinuierliche Belichtung über die Bildmitte, Monitoring wieder aus.
+  private static func fokusZuruecksetzen(_ geraet: AVCaptureDevice) {
+    do {
+      try geraet.lockForConfiguration()
+      defer { geraet.unlockForConfiguration() }
+      let mitte = CGPoint(x: 0.5, y: 0.5)
+      if geraet.isFocusPointOfInterestSupported {
+        geraet.focusPointOfInterest = mitte
+      }
+      if geraet.isFocusModeSupported(.continuousAutoFocus) {
+        geraet.focusMode = .continuousAutoFocus
+      }
+      if geraet.isExposurePointOfInterestSupported {
+        geraet.exposurePointOfInterest = mitte
+      }
+      if geraet.isExposureModeSupported(.continuousAutoExposure) {
+        geraet.exposureMode = .continuousAutoExposure
+      }
+      geraet.isSubjectAreaChangeMonitoringEnabled = false
+    } catch {
+      // Siehe oben: lieber ein stehengebliebener Fokus als ein Absturz.
+    }
+  }
+
+  // Die View, deren Layer die Kamera-Vorschau zeichnet (expo-cameras
+  // CameraView). Über alle Fenster gesucht, nicht nur das Schlüsselfenster:
+  // während eines Systemdialogs ist ein anderes Fenster vorn.
+  private static func sucherView() -> UIView? {
+    let fenster = UIApplication.shared.connectedScenes
+      .compactMap { $0 as? UIWindowScene }
+      .flatMap { $0.windows }
+    for einzelnes in fenster {
+      if let treffer = sucherView(in: einzelnes) {
+        return treffer
+      }
+    }
+    return nil
+  }
+
+  private static func sucherView(in view: UIView) -> UIView? {
+    if view.layer is AVCaptureVideoPreviewLayer {
+      return view
+    }
+    for kind in view.subviews {
+      if let treffer = sucherView(in: kind) {
+        return treffer
+      }
+    }
+    return nil
   }
 
   private static func geraete(position: String) -> [AVCaptureDevice] {
