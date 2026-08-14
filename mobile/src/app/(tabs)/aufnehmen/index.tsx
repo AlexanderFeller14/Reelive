@@ -14,6 +14,8 @@ import { useFocusEffect, useRouter, type Href } from 'expo-router';
 import { setStatusBarStyle } from 'expo-status-bar';
 import * as Linking from 'expo-linking';
 import { CameraView, useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
+import { createVideoPlayer, type VideoPlayer } from 'expo-video';
+import { getThumbnailAsync } from 'expo-video-thumbnails';
 import { ChevronDown, SwitchCamera, Zap, ZapOff } from 'lucide-react-native';
 import { Ausloeser } from '@/components/Ausloeser';
 import { Button } from '@/components/Button';
@@ -39,6 +41,57 @@ import * as aufnahmeSperre from '@/features/kamera/aufnahmeSperre';
 // Reise-Alltag zu knapp. Der Ring am Auslöser füllt sich weiterhin über die
 // volle Dauer und stoppt die Aufnahme dann von selbst.
 const MAX_VIDEO_SEKUNDEN = 90;
+
+// Wie lange der Video-Stopp höchstens auf den vorgewärmten Vorschau-Player
+// wartet, bevor er trotzdem navigiert. Ein lokales Video ist in aller Regel
+// nach ~100–250 ms abspielbereit; die Frist fängt nur den Ausreisser, damit
+// ein zähes Laden die Navigation nie festhält.
+const PLAYER_VORLAUF_MS = 400;
+
+// Wie lange der Stopp höchstens auf das Poster (Bild 0 des Videos) wartet.
+// Es entsteht parallel zum Player-Vorlauf und überbrückt in der Vorschau die
+// ~0,8 s, die die VideoView am Gerät zum ersten Zeichnen braucht (gemessen
+// 2026-08-14). Ohne Poster wird trotzdem navigiert — die Fläche bleibt dann
+// kurz dunkel, der alte Zustand als Rückfallebene.
+const POSTER_FRIST_MS = 300;
+
+// Bild 0 der Aufnahme als Poster, oder null bei Fehlschlag oder Trödelei.
+// getThumbnailAsync liefert bei sofort gestoppten Mini-Videos gelegentlich
+// ein Objekt ohne uri (bekannter Fund) — deshalb die Prüfung statt Vertrauen.
+function posterErzeugen(uri: string): Promise<string | null> {
+  return new Promise((weiter) => {
+    const frist = setTimeout(() => weiter(null), POSTER_FRIST_MS);
+    getThumbnailAsync(uri, { time: 0 })
+      .then((bild) => bild?.uri ?? null)
+      .catch(() => null)
+      .then((poster) => {
+        clearTimeout(frist);
+        weiter(poster);
+      });
+  });
+}
+
+// Wartet, bis der vorgewärmte Player abspielbereit ist oder scheitert —
+// höchstens PLAYER_VORLAUF_MS. Ist er es schon (oder schon kaputt), geht es
+// sofort weiter, ohne Timer und ohne Horcher.
+function playerBereit(player: VideoPlayer): Promise<void> {
+  return new Promise((weiter) => {
+    if (player.status === 'readyToPlay' || player.status === 'error') {
+      weiter();
+      return;
+    }
+    let abo: { remove(): void } | null = null;
+    const fertig = () => {
+      clearTimeout(frist);
+      abo?.remove();
+      weiter();
+    };
+    const frist = setTimeout(fertig, PLAYER_VORLAUF_MS);
+    abo = player.addListener('statusChange', ({ status }) => {
+      if (status === 'readyToPlay' || status === 'error') fertig();
+    });
+  });
+}
 
 // Wie lange die Meldung nach einer gescheiterten Aufnahme stehen bleibt. Lang
 // genug zum Lesen, kurz genug, dass sie nicht zur Tapete wird und den Sucher
@@ -934,7 +987,9 @@ export default function AufnehmenScreen() {
       // Der Ref ist in Millisekunden da (kein JPEG, kein Platten-I/O);
       // gespeichert wird ab jetzt im Hintergrund, «Einsenden» in der
       // Vorschau wartet auf genau dieses Promise (Spec 2026-08-13 §4).
-      uebergabe.uebergeben({ ref, datei: ref.savePictureAsync() });
+      // gespeicherteDatei statt savePictureAsync direkt: die native Rückgabe
+      // heisst auf iOS `url`, auf Android `uri` (siehe uebergabe.ts).
+      uebergabe.uebergeben({ ref, datei: uebergabe.gespeicherteDatei(ref) });
       zurPreview({ typ: 'photo', dauer: '0', tripId: reise.id });
     } catch (fehler) {
       console.error('[aufnehmen] Foto kam nicht zustande', fehler);
@@ -1001,10 +1056,11 @@ export default function AufnehmenScreen() {
     // eine Aufnahme zu beginnen.
     videoGestoppt.current = true;
     cameraRef.current?.stopRecording();
-    // Das letzte Bild steht ruhig, während die Datei finalisiert (~100 bis
-    // 300 ms) — statt dass der Sucher weiterläuft und die Vorschau dann
-    // sichtbar zurückspringt.
-    void cameraRef.current?.pausePreview();
+    // Der Sucher läuft während der Datei-Finalisierung (~100 bis 300 ms)
+    // bewusst LIVE weiter (Gerätefund 2026-08-14): das frühere pausePreview
+    // stammte aus der Zeit des harten Schnitts zur Vorschau — als Standbild
+    // war es genau der spürbare Ruckler beim Loslassen. Den Zeitsprung vom
+    // Sucher ins Video deckt inzwischen die Blende ab (vorschau.tsx).
     const ergebnis = await videoPromise.current;
     videoPromise.current = null;
     setNimmtAuf(false);
@@ -1017,6 +1073,29 @@ export default function AufnehmenScreen() {
       return;
     }
     const dauer = Math.round((Date.now() - videoStartZeit.current) / 1000);
+    // Vorwärmen (Gerätefund 2026-08-14, Snapchat-Massstab): der Player
+    // entsteht HIER und lädt, während der Sucher live weiterläuft; navigiert
+    // wird erst, wenn er abspielbereit ist — die Blende geht dann in ein
+    // bereits laufendes Video statt in eine dunkle Fläche, in die das erste
+    // Bild hineinpoppt. Über den Holder reist nur die ANZEIGE; die Daten
+    // (uri) gehen weiterhin als Param, die dokumentierte Grenze bleibt.
+    const player = createVideoPlayer(ergebnis.uri);
+    player.loop = true;
+    player.muted = true;
+    // Stumm braucht er die Audio-Session nicht — und nur so lässt der
+    // spätere Mikrofon-Umbau dieses Screens ihn in Ruhe (vorschau.tsx).
+    player.audioMixingMode = 'mixWithOthers';
+    player.play();
+    // Poster und Player-Vorlauf laufen parallel; das Gate ist der langsamere
+    // von beiden, gedeckelt durch die jeweilige Frist.
+    const [poster] = await Promise.all([posterErzeugen(ergebnis.uri), playerBereit(player)]);
+    if (player.status === 'error') {
+      // Ein kaputter Player zeigt nichts: freigeben, die Vorschau lädt dann
+      // selbst über die uri — der alte Weg als Rückfallebene.
+      player.release();
+    } else {
+      uebergabe.videoUebergeben({ player, poster });
+    }
     zurPreview({ uri: ergebnis.uri, typ: 'video', dauer: String(dauer), tripId: reise.id });
   };
 

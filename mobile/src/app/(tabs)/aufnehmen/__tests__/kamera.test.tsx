@@ -165,6 +165,44 @@ const mockNativeLinsen = jest.fn((position: string) => (position === 'back' ? [D
 const mockSetzeZoom = jest.fn();
 const mockZoomGrenzen = jest.fn((_name: string) => ({ min: 1, max: 120 }));
 const mockFokussiere = jest.fn();
+// Der vorgewärmte Video-Player (Gerätefund 2026-08-14): der Stopp erzeugt ihn
+// selbst (createVideoPlayer), konfiguriert ihn und navigiert erst, wenn er
+// abspielbereit ist — die Vorschau blendet dann in ein bereits laufendes
+// Video. Standard-Status ist readyToPlay, damit die übrigen Stopp-Tests ohne
+// Timer-Steuerung auskommen; die Vorwärm-Tests stellen explizit auf 'loading'.
+const mockErzeugterPlayer = {
+  loop: false,
+  muted: false,
+  audioMixingMode: 'auto',
+  status: 'readyToPlay' as string,
+  play: jest.fn(),
+  release: jest.fn(),
+  addListener: jest.fn(
+    (_ereignis: string, _horcher: (e: { status: string }) => void) => ({ remove: jest.fn() })
+  ),
+};
+const mockCreateVideoPlayer = jest.fn((_quelle: unknown) => mockErzeugterPlayer);
+jest.mock('expo-video', () => ({
+  createVideoPlayer: (quelle: unknown) => mockCreateVideoPlayer(quelle),
+}));
+
+// Das Poster (Bild 0) entsteht beim Stopp gleich mit und reist neben dem
+// Player zur Vorschau — es überbrückt dort die ~0,8 s, die die VideoView
+// zum ersten Zeichnen braucht (Gerätefund 2026-08-14).
+const mockGetThumbnail = jest.fn(async (_uri: string, _optionen: unknown) => ({
+  uri: 'file://poster.jpg',
+}));
+jest.mock('expo-video-thumbnails', () => ({
+  getThumbnailAsync: (uri: string, optionen: unknown) => mockGetThumbnail(uri, optionen),
+}));
+
+function statusChangeHorcher(): ((e: { status: string }) => void) | undefined {
+  const aufruf = mockErzeugterPlayer.addListener.mock.calls.find(
+    ([ereignis]) => ereignis === 'statusChange'
+  );
+  return aufruf?.[1];
+}
+
 jest.mock('@/features/kamera/nativeZoom', () => ({
   linsen: (position: string) => mockNativeLinsen(position),
   setzeZoom: (name: string, faktor: number, sanft: boolean) => mockSetzeZoom(name, faktor, sanft),
@@ -209,6 +247,10 @@ beforeEach(() => {
   // reicht ein Objekt, das savePictureAsync trägt.
   mockTakePictureAsync.mockResolvedValue({ width: 1920, height: 1080, savePictureAsync: mockSavePictureAsync });
   uebergabe.abholen();
+  // Auch der Video-Holder beginnt leer, und der Fake-Player wieder fertig
+  // geladen (die Vorwärm-Tests verstellen beides).
+  uebergabe.videoAbholen();
+  mockErzeugterPlayer.status = 'readyToPlay';
   // Modul-Zustand, überlebt Tests: immer entsperrt beginnen.
   aufnahmeSperre.sperren(false);
 });
@@ -395,6 +437,24 @@ test('ein Tipp friert den Sucher ein, übergibt das Foto im Speicher und navigie
   );
 });
 
+// Gerätefund 2026-08-14: die native iOS-Seite von savePictureAsync liefert
+// das Feld `url`, nicht das im TS-Typ versprochene `uri` (Android liefert
+// `uri`). Die Übergabe muss beide Formen auf `uri` begradigen, sonst zieht
+// die Vorschau beim Einsenden undefined heraus und bricht kommentarlos ab.
+test('die Übergabe begradigt die iOS-Form (url) von savePictureAsync auf uri', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  mockSavePictureAsync.mockResolvedValue({ url: 'file://ios-form.jpg', width: 1920, height: 1080 });
+  await render(<AufnehmenScreen />);
+  await screen.findByLabelText('Auslöser');
+
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressIn');
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressOut');
+
+  const abgeholt = uebergabe.abholen();
+  expect(abgeholt).not.toBeNull();
+  await expect(abgeholt!.datei).resolves.toEqual({ uri: 'file://ios-form.jpg' });
+});
+
 // Mit Blitz ist das Bild NICHT in wenigen Dutzend ms da: iOS fährt erst die
 // Messsequenz (Vorblitz, Belichtungs-Konvergenz, Hauptblitz), 1–2 s. Ein
 // sofort eingefrorener Sucher stünde die ganze Zeit als dunkler Freeze da
@@ -579,7 +639,12 @@ test('ein Unmount während laufender Aufnahme löst die Sperre', async () => {
   expect(aufnahmeSperre.istGesperrt()).toBe(false);
 });
 
-test('beim Video-Stopp friert der Sucher ein, die Rückkehr taut ihn auf', async () => {
+// Gerätefund 2026-08-14: das Einfrieren beim Video-Stopp stammte aus der Zeit
+// des harten Schnitts zur Vorschau — als Standbild war es genau der Ruckler,
+// den man beim Loslassen spürte (~0,1–0,3 s Datei-Finalisierung). Seit die
+// Vorschau überblendet (vorschau.tsx), läuft der Sucher bis zur Blende live
+// weiter; den Zeitsprung ins Video deckt die Blende ab.
+test('beim Video-Stopp läuft der Sucher live weiter, statt einzufrieren', async () => {
   (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
   let recordAufloesen: (v: { uri: string }) => void = () => {};
   mockRecordAsync.mockImplementation(
@@ -599,16 +664,145 @@ test('beim Video-Stopp friert der Sucher ein, die Rückkehr taut ihn auf', async
   jest.useRealTimers();
   await fireEvent(screen.getByLabelText('Auslöser'), 'pressOut');
 
-  // Das letzte Bild steht ruhig, während die Datei finalisiert.
-  expect(mockPausePreview).toHaveBeenCalled();
-
   await act(async () => {
     recordAufloesen({ uri: 'file://video.mp4' });
   });
 
-  // Zurück aus der Vorschau: der Sucher läuft wieder.
-  await erneutFokussieren();
-  expect(mockResumePreview).toHaveBeenCalled();
+  expect(mockPausePreview).not.toHaveBeenCalled();
+});
+
+// Das Vorwärmen (Gerätefund 2026-08-14, Snapchat-Massstab): der Player
+// entsteht beim Stopp und lädt, während der Sucher live weiterläuft;
+// navigiert wird erst, wenn er abspielbereit ist — die Blende geht dann in
+// ein bereits LAUFENDES Video statt in eine dunkle Fläche, in die das erste
+// Bild hineinpoppt. Eine Frist deckelt das Warten (PLAYER_VORLAUF_MS).
+async function videoGestoppt(recordAufloesen: (v: { uri: string }) => void) {
+  await render(<AufnehmenScreen />);
+  await screen.findByLabelText('Auslöser');
+  jest.useFakeTimers();
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressIn');
+  await act(async () => {
+    jest.advanceTimersByTime(600);
+  });
+  jest.useRealTimers();
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressOut');
+  await act(async () => {
+    recordAufloesen({ uri: 'file://video.mp4' });
+  });
+}
+
+test('der Video-Stopp wärmt den Player vor und navigiert erst, wenn er abspielbereit ist', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  let recordAufloesen: (v: { uri: string }) => void = () => {};
+  mockRecordAsync.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        recordAufloesen = resolve;
+      })
+  );
+  mockErzeugterPlayer.status = 'loading';
+  await videoGestoppt((v) => recordAufloesen(v));
+
+  // Die Datei ist da, der Player entsteht und lädt — navigiert wird noch nicht.
+  expect(mockCreateVideoPlayer).toHaveBeenCalledWith('file://video.mp4');
+  expect(mockErzeugterPlayer.loop).toBe(true);
+  expect(mockErzeugterPlayer.muted).toBe(true);
+  expect(mockErzeugterPlayer.audioMixingMode).toBe('mixWithOthers');
+  expect(mockErzeugterPlayer.play).toHaveBeenCalled();
+  expect(mockPush).not.toHaveBeenCalled();
+
+  const horcher = statusChangeHorcher();
+  expect(horcher).toBeDefined();
+  await act(async () => {
+    mockErzeugterPlayer.status = 'readyToPlay';
+    horcher?.({ status: 'readyToPlay' });
+  });
+
+  const geholt = uebergabe.videoAbholen();
+  expect(geholt?.player).toBe(mockErzeugterPlayer);
+  // Das Poster reist mit: Bild 0 der Aufnahme, als Sofort-Brücke.
+  expect(mockGetThumbnail).toHaveBeenCalledWith('file://video.mp4', expect.objectContaining({ time: 0 }));
+  expect(geholt?.poster).toBe('file://poster.jpg');
+  expect(mockPush).toHaveBeenCalled();
+});
+
+test('scheitert die Poster-Erzeugung, wird ohne Poster navigiert statt gar nicht', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  let recordAufloesen: (v: { uri: string }) => void = () => {};
+  mockRecordAsync.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        recordAufloesen = resolve;
+      })
+  );
+  mockGetThumbnail.mockRejectedValueOnce(new Error('Mini-Video ohne Standbild'));
+  await videoGestoppt((v) => recordAufloesen(v));
+
+  expect(mockPush).toHaveBeenCalled();
+  const geholt = uebergabe.videoAbholen();
+  expect(geholt?.player).toBe(mockErzeugterPlayer);
+  expect(geholt?.poster).toBeNull();
+});
+
+test('lädt der Player zu zäh, navigiert der Stopp nach der Frist trotzdem', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  let recordAufloesen: (v: { uri: string }) => void = () => {};
+  mockRecordAsync.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        recordAufloesen = resolve;
+      })
+  );
+  mockErzeugterPlayer.status = 'loading';
+  await render(<AufnehmenScreen />);
+  await screen.findByLabelText('Auslöser');
+  jest.useFakeTimers();
+  try {
+    await fireEvent(screen.getByLabelText('Auslöser'), 'pressIn');
+    await act(async () => {
+      jest.advanceTimersByTime(600);
+    });
+    await fireEvent(screen.getByLabelText('Auslöser'), 'pressOut');
+    await act(async () => {
+      recordAufloesen({ uri: 'file://video.mp4' });
+    });
+    expect(mockPush).not.toHaveBeenCalled();
+
+    await act(async () => {
+      jest.advanceTimersByTime(450);
+    });
+  } finally {
+    jest.useRealTimers();
+  }
+
+  expect(mockPush).toHaveBeenCalled();
+  // Der noch ladende Player wird trotzdem übergeben: besser spät fertig
+  // laden als in der Vorschau ein zweites Mal von vorn.
+  expect(uebergabe.videoAbholen()?.player).toBe(mockErzeugterPlayer);
+});
+
+test('scheitert der vorgewärmte Player, wird er freigegeben und die Vorschau lädt selbst', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  let recordAufloesen: (v: { uri: string }) => void = () => {};
+  mockRecordAsync.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        recordAufloesen = resolve;
+      })
+  );
+  mockErzeugterPlayer.status = 'loading';
+  await videoGestoppt((v) => recordAufloesen(v));
+
+  const horcher = statusChangeHorcher();
+  expect(horcher).toBeDefined();
+  await act(async () => {
+    mockErzeugterPlayer.status = 'error';
+    horcher?.({ status: 'error' });
+  });
+
+  expect(mockPush).toHaveBeenCalled();
+  expect(mockErzeugterPlayer.release).toHaveBeenCalled();
+  expect(uebergabe.videoAbholen()).toBeNull();
 });
 
 test('ein Halten auf dem Auslöser nimmt ein Video auf und navigiert nach dem Loslassen zur Vorschau', async () => {
