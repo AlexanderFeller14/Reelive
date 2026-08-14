@@ -223,6 +223,12 @@ final class PufferAbgriff: NSObject,
 // Bools — ein Lese-Wettlauf beim Start/Stopp verwirft im schlimmsten Fall
 // einen einzelnen Puffer, was AVAssetWriter ohnehin toleriert.
 final class Aufnahme {
+  // Wie viele Frames die Sofort-Vorschau aus dem Speicher spielen kann, bevor
+  // die Datei übernimmt. 24 Frames ≈ 0,8 s bei 30 fps ≈ ~70 MB bei 1080p —
+  // nur für Sekunden im Speicher; wird nach Übernahme oder Verwerfen
+  // freigegeben. Am Gerät kalibrieren (Spec § Offene Kalibrierungen).
+  private let STARTFENSTER_FRAMES = 24
+
   let ziel: URL
   private let writer: AVAssetWriter
   private let videoEingang: AVAssetWriterInput
@@ -239,6 +245,8 @@ final class Aufnahme {
   private var stoppZeit: Date?
   private let maxSekunden: Double
   private var maxTimer: DispatchSourceTimer?
+  // Nur von videoQueue gefüllt; auf Main entleert (Task 9) — Thread-Sicherheit beim Final-Review entscheiden.
+  private(set) var startFenster: [CMSampleBuffer] = []
 
   var dauerS: Double { (stoppZeit ?? Date()).timeIntervalSince(startZeit) }
 
@@ -279,6 +287,9 @@ final class Aufnahme {
     }
     if videoEingang.isReadyForMoreMediaData {
       videoEingang.append(puffer)
+      if startFenster.count < STARTFENSTER_FRAMES {
+        startFenster.append(puffer)
+      }
     }
   }
 
@@ -313,7 +324,12 @@ final class Aufnahme {
     if fertig { rueckruf(fertigFehler) } else { fertigRueckrufe.append(rueckruf) }
   }
 
+  func startFensterFreigeben() {
+    startFenster = []
+  }
+
   func verwerfen() {
+    startFensterFreigeben()
     stoppen()
     wennFertig { _ in try? FileManager.default.removeItem(at: self.ziel) }
   }
