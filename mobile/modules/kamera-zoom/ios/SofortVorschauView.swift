@@ -11,6 +11,14 @@ final class SofortVorschauView: ExpoView {
   private var zeitbasis: CMTimebase?
   private var leser: AVAssetReader?
   private var leserAusgabe: AVAssetReaderTrackOutput?
+  // Die umgestempelte Fenster-Kopie (Datei-Zeitachse). Die View hält sie
+  // selbst: startFenster der Aufnahme gibt es nach aussen nur als Kopie unter
+  // deren Lock, und fensterEnde() braucht das Ende auch NACH der Freigabe.
+  private var fensterKopie: [CMSampleBuffer] = []
+  // Genau EINE wennFertig-Registrierung pro View: didMoveToWindow feuert bei
+  // jedem Fenster-Wechsel erneut, zwei Registrierungen hiessen zwei
+  // konkurrierende Leser auf derselben Anzeige.
+  private var uebernahmeLaeuft = false
   // Eine Queue, wiederverwendet über alle Loop-Runden hinweg — nicht pro
   // leseDatei-Aufruf neu angelegt.
   private let leseQueue = DispatchQueue(label: "reelive.vorschau.lesen")
@@ -30,6 +38,11 @@ final class SofortVorschauView: ExpoView {
     super.didMoveToWindow()
     guard window != nil else {
       leser?.cancelReading()
+      // Referenzen nillen: ein gecancelter Leser darf beim nächsten Einhängen
+      // nicht wieder als Quelle dienen (requestMediaDataWhenReady liest über
+      // leserAusgabe weiter, solange sie gesetzt ist).
+      leser = nil
+      leserAusgabe = nil
       anzeige.stopRequestingMediaData()
       anzeige.flush()
       return
@@ -40,10 +53,19 @@ final class SofortVorschauView: ExpoView {
   }
 
   private func spieleStartFenster(_ aufnahme: Aufnahme) {
-    let fenster = aufnahme.startFenster
-    guard let erster = fenster.first else { return }
+    // Die Fenster-Puffer tragen Capture-Clock-PTS (Host-Uhr, zählt seit dem
+    // Boot); die Datei beginnt aber bei ~0, weil startSession(atSourceTime:)
+    // den Aufnahme-Start auf Movie-Zeit 0 mappt. Deshalb hier JEDEN Puffer
+    // auf die Datei-Zeitachse umstempeln (PTS − startPTS): Fenster und Datei
+    // teilen so dieselbe Achse, und leseDatei(ab: fensterEnde) setzt nahtlos
+    // an, statt mit Capture-Zeiten sofort «hinter dem Dateiende» zu liegen.
+    let nullpunkt = aufnahme.startPTS
+    fensterKopie = aufnahme.startFensterKopie()
+      .compactMap { Self.aufDateiZeit($0, nullpunkt: nullpunkt) }
+    guard let erster = fensterKopie.first else { return }
     // Echtzeit-Takt: die Layer spielt nach Puffer-Zeitstempeln, sobald ihre
-    // Zeitbasis ab dem ersten Frame mit Rate 1 läuft.
+    // Zeitbasis ab dem ersten Frame (≈0 auf der Datei-Zeitachse) mit Rate 1
+    // läuft.
     var basis: CMTimebase?
     CMTimebaseCreateWithSourceClock(allocator: nil, sourceClock: CMClockGetHostTimeClock(), timebaseOut: &basis)
     if let basis {
@@ -52,7 +74,7 @@ final class SofortVorschauView: ExpoView {
       anzeige.controlTimebase = basis
       zeitbasis = basis
     }
-    for puffer in fenster {
+    for puffer in fensterKopie {
       anzeige.enqueue(puffer)
     }
   }
@@ -61,19 +83,58 @@ final class SofortVorschauView: ExpoView {
   // dem Fenster aus der Datei weiterlesen; am Ende von vorn (Loop). Freigabe
   // des Fensters, sobald die Datei übernommen hat (Spec § Speicherhaushalt).
   private func dateiUebernimmt(_ aufnahme: Aufnahme) {
+    guard !uebernahmeLaeuft else { return }
+    uebernahmeLaeuft = true
     aufnahme.wennFertig { [weak self] fehler in
-      guard fehler == nil else { return } // Fenster loopen ist der Notnagel
-      // ERST den PTS des letzten Fenster-Frames lesen, DANN freigeben — nach
-      // startFensterFreigeben() ist startFenster leer und .last liefert nil.
-      let ende = self?.fensterEnde(aufnahme) ?? .zero
+      // Schreibfehler: das letzte Fenster-Bild bleibt stehen; Einsenden
+      // scheitert sichtbar über dateiFertig (Entscheid Final-Review).
+      guard fehler == nil, let self else { return }
+      // ERST das Fenster-Ende lesen, DANN die Kopie freigeben — danach ist
+      // fensterKopie leer und .last liefert nil.
+      let ende = self.fensterEnde()
+      self.fensterKopie = []
       aufnahme.startFensterFreigeben()
-      self?.leseDatei(ab: ende, aufnahme: aufnahme)
+      self.leseDatei(ab: ende, aufnahme: aufnahme)
     }
   }
 
-  private func fensterEnde(_ aufnahme: Aufnahme) -> CMTime {
-    guard let letzter = aufnahme.startFenster.last else { return .zero }
+  // Ende des Fensters auf der DATEI-Zeitachse (fensterKopie ist umgestempelt).
+  private func fensterEnde() -> CMTime {
+    guard let letzter = fensterKopie.last else { return .zero }
     return CMSampleBufferGetPresentationTimeStamp(letzter)
+  }
+
+  // Stempelt einen Fenster-Puffer von der Capture-Clock auf die
+  // Datei-Zeitachse um: PTS − Nullpunkt, dito fürs Decode-TS. nil (Puffer
+  // fällt aus dem Fenster) nur, wenn Timing-Infos fehlen oder der Nullpunkt
+  // nie gesetzt wurde — dann gab es ohnehin keinen geschriebenen Frame.
+  private static func aufDateiZeit(_ puffer: CMSampleBuffer, nullpunkt: CMTime) -> CMSampleBuffer? {
+    guard nullpunkt.isValid else { return nil }
+    var anzahl: CMItemCount = 0
+    guard CMSampleBufferGetSampleTimingInfoArray(
+      puffer, entryCount: 0, arrayToFill: nil, entriesNeededOut: &anzahl
+    ) == noErr, anzahl > 0 else { return nil }
+    var timing = [CMSampleTimingInfo](repeating: CMSampleTimingInfo(), count: anzahl)
+    guard CMSampleBufferGetSampleTimingInfoArray(
+      puffer, entryCount: anzahl, arrayToFill: &timing, entriesNeededOut: &anzahl
+    ) == noErr else { return nil }
+    for index in timing.indices {
+      timing[index].presentationTimeStamp =
+        CMTimeSubtract(timing[index].presentationTimeStamp, nullpunkt)
+      if timing[index].decodeTimeStamp.isValid {
+        timing[index].decodeTimeStamp =
+          CMTimeSubtract(timing[index].decodeTimeStamp, nullpunkt)
+      }
+    }
+    var kopie: CMSampleBuffer?
+    guard CMSampleBufferCreateCopyWithNewTiming(
+      allocator: nil,
+      sampleBuffer: puffer,
+      sampleTimingEntryCount: anzahl,
+      sampleTimingArray: &timing,
+      sampleBufferOut: &kopie
+    ) == noErr else { return nil }
+    return kopie
   }
 
   private func leseDatei(ab start: CMTime, aufnahme: Aufnahme) {

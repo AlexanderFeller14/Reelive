@@ -82,8 +82,13 @@ public class KameraAufnahmeModule: Module {
         }
         let ziel = FileManager.default.temporaryDirectory
           .appendingPathComponent("reelive-\(UUID().uuidString).mov")
+        // mitTon hängt an der VERBINDUNG, nicht am Output: ein Output ohne
+        // Audio-Verbindung (kein Mikrofon) bleibt angehängt, liefert aber nie
+        // Puffer — ein Ton-Eingang, der leer bliebe, beschriebe die Datei
+        // falsch.
         let aufnahme = try Aufnahme(
-          ziel: ziel, maxSekunden: maxSekunden, mitTon: Self.audioOutput != nil
+          ziel: ziel, maxSekunden: maxSekunden,
+          mitTon: Self.audioOutput?.connection(with: .audio) != nil
         )
         Self.aktuelle = aufnahme
         promise.resolve()
@@ -134,6 +139,15 @@ public class KameraAufnahmeModule: Module {
   private static func outputsAnhaengen(
     _ session: AVCaptureSession, layer: AVCaptureVideoPreviewLayer
   ) throws {
+    // expo-camera baut die Session PRO CameraView: nach Metro-Reload oder
+    // Remount hängen die gemerkten Outputs an der ALTEN, toten Session — es
+    // käme nie wieder ein Puffer an. Gehört der Output nicht zu DIESER
+    // Session, verwerfen und regulär neu anhängen.
+    if let vorhandener = videoOutput, !session.outputs.contains(vorhandener) {
+      videoOutput = nil
+      audioOutput = nil
+      abgriff = nil
+    }
     guard videoOutput == nil else { return }
     let output = AVCaptureVideoDataOutput()
     let abgriff = PufferAbgriff()
@@ -152,8 +166,12 @@ public class KameraAufnahmeModule: Module {
 
     let ton = AVCaptureAudioDataOutput()
     ton.setSampleBufferDelegate(abgriff, queue: audioQueue)
-    // Kein Mikrofon (mute, Berechtigung fehlt): Aufnahme ohne Tonspur statt
-    // Scheitern (Spec § Grenzfälle) — deshalb kein throw hier.
+    // canAddOutput hängt NICHT am Mikrofon-Input: Anhängen gelingt auch ohne
+    // Mikrofon (mute, Berechtigung fehlt), nur entsteht dann keine
+    // Audio-Verbindung und der Track bliebe leer — deshalb prüft
+    // aufnahmeStarten die Verbindung, nicht den Output. Ohne Ton wird ohne
+    // Tonspur aufgenommen statt zu scheitern (Spec § Grenzfälle), deshalb
+    // kein throw hier.
     if session.canAddOutput(ton) {
       session.addOutput(ton)
       audioOutput = ton
@@ -225,11 +243,11 @@ final class PufferAbgriff: NSObject,
 }
 
 // Eine Aufnahme: Writer, Zeiten, Fertig-Rückrufe. schreibeVideo läuft auf der
-// videoQueue, schreibeTon auf der audioQueue (zwei Delegate-Queues); jeder
-// AVAssetWriterInput wird nur von seiner eigenen Queue angefasst. Die
-// gemeinsam gelesenen Flags (istGestoppt, sessionGestartet) sind einfache
-// Bools — ein Lese-Wettlauf beim Start/Stopp verwirft im schlimmsten Fall
-// einen einzelnen Puffer, was AVAssetWriter ohnehin toleriert.
+// videoQueue, schreibeTon auf der audioQueue (zwei Delegate-Queues), Stopp und
+// Fenster-Zugriffe auf Main; jeder AVAssetWriterInput wird nur von seiner
+// eigenen Queue befüllt. Das Lock macht den Zustandsübergang (istGestoppt
+// setzen + markAsFinished) und jedes Append atomar ZUEINANDER — ein Append
+// nach markAsFinished ist eine NSException, kein tolerierter Puffer-Verlust.
 final class Aufnahme {
   // Wie viele Frames die Sofort-Vorschau aus dem Speicher spielen kann, bevor
   // die Datei übernimmt. 24 Frames ≈ 0,8 s bei 30 fps ≈ ~70 MB bei 1080p —
@@ -241,11 +259,19 @@ final class Aufnahme {
   private let writer: AVAssetWriter
   private let videoEingang: AVAssetWriterInput
   private let tonEingang: AVAssetWriterInput?
+  // Schützt alles, was Delegate-Queues UND Main gemeinsam anfassen:
+  // _istGestoppt, sessionGestartet, _startPTS, startFenster, maxTimer.
+  private let lock = NSLock()
   private var sessionGestartet = false
-  // Öffentlich lesbar (nicht nur intern der Klasse): der Start-Guard in
-  // aufnahmeStarten muss nach dem Stopp einer alten Aufnahme unterscheiden
-  // können, ob sie noch läuft oder schon fertig ist.
-  private(set) var istGestoppt = false
+  private var _istGestoppt = false
+  // Öffentlich lesbar (Lock-gesichert): der Start-Guard in aufnahmeStarten
+  // muss nach dem Stopp einer alten Aufnahme unterscheiden können, ob sie
+  // noch läuft oder schon fertig ist.
+  var istGestoppt: Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    return _istGestoppt
+  }
   private var fertigFehler: Error?
   private var fertigRueckrufe: [(Error?) -> Void] = []
   private var fertig = false
@@ -253,8 +279,19 @@ final class Aufnahme {
   private var stoppZeit: Date?
   private let maxSekunden: Double
   private var maxTimer: DispatchSourceTimer?
-  // Nur von videoQueue gefüllt; auf Main entleert (Task 9) — Thread-Sicherheit beim Final-Review entscheiden.
-  private(set) var startFenster: [CMSampleBuffer] = []
+  // Capture-Clock-PTS des ersten geschriebenen Frames — der Nullpunkt der
+  // Datei-Zeitachse: startSession(atSourceTime:) mappt genau diesen Moment
+  // auf Movie-Zeit 0. Die Vorschau rechnet damit die Fenster-Puffer auf die
+  // Datei-Zeit um (PTS − startPTS, SofortVorschauView.aufDateiZeit).
+  private var _startPTS = CMTime.invalid
+  var startPTS: CMTime {
+    lock.lock()
+    defer { lock.unlock() }
+    return _startPTS
+  }
+  // Nur unter dem Lock anfassen; nach aussen geht ausschliesslich die Kopie
+  // aus startFensterKopie().
+  private var startFenster: [CMSampleBuffer] = []
 
   var dauerS: Double { (stoppZeit ?? Date()).timeIntervalSince(startZeit) }
 
@@ -286,10 +323,13 @@ final class Aufnahme {
   }
 
   func schreibeVideo(_ puffer: CMSampleBuffer) {
-    guard !istGestoppt, writer.status == .writing else { return }
+    lock.lock()
+    defer { lock.unlock() }
+    guard !_istGestoppt, writer.status == .writing else { return }
     let zeit = CMSampleBufferGetPresentationTimeStamp(puffer)
     if !sessionGestartet {
       writer.startSession(atSourceTime: zeit)
+      _startPTS = zeit
       sessionGestartet = true
       planeMaxStopp()
     }
@@ -302,7 +342,9 @@ final class Aufnahme {
   }
 
   func schreibeTon(_ puffer: CMSampleBuffer) {
-    guard !istGestoppt, sessionGestartet, writer.status == .writing else { return }
+    lock.lock()
+    defer { lock.unlock() }
+    guard !_istGestoppt, sessionGestartet, writer.status == .writing else { return }
     // Vor dem ersten VIDEO-Frame keinen Ton annehmen: die Writer-Session
     // startet auf der Video-Zeitbasis, früherer Ton würde abgeschnitten.
     if let eingang = tonEingang, eingang.isReadyForMoreMediaData {
@@ -311,12 +353,39 @@ final class Aufnahme {
   }
 
   func stoppen() {
-    guard !istGestoppt else { return }
-    istGestoppt = true
+    lock.lock()
+    guard !_istGestoppt else {
+      lock.unlock()
+      return
+    }
+    _istGestoppt = true
     stoppZeit = Date()
     maxTimer?.cancel()
-    videoEingang.markAsFinished()
-    tonEingang?.markAsFinished()
+    maxTimer = nil
+    let hatFrames = sessionGestartet
+    if hatFrames {
+      // Noch unter dem Lock: kein schreibeVideo/-Ton kann zwischen
+      // istGestoppt und markAsFinished ein Append dazwischenschieben.
+      videoEingang.markAsFinished()
+      tonEingang?.markAsFinished()
+    }
+    lock.unlock()
+    guard hatFrames else {
+      // Kein einziger Frame kam an (z. B. toter Abgriff): finishWriting ohne
+      // startSession wäre undefiniert — abbrechen und den Fehler über
+      // dateiFertig sichtbar machen, statt still eine leere Datei zu melden.
+      writer.cancelWriting()
+      let fehler = NSError(domain: "reelive", code: 4, userInfo: [
+        NSLocalizedDescriptionKey: "Kein Frame angekommen — die Aufnahme blieb leer",
+      ])
+      DispatchQueue.main.async {
+        self.fertig = true
+        self.fertigFehler = fehler
+        self.fertigRueckrufe.forEach { $0(fehler) }
+        self.fertigRueckrufe = []
+      }
+      return
+    }
     writer.finishWriting { [self] in
       let fehler = writer.status == .completed ? nil : (writer.error ?? NSError(domain: "reelive", code: 3))
       DispatchQueue.main.async {
@@ -332,7 +401,17 @@ final class Aufnahme {
     if fertig { rueckruf(fertigFehler) } else { fertigRueckrufe.append(rueckruf) }
   }
 
+  // Schnappschuss fürs Abspielen: das Array ist Copy-on-Write, der Aufrufer
+  // hält damit eine vom Lock unabhängige Puffer-Liste.
+  func startFensterKopie() -> [CMSampleBuffer] {
+    lock.lock()
+    defer { lock.unlock() }
+    return startFenster
+  }
+
   func startFensterFreigeben() {
+    lock.lock()
+    defer { lock.unlock() }
     startFenster = []
   }
 
@@ -343,7 +422,10 @@ final class Aufnahme {
   }
 
   // Die Höchstdauer stoppt HART im Modul; der JS-Ring am Auslöser bleibt nur
-  // die sichtbare Anzeige (Spec § Grenzfälle).
+  // die sichtbare Anzeige (Spec § Grenzfälle). Läuft UNTER dem Lock (Aufruf
+  // aus schreibeVideo): maxTimer wird nur lock-geschützt angefasst, und weil
+  // stoppen() istGestoppt zuerst setzt, entsteht nach dem Stopp kein Timer
+  // mehr. Der Handler feuert auf Main.
   private func planeMaxStopp() {
     let timer = DispatchSource.makeTimerSource(queue: .main)
     timer.schedule(deadline: .now() + maxSekunden)
