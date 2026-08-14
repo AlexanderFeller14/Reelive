@@ -85,3 +85,33 @@ test('text-Variante rendert Label unterstrichen und feuert', async () => {
   fireEvent.press(label);
   expect(onPress).toHaveBeenCalledTimes(1);
 });
+
+// Der Speicher-Moment im Namen-Editor: nach dem Erfolg zeigt der Knopf ein
+// Häkchen (Lucide Check, weiss auf accent — NIE grün, §1/§7 verbieten Grün
+// als Erfolgsfarbe), bevor der Screen wechselt. Er ist dabei gesperrt, aber
+// nicht ausgegraut: der Moment feiert, er deaktiviert nicht.
+test('erfolg zeigt ein Häkchen statt Label und sperrt den Knopf', async () => {
+  const onPress = jest.fn();
+  await wrap(<Button variant="primary" label="Speichern" onPress={onPress} erfolg />);
+  expect(screen.getByTestId('button-erfolg')).toBeTruthy();
+  expect(screen.queryByText('Speichern')).toBeNull();
+  expect(screen.queryByTestId('button-loading')).toBeNull();
+  fireEvent.press(screen.getByTestId('button-erfolg'));
+  expect(onPress).not.toHaveBeenCalled();
+});
+
+// «Smoother Übergang»: der Haken erscheint nicht hart, er blendet mit
+// Scale + Opacity ein (§5: nur transform/opacity). Animated.View löst seine
+// Werte beim Rendern zu Zahlen auf (gleiches Auslese-Muster wie
+// translateYVon in Sheet.test.tsx), prüfbar ist der STARTWERT der
+// Einblendung: 0/0 statt fertig dastehen.
+test('der Haken startet die Einblendung bei 0, statt hart zu erscheinen', async () => {
+  await wrap(<Button variant="primary" label="Speichern" onPress={jest.fn()} erfolg />);
+  const haken = screen.getByTestId('button-erfolg');
+  const flach = StyleSheet.flatten(haken.props.style) as {
+    opacity?: number;
+    transform?: { scale?: number }[];
+  };
+  expect(flach.opacity).toBe(0);
+  expect(flach.transform?.find((t) => 'scale' in t)?.scale).toBe(0);
+});

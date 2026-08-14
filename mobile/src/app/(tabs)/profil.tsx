@@ -1,15 +1,18 @@
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, ScrollView, Switch, Text, View, StyleSheet } from 'react-native';
+import { ActivityIndicator, Animated, Easing, ScrollView, Switch, Text, View, StyleSheet } from 'react-native';
 import { Image } from 'expo-image';
+import * as Haptics from 'expo-haptics';
 import { Pencil } from 'lucide-react-native';
+import { Avatar } from '@/components/Avatar';
 import { AvatarSheetInhalt, AvatarWaehler } from '@/components/AvatarWaehler';
 import { Button } from '@/components/Button';
 import { Card } from '@/components/Card';
 import { PressScale } from '@/components/PressScale';
 import { Sheet } from '@/components/Sheet';
 import { useTheme } from '@/theme/ThemeProvider';
-import { radius, spacing, type } from '@/theme/tokens';
+import { motion, radius, spacing, type } from '@/theme/tokens';
 import { useOberkante } from '@/theme/useOberkante';
+import { useReducedMotion } from '@/theme/useReducedMotion';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { AvatarZuschnitt } from '@/components/AvatarZuschnitt';
 import { Input } from '@/components/Input';
@@ -127,6 +130,17 @@ export default function ProfilScreen() {
   const [nameAnzeigeFehler, setNameAnzeigeFehler] = useState<string | undefined>();
   const [nameFormFehler, setNameFormFehler] = useState<string | null>(null);
   const [nameLaeuft, setNameLaeuft] = useState(false);
+  // Nach der Server-Bestätigung, bis der Editor zu ist: der Speichern-Knopf
+  // zeigt das Häkchen (Button `erfolg`) und beide Knöpfe sind gesperrt.
+  const [nameGespeichert, setNameGespeichert] = useState(false);
+  // Der Speicher-Moment (§5, Micro-Interaction, KEINE Inszenierung — die
+  // 700–900 ms bleiben Versiegeln/Reveal vorbehalten): ein Fortschrittswert
+  // treibt den Pop der Vorschau-Karte (Interpolation 1 → 1.05 → 1, dasselbe
+  // Muster wie Versiegelung.tsx), danach blendet der Editor mit duration-base
+  // aus. Beide als Animated.Value im State, wie PressScale und Sheet es halten.
+  const [momentPop] = useState(() => new Animated.Value(0));
+  const [editorDeckkraft] = useState(() => new Animated.Value(1));
+  const reducedMotion = useReducedMotion();
 
   useEffect(() => {
     if (userId) void fetchOwnProfile(userId).then(setProfile);
@@ -252,6 +266,14 @@ export default function ProfilScreen() {
     setNameEntwurf(profile.display_name);
     setNameAnzeigeFehler(undefined);
     setNameFormFehler(null);
+    // Der Editor bleibt beim Schliessen gemountet (der Screen rendert nur
+    // `sichtbar=false`), die Animated-Werte überleben also — ohne Reset
+    // startete das nächste Öffnen unsichtbar bzw. mitten im Pop (dieselbe
+    // Falle wie beim Wisch-Offset in Sheet.tsx).
+    momentPop.setValue(0);
+    editorDeckkraft.setValue(1);
+    setNameLaeuft(false);
+    setNameGespeichert(false);
     setNameEditorSichtbar(true);
   };
 
@@ -265,14 +287,50 @@ export default function ProfilScreen() {
     if (dErr) return;
     setNameLaeuft(true);
     const { error } = await updateProfile(userId, nameEntwurf);
-    setNameLaeuft(false);
-    if (error) return setNameFormFehler(error);
+    if (error) {
+      setNameLaeuft(false);
+      return setNameFormFehler(error);
+    }
     // Wie beim Profilbild: die Antwort IST der neue Stand, kein zweiter
     // Rundgang zur Datenbank. Getrimmt wie updateProfile es schreibt.
     setProfile((vorher) => (vorher
       ? { ...vorher, display_name: nameEntwurf.trim() }
       : vorher));
-    setNameEditorSichtbar(false);
+    // Der Speicher-Moment. Das Häkchen löst den Spinner ab (`erfolg` sperrt
+    // den Knopf weiter, ein zweiter Tap schickt also nichts erneut ab) und
+    // steht sichtbar, BEVOR der Screen wechselt. Haptik light, nicht
+    // success: §5 reserviert success für Versiegeln und Reveal.
+    setNameLaeuft(false);
+    setNameGespeichert(true);
+    const schliessen = () => setNameEditorSichtbar(false);
+    // Haltephase nach dem Pop (Wunsch vom 2026-08-14): das Häkchen soll
+    // einen Atemzug stehen, bevor der Screen wechselt — sonst wirkt der
+    // Erfolg wie weggerissen. `gentle` statt eines erfundenen Werts; die
+    // Stille zählt nicht als Bewegung, deshalb gilt sie auch im
+    // reduced-motion-Zweig vor dessen 200-ms-Fade.
+    const halten = Animated.delay(motion.duration.gentle);
+    const abgang = (dauer: number) => Animated.timing(editorDeckkraft, {
+      toValue: 0,
+      duration: dauer,
+      easing: Easing.bezier(...motion.easeSmooth),
+      useNativeDriver: true,
+    });
+    if (reducedMotion) {
+      // §5: alles wird zu 200-ms-Fades, kein Pop.
+      Animated.sequence([halten, abgang(200)]).start(schliessen);
+      return;
+    }
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    Animated.sequence([
+      Animated.timing(momentPop, {
+        toValue: 1,
+        duration: motion.duration.gentle,
+        easing: Easing.bezier(...motion.easeSmooth),
+        useNativeDriver: true,
+      }),
+      halten,
+      abgang(motion.duration.base),
+    ]).start(schliessen);
   };
 
   return (
@@ -411,12 +469,48 @@ export default function ProfilScreen() {
           Kino, weil hier ein Formular steht und kein Foto (§1). Das Feld
           steht oben, die Tastatur hat den Rest des Screens für sich. */}
       {nameEditorSichtbar && (
-        <View testID="name-editor" style={[styles.nameEditor, { backgroundColor: colors['bg-0'] }]}>
+        <Animated.View
+          testID="name-editor"
+          style={[styles.nameEditor, { backgroundColor: colors['bg-0'], opacity: editorDeckkraft }]}
+        >
           <View style={[styles.nameEditorInhalt, { paddingTop: oben }]}>
             <Text style={[type.h1, { color: colors['text-1'] }]}>Anzeigename ändern</Text>
-            <Text style={[type.secondary, { color: colors['text-2'] }]}>
-              Dein Username {profile ? `@${profile.username}` : ''} bleibt gleich.
-            </Text>
+            {/* Live-Vorschau statt Dekoration: die Zeile, wie Freunde einen
+                sehen (Kreis, Name, Handle, dieselbe Form wie die Mitglieder-
+                zeile), mit dem GETIPPTEN Stand statt dem gespeicherten. ÜBER
+                dem Feld (Wunsch vom 2026-08-13): erst sehen, was man ändert,
+                dann ändern — und das Feld bleibt trotzdem hoch genug, um
+                nicht unter die Tastatur zu geraten. */}
+            <View style={styles.vorschauZone}>
+              <Text style={[type.secondary, { color: colors['text-2'] }]}>
+                So sehen dich deine Freunde.
+              </Text>
+              {/* Der Pop des Speicher-Moments: 1 → 1.05 → 1 über den halben
+                  Fortschritt, Interpolation statt zweier verketteter Springs
+                  (dasselbe Muster wie siegelScale in Versiegelung.tsx). */}
+              <Animated.View
+                style={{
+                  transform: [{
+                    scale: momentPop.interpolate({
+                      inputRange: [0, 0.5, 1],
+                      outputRange: [1, 1.05, 1],
+                    }),
+                  }],
+                }}
+              >
+                <Card testID="name-vorschau" style={styles.zeile}>
+                  <Avatar name={nameEntwurf} avatarKey={profile?.avatar_key ?? null} size={44} />
+                  <View style={styles.zeileText}>
+                    <Text style={[type.h1, { color: colors['text-1'] }]}>
+                      {nameEntwurf.trim() || '…'}
+                    </Text>
+                    <Text style={[type.secondary, { color: colors['text-2'] }]}>
+                      {profile ? `@${profile.username}` : ''}
+                    </Text>
+                  </View>
+                </Card>
+              </Animated.View>
+            </View>
             <Input
               label="Anzeigename"
               value={nameEntwurf}
@@ -426,15 +520,21 @@ export default function ProfilScreen() {
             {nameFormFehler && (
               <Text style={[type.body, { color: colors.danger }]}>{nameFormFehler}</Text>
             )}
-            <Button variant="primary" label="Speichern" onPress={() => void nameSpeichern()} loading={nameLaeuft} />
+            <Button
+              variant="primary"
+              label="Speichern"
+              onPress={() => void nameSpeichern()}
+              loading={nameLaeuft}
+              erfolg={nameGespeichert}
+            />
             <Button
               variant="secondary"
               label="Abbrechen"
               onPress={() => setNameEditorSichtbar(false)}
-              disabled={nameLaeuft}
+              disabled={nameLaeuft || nameGespeichert}
             />
           </View>
-        </View>
+        </Animated.View>
       )}
 
       {/* Der Zuschnitt liegt über allem und ist deshalb der letzte Knoten:
@@ -513,6 +613,9 @@ const styles = StyleSheet.create({
   // Theme.
   nameEditor: { ...StyleSheet.absoluteFill },
   nameEditorInhalt: { padding: spacing.screen, gap: spacing.l },
+  // Zwischen Hinweis und Feld reicht der Container-Abstand, die Zone braucht
+  // nur den engen Binnenabstand zwischen Label und Karte.
+  vorschauZone: { gap: spacing.s },
   zeile: { flexDirection: 'row', alignItems: 'center', gap: spacing.m },
   zeileText: { flex: 1, gap: spacing.xs },
   kontoLoeschenText: { textDecorationLine: 'underline', textAlign: 'center' },

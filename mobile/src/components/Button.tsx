@@ -1,7 +1,47 @@
-import { ActivityIndicator, Text, View, StyleSheet } from 'react-native';
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, Animated, Easing, Text, View, StyleSheet } from 'react-native';
+import { Check } from 'lucide-react-native';
 import { PressScale } from '@/components/PressScale';
 import { useTheme } from '@/theme/ThemeProvider';
-import { radius, spacing, type } from '@/theme/tokens';
+import { motion, radius, spacing, type } from '@/theme/tokens';
+import { useReducedMotion } from '@/theme/useReducedMotion';
+
+// Der Haken blendet mit Scale + Opacity ein (§5: nur transform/opacity),
+// per spring-ui, dessen leichtes Überschwingen den «Pop» gratis mitbringt —
+// ein hart erscheinender Erfolgshaken läse sich als Sprung, nicht als Moment.
+// Eigene Komponente, weil die Einblendung an den MOUNT gebunden ist: sie
+// existiert erst, wenn `erfolg` wahr wird, und startet genau dann bei 0.
+function ErfolgsHaken({ farbe }: { farbe: string }) {
+  const [einblendung] = useState(() => new Animated.Value(0));
+  const reducedMotion = useReducedMotion();
+
+  useEffect(() => {
+    if (reducedMotion) {
+      // §5: alles wird zu 200-ms-Fades.
+      Animated.timing(einblendung, {
+        toValue: 1,
+        duration: 200,
+        easing: Easing.bezier(...motion.easeSmooth),
+        useNativeDriver: true,
+      }).start();
+      return;
+    }
+    Animated.spring(einblendung, { toValue: 1, useNativeDriver: true, ...motion.spring }).start();
+  }, [einblendung, reducedMotion]);
+
+  return (
+    <Animated.View
+      testID="button-erfolg"
+      style={{
+        opacity: einblendung,
+        // Bei reduzierter Bewegung nur der Fade, kein Wachsen aus dem Nichts.
+        transform: [{ scale: reducedMotion ? 1 : einblendung }],
+      }}
+    >
+      <Check size={22} color={farbe} strokeWidth={1.75} />
+    </Animated.View>
+  );
+}
 
 type Props = {
   variant: 'primary' | 'secondary' | 'text';
@@ -9,13 +49,20 @@ type Props = {
   onPress: () => void;
   disabled?: boolean;
   loading?: boolean;
+  // Erfolgs-Moment (Speicher-Moment im Namen-Editor): ein Häkchen ersetzt
+  // das Label, der Knopf ist gesperrt, behält aber seine Farben — der Moment
+  // feiert, er deaktiviert nicht. NIE grün: §1/§7 verbieten Grün als
+  // Erfolgsfarbe, das Häkchen steht in der Label-Farbe (primär: on-accent).
+  erfolg?: boolean;
 };
 
 // DESIGN-LANGUAGE v2 §4: primär = accent-Fläche, sekundär = Outline auf Weiss,
 // text = unterstrichener Link in text-1. Genau ein Primär-Button pro Screen.
-export function Button({ variant, label, onPress, disabled, loading }: Props) {
+export function Button({ variant, label, onPress, disabled, loading, erfolg }: Props) {
   const { colors } = useTheme();
-  const blocked = disabled || loading;
+  // `erfolg` sperrt wie `blocked`, nimmt aber NICHT die blocked-Farben an
+  // (siehe bg/fg unten): ein grauer Erfolgsmoment wäre keiner.
+  const blocked = disabled || loading || erfolg;
 
   return (
     <PressScale
@@ -32,24 +79,26 @@ export function Button({ variant, label, onPress, disabled, loading }: Props) {
       }}
     >
       {({ pressed }) => {
+        // `erfolg` zählt bei den Farben bewusst nicht als blockiert.
+        const gedimmt = blocked && !erfolg;
         const bg =
           variant === 'primary'
-            ? blocked
+            ? gedimmt
               ? colors['bg-1']
-              : pressed
+              : pressed && !erfolg
                 ? colors['accent-pressed']
                 : colors.accent
             : variant === 'secondary'
-              ? pressed
+              ? pressed && !gedimmt
                 ? colors['bg-1']
                 : colors['bg-0']
               : 'transparent';
         const fg =
           variant === 'primary'
-            ? blocked
+            ? gedimmt
               ? colors['text-3']
               : colors['on-accent']
-            : blocked
+            : gedimmt
               ? colors['text-3']
               : colors['text-1'];
         return (
@@ -60,7 +109,9 @@ export function Button({ variant, label, onPress, disabled, loading }: Props) {
               variant === 'secondary' && { borderWidth: 1, borderColor: fg },
             ]}
           >
-            {loading ? (
+            {erfolg ? (
+              <ErfolgsHaken farbe={fg} />
+            ) : loading ? (
               <ActivityIndicator testID="button-loading" color={fg} />
             ) : (
               <Text style={[type.bodyMedium, { color: fg }, variant === 'text' && styles.underline]}>

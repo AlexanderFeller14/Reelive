@@ -108,6 +108,14 @@ jest.mock('@/features/push/pushApi', () => ({
   deregistrierePushToken: () => mockDeregistrierePush(),
 }));
 
+// Der Speicher-Moment im Namen-Editor feiert mit Haptik light (§5: light für
+// kleine Momente, success bleibt Versiegeln/Reveal vorbehalten).
+const mockHaptikLeicht = jest.fn(async (_stil: unknown) => {});
+jest.mock('expo-haptics', () => ({
+  impactAsync: (stil: unknown) => mockHaptikLeicht(stil),
+  ImpactFeedbackStyle: { Light: 'light' },
+}));
+
 // Pfad-Anpassung (Task-10-Kontext, Abweichung 2): Router-Root ist mobile/src/app/,
 // nicht mobile/app/, von __tests__/ drei Ebenen hoch zu app/(tabs)/...
 import ProfilScreen from '../../../app/(tabs)/profil';
@@ -376,6 +384,26 @@ describe('Anzeigename ändern', () => {
     expect(screen.getByTestId('name-editor')).toBeTruthy();
     expect(screen.queryByTestId('sheet-root')).toBeNull();
     expect(within(screen.getByTestId('profil-inhalt')).queryByTestId('name-editor')).toBeNull();
+    // Statt Dekoration füllt eine Live-Vorschau die Seite: die Zeile, wie
+    // Freunde einen sehen (Kreis, Name, Handle), mit dem GETIPPTEN Stand.
+    // Sie steht ÜBER dem Eingabefeld (und damit vor den Knöpfen im Baum):
+    // erst sehen, was man ändert, dann ändern.
+    const vorschau = within(screen.getByTestId('name-editor')).getByTestId('name-vorschau');
+    expect(within(vorschau).getByText('Lea')).toBeTruthy();
+    expect(within(vorschau).getByText('@lea')).toBeTruthy();
+    const baum = JSON.stringify(screen.toJSON());
+    expect(baum.indexOf('name-vorschau')).toBeLessThan(baum.indexOf('Speichern'));
+  });
+
+  test('die Vorschau zieht beim Tippen live mit, ohne zu speichern', async () => {
+    await wrap(<ProfilScreen />);
+    await screen.findByText('Lea');
+    await fireEvent.press(screen.getByTestId('name-bearbeiten-oeffnen'));
+    await fireEvent.changeText(screen.getByDisplayValue('Lea'), 'Lea Neu');
+    const vorschau = within(screen.getByTestId('name-editor')).getByTestId('name-vorschau');
+    expect(within(vorschau).getByText('Lea Neu')).toBeTruthy();
+    // Nur die Vorschau, nicht der Screen dahinter: gespeichert ist nichts.
+    expect(updateProfile).not.toHaveBeenCalled();
   });
 
   test('Speichern schreibt den Anzeigenamen und zeigt ihn sofort an, der Username bleibt', async () => {
@@ -391,8 +419,23 @@ describe('Anzeigename ändern', () => {
     expect(await screen.findByText('Lea Neu')).toBeTruthy();
     expect(screen.getByText('@lea')).toBeTruthy();
     expect((fetchOwnProfile as jest.Mock).mock.calls.length).toBe(1);
-    // Der Editor ist zu.
-    expect(screen.queryByTestId('name-editor')).toBeNull();
+    // Der Editor schliesst sich NACH dem Speicher-Moment von selbst (Pop der
+    // Vorschau + 250-ms-Abgang), deshalb waitFor statt sofortiger Zusicherung.
+    await waitFor(() => expect(screen.queryByTestId('name-editor')).toBeNull(), { timeout: 3000 });
+  });
+
+  test('der Speicher-Moment: Häkchen auf dem Knopf und Haptik light, dann schliesst der Editor', async () => {
+    (updateProfile as jest.Mock).mockResolvedValue({ error: null });
+    await wrap(<ProfilScreen />);
+    await screen.findByText('Lea');
+    await fireEvent.press(screen.getByTestId('name-bearbeiten-oeffnen'));
+    await fireEvent.changeText(screen.getByDisplayValue('Lea'), 'Lea Neu');
+    await fireEvent.press(screen.getByText('Speichern'));
+    // Das Häkchen steht auf dem Knopf, BEVOR der Screen wechselt.
+    await waitFor(() => expect(screen.getByTestId('button-erfolg')).toBeTruthy());
+    expect(screen.getByTestId('name-editor')).toBeTruthy();
+    await waitFor(() => expect(mockHaptikLeicht).toHaveBeenCalledWith('light'));
+    await waitFor(() => expect(screen.queryByTestId('name-editor')).toBeNull(), { timeout: 3000 });
   });
 
   test('ein Serverfehler steht im Editor, der bleibt offen, der alte Name bleibt stehen', async () => {
@@ -405,6 +448,8 @@ describe('Anzeigename ändern', () => {
     expect(await screen.findByText('KAPUTT')).toBeTruthy();
     expect(screen.getByTestId('name-editor')).toBeTruthy();
     expect(screen.getByText('Lea')).toBeTruthy();
+    // Kein Fest ohne Erfolg: der Fehlerpfad bleibt stumm.
+    expect(mockHaptikLeicht).not.toHaveBeenCalled();
   });
 
   test('«Abbrechen» schliesst den Editor, ohne zu speichern', async () => {
