@@ -53,21 +53,41 @@ const fakePlayer = () => ({ release: jest.fn() }) as unknown as VideoPlayer;
 
 test('videoAbholen liefert die Übergabe genau einmal', () => {
   const p = fakePlayer();
-  videoUebergeben({ player: p, poster: 'file://poster.jpg' });
+  videoUebergeben({ art: 'player', player: p, poster: 'file://poster.jpg' });
   const geholt = videoAbholen();
-  expect(geholt?.player).toBe(p);
-  expect(geholt?.poster).toBe('file://poster.jpg');
+  expect(geholt?.art).toBe('player');
+  expect(geholt && geholt.art === 'player' ? geholt.player : null).toBe(p);
+  expect(geholt && geholt.art === 'player' ? geholt.poster : null).toBe('file://poster.jpg');
   expect(videoAbholen()).toBeNull();
 });
 
 test('eine neue Übergabe ersetzt eine liegengebliebene und gibt deren Player frei', () => {
   const alt = fakePlayer();
   const neu = fakePlayer();
-  videoUebergeben({ player: alt, poster: null });
-  videoUebergeben({ player: neu, poster: null });
+  videoUebergeben({ art: 'player', player: alt, poster: null });
+  videoUebergeben({ art: 'player', player: neu, poster: null });
   expect((alt as unknown as { release: jest.Mock }).release).toHaveBeenCalled();
-  expect(videoAbholen()?.player).toBe(neu);
+  const geholt = videoAbholen();
+  expect(geholt && geholt.art === 'player' ? geholt.player : null).toBe(neu);
   expect(videoAbholen()).toBeNull();
+});
+
+// Die native Form (Task 10, VideoUebergabe-Union): keine Player-Anzeige mehr,
+// nur das Promise, das anzeigt, wann die Hintergrund-Datei fertig ist. Kein
+// natives Objekt, also auch kein release nötig.
+test('die native Form trägt das dateiFertig-Promise und braucht kein release', () => {
+  const fertig = Promise.resolve();
+  videoUebergeben({ art: 'nativ', dateiFertig: fertig });
+  const geholt = videoAbholen();
+  expect(geholt?.art).toBe('nativ');
+  expect(geholt && geholt.art === 'nativ' ? geholt.dateiFertig : null).toBe(fertig);
+});
+
+test('eine native Übergabe ersetzt eine liegengebliebene Player-Übergabe und gibt deren Player frei', () => {
+  const alt = fakePlayer();
+  videoUebergeben({ art: 'player', player: alt, poster: null });
+  videoUebergeben({ art: 'nativ', dateiFertig: Promise.resolve() });
+  expect((alt as unknown as { release: jest.Mock }).release).toHaveBeenCalled();
 });
 
 // savePictureAsync ist plattform-uneins (expo-camera SDK 57): Android liefert

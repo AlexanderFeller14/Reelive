@@ -719,10 +719,11 @@ test('der Video-Stopp wärmt den Player vor und navigiert erst, wenn er abspielb
   });
 
   const geholt = uebergabe.videoAbholen();
-  expect(geholt?.player).toBe(mockErzeugterPlayer);
+  expect(geholt?.art).toBe('player');
+  expect(geholt && geholt.art === 'player' ? geholt.player : null).toBe(mockErzeugterPlayer);
   // Das Poster reist mit: Bild 0 der Aufnahme, als Sofort-Brücke.
   expect(mockGetThumbnail).toHaveBeenCalledWith('file://video.mp4', expect.objectContaining({ time: 0 }));
-  expect(geholt?.poster).toBe('file://poster.jpg');
+  expect(geholt && geholt.art === 'player' ? geholt.poster : null).toBe('file://poster.jpg');
   expect(mockPush).toHaveBeenCalled();
 });
 
@@ -740,8 +741,9 @@ test('scheitert die Poster-Erzeugung, wird ohne Poster navigiert statt gar nicht
 
   expect(mockPush).toHaveBeenCalled();
   const geholt = uebergabe.videoAbholen();
-  expect(geholt?.player).toBe(mockErzeugterPlayer);
-  expect(geholt?.poster).toBeNull();
+  expect(geholt?.art).toBe('player');
+  expect(geholt && geholt.art === 'player' ? geholt.player : null).toBe(mockErzeugterPlayer);
+  expect(geholt && geholt.art === 'player' ? geholt.poster : undefined).toBeNull();
 });
 
 test('lädt der Player zu zäh, navigiert der Stopp nach der Frist trotzdem', async () => {
@@ -778,7 +780,8 @@ test('lädt der Player zu zäh, navigiert der Stopp nach der Frist trotzdem', as
   expect(mockPush).toHaveBeenCalled();
   // Der noch ladende Player wird trotzdem übergeben: besser spät fertig
   // laden als in der Vorschau ein zweites Mal von vorn.
-  expect(uebergabe.videoAbholen()?.player).toBe(mockErzeugterPlayer);
+  const geholt = uebergabe.videoAbholen();
+  expect(geholt && geholt.art === 'player' ? geholt.player : null).toBe(mockErzeugterPlayer);
 });
 
 test('scheitert der vorgewärmte Player, wird er freigegeben und die Vorschau lädt selbst', async () => {

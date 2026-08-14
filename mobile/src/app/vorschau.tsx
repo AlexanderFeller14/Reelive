@@ -170,6 +170,11 @@ export default function PreviewScreen() {
   // beim Erscheinen abgeholt; ohne Übergabe (Deep Link, gescheitertes
   // Vorwärmen) lädt der Hook darunter selbst über die uri.
   const [vorbereitet] = useState(() => (typ === 'video' ? uebergabe.videoAbholen() : null));
+  // Die native Form (Task 12: SofortVorschau) existiert als Wert bereits,
+  // dieser Screen weiss aber noch nichts von ihr — nur die Player-Form hat
+  // hier ein Verhalten. Ein art-bewusster Blick auf `vorbereitet` genügt,
+  // statt an mehreren Stellen `.art === 'player'` zu wiederholen.
+  const vorbereiteterPlayer = vorbereitet?.art === 'player' ? vorbereitet : null;
 
   // Nachzug aus Task 8 (Video-Nachzug): «das Aufgenommene formatfüllend» gilt
   // auch für Videos, dieser Screen ist der letzte Blick vor dem Versiegeln.
@@ -190,7 +195,7 @@ export default function PreviewScreen() {
       p.play();
     }
   );
-  const player = vorbereitet?.player ?? eigenerPlayer;
+  const player = vorbereiteterPlayer?.player ?? eigenerPlayer;
 
   // Das Poster aus der Übergabe (Bild 0 des Videos) steht, bis die VideoView
   // ihr erstes Bild wirklich gezeichnet hat — sie braucht dafür am Gerät
@@ -204,12 +209,13 @@ export default function PreviewScreen() {
   // leckt der native Player. Den Hook-Player räumt der Hook selbst ab. Die
   // Poster-Datei liegt im Cache und geht mit.
   useEffect(() => {
-    if (!vorbereitet) return;
+    if (!vorbereiteterPlayer) return;
+    const { player, poster } = vorbereiteterPlayer;
     return () => {
-      vorbereitet.player.release();
-      if (vorbereitet.poster) medien.dateiVerwerfen(vorbereitet.poster);
+      player.release();
+      if (poster) medien.dateiVerwerfen(poster);
     };
-  }, [vorbereitet]);
+  }, [vorbereiteterPlayer]);
 
   // Gerätefund 2026-08-14: der Kamera-Screen unter dieser Vorschau gibt beim
   // Verlassen sein Mikrofon frei (der mute-Wechsel an seiner CameraView) und
@@ -541,10 +547,10 @@ export default function PreviewScreen() {
             allowsPictureInPicture={false}
             onFirstFrameRender={() => setPosterSteht(false)}
           />
-          {posterSteht && vorbereitet?.poster ? (
+          {posterSteht && vorbereiteterPlayer?.poster ? (
             <Image
               testID="video-poster"
-              source={{ uri: vorbereitet.poster }}
+              source={{ uri: vorbereiteterPlayer.poster }}
               style={StyleSheet.absoluteFill}
               contentFit="cover"
             />

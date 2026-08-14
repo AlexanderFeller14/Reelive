@@ -31,30 +31,49 @@ export function abholen(): FotoUebergabe | null {
   return uebergabe;
 }
 
-// Auch das Video reist seit dem Gerätefund 2026-08-14 über den Holder — aber
-// nur seine ANZEIGE: der Kamera-Screen wärmt den Player vor der Navigation
-// vor und legt ein Poster (Bild 0 des Videos) daneben. Warum beides: die
-// VideoView braucht am Gerät ~0,8 s, bis sie selbst einen fertig geladenen
-// Player zeichnet (gemessen 2026-08-14, konstant, JS-Thread dabei frei) —
-// solange steht das Poster, und der Wechsel ist unsichtbar, weil die
-// Schleife bei Bild 0 beginnt. Die Daten des Videos (fürs Einsenden und
-// Verwerfen) reisen unverändert als uri in den Router-Params, die
-// dokumentierte Grenze bleibt.
-export type VideoUebergabe = {
-  /** Vorgewärmter, bereits spielender Player. */
-  player: VideoPlayer;
-  /** Bild 0 als Sofort-Brücke, bis die VideoView zeichnet; null wenn die
-   *  Erzeugung scheiterte oder trödelte (dann bleibt die Fläche kurz dunkel,
-   *  der alte Zustand als Rückfallebene). */
-  poster: string | null;
-};
+// Auch das Video reist seit dem Gerätefund 2026-08-14 über den Holder. Zwei
+// Formen (Task 10, eigene Pipeline für die Instant-Vorschau):
+//   - 'nativ': die eigene Pipeline. Die Datei entsteht im Hintergrund
+//     (dateiFertig), die Vorschau spielt nativ (SofortVorschau, Task 12);
+//     uri und Dauer reisen wie bisher als Router-Params.
+//   - 'player': die Rückfallebene aus Commit 918e185 — der Kamera-Screen
+//     wärmt einen expo-video-Player vor der Navigation vor und legt ein
+//     Poster (Bild 0 des Videos) daneben, weil die VideoView am Gerät
+//     ~0,8 s braucht, bis sie einen fertig geladenen Player zeichnet
+//     (gemessen 2026-08-14, konstant, JS-Thread dabei frei); solange steht
+//     das Poster, der Wechsel ist unsichtbar, weil die Schleife bei Bild 0
+//     beginnt. Die Daten des Videos (fürs Einsenden und Verwerfen) reisen
+//     unverändert als uri in den Router-Params, die dokumentierte Grenze
+//     bleibt.
+export type VideoUebergabe =
+  | {
+      art: 'nativ';
+      /** Löst, sobald die Hintergrund-Datei fertig geschrieben ist. */
+      dateiFertig: Promise<void>;
+    }
+  | {
+      art: 'player';
+      /** Vorgewärmter, bereits spielender Player. */
+      player: VideoPlayer;
+      /** Bild 0 als Sofort-Brücke, bis die VideoView zeichnet; null wenn die
+       *  Erzeugung scheiterte oder trödelte (dann bleibt die Fläche kurz
+       *  dunkel, der alte Zustand als Rückfallebene). */
+      poster: string | null;
+    };
 
 let videoLiegt: VideoUebergabe | null = null;
 
 export function videoUebergeben(uebergabe: VideoUebergabe): void {
   // Anders als der Foto-Ref fällt ein liegengebliebener Player nicht dem GC
   // anheim — er ist ein natives Objekt und braucht ein explizites release.
-  videoLiegt?.player.release();
+  // Nur die Player-Form trägt so ein Objekt, die native Form nicht.
+  if (videoLiegt?.art === 'player') videoLiegt.player.release();
+  // Wie beim Foto: solange niemand wartet, darf eine frühe Ablehnung (etwa
+  // ein gescheitertes Hintergrund-Schreiben) keine «Unhandled rejection»
+  // werden. Der leere Handler hängt an einem ZWEIG des Promises, nicht am
+  // Promise selbst — wer `dateiFertig` später awaited, bekommt die
+  // Ablehnung unverändert.
+  if (uebergabe.art === 'nativ') void uebergabe.dateiFertig.catch(() => {});
   videoLiegt = uebergabe;
 }
 

@@ -540,7 +540,7 @@ test('ein vorgewärmter Player aus der Übergabe geht direkt an die VideoView', 
   mockParams = { uri: 'file://video.mp4', typ: 'video', dauer: '12', tripId: 't1' };
   mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
   const player = vorgewaermterPlayer();
-  uebergabe.videoUebergeben({ player: player as unknown as VideoPlayer, poster: null });
+  uebergabe.videoUebergeben({ art: 'player', player: player as unknown as VideoPlayer, poster: null });
   await render(<PreviewScreen />);
 
   expect(screen.getByTestId('video-vorschau').props.player).toBe(player);
@@ -557,6 +557,7 @@ test('das Poster steht sofort über dem Video und weicht dem ersten gezeichneten
   mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
   const player = vorgewaermterPlayer();
   uebergabe.videoUebergeben({
+    art: 'player',
     player: player as unknown as VideoPlayer,
     poster: 'file://poster.jpg',
   });
@@ -575,6 +576,7 @@ test('der übernommene Player wird beim Verlassen freigegeben, das Poster aufger
   mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
   const player = vorgewaermterPlayer();
   uebergabe.videoUebergeben({
+    art: 'player',
     player: player as unknown as VideoPlayer,
     poster: 'file://poster.jpg',
   });
@@ -592,7 +594,7 @@ test('auch der übernommene Player wird bei einer Fremd-Pause weitergespielt', a
   mockParams = { uri: 'file://video.mp4', typ: 'video', dauer: '12', tripId: 't1' };
   mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
   const player = vorgewaermterPlayer();
-  uebergabe.videoUebergeben({ player: player as unknown as VideoPlayer, poster: null });
+  uebergabe.videoUebergeben({ art: 'player', player: player as unknown as VideoPlayer, poster: null });
   await render(<PreviewScreen />);
 
   const aufruf = player.addListener.mock.calls.find(([ereignis]) => ereignis === 'playingChange');

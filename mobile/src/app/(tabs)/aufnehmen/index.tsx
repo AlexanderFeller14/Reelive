@@ -1094,7 +1094,7 @@ export default function AufnehmenScreen() {
       // selbst über die uri — der alte Weg als Rückfallebene.
       player.release();
     } else {
-      uebergabe.videoUebergeben({ player, poster });
+      uebergabe.videoUebergeben({ art: 'player', player, poster });
     }
     zurPreview({ uri: ergebnis.uri, typ: 'video', dauer: String(dauer), tripId: reise.id });
   };
