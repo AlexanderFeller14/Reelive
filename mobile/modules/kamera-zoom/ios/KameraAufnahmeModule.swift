@@ -6,14 +6,16 @@ import UIKit
 // Puffer der laufenden expo-camera-Session ab, statt auf recordAsyncs Datei
 // zu warten. Die Phase-0-Probe (Task 1) ist gelaufen: 64 Frames in 2 s neben
 // dem untätigen MovieFileOutput — der Abgriff koexistiert, ein Entfernen-Zweig
-// entfällt. Dieses Modul trägt jetzt den Aufnahme-Kern (noch ohne Ton — Task 4
-// ergänzt den Audio-Eingang).
+// entfällt. Dieses Modul trägt den Aufnahme-Kern samt Tonspur (AAC über
+// AVCaptureAudioDataOutput, Task 4).
 public class KameraAufnahmeModule: Module {
   // Die Outputs hängen EINMAL an der Session und bleiben (jedes An-/Abhängen
   // ist ein Session-Umbau und damit ein sichtbarer Sucher-Ruckler, Spec §
   // Session-Umbauten). `laufend` schaltet nur, ob Puffer verarbeitet werden.
   private static var videoOutput: AVCaptureVideoDataOutput?
   private static let videoQueue = DispatchQueue(label: "reelive.aufnahme.video")
+  private static var audioOutput: AVCaptureAudioDataOutput?
+  private static let audioQueue = DispatchQueue(label: "reelive.aufnahme.ton")
   private static var abgriff: PufferAbgriff?
 
   // Genau eine Aufnahme zu jeder Zeit (Pendant zum laeuftFoto-Guard in JS).
@@ -43,7 +45,9 @@ public class KameraAufnahmeModule: Module {
         try Self.outputsAnhaengen(session)
         let ziel = FileManager.default.temporaryDirectory
           .appendingPathComponent("reelive-\(UUID().uuidString).mov")
-        let aufnahme = try Aufnahme(ziel: ziel, maxSekunden: maxSekunden)
+        let aufnahme = try Aufnahme(
+          ziel: ziel, maxSekunden: maxSekunden, mitTon: Self.audioOutput != nil
+        )
         Self.aktuelle = aufnahme
         promise.resolve()
       } catch {
@@ -105,6 +109,15 @@ public class KameraAufnahmeModule: Module {
     }
     videoOutput = output
     self.abgriff = abgriff
+
+    let ton = AVCaptureAudioDataOutput()
+    ton.setSampleBufferDelegate(abgriff, queue: audioQueue)
+    // Kein Mikrofon (mute, Berechtigung fehlt): Aufnahme ohne Tonspur statt
+    // Scheitern (Spec § Grenzfälle) — deshalb kein throw hier.
+    if session.canAddOutput(ton) {
+      session.addOutput(ton)
+      audioOutput = ton
+    }
   }
 
   // Gleicher Suchweg wie KameraZoomModule.sucherView(): die View, deren Layer
@@ -130,22 +143,36 @@ public class KameraAufnahmeModule: Module {
 }
 
 // Nimmt die Puffer entgegen und reicht sie an die laufende Aufnahme weiter.
-final class PufferAbgriff: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
+// Bedient Video- UND Ton-Output (zwei Delegate-Protokolle, eine Instanz) —
+// die Quelle unterscheidet, wohin der Puffer geht.
+final class PufferAbgriff: NSObject,
+  AVCaptureVideoDataOutputSampleBufferDelegate,
+  AVCaptureAudioDataOutputSampleBufferDelegate
+{
   func captureOutput(
     _ output: AVCaptureOutput,
     didOutput sampleBuffer: CMSampleBuffer,
     from connection: AVCaptureConnection
   ) {
-    KameraAufnahmeModule.aktuelle?.schreibeVideo(sampleBuffer)
+    if output is AVCaptureAudioDataOutput {
+      KameraAufnahmeModule.aktuelle?.schreibeTon(sampleBuffer)
+    } else {
+      KameraAufnahmeModule.aktuelle?.schreibeVideo(sampleBuffer)
+    }
   }
 }
 
-// Eine Aufnahme: Writer, Zeiten, Fertig-Rückrufe. Alle Mitglieder laufen auf
-// der videoQueue (die Delegate-Queue) oder sind davor/danach unveränderlich.
+// Eine Aufnahme: Writer, Zeiten, Fertig-Rückrufe. schreibeVideo läuft auf der
+// videoQueue, schreibeTon auf der audioQueue (zwei Delegate-Queues); jeder
+// AVAssetWriterInput wird nur von seiner eigenen Queue angefasst. Die
+// gemeinsam gelesenen Flags (istGestoppt, sessionGestartet) sind einfache
+// Bools — ein Lese-Wettlauf beim Start/Stopp verwirft im schlimmsten Fall
+// einen einzelnen Puffer, was AVAssetWriter ohnehin toleriert.
 final class Aufnahme {
   let ziel: URL
   private let writer: AVAssetWriter
   private let videoEingang: AVAssetWriterInput
+  private let tonEingang: AVAssetWriterInput?
   private var sessionGestartet = false
   // Öffentlich lesbar (nicht nur intern der Klasse): der Start-Guard in
   // aufnahmeStarten muss nach dem Stopp einer alten Aufnahme unterscheiden
@@ -161,7 +188,7 @@ final class Aufnahme {
 
   var dauerS: Double { (stoppZeit ?? Date()).timeIntervalSince(startZeit) }
 
-  init(ziel: URL, maxSekunden: Double) throws {
+  init(ziel: URL, maxSekunden: Double, mitTon: Bool) throws {
     self.ziel = ziel
     self.maxSekunden = maxSekunden
     writer = try AVAssetWriter(outputURL: ziel, fileType: .mov)
@@ -172,6 +199,18 @@ final class Aufnahme {
     ])
     videoEingang.expectsMediaDataInRealTime = true
     writer.add(videoEingang)
+    if mitTon {
+      let eingang = AVAssetWriterInput(mediaType: .audio, outputSettings: [
+        AVFormatIDKey: kAudioFormatMPEG4AAC,
+        AVNumberOfChannelsKey: 1,
+        AVSampleRateKey: 44_100,
+      ])
+      eingang.expectsMediaDataInRealTime = true
+      writer.add(eingang)
+      tonEingang = eingang
+    } else {
+      tonEingang = nil
+    }
     guard writer.startWriting() else { throw writer.error ?? NSError(domain: "reelive", code: 2) }
     startZeit = Date()
   }
@@ -189,12 +228,22 @@ final class Aufnahme {
     }
   }
 
+  func schreibeTon(_ puffer: CMSampleBuffer) {
+    guard !istGestoppt, sessionGestartet, writer.status == .writing else { return }
+    // Vor dem ersten VIDEO-Frame keinen Ton annehmen: die Writer-Session
+    // startet auf der Video-Zeitbasis, früherer Ton würde abgeschnitten.
+    if let eingang = tonEingang, eingang.isReadyForMoreMediaData {
+      eingang.append(puffer)
+    }
+  }
+
   func stoppen() {
     guard !istGestoppt else { return }
     istGestoppt = true
     stoppZeit = Date()
     maxTimer?.cancel()
     videoEingang.markAsFinished()
+    tonEingang?.markAsFinished()
     writer.finishWriting { [self] in
       let fehler = writer.status == .completed ? nil : (writer.error ?? NSError(domain: "reelive", code: 3))
       DispatchQueue.main.async {
