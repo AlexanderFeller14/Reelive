@@ -135,8 +135,8 @@ public class KameraZoomModule: Module {
       }
     }
 
-    // Tap-to-Focus: Fokus und Belichtung einmalig auf den Punkt, in
-    // Fenster-Punkten (pageX/pageY). Warum auch das hier liegt: expo-camera
+    // Tap-to-Focus: Fokus einmalig, Belichtung kontinuierlich auf den Punkt,
+    // in Fenster-Punkten (pageX/pageY). Warum auch das hier liegt: expo-camera
     // kennt nur den globalen autoFocus-Modus, keinen Fokus-Punkt.
     //
     // Die Umrechnung in Geräte-Koordinaten macht die Preview-Layer selbst
@@ -173,7 +173,14 @@ public class KameraZoomModule: Module {
         if geraet.isExposurePointOfInterestSupported {
           geraet.exposurePointOfInterest = punkt
         }
-        if geraet.isExposureModeSupported(.autoExpose) {
+        // Anders als der Fokus kontinuierlich, nicht einmalig: .autoExpose
+        // misst genau einmal und stellt die Belichtung danach fest — ändert
+        // sich dann das Licht (gerade im Video), bleibt das Bild falsch
+        // belichtet, bis die Szenen-Rückstellung greift. Die Kamera-App misst
+        // nach einem Tipp dauerhaft auf den Punkt.
+        if geraet.isExposureModeSupported(.continuousAutoExposure) {
+          geraet.exposureMode = .continuousAutoExposure
+        } else if geraet.isExposureModeSupported(.autoExpose) {
           geraet.exposureMode = .autoExpose
         }
         // Ab jetzt meldet sich die Szene, wenn sie sich ändert — der
