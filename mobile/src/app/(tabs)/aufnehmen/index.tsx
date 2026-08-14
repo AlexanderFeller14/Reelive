@@ -33,9 +33,12 @@ import { useAuth } from '@/features/auth/AuthProvider';
 import * as uebergabe from '@/features/kamera/uebergabe';
 import * as aufnahmeSperre from '@/features/kamera/aufnahmeSperre';
 
-// Höchstdauer eines Videos (Produktkonzept: Snapchat-Muster, Ring stoppt hier
-// von selbst), dieselbe Zahl geht an den Auslöser UND an CameraView.recordAsync.
-const MAX_VIDEO_SEKUNDEN = 30;
+// Höchstdauer eines Videos, dieselbe Zahl geht an den Auslöser UND an
+// CameraView.recordAsync. Ursprünglich 30 (Produktkonzept: Snapchat-Muster),
+// seit dem 2026-08-14 auf User-Entscheid 90: das Story-Mass war im
+// Reise-Alltag zu knapp. Der Ring am Auslöser füllt sich weiterhin über die
+// volle Dauer und stoppt die Aufnahme dann von selbst.
+const MAX_VIDEO_SEKUNDEN = 90;
 
 // Wie lange die Meldung nach einer gescheiterten Aufnahme stehen bleibt. Lang
 // genug zum Lesen, kurz genug, dass sie nicht zur Tapete wird und den Sucher
@@ -801,9 +804,25 @@ export default function AufnehmenScreen() {
       };
     },
     onResponderMove: (e?: GestureResponderEvent) => {
-      const start = pinchStart.current;
       const abstand = fingerAbstand(e?.nativeEvent?.touches ?? []);
-      if (!zoom || !start || abstand === null || start.abstand === 0) return;
+      if (!zoom || abstand === null) return;
+      // Am Gerät setzen zwei Finger fast nie im selben Ereignis auf: der
+      // erste ergreift die Fläche allein (onResponderGrant sieht EINE
+      // Berührung, kein Anker), der zweite kommt ein Ereignis später nach.
+      // Der Anker wird darum HIER nachgezogen, sobald erstmals zwei Finger
+      // da sind — vorher rechnete in dem Fall niemand, und der Pinch griff
+      // nur, wenn beide Finger zufällig gleichzeitig landeten (Gerätefund
+      // 2026-08-14, «erkennt den Zoom nur teilweise»).
+      if (pinchStart.current === null) {
+        pinchStart.current = {
+          abstand,
+          faktor: faktorRef.current,
+          grenzen: zoomGrenzenAktuell()!,
+        };
+        return;
+      }
+      const start = pinchStart.current;
+      if (start.abstand === 0) return;
       // Hart gesetzt, nicht sanft: der Zoom soll dem Finger folgen, nicht
       // hinterherfahren.
       zoomSetzen(begrenzen((start.faktor * abstand) / start.abstand, start.grenzen, zoom.basis), false);

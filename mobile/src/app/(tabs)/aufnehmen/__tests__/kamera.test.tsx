@@ -631,7 +631,9 @@ test('ein Halten auf dem Auslöser nimmt ein Video auf und navigiert nach dem Lo
   });
   jest.useRealTimers();
 
-  expect(mockRecordAsync).toHaveBeenCalledWith({ maxDuration: 30 });
+  // 90 statt 30: User-Entscheid vom 2026-08-14, das Snapchat-Mass war im
+  // Reise-Alltag zu knapp.
+  expect(mockRecordAsync).toHaveBeenCalledWith({ maxDuration: 90 });
 
   await fireEvent(screen.getByLabelText('Auslöser'), 'pressOut');
   expect(mockStopRecording).toHaveBeenCalledTimes(1);
@@ -1447,6 +1449,48 @@ test('zwei Finger zoomen stufenlos', async () => {
   // für das Gerät also der Faktor 3. Hart gesetzt, damit es dem Finger folgt.
   expect(mockSetzeZoom).toHaveBeenLastCalledWith('Rückseitige Dreifach-Kamera', 3, false);
   expect(screen.getByText('1,5×')).toBeTruthy();
+});
+
+// Gerätefund vom 2026-08-14: der Pinch griff bei gesperrter Aufnahme nur
+// «teilweise». Am Gerät setzen zwei Finger fast nie im selben Ereignis auf —
+// der erste ergreift die Fläche allein, und der Anker (pinchStart) wurde nur
+// beim Ergreifen gesetzt. Kam der zweite Finger nach, rechnete niemand mehr.
+// Der Anker wird darum nachgezogen, sobald der zweite Finger dazukommt.
+test('der Pinch greift auch, wenn die Finger nacheinander aufsetzen (gesperrte Aufnahme)', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  mockRecordAsync.mockImplementation(() => new Promise(() => {}));
+  await render(<AufnehmenScreen />);
+  await screen.findByLabelText('Auslöser');
+
+  // Aufnahme starten und sperren: die Hand ist frei, der Pinch erlaubt.
+  jest.useFakeTimers();
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressIn', { nativeEvent: { pageX: 100, identifier: 1 } });
+  await act(async () => {
+    jest.advanceTimersByTime(600);
+  });
+  jest.useRealTimers();
+  await fireEvent(screen.getByLabelText('Auslöser'), 'touchMove', { nativeEvent: { pageX: 160, identifier: 1 } });
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressOut', { nativeEvent: { identifier: 1 } });
+
+  const flaeche = sucherFlaeche();
+  // Erster Finger allein: ergreift die Fläche, noch kein Pinch.
+  await act(async () => {
+    flaeche.props.onResponderGrant({ nativeEvent: { touches: [{ pageX: 0, pageY: 0 }], pageX: 0, pageY: 0 } });
+  });
+  // Zweiter Finger kommt dazu: DIESES Ereignis ist der Anker.
+  await act(async () => {
+    (flaeche.props as unknown as { onResponderMove: (e: object) => void }).onResponderMove({
+      nativeEvent: { touches: [{ pageX: 0, pageY: 0 }, { pageX: 0, pageY: 100 }] },
+    });
+  });
+  // Auseinanderziehen ab dem Anker: aus 1× wird 1,5×, Gerätefaktor 3.
+  await act(async () => {
+    (flaeche.props as unknown as { onResponderMove: (e: object) => void }).onResponderMove({
+      nativeEvent: { touches: [{ pageX: 0, pageY: 0 }, { pageX: 0, pageY: 150 }] },
+    });
+  });
+
+  expect(mockSetzeZoom).toHaveBeenLastCalledWith('Rückseitige Dreifach-Kamera', 3, false);
 });
 
 test('der Pinch endet an der Grenze des Geräts', async () => {
