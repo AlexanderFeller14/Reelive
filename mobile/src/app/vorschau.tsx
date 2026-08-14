@@ -19,19 +19,26 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { setStatusBarStyle } from 'expo-status-bar';
 import { useVideoPlayer, VideoView } from 'expo-video';
+import { MemorySubmissionAnimation } from '@/components/MemorySubmissionAnimation';
 import { Pille } from '@/components/Pille';
 import { PressScale } from '@/components/PressScale';
-import { Versiegelung } from '@/components/Versiegelung';
 import { cinema, palette, radius, spacing, type } from '@/theme/tokens';
-import { useOberkante, useUnterkante } from '@/theme/useOberkante';
+import { useOberkante } from '@/theme/useOberkante';
 import * as medien from '@/features/moments/medien';
 import * as ortUndZeit from '@/features/moments/ortUndZeit';
 import * as uebergabe from '@/features/kamera/uebergabe';
 import * as uploadWorker from '@/features/moments/uploadWorker';
+import { eigenerZaehler } from '@/features/moments/zaehler';
 import { useAuth } from '@/features/auth/AuthProvider';
 import type { QueueJob } from '@/features/moments/types';
 
 const CAPTION_MAX = 120;
+
+// Wie lange nach einer Fremd-Pause des Video-Players der Nachzügler prüft,
+// ob das sofortige Weiterspielen gegriffen hat (siehe den Effekt am Player
+// unten). Kurz genug, dass die Vorschau nicht spürbar steht; lang genug,
+// dass der Session-Umbau der Kamera darunter abgeschlossen sein kann.
+const WEITERSPIEL_NACHZUEGLER_MS = 250;
 
 const OHNE_REISE_MELDUNG =
   'Diese Aufnahme lässt sich keiner Reise zuordnen. Geh zurück zur Kamera und versuch es nochmal.';
@@ -123,9 +130,27 @@ export default function PreviewScreen() {
   const [sendet, setSendet] = useState(false);
   const [sendeFehler, setSendeFehler] = useState<string | null>(null);
   // Wird erst wahr, NACHDEM der Job sicher in der Warteschlange steckt (siehe
-  // absenden unten), die Inszenierung entscheidet nie darüber, ob ein
+  // absenden unten), die Erfolgsanimation entscheidet nie darüber, ob ein
   // Moment gesichert ist, sie kommentiert nur einen bereits gesicherten.
   const [versiegelt, setVersiegelt] = useState(false);
+  // Der Zählerstand der Reise VOR diesem Moment, die Erfolgsanimation rollt
+  // darauf +1 hoch. Einmal beim Erscheinen geholt (offline-fest über den
+  // Cache in zaehler.ts); scheitert der Abruf, entfällt nur die Zahl, das
+  // Einsenden hängt nie daran.
+  const [zaehler, setZaehler] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!tripId) return;
+    let aktiv = true;
+    eigenerZaehler(tripId)
+      .then((stand) => {
+        if (aktiv) setZaehler(stand);
+      })
+      .catch(() => {});
+    return () => {
+      aktiv = false;
+    };
+  }, [tripId]);
   // captured_at/captured_tz werden EINMAL beim Erscheinen dieses Screens
   // eingefroren (lazy state init), das liegt so nah wie möglich am
   // tatsächlichen Auslöser-Moment aus Task 7 und darf sich nicht mit jedem
@@ -139,16 +164,79 @@ export default function PreviewScreen() {
   // dann null und alles läuft den alten Weg.
   const [foto] = useState(() => (typ === 'photo' ? uebergabe.abholen() : null));
 
+  // Der vorgewärmte Player aus der Übergabe (Gerätefund 2026-08-14,
+  // Snapchat-Massstab): die Kamera erzeugt und lädt ihn VOR der Navigation,
+  // die Blende geht dann in ein bereits laufendes Video. Wie das Foto EINMAL
+  // beim Erscheinen abgeholt; ohne Übergabe (Deep Link, gescheitertes
+  // Vorwärmen) lädt der Hook darunter selbst über die uri.
+  const [vorbereitet] = useState(() => (typ === 'video' ? uebergabe.videoAbholen() : null));
+
   // Nachzug aus Task 8 (Video-Nachzug): «das Aufgenommene formatfüllend» gilt
   // auch für Videos, dieser Screen ist der letzte Blick vor dem Versiegeln.
   // Stumm und in Schleife, ohne Bedienelemente: eine Vorschau, kein Player.
-  // `source: null` bei Fotos, damit kein Player für eine Bild-URI angelegt
-  // wird (Hooks laufen unabhängig von `typ` unbedingt, siehe Hook-Regeln).
-  const player = useVideoPlayer(typ === 'video' ? (uri ?? null) : null, (p) => {
-    p.loop = true;
-    p.muted = true;
-    p.play();
-  });
+  // `source: null` bei Fotos und bei übernommenem Player, damit nicht
+  // dieselbe Datei ein zweites Mal lädt (Hooks laufen unabhängig von `typ`
+  // unbedingt, siehe Hook-Regeln).
+  const eigenerPlayer = useVideoPlayer(
+    typ === 'video' && !vorbereitet ? (uri ?? null) : null,
+    (p) => {
+      p.loop = true;
+      p.muted = true;
+      // mixWithOthers statt des Standards 'auto': die Vorschau ist stumm, sie
+      // braucht die Audio-Session nicht — und nur so lässt der Mikrofon-Umbau
+      // des Kamera-Screens darunter (siehe den Effekt unten) sie beim Öffnen
+      // in Ruhe weiterspielen, statt sie zu pausieren.
+      p.audioMixingMode = 'mixWithOthers';
+      p.play();
+    }
+  );
+  const player = vorbereitet?.player ?? eigenerPlayer;
+
+  // Das Poster aus der Übergabe (Bild 0 des Videos) steht, bis die VideoView
+  // ihr erstes Bild wirklich gezeichnet hat — sie braucht dafür am Gerät
+  // ~0,8 s, auch wenn der Player längst läuft (gemessen 2026-08-14, konstant,
+  // JS-Thread frei; die Kosten stecken im nativen View-Aufbau). Der Wechsel
+  // Poster → Video ist unsichtbar, weil die Schleife bei Bild 0 beginnt.
+  const [posterSteht, setPosterSteht] = useState(true);
+
+  // Der übernommene Player gehört ab jetzt diesem Screen: beim Verlassen wird
+  // er freigegeben — createVideoPlayer verlangt ein explizites release, sonst
+  // leckt der native Player. Den Hook-Player räumt der Hook selbst ab. Die
+  // Poster-Datei liegt im Cache und geht mit.
+  useEffect(() => {
+    if (!vorbereitet) return;
+    return () => {
+      vorbereitet.player.release();
+      if (vorbereitet.poster) medien.dateiVerwerfen(vorbereitet.poster);
+    };
+  }, [vorbereitet]);
+
+  // Gerätefund 2026-08-14: der Kamera-Screen unter dieser Vorschau gibt beim
+  // Verlassen sein Mikrofon frei (der mute-Wechsel an seiner CameraView) und
+  // baut dabei seine Capture-Session um — iOS pausiert währenddessen auch den
+  // stummen Player hier drüber. Einmalig, kurz nach dem Öffnen, ohne Fehler
+  // und ohne Statuswechsel: das Video stand dann als Standbild. Diese
+  // Vorschau kennt keine gewollte Pause (bewusst ohne Bedienelemente), also
+  // beantwortet sie jede Pause sofort mit Weiterspielen. Die Pause am
+  // Schleifenende ist davon nicht zu unterscheiden und verträgt es: play()
+  // ist dort ein Leerlauf. Der Nachzügler deckt den Fall, dass der
+  // Session-Umbau das sofortige play() noch verschluckt.
+  useEffect(() => {
+    if (typ !== 'video') return;
+    let nachzuegler: ReturnType<typeof setTimeout> | undefined;
+    const abo = player.addListener('playingChange', ({ isPlaying }) => {
+      if (isPlaying) return;
+      player.play();
+      if (nachzuegler !== undefined) clearTimeout(nachzuegler);
+      nachzuegler = setTimeout(() => {
+        if (!player.playing) player.play();
+      }, WEITERSPIEL_NACHZUEGLER_MS);
+    });
+    return () => {
+      abo.remove();
+      if (nachzuegler !== undefined) clearTimeout(nachzuegler);
+    };
+  }, [player, typ]);
 
   useEffect(() => {
     setStatusBarStyle('light');
@@ -324,9 +412,12 @@ export default function PreviewScreen() {
       quelle = foto ? (await foto.datei).uri : (uri ?? null);
       if (!quelle) {
         // quelleFehlt leitet bereits um, hierher kommt es nie — aber wenn
-        // doch, darf der Knopf nicht für immer im Lade-Zustand hängen.
-        setSendet(false);
-        return;
+        // doch (etwa eine Übergabe ohne brauchbare uri, Gerätefund
+        // 2026-08-14: genau so ein stiller Ausstieg hat den
+        // savePictureAsync-Plattformfehler wochenlang unsichtbar gemacht),
+        // scheitert es SICHTBAR über den Fehlerpfad unten, der Knopf wird
+        // dort wieder frei.
+        throw new Error('Aufnahme ohne Quelle');
       }
       aufbereitet =
         typ === 'video' ? await medien.videoAufbereiten(quelle) : await medien.fotoAufbereiten(quelle);
@@ -384,11 +475,11 @@ export default function PreviewScreen() {
       medien.zwischenfassungenVerwerfen(quelle, aufbereitet);
 
       // Der Moment ist ab hier bereits sicher in der Warteschlange, die
-      // Versiegelungs-Inszenierung (Gold-Glow, 700–900 ms, Haptik success,
-      // DESIGN-LANGUAGE §5) kommentiert das nur noch, sie entscheidet über
-      // nichts mehr. Sie navigiert selbst weiter, sobald sie fertig ist
-      // (onFertig unten), bis dahin bleibt der Screen stehen, überdeckt vom
-      // Kino-Overlay.
+      // Erfolgsanimation (~2,5 s, DESIGN-LANGUAGE §5) kommentiert das nur
+      // noch, sie entscheidet über nichts mehr. Sie navigiert selbst weiter,
+      // sobald sie fertig ist (onFinished unten), bis dahin bleibt der
+      // Screen stehen, überdeckt vom weissen Erfolgs-Zwischenschirm, der
+      // auch jeden weiteren Tipp schluckt.
       setVersiegelt(true);
     } catch (fehler) {
       // Ein Fehler beim Aufbereiten oder Einreihen (z.B. voller Gerätespeicher,
@@ -429,21 +520,36 @@ export default function PreviewScreen() {
 
   return (
     <View style={styles.screen}>
-      {/* Ohne Slide, als dokumentierte §5-Ausnahme (Spec 2026-08-13 §6):
-          eingefrorenes Sucherbild und Aufnahme sind deckungsgleich, ein
-          Parallax-Slide würde dasselbe Vollbild wegschieben und wieder
-          hereinholen — er inszeniert einen Ortswechsel, den es nicht gibt. */}
+      {/* Ohne Slide und ohne Blende, als dokumentierte §5-Ausnahme (Spec
+          2026-08-13 §6, bekräftigt 2026-08-14): ein Parallax-Slide würde
+          dasselbe Vollbild wegschieben und wieder hereinholen, und eine
+          Blende hat nichts mehr zu überbrücken, seit beim Video ein Poster
+          (Bild 0) sofort steht — der harte Schnitt vom lebendigen Sucher auf
+          das volle Vorschaubild ist das Snapchat-Muster. Eine Blende würde
+          den Wechsel nur künstlich verlangsamen (am Gerät gemessen: an der
+          Zeichnzeit der VideoView ändert sie nichts). */}
       <Stack.Screen options={{ animation: 'none' }} />
 
       {typ === 'video' ? (
-        <VideoView
-          testID="video-vorschau"
-          player={player}
-          style={StyleSheet.absoluteFill}
-          contentFit="cover"
-          nativeControls={false}
-          allowsPictureInPicture={false}
-        />
+        <>
+          <VideoView
+            testID="video-vorschau"
+            player={player}
+            style={StyleSheet.absoluteFill}
+            contentFit="cover"
+            nativeControls={false}
+            allowsPictureInPicture={false}
+            onFirstFrameRender={() => setPosterSteht(false)}
+          />
+          {posterSteht && vorbereitet?.poster ? (
+            <Image
+              testID="video-poster"
+              source={{ uri: vorbereitet.poster }}
+              style={StyleSheet.absoluteFill}
+              contentFit="cover"
+            />
+          ) : null}
+        </>
       ) : (
         <Image
           testID="foto-vorschau"
@@ -581,7 +687,11 @@ export default function PreviewScreen() {
       </View>
 
 
-      <Versiegelung sichtbar={versiegelt} onFertig={zurueckZurKamera} />
+      <MemorySubmissionAnimation
+        visible={versiegelt}
+        onFinished={zurueckZurKamera}
+        zaehler={zaehler}
+      />
     </View>
   );
 }

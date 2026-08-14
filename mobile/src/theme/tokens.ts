@@ -10,7 +10,7 @@ export const palette = {
   seal: '#B8752F', danger: '#C13515', 'on-accent': '#FFFFFF',
 } as const;
 
-// Kino-Palette: NUR Medien-Screens (Kamera, Preview, Versiegeln, Recap-Player).
+// Kino-Palette: NUR Medien-Screens (Kamera, Preview, Recap-Player).
 // Fix, kein Theme, wird direkt importiert, nicht über useTheme().
 export const cinema = {
   'bg-0': '#131110', 'bg-1': '#1C1917',

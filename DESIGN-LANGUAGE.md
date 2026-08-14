@@ -13,7 +13,7 @@ Medien-Screens weiterhin Referenz, für alle anderen Screens überholt.
 
 **«Helles Reisejournal, dunkles Kino.»** Im Alltag ist Reelive hell, luftig und
 freundlich wie Airbnb: viel Weiss, weiche Schatten, grosse Headlines, grosszügige
-Abstände. Die Medien-Screens — Kamera, Aufnahme-Preview, Versiegeln, Recap-Player —
+Abstände. Die Medien-Screens — Kamera, Aufnahme-Preview, Recap-Player —
 sind ein dunkler Kinosaal, in dem die Fotos das Licht tragen. Der Wechsel wird
 inszeniert («das Licht geht aus»), nicht versteckt. Die Filmrollen-Mechanik zeigt sich
 leise (Siegel, Filmstreifen, Gold-Funke ✦), nie als Retro-Kostüm.
@@ -122,13 +122,18 @@ Digit-Roll · Listen = Stagger 40 ms · Tab-Icon-Pop 1 → 1.15 → 1.
 Übergänge: Stack = Parallax-Slide 400 ms · Sheets = Spring · hell → Kino =
 Fade durch Dunkel 350 ms («Licht geht aus») · Reise-Karte → Trip = Shared-Element 450 ms.
 
-**Zwei inszenierte Ausnahmen** (700–900 ms, `seal-glow` erlaubt):
-1. **Versiegeln:** Moment schrumpft in die Filmrolle, Siegel schliesst mit Gold-Glow,
-   Zähler rollt hoch. Haptik: success.
+**Zwei inszenierte Ausnahmen** (`seal-glow` erlaubt):
+1. **Einsenden-Erfolg:** weisser Vollbild-Zwischenschirm, ~3,5 s (eigene,
+   dokumentierte Dauer-Ausnahme): drei Polaroids fliegen nacheinander zu einem
+   lockeren Stapel ein und ziehen sich zur Mitte zusammen; erst danach
+   bestätigt ein Standort-Pin im Akzent mit weissem Häkchen, dann rollt der
+   Reisezähler eine Stelle hoch — strikt nacheinander, nie überlappend. Titel
+   «Moment eingesendet». Haptik: success. Läuft im HELLEN App-Look, nicht im Kino.
 2. **Reveal:** Siegel bricht auf, Gold-Funken ✦ steigen (kein Konfetti).
+   700–900 ms.
 
-Haptik: selection (Tabs, Zoom) · light (Auslöser, Zähler) · success (Versiegeln,
-Reveal) · warning (destruktiver Dialog). Sparsam — nie beim Scrollen.
+Haptik: selection (Tabs, Zoom) · light (Auslöser, Zähler) · success
+(Einsenden-Erfolg, Reveal) · warning (destruktiver Dialog). Sparsam — nie beim Scrollen.
 `prefers-reduced-motion`: alles wird zu 200-ms-Fades.
 
 ## 6. Sprache (Copy)

@@ -15,6 +15,7 @@ let mockParams: Record<string, string | undefined> = {
   dauer: '0',
   tripId: 't1',
 };
+const mockStackScreenOptionen = jest.fn();
 jest.mock('expo-router', () => ({
   useRouter: () => ({
     replace: mockReplace,
@@ -23,7 +24,12 @@ jest.mock('expo-router', () => ({
     canGoBack: () => mockKannZurueck,
   }),
   useLocalSearchParams: () => mockParams,
-  Stack: { Screen: () => null },
+  Stack: {
+    Screen: (props: { options?: object }) => {
+      mockStackScreenOptionen(props.options);
+      return null;
+    },
+  },
 }));
 
 // expo-image ist ein natives View; der Platzhalter reicht den source-Prop
@@ -44,7 +50,16 @@ jest.mock('expo-status-bar', () => ({
 // Bericht), deshalb gemockt statt real importiert. `useVideoPlayer` liefert
 // ein greifbares Fake-Player-Objekt, damit der Video-Nachzug prüfen kann,
 // dass die Vorschau stumm und in Schleife läuft.
-const mockVideoPlayer = { loop: false, muted: false, play: jest.fn() };
+const mockVideoPlayer = {
+  loop: false,
+  muted: false,
+  playing: false,
+  audioMixingMode: 'auto',
+  play: jest.fn(),
+  addListener: jest.fn(
+    (_ereignis: string, _horcher: (e: { isPlaying: boolean }) => void) => ({ remove: jest.fn() })
+  ),
+};
 const mockUseVideoPlayer = jest.fn((source: unknown, setup?: (p: typeof mockVideoPlayer) => void) => {
   setup?.(mockVideoPlayer);
   return mockVideoPlayer;
@@ -54,7 +69,14 @@ jest.mock('expo-video', () => ({
   VideoView: (props: Record<string, unknown>) => {
     const ReactActual = require('react');
     const { View } = require('react-native');
-    return ReactActual.createElement(View, { testID: props.testID });
+    // player und onFirstFrameRender werden durchgereicht: die Tests prüfen,
+    // ob der vorgewärmte Player aus der Übergabe spielt und ob das Poster
+    // dem ersten gezeichneten Bild weicht.
+    return ReactActual.createElement(View, {
+      testID: props.testID,
+      player: props.player,
+      onFirstFrameRender: props.onFirstFrameRender,
+    });
   },
 }));
 
@@ -102,26 +124,46 @@ jest.mock('@/features/moments/ortUndZeit', () => ({
   ortBestimmen: () => mockOrtBestimmen(),
 }));
 
-// Die echte Inszenierung (Task 9) läuft 700–900 ms und ist bereits für sich
-// getestet (Versiegelung.test.tsx), hier interessiert nur der Vertrag „wird
-// sichtbar, sobald der Job eingereiht ist, und navigiert über onFertig weiter".
-// Der Mock feuert onFertig synchron, sobald er sichtbar wird, damit die
-// bestehenden Erwartungen an mockReplace ohne Timer-Steuerung auskommen.
-const mockVersiegelungSichtbar = jest.fn();
-jest.mock('@/components/Versiegelung', () => {
+// Die echte Erfolgsanimation läuft ~2,5 s und ist für sich getestet
+// (MemorySubmissionAnimation.test.tsx), hier interessiert nur der Vertrag
+// «wird sichtbar, sobald der Job eingereiht ist, und navigiert über
+// onFinished weiter». Der Mock feuert onFinished synchron, sobald er
+// sichtbar wird, damit die bestehenden Erwartungen an mockReplace/mockBack
+// ohne Timer-Steuerung auskommen.
+const mockAnimationSichtbar = jest.fn();
+const mockAnimationProps = jest.fn();
+jest.mock('@/components/MemorySubmissionAnimation', () => {
   const react = jest.requireActual('react');
   return {
-    Versiegelung: ({ sichtbar, onFertig }: { sichtbar: boolean; onFertig: () => void }) => {
-      mockVersiegelungSichtbar(sichtbar);
+    MemorySubmissionAnimation: ({
+      visible,
+      onFinished,
+      zaehler,
+    }: {
+      visible: boolean;
+      onFinished: () => void;
+      zaehler?: number | null;
+    }) => {
+      mockAnimationSichtbar(visible);
+      mockAnimationProps({ visible, zaehler });
       react.useEffect(() => {
-        if (sichtbar) onFertig();
-      }, [sichtbar, onFertig]);
+        if (visible) onFinished();
+      }, [visible, onFinished]);
       return null;
     },
   };
 });
 
+// Der Zählerstand vor dem Moment kommt aus zaehler.ts (offline-fest); die
+// Animation rollt darauf +1 hoch. Der Abruf darf scheitern, dann entfällt
+// nur die Zahl.
+const mockEigenerZaehler = jest.fn();
+jest.mock('@/features/moments/zaehler', () => ({
+  eigenerZaehler: (tripId: string) => mockEigenerZaehler(tripId),
+}));
+
 import * as uebergabe from '@/features/kamera/uebergabe';
+import type { VideoPlayer } from 'expo-video';
 import PreviewScreen from '../vorschau';
 
 // Nicht hart auf "14:34" verdrahtet: welche lokale Uhrzeit aus dem UTC-ISO-Wert
@@ -144,6 +186,7 @@ async function bildunterschriftOeffnen() {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockVideoPlayer.playing = false;
   mockAuth.userId = 'u1';
   mockParams = { uri: 'file://foto.jpg', typ: 'photo', dauer: '0', tripId: 't1' };
   mockNeuePostId.mockReturnValue('post-1');
@@ -156,6 +199,7 @@ beforeEach(() => {
     thumb: `file://dokumente/momente/${postId}/thumb.jpg`,
   }));
   mockJobEinreihen.mockResolvedValue(undefined);
+  mockEigenerZaehler.mockResolvedValue(4);
   mockJetzt.mockReturnValue({ captured_at: CAPTURED_AT, captured_tz: 'Europe/Zurich' });
   mockKannZurueck = true;
   // Standardmässig hängend (nie auflösend): jeder Test, der eine bestimmte
@@ -163,8 +207,10 @@ beforeEach(() => {
   // Anzeige nicht auf den Ort wartet, bevor sie den Screen zeigt.
   mockOrtBestimmen.mockImplementation(() => new Promise(() => {}));
   // Leert den Holder zwischen den Tests: ohne Test-Foto läuft jeder
-  // bestehende Foto-Test über den alten uri-Weg (foto === null).
+  // bestehende Foto-Test über den alten uri-Weg (foto === null), ohne
+  // Test-Player jeder Video-Test über den eigenen Hook-Player.
   uebergabe.abholen();
+  uebergabe.videoAbholen();
 });
 
 test('die Aufnahme erscheint sofort, ohne auf den Ort zu warten', async () => {
@@ -263,11 +309,11 @@ test('ohne Rückweg im Stapel führt der Weg zurück per replace zur Kamera', as
   expect(mockBack).not.toHaveBeenCalled();
 });
 
-test('die Versiegelung wird erst sichtbar, nachdem der Job eingereiht ist, und navigiert erst über ihr onFertig', async () => {
+test('die Erfolgsanimation wird erst sichtbar, nachdem der Job eingereiht ist, und navigiert erst über ihr onFinished', async () => {
   mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
   await render(<PreviewScreen />);
-  // Vor dem Senden: die Inszenierung ist unsichtbar.
-  expect(mockVersiegelungSichtbar).toHaveBeenLastCalledWith(false);
+  // Vor dem Senden: die Animation ist unsichtbar.
+  expect(mockAnimationSichtbar).toHaveBeenLastCalledWith(false);
 
   const reihenfolge: string[] = [];
   mockJobEinreihen.mockImplementation(async () => {
@@ -281,8 +327,67 @@ test('die Versiegelung wird erst sichtbar, nachdem der Job eingereiht ist, und n
     await fireEvent.press(screen.getByText('Einsenden'));
   });
 
-  expect(mockVersiegelungSichtbar).toHaveBeenLastCalledWith(true);
+  expect(mockAnimationSichtbar).toHaveBeenLastCalledWith(true);
   expect(reihenfolge).toEqual(['eingereiht', 'navigiert']);
+  // Die Navigation kommt genau einmal, aus genau einem onFinished.
+  expect(mockBack).toHaveBeenCalledTimes(1);
+});
+
+test('die Erfolgsanimation bekommt den Zählerstand der Reise fürs Hochrollen', async () => {
+  mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
+  mockEigenerZaehler.mockResolvedValue(11);
+  await render(<PreviewScreen />);
+  expect(mockEigenerZaehler).toHaveBeenCalledWith('t1');
+
+  await act(async () => {
+    await fireEvent.press(screen.getByText('Einsenden'));
+  });
+
+  expect(mockAnimationProps).toHaveBeenLastCalledWith({ visible: true, zaehler: 11 });
+});
+
+test('scheitert der Zählerabruf, läuft die Erfolgsanimation ohne Zahl', async () => {
+  mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
+  mockEigenerZaehler.mockRejectedValue(new Error('kaputte Warteschlange'));
+  await render(<PreviewScreen />);
+
+  await act(async () => {
+    await fireEvent.press(screen.getByText('Einsenden'));
+  });
+
+  expect(mockAnimationProps).toHaveBeenLastCalledWith({ visible: true, zaehler: null });
+});
+
+// Gerätefund 2026-08-14: eine Übergabe ohne brauchbare uri (die iOS-Form von
+// savePictureAsync vor der Begradigung in uebergabe.ts) liess das Einsenden
+// KOMMENTARLOS abbrechen: kein Job, keine Meldung, der Screen stand einfach
+// da. Fehlt die Quelle, muss das sichtbar scheitern wie jeder Sendefehler.
+test('eine Übergabe ohne uri lässt das Einsenden sichtbar scheitern statt still', async () => {
+  mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
+  uebergabe.uebergeben({ ref: {}, datei: Promise.resolve({}) } as never);
+  await render(<PreviewScreen />);
+
+  await act(async () => {
+    await fireEvent.press(screen.getByText('Einsenden'));
+  });
+
+  expect(mockJobEinreihen).not.toHaveBeenCalled();
+  expect(screen.getByText(/konnte nicht gesichert werden/)).toBeTruthy();
+  expect(mockAnimationSichtbar).toHaveBeenLastCalledWith(false);
+});
+
+test('bei einem Fehler beim Einreihen bleibt die Erfolgsanimation unsichtbar und nichts navigiert', async () => {
+  mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
+  mockJobEinreihen.mockRejectedValue(new Error('SQLITE_FULL'));
+  await render(<PreviewScreen />);
+
+  await act(async () => {
+    await fireEvent.press(screen.getByText('Einsenden'));
+  });
+
+  expect(mockAnimationSichtbar).toHaveBeenLastCalledWith(false);
+  expect(mockBack).not.toHaveBeenCalled();
+  expect(mockReplace).not.toHaveBeenCalled();
 });
 
 test('eine leere Caption wird als null statt als Leerstring eingereiht', async () => {
@@ -346,8 +451,158 @@ test('ein Video wird als stumme, endlos wiederholte Vorschau ohne Bedienelemente
   expect(mockUseVideoPlayer).toHaveBeenCalledWith('file://video.mp4', expect.any(Function));
   expect(mockVideoPlayer.loop).toBe(true);
   expect(mockVideoPlayer.muted).toBe(true);
+  // mixWithOthers: der Player beansprucht die Audio-Session nicht exklusiv —
+  // sonst pausiert ihn der Mikrofon-Umbau des Kamera-Screens darunter kurz
+  // nach dem Öffnen, und der Einstieg ruckelt (Gerätefund 2026-08-14).
+  expect(mockVideoPlayer.audioMixingMode).toBe('mixWithOthers');
   expect(mockVideoPlayer.play).toHaveBeenCalled();
   expect(screen.getByTestId('video-vorschau')).toBeTruthy();
+});
+
+// Gerätefund 2026-08-14: der Kamera-Screen unter dieser Vorschau gibt beim
+// Verlassen sein Mikrofon frei und baut dabei seine Capture-Session um —
+// iOS pausiert währenddessen auch den stummen Player hier drüber, einmalig,
+// kurz nach dem Öffnen. Ohne Antwort darauf stand jedes Video als Standbild.
+function playingChangeHorcher(): ((e: { isPlaying: boolean }) => void) | undefined {
+  const aufruf = mockVideoPlayer.addListener.mock.calls.find(
+    ([ereignis]) => ereignis === 'playingChange'
+  );
+  return aufruf?.[1];
+}
+
+test('eine Fremd-Pause des Players wird sofort mit Weiterspielen beantwortet', async () => {
+  mockParams = { uri: 'file://video.mp4', typ: 'video', dauer: '12', tripId: 't1' };
+  mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
+  await render(<PreviewScreen />);
+
+  const horcher = playingChangeHorcher();
+  expect(horcher).toBeDefined();
+  mockVideoPlayer.play.mockClear();
+  await act(async () => {
+    horcher?.({ isPlaying: false });
+  });
+  expect(mockVideoPlayer.play).toHaveBeenCalled();
+});
+
+test('verschluckt der Session-Umbau das sofortige Weiterspielen, greift ein Nachzügler', async () => {
+  mockParams = { uri: 'file://video.mp4', typ: 'video', dauer: '12', tripId: 't1' };
+  mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
+  await render(<PreviewScreen />);
+  const horcher = playingChangeHorcher();
+  expect(horcher).toBeDefined();
+
+  jest.useFakeTimers();
+  try {
+    mockVideoPlayer.play.mockClear();
+    mockVideoPlayer.playing = false;
+    await act(async () => {
+      horcher?.({ isPlaying: false });
+      jest.advanceTimersByTime(300);
+    });
+    expect(mockVideoPlayer.play.mock.calls.length).toBeGreaterThanOrEqual(2);
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+// Gerätefund 2026-08-14: weder Slide noch Blende — seit das Poster (Bild 0)
+// sofort steht, gibt es keinen dunklen Frame mehr zu überbrücken, und der
+// harte Schnitt vom lebendigen Sucher aufs volle Vorschaubild ist das
+// Snapchat-Muster (§5-Ausnahme, Spec 2026-08-13 §6). Eine Blende würde den
+// Wechsel nur künstlich verlangsamen.
+test('der Wechsel von der Kamera hierher schneidet hart, ohne Slide und ohne Blende', async () => {
+  mockParams = { uri: 'file://video.mp4', typ: 'video', dauer: '12', tripId: 't1' };
+  mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
+  await render(<PreviewScreen />);
+
+  expect(mockStackScreenOptionen).toHaveBeenCalledWith(
+    expect.objectContaining({ animation: 'none' })
+  );
+});
+
+// Der vorgewärmte Player aus der Übergabe (Gerätefund 2026-08-14,
+// Snapchat-Massstab): die Kamera erzeugt und lädt ihn VOR der Navigation,
+// die Vorschau zeigt ihn nur noch — und gibt ihn beim Verlassen frei
+// (createVideoPlayer verlangt ein explizites release, sonst leckt der
+// native Player).
+function vorgewaermterPlayer() {
+  return {
+    playing: true,
+    play: jest.fn(),
+    release: jest.fn(),
+    addListener: jest.fn(
+      (_ereignis: string, _horcher: (e: { isPlaying: boolean }) => void) => ({ remove: jest.fn() })
+    ),
+  };
+}
+
+test('ein vorgewärmter Player aus der Übergabe geht direkt an die VideoView', async () => {
+  mockParams = { uri: 'file://video.mp4', typ: 'video', dauer: '12', tripId: 't1' };
+  mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
+  const player = vorgewaermterPlayer();
+  uebergabe.videoUebergeben({ player: player as unknown as VideoPlayer, poster: null });
+  await render(<PreviewScreen />);
+
+  expect(screen.getByTestId('video-vorschau').props.player).toBe(player);
+  // Kein zweites Laden derselben Datei: der eigene Hook bekommt keine Quelle.
+  expect(mockUseVideoPlayer).toHaveBeenCalledWith(null, expect.any(Function));
+});
+
+// Das Poster (Bild 0, vom Stopp mitgeliefert) steht sofort über der
+// VideoView — die braucht am Gerät ~0,8 s zum ersten Zeichnen (gemessen
+// 2026-08-14) — und weicht dann unsichtbar, weil die Schleife bei Bild 0
+// beginnt.
+test('das Poster steht sofort über dem Video und weicht dem ersten gezeichneten Bild', async () => {
+  mockParams = { uri: 'file://video.mp4', typ: 'video', dauer: '12', tripId: 't1' };
+  mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
+  const player = vorgewaermterPlayer();
+  uebergabe.videoUebergeben({
+    player: player as unknown as VideoPlayer,
+    poster: 'file://poster.jpg',
+  });
+  await render(<PreviewScreen />);
+
+  expect(screen.getByTestId('video-poster').props.source).toEqual({ uri: 'file://poster.jpg' });
+
+  await act(async () => {
+    screen.getByTestId('video-vorschau').props.onFirstFrameRender();
+  });
+  expect(screen.queryByTestId('video-poster')).toBeNull();
+});
+
+test('der übernommene Player wird beim Verlassen freigegeben, das Poster aufgeräumt', async () => {
+  mockParams = { uri: 'file://video.mp4', typ: 'video', dauer: '12', tripId: 't1' };
+  mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
+  const player = vorgewaermterPlayer();
+  uebergabe.videoUebergeben({
+    player: player as unknown as VideoPlayer,
+    poster: 'file://poster.jpg',
+  });
+  const { unmount } = await render(<PreviewScreen />);
+
+  expect(player.release).not.toHaveBeenCalled();
+  await act(async () => {
+    unmount();
+  });
+  expect(player.release).toHaveBeenCalled();
+  expect(mockDateiVerwerfen).toHaveBeenCalledWith('file://poster.jpg');
+});
+
+test('auch der übernommene Player wird bei einer Fremd-Pause weitergespielt', async () => {
+  mockParams = { uri: 'file://video.mp4', typ: 'video', dauer: '12', tripId: 't1' };
+  mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
+  const player = vorgewaermterPlayer();
+  uebergabe.videoUebergeben({ player: player as unknown as VideoPlayer, poster: null });
+  await render(<PreviewScreen />);
+
+  const aufruf = player.addListener.mock.calls.find(([ereignis]) => ereignis === 'playingChange');
+  const horcher = aufruf?.[1];
+  expect(horcher).toBeDefined();
+  player.play.mockClear();
+  await act(async () => {
+    horcher?.({ isPlaying: false });
+  });
+  expect(player.play).toHaveBeenCalled();
 });
 
 test('bei einem Foto wird kein Video-Player angelegt', async () => {
