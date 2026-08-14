@@ -13,6 +13,7 @@ import { Image } from 'expo-image';
 import { useFocusEffect, useRouter, type Href } from 'expo-router';
 import { setStatusBarStyle } from 'expo-status-bar';
 import * as Linking from 'expo-linking';
+import { requireOptionalNativeModule } from 'expo-modules-core';
 import { CameraView, useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
 import { createVideoPlayer, type VideoPlayer } from 'expo-video';
 import { getThumbnailAsync } from 'expo-video-thumbnails';
@@ -742,6 +743,16 @@ export default function AufnehmenScreen() {
       })
       .catch(() => {});
   }, [reise?.id, fokusStand]);
+
+  // [dbg] Phase-0-Probe (Task 1, fliegt in Task 3 wieder raus): zählt 2 s lang
+  // Frames des Abgriffs neben dem untätigen MovieFileOutput.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      const modul = requireOptionalNativeModule<{ abgriffProbe(s: number): Promise<number> }>('KameraAufnahme');
+      void modul?.abgriffProbe(2).then((n) => console.log('[dbg-probe] Frames in 2 s:', n));
+    }, 3000);
+    return () => clearTimeout(t);
+  }, []);
 
   if (trips === null) return <LeererScreen />;
   if (fehler) {
