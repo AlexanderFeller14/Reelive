@@ -22,6 +22,7 @@ import { Button } from '@/components/Button';
 import { Pille } from '@/components/Pille';
 import { PressScale } from '@/components/PressScale';
 import { ZoomWahl } from '@/components/ZoomWahl';
+import * as nativeAufnahme from '@/features/kamera/nativeAufnahme';
 import * as nativeZoom from '@/features/kamera/nativeZoom';
 import { begrenzen, fingerAbstand, nativerFaktor, zoomGeraet, zugFaktor } from '@/features/kamera/zoom';
 import { cinema, motion, palette, radius, spacing, type } from '@/theme/tokens';
@@ -480,6 +481,13 @@ export default function AufnehmenScreen() {
   const laeuftFoto = useRef(false);
   const videoStartZeit = useRef(0);
   const videoPromise = useRef<Promise<{ uri: string } | undefined> | null>(null);
+  // Der Start der NATIVEN Pipeline (Task 2), gemerkt als PROMISE statt als
+  // blosser Boolean: ein Blitz-Stopp direkt nach dem Start muss auf genau
+  // dieses Ergebnis warten können, sonst liest handleVideoStop noch den
+  // alten Stand und nimmt versehentlich den Fallback-Weg, während die native
+  // Aufnahme tatsächlich läuft (oder umgekehrt). `null` heisst: kein
+  // Startversuch unterwegs.
+  const nativStart = useRef<Promise<boolean> | null>(null);
   // Ob der Auslöser seit dem Start dieser Aufnahme losgelassen wurde. Als Ref,
   // weil die Startschleife den Wert zwischen zwei Runden synchron lesen muss;
   // ein State-Wert wäre dort noch der alte.
@@ -1047,7 +1055,16 @@ export default function AufnehmenScreen() {
       console.error('[aufnehmen] Videoaufnahme kam nicht zustande', letzterFehler);
       return undefined;
     };
-    videoPromise.current = starten();
+    // Die Weiche: erst die eigene native Pipeline versuchen (Task 2), NUR
+    // wenn sie ablehnt (kein Modul, alter Build, Android) beginnt der
+    // bisherige recordAsync-Weg. `nativStart` hält das Promise, nicht nur das
+    // Ergebnis — handleVideoStop wartet später auf dasselbe Promise, statt
+    // auf einen Boolean, der bei einem Blitz-Stopp noch den alten Stand
+    // zeigen könnte.
+    nativStart.current = nativeAufnahme.aufnahmeStarten(MAX_VIDEO_SEKUNDEN);
+    void nativStart.current.then((ok) => {
+      if (!ok) videoPromise.current = starten();
+    });
   };
 
   const handleVideoStop = async () => {
@@ -1056,6 +1073,33 @@ export default function AufnehmenScreen() {
     // eine Aufnahme zu beginnen.
     videoGestoppt.current = true;
     cameraRef.current?.stopRecording();
+
+    // Die Weiche: erst abwarten, OB die native Aufnahme überhaupt lief (das
+    // PROMISE aus handleVideoStart, nicht nur ein Boolean-Flag) — ein
+    // Blitz-Stopp direkt nach dem Start bekäme sonst den alten, noch
+    // unentschiedenen Stand zu sehen und liefe in den falschen Zweig. Im
+    // nativen Fall sind `stopRecording()` oben und der Fallback-Ablauf
+    // unten harmlos: es läuft ja gar kein recordAsync.
+    const nativGestartet = nativStart.current ? await nativStart.current : false;
+    nativStart.current = null;
+    if (nativGestartet) {
+      const ergebnis = await nativeAufnahme.aufnahmeStoppen();
+      setNimmtAuf(false);
+      aufnahmeSperre.sperren(false);
+      if (!ergebnis) {
+        setAufnahmeFehler(FEHLER_TEXT);
+        return;
+      }
+      uebergabe.videoUebergeben({ art: 'nativ', dateiFertig: nativeAufnahme.dateiFertig() });
+      zurPreview({
+        uri: ergebnis.uri,
+        typ: 'video',
+        dauer: String(Math.round(ergebnis.dauerS)),
+        tripId: reise.id,
+      });
+      return;
+    }
+
     // Der Sucher läuft während der Datei-Finalisierung (~100 bis 300 ms)
     // bewusst LIVE weiter (Gerätefund 2026-08-14): das frühere pausePreview
     // stammte aus der Zeit des harten Schnitts zur Vorschau — als Standbild

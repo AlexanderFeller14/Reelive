@@ -210,6 +210,35 @@ jest.mock('@/features/kamera/nativeZoom', () => ({
   fokussiere: (x: number, y: number) => mockFokussiere(x, y),
 }));
 
+// Die native Aufnahme-Pipeline (Task 2/10): Standard-Antwort ist `true` in
+// diesem Objekt selbst, `beforeEach` zieht sie unten bewusst auf `false`
+// zurück (Ruling 2 aus dem Auftrag) — sonst liefen alle bestehenden
+// recordAsync-Tests plötzlich den nativen Weg, nur weil dieser Mock dazukam.
+//
+// Die Fabrik reicht die Aufrufe über eine eigene Hülle weiter (statt
+// `mockNativeAufnahme` selbst zurückzugeben, gleiches Muster wie beim
+// nativeZoom-Mock oben): jest.mock() wird beim Hochziehen von `../index`
+// ausgeführt, bevor die `const mockNativeAufnahme`-Zeile unten selbst
+// läuft — ein direkt zurückgegebenes Objekt wäre zu diesem Zeitpunkt noch
+// nicht initialisiert. Die Hülle liest die Variable erst beim TATSÄCHLICHEN
+// Aufruf aus den Tests, dann längst zugewiesen.
+const mockNativeAufnahme = {
+  aufnahmeStarten: jest.fn(async (_s: number) => true),
+  aufnahmeStoppen: jest.fn(async () => ({ uri: 'file://nativ.mov', dauerS: 3.4 })),
+  dateiFertig: jest.fn(() => Promise.resolve()),
+  verwerfen: jest.fn(),
+  verfuegbar: jest.fn(() => true),
+  SofortVorschau: () => null,
+};
+jest.mock('@/features/kamera/nativeAufnahme', () => ({
+  aufnahmeStarten: (s: number) => mockNativeAufnahme.aufnahmeStarten(s),
+  aufnahmeStoppen: () => mockNativeAufnahme.aufnahmeStoppen(),
+  dateiFertig: () => mockNativeAufnahme.dateiFertig(),
+  verwerfen: () => mockNativeAufnahme.verwerfen(),
+  verfuegbar: () => mockNativeAufnahme.verfuegbar(),
+  SofortVorschau: () => mockNativeAufnahme.SofortVorschau(),
+}));
+
 import AufnehmenScreen from '../index';
 import { fetchTrips } from '@/features/trips/tripsApi';
 import * as uebergabe from '@/features/kamera/uebergabe';
@@ -253,6 +282,10 @@ beforeEach(() => {
   mockErzeugterPlayer.status = 'readyToPlay';
   // Modul-Zustand, überlebt Tests: immer entsperrt beginnen.
   aufnahmeSperre.sperren(false);
+  // Ruling 2 aus dem Auftrag: Default ist der FALLBACK, damit alle
+  // bestehenden recordAsync-Tests unverändert bleiben. Nur die eigenen
+  // Nativ-Tests stellen explizit auf `true` (bzw. mockResolvedValueOnce).
+  mockNativeAufnahme.aufnahmeStarten.mockResolvedValue(false);
 });
 
 afterEach(() => {
@@ -806,6 +839,41 @@ test('scheitert der vorgewärmte Player, wird er freigegeben und die Vorschau l�
   expect(mockPush).toHaveBeenCalled();
   expect(mockErzeugterPlayer.release).toHaveBeenCalled();
   expect(uebergabe.videoAbholen()).toBeNull();
+});
+
+// ——— Native Aufnahme-Pipeline (Task 11: die Screen-Weiche) ———
+//
+// Ist das eigene native Modul da (Task 2), läuft weder recordAsync noch der
+// Vorwärm-Player: der Stopp liefert Datei und Dauer direkt aus dem Modul und
+// navigiert, sobald es geantwortet hat.
+test('mit nativer Pipeline navigiert der Stopp sofort, ohne recordAsync und ohne Vorwärmen', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  // Der `beforeEach`-Default ist der Fallback (Ruling 2) — dieser Test ist
+  // der einzige, der ausdrücklich die native Pipeline anfordert.
+  mockNativeAufnahme.aufnahmeStarten.mockResolvedValue(true);
+  await videoGestoppt(() => {});
+  expect(mockNativeAufnahme.aufnahmeStarten).toHaveBeenCalledWith(90);
+  expect(mockRecordAsync).not.toHaveBeenCalled();
+  expect(mockCreateVideoPlayer).not.toHaveBeenCalled();
+  expect(mockPush).toHaveBeenCalled();
+  const geholt = uebergabe.videoAbholen();
+  expect(geholt?.art).toBe('nativ');
+  // dauer kommt vom Modul, gerundet.
+  expect(mockPush.mock.calls[0][0]).toMatchObject({ params: expect.objectContaining({ dauer: '3', uri: 'file://nativ.mov' }) });
+});
+
+// Fehlt das native Modul (Android, alter Build, Simulator ohne den
+// Zusatzbuild), meldet der Start `false` und der bisherige recordAsync-Weg
+// übernimmt unverändert — Default aus `beforeEach`, hier nur zur Klarheit
+// noch einmal ausdrücklich gesetzt.
+test('startet die native Aufnahme nicht, läuft alles über den bisherigen Weg', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  mockNativeAufnahme.aufnahmeStarten.mockResolvedValueOnce(false);
+  let recordAufloesen: (v: { uri: string }) => void = () => {};
+  mockRecordAsync.mockImplementation(() => new Promise((r) => { recordAufloesen = r; }));
+  await videoGestoppt((v) => recordAufloesen(v));
+  expect(mockRecordAsync).toHaveBeenCalled();
+  expect(uebergabe.videoAbholen()?.art).toBe('player');
 });
 
 test('ein Halten auf dem Auslöser nimmt ein Video auf und navigiert nach dem Loslassen zur Vorschau', async () => {
