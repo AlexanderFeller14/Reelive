@@ -21,8 +21,33 @@ public class KameraAufnahmeModule: Module {
   // Genau eine Aufnahme zu jeder Zeit (Pendant zum laeuftFoto-Guard in JS).
   static var aktuelle: Aufnahme?
 
+  // Der Beobachter für Unterbrechungen (Anruf, Hintergrund, Split-View). Statisch,
+  // weil die Hilfsfunktionen des Moduls statisch sind; es gibt ihn höchstens einmal,
+  // OnCreate/OnDestroy halten ihn im Gleichgewicht.
+  private static var unterbrechungsBeobachter: NSObjectProtocol?
+
   public func definition() -> ModuleDefinition {
     Name("KameraAufnahme")
+
+    // Anruf, Hintergrund, Split-View können die Session unterbrechen: das bis hierher
+    // Gefilmte bleibt eine gültige Datei (Spec § Grenzfälle); der JS-Stopp läuft über
+    // den Auslöser-Pfad, weil iOS die Berührungen ohnehin cancelt.
+    OnCreate {
+      Self.unterbrechungsBeobachter = NotificationCenter.default.addObserver(
+        forName: .AVCaptureSessionWasInterrupted,
+        object: nil,
+        queue: .main
+      ) { _ in
+        Self.aktuelle?.stoppen()
+      }
+    }
+
+    OnDestroy {
+      if let beobachter = Self.unterbrechungsBeobachter {
+        NotificationCenter.default.removeObserver(beobachter)
+        Self.unterbrechungsBeobachter = nil
+      }
+    }
 
     AsyncFunction("aufnahmeStarten") { (maxSekunden: Double, promise: Promise) in
       // Lehnt NUR ab, wenn eine Aufnahme läuft, die noch NICHT gestoppt ist.
