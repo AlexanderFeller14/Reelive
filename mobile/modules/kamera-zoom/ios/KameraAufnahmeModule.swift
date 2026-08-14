@@ -42,7 +42,15 @@ public class KameraAufnahmeModule: Module {
         return
       }
       do {
-        try Self.outputsAnhaengen(session)
+        try Self.outputsAnhaengen(session, layer: layer)
+        // Kamerawechsel Front/Back zwischen zwei Aufnahmen ändert die
+        // Sucher-Verbindung; die Outputs bleiben aber angehängt (Grund oben)
+        // und outputsAnhaengen legt sie dann nicht neu an. Deshalb hier
+        // erneut angleichen — idempotent, unabhängig davon, ob gerade neu
+        // angelegt wurde oder nicht.
+        if let videoOutput = Self.videoOutput {
+          Self.verbindungAngleichen(output: videoOutput, layer: layer)
+        }
         let ziel = FileManager.default.temporaryDirectory
           .appendingPathComponent("reelive-\(UUID().uuidString).mov")
         let aufnahme = try Aufnahme(
@@ -90,7 +98,9 @@ public class KameraAufnahmeModule: Module {
     }.runOnQueue(.main)
   }
 
-  private static func outputsAnhaengen(_ session: AVCaptureSession) throws {
+  private static func outputsAnhaengen(
+    _ session: AVCaptureSession, layer: AVCaptureVideoPreviewLayer
+  ) throws {
     guard videoOutput == nil else { return }
     let output = AVCaptureVideoDataOutput()
     let abgriff = PufferAbgriff()
@@ -103,10 +113,7 @@ public class KameraAufnahmeModule: Module {
       ])
     }
     session.addOutput(output)
-    // Orientierung und Spiegelung wie im Sucher (Task 5 verfeinert Front).
-    if let verbindung = output.connection(with: .video) {
-      verbindung.videoOrientation = .portrait
-    }
+    verbindungAngleichen(output: output, layer: layer)
     videoOutput = output
     self.abgriff = abgriff
 
@@ -117,6 +124,28 @@ public class KameraAufnahmeModule: Module {
     if session.canAddOutput(ton) {
       session.addOutput(ton)
       audioOutput = ton
+    }
+  }
+
+  // Übernimmt Rotation und Spiegelung 1:1 vom Sucher auf den Video-Abgriff.
+  // Aufgerufen beim Anhängen UND erneut vor jedem Aufnahmestart (idempotent):
+  // die Outputs bleiben über Kamerawechsel hinweg hängen (Kommentar oben an
+  // videoOutput), ihre Verbindung aber muss dem jeweils AKTUELLEN Sucher
+  // folgen — sonst spiegelt eine Front-Aufnahme nicht, obwohl der Sucher es
+  // tut (Spec: «wie man es im Sucher sieht»).
+  private static func verbindungAngleichen(
+    output: AVCaptureVideoDataOutput, layer: AVCaptureVideoPreviewLayer
+  ) {
+    guard
+      let verbindung = output.connection(with: .video),
+      let sucherVerbindung = layer.connection
+    else { return }
+    if verbindung.isVideoOrientationSupported {
+      verbindung.videoOrientation = sucherVerbindung.videoOrientation
+    }
+    if verbindung.isVideoMirroringSupported {
+      verbindung.automaticallyAdjustsVideoMirroring = false
+      verbindung.isVideoMirrored = sucherVerbindung.isVideoMirrored
     }
   }
 
