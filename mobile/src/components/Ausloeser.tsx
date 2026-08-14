@@ -166,6 +166,29 @@ export function Ausloeser({ onFoto, onVideoStart, onVideoStop, maxSekunden, onSp
     onVideoStop();
   };
 
+  // Stammt das Ereignis von einem anderen Finger als dem, der den Druck
+  // begonnen hat? Weil der Druck den Responder behält (cancelable unten),
+  // erreichen ihn die Ereignisse ALLER Finger — und React Native feuert
+  // onPressOut, sobald IRGENDEIN Finger endet, nicht erst der haltende
+  // (Gerätefund 2026-08-14: genau so stoppte jeder Tipp irgendwohin das
+  // Filmen). Ohne Kennung (ältere Ereignisse, Tests) gilt der Finger als
+  // der eigene.
+  const fremderFinger = (e?: GestureResponderEvent) =>
+    e?.nativeEvent?.identifier !== undefined &&
+    startFinger.current !== undefined &&
+    e.nativeEvent.identifier !== startFinger.current;
+
+  // Die laufende Aufnahme sperrt sich: die Hand ist frei, der Auslöser wird
+  // zum Stopp-Knopf. Von zwei Wegen gerufen — dem Wisch übers Schloss
+  // (druckEnde) und dem touchCancel des Halte-Fingers (unten).
+  const aufnahmeSperren = () => {
+    phase.current = 'gesperrt';
+    jenseits.current = false;
+    setGesperrt(true);
+    setUeberSchwelle(false);
+    onSperre?.(true);
+  };
+
   const onPressIn = (e?: GestureResponderEvent) => {
     // Gesperrt ist der Auslöser ein Stopp-Knopf: der Druck beendet, statt eine
     // neue Aufnahme zu beginnen. Das folgende onPressOut findet dann 'ruhe'
@@ -174,6 +197,18 @@ export function Ausloeser({ onFoto, onVideoStart, onVideoStop, maxSekunden, onSp
       videoStoppen();
       return;
     }
+    // Auch WÄHREND der Aufnahme ist ein Druck ein Stopp: so bleibt sie in
+    // jedem Zustand beendbar — auch wenn der Halte-Finger gecancelt wurde
+    // und sein Loslassen nie mehr ankommt (Gerätefund 2026-08-14). Ein
+    // pressIn kann hier ohnehin nur ein bewusster neuer Tipp sein,
+    // Pressability armiert erst neu, wenn der alte Druck vorbei ist.
+    if (phase.current === 'video') {
+      videoStoppen();
+      return;
+    }
+    // 'haelt': das Foto-Fenster (500 ms). Ein zweiter Tipp hier ist ein
+    // fremder Finger — nichts zurücksetzen, der erste Tipp läuft.
+    if (phase.current !== 'ruhe') return;
     startX.current = e?.nativeEvent?.pageX ?? 0;
     startY.current = e?.nativeEvent?.pageY ?? 0;
     startFinger.current = e?.nativeEvent?.identifier;
@@ -215,7 +250,11 @@ export function Ausloeser({ onFoto, onVideoStart, onVideoStop, maxSekunden, onSp
     if (jetzt) leichtesFeedback();
   };
 
-  const onPressOut = () => {
+  // Das Ende des HALTENDEN Drucks — von onPressOut (eigener Finger) und vom
+  // rohen touchEnd des Halte-Fingers gerufen. Beide können für denselben
+  // Finger eintreffen; die Phasen-Maschine macht den zweiten Aufruf zum
+  // No-op (jeder Zweig verlässt seine Phase).
+  const druckEnde = () => {
     if (phase.current === 'haelt') {
       // Schwelle nie erreicht: ein normales Tippen -> Foto.
       if (schwellenTimer.current) {
@@ -232,17 +271,21 @@ export function Ausloeser({ onFoto, onVideoStart, onVideoStop, maxSekunden, onSp
       // Daumen ist frei. Beide Timer bleiben unangetastet, die Höchstdauer
       // gilt also unverändert.
       if (jenseits.current) {
-        phase.current = 'gesperrt';
-        jenseits.current = false;
-        setGesperrt(true);
-        setUeberSchwelle(false);
-        onSperre?.(true);
+        aufnahmeSperren();
         return;
       }
       videoStoppen();
     }
     // phase === 'ruhe': das Video hat sich bereits selbst gestoppt
-    // (Höchstdauer erreicht), ein verspätetes pressOut löst nichts mehr aus.
+    // (Höchstdauer erreicht), ein verspätetes Ende löst nichts mehr aus.
+    // phase === 'gesperrt': das Sperren hat diesen Druck bereits verwertet.
+  };
+
+  const onPressOut = (e?: GestureResponderEvent) => {
+    // Das Loslassen eines FREMDEN Fingers beendet den Druck nicht — React
+    // Native meldet es trotzdem als pressOut (siehe fremderFinger oben).
+    if (fremderFinger(e)) return;
+    druckEnde();
   };
 
   const dashOffset = fortschritt.interpolate({ inputRange: [0, 1], outputRange: [UMFANG, 0] });
@@ -290,6 +333,31 @@ export function Ausloeser({ onFoto, onVideoStart, onVideoStop, maxSekunden, onSp
         // `false` lehnt ab — der Druck überlebt, das fremde Touchable feuert
         // gar nicht erst.
         cancelable={false}
+        onTouchStart={(e) => {
+          console.log('[dbg] touchStart id=', e?.nativeEvent?.identifier, 'touches=', e?.nativeEvent?.touches?.length);
+        }}
+        onTouchEnd={(e) => {
+          console.log('[dbg] touchEnd id=', e?.nativeEvent?.identifier, 'touches=', e?.nativeEvent?.touches?.length);
+          // Das echte Ende des Halte-Fingers. Nötig, weil Pressability den
+          // Druck womöglich schon verfrüht beendet hat (fremder Finger, siehe
+          // onPressOut) — dessen eigenes Loslassen liefert dann kein
+          // pressOut mehr, dieses rohe touchEnd kommt aber immer: es geht an
+          // das View, auf dem die Berührung BEGANN.
+          if (e?.nativeEvent?.identifier === startFinger.current) druckEnde();
+        }}
+        onTouchCancel={(e) => {
+          console.log('[dbg] touchCancel id=', e?.nativeEvent?.identifier, 'phase=', phase.current);
+          // iOS hat die Berührung des Halte-Fingers gekillt (beobachtet nach
+          // einem fremden Finger-Ende; auch System-Gesten und Unterbrüche
+          // können das). Dieser Finger liefert NIE mehr ein Ereignis — sein
+          // Loslassen kommt nicht an. Stoppen wäre der alte Abbruch,
+          // Ignorieren liesse die Aufnahme unbeendbar laufen: sie sperrt
+          // sich stattdessen selbst und läuft freihändig weiter, der
+          // Auslöser ist ab jetzt der Stopp-Knopf.
+          if (e?.nativeEvent?.identifier === startFinger.current && phase.current === 'video') {
+            aufnahmeSperren();
+          }
+        }}
       >
         <View style={styles.wrap}>
         <Svg width={GROESSE} height={GROESSE} style={StyleSheet.absoluteFill}>

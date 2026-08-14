@@ -500,6 +500,109 @@ test('ein zweiter Finger jenseits der Schwelle sperrt nicht', async () => {
   expect(onVideoStop).toHaveBeenCalledTimes(1);
 });
 
+// Gerätefund vom 2026-08-14, der eigentliche Abbruch-Mechanismus: weil der
+// Druck den Responder behält, feuert React Native onPressOut, sobald
+// IRGENDEIN Finger endet — auch der tippende zweite. Das Ende des Drucks
+// muss darum Finger-bewusst sein: fremde pressOuts sagen nichts, das echte
+// Ende des Halte-Fingers kommt (auch nach einem verfrühten Responder-
+// Release) zuverlässig über das rohe touchEnd.
+test('das Loslassen eines zweiten Fingers beendet die Aufnahme nicht, das des Halte-Fingers schon', async () => {
+  const onVideoStop = jest.fn();
+  const onFoto = jest.fn();
+  await render(
+    <Ausloeser onFoto={onFoto} onVideoStart={jest.fn()} onVideoStop={onVideoStop} maxSekunden={30} />
+  );
+  await fireEvent(knopf(), 'pressIn', { nativeEvent: { pageX: 100, identifier: 1 } });
+  await act(() => {
+    jest.advanceTimersByTime(600);
+  });
+
+  // Der zweite Finger tippt irgendwo und hebt: sein pressOut ist keins.
+  await fireEvent(knopf(), 'pressOut', { nativeEvent: { identifier: 2, touches: [{ identifier: 1 }] } });
+  expect(onVideoStop).not.toHaveBeenCalled();
+
+  // Der Halte-Finger hebt: das echte Ende, als rohes touchEnd.
+  await fireEvent(knopf(), 'touchEnd', { nativeEvent: { identifier: 1, touches: [] } });
+  expect(onVideoStop).toHaveBeenCalledTimes(1);
+  expect(onFoto).not.toHaveBeenCalled();
+});
+
+// Nach dem verfrühten Responder-Release kann ein weiterer Finger den
+// Auslöser treffen: der Druck stoppt die Aufnahme (Stopp-Fläche, Test
+// weiter unten) — und er darf die Zustandsmaschine dabei nicht auf 'haelt'
+// zurückwerfen, sonst würde aus dem Loslassen des Halte-Fingers ein Foto.
+test('nach einem Druck mitten in der Aufnahme macht das Loslassen des Halte-Fingers kein Foto', async () => {
+  const onVideoStop = jest.fn();
+  const onFoto = jest.fn();
+  await render(
+    <Ausloeser onFoto={onFoto} onVideoStart={jest.fn()} onVideoStop={onVideoStop} maxSekunden={30} />
+  );
+  await fireEvent(knopf(), 'pressIn', { nativeEvent: { pageX: 100, identifier: 1 } });
+  await act(() => {
+    jest.advanceTimersByTime(600);
+  });
+
+  await fireEvent(knopf(), 'pressIn', { nativeEvent: { pageX: 120, identifier: 2 } });
+  await fireEvent(knopf(), 'touchEnd', { nativeEvent: { identifier: 1, touches: [] } });
+
+  expect(onVideoStop).toHaveBeenCalledTimes(1);
+  expect(onFoto).not.toHaveBeenCalled();
+});
+
+// Gerätefund vom 2026-08-14, zweite Runde: nach einem fremden Finger-Ende
+// CANCELT iOS die Berührung des Halte-Fingers — sie liefert nie mehr ein
+// Ereignis, das Loslassen kommt also nie an. Stoppen wäre wieder der alte
+// Abbruch, Ignorieren machte die Aufnahme unbeendbar (beides am Gerät
+// beobachtet). Der Ausweg: die Aufnahme sperrt sich selbst, läuft
+// freihändig weiter, und der Auslöser wird zum Stopp-Knopf.
+test('ein touchCancel des Halte-Fingers sperrt die Aufnahme, statt sie zu beenden', async () => {
+  const onVideoStop = jest.fn();
+  const onSperre = jest.fn();
+  await render(
+    <Ausloeser
+      onFoto={jest.fn()}
+      onVideoStart={jest.fn()}
+      onVideoStop={onVideoStop}
+      maxSekunden={30}
+      onSperre={onSperre}
+    />
+  );
+  await fireEvent(knopf(), 'pressIn', { nativeEvent: { pageX: 100, identifier: 1 } });
+  await act(() => {
+    jest.advanceTimersByTime(600);
+  });
+
+  await fireEvent(knopf(), 'touchCancel', { nativeEvent: { identifier: 1 } });
+
+  expect(onVideoStop).not.toHaveBeenCalled();
+  expect(onSperre).toHaveBeenCalledWith(true);
+
+  // Gesperrt heisst: der Auslöser beendet die Aufnahme mit einem Tipp.
+  await fireEvent(screen.getByLabelText('Aufnahme beenden'), 'pressIn');
+  expect(onVideoStop).toHaveBeenCalledTimes(1);
+});
+
+// Der Gegenpol zum Sperren per Cancel: die Aufnahme muss in JEDEM Zustand
+// beendbar bleiben. Feuert ein pressIn, während sie läuft (nur möglich,
+// wenn Pressability nach einem fremden Ende neu armiert ist), ist das ein
+// bewusster Tipp auf den Auslöser — und der ist die Stopp-Fläche.
+test('ein Druck auf den Auslöser mitten in laufender Aufnahme beendet sie', async () => {
+  const onVideoStop = jest.fn();
+  const onFoto = jest.fn();
+  await render(
+    <Ausloeser onFoto={onFoto} onVideoStart={jest.fn()} onVideoStop={onVideoStop} maxSekunden={30} />
+  );
+  await fireEvent(knopf(), 'pressIn', { nativeEvent: { pageX: 100, identifier: 1 } });
+  await act(() => {
+    jest.advanceTimersByTime(600);
+  });
+
+  await fireEvent(knopf(), 'pressIn', { nativeEvent: { pageX: 100, identifier: 2 } });
+
+  expect(onVideoStop).toHaveBeenCalledTimes(1);
+  expect(onFoto).not.toHaveBeenCalled();
+});
+
 test('ein zweiter Finger bewegt den Zug-Zoom nicht', async () => {
   const onZoomZug = jest.fn();
   await render(
