@@ -27,10 +27,13 @@ import { useOberkante } from '@/theme/useOberkante';
 import * as medien from '@/features/moments/medien';
 import * as ortUndZeit from '@/features/moments/ortUndZeit';
 import * as uebergabe from '@/features/kamera/uebergabe';
+import * as nativeAufnahme from '@/features/kamera/nativeAufnahme';
 import * as uploadWorker from '@/features/moments/uploadWorker';
 import { eigenerZaehler } from '@/features/moments/zaehler';
 import { useAuth } from '@/features/auth/AuthProvider';
 import type { QueueJob } from '@/features/moments/types';
+
+const { SofortVorschau } = nativeAufnahme;
 
 const CAPTION_MAX = 120;
 
@@ -170,9 +173,9 @@ export default function PreviewScreen() {
   // beim Erscheinen abgeholt; ohne Übergabe (Deep Link, gescheitertes
   // Vorwärmen) lädt der Hook darunter selbst über die uri.
   const [vorbereitet] = useState(() => (typ === 'video' ? uebergabe.videoAbholen() : null));
-  // Die native Form (Task 12: SofortVorschau) existiert als Wert bereits,
-  // dieser Screen weiss aber noch nichts von ihr — nur die Player-Form hat
-  // hier ein Verhalten. Ein art-bewusster Blick auf `vorbereitet` genügt,
+  // `vorbereiteterPlayer` ist NUR für die Player-Form gesetzt (Task 12: die
+  // native Form hat ihr eigenes Verhalten, direkt an `vorbereitet?.art` in
+  // Render, `absenden` und `verwerfen`). Ein art-bewusster Blick genügt hier,
   // statt an mehreren Stellen `.art === 'player'` zu wiederholen.
   const vorbereiteterPlayer = vorbereitet?.art === 'player' ? vorbereitet : null;
 
@@ -365,6 +368,15 @@ export default function PreviewScreen() {
 
   const verwerfen = () => {
     if (sendet) return;
+    // Die eigene Pipeline (Task 12): die Hintergrund-Datei liegt im
+    // Verantwortungsbereich des nativen Moduls, nicht in dem von
+    // medien.dateiVerwerfen — sie kennt weder uri noch fertigen Zustand
+    // dieses Screens.
+    if (vorbereitet?.art === 'nativ') {
+      nativeAufnahme.verwerfen();
+      zurueckZurKamera();
+      return;
+    }
     // Final-Review, Critical 2 (unverändert gültig): auch der Verwerfen-Weg
     // darf keine Datei hinterlassen. Beim Instant-Foto entsteht sie im
     // Hintergrund und ist womöglich noch nicht fertig — deshalb hängt das
@@ -415,6 +427,11 @@ export default function PreviewScreen() {
     // selben catch wie bisher), sonst die uri aus den Params.
     let quelle: string | null = null;
     try {
+      // Die eigene Pipeline (Task 12): die Hintergrund-Datei schreibt der
+      // native Ringpuffer, dieses await wartet darauf wie beim Instant-Foto
+      // auf foto.datei — eine Ablehnung (voller Speicher) landet dadurch im
+      // selben catch wie jeder andere Sendefehler, VOR dem Lesen der uri.
+      if (vorbereitet?.art === 'nativ') await vorbereitet.dateiFertig;
       quelle = foto ? (await foto.datei).uri : (uri ?? null);
       if (!quelle) {
         // quelleFehlt leitet bereits um, hierher kommt es nie — aber wenn
@@ -537,25 +554,32 @@ export default function PreviewScreen() {
       <Stack.Screen options={{ animation: 'none' }} />
 
       {typ === 'video' ? (
-        <>
-          <VideoView
-            testID="video-vorschau"
-            player={player}
-            style={StyleSheet.absoluteFill}
-            contentFit="cover"
-            nativeControls={false}
-            allowsPictureInPicture={false}
-            onFirstFrameRender={() => setPosterSteht(false)}
-          />
-          {posterSteht && vorbereiteterPlayer?.poster ? (
-            <Image
-              testID="video-poster"
-              source={{ uri: vorbereiteterPlayer.poster }}
+        vorbereitet?.art === 'nativ' ? (
+          // Die eigene Pipeline (Task 12): der native Ringpuffer spielt
+          // bereits, bevor dieser Screen überhaupt zeichnet — keine
+          // VideoView, kein Poster, davon braucht diese Form keins.
+          <SofortVorschau testID="sofort-vorschau" style={StyleSheet.absoluteFill} />
+        ) : (
+          <>
+            <VideoView
+              testID="video-vorschau"
+              player={player}
               style={StyleSheet.absoluteFill}
               contentFit="cover"
+              nativeControls={false}
+              allowsPictureInPicture={false}
+              onFirstFrameRender={() => setPosterSteht(false)}
             />
-          ) : null}
-        </>
+            {posterSteht && vorbereiteterPlayer?.poster ? (
+              <Image
+                testID="video-poster"
+                source={{ uri: vorbereiteterPlayer.poster }}
+                style={StyleSheet.absoluteFill}
+                contentFit="cover"
+              />
+            ) : null}
+          </>
+        )
       ) : (
         <Image
           testID="foto-vorschau"

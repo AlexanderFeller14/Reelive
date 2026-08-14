@@ -80,6 +80,21 @@ jest.mock('expo-video', () => ({
   },
 }));
 
+// Native Sofort-Vorschau (Task 12): das Modul bleibt für diesen Screen eine
+// Blackbox, der Mock rendert nur ein View mit durchgereichtem testID.
+// Indirektion wegen derselben Hoisting-Falle wie bei den übrigen Mocks
+// dieser Datei (jest.mock wird vor die const-Deklaration gehoben, ein Zugriff
+// auf eine Variable mit dem Präfix `mock` ist davon ausgenommen).
+const mockNativVerwerfen = jest.fn();
+jest.mock('@/features/kamera/nativeAufnahme', () => ({
+  verwerfen: () => mockNativVerwerfen(),
+  SofortVorschau: (props: { testID?: string }) => {
+    const ReactActual = require('react');
+    const { View } = require('react-native');
+    return ReactActual.createElement(View, { testID: props.testID });
+  },
+}));
+
 const mockNeuePostId = jest.fn();
 const mockFotoAufbereiten = jest.fn();
 const mockVideoAufbereiten = jest.fn();
@@ -605,6 +620,61 @@ test('auch der übernommene Player wird bei einer Fremd-Pause weitergespielt', a
     horcher?.({ isPlaying: false });
   });
   expect(player.play).toHaveBeenCalled();
+});
+
+// ——— Native Übergabe (Task 12: SofortVorschau, Einsenden wartet, Verwerfen
+// räumt nativ) ———
+test('eine native Übergabe zeigt die SofortVorschau statt der VideoView', async () => {
+  mockParams = { uri: 'file://nativ.mov', typ: 'video', dauer: '3', tripId: 't1' };
+  mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
+  uebergabe.videoUebergeben({ art: 'nativ', dateiFertig: Promise.resolve() });
+  await render(<PreviewScreen />);
+  expect(screen.getByTestId('sofort-vorschau')).toBeTruthy();
+  expect(screen.queryByTestId('video-vorschau')).toBeNull();
+});
+
+test('Einsenden wartet bei nativer Übergabe auf dateiFertig', async () => {
+  mockParams = { uri: 'file://nativ.mov', typ: 'video', dauer: '3', tripId: 't1' };
+  mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
+  let aufloesen: () => void = () => {};
+  uebergabe.videoUebergeben({
+    art: 'nativ',
+    dateiFertig: new Promise((r) => {
+      aufloesen = r;
+    }),
+  });
+  await render(<PreviewScreen />);
+  await act(async () => {
+    await fireEvent.press(screen.getByText('Einsenden'));
+  });
+  expect(mockJobEinreihen).not.toHaveBeenCalled();
+  await act(async () => {
+    aufloesen();
+  });
+  expect(mockJobEinreihen).toHaveBeenCalled();
+  expect(mockVideoAufbereiten).toHaveBeenCalledWith('file://nativ.mov');
+});
+
+test('scheitert das Hintergrund-Schreiben, zeigt Einsenden den bestehenden Fehlerweg', async () => {
+  mockParams = { uri: 'file://nativ.mov', typ: 'video', dauer: '3', tripId: 't1' };
+  mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
+  uebergabe.videoUebergeben({ art: 'nativ', dateiFertig: Promise.reject(new Error('voll')) });
+  await render(<PreviewScreen />);
+  await act(async () => {
+    await fireEvent.press(screen.getByText('Einsenden'));
+  });
+  expect(mockJobEinreihen).not.toHaveBeenCalled();
+  expect(screen.getByText(/konnte nicht gesichert werden/)).toBeTruthy();
+});
+
+test('Verwerfen räumt bei nativer Übergabe über das Modul', async () => {
+  mockParams = { uri: 'file://nativ.mov', typ: 'video', dauer: '3', tripId: 't1' };
+  mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
+  uebergabe.videoUebergeben({ art: 'nativ', dateiFertig: Promise.resolve() });
+  await render(<PreviewScreen />);
+  await fireEvent.press(screen.getByTestId('verwerfen-knopf'));
+  expect(mockNativVerwerfen).toHaveBeenCalled();
+  expect(mockDateiVerwerfen).not.toHaveBeenCalled();
 });
 
 test('bei einem Foto wird kein Video-Player angelegt', async () => {
