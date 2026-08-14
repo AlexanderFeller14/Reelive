@@ -448,6 +448,9 @@ export default function AufnehmenScreen() {
   // entsteht der Doppeltipp (siehe zoomGeste unten).
   const tippStart = useRef<{ pageX: number; pageY: number } | null>(null);
   const letzterTipp = useRef<{ zeit: number; pageX: number; pageY: number } | null>(null);
+  // Der ROHE Tipp während der gehaltenen Aufnahme (siehe onTouchStart der
+  // Zoomfläche): Kennung und Aufsetzpunkt des zweiten Fingers.
+  const rohTipp = useRef<{ id: number | string; pageX: number; pageY: number } | null>(null);
 
   // Vor den frühen Returns berechnet (Rules of Hooks: der Effekt weiter unten
   // braucht `reise?.id` als Abhängigkeit, und Hooks dürfen nicht hinter einem
@@ -844,6 +847,37 @@ export default function AufnehmenScreen() {
     onResponderTerminate: () => {
       pinchStart.current = null;
       tippStart.current = null;
+    },
+    // Der Fokus-Tipp WÄHREND der gehaltenen Aufnahme: der Responder gehört
+    // dann dem Auslöser, Responder-Ereignisse erreichen die Fläche nicht.
+    // Die rohen Touch-Ereignisse kommen aber an — sie folgen dem
+    // Berührungs-ZIEL, nicht dem Responder (Gerätefund 2026-08-14). Tab-Bar
+    // und Auslöser treffen die Fläche nie: deren Tipps zielen auf die
+    // eigenen Views, ein Ring über der Bedienung ist damit ausgeschlossen.
+    // In allen anderen Zuständen bleibt dieser Pfad stumm, dort fokussiert
+    // onResponderRelease oben — sonst feuerte der Tipp doppelt.
+    onTouchStart: (e?: GestureResponderEvent) => {
+      if (!nimmtAuf || aufnahmeGesperrt) return;
+      const id = e?.nativeEvent?.identifier;
+      if (id === undefined) return;
+      rohTipp.current = {
+        id,
+        pageX: e?.nativeEvent?.pageX ?? 0,
+        pageY: e?.nativeEvent?.pageY ?? 0,
+      };
+    },
+    onTouchEnd: (e?: GestureResponderEvent) => {
+      const start = rohTipp.current;
+      if (!start || e?.nativeEvent?.identifier !== start.id) return;
+      rohTipp.current = null;
+      if (!nimmtAuf || aufnahmeGesperrt) return;
+      const ende = {
+        pageX: e?.nativeEvent?.pageX ?? 0,
+        pageY: e?.nativeEvent?.pageY ?? 0,
+      };
+      // Gewandert heisst gewischt — derselbe Massstab wie beim Tipp oben.
+      if ((fingerAbstand([start, ende]) ?? 0) > TIPP_RADIUS) return;
+      fokusAuf(ende);
     },
   };
 

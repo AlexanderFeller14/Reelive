@@ -1532,6 +1532,8 @@ function sucherFlaeche() {
       onStartShouldSetResponder: () => boolean;
       onResponderGrant: (e: object) => void;
       onResponderRelease: (e: object) => void;
+      onTouchStart: (e: object) => void;
+      onTouchEnd: (e: object) => void;
     };
   };
 }
@@ -1692,6 +1694,60 @@ test('auch während einer gesperrten Aufnahme fokussiert der Tipp', async () => 
   await tippen(200, 350, { x: 200, y: 350 });
 
   expect(mockFokussiere).toHaveBeenCalledWith(200, 350);
+});
+
+// Während der GEHALTENEN Aufnahme gehört der Responder dem Auslöser, die
+// Fläche bekommt keine Responder-Ereignisse. Die ROHEN Touch-Ereignisse
+// kommen aber an (sie folgen dem Berührungs-Ziel, nicht dem Responder) —
+// darüber fokussiert der Tipp des zweiten Fingers auch mitten im Filmen
+// (Gerätefund 2026-08-14). Tab-Bar und Auslöser treffen die Fläche nie,
+// deren Tipps zielen auf die eigenen Views.
+test('während der gehaltenen Aufnahme fokussiert der Tipp eines zweiten Fingers', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  mockRecordAsync.mockImplementation(() => new Promise(() => {}));
+  await render(<AufnehmenScreen />);
+  await screen.findByLabelText('Auslöser');
+
+  jest.useFakeTimers();
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressIn', { nativeEvent: { pageX: 100, identifier: 1 } });
+  await act(async () => {
+    jest.advanceTimersByTime(600);
+  });
+  jest.useRealTimers();
+
+  const flaeche = sucherFlaeche();
+  await act(async () => {
+    flaeche.props.onTouchStart({ nativeEvent: { identifier: 7, pageX: 210, pageY: 380 } });
+  });
+  await act(async () => {
+    flaeche.props.onTouchEnd({ nativeEvent: { identifier: 7, pageX: 212, pageY: 382 } });
+  });
+
+  expect(mockFokussiere).toHaveBeenCalledWith(212, 382);
+});
+
+test('ein Wisch des zweiten Fingers während der Aufnahme fokussiert nicht', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  mockRecordAsync.mockImplementation(() => new Promise(() => {}));
+  await render(<AufnehmenScreen />);
+  await screen.findByLabelText('Auslöser');
+
+  jest.useFakeTimers();
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressIn', { nativeEvent: { pageX: 100, identifier: 1 } });
+  await act(async () => {
+    jest.advanceTimersByTime(600);
+  });
+  jest.useRealTimers();
+
+  const flaeche = sucherFlaeche();
+  await act(async () => {
+    flaeche.props.onTouchStart({ nativeEvent: { identifier: 7, pageX: 210, pageY: 380 } });
+  });
+  await act(async () => {
+    flaeche.props.onTouchEnd({ nativeEvent: { identifier: 7, pageX: 210, pageY: 500 } });
+  });
+
+  expect(mockFokussiere).not.toHaveBeenCalled();
 });
 
 // Der Kamerawechsel bliebe auch hier ein Session-Umbau und bräche die

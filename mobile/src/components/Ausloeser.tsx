@@ -45,6 +45,15 @@ const BUEHNE_BREITE = 2 * (SCHLOSS_ABSTAND + SCHLOSS_GROESSE / 2);
 // überall.
 const DRUCK_HALTE_BEREICH = 1000;
 
+// Ab wie viel klar vertikaler Bewegung der Zug-Zoom übernimmt. Auf dem Weg
+// zum Schloss (rechts) wandert der Daumen zwangsläufig auch etwas vertikal —
+// ohne Totzone zoomte die Aufnahme dabei mit (Gerätefund 2026-08-14). 16 aus
+// dem 4er-Raster (§3); zusätzlich muss die Höhe die Seitwärtsbewegung
+// übertreffen, sonst ist es ein Wisch zur Sperre. Einmal übernommen, folgt
+// der Zoom dem Finger frei — mitten im Zoomen soll die Hand nicht plötzlich
+// ins Leere greifen.
+const ZUG_TOTZONE = 16;
+
 // DESIGN-LANGUAGE §5, bewusste und eng begrenzte Ausnahme (im Review vom
 // 2026-08-07 bestätigt als vertretbarer Weg, siehe Fix-Runde-1-Anhang in
 // task-7-report.md): Der Fortschrittsring animiert `strokeDashoffset`, weder
@@ -138,6 +147,8 @@ export function Ausloeser({ onFoto, onVideoStart, onVideoStop, maxSekunden, onSp
   // Der Typ kommt aus RNs Ereignis-Deklaration (dort string, am Gerät
   // faktisch eine Zahl) — verglichen wird nur auf Gleichheit, nie gerechnet.
   const startFinger = useRef<GestureResponderEvent['nativeEvent']['identifier'] | undefined>(undefined);
+  // Ob der Zug-Zoom für diesen Druck übernommen hat (siehe ZUG_TOTZONE oben).
+  const zugAktiv = useRef(false);
 
   useEffect(() => {
     // Unmount-Aufräumen: ohne dies liefe ein zum Verlassen-Zeitpunkt noch
@@ -212,6 +223,7 @@ export function Ausloeser({ onFoto, onVideoStart, onVideoStop, maxSekunden, onSp
     startX.current = e?.nativeEvent?.pageX ?? 0;
     startY.current = e?.nativeEvent?.pageY ?? 0;
     startFinger.current = e?.nativeEvent?.identifier;
+    zugAktiv.current = false;
     phase.current = 'haelt';
     schwellenTimer.current = setTimeout(() => {
       phase.current = 'video';
@@ -240,7 +252,14 @@ export function Ausloeser({ onFoto, onVideoStart, onVideoStop, maxSekunden, onSp
     if (phase.current !== 'video') return;
     // Fremde Finger sagen hier nichts (siehe startFinger oben).
     if (e?.nativeEvent?.identifier !== startFinger.current) return;
-    onZoomZug?.(startY.current - (e?.nativeEvent?.pageY ?? 0));
+    const seitwaerts = (e?.nativeEvent?.pageX ?? 0) - startX.current;
+    const hub = startY.current - (e?.nativeEvent?.pageY ?? 0);
+    // Der Zug-Zoom übernimmt erst bei klar vertikaler Bewegung und folgt
+    // dann frei (siehe ZUG_TOTZONE oben).
+    if (!zugAktiv.current && Math.abs(hub) >= ZUG_TOTZONE && Math.abs(hub) > Math.abs(seitwaerts)) {
+      zugAktiv.current = true;
+    }
+    if (zugAktiv.current) onZoomZug?.(hub);
     const jetzt = (e?.nativeEvent?.pageX ?? 0) - startX.current >= SPERR_SCHWELLE;
     if (jetzt === jenseits.current) return;
     jenseits.current = jetzt;
@@ -333,11 +352,7 @@ export function Ausloeser({ onFoto, onVideoStart, onVideoStop, maxSekunden, onSp
         // `false` lehnt ab — der Druck überlebt, das fremde Touchable feuert
         // gar nicht erst.
         cancelable={false}
-        onTouchStart={(e) => {
-          console.log('[dbg] touchStart id=', e?.nativeEvent?.identifier, 'touches=', e?.nativeEvent?.touches?.length);
-        }}
         onTouchEnd={(e) => {
-          console.log('[dbg] touchEnd id=', e?.nativeEvent?.identifier, 'touches=', e?.nativeEvent?.touches?.length);
           // Das echte Ende des Halte-Fingers. Nötig, weil Pressability den
           // Druck womöglich schon verfrüht beendet hat (fremder Finger, siehe
           // onPressOut) — dessen eigenes Loslassen liefert dann kein
@@ -346,7 +361,6 @@ export function Ausloeser({ onFoto, onVideoStart, onVideoStop, maxSekunden, onSp
           if (e?.nativeEvent?.identifier === startFinger.current) druckEnde();
         }}
         onTouchCancel={(e) => {
-          console.log('[dbg] touchCancel id=', e?.nativeEvent?.identifier, 'phase=', phase.current);
           // iOS hat die Berührung des Halte-Fingers gekillt (beobachtet nach
           // einem fremden Finger-Ende; auch System-Gesten und Unterbrüche
           // können das). Dieser Finger liefert NIE mehr ein Ereignis — sein

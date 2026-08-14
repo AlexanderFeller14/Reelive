@@ -382,6 +382,57 @@ test('während der Aufnahme meldet der Auslöser den Hub nach oben', async () =>
   expect(onZoomZug).toHaveBeenLastCalledWith(-60);
 });
 
+// Gerätefund vom 2026-08-14: auf dem Weg zum Schloss (rechts) wandert der
+// Daumen zwangsläufig auch etwas vertikal — und die Aufnahme zoomte mit.
+// Der Zug-Zoom greift darum erst, wenn die Bewegung KLAR vertikal dominiert;
+// eine seitliche Bewegung bleibt, was sie ist: der Weg zur Sperre.
+test('eine Bewegung zum Schloss zoomt nicht, auch wenn sie leicht vertikal driftet', async () => {
+  const onZoomZug = jest.fn();
+  await render(
+    <Ausloeser
+      onFoto={jest.fn()}
+      onVideoStart={jest.fn()}
+      onVideoStop={jest.fn()}
+      maxSekunden={30}
+      onZoomZug={onZoomZug}
+    />
+  );
+  await fireEvent(knopf(), 'pressIn', { nativeEvent: { pageX: 100, pageY: 500 } });
+  await act(() => {
+    jest.advanceTimersByTime(600);
+  });
+
+  // Deutlich nach rechts, leicht nach oben: die Hand auf dem Weg zum Schloss.
+  await fireEvent(knopf(), 'touchMove', { nativeEvent: { pageX: 160, pageY: 492 } });
+  expect(onZoomZug).not.toHaveBeenCalled();
+});
+
+test('der Zug-Zoom greift bei klar vertikaler Bewegung und folgt danach auch seitwärts', async () => {
+  const onZoomZug = jest.fn();
+  await render(
+    <Ausloeser
+      onFoto={jest.fn()}
+      onVideoStart={jest.fn()}
+      onVideoStop={jest.fn()}
+      maxSekunden={30}
+      onZoomZug={onZoomZug}
+    />
+  );
+  await fireEvent(knopf(), 'pressIn', { nativeEvent: { pageX: 100, pageY: 500 } });
+  await act(() => {
+    jest.advanceTimersByTime(600);
+  });
+
+  // Klar vertikal: der Zug-Zoom übernimmt.
+  await fireEvent(knopf(), 'touchMove', { nativeEvent: { pageX: 104, pageY: 470 } });
+  expect(onZoomZug).toHaveBeenLastCalledWith(30);
+
+  // Einmal übernommen, folgt er dem Finger auch bei seitlichem Drift —
+  // mitten im Zoomen soll die Hand nicht plötzlich ins Leere greifen.
+  await fireEvent(knopf(), 'touchMove', { nativeEvent: { pageX: 150, pageY: 460 } });
+  expect(onZoomZug).toHaveBeenLastCalledWith(40);
+});
+
 test('vor der Halte-Schwelle meldet der Auslöser keinen Hub', async () => {
   const onZoomZug = jest.fn();
   await render(
