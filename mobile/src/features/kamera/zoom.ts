@@ -144,3 +144,16 @@ export function zugFaktor(
       : start * Math.pow((grenzen.min * basis) / start, Math.min(-hub / wege.runter, 1));
   return begrenzen(ziel, grenzen, basis);
 }
+
+export type MultiCamKamera = 'front' | 'weit' | 'ultraweit';
+export type MultiCamZiel = { kamera: MultiCamKamera; faktor: number };
+
+export function multiCamZiel(
+  anzeige: number,
+  richtung: 'back' | 'front',
+  hatUltraweit: boolean
+): MultiCamZiel {
+  if (richtung === 'front') return { kamera: 'front', faktor: Math.max(anzeige, 1) };
+  if (anzeige < 1 && hatUltraweit) return { kamera: 'ultraweit', faktor: anzeige * 2 };
+  return { kamera: 'weit', faktor: Math.max(anzeige, 1) };
+}
