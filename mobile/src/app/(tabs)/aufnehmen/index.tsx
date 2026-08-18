@@ -13,6 +13,7 @@ import { Image } from 'expo-image';
 import { useFocusEffect, useRouter, type Href } from 'expo-router';
 import { setStatusBarStyle } from 'expo-status-bar';
 import * as Linking from 'expo-linking';
+import { BlurView } from 'expo-blur';
 import { CameraView, useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
 import { createVideoPlayer, type VideoPlayer } from 'expo-video';
 import { getThumbnailAsync } from 'expo-video-thumbnails';
@@ -35,6 +36,8 @@ import { eigenerZaehler } from '@/features/moments/zaehler';
 import { useAuth } from '@/features/auth/AuthProvider';
 import * as uebergabe from '@/features/kamera/uebergabe';
 import * as aufnahmeSperre from '@/features/kamera/aufnahmeSperre';
+import * as kinoBuehne from '@/features/kamera/kinoBuehne';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // Höchstdauer eines Videos, dieselbe Zahl geht an den Auslöser UND an
 // CameraView.recordAsync. Ursprünglich 30 (Produktkonzept: Snapchat-Muster),
@@ -124,6 +127,12 @@ const VIDEO_START_VERSUCHE = 10;
 const VIDEO_START_WARTE_MS = 100;
 
 // Wie viel Zeit zwischen den beiden Tippern des Kamera-Wechsels liegen darf.
+// Sicherheitsfrist der Wechsel-Blende: bleibt das Geräte-Ereignis aus
+// (Simulator ohne zweite Kamera), räumt sie sich selbst wieder weg, statt
+// für immer über dem Sucher zu stehen. Grosszügig über den gemessenen
+// ~350–650 ms Umbau-Dauern.
+const WECHSEL_BLENDE_FRIST_MS = 1500;
+
 // 300 ms ist iOS' eigenes Mass für einen Doppeltipp. Ausserhalb der
 // Motion-Skala (§5), und zwar richtig so: die bemisst Übergänge, nicht die
 // Geduld einer Geste.
@@ -283,6 +292,38 @@ function FokusRing({ x, y, onFertig }: { x: number; y: number; onFertig: () => v
         },
       ]}
     />
+  );
+}
+
+// Liegt während des Kamerawechsel-Umbaus über dem zwangsläufig eingefrorenen
+// Sucher (FaceTime-Muster): der Blur macht aus dem Standbild eine bewusste
+// Blende statt eines Hängers (Nutzer-Befund 2026-08-18). Sie blendet sich
+// nur EIN (opacity, §5) — ihr Ende ist das erste lebende Bild der neuen
+// Kamera, das sie ersatzlos ablöst; ein Ausblenden würde genau dieses Bild
+// wieder verschleiern.
+function WechselBlende() {
+  const reducedMotion = useReducedMotion();
+  const [deckung] = useState(() => new Animated.Value(0));
+
+  useEffect(() => {
+    const lauf = Animated.timing(deckung, {
+      toValue: 1,
+      duration: reducedMotion ? 0 : motion.duration.fast,
+      easing: Easing.bezier(...motion.easeSmooth),
+      useNativeDriver: true,
+    });
+    lauf.start();
+    return () => lauf.stop();
+  }, [deckung, reducedMotion]);
+
+  return (
+    <Animated.View
+      pointerEvents="none"
+      accessible={false}
+      style={[StyleSheet.absoluteFill, { opacity: deckung }]}
+    >
+      <BlurView testID="wechsel-blende" intensity={50} tint="dark" style={StyleSheet.absoluteFill} />
+    </Animated.View>
   );
 }
 
@@ -488,12 +529,37 @@ export default function AufnehmenScreen() {
   // Aufnahme tatsächlich läuft (oder umgekehrt). `null` heisst: kein
   // Startversuch unterwegs.
   const nativStart = useRef<Promise<boolean> | null>(null);
+  // Ob die NATIVE Pipeline die laufende Aufnahme trägt (das aufgelöste
+  // Ergebnis von nativStart, als Ref für den synchronen Blick der Gesten).
+  // Der Doppeltipp-Wechsel WÄHREND der Aufnahme hängt daran: expo-camera
+  // tauscht beim Facing-Wechsel nur den Geräte-Input derselben laufenden
+  // Session, die eigene Pipeline hängt an deren Outputs und nimmt einfach
+  // weiter auf — eine laufende recordAsync (Fallback) bräche der Umbau
+  // dagegen ab.
+  const nativLaeuft = useRef(false);
   // Ob der Auslöser seit dem Start dieser Aufnahme losgelassen wurde. Als Ref,
   // weil die Startschleife den Wert zwischen zwei Runden synchron lesen muss;
   // ein State-Wert wäre dort noch der alte.
   const videoGestoppt = useRef(false);
   // Schirmt setState nach Blur/Unmount ab (gleiches Muster wie reise/index.tsx).
   const aktiv = useRef(true);
+  // Ob gerade die AUFNAHME-VORSCHAU über dem Tab liegt (zurPreview setzt
+  // es, der nächste Fokus nimmt es zurück). Der Unterschied zum echten
+  // Tab-Wechsel zählt doppelt (Nutzer-Befund 2026-08-18, «kurzes Standbild
+  // beim Verwerfen»): unter der Vorschau bleibt das Mikrofon angehängt (das
+  // Wiederanhängen beim Rückweg war ein Session-Umbau, der den Sucher exakt
+  // im Moment der Rückkehr einfror), und der fürs Foto eingefrorene Sucher
+  // läuft schon UNTER der Vorschau wieder an — der Instant-Rückweg zeigt
+  // dann sofort ein lebendes Bild. Als State, nicht als Ref: der mute-Prop
+  // hängt daran (Refs im Render sind tabu), und der Blur-Effekt weiter
+  // unten bekommt den aktuellen Wert über seine Abhängigkeit.
+  const [inVorschau, setInVorschau] = useState(false);
+  // Ob gerade der Kamerawechsel-Umbau läuft (kameraWechseln setzt es, das
+  // Eintreffen der neuen Kamera nimmt es zurück): solange liegt eine
+  // Blur-Blende über dem zwangsläufig eingefrorenen Sucher (FaceTime-
+  // Muster) — der Hardware-Umbau dauert ~350–650 ms, und ein nacktes
+  // Standbild fühlte sich nach Hänger an (Nutzer-Befund 2026-08-18).
+  const [wechselLaeuft, setWechselLaeuft] = useState(false);
   // Derselbe Wert wie `faktor`, nur synchron lesbar: das Nachsetzen und die
   // Pinch-Geste brauchen ihn ausserhalb des Renderns, wo ein State-Wert noch
   // der alte wäre.
@@ -595,10 +661,15 @@ export default function AufnehmenScreen() {
     useCallback(() => {
       aktiv.current = true;
       setFokussiert(true);
+      // Der Aufnahme-Fluss ist vorbei (zurück aus der Vorschau) — oder war
+      // nie einer (normaler Fokus).
+      setInVorschau(false);
       // Rückkehr aus der Vorschau: der Sucher war fürs Foto oder den
       // Video-Stopp eingefroren (pausePreview) und läuft jetzt weiter. Beim
       // allerersten Fokus ist die Kamera noch nicht gemountet, das optionale
-      // Chaining macht den Aufruf dann zum No-op.
+      // Chaining macht den Aufruf dann zum No-op. (Der Regelfall ist
+      // inzwischen, dass der Blur-Cleanup unten ihn schon unter der Vorschau
+      // hat anlaufen lassen — dann ist auch dies ein No-op.)
       void cameraRef.current?.resumePreview();
       // Zählt jedes Fokussieren hoch. Der Zähler-Effekt weiter unten hängt
       // daran (Important 3): bis zur Fix-Welle wirkte er nur deshalb richtig,
@@ -639,9 +710,47 @@ export default function AufnehmenScreen() {
   useFocusEffect(
     useCallback(() => {
       setStatusBarStyle(zeigtSucher ? 'light' : 'dark');
+      // Dieselbe Bedingung meldet die Kino-Bühne an den Tab-Navigator: über
+      // dem Sucher liegt die Leiste durchscheinend AUF dem Bild, damit Sucher
+      // und Vorschau dieselbe Fläche zeigen (kinoBuehne.ts, Gerätefund
+      // 2026-08-18 «mehr gecropt als bevor ich auslöse»).
+      kinoBuehne.setzen(zeigtSucher);
+      // Beim Blur bleibt das Zeichen bewusst STEHEN: der Blur feuert auch,
+      // wenn nur die Vorschau den Tab überdeckt — nähme man es hier zurück,
+      // fiele die Leiste unsichtbar in die helle Form und spränge beim
+      // Instant-Rückweg im ersten Frame sichtbar um (Nutzer-Befund
+      // 2026-08-18). Auf ANDEREN Tabs gilt ohnehin die normale Leiste, das
+      // entscheidet _layout.tsx an der Tab-Wahl (route.name), nicht am
+      // Zeichen.
       return () => setStatusBarStyle('dark');
     }, [zeigtSucher])
   );
+
+  // Sicherheitsnetz: verlässt der Screen die Bühne ganz (Unmount, Deep
+  // Link), darf das Sucher-Zeichen nicht stehen bleiben.
+  useEffect(() => () => kinoBuehne.setzen(false), []);
+
+  // Überdeckt die Vorschau den Tab, den fürs Foto eingefrorenen Sucher
+  // schon JETZT wieder anlaufen lassen (unsichtbar, er liegt darunter): der
+  // Instant-Rückweg zeigt dann sofort ein lebendes Bild statt des
+  // Standbilds vom Auslöse-Moment (Nutzer-Befund 2026-08-18). Ein eigener
+  // Effekt mit inVorschau als Abhängigkeit: das Cleanup sieht so beim Blur
+  // den AKTUELLEN Wert — im grossen Fokus-Effekt oben (Abhängigkeit nur
+  // laden) wäre er eine veraltete Schliessung.
+  useFocusEffect(
+    useCallback(() => {
+      return () => {
+        if (inVorschau) void cameraRef.current?.resumePreview();
+      };
+    }, [inVorschau])
+  );
+
+  // Liegt die Leiste über dem Bild, nimmt sie dem Screen keinen Platz mehr
+  // weg — die unten verankerten Bedienelemente (Auslöser, Zoom-Reihe,
+  // Fehler-Pille) heben sich deshalb um ihre Höhe, sonst lägen sie dahinter.
+  // Dieselbe Formel wie in _layout.tsx (kinoBuehne.leisteHoehe), damit die
+  // beiden Seiten nicht auseinanderlaufen können.
+  const leisteHoehe = kinoBuehne.leisteHoehe(useSafeAreaInsets().bottom);
 
   // Steht bei den Hooks, weil die frühen Returns weiter unten dazwischenliegen.
   // Was oben auf dem Sucher liegt, schont dieselbe Oberkante wie jeder andere
@@ -669,6 +778,21 @@ export default function AufnehmenScreen() {
       nativeZoom.setzeZoom(zoom.name, nativerFaktor(neu, zoom.basis), sanft);
     },
     [zoom]
+  );
+
+  // Beim Betreten des Screens springt ein REINGEZOOMTER Stand (> 1×) auf 1×
+  // zurück (Wunsch 2026-08-17): ein stehen gebliebener Pinch- oder Zug-Zoom
+  // soll nicht unbemerkt in die nächste Aufnahme hineinragen. Der Weitwinkel
+  // (≤ 1×) bleibt stehen (Präzisierung 2026-08-18): wer bewusst auf 0,5×
+  // gestellt hat, will nach dem Verwerfen genau dort weitermachen. Über
+  // zoomSetzen, damit auch das Gerät zurückgeht, nicht nur die Pille. Der
+  // Guard hält den Effekt still, wenn er nur wegen einer neuen
+  // zoomSetzen-Identität (Kamerawechsel) erneut läuft — der Wechsel selbst
+  // setzt schon auf 1×.
+  useFocusEffect(
+    useCallback(() => {
+      if (faktorRef.current > 1) zoomSetzen(1, false);
+    }, [zoomSetzen])
   );
 
   // Der Fallstrick dieser Funktion: auf dem virtuellen Gerät IST der native
@@ -721,6 +845,15 @@ export default function AufnehmenScreen() {
     const uhr = setTimeout(() => setAufnahmeFehler(null), FEHLER_MS);
     return () => clearTimeout(uhr);
   }, [aufnahmeFehler]);
+
+  // Sicherheitsnetz der Wechsel-Blende (siehe WECHSEL_BLENDE_FRIST_MS): im
+  // Regelfall räumt onAvailableLensesChanged sie deutlich früher weg.
+  useEffect(() => {
+    if (!wechselLaeuft) return;
+    const frist = setTimeout(() => setWechselLaeuft(false), WECHSEL_BLENDE_FRIST_MS);
+    return () => clearTimeout(frist);
+  }, [wechselLaeuft]);
+
 
   // Berechtigungen proaktiv anfragen, sobald der aktuelle Stand bekannt ist,
   // kamera-first (Produktkonzept) heisst, der Nutzer soll nicht erst einen
@@ -789,6 +922,10 @@ export default function AufnehmenScreen() {
   // Der Cast über `unknown` (statt `any`, siehe Präzedenz in joinFlow.ts) ist
   // bewusst temporär: sobald Task 8 die Route anlegt, entfällt er ersatzlos.
   const zurPreview = (params: { typ: 'photo' | 'video'; dauer: string; tripId: string; uri?: string }) => {
+    // VOR der Navigation gesetzt: der Blur-Effekt und der mute-Prop
+    // behandeln die Vorschau anders als einen Tab-Wechsel (siehe inVorschau
+    // oben).
+    setInVorschau(true);
     router.push({ pathname: '/vorschau', params } as unknown as Href);
   };
 
@@ -804,18 +941,35 @@ export default function AufnehmenScreen() {
   // Abstand zweier Finger, mehr nicht. `onStartShouldSetResponder: false`
   // lässt jede einzelne Berührung durch — sie gehört dem Auslöser und der
   // übrigen Bedienung. Erst die Bewegung mit zwei Fingern übernimmt.
-  // Ein Kamerawechsel baut die Kamera-Session um und bricht eine laufende
-  // recordAsync ab — derselbe Grund, aus dem die Kopfzeile während der
-  // Aufnahme verschwindet. Der Doppeltipp schweigt dort also, gesperrt oder
-  // nicht.
-  const darfWechseln = !nimmtAuf;
+  // Der Doppeltipp wechselt die Kamera auch WÄHREND der Aufnahme (Wunsch
+  // 2026-08-17, Snapchat-Muster) — aber nur auf dem nativen Weg: expo-camera
+  // tauscht beim Facing-Wechsel nur den Geräte-Input derselben laufenden
+  // Session (CameraSessionManager.addDevice), die eigene Pipeline hängt an
+  // deren Outputs und nimmt einfach weiter auf. Eine laufende recordAsync
+  // (Fallback) bräche der Umbau dagegen ab — dort schweigt der Doppeltipp
+  // weiterhin, gesperrt oder nicht. Als Funktion statt als Wert, weil die
+  // Gesten den nativLaeuft-Ref im Moment des Tipps lesen müssen.
+  const wechselErlaubt = () => !nimmtAuf || nativLaeuft.current;
 
   const kameraWechseln = () => {
+    // [dbg] Task-13-Messsonde (fliegt nach der Runde): Wann wurde der
+    // Wechsel angefordert? Gegenstück siehe onAvailableLensesChanged.
+    console.log('[dbg-flip] Wechsel angefordert', Date.now());
+    setWechselLaeuft(true);
     setRichtung((r) => (r === 'back' ? 'front' : 'back'));
     // Die andere Seite hat andere Linsen — der Faktor der einen bedeutet auf
     // der anderen etwas anderes, also zurück auf 1×.
     faktorRef.current = 1;
     setFaktor(1);
+    // Wechsel mitten in der GEHALTENEN Aufnahme: der Zug-Zoom rechnet
+    // relativ zum Aufnahmestart, und dieser Anker galt für die alte Kamera —
+    // neu verankern bei 1×. Die Grenzen der neuen Kamera kennt das Modul
+    // erst nach dem nativen Umbau; bis dahin klemmt der Zug schlimmstenfalls
+    // einen Augenblick an den alten.
+    if (zugStart.current) {
+      const grenzen = zoomGrenzenAktuell();
+      zugStart.current = grenzen ? { faktor: 1, grenzen } : null;
+    }
   };
 
   // Der Zug-Zoom (Spec 2026-08-13 §7): Hochziehen ab Aufnahmestart zoomt
@@ -833,6 +987,23 @@ export default function AufnehmenScreen() {
     );
   };
 
+  // Zwei saubere Tipps kurz nacheinander am selben Ort. Verwaltet die
+  // Zählung selbst: meldet true genau beim zweiten Tipp und beginnt danach
+  // von vorn. Von BEIDEN Tipp-Pfaden benutzt (Responder-Weg im Ruhezustand
+  // und bei gesperrter Aufnahme, roher Touch-Weg bei gehaltener) — die
+  // Zustände schliessen einander aus, der geteilte Zähler kann nicht
+  // zwischen ihnen verschwimmen.
+  const istDoppeltipp = (ende: { pageX: number; pageY: number }) => {
+    const vorher = letzterTipp.current;
+    const jetzt = Date.now();
+    const doppelt =
+      vorher !== null &&
+      jetzt - vorher.zeit <= DOPPELTIPP_MS &&
+      (fingerAbstand([vorher, ende]) ?? 0) <= TIPP_RADIUS;
+    letzterTipp.current = doppelt ? null : { zeit: jetzt, ...ende };
+    return doppelt;
+  };
+
   // Berührungen auf dem Kamerabild: zwei Finger zoomen, zwei Tipper wechseln
   // die Kamera (Snapchat-Muster).
   //
@@ -846,7 +1017,7 @@ export default function AufnehmenScreen() {
     // GEHALTENEN Aufnahme muss sie sie durchlassen: React Native kennt genau
     // einen Responder, und der gehört dann dem Auslöser — nähme die Fläche
     // ihn an sich, endete die Aufnahme.
-    onStartShouldSetResponder: () => darfWechseln || aufnahmeGesperrt,
+    onStartShouldSetResponder: () => !nimmtAuf || aufnahmeGesperrt,
     onMoveShouldSetResponder: (e?: GestureResponderEvent) =>
       zoomSichtbar && (e?.nativeEvent?.touches?.length ?? 0) >= 2,
     onResponderGrant: (e?: GestureResponderEvent) => {
@@ -907,18 +1078,12 @@ export default function AufnehmenScreen() {
         return;
       }
 
-      const vorher = letzterTipp.current;
-      const jetzt = Date.now();
-      const schnellGenug = vorher !== null && jetzt - vorher.zeit <= DOPPELTIPP_MS;
-      const naheGenug = vorher !== null && (fingerAbstand([vorher, ende]) ?? 0) <= TIPP_RADIUS;
-      // Der Doppeltipp wechselt die Kamera — aber nur im Ruhezustand
-      // (darfWechseln): ein Session-Umbau bräche die laufende recordAsync ab.
-      if (darfWechseln && schnellGenug && naheGenug) {
-        letzterTipp.current = null;
+      // Der Doppeltipp wechselt die Kamera — im Ruhezustand immer, während
+      // der Aufnahme nur auf dem nativen Weg (siehe wechselErlaubt).
+      if (istDoppeltipp(ende) && wechselErlaubt()) {
         kameraWechseln();
         return;
       }
-      letzterTipp.current = { zeit: jetzt, ...ende };
       // Jeder andere saubere Tipp fokussiert an seinem Punkt — auch der
       // erste eines Doppeltipps (die Kamera-App tut dasselbe; der Wechsel
       // danach macht den Fokus einfach hinfällig).
@@ -956,7 +1121,17 @@ export default function AufnehmenScreen() {
         pageY: e?.nativeEvent?.pageY ?? 0,
       };
       // Gewandert heisst gewischt — derselbe Massstab wie beim Tipp oben.
-      if ((fingerAbstand([start, ende]) ?? 0) > TIPP_RADIUS) return;
+      if ((fingerAbstand([start, ende]) ?? 0) > TIPP_RADIUS) {
+        letzterTipp.current = null;
+        return;
+      }
+      // Der Doppeltipp des zweiten Fingers wechselt die Kamera mitten im
+      // Filmen (Snapchat-Muster) — nur auf dem nativen Weg, der Fallback
+      // bräche ab (siehe wechselErlaubt).
+      if (istDoppeltipp(ende) && wechselErlaubt()) {
+        kameraWechseln();
+        return;
+      }
       fokusAuf(ende);
     },
   };
@@ -984,9 +1159,16 @@ export default function AufnehmenScreen() {
       // (Gerätetest 2026-08-13). Er bleibt darum live, man SIEHT den Blitz
       // zünden (Kamera-App-Muster), und eingefroren wird erst, wenn das Bild
       // da ist: als ruhiger Stand für den Übergang, wie beim Video-Stopp.
+      // `mirror: true` wirkt NUR auf die Frontkamera (expo-camera prüft die
+      // Blickrichtung selbst, CameraPhotoCapture.swift) und speichert dort,
+      // was der Sucher zeigte — ohne das Flag kippte ein Selfie nach der
+      // Aufnahme spiegelverkehrt (Gerätefund 2026-08-18). Die Video-Pipeline
+      // braucht nichts davon, sie übernimmt die Spiegelung direkt von der
+      // Sucher-Verbindung (verbindungAngleichen).
       const versprochen = cameraRef.current?.takePictureAsync({
         pictureRef: true,
         shutterSound: false,
+        mirror: true,
       });
       if (blitz === 'off') void cameraRef.current?.pausePreview();
       const ref = await versprochen;
@@ -1063,6 +1245,7 @@ export default function AufnehmenScreen() {
     // zeigen könnte.
     nativStart.current = nativeAufnahme.aufnahmeStarten(MAX_VIDEO_SEKUNDEN);
     void nativStart.current.then((ok) => {
+      nativLaeuft.current = ok;
       if (!ok) videoPromise.current = starten();
     });
   };
@@ -1072,6 +1255,9 @@ export default function AufnehmenScreen() {
     // zwischen zwei Runden und gibt dann auf, statt hinter dem Loslassen noch
     // eine Aufnahme zu beginnen.
     videoGestoppt.current = true;
+    // Die Aufnahme endet — ab hier gilt für den Doppeltipp wieder allein
+    // der Ruhezustand (wechselErlaubt).
+    nativLaeuft.current = false;
     cameraRef.current?.stopRecording();
 
     // Die Weiche: erst abwarten, OB die native Aufnahme überhaupt lief (das
@@ -1083,7 +1269,10 @@ export default function AufnehmenScreen() {
     const nativGestartet = nativStart.current ? await nativStart.current : false;
     nativStart.current = null;
     if (nativGestartet) {
+      // [dbg] Task-13-Messsonde, fliegt nach der Runde.
+      const tLoslassen = Date.now();
       const ergebnis = await nativeAufnahme.aufnahmeStoppen();
+      console.log('[dbg-stop] nativ gestoppt nach', Date.now() - tLoslassen, 'ms', ergebnis);
       setNimmtAuf(false);
       aufnahmeSperre.sperren(false);
       if (!ergebnis) {
@@ -1178,8 +1367,13 @@ export default function AufnehmenScreen() {
         // eine Session-Rekonfiguration MITTEN in einer laufenden
         // AVCaptureMovieFileOutput-Aufnahme bricht sie ab. Solange `nimmtAuf`
         // gilt, bleibt das Mikrofon also an, unabhängig vom Fokus — es nimmt
-        // ja gerade auf. Danach greift die Blur-Regel wie geplant.
-        mute={!fokussiert && !nimmtAuf}
+        // ja gerade auf. Und solange die AUFNAHME-VORSCHAU den Tab überdeckt
+        // (inVorschau), ebenfalls: das Wiederanhängen beim Instant-Rückweg
+        // war genau der Session-Umbau, der den Sucher im Moment der Rückkehr
+        // einfror (Nutzer-Befund 2026-08-18). Erst ein echter Tab-Wechsel
+        // hängt das Mikrofon ab — der orange Punkt soll nicht app-weit
+        // leuchten.
+        mute={!fokussiert && !nimmtAuf && !inVorschau}
         // `flash` gilt für Fotos; beim Video braucht es stattdessen das
         // Dauerlicht, derselbe Schalter, zwei Prop-Namen. Ob der Foto-Blitz
         // im Video-Preset am Gerät wirklich feuert, prüft die Geräte-
@@ -1194,7 +1388,15 @@ export default function AufnehmenScreen() {
         // Feuert nach jedem Gerätewechsel, und zwar NACH expo-cameras
         // eigenem updateZoom (addDevice, defer-Block): genau der Moment, in
         // dem unser Faktor wiederhergestellt gehört.
-        onAvailableLensesChanged={zoomNachsetzen}
+        onAvailableLensesChanged={() => {
+          // [dbg] Task-13-Messsonde (fliegt nach der Runde): das Ereignis
+          // feuert aus addDevices defer-Block — der Session-Umbau ist damit
+          // durch, die Differenz zur Anforderung ist die Umbau-Dauer.
+          console.log('[dbg-flip] neues Gerät liefert', Date.now());
+          // Die neue Kamera liefert: die Wechsel-Blende kann weg.
+          setWechselLaeuft(false);
+          zoomNachsetzen();
+        }}
       />
       {/* Fängt die Bewegung zweier Finger ab. Liegt über dem Kamerabild, aber
           unter allem Bedienbaren: was danach kommt, bekommt seine
@@ -1208,6 +1410,7 @@ export default function AufnehmenScreen() {
           onFertig={fokusRingFertig}
         />
       )}
+      {wechselLaeuft && <WechselBlende />}
       {/* Läuft ein Video, verschwindet die Kopfzeile (Spec 2026-08-12). Der
           Grund ist nicht Ästhetik: Im gesperrten Zustand ist die Hand frei,
           diese Knöpfe wären also erreichbar, und ein Kamera-Wechsel mitten in
@@ -1258,12 +1461,17 @@ export default function AufnehmenScreen() {
       </View>
       )}
       {aufnahmeFehler && (
-        <Pille style={[styles.fehlerPille, { bottom: fehlerUnten(zoomSichtbar) }]}>
+        <Pille style={[styles.fehlerPille, { bottom: fehlerUnten(zoomSichtbar) + leisteHoehe }]}>
           <Text style={[type.secondary, styles.fehlerText]}>{aufnahmeFehler}</Text>
         </Pille>
       )}
       {zoomSichtbar && zoom && (
-        <View style={styles.zoomWrap}>
+        <View
+          style={[
+            styles.zoomWrap,
+            { bottom: AUSLOESER_UNTEN + AUSLOESER_GROESSE + ZOOM_ABSTAND + leisteHoehe },
+          ]}
+        >
           <ZoomWahl
             stufen={zoom.stufen}
             faktor={faktor}
@@ -1271,7 +1479,10 @@ export default function AufnehmenScreen() {
           />
         </View>
       )}
-      <View style={styles.ausloeserWrap}>
+      <View
+        testID="ausloeser-buehne"
+        style={[styles.ausloeserWrap, { bottom: AUSLOESER_UNTEN + leisteHoehe }]}
+      >
         <Ausloeser
           onFoto={() => void handleFoto()}
           onVideoStart={handleVideoStart}
@@ -1370,16 +1581,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  // `bottom` fehlt hier wie beim zoomWrap bewusst: seit die Tab-Leiste als
+  // Overlay über dem Bild liegt, kommt zum Bodenabstand die Leistenhöhe des
+  // Geräts dazu (leisteHoehe, siehe JSX), und die kennt erst das Rendern.
   ausloeserWrap: {
     position: 'absolute',
-    bottom: AUSLOESER_UNTEN,
     alignSelf: 'center',
   },
   // Dicht über dem Auslöser, wie in der Kamera-App: dessen Bodenabstand plus
-  // Durchmesser plus der knappe Abstand dazwischen.
+  // Durchmesser plus der knappe Abstand dazwischen (Werte im JSX).
   zoomWrap: {
     position: 'absolute',
-    bottom: AUSLOESER_UNTEN + AUSLOESER_GROESSE + ZOOM_ABSTAND,
     alignSelf: 'center',
   },
   // Über dem Auslöser, nicht darunter (dort liegt die Tab-Bar) und nicht

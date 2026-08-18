@@ -2,6 +2,7 @@ import { render, screen, fireEvent, act } from '@testing-library/react-native';
 import * as React from 'react';
 import { Animated, Easing, StyleSheet, type StyleProp, type ViewStyle } from 'react-native';
 import { cinema, palette, spacing } from '@/theme/tokens';
+import * as kinoBuehne from '@/features/kamera/kinoBuehne';
 import type { Trip } from '@/features/trips/types';
 
 const mockPush = jest.fn();
@@ -34,14 +35,30 @@ jest.mock('expo-router', () => {
           mockFokusHoerer.delete(setStand);
         };
       }, []);
-      ReactActual.useEffect(cb, [cb, stand]);
+      // Ein negativer Stand heisst «nicht fokussiert» (siehe fokusVerlieren):
+      // der laufende Effekt räumt auf (Dep-Wechsel) und startet nicht neu —
+      // genau das Verhalten des echten useFocusEffect beim Blur.
+      ReactActual.useEffect(() => {
+        if (stand < 0) return;
+        return cb();
+      }, [cb, stand]);
     },
   };
 });
 
 // Simuliert die Rückkehr auf den Screen (z.B. aus der Vorschau).
 async function erneutFokussieren() {
-  mockFokusStand += 1;
+  mockFokusStand = Math.abs(mockFokusStand) + 1;
+  await act(async () => {
+    mockFokusHoerer.forEach((setzen) => setzen(mockFokusStand));
+  });
+}
+
+// Simuliert das Verlassen des Screens (Vorschau überdeckt den Tab, oder ein
+// anderer Tab wird gewählt): die Fokus-Effekte räumen auf und bleiben aus,
+// bis erneutFokussieren() den Fokus zurückbringt.
+async function fokusVerlieren() {
+  mockFokusStand = -Math.abs(mockFokusStand) - 1;
   await act(async () => {
     mockFokusHoerer.forEach((setzen) => setzen(mockFokusStand));
   });
@@ -282,6 +299,10 @@ beforeEach(() => {
   mockErzeugterPlayer.status = 'readyToPlay';
   // Modul-Zustand, überlebt Tests: immer entsperrt beginnen.
   aufnahmeSperre.sperren(false);
+  // Ein fokusVerlieren() aus einem früheren Test darf nicht nachwirken:
+  // jeder Test beginnt fokussiert (negativer Stand hiesse «unfokussiert»,
+  // die Fokus-Effekte liefen dann nie an und kein Screen lüde).
+  mockFokusStand = 0;
   // Ruling 2 aus dem Auftrag: Default ist der FALLBACK, damit alle
   // bestehenden recordAsync-Tests unverändert bleiben. Nur die eigenen
   // Nativ-Tests stellen explizit auf `true` (bzw. mockResolvedValueOnce).
@@ -455,7 +476,16 @@ test('ein Tipp friert den Sucher ein, übergibt das Foto im Speicher und navigie
 
   // Ohne Shutter-Sound (die Haptik bleibt das Feedback) und als Ref im
   // Speicher statt als JPEG auf der Platte — DAS ist der Instant-Anteil.
-  expect(mockTakePictureAsync).toHaveBeenCalledWith({ pictureRef: true, shutterSound: false });
+  // `mirror: true` wirkt NUR auf die Frontkamera (expo-camera prüft die
+  // Blickrichtung selbst) und speichert dort, was der Sucher zeigte — ohne
+  // das Flag kippte ein Selfie nach der Aufnahme spiegelverkehrt
+  // (Gerätefund 2026-08-18); die Video-Pipeline übernimmt die Spiegelung
+  // ohnehin vom Sucher.
+  expect(mockTakePictureAsync).toHaveBeenCalledWith({
+    pictureRef: true,
+    shutterSound: false,
+    mirror: true,
+  });
   expect(mockPausePreview).toHaveBeenCalledTimes(1);
 
   // Die Navigation trägt kein uri mehr: das Bild geht über die Übergabe.
@@ -1831,6 +1861,159 @@ test('ist die Aufnahme gesperrt, ist die Hand frei und die Reihe wieder da', asy
   expect(screen.getByTestId('zoom-wahl')).toBeTruthy();
 });
 
+// ——— Kino-Leiste über dem Sucher (Gerätefund 2026-08-18) ———
+//
+// Die Tab-Bar liegt als durchscheinendes Overlay ÜBER dem Kamerabild, damit
+// Sucher und Vorschau dieselbe Fläche zeigen (vorher zeigte die Vorschau
+// ~10 % weniger Bildbreite, «mehr gecropt als bevor ich auslöse»). Der
+// Screen meldet den Zustand über kinoBuehne an den Tab-Navigator …
+test('zeigt der Sucher, meldet der Screen die Kino-Bühne an und beim Verlassen wieder ab', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  const ansicht = await render(<AufnehmenScreen />);
+  await screen.findByLabelText('Auslöser');
+  expect(kinoBuehne.lesen()).toBe(true);
+  await act(async () => {
+    ansicht.unmount();
+  });
+  expect(kinoBuehne.lesen()).toBe(false);
+});
+
+// … und weil die Leiste dem Screen keinen Platz mehr wegnimmt, heben sich
+// die unten verankerten Bedienelemente um ihre Höhe (geteilte Formel
+// kinoBuehne.leisteHoehe), sonst lägen sie dahinter.
+test('die Bedienelemente heben sich um die Höhe der übergelegten Leiste', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  mockInsets = { top: 59, left: 0, right: 0, bottom: 34 };
+  await render(<AufnehmenScreen />);
+  await screen.findByLabelText('Auslöser');
+  const stil = StyleSheet.flatten(
+    screen.getByTestId('ausloeser-buehne').props.style
+  ) as { bottom: number };
+  // Der Bodenabstand des Auslösers (spacing.base) plus die volle Leistenhöhe
+  // dieses Geräts (Inhalt + Luft + Home-Indicator-Inset).
+  expect(stil.bottom).toBe(spacing.base + kinoBuehne.leisteHoehe(34));
+});
+
+// ——— Wechsel-Blende (Nutzer-Befund 2026-08-18) ———
+//
+// Der Kamerawechsel ist ein Hardware-Umbau (~350–650 ms am Gerät): der
+// Sucher friert dabei zwangsläufig auf dem letzten Bild ein. Statt das
+// Standbild nackt stehen zu lassen («lagt kurz»), liegt während des Umbaus
+// eine Blur-Blende darüber (FaceTime-Muster) — sie erscheint mit dem
+// Wechsel und verschwindet, sobald die neue Kamera liefert
+// (onAvailableLensesChanged).
+test('der Doppeltipp-Wechsel legt eine Blur-Blende über den Sucher, bis die neue Kamera liefert', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  await render(<AufnehmenScreen />);
+  await screen.findByLabelText('Auslöser');
+  expect(screen.queryByTestId('wechsel-blende')).toBeNull();
+
+  await tippen();
+  await tippen();
+  expect(screen.getByTestId('wechsel-blende')).toBeTruthy();
+
+  await act(async () => {
+    (letzteKameraProps().onAvailableLensesChanged as (e: { lenses: string[] }) => void)({
+      lenses: [],
+    });
+  });
+  expect(screen.queryByTestId('wechsel-blende')).toBeNull();
+});
+
+// Zwei Animations-Anläufe (3D-Drehung, Scale-Dip) flogen am Gerät wieder
+// raus («sieht einfach nur noch komischer aus», Befunde 2026-08-18): das
+// Kamerabild bleibt beim Wechsel UNBEWEGT, es gibt nur die Blur-Blende.
+// Dieser Test hält den Rückbau fest — wer wieder eine Bühne um das
+// Kamerabild legt, muss hier vorbei.
+test('das Kamerabild steht beim Wechsel auf keiner Animations-Bühne', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  await render(<AufnehmenScreen />);
+  await screen.findByLabelText('Auslöser');
+  expect(screen.queryByTestId('sucher-wechselbuehne')).toBeNull();
+  expect(screen.queryByTestId('sucher-drehbuehne')).toBeNull();
+});
+
+test('die Wechsel-Blende räumt sich notfalls selbst weg, wenn kein Geräte-Ereignis kommt', async () => {
+  // Am Simulator (keine zweite Kamera) bliebe die Blende sonst für immer
+  // stehen — nach einer Frist verschwindet sie von selbst.
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  await render(<AufnehmenScreen />);
+  await screen.findByLabelText('Auslöser');
+
+  // Fake-Timer VOR dem Doppeltipp: die Frist wird beim Wechsel geplant und
+  // muss auf der gefälschten Uhr liegen, sonst läuft sie hier nie ab.
+  jest.useFakeTimers();
+  await tippen();
+  await tippen();
+  expect(screen.getByTestId('wechsel-blende')).toBeTruthy();
+
+  await act(async () => {
+    jest.advanceTimersByTime(2000);
+  });
+  jest.useRealTimers();
+  expect(screen.queryByTestId('wechsel-blende')).toBeNull();
+});
+
+// ——— Instant-Rückweg aus der Vorschau (Nutzer-Befund 2026-08-18) ———
+//
+// «Beim Verwerfen gibt es ein kurzes Standbild»: Der Blur beim Öffnen der
+// Vorschau hängte das Mikrofon ab (mute), der Rückweg hängte es wieder an —
+// und dieser Session-Umbau fror den Sucher genau im Moment der Rückkehr
+// ein. Liegt die VORSCHAU über dem Tab, bleibt das Mikrofon deshalb dran
+// (der Aufnahme-Fluss ist nicht vorbei); nur ein echter Tab-Wechsel hängt
+// es weiter ab — der orange Punkt soll nicht app-weit leuchten.
+
+test('liegt die Vorschau über dem Tab, bleibt das Mikrofon angehängt', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  mockNativeAufnahme.aufnahmeStarten.mockResolvedValue(true);
+  await render(<AufnehmenScreen />);
+  await screen.findByLabelText('Auslöser');
+
+  jest.useFakeTimers();
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressIn', { nativeEvent: { pageX: 100 } });
+  await act(async () => {
+    jest.advanceTimersByTime(600);
+  });
+  jest.useRealTimers();
+  await act(async () => {
+    await fireEvent(screen.getByLabelText('Auslöser'), 'pressOut');
+  });
+  expect(mockPush).toHaveBeenCalled();
+
+  await fokusVerlieren();
+
+  expect(letzteKameraProps().mute).toBe(false);
+});
+
+test('auf einem anderen Tab ist das Mikrofon aus', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  await render(<AufnehmenScreen />);
+  await screen.findByLabelText('Auslöser');
+
+  // Kein Weg in die Vorschau — der Fokus geht an einen anderen Tab.
+  await fokusVerlieren();
+
+  expect(letzteKameraProps().mute).toBe(true);
+});
+
+// Der Foto-Weg friert den Sucher beim Auslösen ein (pausePreview als
+// gefühlter Shutter). Wieder anlaufen soll er UNTER der Vorschau, nicht erst
+// nach der Rückkehr — sonst steht beim Instant-Rückweg erst ein Standbild.
+test('beim Überdecken durch die Vorschau läuft der eingefrorene Sucher schon wieder an', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  await render(<AufnehmenScreen />);
+  await screen.findByLabelText('Auslöser');
+
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressIn');
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressOut');
+  expect(mockPausePreview).toHaveBeenCalledTimes(1);
+  mockResumePreview.mockClear();
+
+  await fokusVerlieren();
+
+  expect(mockResumePreview).toHaveBeenCalled();
+});
+
 // ——— Doppeltipp wechselt die Kamera (Snapchat-Muster) ———
 
 // Gleicher Weg wie beim Pinch: die Props SIND die Schnittstelle zum
@@ -1932,9 +2115,40 @@ test('der Doppeltipp beginnt auf der neuen Kamera wieder bei 1×', async () => {
   expect(screen.getByLabelText('Zoom 1×').props.accessibilityState.selected).toBe(true);
 });
 
-test('während einer laufenden Aufnahme wechselt der Doppeltipp die Kamera nicht', async () => {
-  // Ein Kamerawechsel baut die Session um und bricht recordAsync ab —
-  // derselbe Grund, aus dem die Kopfzeile während der Aufnahme verschwindet.
+// Beim Betreten des Screens springt ein REINGEZOOMTER Stand (> 1×) auf 1×
+// zurück: ein stehen gebliebener Pinch- oder Zug-Zoom soll nicht unbemerkt
+// in die nächste Aufnahme hineinragen (Wunsch 2026-08-17). Der Weitwinkel
+// (≤ 1×) bleibt dagegen stehen (Präzisierung 2026-08-18): wer bewusst auf
+// 0,5× gestellt hat, will nach dem Verwerfen einer Aufnahme genau dort
+// weitermachen.
+test('beim Betreten des Screens springt ein reingezoomter Stand auf 1× zurück', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  await render(<AufnehmenScreen />);
+  await screen.findByLabelText('Auslöser');
+  await fireEvent.press(screen.getByText('4×'));
+  expect(screen.getByLabelText('Zoom 4×').props.accessibilityState.selected).toBe(true);
+
+  await erneutFokussieren();
+
+  expect(screen.getByLabelText('Zoom 1×').props.accessibilityState.selected).toBe(true);
+});
+
+test('der Weitwinkel (0,5×) bleibt beim Betreten des Screens stehen', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  await render(<AufnehmenScreen />);
+  await screen.findByLabelText('Auslöser');
+  await fireEvent.press(screen.getByText('0,5×'));
+  expect(screen.getByLabelText('Zoom 0,5×').props.accessibilityState.selected).toBe(true);
+
+  await erneutFokussieren();
+
+  expect(screen.getByLabelText('Zoom 0,5×').props.accessibilityState.selected).toBe(true);
+});
+
+test('während einer laufenden Fallback-Aufnahme wechselt der Doppeltipp die Kamera nicht', async () => {
+  // Läuft recordAsync (Fallback, nativer Start abgelehnt — Mock-Default),
+  // bräche der Session-Umbau des Facing-Wechsels die Aufnahme ab: der
+  // Doppeltipp bleibt dort gesperrt.
   (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
   mockRecordAsync.mockImplementation(() => new Promise(() => {}));
   await render(<AufnehmenScreen />);
@@ -2062,7 +2276,7 @@ test('ein Wisch des zweiten Fingers während der Aufnahme fokussiert nicht', asy
 // Der Kamerawechsel bliebe auch hier ein Session-Umbau und bräche die
 // laufende recordAsync ab — der Doppeltipp bleibt also gesperrt, obwohl die
 // Fläche fürs Fokussieren wieder Tipps annimmt.
-test('während einer gesperrten Aufnahme wechselt der Doppeltipp die Kamera weiterhin nicht', async () => {
+test('während einer gesperrten Fallback-Aufnahme wechselt der Doppeltipp die Kamera weiterhin nicht', async () => {
   (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
   mockRecordAsync.mockImplementation(() => new Promise(() => {}));
   await render(<AufnehmenScreen />);
@@ -2081,6 +2295,66 @@ test('während einer gesperrten Aufnahme wechselt der Doppeltipp die Kamera weit
   await tippen();
 
   expect(letzteKameraProps().facing).toBe('back');
+});
+
+// ——— Doppeltipp-Wechsel WÄHREND der nativen Aufnahme (Wunsch 2026-08-17) ———
+//
+// Mit der eigenen Pipeline überlebt die Aufnahme den Facing-Wechsel:
+// expo-camera tauscht dabei nur den Geräte-Input derselben laufenden Session
+// (CameraSessionManager.addDevice), die eigenen Data-Outputs bleiben hängen
+// und liefern nach dem Umbau weiter — wie bei Snapchat wechselt der
+// Doppeltipp also mitten im Filmen die Kamera.
+
+test('während der gehaltenen nativen Aufnahme wechselt der Doppeltipp des zweiten Fingers die Kamera', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  mockNativeAufnahme.aufnahmeStarten.mockResolvedValue(true);
+  await render(<AufnehmenScreen />);
+  await screen.findByLabelText('Auslöser');
+
+  jest.useFakeTimers();
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressIn', { nativeEvent: { pageX: 100, identifier: 1 } });
+  await act(async () => {
+    jest.advanceTimersByTime(600);
+  });
+  jest.useRealTimers();
+
+  // Der Responder gehört dem Auslöser — der zweite Finger kommt über die
+  // rohen Touch-Ereignisse an (gleicher Weg wie der Fokus-Tipp oben).
+  const flaeche = sucherFlaeche();
+  for (const id of [7, 8]) {
+    await act(async () => {
+      flaeche.props.onTouchStart({ nativeEvent: { identifier: id, pageX: 210, pageY: 380 } });
+    });
+    await act(async () => {
+      flaeche.props.onTouchEnd({ nativeEvent: { identifier: id, pageX: 211, pageY: 381 } });
+    });
+  }
+
+  expect(letzteKameraProps().facing).toBe('front');
+  // Die Aufnahme läuft weiter — gestoppt wird erst beim Loslassen.
+  expect(mockNativeAufnahme.aufnahmeStoppen).not.toHaveBeenCalled();
+});
+
+test('während einer gesperrten nativen Aufnahme wechselt der Doppeltipp die Kamera', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  mockNativeAufnahme.aufnahmeStarten.mockResolvedValue(true);
+  await render(<AufnehmenScreen />);
+  await screen.findByLabelText('Auslöser');
+
+  jest.useFakeTimers();
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressIn', { nativeEvent: { pageX: 100 } });
+  await act(async () => {
+    jest.advanceTimersByTime(600);
+  });
+  jest.useRealTimers();
+  await fireEvent(screen.getByLabelText('Auslöser'), 'touchMove', { nativeEvent: { pageX: 160 } });
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressOut');
+
+  await tippen();
+  await tippen();
+
+  expect(letzteKameraProps().facing).toBe('front');
+  expect(mockNativeAufnahme.aufnahmeStoppen).not.toHaveBeenCalled();
 });
 
 // Ohne sichtbare Antwort fühlt sich der Tipp tot an: ein kleiner Ring steht
