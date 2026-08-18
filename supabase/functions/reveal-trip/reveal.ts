@@ -47,7 +47,7 @@ export type TripZeile = {
 // index.ts' Adapter fast wortgleich aus der Vorfassung übernehmen lässt,
 // weniger Umformung heisst weniger Gelegenheit, beim Verschieben
 // Verhalten zu ändern.
-type StoreErgebnis<T> = { data: T | null; error: unknown };
+export type StoreErgebnis<T> = { data: T | null; error: unknown };
 
 export interface RevealStore {
   holeTrip(tripId: string): Promise<StoreErgebnis<TripZeile>>;
@@ -103,7 +103,7 @@ export async function versendeRevealPush(
   store: RevealStore,
   sendeFn: SendeFn,
   trip: TripZeile,
-  ausloesendeId: string,
+  ausloesendeId: string | null,
 ): Promise<void> {
   const { data: mitglieder, error: mitgliederError } = await store.holeMitglieder(trip.id);
   if (mitgliederError) {
@@ -116,6 +116,10 @@ export async function versendeRevealPush(
   // getippt. Vorher eine `.neq('user_id', ausloesendeId)`-Klausel in der
   // SQL-Abfrage selbst, jetzt dieselbe Menge als reine JS-Filterung, damit
   // reveal_test.ts sie ohne Docker prüfen kann.
+  //
+  // ausloesendeId null (Auto-Reveal, Spec 2026-08-18): der Kalender hat
+  // ausgelöst, keine Person, niemand wird gefiltert; der Vergleich
+  // userId !== null ist für jede user_id wahr.
   const empfaengerIds = (mitglieder ?? [])
     .map((m) => m.user_id)
     .filter((userId) => userId !== ausloesendeId);
