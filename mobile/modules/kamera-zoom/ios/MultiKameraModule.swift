@@ -753,19 +753,28 @@ public class MultiKameraModule: Module {
         ausgabe.setSampleBufferDelegate(nil, queue: nil)
       }
       audioOutput?.setSampleBufferDelegate(nil, queue: nil)
-
       let alterVerteiler = verteiler
-      zustandLeeren()
 
-      // Den Verteiler erst freigeben, wenn beide Delegate-Queues durch sind.
-      // setSampleBufferDelegate(nil, …) wartet NICHT auf einen gerade
-      // laufenden captureOutput-Aufruf, und AVFoundation hält den Delegate
-      // unowned(unsafe): ein Aufruf auf ein schon freigegebenes Objekt stürzt
-      // ab. Je ein Hop über Video- und Ton-Queue heisst, dass jeder bereits
-      // begonnene Aufruf fertig ist, bevor die letzte Referenz fällt.
+      // Die Reihenfolge ist der ganze Punkt: erst die Delegates nullen (oben),
+      // dann die beiden Delegate-Queues leerlaufen lassen, ERST DANACH den
+      // geteilten Zustand leeren. Weder `stopRunning` noch
+      // `setSampleBufferDelegate(nil, …)` warten auf einen Aufruf, der schon
+      // eingereiht ist: der liest im Verteiler noch `ausgabeNamen` und ruft den
+      // Verteiler selbst, den AVFoundation nur unowned(unsafe) hält. Je ein Hop
+      // über Video- und Ton-Queue heisst, dass jeder solche Aufruf durch ist.
+      // Geleert wird von dort aus wieder auf der Session-Queue, denn dieser
+      // Zustand wird ausschliesslich dort geschrieben.
       videoQueue.async {
         audioQueue.async {
           withExtendedLifetime(alterVerteiler) {}
+          sessionQueue.async {
+            // Nur leeren, wenn in der Zwischenzeit keine neue Session
+            // entstanden ist: zwischen Abbau und Drain kann ein neuer
+            // `starten`-Aufruf schon wieder aufgebaut haben, und dessen Geräte
+            // und Outputs dürfen hier nicht mit weggewischt werden.
+            guard session == nil else { return }
+            zustandLeeren()
+          }
         }
       }
     }
