@@ -1,6 +1,6 @@
 create extension if not exists pgtap with schema extensions;
 begin;
-select plan(6);
+select plan(8);
 
 -- Auto-Reveal (Spec 2026-08-18): Spalte, ACL und Cron-Verdrahtung der
 -- Migration 20260818100000. Keine neuen Policies, darum keine Policy-Tests.
@@ -32,6 +32,16 @@ select is(
     where jobname in ('reveal-zeitplan-reveal', 'reveal-zeitplan-erinnerung')),
   2,
   'beide Cron-Jobs sind eingeplant');
+
+select is(
+  (select schedule from cron.job where jobname = 'reveal-zeitplan-reveal'),
+  '10 23 * * *',
+  'Reveal-Job läuft 23:10 UTC, ganzjährig nach Zürcher Mitternacht');
+
+select is(
+  (select schedule from cron.job where jobname = 'reveal-zeitplan-erinnerung'),
+  '30 7 * * *',
+  'Erinnerungs-Job läuft 07:30 UTC, ganzjährig am Zürcher Morgen');
 
 select is(
   has_function_privilege('authenticated', 'public.rufe_reveal_zeitplan(text)', 'EXECUTE'),

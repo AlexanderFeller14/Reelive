@@ -214,6 +214,27 @@ Deno.test('fuehreAutoRevealAus: ein Fehler bei Reise eins stoppt Reise zwei nich
   assertEquals(gemeldet.length, 1);
 });
 
+Deno.test('fuehreAutoRevealAus: scheiternder Push wird gemeldet, der Reveal bleibt bestehen', async () => {
+  const zustand: FakeZustand = {
+    reisen: [reise('t1', '2026-08-17')],
+    tokens: new Map([[OWNER_ID, ['tok-owner']]]),
+    mitglieder: [OWNER_ID],
+  };
+  const gemeldet: unknown[] = [];
+  const werfendeSendeFn: SendeFn = async () => {
+    throw new Error('Push kaputt');
+  };
+
+  const ergebnis = await fuehreAutoRevealAus(fakeStore(zustand), werfendeSendeFn, '2026-08-18', async (fehler) => {
+    gemeldet.push(fehler);
+  });
+
+  assertEquals(ergebnis.status, 200);
+  assertEquals(ergebnis.body, { ok: true, verarbeitet: 1 });
+  assertEquals(zustand.reisen[0].status, 'revealed');
+  assertEquals(gemeldet.length, 1);
+});
+
 Deno.test('fuehreAutoRevealAus: scheiternde Auswahl ergibt 500 und eine Meldung', async () => {
   const store = fakeStore({ reisen: [], tokens: new Map(), mitglieder: [] });
   store.holeFaelligeReisen = async () => ({ data: null, error: new Error('kaputt') });

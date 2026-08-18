@@ -130,14 +130,24 @@ Deno.test({
   fn: async () => {
     const store = erstelleZeitplanStore(erstelleAdminClient(SUPABASE_URL, SERVICE_ROLE_KEY));
     const tripId = await neueTrip('2026-01-02');
+    const tripId2 = await neueTrip('2026-01-02');
     try {
       const erster = await store.markiereErinnerung(tripId);
       assert(erster.data !== null, String(erster.error));
       const zweiter = await store.markiereErinnerung(tripId);
       assertEquals(zweiter.data, null);
       assertEquals(zweiter.error, null);
+
+      // Zwischen Auswahl und Marker manuell revealed: die zweite Probe-Reise
+      // darf die Erinnerung nicht mehr bekommen, `status = 'active'` in der
+      // echten Update-Bedingung greift auch gegen eine schon aufgedeckte
+      // Reise (Spec §2).
+      await store.aktualisiereWennAktiv(tripId2);
+      const nachReveal = await store.markiereErinnerung(tripId2);
+      assertEquals(nachReveal, { data: null, error: null });
     } finally {
       await loescheTrip(tripId);
+      await loescheTrip(tripId2);
     }
   },
 });

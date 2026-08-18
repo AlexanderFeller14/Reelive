@@ -102,6 +102,7 @@ export async function fuehreAutoRevealAus(
       await versendeRevealPush(store, sendeFn, trip, null);
     } catch (err) {
       console.error('reveal-zeitplan: Push-Versand fehlgeschlagen', err);
+      await melde(err, { trip_id: trip.id, heute });
     }
   }
   return { status: 200, body: { ok: true, verarbeitet } };
@@ -140,6 +141,7 @@ export async function fuehreErinnerungAus(
       const { data: tokenZeilen, error: tokenError } = await store.holeTokens([trip.owner_id]);
       if (tokenError) {
         console.error('reveal-zeitplan: push_tokens-Select fehlgeschlagen', tokenError);
+        await melde(tokenError, { trip_id: trip.id, heute });
         continue;
       }
       const tokens = tokenZeilen ?? [];
@@ -161,6 +163,7 @@ export async function fuehreErinnerungAus(
       }
     } catch (err) {
       console.error('reveal-zeitplan: Erinnerungs-Versand fehlgeschlagen', err);
+      await melde(err, { trip_id: trip.id, heute });
     }
   }
   return { status: 200, body: { ok: true, verarbeitet } };

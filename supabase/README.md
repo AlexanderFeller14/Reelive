@@ -49,3 +49,8 @@ openssl rand -hex 32
 Zeitreferenz ist fest Europe/Zurich (Spec §3). Die UTC-Cron-Zeiten liegen
 ganzjährig nach Zürcher Mitternacht (Reveal) bzw. am Zürcher Morgen
 (Erinnerung); «heute» berechnet der SQL-Wrapper mit der DB-Uhr.
+
+Der `net.http_post`-Aufruf ist fire-and-forget, die Antwort der Function
+landet höchstens in `net._http_response`; ein verpasster oder abgebrochener
+Lauf heilt sich am Folgetag selbst, weil der Reveal `end_date < heute`
+abfragt statt nur den Vortag.
