@@ -500,6 +500,7 @@ Deno.test('versendeRevealPush: keine Push-Tokens unter den Empfängern -> kein S
 // die Owner-Person nicht.
 Deno.test('versendeRevealPush: ausloesendeId null schreibt alle Mitglieder an', async () => {
   const zustand = neueFakeZustand('active');
+  zustand.tokens.set(OWNER_ID, ['tok-owner']);
   const aufrufe = { holeMitglieder: 0, loescheTokens: [] as Array<{ tokens: string[]; userIds: string[] }> };
   const store = fakeStore(zustand, aufrufe);
   const gesendet: PushNachricht[] = [];
