@@ -190,7 +190,7 @@ describe('multiCamZiel: die MultiCam-Zuordnung Anzeige zu Kamera und Faktor', ()
   it('0,9x liegt noch im Ultraweitwinkel, skaliert mit 2', () => {
     expect(multiCamZiel(0.9, 'back', true)).toEqual({ kamera: 'ultraweit', faktor: 1.8 });
   });
-  it('ab 1x ubernimmt der Weitwinkel mit dem Anzeige-Faktor', () => {
+  it('ab 1x uebernimmt der Weitwinkel mit dem Anzeige-Faktor', () => {
     expect(multiCamZiel(1, 'back', true)).toEqual({ kamera: 'weit', faktor: 1 });
     expect(multiCamZiel(3.5, 'back', true)).toEqual({ kamera: 'weit', faktor: 3.5 });
   });

@@ -154,6 +154,8 @@ export function multiCamZiel(
   hatUltraweit: boolean
 ): MultiCamZiel {
   if (richtung === 'front') return { kamera: 'front', faktor: Math.max(anzeige, 1) };
+  // Der Ultraweitwinkel deckt exakt den halben Bildwinkel-Faktor des Weitwinkels ab,
+  // iOS zaehlt ihn 1,0 bei Anzeige 0,5.
   if (anzeige < 1 && hatUltraweit) return { kamera: 'ultraweit', faktor: anzeige * 2 };
   return { kamera: 'weit', faktor: Math.max(anzeige, 1) };
 }
