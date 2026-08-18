@@ -62,7 +62,14 @@ export default function ReiseListe() {
   );
 
   const { laufend, recaps } = groupTrips(trips);
-  const leer = geladen && !fehler && trips.length === 0;
+  // Zwei ehrliche Leerzustände statt einem: «noch nie eine Reise» und «alle
+  // Reisen sind abgeschlossen». Abgeschlossene Reisen stehen NUR im Recap-Tab
+  // (dort führt der Tipp in die Übersicht); hier stünden sie doppelt. Ohne den
+  // zweiten Zustand wäre die Seite bei nur-Recaps komplett leer, und «Noch
+  // keine Reise» wäre eine falsche Aussage über die Daten (§6).
+  const fertig = geladen && !fehler;
+  const keineReise = fertig && trips.length === 0;
+  const nurRecaps = fertig && laufend.length === 0 && recaps.length > 0;
 
   return (
     <View style={{ flex: 1, backgroundColor: colors['bg-0'] }}>
@@ -81,7 +88,7 @@ export default function ReiseListe() {
           </View>
         )}
 
-        {leer && (
+        {(keineReise || nurRecaps) && (
           <View style={{ marginTop: spacing.xl }}>
             {/* Wie die Filmrolle im leeren Recap-Tab (recap/index.tsx): das
                 Bild steht NUR dort, wo sonst nichts steht. Freigestellt auf
@@ -95,9 +102,13 @@ export default function ReiseListe() {
               accessible={false}
             />
             <View style={{ gap: spacing.s, marginTop: spacing.l }}>
-              <Text style={[type.h2, { color: colors['text-1'] }]}>Noch keine Reise</Text>
+              <Text style={[type.h2, { color: colors['text-1'] }]}>
+                {keineReise ? 'Noch keine Reise' : 'Gerade keine Reise unterwegs'}
+              </Text>
               <Text style={[type.body, { color: colors['text-2'] }]}>
-                Leg deine erste Reise an oder tritt einer per Einladungslink bei.
+                {keineReise
+                  ? 'Leg deine erste Reise an oder tritt einer per Einladungslink bei.'
+                  : 'Deine abgeschlossenen Reisen findest du im Recap-Tab.'}
               </Text>
             </View>
           </View>
@@ -105,33 +116,12 @@ export default function ReiseListe() {
 
         {laufend.length > 0 && (
           <View style={{ gap: spacing.l }}>
-            <Text style={[type.h2, { color: colors['text-1'] }]}>Unterwegs</Text>
             {/* `cover` reicht den Platz der Karte ans Detail weiter, damit es
                 dasselbe Platzhalter-Bild zeigt wie die Karte, auf die getippt
                 wurde (platzhalterCover.ts). Ein reiner Darstellungs-Parameter:
                 wer ohne ihn im Detail landet (Deep Link, frisch angelegte
                 Reise), sieht das erste Bild. */}
             {laufend.map((t, i) => (
-              <TripCard
-                key={t.id}
-                trip={t}
-                position={i}
-                onPress={() => router.push(`/reise/${t.id}?cover=${i}`)}
-              />
-            ))}
-          </View>
-        )}
-
-        {recaps.length > 0 && (
-          <View style={{ gap: spacing.l }}>
-            <Text style={[type.h2, { color: colors['text-1'] }]}>Recaps</Text>
-            {/* Bewusst OHNE `alsRecap`: ein Tipp hier führt in die Reise-
-                Verwaltung (Mitglieder, Bearbeiten, Einladen), nicht in die
-                Recap-Übersicht, die «Recap ansehen»-Pille wäre hier ein
-                Versprechen, das der Tipp nicht einlöst (Review Task 10,
-                Important 1). Der Recap-Tab setzt `alsRecap`, weil dort ein
-                Tipp tatsächlich die Übersicht öffnet. */}
-            {recaps.map((t, i) => (
               <TripCard
                 key={t.id}
                 trip={t}

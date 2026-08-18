@@ -39,13 +39,14 @@ beforeEach(() => jest.clearAllMocks());
 const geladen = (trips: unknown[]) => ({ data: trips, error: null });
 const LADEFEHLER = 'Deine Reisen konnten nicht geladen werden. Probier es gleich nochmal.';
 
-test('zeigt laufende Reisen und Recaps getrennt', async () => {
+// Abgeschlossene Reisen gehören dem Recap-Tab; hier stünden sie doppelt und
+// ein Tipp führte woandershin als dort (Verwaltung statt Übersicht).
+test('zeigt nur laufende Reisen, keine Recaps', async () => {
   (fetchTrips as jest.Mock).mockResolvedValue(geladen([trip, recap]));
   await wrap();
   expect(await screen.findByText('Norwegen mit dem Camper')).toBeTruthy();
-  expect(screen.getByText('Lissabon Städtetrip')).toBeTruthy();
-  expect(screen.getByText('Unterwegs')).toBeTruthy();
-  expect(screen.getByText('Recaps')).toBeTruthy();
+  expect(screen.queryByText('Lissabon Städtetrip')).toBeNull();
+  expect(screen.queryByText('Recaps')).toBeNull();
 });
 
 test('ohne Reisen lädt der leere Zustand zum Handeln ein', async () => {
@@ -53,7 +54,17 @@ test('ohne Reisen lädt der leere Zustand zum Handeln ein', async () => {
   await wrap();
   expect(await screen.findByText('Noch keine Reise')).toBeTruthy();
   expect(screen.getByText(/Leg deine erste Reise an/)).toBeTruthy();
-  expect(screen.queryByText('Unterwegs')).toBeNull();
+});
+
+// «Noch keine Reise» wäre hier eine falsche Aussage: es gibt Reisen, sie sind
+// nur abgeschlossen. Der Leerzustand sagt das ehrlich und zeigt den Weg.
+test('nur abgeschlossene Reisen: der Leerzustand verweist auf den Recap-Tab', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([recap]));
+  await wrap();
+  expect(await screen.findByText('Gerade keine Reise unterwegs')).toBeTruthy();
+  expect(screen.getByText(/Recap-Tab/)).toBeTruthy();
+  expect(screen.getByTestId('leerzustand-camper')).toBeTruthy();
+  expect(screen.queryByText('Noch keine Reise')).toBeNull();
 });
 
 test('der leere Zustand zeigt den Camper', async () => {
