@@ -494,3 +494,23 @@ Deno.test('versendeRevealPush: keine Push-Tokens unter den Empfängern -> kein S
 
   assertEquals(sendeAufrufe.length, 0);
 });
+
+// Auto-Reveal (Spec 2026-08-18): der Kalender löst aus, keine Person. Bei
+// ausloesendeId null darf NIEMAND aus den Empfängern gefiltert werden, auch
+// die Owner-Person nicht.
+Deno.test('versendeRevealPush: ausloesendeId null schreibt alle Mitglieder an', async () => {
+  const zustand = neueFakeZustand('active');
+  const aufrufe = { holeMitglieder: 0, loescheTokens: [] as Array<{ tokens: string[]; userIds: string[] }> };
+  const store = fakeStore(zustand, aufrufe);
+  const gesendet: PushNachricht[] = [];
+  const sendeFake: SendeFn = async (nachrichten) => {
+    gesendet.push(...nachrichten);
+    return [];
+  };
+
+  await versendeRevealPush(store, sendeFake, zustand.trip, null);
+
+  const empfaenger = gesendet.map((n) => n.to).sort();
+  const alleTokens = [...zustand.tokens.values()].flat().sort();
+  assertEquals(empfaenger, alleTokens);
+});
