@@ -19,6 +19,7 @@ import {
   type StoreErgebnis,
   type TripZeile,
 } from '../reveal-trip/reveal.ts';
+import type { PushNachricht } from '../reveal-trip/push.ts';
 import type { MeldeFn } from '../_shared/fehlermelder.ts';
 
 const KEIN_MELDER: MeldeFn = async () => {};
@@ -101,6 +102,65 @@ export async function fuehreAutoRevealAus(
       await versendeRevealPush(store, sendeFn, trip, null);
     } catch (err) {
       console.error('reveal-zeitplan: Push-Versand fehlgeschlagen', err);
+    }
+  }
+  return { status: 200, body: { ok: true, verarbeitet } };
+}
+
+// Erinnert die Owner-Person am Morgen des letzten Reisetags (Spec §2 Punkt 2).
+// CAS auf den Marker macht einen doppelten Lauf folgenlos; nur der Gewinner
+// schickt den Push. Scheitert der Versand NACH dem gesetzten Marker, bleibt
+// die Erinnerung aus (kein Retry): sie ist Komfort, der Reveal am Folgetag
+// kommt unabhängig davon (Spec §6).
+export async function fuehreErinnerungAus(
+  store: ZeitplanStore,
+  sendeFn: SendeFn,
+  heute: string,
+  melde: MeldeFn = KEIN_MELDER,
+): Promise<ZeitplanErgebnis> {
+  const { data: reisen, error } = await store.holeErinnerungsReisen(heute);
+  if (error || !reisen) {
+    console.error('reveal-zeitplan: Auswahl der Erinnerungen fehlgeschlagen', error);
+    await melde(error ?? new Error('reveal-zeitplan: Erinnerungs-Auswahl ohne Daten.'), { heute });
+    return { status: 500, body: { fehler: 'Auswahl fehlgeschlagen.' } };
+  }
+
+  let verarbeitet = 0;
+  for (const trip of reisen) {
+    const { data: markiert, error: markerError } = await store.markiereErinnerung(trip.id);
+    if (markerError) {
+      console.error('reveal-zeitplan: Erinnerungs-Marker fehlgeschlagen', markerError);
+      await melde(markerError, { trip_id: trip.id, heute });
+      continue;
+    }
+    if (!markiert) continue;
+    verarbeitet++;
+
+    try {
+      const { data: tokenZeilen, error: tokenError } = await store.holeTokens([trip.owner_id]);
+      if (tokenError) {
+        console.error('reveal-zeitplan: push_tokens-Select fehlgeschlagen', tokenError);
+        continue;
+      }
+      const tokens = tokenZeilen ?? [];
+      if (tokens.length === 0) continue;
+
+      const text = `Heute ist der letzte Tag eurer Reise «${trip.name}». Um Mitternacht wird euer Recap aufgedeckt.`;
+      const nachrichten: PushNachricht[] = tokens.map((t) => ({
+        to: t.token,
+        title: text,
+        body: text,
+        data: { trip_id: trip.id },
+      }));
+      const tote = await sendeFn(nachrichten);
+      if (tote.length > 0) {
+        const { error: deleteError } = await store.loescheTokens(tote, [trip.owner_id]);
+        if (deleteError) {
+          console.error('reveal-zeitplan: Aufräumen abgemeldeter push_tokens fehlgeschlagen', deleteError);
+        }
+      }
+    } catch (err) {
+      console.error('reveal-zeitplan: Erinnerungs-Versand fehlgeschlagen', err);
     }
   }
   return { status: 200, body: { ok: true, verarbeitet } };

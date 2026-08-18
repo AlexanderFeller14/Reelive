@@ -3,6 +3,7 @@
 import { assertEquals } from 'jsr:@std/assert';
 import {
   fuehreAutoRevealAus,
+  fuehreErinnerungAus,
   pruefeZeitplanAnfrage,
   type ZeitplanStore,
 } from './zeitplan.ts';
@@ -220,6 +221,116 @@ Deno.test('fuehreAutoRevealAus: scheiternde Auswahl ergibt 500 und eine Meldung'
   const { sendeFn } = sammelnd();
 
   const ergebnis = await fuehreAutoRevealAus(store, sendeFn, '2026-08-18', async (fehler) => {
+    gemeldet.push(fehler);
+  });
+
+  assertEquals(ergebnis.status, 500);
+  assertEquals(gemeldet.length, 1);
+});
+
+// --- fuehreErinnerungAus -----------------------------------------------------
+
+Deno.test('fuehreErinnerungAus: Owner bekommt die Erinnerung, Mitglieder nicht', async () => {
+  const zustand: FakeZustand = {
+    reisen: [reise('t1', '2026-08-18')],
+    tokens: new Map([[OWNER_ID, ['tok-owner']], [MEMBER_ID, ['tok-member']]]),
+    mitglieder: [OWNER_ID, MEMBER_ID],
+  };
+  const { gesendet, sendeFn } = sammelnd();
+
+  const ergebnis = await fuehreErinnerungAus(fakeStore(zustand), sendeFn, '2026-08-18');
+
+  assertEquals(ergebnis.status, 200);
+  assertEquals(ergebnis.body, { ok: true, verarbeitet: 1 });
+  assertEquals(gesendet.map((n) => n.to), ['tok-owner']);
+  assertEquals(gesendet[0].title, 'Heute ist der letzte Tag eurer Reise «Reise t1». Um Mitternacht wird euer Recap aufgedeckt.');
+  assertEquals(gesendet[0].data, { trip_id: 't1' });
+});
+
+Deno.test('fuehreErinnerungAus: ein zweiter Lauf schickt nichts mehr', async () => {
+  const zustand: FakeZustand = {
+    reisen: [reise('t1', '2026-08-18')],
+    tokens: new Map([[OWNER_ID, ['tok-owner']]]),
+    mitglieder: [OWNER_ID],
+  };
+  const store = fakeStore(zustand);
+  const erste = sammelnd();
+  await fuehreErinnerungAus(store, erste.sendeFn, '2026-08-18');
+  const zweite = sammelnd();
+
+  const ergebnis = await fuehreErinnerungAus(store, zweite.sendeFn, '2026-08-18');
+
+  assertEquals(erste.gesendet.length, 1);
+  assertEquals(zweite.gesendet.length, 0);
+  assertEquals(ergebnis.body, { ok: true, verarbeitet: 0 });
+});
+
+Deno.test('fuehreErinnerungAus: verlorenes Marker-CAS heisst kein Push', async () => {
+  const zustand: FakeZustand = {
+    reisen: [reise('t1', '2026-08-18')],
+    tokens: new Map([[OWNER_ID, ['tok-owner']]]),
+    mitglieder: [OWNER_ID],
+  };
+  const store = fakeStore(zustand);
+  // Ein paralleler Lauf hat den Marker gerade gesetzt, die Auswahl dieses
+  // Laufs war aber schon gelesen: markiereErinnerung liefert dann null.
+  const echteAuswahl = store.holeErinnerungsReisen.bind(store);
+  store.holeErinnerungsReisen = async (heute) => {
+    const auswahl = await echteAuswahl(heute);
+    await store.markiereErinnerung('t1');
+    return auswahl;
+  };
+  const { gesendet, sendeFn } = sammelnd();
+
+  const ergebnis = await fuehreErinnerungAus(store, sendeFn, '2026-08-18');
+
+  assertEquals(gesendet.length, 0);
+  assertEquals(ergebnis.body, { ok: true, verarbeitet: 0 });
+});
+
+Deno.test('fuehreErinnerungAus: Owner ohne Token zählt trotzdem als verarbeitet', async () => {
+  const zustand: FakeZustand = {
+    reisen: [reise('t1', '2026-08-18')],
+    tokens: new Map(),
+    mitglieder: [OWNER_ID],
+  };
+  const { gesendet, sendeFn } = sammelnd();
+
+  const ergebnis = await fuehreErinnerungAus(fakeStore(zustand), sendeFn, '2026-08-18');
+
+  assertEquals(gesendet.length, 0);
+  // Der Marker ist gesetzt (die Erinnerung IST behandelt), nur zustellen
+  // liess sich nichts.
+  assertEquals(ergebnis.body, { ok: true, verarbeitet: 1 });
+  assertEquals(zustand.reisen[0].end_reminder_sent_at !== null, true);
+});
+
+Deno.test('fuehreErinnerungAus: tote Tokens werden im Owner-Kreis aufgeräumt', async () => {
+  const zustand: FakeZustand = {
+    reisen: [reise('t1', '2026-08-18')],
+    tokens: new Map([[OWNER_ID, ['tok-tot']]]),
+    mitglieder: [OWNER_ID],
+  };
+  const geloescht: Array<{ tokens: string[]; userIds: string[] }> = [];
+  const store = fakeStore(zustand);
+  store.loescheTokens = async (tokens, userIds) => {
+    geloescht.push({ tokens, userIds });
+    return { error: null };
+  };
+  const sendeFn: SendeFn = async () => ['tok-tot'];
+
+  await fuehreErinnerungAus(store, sendeFn, '2026-08-18');
+
+  assertEquals(geloescht, [{ tokens: ['tok-tot'], userIds: [OWNER_ID] }]);
+});
+
+Deno.test('fuehreErinnerungAus: scheiternde Auswahl ergibt 500 und eine Meldung', async () => {
+  const store = fakeStore({ reisen: [], tokens: new Map(), mitglieder: [] });
+  store.holeErinnerungsReisen = async () => ({ data: null, error: new Error('kaputt') });
+  const gemeldet: unknown[] = [];
+  const { sendeFn } = sammelnd();
+
+  const ergebnis = await fuehreErinnerungAus(store, sendeFn, '2026-08-18', async (fehler) => {
     gemeldet.push(fehler);
   });
 
