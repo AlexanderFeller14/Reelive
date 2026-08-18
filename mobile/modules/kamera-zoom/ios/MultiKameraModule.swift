@@ -35,9 +35,13 @@ public class MultiKameraModule: Module {
   private static let audioQueue = DispatchQueue(label: "reelive.multikamera.ton")
 
   private static var session: AVCaptureMultiCamSession?
-  // Geräte, Inputs, Outputs und Verbindungen werden EINMAL beim Aufbau auf der
-  // Session-Queue geschrieben (bevor `starten` auflöst und damit bevor der
-  // erste Frame oder der erste JS-Aufruf kommt); danach nur noch gelesen.
+  // Geräte, Inputs, Outputs und Verbindungen werden AUSSCHLIESSLICH auf der
+  // Session-Queue geschrieben: beim Aufbau (der noch vor dem Auflösen von
+  // `starten` durch ist, also bevor der erste Frame oder der erste JS-Aufruf
+  // kommt) und beim Abbau. Gelesen wird von überall, der Verteiler tut es pro
+  // Frame auf der Video-Queue und der Fokus auf Main. Auf dieser Regel beruht
+  // der Verzicht auf ein Lock für diese Felder: kein Schreibzugriff darf an der
+  // Session-Queue vorbei laufen.
   private static var geraete: [String: AVCaptureDevice] = [:]
   private static var inputs: [String: AVCaptureDeviceInput] = [:]
   private static var videoOutputs: [String: AVCaptureVideoDataOutput] = [:]
@@ -274,7 +278,7 @@ public class MultiKameraModule: Module {
     }
     session = neue
     beobachterAnhaengen(neue)
-    zustandAnwenden()
+    zustandAnwenden(aktiv: aktiveKamera)
     return neue
   }
 
@@ -318,20 +322,25 @@ public class MultiKameraModule: Module {
       throw MultiKameraFehler(grund: "\(name): kein MultiCam-Format")
     }
     try geraet.lockForConfiguration()
-    geraet.activeFormat = format
-    let fps = min(30.0, format.videoSupportedFrameRateRanges.map(\.maxFrameRate).max() ?? 30.0)
-    let dauer = CMTime(value: 1, timescale: CMTimeScale(fps))
-    geraet.activeVideoMinFrameDuration = dauer
-    geraet.activeVideoMaxFrameDuration = dauer
-    // Grundzustand aller drei Kameras (Spec §7); der Tipp auf einen Punkt
-    // stellt später um, die Szenen-Rückstellung kommt hierher zurück.
-    if geraet.isFocusModeSupported(.continuousAutoFocus) {
-      geraet.focusMode = .continuousAutoFocus
+    // Eigener Block mit defer (Muster der Datei, vgl. fokussiere und
+    // zoomSetzen): so bleibt die Kamera auch bei einem Fehler zwischendrin
+    // nicht gesperrt zurück, und der Rest der Funktion arbeitet ohne Sperre.
+    do {
+      defer { geraet.unlockForConfiguration() }
+      geraet.activeFormat = format
+      let fps = min(30.0, format.videoSupportedFrameRateRanges.map(\.maxFrameRate).max() ?? 30.0)
+      let dauer = CMTime(value: 1, timescale: CMTimeScale(fps))
+      geraet.activeVideoMinFrameDuration = dauer
+      geraet.activeVideoMaxFrameDuration = dauer
+      // Grundzustand aller drei Kameras (Spec §7); der Tipp auf einen Punkt
+      // stellt später um, die Szenen-Rückstellung kommt hierher zurück.
+      if geraet.isFocusModeSupported(.continuousAutoFocus) {
+        geraet.focusMode = .continuousAutoFocus
+      }
+      if geraet.isExposureModeSupported(.continuousAutoExposure) {
+        geraet.exposureMode = .continuousAutoExposure
+      }
     }
-    if geraet.isExposureModeSupported(.continuousAutoExposure) {
-      geraet.exposureMode = .continuousAutoExposure
-    }
-    geraet.unlockForConfiguration()
 
     let input = try AVCaptureDeviceInput(device: geraet)
     guard session.canAddInput(input) else {
@@ -367,6 +376,11 @@ public class MultiKameraModule: Module {
   // Aufbau gerufen und erneut, wenn die View später ankommt (Remount nach
   // Metro-Reload, Tab-Wechsel). Der Aufrufer klammert die Session-Konfiguration.
   private static func vorschauVerbinden(_ session: AVCaptureMultiCamSession) {
+    // Gehört auf die Session-Queue: die Ebenen-Bindung weiter unten greift
+    // synchron auf Main durch, ein Aufruf VON Main hinge auf der Stelle fest.
+    precondition(
+      !Thread.isMainThread, "vorschauVerbinden gehört auf die Session-Queue, nie auf Main"
+    )
     for verbindung in vorschauVerbindungen.values where session.connections.contains(verbindung) {
       session.removeConnection(verbindung)
     }
@@ -422,6 +436,12 @@ public class MultiKameraModule: Module {
     ausgabe.setSampleBufferDelegate(verteiler, queue: audioQueue)
     guard session.canAddOutput(ausgabe) else { return }
     session.addOutputWithNoConnections(ausgabe)
+    // Ab hier gemerkt, nicht erst nach der Verbindung: sonst bliebe in den
+    // Rückwegen unten ein Output mit gesetztem Delegate in der Session hängen,
+    // den der Abbau nie fände. Ohne Verbindung liefert er nie einen Puffer, und
+    // ob es Ton gibt, entscheidet ohnehin die Verbindung (Muster
+    // KameraAufnahmeModule.aufnahmeStarten, `mitTon`).
+    audioOutput = ausgabe
 
     let ports = input.ports(
       for: .audio, sourceDeviceType: mikrofon.deviceType, sourceDevicePosition: .unspecified
@@ -430,7 +450,6 @@ public class MultiKameraModule: Module {
     let verbindung = AVCaptureConnection(inputPorts: [port], output: ausgabe)
     guard session.canAddConnection(verbindung) else { return }
     session.addConnection(verbindung)
-    audioOutput = ausgabe
   }
 
   // Löst alles wieder, was für eine Kamera schon in der Session hängt.
@@ -512,7 +531,7 @@ public class MultiKameraModule: Module {
       session.beginConfiguration()
       vorschauVerbinden(session)
       session.commitConfiguration()
-      zustandAnwenden()
+      zustandAnwenden(aktiv: aktiveKamera)
     }
   }
 
@@ -565,13 +584,14 @@ public class MultiKameraModule: Module {
     }
     _aktiveKamera = name
     zustandLock.unlock()
-    zustandAnwenden()
+    zustandAnwenden(aktiv: name)
   }
 
   // Sichtbarkeit auf Main, Verbindungs-Schaltung auf der Session-Queue: beides
-  // hängt an derselben Frage «welche Kamera ist aktiv».
-  private static func zustandAnwenden() {
-    let aktiv = aktiveKamera
+  // hängt an derselben Frage «welche Kamera ist aktiv». Der Name kommt als
+  // Parameter herein, statt hier neu gelesen zu werden: zwei fast gleichzeitige
+  // Wechsel reihten sonst Blöcke mit vertauschten Werten ein.
+  private static func zustandAnwenden(aktiv: String) {
     aufMain { sucher?.sichtbarSetzen(aktiv) }
     sessionQueue.async { verbindungenAnwenden(aktiv: aktiv) }
   }
@@ -709,29 +729,50 @@ public class MultiKameraModule: Module {
 
   // MARK: - Abbau
 
+  // Der ganze Abbau liegt auf der Session-Queue, nicht nur das Anhalten: er
+  // schreibt dieselben Dictionaries, die der Verteiler pro Frame und der Fokus
+  // auf Main lesen. Von Main aus geleert (OnDestroy läuft dort), wäre jeder
+  // Metro-Reload ein Schreib-Lese-Rennen auf einem Swift-Dictionary, und das
+  // endet nicht bei einem falschen Wert, sondern im kaputten Speicher.
   private static func abbauen() {
-    druckBeobachtung?.invalidate()
-    druckBeobachtung = nil
-    if let beobachter = unterbrechungsEndeBeobachter {
-      NotificationCenter.default.removeObserver(beobachter)
-      unterbrechungsEndeBeobachter = nil
-    }
-    // Die Delegate-Bindung lösen, BEVOR der Verteiler fällt: AVFoundation hält
-    // ihn nicht (deshalb liegt er überhaupt statisch hier), und ein Puffer, der
-    // nach der Freigabe noch ankäme, zeigte ins Leere.
-    for ausgabe in videoOutputs.values {
-      ausgabe.setSampleBufferDelegate(nil, queue: nil)
-    }
-    audioOutput?.setSampleBufferDelegate(nil, queue: nil)
+    sessionQueue.async {
+      druckBeobachtung?.invalidate()
+      druckBeobachtung = nil
+      if let beobachter = unterbrechungsEndeBeobachter {
+        NotificationCenter.default.removeObserver(beobachter)
+        unterbrechungsEndeBeobachter = nil
+      }
 
-    let alte = session
-    session = nil
-    sollLaufen = false
-    zustandLeeren()
-    // stopRunning blockiert, bis die Ströme stehen: nicht auf Main.
-    sessionQueue.async { alte?.stopRunning() }
+      let alte = session
+      session = nil
+      sollLaufen = false
+      // stopRunning blockiert, bis die Ströme stehen: nach dem Anhalten kann
+      // kein NEUER captureOutput-Aufruf mehr beginnen.
+      alte?.stopRunning()
+      for ausgabe in videoOutputs.values {
+        ausgabe.setSampleBufferDelegate(nil, queue: nil)
+      }
+      audioOutput?.setSampleBufferDelegate(nil, queue: nil)
+
+      let alterVerteiler = verteiler
+      zustandLeeren()
+
+      // Den Verteiler erst freigeben, wenn beide Delegate-Queues durch sind.
+      // setSampleBufferDelegate(nil, …) wartet NICHT auf einen gerade
+      // laufenden captureOutput-Aufruf, und AVFoundation hält den Delegate
+      // unowned(unsafe): ein Aufruf auf ein schon freigegebenes Objekt stürzt
+      // ab. Je ein Hop über Video- und Ton-Queue heisst, dass jeder bereits
+      // begonnene Aufruf fertig ist, bevor die letzte Referenz fällt.
+      videoQueue.async {
+        audioQueue.async {
+          withExtendedLifetime(alterVerteiler) {}
+        }
+      }
+    }
   }
 
+  // Nur von der Session-Queue aus rufen (Aufbau-Fehlschlag und Abbau): leert
+  // genau die Felder, die anderswo ohne Lock gelesen werden.
   private static func zustandLeeren() {
     geraete = [:]
     inputs = [:]
