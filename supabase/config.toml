@@ -482,10 +482,10 @@ entrypoint = "./functions/reveal-trip/index.ts"
 # Anmeldung.
 [functions.share-link]
 enabled = true
-# ============================================================================
-# ACHTUNG: Diese Function ist die EINZIGE mit verify_jwt = false. Warum, und
-# was daran hängt:
-# ============================================================================
+# ACHTUNG: verify_jwt = false. Lange war share-link die einzige Function
+# ohne JWT-Pflicht; inzwischen steht auch reveal-zeitplan (unten) auf false,
+# dort trägt ein Cron-Secret statt des Tokens. Warum hier, und was daran
+# hängt:
 # media-urls und reveal-trip stehen oben mit verify_jwt = true, dort ist das
 # Gateway die erste von zwei Hürden, und der Handler prüft die Identität
 # danach noch einmal selbst.
@@ -540,3 +540,19 @@ enabled = true
 verify_jwt = true
 import_map = "./functions/moment-entfernen/deno.json"
 entrypoint = "./functions/moment-entfernen/index.ts"
+
+# reveal-zeitplan (Auto-Reveal, Spec 2026-08-18): das zeitgesteuerte
+# Gegenstück zu reveal-trip. Aufrufer ist pg_cron im eigenen Postgres
+# (Migration 20260818100000), nie die App.
+[functions.reveal-zeitplan]
+enabled = true
+# verify_jwt = false wie bei share-link, aber aus einem anderen Grund: der
+# Aufrufer ist kein Mensch und hat kein JWT, er ist die eigene Datenbank.
+# Was die Function stattdessen trägt, ist das Cron-Secret: der Header
+# x-cron-geheimnis muss der Umgebungsvariable CRON_GEHEIMNIS entsprechen
+# (pruefeZeitplanAnfrage in zeitplan.ts, ein leeres konfiguriertes Secret
+# ergibt 500, nie Durchlass). Wer diese Prüfung entfernt, macht Reveal-Läufe
+# für jeden Anonymen auslösbar.
+verify_jwt = false
+import_map = "./functions/reveal-zeitplan/deno.json"
+entrypoint = "./functions/reveal-zeitplan/index.ts"
