@@ -99,11 +99,17 @@ export function aufDruck(hoerer: (stufe: Druckstufe) => void): () => void {
   return () => abo.remove();
 }
 
-// Der Sucher des MultiCam-Pfads (Muster SofortVorschau). Ohne Modul (Android,
-// Simulator, Jest) liefert der Guard eine leere View statt zu werfen: eine
-// registrierte View-Config für 'MultiKamera' gibt es ohne das native Modul
-// nicht, und `requireNativeViewManager` ist darauf nicht überall verlässlich
-// vorbereitet.
+// Der Sucher des MultiCam-Pfads (Muster SofortVorschau). Zwei getrennte
+// Fälle brauchen die leere Fallback-View, und sie greifen unterschiedlich:
+// Android und Jest kennen das native Modul gar nicht, dort liefert
+// `nativesModul()` null, und der erste Guard greift sofort, ohne
+// `requireNativeViewManager` überhaupt aufzurufen. Der Simulator dagegen hat
+// das Modul registriert (`platforms: ["apple"]`), der null-Guard greift dort
+// also NICHT. Dass `AVCaptureMultiCamSession.isMultiCamSupported` auf dem
+// Simulator false ist, prüft erst `istVerfuegbar()` innerhalb des Moduls,
+// nicht dieser Guard hier: auf dem Simulator läuft der Aufruf also bis zum
+// try/catch durch, das ihn nur abfängt, falls `requireNativeViewManager`
+// dort tatsächlich wirft.
 function sucherKomponente(): ComponentType<ViewProps> {
   if (nativesModul() === null) return View;
   try {

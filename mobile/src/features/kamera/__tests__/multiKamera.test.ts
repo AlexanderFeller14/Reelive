@@ -16,13 +16,23 @@ const mockModul = {
 };
 let mockVorhanden = true;
 
-// Nur die eine Funktion ersetzen, der Rest bleibt echt: `requireNativeViewManager`
-// bleibt das originale expo-modules-core, damit der Guard von MultiKameraSucher
-// gegen die echte Implementierung geprüft wird.
-jest.mock('expo-modules-core', () => ({
-  ...jest.requireActual('expo-modules-core'),
-  requireOptionalNativeModule: () => (mockVorhanden ? mockModul : null),
-}));
+// Zählt die Aufrufe von `requireNativeViewManager` mit, reicht sie aber an
+// die echte expo-modules-core-Implementierung durch: der Guard von
+// MultiKameraSucher wird damit gegen das echte Verhalten geprüft, und der
+// Fall ohne Modul kann trotzdem belegen, dass der Aufruf unterbleibt.
+const mockRequireNativeViewManagerAufrufe = jest.fn();
+
+jest.mock('expo-modules-core', () => {
+  const echt = jest.requireActual('expo-modules-core') as typeof import('expo-modules-core');
+  return {
+    ...echt,
+    requireOptionalNativeModule: () => (mockVorhanden ? mockModul : null),
+    requireNativeViewManager: (...args: Parameters<typeof echt.requireNativeViewManager>) => {
+      mockRequireNativeViewManagerAufrufe(...args);
+      return echt.requireNativeViewManager(...args);
+    },
+  };
+});
 
 // Das Modul merkt sich den nativen Zugang und den Fehlschlag-Zähler beim
 // ersten Zugriff, deshalb muss jeder Test mit frischem Registrierungsstand
@@ -129,5 +139,27 @@ describe('multiKamera: der Zugang zum MultiCam-Modul', () => {
 
     abmelden();
     expect(mockRemove).toHaveBeenCalledTimes(1);
+  });
+
+  it('aufDruck liefert ohne Modul eine wirkungslose Abmeldung, addListener wird nie gerufen', () => {
+    mockVorhanden = false;
+    const hoerer = jest.fn();
+    const abmelden = multiKamera().aufDruck(hoerer);
+
+    expect(() => abmelden()).not.toThrow();
+    expect(mockModul.addListener).not.toHaveBeenCalled();
+  });
+
+  it('MultiKameraSucher ist ohne Modul die leere Fallback-View, requireNativeViewManager wird nie gerufen', () => {
+    mockVorhanden = false;
+    // Derselbe frische Registrierungsstand wie beim Modul-Zugang: `View`
+    // muss aus demselben `require`-Durchlauf wie `multiKamera` stammen,
+    // sonst vergleicht `toBe` zwei verschiedene Modul-Instanzen von
+    // react-native miteinander.
+    const rnView = (require('react-native') as typeof import('react-native')).View;
+    const mk = multiKamera();
+
+    expect(mk.MultiKameraSucher).toBe(rnView);
+    expect(mockRequireNativeViewManagerAufrufe).not.toHaveBeenCalled();
   });
 });
