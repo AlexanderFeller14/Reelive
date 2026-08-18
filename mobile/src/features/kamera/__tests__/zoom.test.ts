@@ -180,21 +180,21 @@ describe('zugFaktor', () => {
 });
 
 describe('multiCamZiel: die MultiCam-Zuordnung Anzeige zu Kamera und Faktor', () => {
-  it('Front bleibt Front, unter 1x klemmt der Faktor auf 1', () => {
+  it('Front bleibt Front, unter 1× klemmt der Faktor auf 1', () => {
     expect(multiCamZiel(0.5, 'front', true)).toEqual({ kamera: 'front', faktor: 1 });
     expect(multiCamZiel(2, 'front', true)).toEqual({ kamera: 'front', faktor: 2 });
   });
-  it('0,5x auf der Rückseite ist der Ultraweitwinkel bei Faktor 1', () => {
+  it('0,5× auf der Rückseite ist der Ultraweitwinkel bei Faktor 1', () => {
     expect(multiCamZiel(0.5, 'back', true)).toEqual({ kamera: 'ultraweit', faktor: 1 });
   });
-  it('0,9x liegt noch im Ultraweitwinkel, skaliert mit 2', () => {
+  it('0,9× liegt noch im Ultraweitwinkel, skaliert mit 2', () => {
     expect(multiCamZiel(0.9, 'back', true)).toEqual({ kamera: 'ultraweit', faktor: 1.8 });
   });
-  it('ab 1x uebernimmt der Weitwinkel mit dem Anzeige-Faktor', () => {
+  it('ab 1× übernimmt der Weitwinkel mit dem Anzeige-Faktor', () => {
     expect(multiCamZiel(1, 'back', true)).toEqual({ kamera: 'weit', faktor: 1 });
     expect(multiCamZiel(3.5, 'back', true)).toEqual({ kamera: 'weit', faktor: 3.5 });
   });
-  it('ohne Ultraweitwinkel klemmt unter 1x auf dem Weitwinkel bei 1', () => {
+  it('ohne Ultraweitwinkel klemmt unter 1× auf dem Weitwinkel bei 1', () => {
     expect(multiCamZiel(0.5, 'back', false)).toEqual({ kamera: 'weit', faktor: 1 });
   });
 });
