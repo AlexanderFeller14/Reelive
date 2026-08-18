@@ -95,8 +95,10 @@ Migration `supabase/migrations/`:
 - `create extension pg_cron` / `pg_net` (idempotent mit `if not exists`).
 - Neue Spalte `trips.end_reminder_sent_at timestamptz null`: Marker, dass die
   Erinnerung für diese Reise verschickt wurde. Geschrieben nur von der
-  Service-Role; `authenticated` bekommt keinen Grant auf die Spalte, es gibt
-  keine RLS-Änderung.
+  Service-Role: der Update-Grant für `authenticated` ist spaltenweise
+  (20260803090200) und nimmt die neue Spalte nicht auf. Lesbar ist sie für
+  Mitglieder wie alle trips-Spalten (Tabellen-Grant select), das verrät nur,
+  dass eine Erinnerung raus ist. Es gibt keine RLS-Änderung.
 - SQL-Wrapper-Funktion für den pg_net-Aufruf plus zwei `cron.schedule`-Einträge
   (Zeiten aus §3).
 
@@ -155,10 +157,11 @@ sein Bestätigungs-Sheet bleiben unverändert.
   `revealStore_integration_test.ts`): die Fällig-Abfrage mit echtem
   Datums-Vergleich, das CAS-Rennen manuell gegen automatisch (nur ein
   Gewinner, ein Push), der Erinnerungs-Marker über zwei Läufe.
-- **pgTAP:** keine neuen Policies, darum keine neuen Policy-Tests. Der
-  bestehende Schema-Test (01) wird um die neue Spalte ergänzt, falls er
-  Spalten aufzählt; der ACL-Baseline-Test (08) muss belegen, dass
-  `authenticated` die neue Spalte nicht schreiben kann.
+- **pgTAP:** keine neuen Policies, darum keine neuen Policy-Tests. Eine neue
+  Testdatei `21_auto_reveal_test.sql` (Konvention: eine Datei pro Migration,
+  wie 10/12/13) belegt die neue Spalte, dass `authenticated` sie nicht
+  schreiben, aber lesen kann, dass beide Cron-Jobs eingeplant sind und dass
+  der SQL-Wrapper für Client-Rollen nicht aufrufbar ist.
 - **Nicht automatisiert:** der pg_cron-Zeitplan selbst (feste UTC-Zeiten);
   Beleg ist ein manueller `select cron.schedule`-Blick nach dem Ausrollen.
 
