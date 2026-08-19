@@ -1,40 +1,40 @@
 import { supabase } from '@/lib/supabase';
 import { OFFLINE_HINT, istOffline } from '@/lib/networkError';
-import { sortiereMomente } from './tage';
+import { sortMoments } from './days';
 import type { RecapMoment } from './types';
 
-// Gleiches Muster wie tripsApi.ts/postsApi.ts: Daten und Fehler getrennt
-// zurückgeben, damit ein leeres Array nie mit «wirklich leer» verwechselt
-// wird (Gelesen<T> ist dort nicht exportiert, jede Datei bekommt ihre eigene
-// lokale Definition derselben Form, kein zweiter Import-Umweg für zwei Felder).
-type Gelesen<T> = { data: T; error: string | null };
+// Same pattern as tripsApi.ts/momentsApi.ts: return data and error
+// separately, so an empty array is never confused with "genuinely empty"
+// (Loaded<T> isn't exported there, every file gets its own local
+// definition of the same shape, no second import detour for two fields).
+type Loaded<T> = { data: T; error: string | null };
 
-function meldung(error: { message?: string } | null, sonst: string): string {
-  return istOffline(error) ? OFFLINE_HINT : sonst;
+function message(error: { message?: string } | null, fallback: string): string {
+  return istOffline(error) ? OFFLINE_HINT : fallback;
 }
 
-// functions-js ersetzt einen echten Netzwerkfehler durch einen festen
-// englischen Satz und legt die ursprüngliche Fetch-Fehlermeldung in
-// `context` ab (siehe ausführlicher Kommentar in postsApi.ts), beide
-// Stellen müssen geprüft werden, bevor auf die generische Meldung
-// zurückgefallen wird.
-function funktionMeldung(error: unknown, sonst: string): string {
+// functions-js replaces a genuine network error with a fixed English
+// sentence and puts the original fetch error message in `context` (see the
+// detailed comment in momentsApi.ts), both places must be checked before
+// falling back to the generic message.
+function functionMessage(error: unknown, fallback: string): string {
   const err = error as { message?: string; context?: { message?: string } } | null;
   if (istOffline({ message: err?.context?.message })) return OFFLINE_HINT;
-  return meldung(err ?? null, sonst);
+  return message(err ?? null, fallback);
 }
 
-// `profiles!posts_author_id_fkey` statt nur `profiles`: zwischen `posts` und
-// `profiles` gibt es ZWEI Wege, der direkte über `posts.author_id` und ein
-// many-to-many über `reactions` (post_id/user_id). PostgREST verweigert eine
-// mehrdeutige Einbettung mit HTTP 300 (PGRST201) und liefert gar keine Daten.
+// `profiles!posts_author_id_fkey` instead of just `profiles`: there are TWO
+// paths between `posts` and `profiles`, the direct one via
+// `posts.author_id`, and a many-to-many one via `reactions` (post_id/
+// user_id). PostgREST refuses an ambiguous embed with HTTP 300 (PGRST201)
+// and returns no data at all.
 //
-// Gefunden erst beim Durchspielen der laufenden App: der Recap zeigte
-// «Die Momente konnten nicht geladen werden», für jede Reise, für jede
-// Person. Kein Test hat es gesehen, weil alle den Supabase-Client mocken und
-// der Mock die Abfrage nie wirklich stellt. Wer den Namen hier kürzt, bricht
-// den Recap vollständig.
-const SPALTEN = [
+// Found only by playing through the running app: the recap showed "Die
+// Momente konnten nicht geladen werden", for every trip, for every person.
+// No test saw it, because they all mock the Supabase client and the mock
+// never actually issues the query. Shortening the name here breaks the
+// recap completely.
+const COLUMNS = [
   'id', 'trip_id', 'author_id', 'type', 'duration_s', 'caption',
   'captured_at', 'captured_tz', 'place_name', 'lat', 'lng', 'upload_status',
   'profiles!posts_author_id_fkey(display_name, avatar_key)',
@@ -44,26 +44,26 @@ type PostRow = Omit<RecapMoment, 'autor_name' | 'autor_avatar_key'> & {
   profiles: { display_name: string; avatar_key: string | null } | null;
 };
 
-// Liest alle Momente einer Reise inklusive Autorenname in EINEM Aufruf (kein
-// N+1, Brief), profiles(display_name) hängt am author_id-Fremdschlüssel,
-// analog zu trip_members(profiles(display_name)) in tripsApi.fetchMembers.
+// profiles(display_name) hangs off the author_id foreign key, analogous to
+// trip_members(profiles(display_name)) in tripsApi.fetchMembers.
 //
-// Läuft nur nach dem Reveal: posts_select_revealed_members lässt Mitglieder
-// erst lesen, wenn trips.status in ('revealed', 'archived') ist, vorher
-// liefert die Abfrage eine leere Liste ohne Fehler (RLS filtert, wirft
-// nicht). Das ist hier kein Sonderfall, den diese Funktion behandeln müsste.
-export async function fetchRecapMomente(tripId: string): Promise<Gelesen<RecapMoment[]>> {
-  const { data, error } = await supabase.from('posts').select(SPALTEN).eq('trip_id', tripId);
+// Only runs after the reveal: posts_select_revealed_members only lets
+// members read once trips.status is in ('revealed', 'archived'), before
+// that the query returns an empty list without an error (RLS filters,
+// doesn't throw). That's not a special case this function needs to handle.
+export async function fetchRecapMoments(tripId: string): Promise<Loaded<RecapMoment[]>> {
+  const { data, error } = await supabase.from('posts').select(COLUMNS).eq('trip_id', tripId);
   if (error || !data) {
     return {
       data: [],
-      error: meldung(error, 'Die Momente konnten nicht geladen werden. Probier es gleich nochmal.'),
+      error: message(error, 'Die Momente konnten nicht geladen werden. Probier es gleich nochmal.'),
     };
   }
-  // `unknown` als Zwischenschritt: Ohne generischen Database-Typ am Client
-  // inferiert postgrest-js profiles(...) als Array statt als Einzelobjekt
-  // (gleicher Grund wie TripRow in tripsApi.ts). Laufzeit unverändert.
-  const momente = (data as unknown as PostRow[]).map((row) => ({
+  // `unknown` as an intermediate step: without a generic Database type on
+  // the client, postgrest-js infers profiles(...) as an array instead of a
+  // single object (same reason as TripRow in tripsApi.ts). Unchanged at
+  // runtime.
+  const moments = (data as unknown as PostRow[]).map((row) => ({
     id: row.id,
     trip_id: row.trip_id,
     author_id: row.author_id,
@@ -79,16 +79,9 @@ export async function fetchRecapMomente(tripId: string): Promise<Gelesen<RecapMo
     autor_name: row.profiles?.display_name ?? '',
     autor_avatar_key: row.profiles?.avatar_key ?? null,
   }));
-  // Sortierung IMMER über tage.sortiereMomente (CLAUDE.md-Eckpfeiler:
-  // captured_at aufsteigend, id als stabiles zweites Kriterium), bewusst
-  // OHNE zusätzliches .order() auf der Abfrage selbst, damit diese Garantie
-  // an genau einer Stelle steht und unabhängig vom DB-Ausführungsplan
-  // nachweisbar bleibt (Task-5-Brief).
-  return { data: sortiereMomente(momente), error: null };
+  return { data: sortMoments(moments), error: null };
 }
 
-// Ruft die Edge Function aus Task 2 auf. Sie ist idempotent, ein Wiederholen
-// nach einem Netzfehler ist immer erlaubt, es gibt hier nichts zu sperren.
 export async function revealTrip(
   tripId: string
 ): Promise<{ revealed_at: string | null; error: string | null }> {
@@ -96,13 +89,11 @@ export async function revealTrip(
     body: { trip_id: tripId },
   });
   if (error) {
-    // Die Function liefert bei einem HTTP-Fehler ihren deutschen Klartext im
-    // Response-Body mit, der landet über FunctionsHttpError im `context`
-    // (gleiches Muster wie uploadBestaetigen in postsApi.ts).
-    const httpFehler = error as { name?: string; context?: unknown };
-    if (httpFehler?.name === 'FunctionsHttpError' && httpFehler.context instanceof Response) {
+    // Same pattern as confirmUpload in momentsApi.ts.
+    const httpError = error as { name?: string; context?: unknown };
+    if (httpError?.name === 'FunctionsHttpError' && httpError.context instanceof Response) {
       try {
-        const body = (await httpFehler.context.clone().json()) as { fehler?: string };
+        const body = (await httpError.context.clone().json()) as { fehler?: string };
         if (typeof body.fehler === 'string') return { revealed_at: null, error: body.fehler };
       } catch {
         // Antwort war kein JSON, generische Meldung unten.
@@ -110,12 +101,12 @@ export async function revealTrip(
     }
     return {
       revealed_at: null,
-      error: funktionMeldung(error, 'Die Reise konnte nicht abgeschlossen werden. Probier es gleich nochmal.'),
+      error: functionMessage(error, 'Die Reise konnte nicht abgeschlossen werden. Probier es gleich nochmal.'),
     };
   }
-  const ergebnis = data as { ok?: boolean; revealed_at?: string | null } | null;
-  if (!ergebnis?.ok) {
+  const result = data as { ok?: boolean; revealed_at?: string | null } | null;
+  if (!result?.ok) {
     return { revealed_at: null, error: 'Die Reise konnte nicht abgeschlossen werden. Probier es gleich nochmal.' };
   }
-  return { revealed_at: ergebnis.revealed_at ?? null, error: null };
+  return { revealed_at: result.revealed_at ?? null, error: null };
 }

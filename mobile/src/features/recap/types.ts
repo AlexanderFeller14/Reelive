@@ -1,7 +1,8 @@
-// Nur die Typen, die diese Phase wirklich braucht (Task-5-Brief). Reaktion und
-// Kommentar stehen hier bereits mit, weil Task 12 (Reaktionen/Kommentare) auf
-// denselben Typen aufsetzen soll statt auf einer zweiten, eigenen Definition,
-// beide Tasks laufen parallel, dieser Datei-Ausschnitt ist ihr gemeinsamer Vertrag.
+// Only the types this phase actually needs (Task-5 brief). Reaction and
+// Comment are already included here because Task 12 (reactions/comments) is
+// meant to build on the same types instead of a second, separate
+// definition; both tasks run in parallel, this file excerpt is their shared
+// contract.
 
 export type RecapMoment = {
   id: string;
@@ -13,32 +14,32 @@ export type RecapMoment = {
   captured_at: string;
   captured_tz: string;
   place_name: string | null;
-  // Koordinaten der Aufnahme. null ist der Normalfall und kein Fehler:
-  // ortBestimmen() (Phase 4) liefert bewusst null, wenn die Ortungsdienste
-  // nicht erlaubt sind, drinnen kein Fix zustande kommt oder die Frist
-  // ablaeuft, der Moment wird trotzdem eingesendet.
+  // Coordinates of the capture. null is the normal case, not an error:
+  // determinePlace() (Phase 4) deliberately returns null when location
+  // services aren't allowed, no fix is obtained indoors, or the timeout
+  // runs out; the moment gets submitted regardless.
   lat: number | null;
   lng: number | null;
   upload_status: 'pending' | 'uploaded';
-  // Kommt aus profiles.display_name (Join, siehe recapApi.fetchRecapMomente),
-  // ist also kein Feld von posts selbst.
+  // Comes from profiles.display_name (join, see recapApi.fetchRecapMoments),
+  // so it isn't a field of posts itself.
   autor_name: string;
-  // Wie autor_name aus dem profiles-Join (recapApi.fetchRecapMomente). Null
-  // heisst «kein Bild», dann trägt der Kreis die Initiale.
+  // Like autor_name, from the profiles join (recapApi.fetchRecapMoments).
+  // Null means "no picture", then the circle carries the initial.
   autor_avatar_key: string | null;
 };
 
-// Eine Gruppe von Momenten desselben Reise-Tages (siehe tage.ts).
-export type RecapTag = {
-  nummer: number; // zählt ab trips.start_date als Tag 1
-  datum: string; // 'YYYY-MM-DD', kanonisch aus start_date + (nummer - 1) Tagen
+// A group of moments of the same trip day (see days.ts).
+export type RecapDay = {
+  nummer: number; // counts from trips.start_date as day 1
+  datum: string; // 'YYYY-MM-DD', canonical from start_date + (nummer - 1) days
   ort: string | null;
   momente: RecapMoment[];
 };
 
-// Für Task 12 hier mitdefiniert, damit beide Tasks dieselben Typen benutzen.
-export type Reaktion = { post_id: string; user_id: string; emoji: string };
-export type Kommentar = {
+// Defined here for Task 12 as well, so both tasks use the same types.
+export type Reaction = { post_id: string; user_id: string; emoji: string };
+export type Comment = {
   id: string;
   post_id: string;
   user_id: string;

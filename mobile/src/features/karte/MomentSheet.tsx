@@ -16,7 +16,7 @@ import { useTheme } from '@/theme/ThemeProvider';
 import { motion, radius, spacing, type } from '@/theme/tokens';
 import { useReducedMotion } from '@/theme/useReducedMotion';
 import type { RecapMoment } from '@/features/recap/types';
-import { zeitInZone } from '@/features/recap/uhrzeit';
+import { timeInZone } from '@/features/recap/timeOfDay';
 import { momentLabel } from './nadel';
 import type { KartenPunkt } from './typen';
 
@@ -92,7 +92,7 @@ export function sheetBild(
 // in `captured_tz`, die Uhrzeit von damals vor Ort, nicht die auf die
 // Gerätezeit umgerechnete.
 export function autorUndZeit(moment: RecapMoment): string {
-  return `${moment.autor_name} · ${zeitInZone(moment.captured_at, moment.captured_tz)}`;
+  return `${moment.autor_name} · ${timeInZone(moment.captured_at, moment.captured_tz)}`;
 }
 
 // DESIGN-LANGUAGE §5: «Listen = Stagger 40 ms», die Zeilen einer Liste

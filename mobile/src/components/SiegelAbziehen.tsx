@@ -22,15 +22,15 @@ import { PressScale } from '@/components/PressScale';
 import { motion } from '@/theme/tokens';
 import { useReducedMotion } from '@/theme/useReducedMotion';
 import {
-  ABGEZOGEN_AB_MS,
-  BUEHNE,
-  DAUER_MS,
-  RASTER,
-  dreieckIndizes,
-  knotenPositionen,
-  schattenParameter,
-  texturKoordinaten,
-} from '@/features/recap/siegelPeel';
+  PEELED_AT_MS,
+  STAGE,
+  DURATION_MS,
+  GRID_RESOLUTION,
+  triangleIndices,
+  nodePositions,
+  shadowParameters,
+  textureCoordinates,
+} from '@/features/recap/sealPeel';
 
 const REDUZIERTE_DAUER_MS = 200;
 
@@ -105,8 +105,8 @@ export function SiegelAbziehen({ groesse, onAbgezogen, testID }: Props) {
         easing: Easing.bezier(...motion.easeSmooth),
       });
     } else {
-      dauer = ABGEZOGEN_AB_MS;
-      fortschritt.value = withTiming(1, { duration: DAUER_MS, easing: Easing.linear });
+      dauer = PEELED_AT_MS;
+      fortschritt.value = withTiming(1, { duration: DURATION_MS, easing: Easing.linear });
     }
     const timer = setTimeout(() => onAbgezogenRef.current(), dauer);
     return () => {
@@ -119,28 +119,28 @@ export function SiegelAbziehen({ groesse, onAbgezogen, testID }: Props) {
   // Netz-Topologie und Texturkoordinaten sind fix, nur die Knotenpositionen
   // bewegen sich. Die Texturen brauchen die Bildmasse in Pixeln (Skia liest
   // sie ohne `rect` am ImageShader im Pixelraum des Bildes).
-  const indizes = useMemo(() => dreieckIndizes(RASTER), []);
+  const indizes = useMemo(() => triangleIndices(GRID_RESOLUTION), []);
   const texturen = useMemo(
-    () => (bild ? texturKoordinaten(RASTER, bild.width(), bild.height()) : null),
+    () => (bild ? textureCoordinates(GRID_RESOLUTION, bild.width(), bild.height()) : null),
     [bild]
   );
 
-  const knoten = useDerivedValue(() => knotenPositionen(fortschritt.value, RASTER));
+  const knoten = useDerivedValue(() => nodePositions(fortschritt.value, GRID_RESOLUTION));
   const schattenRect = useDerivedValue(() => {
-    const s = schattenParameter(fortschritt.value);
+    const s = shadowParameters(fortschritt.value);
     return { x: s.x - s.rx, y: s.y - s.ry, width: 2 * s.rx, height: 2 * s.ry };
   });
   const schattenMitte = useDerivedValue(() => {
-    const s = schattenParameter(fortschritt.value);
+    const s = shadowParameters(fortschritt.value);
     return { x: s.x, y: s.y };
   });
-  const schattenDeckkraft = useDerivedValue(() => schattenParameter(fortschritt.value).deckkraft);
-  const schattenWeichheit = useDerivedValue(() => schattenParameter(fortschritt.value).weichheit);
+  const schattenDeckkraft = useDerivedValue(() => shadowParameters(fortschritt.value).deckkraft);
+  const schattenWeichheit = useDerivedValue(() => shadowParameters(fortschritt.value).weichheit);
 
   // Alles wird in Bühnen-Einheiten (720) gerechnet und als Ganzes auf die
   // Punktgrösse skaliert; die Weichheit des Schattens skaliert mit
   // (BlurMask respectCTM, Standard), so bleibt jede Zahl die des Prototyps.
-  const massstab = groesse / BUEHNE;
+  const massstab = groesse / STAGE;
 
   const abziehen = () => {
     if (laeuft) return;

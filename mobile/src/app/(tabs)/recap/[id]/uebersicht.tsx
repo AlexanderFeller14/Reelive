@@ -17,16 +17,16 @@ import { useTopInset } from '@/theme/useTopInset';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { fetchTrip } from '@/features/trips/tripsApi';
 import type { Trip } from '@/features/trips/types';
-import { fetchRecapMomente } from '@/features/recap/recapApi';
-import { sichereAlleInGalerie, type AlleErgebnis, type AlleFortschritt } from '@/features/recap/exportApi';
-import { gruppiereNachTagen } from '@/features/recap/tage';
-import type { RecapMoment, RecapTag } from '@/features/recap/types';
+import { fetchRecapMoments } from '@/features/recap/recapApi';
+import { saveAllToGallery, type AllResult, type AllProgress } from '@/features/recap/exportApi';
+import { groupByDays } from '@/features/recap/days';
+import type { RecapMoment, RecapDay } from '@/features/recap/types';
 import {
-  holeVorrat,
-  wiederholenHilft,
-  type MedienUrl,
-  type Vorrat,
-} from '@/features/recap/urlVorrat';
+  getPool,
+  retryHelps,
+  type MediaUrl,
+  type Pool,
+} from '@/features/recap/urlPool';
 import { TeilenSheetInhalt } from '@/features/teilen/TeilenSheetInhalt';
 
 // Nur der Tag selbst, nicht der Wochentag, den will hier niemand wissen.
@@ -52,7 +52,7 @@ function formatTagesdatum(iso: string): string {
 // die einzig ehrliche Angabe für DEN TAG als Ganzes, eine Überschrift, die
 // stattdessen das Datum irgendeines seiner Momente anzeigt, würde für genau
 // diese Momente lügen.
-function tagesueberschrift(tag: RecapTag): string {
+function tagesueberschrift(tag: RecapDay): string {
   const teile = [`Tag ${tag.nummer}`];
   if (tag.ort) teile.push(tag.ort);
   teile.push(formatTagesdatum(tag.datum));
@@ -82,7 +82,7 @@ function ausgelassenText(anzahl: number): string {
 // Task 7, ehrliche Bilanz (Brief, wörtlich: "Nicht «fertig», wenn drei
 // Dateien fehlen"): nennt IMMER die tatsächlichen Zahlen, nie ein
 // pauschales "fertig", auch bei einem Abbruch oder bei Fehlschlägen.
-function bilanzText(ausgang: Extract<AlleErgebnis, { status: 'fertig' }>): string {
+function bilanzText(ausgang: Extract<AllResult, { status: 'fertig' }>): string {
   if (ausgang.abgebrochen) {
     const teile = [`Abgebrochen bei ${ausgang.gesichert} von ${ausgang.gesamt} Momenten.`];
     if (ausgang.fehlgeschlagen > 0) {
@@ -143,8 +143,8 @@ function SkelettScreen() {
 function TagesAbschnitt({
   tag, urls, indexById, onTip,
 }: {
-  tag: RecapTag;
-  urls: Map<string, MedienUrl>;
+  tag: RecapDay;
+  urls: Map<string, MediaUrl>;
   indexById: Map<string, number>;
   onTip: (index: number) => void;
 }) {
@@ -195,8 +195,8 @@ function TagesAbschnitt({
 function ExportSheetInhalt({
   stand, ausgang, onAbbrechen, onFertig,
 }: {
-  stand: AlleFortschritt;
-  ausgang: AlleErgebnis | null;
+  stand: AllProgress;
+  ausgang: AllResult | null;
   onAbbrechen: () => void;
   onFertig: () => void;
 }) {
@@ -244,7 +244,7 @@ export default function RecapUebersicht() {
   const { userId } = useAuth();
   const [trip, setTrip] = useState<Trip | null>(null);
   const [momente, setMomente] = useState<RecapMoment[]>([]);
-  const [vorrat, setVorrat] = useState<Vorrat | null>(null);
+  const [vorrat, setVorrat] = useState<Pool | null>(null);
   // Task-6-Brief: «Recap teilen» erscheint nur für die Owner-Person und nur
   // bei status==='revealed', die UI blendet nur aus, share-link/index.ts
   // (Aktion 'erstellen') prüft beides server-seitig noch einmal
@@ -255,8 +255,8 @@ export default function RecapUebersicht() {
   // tatsächliches AlleErgebnis beendet die laufende Ansicht, siehe Sheet-
   // Inhalt unten.
   const [exportOffen, setExportOffen] = useState(false);
-  const [exportStand, setExportStand] = useState<AlleFortschritt>({ erledigt: 0, gesamt: 0 });
-  const [exportAusgang, setExportAusgang] = useState<AlleErgebnis | null>(null);
+  const [exportStand, setExportStand] = useState<AllProgress>({ erledigt: 0, gesamt: 0 });
+  const [exportAusgang, setExportAusgang] = useState<AllResult | null>(null);
   const exportAbortRef = useRef<AbortController | null>(null);
   // Gleiche Dreiteilung wie überall sonst im Projekt: `geladen` trennt «lädt
   // noch» von «fertig», `fehler` bündelt den ersten Fehlschlag der drei
@@ -298,7 +298,7 @@ export default function RecapUebersicht() {
       { data: t, error: tFehler },
       { data: m, error: mFehler },
       { vorrat: v, error: vFehler, grund: vGrund },
-    ] = await Promise.all([fetchTrip(id), fetchRecapMomente(id), holeVorrat(id)]);
+    ] = await Promise.all([fetchTrip(id), fetchRecapMoments(id), getPool(id)]);
     if (!aktiv.current) return;
     setTrip(t);
     setMomente(m);
@@ -309,7 +309,7 @@ export default function RecapUebersicht() {
     setFehler(tFehler ?? vFehler ?? mFehler ?? null);
     // `grund` gehört zum VORRAT und zählt deshalb nur, wenn dessen Fehler auch
     // der angezeigte ist (Priorität Reise vor Vorrat vor Momenten, siehe oben).
-    setNochmalHilft(tFehler === null && vFehler !== null ? wiederholenHilft(vGrund) : true);
+    setNochmalHilft(tFehler === null && vFehler !== null ? retryHelps(vGrund) : true);
     setGeladen(true);
   }, [id]);
 
@@ -373,7 +373,7 @@ export default function RecapUebersicht() {
   // nicht mehr"-Zweig). Die Berechnung selbst braucht `trip` nicht wirklich
   // (nur `tage` weiter unten tut das, wegen `trip.start_date`), sie bleibt
   // deshalb sicher berechenbar, auch während `trip` noch null sein könnte.
-  const urls = vorrat?.urls ?? new Map<string, MedienUrl>();
+  const urls = vorrat?.urls ?? new Map<string, MediaUrl>();
   const uploaded = momente.filter((m) => m.upload_status === 'uploaded');
   const mitBild = uploaded.filter((m) => urls.has(m.id));
   const indexById = new Map(mitBild.map((m, i) => [m.id, i] as const));
@@ -388,7 +388,7 @@ export default function RecapUebersicht() {
     setExportAusgang(null);
     setExportStand({ erledigt: 0, gesamt: eintraege.length });
     setExportOffen(true);
-    void sichereAlleInGalerie(eintraege, (stand) => setExportStand(stand), controller.signal).then((ausgang) => {
+    void saveAllToGallery(eintraege, (stand) => setExportStand(stand), controller.signal).then((ausgang) => {
       if (!aktiv.current) return;
       setExportAusgang(ausgang);
     });
@@ -490,7 +490,7 @@ export default function RecapUebersicht() {
   // trotzdem keine URL ausstellen konnte (`urls.has` false), die Zahl dafür
   // ist `vorrat.ausgelassen`, eine EIGENE, vom Server gezählte Grösse, keine
   // hier selbst nachgerechnete Differenz (Task-10-Brief, zweiter Hinweis).
-  const tage = gruppiereNachTagen(mitBild, trip.start_date);
+  const tage = groupByDays(mitBild, trip.start_date);
   const pendingAnzahl = momente.length - uploaded.length;
   const ausgelassenAnzahl = vorrat?.ausgelassen ?? 0;
   const komplettLeer = tage.length === 0 && pendingAnzahl === 0 && ausgelassenAnzahl === 0;

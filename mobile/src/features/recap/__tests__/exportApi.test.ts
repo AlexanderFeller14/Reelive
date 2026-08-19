@@ -1,88 +1,88 @@
-// Gleiches Mock-Grundmuster wie moments/__tests__/medien.test.ts: ein
-// winziges Dateisystem im Speicher (`mockVorhanden`), damit die Tests
-// tatsächliches Anlegen/Löschen prüfen können, nicht bloss, dass eine
-// Methode irgendwann aufgerufen wurde. Phase-5-Lehre: ein Mock, der genau
-// den Mechanismus ersetzt, den der Test prüfen soll (hier: ob eine
-// Zwischendatei WIRKLICH verschwindet), prüfte nichts, deshalb ein echtes,
-// zustandsbehaftetes Fake statt eines reinen jest.fn()-Stubs.
-const mockVorhanden = new Set<string>();
-// Pro URL steuerbares Verhalten: 'ok' legt die Zieldatei an und löst auf,
-// 'fehler' wirft (simuliert einen Netzwerk-/HTTP-Fehlschlag OHNE Zieldatei,
-// der Normalfall laut expo-file-system-Doku für einen Non-2xx-Status),
-// 'fehler-mit-datei' wirft, legt die Zieldatei aber TROTZDEM an (Android-Fall
-// aus der Doku: "a partially written file may remain"), 'haenge' löst NIE
-// von selbst auf und reagiert nur auf ein AbortSignal, für Tests, die einen
-// Abbruch MITTEN in einem laufenden Download simulieren.
-type DownloadPlan = 'ok' | 'fehler' | 'fehler-mit-datei' | 'haenge';
+// Same basic mock pattern as moments/__tests__/media.test.ts: a tiny
+// in-memory filesystem (`mockExisting`), so the tests can check actual
+// creation/deletion, not just that a method was called at some point.
+// Phase-5 lesson: a mock that replaces exactly the mechanism a test is
+// supposed to check (here: whether an intermediate file REALLY disappears)
+// checks nothing, hence a real, stateful fake instead of a plain
+// jest.fn() stub.
+const mockExisting = new Set<string>();
+// Behaviour controllable per URL: 'ok' creates the target file and
+// resolves, 'error' throws (simulates a network/HTTP failure WITHOUT a
+// target file, the normal case per the expo-file-system docs for a non-2xx
+// status), 'error-with-file' throws but creates the target file ANYWAY
+// (the Android case from the docs: "a partially written file may remain"),
+// 'hang' NEVER resolves on its own and only reacts to an AbortSignal, for
+// tests that simulate an abort MID-download.
+type DownloadPlan = 'ok' | 'error' | 'error-with-file' | 'hang';
 const mockDownloadPlan: Record<string, DownloadPlan> = {};
 const mockDownloadFileAsync = jest.fn(
   (url: string, destination: { uri: string }, options?: { signal?: AbortSignal }) => {
     const plan = mockDownloadPlan[url] ?? 'ok';
     return new Promise((resolve, reject) => {
-      const abortFehler = () => {
+      const abortError = () => {
         const e = new Error('aborted');
         e.name = 'AbortError';
         reject(e);
       };
       if (options?.signal) {
-        if (options.signal.aborted) return abortFehler();
-        options.signal.addEventListener('abort', abortFehler);
+        if (options.signal.aborted) return abortError();
+        options.signal.addEventListener('abort', abortError);
       }
-      if (plan === 'haenge') return; // löst nur über das AbortSignal auf
-      if (plan === 'fehler') return reject(new Error('UnableToDownload: 500'));
-      if (plan === 'fehler-mit-datei') {
-        mockVorhanden.add(destination.uri);
+      if (plan === 'hang') return; // only resolves via the AbortSignal
+      if (plan === 'error') return reject(new Error('UnableToDownload: 500'));
+      if (plan === 'error-with-file') {
+        mockExisting.add(destination.uri);
         return reject(new Error('UnableToDownload: connection dropped'));
       }
-      mockVorhanden.add(destination.uri);
+      mockExisting.add(destination.uri);
       resolve(destination);
     });
   }
 );
 
 jest.mock('expo-file-system', () => {
-  const verbinden = (teile: unknown[]): string =>
-    teile
+  const join = (parts: unknown[]): string =>
+    parts
       .map((t) => (typeof t === 'string' ? t : (t as { uri: string }).uri))
       .map((t, i) => (i === 0 ? t.replace(/\/+$/, '') : t.replace(/^\/+|\/+$/g, '')))
       .join('/');
 
   class MockDirectory {
     uri: string;
-    constructor(...teile: unknown[]) {
-      this.uri = verbinden(teile);
+    constructor(...parts: unknown[]) {
+      this.uri = join(parts);
     }
-    // Ein reales Dateisystem kennt kein "die Datei existiert, aber ihr
-    // Elternordner nicht", ein Ordner mit Inhalt EXISTIERT damit zwangsläufig
-    // mit, auch ohne einen expliziten eigenen .create()-Aufruf (z.B. ein
-    // verwaister Rest aus einem vorherigen, abgestürzten Lauf, der nie über
-    // DIESES Mock-Objekt angelegt wurde). Ohne diese zweite Bedingung wäre
-    // `ordner.exists` hier strenger als das echte Verhalten, gegen das
-    // raeumeExportOrdnerAufNeu() sich verteidigen soll.
+    // A real filesystem has no notion of "the file exists but its parent
+    // folder doesn't", so a folder with content necessarily EXISTS too,
+    // even without an explicit .create() call of its own (e.g. an orphaned
+    // remnant from a previous, crashed run that was never created through
+    // THIS mock object). Without this second condition, `folder.exists`
+    // would be stricter here than the real behaviour resetExportFolder()
+    // is meant to defend against.
     get exists(): boolean {
-      return mockVorhanden.has(this.uri) || [...mockVorhanden].some((p) => p.startsWith(`${this.uri}/`));
+      return mockExisting.has(this.uri) || [...mockExisting].some((p) => p.startsWith(`${this.uri}/`));
     }
     create() {
-      mockVorhanden.add(this.uri);
+      mockExisting.add(this.uri);
     }
     delete() {
-      for (const pfad of [...mockVorhanden]) {
-        if (pfad === this.uri || pfad.startsWith(`${this.uri}/`)) mockVorhanden.delete(pfad);
+      for (const path of [...mockExisting]) {
+        if (path === this.uri || path.startsWith(`${this.uri}/`)) mockExisting.delete(path);
       }
     }
   }
 
   class MockFile {
     uri: string;
-    constructor(...teile: unknown[]) {
-      this.uri = verbinden(teile);
+    constructor(...parts: unknown[]) {
+      this.uri = join(parts);
     }
     get exists(): boolean {
-      return mockVorhanden.has(this.uri);
+      return mockExisting.has(this.uri);
     }
     delete() {
-      if (!mockVorhanden.has(this.uri)) throw new Error('gibt es nicht');
-      mockVorhanden.delete(this.uri);
+      if (!mockExisting.has(this.uri)) throw new Error('gibt es nicht');
+      mockExisting.delete(this.uri);
     }
     static downloadFileAsync = (...args: Parameters<typeof mockDownloadFileAsync>) =>
       mockDownloadFileAsync(...args);
@@ -95,9 +95,9 @@ jest.mock('expo-file-system', () => {
   };
 });
 
-// expo-media-library/legacy (Kommentar in exportApi.ts erklärt, warum LEGACY
-// statt des modernen Asset.create()-Einstiegs: nur der Legacy-Pfad hat einen
-// echten Web-Shim, der 'expo export --platform web' nicht zerbricht).
+// expo-media-library/legacy (the comment in exportApi.ts explains why
+// LEGACY instead of the modern Asset.create() entry point: only the legacy
+// path has a real web shim that doesn't break 'expo export --platform web').
 const mockGetPermissionsAsync = jest.fn();
 const mockRequestPermissionsAsync = jest.fn();
 const mockAssetCreate = jest.fn(async (uri: string) => ({ id: `asset-${uri}` }));
@@ -108,14 +108,14 @@ jest.mock('expo-media-library/legacy', () => ({
 }));
 
 import {
-  sichergestellteBerechtigung,
-  sichereMomentInGalerie,
-  sichereAlleInGalerie,
-  KEIN_ZUGRIFF_TEXT,
-  type AlleFortschritt,
+  ensurePermission,
+  saveMomentToGallery,
+  saveAllToGallery,
+  NO_ACCESS_TEXT,
+  type AllProgress,
 } from '../exportApi';
 import type { RecapMoment } from '../types';
-import type { MedienUrl } from '../urlVorrat';
+import type { MediaUrl } from '../urlPool';
 
 function moment(overrides: Partial<RecapMoment> = {}): RecapMoment {
   return {
@@ -126,7 +126,7 @@ function moment(overrides: Partial<RecapMoment> = {}): RecapMoment {
     ...overrides,
   };
 }
-function bild(id: string, overrides: Partial<MedienUrl> = {}): MedienUrl {
+function mediaUrl(id: string, overrides: Partial<MediaUrl> = {}): MediaUrl {
   return { post_id: id, medium_url: `https://cdn.example/${id}-medium.jpg`, thumb_url: `https://cdn.example/${id}-thumb.jpg`, ...overrides };
 }
 
@@ -136,227 +136,227 @@ const DENIED_CANT_ASK = { granted: false, canAskAgain: false };
 
 beforeEach(() => {
   jest.clearAllMocks();
-  mockVorhanden.clear();
+  mockExisting.clear();
   for (const key of Object.keys(mockDownloadPlan)) delete mockDownloadPlan[key];
   mockGetPermissionsAsync.mockResolvedValue(GRANTED);
 });
 
-describe('sichergestellteBerechtigung', () => {
-  test('bereits erlaubt: kein zusätzlicher Request-Aufruf', async () => {
+describe('ensurePermission', () => {
+  test('already granted: no additional request call', async () => {
     mockGetPermissionsAsync.mockResolvedValue(GRANTED);
-    const ergebnis = await sichergestellteBerechtigung();
-    expect(ergebnis).toEqual({ erlaubt: true });
+    const result = await ensurePermission();
+    expect(result).toEqual({ erlaubt: true });
     expect(mockRequestPermissionsAsync).not.toHaveBeenCalled();
   });
 
-  // writeOnly=true (Kommentar im Code): die App liest nie vorhandene Fotos.
-  test('fragt writeOnly (nur "hinzufügen"), nicht vollen Lesezugriff', async () => {
+  // writeOnly=true (comment in the code): the app never reads existing
+  // photos.
+  test('asks for writeOnly ("add" only), not full read access', async () => {
     mockGetPermissionsAsync.mockResolvedValue(GRANTED);
-    await sichergestellteBerechtigung();
+    await ensurePermission();
     expect(mockGetPermissionsAsync).toHaveBeenCalledWith(true);
   });
 
-  test('noch nicht erlaubt, aber erneut fragbar: fragt nach und meldet Erfolg', async () => {
+  test('not yet granted, but askable again: asks again and reports success', async () => {
     mockGetPermissionsAsync.mockResolvedValue(DENIED_CAN_ASK);
     mockRequestPermissionsAsync.mockResolvedValue(GRANTED);
-    const ergebnis = await sichergestellteBerechtigung();
-    expect(ergebnis).toEqual({ erlaubt: true });
+    const result = await ensurePermission();
+    expect(result).toEqual({ erlaubt: true });
     expect(mockRequestPermissionsAsync).toHaveBeenCalledWith(true);
   });
 
-  test('erneut gefragt, aber wieder abgelehnt: KEIN_ZUGRIFF_TEXT', async () => {
+  test('asked again, but denied again: NO_ACCESS_TEXT', async () => {
     mockGetPermissionsAsync.mockResolvedValue(DENIED_CAN_ASK);
     mockRequestPermissionsAsync.mockResolvedValue(DENIED_CAN_ASK);
-    const ergebnis = await sichergestellteBerechtigung();
-    expect(ergebnis).toEqual({ erlaubt: false, text: KEIN_ZUGRIFF_TEXT });
+    const result = await ensurePermission();
+    expect(result).toEqual({ erlaubt: false, text: NO_ACCESS_TEXT });
   });
 
-  // canAskAgain:false (Person hat "Nicht erlauben" dauerhaft gewählt), ein
-  // erneuter Request-Aufruf wäre auf iOS/Android ein No-Op, der nur den
-  // alten Wert zurückgibt. Kein stiller Fehlschlag: der Text erklärt trotzdem
-  // den Weg über die Einstellungen.
-  test('dauerhaft abgelehnt (canAskAgain=false): fragt gar nicht erst erneut, meldet trotzdem den Weg in die Einstellungen', async () => {
+  // canAskAgain:false (person permanently chose "don't allow"), a repeated
+  // request call would be a no-op on iOS/Android that just returns the old
+  // value. Not a silent failure: the text still explains the path via
+  // Settings.
+  test('permanently denied (canAskAgain=false): doesn\'t even ask again, still reports the path to Settings', async () => {
     mockGetPermissionsAsync.mockResolvedValue(DENIED_CANT_ASK);
-    const ergebnis = await sichergestellteBerechtigung();
-    expect(ergebnis).toEqual({ erlaubt: false, text: KEIN_ZUGRIFF_TEXT });
+    const result = await ensurePermission();
+    expect(result).toEqual({ erlaubt: false, text: NO_ACCESS_TEXT });
     expect(mockRequestPermissionsAsync).not.toHaveBeenCalled();
   });
 
-  test('ein Fehler bei der Prüfung selbst ist kein stiller Fehlschlag, sondern eine eigene Meldung', async () => {
+  test('an error in the check itself is not a silent failure, but its own message', async () => {
     mockGetPermissionsAsync.mockRejectedValue(new Error('kaputt'));
-    const ergebnis = await sichergestellteBerechtigung();
-    expect(ergebnis.erlaubt).toBe(false);
-    expect((ergebnis as { text: string }).text).toMatch(/nicht geprüft werden/);
+    const result = await ensurePermission();
+    expect(result.erlaubt).toBe(false);
+    expect((result as { text: string }).text).toMatch(/nicht geprüft werden/);
   });
 });
 
-describe('sichereMomentInGalerie', () => {
-  test('ohne Berechtigung: kein Download, kein Asset.create, KEIN_ZUGRIFF_TEXT', async () => {
+describe('saveMomentToGallery', () => {
+  test('without permission: no download, no Asset.create, NO_ACCESS_TEXT', async () => {
     mockGetPermissionsAsync.mockResolvedValue(DENIED_CANT_ASK);
-    const ergebnis = await sichereMomentInGalerie(moment(), bild('p1'));
-    expect(ergebnis).toEqual({ ok: false, grund: 'keine_berechtigung', text: KEIN_ZUGRIFF_TEXT });
+    const result = await saveMomentToGallery(moment(), mediaUrl('p1'));
+    expect(result).toEqual({ ok: false, grund: 'keine_berechtigung', text: NO_ACCESS_TEXT });
     expect(mockDownloadFileAsync).not.toHaveBeenCalled();
     expect(mockAssetCreate).not.toHaveBeenCalled();
   });
 
-  test('lädt medium_url (volle Auflösung), NIE thumb_url', async () => {
-    const url = bild('p1');
-    await sichereMomentInGalerie(moment({ id: 'p1' }), url);
+  test('downloads medium_url (full resolution), NEVER thumb_url', async () => {
+    const url = mediaUrl('p1');
+    await saveMomentToGallery(moment({ id: 'p1' }), url);
     expect(mockDownloadFileAsync).toHaveBeenCalledWith(url.medium_url, expect.anything(), expect.anything());
-    const geladeneUrls = mockDownloadFileAsync.mock.calls.map((c) => c[0]);
-    expect(geladeneUrls).not.toContain(url.thumb_url);
+    const loadedUrls = mockDownloadFileAsync.mock.calls.map((c) => c[0]);
+    expect(loadedUrls).not.toContain(url.thumb_url);
   });
 
-  test('übergibt die heruntergeladene Datei an MediaLibrary.Asset.create und meldet Erfolg', async () => {
-    const ergebnis = await sichereMomentInGalerie(moment({ id: 'p1', type: 'photo' }), bild('p1'));
-    expect(ergebnis).toEqual({ ok: true });
+  test('hands the downloaded file to MediaLibrary.Asset.create and reports success', async () => {
+    const result = await saveMomentToGallery(moment({ id: 'p1', type: 'photo' }), mediaUrl('p1'));
+    expect(result).toEqual({ ok: true });
     expect(mockAssetCreate).toHaveBeenCalledTimes(1);
     expect(mockAssetCreate.mock.calls[0][0]).toContain('p1.jpg');
   });
 
-  test('die Zwischendatei ist NACH einem erfolgreichen Sichern wieder weg', async () => {
-    await sichereMomentInGalerie(moment({ id: 'p1' }), bild('p1'));
-    const uebrig = [...mockVorhanden].filter((p) => p.includes('p1.jpg'));
-    expect(uebrig).toEqual([]);
+  test('the intermediate file is gone again AFTER a successful save', async () => {
+    await saveMomentToGallery(moment({ id: 'p1' }), mediaUrl('p1'));
+    const remaining = [...mockExisting].filter((p) => p.includes('p1.jpg'));
+    expect(remaining).toEqual([]);
   });
 
-  test('ein fehlgeschlagener Download meldet einen Fehler, OHNE Asset.create aufzurufen', async () => {
-    mockDownloadPlan['https://cdn.example/p1-medium.jpg'] = 'fehler';
-    const ergebnis = await sichereMomentInGalerie(moment({ id: 'p1' }), bild('p1'));
-    expect(ergebnis.ok).toBe(false);
+  test('a failed download reports an error, WITHOUT calling Asset.create', async () => {
+    mockDownloadPlan['https://cdn.example/p1-medium.jpg'] = 'error';
+    const result = await saveMomentToGallery(moment({ id: 'p1' }), mediaUrl('p1'));
+    expect(result.ok).toBe(false);
     expect(mockAssetCreate).not.toHaveBeenCalled();
   });
 
-  // Kernfall (Auftrag: "wie du bei Abbruch UND Fehlschlag aufräumst"): auf
-  // Android kann laut expo-file-system-Doku bei einem fehlgeschlagenen
-  // Download trotzdem eine TEILWEISE geschriebene Datei zurückbleiben, die
-  // muss genauso verschwinden wie im Erfolgsfall.
-  test('eine bei einem Fehlschlag teilweise geschriebene Datei (Android-Fall) wird trotzdem aufgeräumt', async () => {
-    mockDownloadPlan['https://cdn.example/p1-medium.jpg'] = 'fehler-mit-datei';
-    await sichereMomentInGalerie(moment({ id: 'p1' }), bild('p1'));
-    const uebrig = [...mockVorhanden].filter((p) => p.includes('p1.jpg'));
-    expect(uebrig).toEqual([]);
+  // Core case (requirement: "how you clean up on BOTH abort AND failure"):
+  // per the expo-file-system docs, a failed download on Android can still
+  // leave a PARTIALLY written file behind, which must disappear just like
+  // in the success case.
+  test('a partially written file left behind on failure (the Android case) is cleaned up anyway', async () => {
+    mockDownloadPlan['https://cdn.example/p1-medium.jpg'] = 'error-with-file';
+    await saveMomentToGallery(moment({ id: 'p1' }), mediaUrl('p1'));
+    const remaining = [...mockExisting].filter((p) => p.includes('p1.jpg'));
+    expect(remaining).toEqual([]);
   });
 
-  // Kernfall: der Download gelingt, ABER Asset.create (der zweite Schritt)
-  // scheitert, die Zwischendatei muss AUCH DANN weg sein. Ein `finally` nur
-  // um den Download-Aufruf herum würde das nicht abdecken.
-  test('schlägt Asset.create fehl, wird die bereits heruntergeladene Zwischendatei trotzdem gelöscht', async () => {
+  // Core case: the download succeeds, BUT Asset.create (the second step)
+  // fails, the intermediate file must be gone THEN too. A `finally` only
+  // around the download call wouldn't cover that.
+  test('if Asset.create fails, the already-downloaded intermediate file is still deleted', async () => {
     mockAssetCreate.mockRejectedValueOnce(new Error('Galerie-Fehler'));
-    const ergebnis = await sichereMomentInGalerie(moment({ id: 'p1' }), bild('p1'));
-    expect(ergebnis.ok).toBe(false);
-    const uebrig = [...mockVorhanden].filter((p) => p.includes('p1.jpg'));
-    expect(uebrig).toEqual([]);
+    const result = await saveMomentToGallery(moment({ id: 'p1' }), mediaUrl('p1'));
+    expect(result.ok).toBe(false);
+    const remaining = [...mockExisting].filter((p) => p.includes('p1.jpg'));
+    expect(remaining).toEqual([]);
   });
 
-  // Phase-4-Lehre (Auftragstext, wörtlich): ein verwaister Rest aus einem
-  // ABGESTÜRZTEN vorherigen Lauf darf nicht liegen bleiben, bis er selbst zum
-  // Speicherproblem wird, ein neuer Export-Versuch räumt den GESAMTEN
-  // Export-Ordner zuerst leer, bevor er selbst etwas anlegt.
-  test('ein verwaister Rest aus einem früheren (z.B. abgestürzten) Lauf wird vor dem nächsten Export geräumt', async () => {
-    mockVorhanden.add('file:///cache/export/uralt-verwaist.jpg');
-    await sichereMomentInGalerie(moment({ id: 'p1' }), bild('p1'));
-    expect(mockVorhanden.has('file:///cache/export/uralt-verwaist.jpg')).toBe(false);
+  // Phase-4 lesson (requirement text, verbatim): an orphaned remnant from a
+  // CRASHED previous run must not stay behind until it becomes a storage
+  // problem itself, a new export attempt clears the ENTIRE export folder
+  // first, before it creates anything of its own.
+  test('an orphaned remnant from an earlier (e.g. crashed) run is cleared before the next export', async () => {
+    mockExisting.add('file:///cache/export/uralt-verwaist.jpg');
+    await saveMomentToGallery(moment({ id: 'p1' }), mediaUrl('p1'));
+    expect(mockExisting.has('file:///cache/export/uralt-verwaist.jpg')).toBe(false);
   });
 });
 
-describe('sichereAlleInGalerie', () => {
-  const eintraege = (n: number) =>
+describe('saveAllToGallery', () => {
+  const entries = (n: number) =>
     Array.from({ length: n }, (_, i) => ({
       moment: moment({ id: `p${i + 1}` }),
-      url: bild(`p${i + 1}`),
+      url: mediaUrl(`p${i + 1}`),
     }));
 
-  test('ohne Berechtigung: status "keine_berechtigung", kein einziger Download', async () => {
+  test('without permission: status "keine_berechtigung", not a single download', async () => {
     mockGetPermissionsAsync.mockResolvedValue(DENIED_CANT_ASK);
-    const ergebnis = await sichereAlleInGalerie(eintraege(5), jest.fn());
-    expect(ergebnis).toEqual({ status: 'keine_berechtigung', text: KEIN_ZUGRIFF_TEXT });
+    const result = await saveAllToGallery(entries(5), jest.fn());
+    expect(result).toEqual({ status: 'keine_berechtigung', text: NO_ACCESS_TEXT });
     expect(mockDownloadFileAsync).not.toHaveBeenCalled();
   });
 
-  test('alle erfolgreich: ehrliche Bilanz und Fortschritt "1 von 3" … "3 von 3"', async () => {
-    const fortschritte: AlleFortschritt[] = [];
-    const ergebnis = await sichereAlleInGalerie(eintraege(3), (stand) => fortschritte.push(stand));
-    expect(ergebnis).toEqual({ status: 'fertig', gesichert: 3, gesamt: 3, fehlgeschlagen: 0, abgebrochen: false });
-    expect(fortschritte).toEqual([
+  test('all succeed: an honest tally and progress "1 of 3" … "3 of 3"', async () => {
+    const progressList: AllProgress[] = [];
+    const result = await saveAllToGallery(entries(3), (progress) => progressList.push(progress));
+    expect(result).toEqual({ status: 'fertig', gesichert: 3, gesamt: 3, fehlgeschlagen: 0, abgebrochen: false });
+    expect(progressList).toEqual([
       { erledigt: 1, gesamt: 3 },
       { erledigt: 2, gesamt: 3 },
       { erledigt: 3, gesamt: 3 },
     ]);
   });
 
-  // Kernfall aus dem Auftrag: "Nicht «fertig», wenn drei Dateien fehlen",
-  // die Bilanz muss die Fehlschläge EHRLICH zählen, nicht unter den Tisch
-  // fallen lassen oder die ganze Aktion als Ganzes scheitern lassen.
-  test('ein Fehlschlag mittendrin bricht NICHT die ganze Aktion ab, sondern zählt ehrlich mit', async () => {
-    mockDownloadPlan['https://cdn.example/p2-medium.jpg'] = 'fehler';
-    const ergebnis = await sichereAlleInGalerie(eintraege(3), jest.fn());
-    expect(ergebnis).toEqual({ status: 'fertig', gesichert: 2, gesamt: 3, fehlgeschlagen: 1, abgebrochen: false });
-    // p1 und p3 sind trotzdem gesichert worden, kein Fehlschlag stoppt die
-    // übrigen Momente.
+  // Core case from the requirement: "Not 'done' when three files are
+  // missing", the tally must count failures HONESTLY, not sweep them under
+  // the rug or fail the whole action as one.
+  test('a failure in the middle does NOT abort the whole action, but counts honestly', async () => {
+    mockDownloadPlan['https://cdn.example/p2-medium.jpg'] = 'error';
+    const result = await saveAllToGallery(entries(3), jest.fn());
+    expect(result).toEqual({ status: 'fertig', gesichert: 2, gesamt: 3, fehlgeschlagen: 1, abgebrochen: false });
+    // p1 and p3 still got saved, no failure stops the remaining moments.
     expect(mockAssetCreate).toHaveBeenCalledTimes(2);
   });
 
-  test('drei von fünf Fehlschlägen: die Bilanz nennt genau 3, nicht "fertig" ohne Zahl', async () => {
-    mockDownloadPlan['https://cdn.example/p1-medium.jpg'] = 'fehler';
-    mockDownloadPlan['https://cdn.example/p3-medium.jpg'] = 'fehler';
-    mockDownloadPlan['https://cdn.example/p5-medium.jpg'] = 'fehler';
-    const ergebnis = await sichereAlleInGalerie(eintraege(5), jest.fn());
-    expect(ergebnis).toEqual({ status: 'fertig', gesichert: 2, gesamt: 5, fehlgeschlagen: 3, abgebrochen: false });
+  test('three out of five failures: the tally names exactly 3, not "done" without a number', async () => {
+    mockDownloadPlan['https://cdn.example/p1-medium.jpg'] = 'error';
+    mockDownloadPlan['https://cdn.example/p3-medium.jpg'] = 'error';
+    mockDownloadPlan['https://cdn.example/p5-medium.jpg'] = 'error';
+    const result = await saveAllToGallery(entries(5), jest.fn());
+    expect(result).toEqual({ status: 'fertig', gesichert: 2, gesamt: 5, fehlgeschlagen: 3, abgebrochen: false });
   });
 
-  test('Abbruch VOR dem nächsten Element: die verbleibenden Elemente werden gar nicht erst angefasst', async () => {
+  test('abort BEFORE the next element: the remaining elements are never touched at all', async () => {
     const controller = new AbortController();
-    const fortschritte: AlleFortschritt[] = [];
-    const lauf = sichereAlleInGalerie(eintraege(5), (stand) => {
-      fortschritte.push(stand);
-      if (stand.erledigt === 2) controller.abort();
+    const progressList: AllProgress[] = [];
+    const run = saveAllToGallery(entries(5), (progress) => {
+      progressList.push(progress);
+      if (progress.erledigt === 2) controller.abort();
     }, controller.signal);
-    const ergebnis = await lauf;
-    expect(ergebnis).toEqual({ status: 'fertig', gesichert: 2, gesamt: 5, fehlgeschlagen: 0, abgebrochen: true });
+    const result = await run;
+    expect(result).toEqual({ status: 'fertig', gesichert: 2, gesamt: 5, fehlgeschlagen: 0, abgebrochen: true });
     expect(mockDownloadFileAsync).toHaveBeenCalledTimes(2);
   });
 
-  // Kernfall "abbrechbar" (Auftrag, wörtlich): ein Abbruch MITTEN in einem
-  // laufenden Download muss diesen Download selbst beenden (nicht nur den
-  // NÄCHSTEN verhindern), geprüft über einen Download, der ohne Abbruch nie
-  // von selbst aufgelöst hätte ('haenge').
-  test('Abbruch MITTEN in einem laufenden Download beendet ihn sofort, ohne ihn als Fehlschlag zu zählen', async () => {
-    mockDownloadPlan['https://cdn.example/p2-medium.jpg'] = 'haenge';
+  // Core case "abortable" (requirement, verbatim): an abort MID an ongoing
+  // download must end that very download (not just prevent the NEXT one),
+  // checked via a download that, without an abort, would never resolve on
+  // its own ('hang').
+  test('an abort MID an ongoing download ends it immediately, without counting it as a failure', async () => {
+    mockDownloadPlan['https://cdn.example/p2-medium.jpg'] = 'hang';
     const controller = new AbortController();
-    const lauf = sichereAlleInGalerie(eintraege(3), jest.fn(), controller.signal);
-    // p1 läuft synchron-genug durch (Promise-Microtasks), p2 hängt in
-    // 'haenge' fest, jetzt mitten im laufenden Download abbrechen.
+    const run = saveAllToGallery(entries(3), jest.fn(), controller.signal);
+    // p1 runs through synchronously enough (promise microtasks), p2 is
+    // stuck in 'hang', now abort mid-download.
     await Promise.resolve();
     await Promise.resolve();
     controller.abort();
-    const ergebnis = await lauf;
-    expect(ergebnis).toEqual({ status: 'fertig', gesichert: 1, gesamt: 3, fehlgeschlagen: 0, abgebrochen: true });
-    // p3 wurde nie angefasst.
-    const geladeneUrls = mockDownloadFileAsync.mock.calls.map((c) => c[0]);
-    expect(geladeneUrls).not.toContain('https://cdn.example/p3-medium.jpg');
+    const result = await run;
+    expect(result).toEqual({ status: 'fertig', gesichert: 1, gesamt: 3, fehlgeschlagen: 0, abgebrochen: true });
+    // p3 was never touched.
+    const loadedUrls = mockDownloadFileAsync.mock.calls.map((c) => c[0]);
+    expect(loadedUrls).not.toContain('https://cdn.example/p3-medium.jpg');
   });
 
-  // Aufräumen gilt auch bei EINEM abgebrochenen Element mitten im Lauf,
-  // nicht nur am Ende der ganzen Aktion.
-  test('die Zwischendatei eines mitten im Download abgebrochenen Elements wird ebenfalls aufgeräumt', async () => {
-    mockDownloadPlan['https://cdn.example/p1-medium.jpg'] = 'haenge';
+  // Cleanup also applies to a SINGLE element aborted mid-run, not just at
+  // the end of the whole action.
+  test('the intermediate file of an element aborted mid-download is also cleaned up', async () => {
+    mockDownloadPlan['https://cdn.example/p1-medium.jpg'] = 'hang';
     const controller = new AbortController();
-    const lauf = sichereAlleInGalerie(eintraege(1), jest.fn(), controller.signal);
+    const run = saveAllToGallery(entries(1), jest.fn(), controller.signal);
     await Promise.resolve();
     controller.abort();
-    await lauf;
-    const uebrig = [...mockVorhanden].filter((p) => p.includes('p1.jpg'));
-    expect(uebrig).toEqual([]);
+    await run;
+    const remaining = [...mockExisting].filter((p) => p.includes('p1.jpg'));
+    expect(remaining).toEqual([]);
   });
 
-  test('jede Zwischendatei ist bereits NACH ihrem eigenen Element weg, nicht erst am Ende gesammelt aufgeräumt', async () => {
-    const nachElement1: boolean[] = [];
-    await sichereAlleInGalerie(eintraege(3), (stand) => {
-      if (stand.erledigt === 1) {
-        nachElement1.push([...mockVorhanden].some((p) => p.includes('p1.jpg')));
+  test('every intermediate file is gone right after its own element, not cleaned up all together at the end', async () => {
+    const afterElement1: boolean[] = [];
+    await saveAllToGallery(entries(3), (progress) => {
+      if (progress.erledigt === 1) {
+        afterElement1.push([...mockExisting].some((p) => p.includes('p1.jpg')));
       }
     });
-    expect(nachElement1).toEqual([false]);
+    expect(afterElement1).toEqual([false]);
   });
 });

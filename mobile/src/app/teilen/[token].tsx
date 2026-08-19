@@ -22,21 +22,21 @@ import { cinema, motion, radius, spacing, type } from '@/theme/tokens';
 import { useTopInset } from '@/theme/useTopInset';
 import { useReducedMotion } from '@/theme/useReducedMotion';
 import { loeseTokenAuf, LINK_TOT_TEXT, type GeteiltesMoment } from '@/features/teilen/shareApi';
-import { sortiereMomente } from '@/features/recap/tage';
+import { sortMoments } from '@/features/recap/days';
 import {
-  blockiertAutomatischenVorschub,
-  dauerFuer,
-  mitGrund,
-  ohneGrund,
-  tagWechselt,
-  weiter,
-  zurueck,
-  type PauseGrund,
-  type PlayerStand,
+  blocksAutoAdvance,
+  durationFor,
+  withReason,
+  withoutReason,
+  dayChanges,
+  advance,
+  goBack,
+  type PauseReason,
+  type PlayerState,
 } from '@/features/recap/playerLogic';
-import { gruppiereNachTagen } from '@/features/recap/tage';
-import type { RecapMoment, RecapTag } from '@/features/recap/types';
-import { zeitInZone } from '@/features/recap/uhrzeit';
+import { groupByDays } from '@/features/recap/days';
+import type { RecapMoment, RecapDay } from '@/features/recap/types';
+import { timeInZone } from '@/features/recap/timeOfDay';
 import { ausschnittFuer } from '@/features/karte/ausschnitt';
 import { KartenFlaeche } from '@/features/karte/KartenFlaeche';
 import { gruppiere } from '@/features/karte/gruppierung';
@@ -169,7 +169,7 @@ function formatTagesdatum(iso: string): string {
   const [, m, d] = iso.split('-').map(Number);
   return `${d}. ${MONATE_LANG[m - 1]}`;
 }
-function tagesueberschrift(tag: RecapTag): string {
+function tagesueberschrift(tag: RecapDay): string {
   const teile = [`Tag ${tag.nummer}`];
   if (tag.ort) teile.push(tag.ort);
   teile.push(formatTagesdatum(tag.datum));
@@ -429,7 +429,7 @@ export default function GeteilterRecapScreen() {
   // Vertrag wie im nativen Player, playerLogic.ts).
   const [spielliste, setSpielliste] = useState<RecapMoment[]>([]);
   const [urls, setUrls] = useState<Map<string, MedienLink>>(new Map());
-  const [stand, setStand] = useState<PlayerStand>({ index: 0, pausiert: new Set(), fortschritt: 0 });
+  const [stand, setStand] = useState<PlayerState>({ index: 0, pausiert: new Set(), fortschritt: 0 });
   const [fehlgeschlagen, setFehlgeschlagen] = useState<Set<string>>(new Set());
   // Welche der beiden Lesarten gerade zu sehen ist (Spec §5.10). Kein
   // `router.push`: der geteilte Recap ist EINE URL und bekommt keine zweite
@@ -451,7 +451,7 @@ export default function GeteilterRecapScreen() {
   const segmentStartRef = useRef(0);
   const beruehrungStartRef = useRef(0);
   const aktivIdRef = useRef<string | undefined>(undefined);
-  const pausiertRef = useRef<ReadonlySet<PauseGrund>>(new Set());
+  const pausiertRef = useRef<ReadonlySet<PauseReason>>(new Set());
   // Die Segment-Zeile ist das oberste Element dieses Screens und trifft damit
   // als erstes die Dynamic Island. `spacing.xl` war der bisherige feste
   // Abstand des Player-Kopfs; `useOberkante` lässt ihn stehen, wo er reicht,
@@ -495,7 +495,7 @@ export default function GeteilterRecapScreen() {
       return;
     }
 
-    const liste = sortiereMomente(data.medien.map(zuRecapMoment));
+    const liste = sortMoments(data.medien.map(zuRecapMoment));
     const urlMap = new Map<string, MedienLink>(
       data.medien.map((m) => [m.post_id, { medium_url: m.medium_url, thumb_url: m.thumb_url }])
     );
@@ -540,7 +540,7 @@ export default function GeteilterRecapScreen() {
   const gestoppt = stand.pausiert.size > 0;
   pausiertRef.current = stand.pausiert;
 
-  const tage = useMemo(() => gruppiereNachTagen(spielliste, startDate), [spielliste, startDate]);
+  const tage = useMemo(() => groupByDays(spielliste, startDate), [spielliste, startDate]);
   const aktuellerTag = useMemo(() => {
     if (!aktivMoment) return null;
     return tage.find((t) => t.momente.some((m) => m.id === aktivMoment.id)) ?? null;
@@ -737,7 +737,7 @@ export default function GeteilterRecapScreen() {
   const kannKarte = sichtbarerAusschnitt !== null;
 
   const weiterAutomatisch = useCallback(() => {
-    const ergebnis = weiter(stand, spielliste.length);
+    const ergebnis = advance(stand, spielliste.length);
     if (ergebnis === 'ende') {
       setPhase('ende');
       return;
@@ -746,14 +746,14 @@ export default function GeteilterRecapScreen() {
     // darf den neuen nicht blockieren (gleicher Vertrag wie im nativen
     // Player). 'zwischenkarte' bleibt unangetastet, der eigene Effekt
     // unten (Deps u.a. stand.index) verwaltet sie selbst.
-    setStand({ ...ergebnis, pausiert: ohneGrund(ergebnis.pausiert, 'halten') });
+    setStand({ ...ergebnis, pausiert: withoutReason(ergebnis.pausiert, 'halten') });
   }, [stand, spielliste.length]);
   const weiterAutomatischRef = useRef(weiterAutomatisch);
   weiterAutomatischRef.current = weiterAutomatisch;
 
   const videoZuEnde = useCallback((postId: string) => {
     if (aktivIdRef.current !== postId) return;
-    if (blockiertAutomatischenVorschub(pausiertRef.current)) return;
+    if (blocksAutoAdvance(pausiertRef.current)) return;
     weiterAutomatischRef.current();
   }, []);
 
@@ -770,7 +770,7 @@ export default function GeteilterRecapScreen() {
     if (phase !== 'bereit' || ansicht !== 'player' || stand.pausiert.size > 0) return;
     const moment = spielliste[stand.index];
     if (!moment) return;
-    const dauer = dauerFuer(moment);
+    const dauer = durationFor(moment);
     const rest = Math.max(0, dauer - stand.fortschritt);
     segmentStartRef.current = Date.now() - stand.fortschritt;
     const timer = setTimeout(() => weiterAutomatischRef.current(), rest);
@@ -793,13 +793,13 @@ export default function GeteilterRecapScreen() {
   // Bedingung, die später niemand mehr prüfen kann.
   useEffect(() => {
     if (phase !== 'bereit') return;
-    if (!tagWechselt(spielliste, startDate, stand.index)) {
-      setStand((s) => (s.pausiert.has('zwischenkarte') ? { ...s, pausiert: ohneGrund(s.pausiert, 'zwischenkarte') } : s));
+    if (!dayChanges(spielliste, startDate, stand.index)) {
+      setStand((s) => (s.pausiert.has('zwischenkarte') ? { ...s, pausiert: withoutReason(s.pausiert, 'zwischenkarte') } : s));
       return;
     }
-    setStand((s) => ({ ...s, pausiert: mitGrund(s.pausiert, 'zwischenkarte') }));
+    setStand((s) => ({ ...s, pausiert: withReason(s.pausiert, 'zwischenkarte') }));
     const timer = setTimeout(() => {
-      setStand((s) => ({ ...s, pausiert: ohneGrund(s.pausiert, 'zwischenkarte') }));
+      setStand((s) => ({ ...s, pausiert: withoutReason(s.pausiert, 'zwischenkarte') }));
     }, ZWISCHENKARTE_DAUER_MS);
     return () => clearTimeout(timer);
   }, [phase, ansicht, spielliste, startDate, stand.index]);
@@ -817,7 +817,7 @@ export default function GeteilterRecapScreen() {
   }, [phase, stand.index, spielliste, urls]);
 
   const ueberspringen = () => {
-    setStand((s) => ({ ...s, pausiert: ohneGrund(s.pausiert, 'zwischenkarte') }));
+    setStand((s) => ({ ...s, pausiert: withoutReason(s.pausiert, 'zwischenkarte') }));
   };
 
   const beiLadefehler = useCallback((postId: string) => {
@@ -829,29 +829,29 @@ export default function GeteilterRecapScreen() {
     beruehrungStartRef.current = Date.now();
     const moment = spielliste[stand.index];
     if (!moment) return;
-    const dauer = dauerFuer(moment);
+    const dauer = durationFor(moment);
     const vergangen = Math.min(dauer, Math.max(0, Date.now() - segmentStartRef.current));
-    setStand((s) => ({ ...s, pausiert: mitGrund(s.pausiert, 'halten'), fortschritt: vergangen }));
+    setStand((s) => ({ ...s, pausiert: withReason(s.pausiert, 'halten'), fortschritt: vergangen }));
   };
 
   const beendeBeruehrung = (seite: 'links' | 'rechts') => {
     const gehalten = Date.now() - beruehrungStartRef.current;
     if (gehalten < TAP_SCHWELLE_MS) {
       if (seite === 'rechts') {
-        const ergebnis = weiter(stand, spielliste.length);
+        const ergebnis = advance(stand, spielliste.length);
         if (ergebnis === 'ende') {
           setPhase('ende');
           return;
         }
-        setStand({ ...ergebnis, pausiert: ohneGrund(ergebnis.pausiert, 'halten') });
+        setStand({ ...ergebnis, pausiert: withoutReason(ergebnis.pausiert, 'halten') });
         return;
       }
-      const ergebnisZurueck = zurueck(stand);
-      setStand({ ...ergebnisZurueck, pausiert: ohneGrund(ergebnisZurueck.pausiert, 'halten') });
+      const ergebnisZurueck = goBack(stand);
+      setStand({ ...ergebnisZurueck, pausiert: withoutReason(ergebnisZurueck.pausiert, 'halten') });
       return;
     }
     // Halten, dann losgelassen: fortsetzen, nicht zum nächsten Moment springen.
-    setStand((s) => ({ ...s, pausiert: ohneGrund(s.pausiert, 'halten') }));
+    setStand((s) => ({ ...s, pausiert: withoutReason(s.pausiert, 'halten') }));
   };
 
   const nochmalAnsehen = () => {
@@ -1013,8 +1013,8 @@ export default function GeteilterRecapScreen() {
   if (!aktivMoment) return null;
   const url = urls.get(aktivMoment.id);
   const ortZeitText = aktivMoment.place_name
-    ? `${aktivMoment.place_name} · ${zeitInZone(aktivMoment.captured_at, aktivMoment.captured_tz)}`
-    : zeitInZone(aktivMoment.captured_at, aktivMoment.captured_tz);
+    ? `${aktivMoment.place_name} · ${timeInZone(aktivMoment.captured_at, aktivMoment.captured_tz)}`
+    : timeInZone(aktivMoment.captured_at, aktivMoment.captured_tz);
 
   return (
     <View testID="teilen-bereit" style={styles.screen}>
@@ -1042,7 +1042,7 @@ export default function GeteilterRecapScreen() {
         <Fortschrittsbalken
           anzahl={spielliste.length}
           aktivIndex={stand.index}
-          dauerMs={dauerFuer(aktivMoment)}
+          dauerMs={durationFor(aktivMoment)}
           vergangenMs={stand.fortschritt}
           pausiert={gestoppt}
         />

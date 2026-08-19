@@ -13,10 +13,10 @@ import { useTheme } from '@/theme/ThemeProvider';
 import { cinema, motion, radius, spacing, type } from '@/theme/tokens';
 import { useTopInset } from '@/theme/useTopInset';
 import { useReducedMotion } from '@/theme/useReducedMotion';
-import { fetchRecapMomente } from '@/features/recap/recapApi';
-import { gruppiereNachTagen, sortiereMomente } from '@/features/recap/tage';
-import type { RecapMoment, RecapTag } from '@/features/recap/types';
-import { holeVorrat, wiederholenHilft, type MedienUrl } from '@/features/recap/urlVorrat';
+import { fetchRecapMoments } from '@/features/recap/recapApi';
+import { groupByDays, sortMoments } from '@/features/recap/days';
+import type { RecapMoment, RecapDay } from '@/features/recap/types';
+import { getPool, retryHelps, type MediaUrl } from '@/features/recap/urlPool';
 import { fetchTrip } from '@/features/trips/tripsApi';
 import { ausschnittFuer } from '@/features/karte/ausschnitt';
 import { KartenFlaeche } from '@/features/karte/KartenFlaeche';
@@ -45,7 +45,7 @@ import type {
 // Eine feste leere Map statt `new Map()` bei jedem Zurücksetzen: der Wert geht
 // als Abhängigkeit in die Nadeln, und eine jedes Mal neue Map liesse sie ohne
 // Grund neu rechnen.
-const KEINE_URLS: ReadonlyMap<string, MedienUrl> = new Map();
+const KEINE_URLS: ReadonlyMap<string, MediaUrl> = new Map();
 
 // DESIGN-LANGUAGE §5: «Listen = Stagger 40 ms», die Zeilen der Gruppenliste
 // erscheinen nacheinander, nicht als Block.
@@ -172,7 +172,7 @@ const KEINE_MOMENTE: RecapMoment[] = [];
 // Rest gerufen, zählte der Index plötzlich INNERHALB des Tages statt in die
 // Reise. Die Nadeln sässen weiterhin auf ihren Koordinaten, alles sähe richtig
 // aus, und der Sprung landete beim falschen Moment.
-function punkteAmTag(punkte: KartenPunkt[], tag: RecapTag | null): KartenPunkt[] {
+function punkteAmTag(punkte: KartenPunkt[], tag: RecapDay | null): KartenPunkt[] {
   if (!tag) return punkte;
   const ids = new Set(tag.momente.map((m) => m.id));
   return punkte.filter((p) => ids.has(p.moment.id));
@@ -193,7 +193,7 @@ function punkteAmTag(punkte: KartenPunkt[], tag: RecapTag | null): KartenPunkt[]
 // Erklärung, eine Sackgasse im Filter, aus der nur der Rückweg auf «Alle
 // Tage» hilft. Was dabei wegfällt, reisst eine Lücke in die Nummern (Tag 1,
 // Tag 3), die erklärt LUECKEN_HINWEIS im Sheet, statt sie stumm zu lassen.
-function waehlbareTage(alle: RecapTag[], punkte: KartenPunkt[]): RecapTag[] {
+function waehlbareTage(alle: RecapDay[], punkte: KartenPunkt[]): RecapDay[] {
   const mitOrt = new Set(punkte.map((p) => p.moment.id));
   return alle.filter((tag) => tag.momente.some((m) => mitOrt.has(m.id)));
 }
@@ -214,7 +214,7 @@ function waehlbareTage(alle: RecapTag[], punkte: KartenPunkt[]): RecapTag[] {
 // `zuKartenPunkten`; hier wird nur nachgeschlagen, an welcher Stelle er steht.
 function ohneOrtMitIndex(spielliste: RecapMoment[], ohneOrt: RecapMoment[]): OhneOrt[] {
   const ids = new Set(ohneOrt.map((m) => m.id));
-  return sortiereMomente(spielliste)
+  return sortMoments(spielliste)
     .map((moment, index) => ({ moment, index }))
     .filter((eintrag) => ids.has(eintrag.moment.id));
 }
@@ -429,7 +429,7 @@ export default function RecapKarte() {
   const [ausschnitt, setAusschnitt] = useState<Ausschnitt | null>(null);
   // Die Bild-URLs bleiben liegen, weil jede Nadel ihr eigenes Thumbnail
   // trägt (Spec §5.4), nicht nur, um damit zu filtern.
-  const [urls, setUrls] = useState<ReadonlyMap<string, MedienUrl>>(KEINE_URLS);
+  const [urls, setUrls] = useState<ReadonlyMap<string, MediaUrl>>(KEINE_URLS);
   // Was das Sheet gerade zeigt, oder `null` für «keines offen». EIN Zustand
   // für beide Fälle, weil sie dieselbe Frage beantworten («welche Momente
   // stecken hinter dieser Nadel») und sich gegenseitig ausschliessen: ein Punkt
@@ -550,7 +550,7 @@ export default function RecapKarte() {
     // trotzdem nicht.
     letzterZoom.current = null;
     try {
-      const [momente, vorratErgebnis] = await Promise.all([fetchRecapMomente(id), holeVorrat(id)]);
+      const [momente, vorratErgebnis] = await Promise.all([fetchRecapMoments(id), getPool(id)]);
       if (!meiner.gilt) return;
 
       // Beide Abfragen geben ihren Fehler als WERT zurück, und beide Texte
@@ -579,7 +579,7 @@ export default function RecapKarte() {
           // Momente-Fehler ist immer eine Momentaufnahme, dort ist ein
           // zweiter Versuch die richtige Handlung.
           nochmalHilft:
-            vorratErgebnis.error !== null ? wiederholenHilft(vorratErgebnis.grund) : true,
+            vorratErgebnis.error !== null ? retryHelps(vorratErgebnis.grund) : true,
         });
         return;
       }
@@ -744,7 +744,7 @@ export default function RecapKarte() {
   const alleTage = useMemo(() => {
     if (spiellisteJetzt.length === 0) return [];
     if (reiseStart === null || reiseStart.tripId !== id) return [];
-    return gruppiereNachTagen(spiellisteJetzt, reiseStart.startDate);
+    return groupByDays(spiellisteJetzt, reiseStart.startDate);
   }, [spiellisteJetzt, reiseStart, id]);
 
   const tage = useMemo(() => waehlbareTage(alleTage, punkte), [alleTage, punkte]);
@@ -1016,7 +1016,7 @@ export default function RecapKarte() {
     setOhneOrtOffen(true);
   };
 
-  const waehleTag = (tag: RecapTag | null) => {
+  const waehleTag = (tag: RecapDay | null) => {
     setTageOffen(false);
     setTagWahl(tag?.nummer ?? null);
 

@@ -1,23 +1,23 @@
 import {
-  dauerFuer,
-  weiter,
-  zurueck,
-  tagWechselt,
-  mitGrund,
-  ohneGrund,
-  ohneGruende,
-  blockiertAutomatischenVorschub,
-  FOTO_DAUER_MS,
-  VIDEO_DAUER_FALLBACK_MS,
-  VIDEO_DAUER_MIN_MS,
-  type PauseGrund,
-  type PlayerStand,
+  durationFor,
+  advance,
+  goBack,
+  dayChanges,
+  withReason,
+  withoutReason,
+  withoutReasons,
+  blocksAutoAdvance,
+  PHOTO_DURATION_MS,
+  VIDEO_DURATION_FALLBACK_MS,
+  VIDEO_DURATION_MIN_MS,
+  type PauseReason,
+  type PlayerState,
 } from '../playerLogic';
-import * as tage from '../tage';
+import * as days from '../days';
 import type { RecapMoment } from '../types';
 
-// Minimal-Moment mit sinnvollen Defaults, jeder Test überschreibt nur, was
-// ihn tatsächlich betrifft (Muster wie in tage.test.ts).
+// Minimal moment with sensible defaults, each test overrides only what
+// actually matters to it (same pattern as in days.test.ts).
 function moment(overrides: Partial<RecapMoment>): RecapMoment {
   return {
     id: 'm0',
@@ -38,439 +38,431 @@ function moment(overrides: Partial<RecapMoment>): RecapMoment {
   };
 }
 
-describe('dauerFuer', () => {
-  // Literal-Assert statt nur "gegen sich selbst" (Review-Fund): ein Test,
-  // der dauerFuer(...) nur gegen FOTO_DAUER_MS vergleicht, bleibt grün, auch
-  // wenn die Konstante selbst mutiert (Implementierung gegen Implementierung
-  // geprüft). Spec §8.2: Fotos laufen 5 Sekunden, das ist die Zahl, die
-  // zählt, unabhängig vom Namen der Konstante.
-  test('FOTO_DAUER_MS ist 5000 (Spec §8.2: Fotos laufen 5 Sekunden)', () => {
-    expect(FOTO_DAUER_MS).toBe(5000);
+describe('durationFor', () => {
+  // Literal assertion instead of just "against itself" (review finding): a
+  // test that only compares durationFor(...) against PHOTO_DURATION_MS
+  // stays green even if the constant itself mutates (implementation checked
+  // against implementation). Spec §8.2: photos run for 5 seconds, that's
+  // the number that counts, independent of the constant's name.
+  test('PHOTO_DURATION_MS is 5000 (Spec §8.2: photos run for 5 seconds)', () => {
+    expect(PHOTO_DURATION_MS).toBe(5000);
   });
 
-  test('ein Foto dauert immer FOTO_DAUER_MS (5000 ms)', () => {
-    expect(dauerFuer(moment({ type: 'photo', duration_s: null }))).toBe(5000);
-    // Ein duration_s auf einem Foto (sollte laut Schema nie vorkommen) darf
-    // die Dauer trotzdem nicht verändern, Fotos hängen NIE von duration_s ab.
-    expect(dauerFuer(moment({ type: 'photo', duration_s: 42 }))).toBe(5000);
+  test('a photo always lasts PHOTO_DURATION_MS (5000 ms)', () => {
+    expect(durationFor(moment({ type: 'photo', duration_s: null }))).toBe(5000);
+    // A duration_s on a photo (should never happen per the schema) must
+    // still not change the duration, photos NEVER depend on duration_s.
+    expect(durationFor(moment({ type: 'photo', duration_s: 42 }))).toBe(5000);
   });
 
-  test('ein Video dauert duration_s * 1000', () => {
-    expect(dauerFuer(moment({ type: 'video', duration_s: 12 }))).toBe(12_000);
+  test('a video lasts duration_s * 1000', () => {
+    expect(durationFor(moment({ type: 'video', duration_s: 12 }))).toBe(12_000);
   });
 
-  // Phase-5-Final-Review, Punkt 8 (Review-Fund): fehlte bisher, die beiden
-  // Boden-Tests unten vergleichen `dauerFuer(...)` gegen `VIDEO_DAUER_MIN_MS`
-  // SELBST, nicht gegen ein Literal. Ein Mutant, der die Konstante von 1000
-  // auf z.B. 8000 ändert, bliebe bei BEIDEN grün (die Implementierung würde
-  // dann tatsächlich 8000 liefern, und der Test vergleicht ja weiterhin nur
-  // gegen dieselbe, inzwischen mutierte, Konstante). Zwei Zeilen weiter
-  // oben macht die Suite es für FOTO_DAUER_MS bereits richtig
-  // (`expect(FOTO_DAUER_MS).toBe(5000)`), dasselbe Literal-Pinning fehlte
-  // hier für den Video-Boden.
-  test('VIDEO_DAUER_MIN_MS ist 1000 (Kommentar am Export: „eine Sekunde ist kurz genug … aber lang genug, um real sichtbar zu sein")', () => {
-    expect(VIDEO_DAUER_MIN_MS).toBe(1000);
+  // Phase-5 final review, point 8 (review finding): was missing until now,
+  // the two floor tests below used to compare `durationFor(...)` against
+  // `VIDEO_DURATION_MIN_MS` ITSELF, not against a literal. A mutant that
+  // changes the constant from 1000 to e.g. 8000 would stay green on BOTH
+  // (the implementation would then actually return 8000, and the test
+  // still only compares against the same, now-mutated, constant). Two
+  // lines further up, the suite already gets this right for
+  // PHOTO_DURATION_MS (`expect(PHOTO_DURATION_MS).toBe(5000)`), the same
+  // literal-pinning was missing here for the video floor.
+  test('VIDEO_DURATION_MIN_MS is 1000 (comment at the export: "long enough to be genuinely visible")', () => {
+    expect(VIDEO_DURATION_MIN_MS).toBe(1000);
   });
 
-  // Ein Boden verhindert, dass ein sehr kurzer/kaputter duration_s-Wert
-  // (0 ist laut Check-Constraint technisch gültig) den Moment faktisch
-  // unsichtbar macht, der Fortschrittsbalken würde sonst augenblicklich
-  // füllen. 0 ist gleichzeitig ein gültiger, aber FALSY Wert, eine
-  // Implementierung, die `duration_s ? … : Fallback` statt `=== null`
-  // prüft, würde hier fälschlich den (viel längeren) Fallback statt des
-  // Bodens liefern; dieser Test verlangt explizit den Boden, nicht 0 und
-  // nicht VIDEO_DAUER_FALLBACK_MS. Literal `1000` statt `VIDEO_DAUER_MIN_MS`
-  // (Review-Fund, siehe oben): sonst bliebe der Test grün, selbst wenn die
-  // Konstante (und mit ihr die tatsächliche Anzeigedauer) sich änderte.
-  test('duration_s = 0 liefert den Boden von 1000 ms, nicht 0 und nicht den Fallback', () => {
-    expect(dauerFuer(moment({ type: 'video', duration_s: 0 }))).toBe(1000);
+  // A floor prevents a very short/broken duration_s value (0 is technically
+  // valid per the check constraint) from making the moment effectively
+  // invisible, the progress bar would otherwise fill almost instantly. 0 is
+  // at the same time a valid but FALSY value, an implementation checking
+  // `duration_s ? … : fallback` instead of `=== null` would wrongly return
+  // the (much longer) fallback instead of the floor here; this test
+  // explicitly requires the floor, not 0 and not VIDEO_DURATION_FALLBACK_MS.
+  // Literal `1000` instead of `VIDEO_DURATION_MIN_MS` (review finding, see
+  // above): otherwise the test would stay green even if the constant (and
+  // with it the actual display duration) changed.
+  test('duration_s = 0 returns the floor of 1000 ms, not 0 and not the fallback', () => {
+    expect(durationFor(moment({ type: 'video', duration_s: 0 }))).toBe(1000);
   });
 
-  test('ein sehr kurzer, aber echter duration_s-Wert wird ebenfalls auf den Boden von 1000 ms angehoben', () => {
-    // 0.5 s * 1000 = 500 ms, unter dem Boden.
-    expect(dauerFuer(moment({ type: 'video', duration_s: 0.5 }))).toBe(1000);
+  test('a very short, but real duration_s value is also raised to the floor of 1000 ms', () => {
+    // 0.5s * 1000 = 500 ms, below the floor.
+    expect(durationFor(moment({ type: 'video', duration_s: 0.5 }))).toBe(1000);
   });
 
-  test('ein Video mit ausreichender Dauer bleibt UNTER dem Boden unangetastet (Boden hebt nur an, kappt nicht)', () => {
-    expect(dauerFuer(moment({ type: 'video', duration_s: 12 }))).toBe(12_000);
-    expect(12_000).toBeGreaterThan(VIDEO_DAUER_MIN_MS);
+  test('a video with a sufficient duration, above the floor, is left untouched (the floor only raises, never caps)', () => {
+    expect(durationFor(moment({ type: 'video', duration_s: 12 }))).toBe(12_000);
+    expect(12_000).toBeGreaterThan(VIDEO_DURATION_MIN_MS);
   });
 
-  test('ein Video ohne duration_s (nullable Spalte, Verteidigungsfall) bekommt den benannten Rückfallwert, kein NaN', () => {
-    const dauer = dauerFuer(moment({ type: 'video', duration_s: null }));
-    expect(Number.isNaN(dauer)).toBe(false);
-    expect(dauer).toBe(VIDEO_DAUER_FALLBACK_MS);
+  test('a video without duration_s (nullable column, defensive case) gets the named fallback value, not NaN', () => {
+    const duration = durationFor(moment({ type: 'video', duration_s: null }));
+    expect(Number.isNaN(duration)).toBe(false);
+    expect(duration).toBe(VIDEO_DURATION_FALLBACK_MS);
   });
 
-  // VIDEO_DAUER_FALLBACK_MS muss mindestens die laut Check-Constraint
-  // maximal zulässige Videolänge (30 s) abdecken (Review-Fund), sonst
-  // schneidet der Fallback ein legales, aber dauer-loses Video mitten im
-  // Bild ab.
-  test('VIDEO_DAUER_FALLBACK_MS ist mindestens 30 Sekunden (maximal zulässige Videolänge laut Check-Constraint)', () => {
-    expect(VIDEO_DAUER_FALLBACK_MS).toBeGreaterThanOrEqual(30_000);
+  // VIDEO_DURATION_FALLBACK_MS must cover at least the maximum video length
+  // allowed by the check constraint (30s) (review finding), otherwise the
+  // fallback cuts off a legal, but duration-less video mid-picture.
+  test('VIDEO_DURATION_FALLBACK_MS is at least 30 seconds (the maximum video length allowed by the check constraint)', () => {
+    expect(VIDEO_DURATION_FALLBACK_MS).toBeGreaterThanOrEqual(30_000);
   });
 });
 
-describe('weiter', () => {
-  // Phase-5-Final-Review, Punkt 1: `pausiert` ist jetzt ein
-  // `ReadonlySet<PauseGrund>` statt eines booleans (siehe playerLogic.ts),
-  // dieselben Fixtures wie zuvor, nur mit der neuen Repräsentation.
-  const stand = (overrides: Partial<PlayerStand> = {}): PlayerStand => ({
+describe('advance', () => {
+  // Phase-5 final review, point 1: `pausiert` is now a
+  // `ReadonlySet<PauseReason>` instead of a boolean (see playerLogic.ts),
+  // same fixtures as before, just with the new representation.
+  const state = (overrides: Partial<PlayerState> = {}): PlayerState => ({
     index: 0,
     pausiert: new Set(),
     fortschritt: 0,
     ...overrides,
   });
-  const GEHALTEN = new Set<PauseGrund>(['halten']);
+  const HELD = new Set<PauseReason>(['halten']);
 
-  test('erhöht den Index um eins und setzt den Fortschritt zurück', () => {
-    const ergebnis = weiter(stand({ index: 1, fortschritt: 3400 }), 5);
-    expect(ergebnis).toEqual({ index: 2, pausiert: new Set(), fortschritt: 0 });
+  test('increments the index by one and resets progress', () => {
+    const result = advance(state({ index: 1, fortschritt: 3400 }), 5);
+    expect(result).toEqual({ index: 2, pausiert: new Set(), fortschritt: 0 });
   });
 
-  // "pausiert bleibt unangetastet" heisst hier konkret: dieselbe Set-
-  // REFERENZ geht unverändert durch, weiter() liest/schreibt sie nicht.
-  test('lässt "pausiert" unverändert (dieselbe Referenz), weiter/zurueck entscheiden nicht über Pause', () => {
-    const ergebnis = weiter(stand({ index: 0, pausiert: GEHALTEN }), 5);
-    expect(ergebnis).not.toBe('ende');
-    if (ergebnis === 'ende') throw new Error('unreachable');
-    expect(ergebnis.pausiert).toBe(GEHALTEN);
-    expect(ergebnis).toEqual({ index: 1, pausiert: GEHALTEN, fortschritt: 0 });
+  // "pausiert stays untouched" concretely means here: the same Set
+  // REFERENCE passes through unchanged, advance() neither reads nor writes
+  // it.
+  test('leaves "pausiert" unchanged (the same reference), advance/goBack don\'t decide about pausing', () => {
+    const result = advance(state({ index: 0, pausiert: HELD }), 5);
+    expect(result).not.toBe('ende');
+    if (result === 'ende') throw new Error('unreachable');
+    expect(result.pausiert).toBe(HELD);
+    expect(result).toEqual({ index: 1, pausiert: HELD, fortschritt: 0 });
   });
 
-  // Brief: am letzten Moment liefert weiter 'ende', NICHT Index `anzahl`,
-  // ein off-by-one hier würde stattdessen { index: anzahl, ... } liefern.
-  test('am letzten Moment liefert weiter "ende", nicht Index anzahl', () => {
-    const ergebnis = weiter(stand({ index: 4 }), 5);
-    expect(ergebnis).toBe('ende');
+  // Brief: at the last moment, advance returns 'ende', NOT index `count`, an
+  // off-by-one here would instead return { index: count, ... }.
+  test('at the last moment, advance returns "ende", not index count', () => {
+    const result = advance(state({ index: 4 }), 5);
+    expect(result).toBe('ende');
   });
 
-  test('leere Liste: weiter liefert sofort "ende"', () => {
-    expect(weiter(stand({ index: 0 }), 0)).toBe('ende');
+  test('an empty list: advance returns "ende" immediately', () => {
+    expect(advance(state({ index: 0 }), 0)).toBe('ende');
   });
 
-  test('genau ein Moment (anzahl 1): weiter liefert sofort "ende"', () => {
-    expect(weiter(stand({ index: 0 }), 1)).toBe('ende');
+  test('exactly one moment (count 1): advance returns "ende" immediately', () => {
+    expect(advance(state({ index: 0 }), 1)).toBe('ende');
   });
 });
 
-describe('zurueck', () => {
-  const stand = (overrides: Partial<PlayerStand> = {}): PlayerStand => ({
+describe('goBack', () => {
+  const state = (overrides: Partial<PlayerState> = {}): PlayerState => ({
     index: 0,
     pausiert: new Set(),
     fortschritt: 0,
     ...overrides,
   });
-  const GEHALTEN = new Set<PauseGrund>(['halten']);
+  const HELD = new Set<PauseReason>(['halten']);
 
-  test('verringert den Index um eins und setzt den Fortschritt zurück', () => {
-    const ergebnis = zurueck(stand({ index: 2, fortschritt: 1200 }));
-    expect(ergebnis).toEqual({ index: 1, pausiert: new Set(), fortschritt: 0 });
+  test('decrements the index by one and resets progress', () => {
+    const result = goBack(state({ index: 2, fortschritt: 1200 }));
+    expect(result).toEqual({ index: 1, pausiert: new Set(), fortschritt: 0 });
   });
 
-  // Brief: zurueck am ersten Moment bleibt bei Index 0 und setzt den
-  // Fortschritt zurück, es springt NICHT aus dem Tag/der Filmrolle hinaus
-  // (kein negativer Index).
-  test('am ersten Moment bleibt der Index bei 0, statt negativ zu werden', () => {
-    const ergebnis = zurueck(stand({ index: 0, fortschritt: 800 }));
-    expect(ergebnis).toEqual({ index: 0, pausiert: new Set(), fortschritt: 0 });
+  // Brief: goBack at the first moment stays at index 0 and resets progress,
+  // it does NOT jump out of the day/roll of film (no negative index).
+  test('at the first moment, the index stays at 0 instead of going negative', () => {
+    const result = goBack(state({ index: 0, fortschritt: 800 }));
+    expect(result).toEqual({ index: 0, pausiert: new Set(), fortschritt: 0 });
   });
 
-  // Brief: zurueck setzt fortschritt IMMER auf 0, auch mitten in einem
-  // Video, unabhängig davon, ob der Index sich überhaupt verändert.
-  test('setzt fortschritt immer auf 0, auch wenn der Index gleich bleibt (Index 0)', () => {
-    const ergebnis = zurueck(stand({ index: 0, fortschritt: 3999 }));
-    expect(ergebnis.fortschritt).toBe(0);
+  // Brief: goBack ALWAYS resets fortschritt to 0, even mid-video,
+  // regardless of whether the index changes at all.
+  test('always resets progress to 0, even when the index stays the same (index 0)', () => {
+    const result = goBack(state({ index: 0, fortschritt: 3999 }));
+    expect(result.fortschritt).toBe(0);
   });
 
-  test('lässt "pausiert" unverändert (dieselbe Referenz)', () => {
-    const ergebnis = zurueck(stand({ index: 3, pausiert: GEHALTEN }));
-    expect(ergebnis.pausiert).toBe(GEHALTEN);
-    expect(ergebnis).toEqual({ index: 2, pausiert: GEHALTEN, fortschritt: 0 });
+  test('leaves "pausiert" unchanged (the same reference)', () => {
+    const result = goBack(state({ index: 3, pausiert: HELD }));
+    expect(result.pausiert).toBe(HELD);
+    expect(result).toEqual({ index: 2, pausiert: HELD, fortschritt: 0 });
   });
 });
 
-describe('tagWechselt', () => {
+describe('dayChanges', () => {
   const startDate = '2026-08-01';
 
-  test('true beim allerersten Moment überhaupt (index 0)', () => {
-    const momente = [moment({ id: 'a', captured_at: '2026-08-01T09:00:00.000Z' })];
-    expect(tagWechselt(momente, startDate, 0)).toBe(true);
+  test('true at the very first moment overall (index 0)', () => {
+    const moments = [moment({ id: 'a', captured_at: '2026-08-01T09:00:00.000Z' })];
+    expect(dayChanges(moments, startDate, 0)).toBe(true);
   });
 
-  test('false, solange zwei aufeinanderfolgende Momente am selben Tag liegen', () => {
-    const momente = [
+  test('false as long as two consecutive moments sit on the same day', () => {
+    const moments = [
       moment({ id: 'a', captured_at: '2026-08-01T09:00:00.000Z' }),
       moment({ id: 'b', captured_at: '2026-08-01T15:00:00.000Z' }),
     ];
-    expect(tagWechselt(momente, startDate, 1)).toBe(false);
+    expect(dayChanges(moments, startDate, 1)).toBe(false);
   });
 
-  test('true genau beim ersten Moment eines neuen Tages', () => {
-    const momente = [
+  test('true exactly at the first moment of a new day', () => {
+    const moments = [
       moment({ id: 'a', captured_at: '2026-08-01T09:00:00.000Z' }),
       moment({ id: 'b', captured_at: '2026-08-01T15:00:00.000Z' }),
       moment({ id: 'c', captured_at: '2026-08-02T09:00:00.000Z' }),
     ];
-    expect(tagWechselt(momente, startDate, 0)).toBe(true); // allererster Moment
-    expect(tagWechselt(momente, startDate, 1)).toBe(false); // noch Tag 1
-    expect(tagWechselt(momente, startDate, 2)).toBe(true); // Tag 2 beginnt
+    expect(dayChanges(moments, startDate, 0)).toBe(true); // very first moment
+    expect(dayChanges(moments, startDate, 1)).toBe(false); // still day 1
+    expect(dayChanges(moments, startDate, 2)).toBe(true); // day 2 begins
   });
 
-  test('ausserhalb der Liste liegende Indizes liefern false, statt zu werfen', () => {
-    const momente = [moment({ id: 'a' })];
-    expect(tagWechselt(momente, startDate, -1)).toBe(false);
-    expect(tagWechselt(momente, startDate, 1)).toBe(false);
-    expect(tagWechselt([], startDate, 0)).toBe(false);
+  test('indices outside the list return false instead of throwing', () => {
+    const moments = [moment({ id: 'a' })];
+    expect(dayChanges(moments, startDate, -1)).toBe(false);
+    expect(dayChanges(moments, startDate, 1)).toBe(false);
+    expect(dayChanges([], startDate, 0)).toBe(false);
   });
 
-  // Integrationstest zur eigentlichen Anforderung des Briefs: die Tagesnummer
-  // hängt von den Momenten DAVOR ab und lässt sich nicht isoliert pro Moment
-  // bestimmen. Review-Fund aus tage.ts: bei einem Ostwärts-Zeitsprung
-  // (Tokio → Los Angeles) läuft der EIGENE lokale Kalendertag der späteren
-  // Ankunft hinter den des früheren Abflugs zurück (Los Angeles: 1. August,
-  // Tokio: 2. August), gruppiereNachTagen hält die Reihenfolge trotzdem
-  // chronologisch und ordnet beide demselben (höheren) Tag zu. Eine
-  // Implementierung, die stattdessen naiv die LOKALEN Kalendertage der
-  // beiden Momente miteinander vergliche, würde hier fälschlich true
-  // liefern (1. August ≠ 2. August), dieser Test verlangt explizit false.
-  test('folgt der monoton fortgeschriebenen Tagesnummer aus gruppiereNachTagen, nicht dem rohen lokalen Kalendertag', () => {
-    const abflugTokio = moment({
+  // Integration test for the brief's actual requirement: the day number
+  // depends on the moments BEFORE it and can't be determined in isolation
+  // per moment. Review finding from days.ts: on an eastward time jump
+  // (Tokyo → Los Angeles), the later arrival's OWN local calendar day runs
+  // behind the earlier departure's (Los Angeles: August 1st, Tokyo: August
+  // 2nd), groupByDays still keeps the order chronological and assigns both
+  // to the same (higher) day. An implementation that instead naively
+  // compared the two moments' LOCAL calendar days would wrongly return true
+  // here (August 1st ≠ August 2nd), this test explicitly requires false.
+  test('follows the monotonically assigned day number from groupByDays, not the raw local calendar day', () => {
+    const departureTokyo = moment({
       id: 'a',
-      captured_at: '2026-08-01T23:30:00.000Z', // lokal: 02.08., 08:30 (Asia/Tokyo)
+      captured_at: '2026-08-01T23:30:00.000Z', // local: Aug 2nd, 08:30 (Asia/Tokyo)
       captured_tz: 'Asia/Tokyo',
     });
-    const ankunftLosAngeles = moment({
+    const arrivalLosAngeles = moment({
       id: 'b',
-      captured_at: '2026-08-02T01:00:00.000Z', // chronologisch später, lokal aber 01.08. (America/Los_Angeles)
+      captured_at: '2026-08-02T01:00:00.000Z', // chronologically later, but local Aug 1st (America/Los_Angeles)
       captured_tz: 'America/Los_Angeles',
     });
-    const momente = [abflugTokio, ankunftLosAngeles];
-    expect(tagWechselt(momente, startDate, 1)).toBe(false);
+    const moments = [departureTokyo, arrivalLosAngeles];
+    expect(dayChanges(moments, startDate, 1)).toBe(false);
   });
 
-  // Ein echter Ortstag-Wechsel (Nachtflug) bleibt dagegen ein Tageswechsel,
-  // Gegenprobe zum Test oben, damit "immer false bei unterschiedlicher
-  // captured_tz" nicht versehentlich als Regel durchrutscht.
-  test('ein echter Ortstag-Wechsel (Nachtflug) bleibt ein Tageswechsel', () => {
-    const abflugOslo = moment({
+  // A real local-day change (overnight flight) remains a day change though,
+  // the counter-check to the test above, so "always false for differing
+  // captured_tz" doesn't accidentally slip through as a rule.
+  test('a real local-day change (overnight flight) remains a day change', () => {
+    const departureOslo = moment({
       id: 'a',
       captured_at: '2026-08-01T21:00:00.000Z', // 23:00 CEST (Europe/Oslo)
       captured_tz: 'Europe/Oslo',
     });
-    const ankunftTokyo = moment({
+    const arrivalTokyo = moment({
       id: 'b',
-      captured_at: '2026-08-02T08:00:00.000Z', // 17:00 JST (Asia/Tokyo), nächster Ortstag
+      captured_at: '2026-08-02T08:00:00.000Z', // 17:00 JST (Asia/Tokyo), next local day
       captured_tz: 'Asia/Tokyo',
     });
-    expect(tagWechselt([abflugOslo, ankunftTokyo], startDate, 1)).toBe(true);
+    expect(dayChanges([departureOslo, arrivalTokyo], startDate, 1)).toBe(true);
   });
 
-  // Review-Fund, Important 3/4: der ursprüngliche Test prüfte hier NUR
-  // not.toThrow(), die eigentliche Designentscheidung (id-basierte
-  // Zuordnung statt Position im ggf. verkürzten Ergebnis von
-  // gruppiereNachTagen) war dadurch durch keinen einzigen Rückgabewert
-  // gedeckt. Ein Mutant, der stattdessen positional in eine geflachte
-  // Ausgabe indiziert (`gruppiereNachTagen(...).flatMap(t => t.momente.map(
-  // () => t.nummer))`, dann `flach[index] !== flach[index - 1]`), blieb bei
-  // reinem not.toThrow() unbemerkt grün.
+  // Review finding, Important 3/4: the original test here only checked
+  // not.toThrow(), so the actual design decision (id-based mapping instead
+  // of position in groupByDays' possibly shortened result) wasn't covered
+  // by any return value at all. A mutant that instead indexes positionally
+  // into a flattened output (`groupByDays(...).flatMap(t =>
+  // t.momente.map(() => t.nummer))`, then `flat[index] !==
+  // flat[index - 1]`) stayed green and unnoticed under plain not.toThrow().
   //
-  // Fall A: der verworfene Moment liegt INNERHALB eines Tages (a, kaputt, b
-  // sind real alle Tag 1). Review-Fund, Important 4: ein fehlender
-  // Map-Eintrag auf EINER Seite gilt als "kein Wechsel" (false), nicht als
-  // Wechsel, sonst kündigt der Player denselben Tag zweimal an (an kaputts
-  // Position UND an b's Position direkt danach).
-  test('ein verworfener Moment INNERHALB eines Tages erzeugt keine falsche Tages-Zwischenkarte (weder an seiner Position noch danach)', () => {
+  // Case A: the dropped moment sits INSIDE a day (a, broken, b are all
+  // really day 1). Review finding, Important 4: a missing map entry on
+  // EITHER side counts as "no change" (false), not as a change, otherwise
+  // the player announces the same day twice (at broken's position AND at
+  // b's position right after it).
+  test('a dropped moment INSIDE a day produces no false day interstitial (neither at its position nor after it)', () => {
     const a = moment({ id: 'a', captured_at: '2026-08-01T09:00:00.000Z', captured_tz: 'Europe/Zurich' });
-    const kaputt = moment({ id: 'kaputt', captured_at: '2026-08-01T10:00:00.000Z', captured_tz: 'Nicht/Existent' });
+    const broken = moment({ id: 'broken', captured_at: '2026-08-01T10:00:00.000Z', captured_tz: 'Nicht/Existent' });
     const b = moment({ id: 'b', captured_at: '2026-08-01T11:00:00.000Z', captured_tz: 'Europe/Zurich' });
-    const momente = [a, kaputt, b];
-    expect(() => tagWechselt(momente, startDate, 1)).not.toThrow();
-    expect(tagWechselt(momente, startDate, 1)).toBe(false); // an kaputts Position
-    expect(tagWechselt(momente, startDate, 2)).toBe(false); // an b's Position, direkt danach
+    const moments = [a, broken, b];
+    expect(() => dayChanges(moments, startDate, 1)).not.toThrow();
+    expect(dayChanges(moments, startDate, 1)).toBe(false); // at broken's position
+    expect(dayChanges(moments, startDate, 2)).toBe(false); // at b's position, right after
   });
 
-  // Fall B: der verworfene Moment liegt GENAU AN einer echten Tagesgrenze
-  // (a ist Tag 1, b ist Tag 2). Der bewusste Kompromiss aus Important 4:
-  // auch hier liefert tagWechselt an beiden Nachbarpositionen false, der
-  // echte Wechsel wird nicht angezeigt, weil sein einziger unmittelbarer
-  // Zeuge der verworfene Moment gewesen wäre. Das ist zugleich der Test, der
-  // eine positionale Re-Implementierung am schärfsten von der id-basierten
-  // unterscheidet: gruppiereNachTagen liefert für [a, kaputt, b] nur zwei
-  // Tage mit je einem Moment (kaputt fehlt), macht eine geflachte Ausgabe
-  // `[1, 2]` (Länge 2), `flach[2]` wäre dort `undefined` (Index aus dem
-  // 3-elementigen `momente` direkt in die 2-elementige Ausgabe gespiegelt)
-  // und `undefined !== 2` läge fälschlich bei `true`.
-  test('ein verworfener Moment GENAU AN einer Tagesgrenze zeigt an keiner Nachbarposition einen Wechsel (dokumentierter Kompromiss)', () => {
+  // Case B: the dropped moment sits EXACTLY AT a real day boundary (a is
+  // day 1, b is day 2). The deliberate compromise from Important 4: here
+  // too, dayChanges returns false at both neighbouring positions, the real
+  // change isn't shown, because its only immediate witness would have been
+  // the dropped moment. This is also the test that most sharply
+  // distinguishes a positional reimplementation from the id-based one:
+  // groupByDays returns only two days with one moment each for
+  // [a, broken, b] (broken is missing), a flattened output would be `[1, 2]`
+  // (length 2), `flat[2]` would be `undefined` there (an index from the
+  // 3-element `moments` mirrored directly into the 2-element output) and
+  // `undefined !== 2` would wrongly come out `true`.
+  test('a dropped moment EXACTLY AT a day boundary shows a change at neither neighbouring position (documented compromise)', () => {
     const a = moment({ id: 'a', captured_at: '2026-08-01T09:00:00.000Z', captured_tz: 'Europe/Zurich' });
-    const kaputt = moment({ id: 'kaputt', captured_at: '2026-08-01T10:00:00.000Z', captured_tz: 'Nicht/Existent' });
+    const broken = moment({ id: 'broken', captured_at: '2026-08-01T10:00:00.000Z', captured_tz: 'Nicht/Existent' });
     const b = moment({ id: 'b', captured_at: '2026-08-02T09:00:00.000Z', captured_tz: 'Europe/Zurich' });
-    const momente = [a, kaputt, b];
-    expect(tagWechselt(momente, startDate, 1)).toBe(false);
-    expect(tagWechselt(momente, startDate, 2)).toBe(false);
+    const moments = [a, broken, b];
+    expect(dayChanges(moments, startDate, 1)).toBe(false);
+    expect(dayChanges(moments, startDate, 2)).toBe(false);
   });
 
-  // Review-Fund, Important 5: tagWechselt memoisiert die Tagesnummern über
-  // die Array-REFERENZ von `momente` (WeakMap), damit ein Player mit
-  // hunderten Momenten nicht pro Momentwechsel erneut gruppiereNachTagen
-  // (und damit pro Moment ein frisches Intl.DateTimeFormat) aufbaut. Ein
-  // Cache, der stattdessen z.B. nach Länge oder startDate allein schlüsselte
-  // (statt nach der Referenz), würde zwei verschiedene, gleich lange Listen
-  // verwechseln, dieser Test ruft beide verschachtelt auf und verlangt,
-  // dass jede ihr eigenes, korrektes Ergebnis behält.
-  test('zwei verschiedene momente-Arrays gleicher Länge werden unabhängig zwischengespeichert, keine Verwechslung', () => {
-    const listeA = [
+  // Review finding, Important 5: dayChanges memoises the day numbers by the
+  // ARRAY REFERENCE of `moments` (WeakMap), so a player with hundreds of
+  // moments doesn't rebuild groupByDays (and with it a fresh
+  // Intl.DateTimeFormat per moment) on every single moment change. A cache
+  // keyed by e.g. length or startDate alone (instead of the reference)
+  // would confuse two different, equally long lists, this test calls both
+  // interleaved and requires each to keep its own, correct result.
+  test('two different moments arrays of equal length are cached independently, no mix-up', () => {
+    const listA = [
       moment({ id: 'a1', captured_at: '2026-08-01T09:00:00.000Z' }),
-      moment({ id: 'a2', captured_at: '2026-08-01T15:00:00.000Z' }), // gleicher Tag wie a1
+      moment({ id: 'a2', captured_at: '2026-08-01T15:00:00.000Z' }), // same day as a1
     ];
-    const listeB = [
+    const listB = [
       moment({ id: 'b1', captured_at: '2026-08-01T09:00:00.000Z' }),
-      moment({ id: 'b2', captured_at: '2026-08-02T09:00:00.000Z' }), // anderer Tag als b1
+      moment({ id: 'b2', captured_at: '2026-08-02T09:00:00.000Z' }), // different day than b1
     ];
-    expect(tagWechselt(listeA, startDate, 1)).toBe(false);
-    expect(tagWechselt(listeB, startDate, 1)).toBe(true);
-    // Nochmal, verschachtelt in umgekehrter Reihenfolge: ein Cache, der
-    // Listen verwechselt, würde spätestens hier eines der beiden Ergebnisse
-    // kippen.
-    expect(tagWechselt(listeB, startDate, 1)).toBe(true);
-    expect(tagWechselt(listeA, startDate, 1)).toBe(false);
+    expect(dayChanges(listA, startDate, 1)).toBe(false);
+    expect(dayChanges(listB, startDate, 1)).toBe(true);
+    // Again, interleaved in reverse order: a cache that confuses lists
+    // would flip one of the two results at the latest here.
+    expect(dayChanges(listB, startDate, 1)).toBe(true);
+    expect(dayChanges(listA, startDate, 1)).toBe(false);
   });
 
-  // Phase-5-Final-Review, Punkt 8 (Review-Fund, "wenn es billig ist"): bis
-  // hierhin prüft keine einzige Zeile den eigentlichen ZWECK des WeakMap-
-  // Caches (siehe Kommentar bei `tageNummernCache` in playerLogic.ts), die
-  // Tests oben prüfen nur RICHTIGE Ergebnisse, die auch eine Implementierung
-  // OHNE jeden Cache liefern würde (die WeakMap ersatzlos zu streichen liesse
-  // alle bisherigen Tests grün). Dieser Test spioniert `gruppiereNachTagen`
-  // direkt an: mehrere `tagWechselt`-Aufrufe für DIESELBE Array-Referenz
-  // dürfen es nur EINMAL aufrufen.
-  test('gruppiereNachTagen wird für dieselbe momente-Referenz nur EINMAL aufgerufen (WeakMap-Cache)', () => {
-    const spy = jest.spyOn(tage, 'gruppiereNachTagen');
-    const momente = [
+  // Phase-5 final review, point 8 (review finding, "when it's cheap"): up to
+  // here, not a single line checks the WeakMap cache's actual PURPOSE (see
+  // the comment at `dayNumberCache` in playerLogic.ts), the tests above only
+  // check CORRECT results, which an implementation WITHOUT any cache would
+  // also produce (removing the WeakMap without replacement would leave all
+  // tests so far green). This test spies on `groupByDays` directly: several
+  // `dayChanges` calls for the SAME array reference may only call it ONCE.
+  test('groupByDays is called only ONCE for the same moments reference (WeakMap cache)', () => {
+    const spy = jest.spyOn(days, 'groupByDays');
+    const moments = [
       moment({ id: 'a', captured_at: '2026-08-01T09:00:00.000Z' }),
       moment({ id: 'b', captured_at: '2026-08-01T15:00:00.000Z' }),
       moment({ id: 'c', captured_at: '2026-08-02T09:00:00.000Z' }),
     ];
-    tagWechselt(momente, startDate, 0);
-    tagWechselt(momente, startDate, 1);
-    tagWechselt(momente, startDate, 2);
+    dayChanges(moments, startDate, 0);
+    dayChanges(moments, startDate, 1);
+    dayChanges(moments, startDate, 2);
     expect(spy).toHaveBeenCalledTimes(1);
     spy.mockRestore();
   });
 });
 
-describe('PauseGrund: mitGrund/ohneGrund/blockiertAutomatischenVorschub', () => {
-  const leer = (): ReadonlySet<PauseGrund> => new Set();
+describe('PauseReason: withReason/withoutReason/blocksAutoAdvance', () => {
+  const empty = (): ReadonlySet<PauseReason> => new Set();
 
-  test('mitGrund fügt einen neuen Grund hinzu', () => {
-    const ergebnis = mitGrund(leer(), 'halten');
-    expect(ergebnis.has('halten')).toBe(true);
-    expect(ergebnis.size).toBe(1);
+  test('withReason adds a new reason', () => {
+    const result = withReason(empty(), 'halten');
+    expect(result.has('halten')).toBe(true);
+    expect(result.size).toBe(1);
   });
 
-  // Review-Fund-Prinzip (bissiger Test statt reiner Ergebnisprüfung): bei
-  // einem bereits vorhandenen Grund liefert mitGrund DIESELBE Referenz
-  // zurück (kein neues Set), ein Mutant, der stattdessen IMMER
-  // `new Set(pausiert).add(grund)` zurückgibt, würde von einer reinen
-  // `.has()`-Prüfung nicht erkannt.
-  test('mitGrund liefert bei bereits vorhandenem Grund DIESELBE Set-Referenz (kein unnötiger Re-Render)', () => {
-    const stand = mitGrund(leer(), 'halten');
-    const nochmal = mitGrund(stand, 'halten');
-    expect(nochmal).toBe(stand);
+  // Review-finding principle (a test with teeth instead of a plain result
+  // check): for an already-present reason, withReason returns the SAME
+  // reference (no new set), a mutant that always returns
+  // `new Set(paused).add(reason)` instead would not be caught by a plain
+  // `.has()` check.
+  test('withReason returns the SAME Set reference for an already-present reason (no unnecessary re-render)', () => {
+    const state = withReason(empty(), 'halten');
+    const again = withReason(state, 'halten');
+    expect(again).toBe(state);
   });
 
-  test('ohneGrund nimmt genau den eigenen Grund zurück, andere Gründe bleiben unberührt', () => {
-    let stand = mitGrund(leer(), 'halten');
-    stand = mitGrund(stand, 'kommentare');
-    const ergebnis = ohneGrund(stand, 'halten');
-    expect(ergebnis.has('halten')).toBe(false);
-    expect(ergebnis.has('kommentare')).toBe(true);
+  test('withoutReason takes back exactly its own reason, other reasons stay untouched', () => {
+    let state = withReason(empty(), 'halten');
+    state = withReason(state, 'kommentare');
+    const result = withoutReason(state, 'halten');
+    expect(result.has('halten')).toBe(false);
+    expect(result.has('kommentare')).toBe(true);
   });
 
-  // Das ist die eigentliche Pointe des Moduls (Final-Review Punkt 1): ein
-  // Aufruf mit einem NICHT vorhandenen Grund, z.B. ein verwaister Timer,
-  // dessen eigener Grund längst von anderswo zurückgenommen wurde, ist ein
-  // sicheres No-Op, auch wenn INZWISCHEN ein FREMDER Grund gesetzt wurde. Ein
-  // naiver `pausiert = false`-Ersatz (die alte Repräsentation) würde diesen
-  // fremden Grund hier mitreissen, dieser Test verlangt explizit, dass er
-  // stehen bleibt.
-  test('ohneGrund für einen nicht vorhandenen Grund ist ein No-Op, ein FREMDER, inzwischen gesetzter Grund bleibt unberührt', () => {
-    const stand = mitGrund(leer(), 'kommentare');
-    const ergebnis = ohneGrund(stand, 'zwischenkarte');
-    expect(ergebnis.has('kommentare')).toBe(true);
-    expect(ergebnis).toBe(stand); // No-Op: dieselbe Referenz, kein neues Set.
+  // This is the module's actual point (final review point 1): a call with a
+  // NOT-present reason, e.g. an orphaned timer whose own reason has long
+  // been taken back elsewhere, is a safe no-op, even if a FOREIGN reason
+  // has MEANWHILE been set. A naive `pausiert = false` replacement (the old
+  // representation) would drag that foreign reason down with it, this test
+  // explicitly requires it to remain.
+  test('withoutReason for a not-present reason is a no-op, a FOREIGN, meanwhile-set reason stays untouched', () => {
+    const state = withReason(empty(), 'kommentare');
+    const result = withoutReason(state, 'zwischenkarte');
+    expect(result.has('kommentare')).toBe(true);
+    expect(result).toBe(state); // no-op: same reference, no new set.
   });
 
-  // Final-Review Phase-5-Nachbesserung: ohneGruende nimmt mehrere Gründe auf
-  // einmal zurück, genau das, was ein echter Indexwechsel (Tipp-Navigation,
-  // automatischer Vorschub) braucht, damit weder 'halten' noch 'neuversuch'
-  // vom VERLASSENEN Moment auf den NEUEN übergehen (siehe player.tsx,
+  // Final-review Phase-5 follow-up: withoutReasons takes back several
+  // reasons at once, exactly what a genuine index change (tap navigation,
+  // automatic advance) needs, so neither 'halten' nor 'neuversuch' carries
+  // over from the LEFT moment to the NEW one (see player.tsx,
   // MOMENTWECHSEL_GRUENDE).
-  test('ohneGruende nimmt mehrere Gründe auf einmal zurück, andere Gründe bleiben unberührt', () => {
-    let stand = mitGrund(leer(), 'halten');
-    stand = mitGrund(stand, 'neuversuch');
-    stand = mitGrund(stand, 'kommentare');
-    const ergebnis = ohneGruende(stand, ['halten', 'neuversuch']);
-    expect(ergebnis.has('halten')).toBe(false);
-    expect(ergebnis.has('neuversuch')).toBe(false);
-    expect(ergebnis.has('kommentare')).toBe(true);
+  test('withoutReasons takes back several reasons at once, other reasons stay untouched', () => {
+    let state = withReason(empty(), 'halten');
+    state = withReason(state, 'neuversuch');
+    state = withReason(state, 'kommentare');
+    const result = withoutReasons(state, ['halten', 'neuversuch']);
+    expect(result.has('halten')).toBe(false);
+    expect(result.has('neuversuch')).toBe(false);
+    expect(result.has('kommentare')).toBe(true);
   });
 
-  // Dieselbe No-Op-Pointe wie bei ohneGrund, jetzt für mehrere Gründe auf
-  // einmal: sind ALLE übergebenen Gründe bereits abwesend, liefert
-  // ohneGruende dieselbe Referenz zurück, kein unnötiger Re-Render, wenn
-  // z.B. weiterAutomatisch aufgerufen wird, obwohl 'halten'/'neuversuch'
-  // ohnehin schon leer sind (der Normalfall über den Auto-Vorschub-Timer).
-  test('ohneGruende ist ein No-Op (dieselbe Referenz), wenn KEINER der übergebenen Gründe vorhanden ist', () => {
-    const stand = mitGrund(leer(), 'kommentare');
-    const ergebnis = ohneGruende(stand, ['halten', 'neuversuch']);
-    expect(ergebnis.has('kommentare')).toBe(true);
-    expect(ergebnis).toBe(stand);
+  // The same no-op point as withoutReason, now for several reasons at once:
+  // if ALL given reasons are already absent, withoutReasons returns the
+  // same reference, no unnecessary re-render when e.g. weiterAutomatisch
+  // gets called even though 'halten'/'neuversuch' are already empty anyway
+  // (the normal case via the auto-advance timer).
+  test('withoutReasons is a no-op (same reference) when NONE of the given reasons is present', () => {
+    const state = withReason(empty(), 'kommentare');
+    const result = withoutReasons(state, ['halten', 'neuversuch']);
+    expect(result.has('kommentare')).toBe(true);
+    expect(result).toBe(state);
   });
 
-  // Regression, die den Final-Review-Fund exakt nachbildet: 'neuversuch'
-  // allein (kein 'halten') muss ebenfalls zurückgenommen werden, ein
-  // Mutant, der ohneGruende nur auf den ERSTEN Grund der Liste anwendet,
-  // fiele hier durch.
-  test('ohneGruende nimmt auch einen NUR teilweise vorhandenen Grund zurück (nur "neuversuch", kein "halten")', () => {
-    const stand = mitGrund(leer(), 'neuversuch');
-    const ergebnis = ohneGruende(stand, ['halten', 'neuversuch']);
-    expect(ergebnis.size).toBe(0);
+  // A regression test that reproduces the final-review finding exactly:
+  // 'neuversuch' alone (without 'halten') must also be taken back, a
+  // mutant that applies withoutReasons only to the FIRST reason of the list
+  // would fail here.
+  test('withoutReasons also takes back a reason that is only PARTIALLY present (only "neuversuch", no "halten")', () => {
+    const state = withReason(empty(), 'neuversuch');
+    const result = withoutReasons(state, ['halten', 'neuversuch']);
+    expect(result.size).toBe(0);
   });
 
-  test('blockiertAutomatischenVorschub ist false, wenn kein Grund gesetzt ist', () => {
-    expect(blockiertAutomatischenVorschub(leer())).toBe(false);
+  test('blocksAutoAdvance is false when no reason is set', () => {
+    expect(blocksAutoAdvance(empty())).toBe(false);
   });
 
-  // Vertrag 4, Kernfall (Repro aus dem Final-Review, Punkt 1): ein playToEnd
-  // während einer Halten-Geste MUSS durchgelassen werden.
-  test('blockiertAutomatischenVorschub ist false, wenn NUR "halten" gesetzt ist', () => {
-    expect(blockiertAutomatischenVorschub(mitGrund(leer(), 'halten'))).toBe(false);
+  // Contract 4, core case (repro from the final review, point 1): a
+  // playToEnd during a hold gesture MUST be let through.
+  test('blocksAutoAdvance is false when ONLY "halten" is set', () => {
+    expect(blocksAutoAdvance(withReason(empty(), 'halten'))).toBe(false);
   });
 
-  test('blockiertAutomatischenVorschub ist true, wenn die Zwischenkarte steht', () => {
-    expect(blockiertAutomatischenVorschub(mitGrund(leer(), 'zwischenkarte'))).toBe(true);
+  test('blocksAutoAdvance is true while the interstitial card is showing', () => {
+    expect(blocksAutoAdvance(withReason(empty(), 'zwischenkarte'))).toBe(true);
   });
 
-  test('blockiertAutomatischenVorschub ist true, wenn das Kommentar-Sheet offen ist', () => {
-    expect(blockiertAutomatischenVorschub(mitGrund(leer(), 'kommentare'))).toBe(true);
+  test('blocksAutoAdvance is true while the comment sheet is open', () => {
+    expect(blocksAutoAdvance(withReason(empty(), 'kommentare'))).toBe(true);
   });
 
-  test('blockiertAutomatischenVorschub ist true, wenn ein stiller Neuversuch läuft', () => {
-    expect(blockiertAutomatischenVorschub(mitGrund(leer(), 'neuversuch'))).toBe(true);
+  test('blocksAutoAdvance is true while a silent retry is running', () => {
+    expect(blocksAutoAdvance(withReason(empty(), 'neuversuch'))).toBe(true);
   });
 
-  // Task 8, Phase 6: 'melden' blockiert genau wie 'kommentare', ein
-  // offenes «Diesen Moment melden»-Sheet darf den Player nicht
-  // weiterschalten lassen.
-  test('blockiertAutomatischenVorschub ist true, wenn das Melden-Sheet offen ist', () => {
-    expect(blockiertAutomatischenVorschub(mitGrund(leer(), 'melden'))).toBe(true);
+  // Task 8, Phase 6: 'melden' blocks exactly like 'kommentare', an open
+  // "report this moment" sheet must not let the player advance.
+  test('blocksAutoAdvance is true while the report sheet is open', () => {
+    expect(blocksAutoAdvance(withReason(empty(), 'melden'))).toBe(true);
   });
 
-  // "halten" zusammen mit einem blockierenden Grund bleibt blockierend, die
-  // Ausnahme gilt nur, wenn "halten" der EINZIGE Grund ist.
-  test('blockiertAutomatischenVorschub bleibt true, wenn "halten" UND ein weiterer Grund gesetzt sind', () => {
-    const stand = mitGrund(mitGrund(leer(), 'halten'), 'kommentare');
-    expect(blockiertAutomatischenVorschub(stand)).toBe(true);
+  // "halten" together with a blocking reason stays blocking, the exception
+  // only applies when "halten" is the ONLY reason.
+  test('blocksAutoAdvance stays true when "halten" AND another reason are set', () => {
+    const state = withReason(withReason(empty(), 'halten'), 'kommentare');
+    expect(blocksAutoAdvance(state)).toBe(true);
   });
 });

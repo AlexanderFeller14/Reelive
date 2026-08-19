@@ -1,4 +1,4 @@
-import { sortiereMomente } from '@/features/recap/tage';
+import { sortMoments } from '@/features/recap/days';
 import type { RecapMoment } from '@/features/recap/types';
 import type { KartenPunkt } from './typen';
 
@@ -21,7 +21,7 @@ export function zuKartenPunkten(momente: RecapMoment[]): {
   punkte: KartenPunkt[];
   ohneOrt: RecapMoment[];
 } {
-  const sortiert = sortiereMomente(momente);
+  const sortiert = sortMoments(momente);
   const punkte: KartenPunkt[] = [];
   const ohneOrt: RecapMoment[] = [];
 

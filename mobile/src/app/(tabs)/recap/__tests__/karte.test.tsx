@@ -10,7 +10,7 @@ import {
 import { act, render, screen, fireEvent, within } from '@testing-library/react-native';
 import { ThemeProvider } from '@/theme/ThemeProvider';
 import { motion, palette } from '@/theme/tokens';
-import type { MedienUrl } from '@/features/recap/urlVorrat';
+import type { MediaUrl } from '@/features/recap/urlPool';
 import type { RecapMoment } from '@/features/recap/types';
 import type { Ausschnitt } from '@/features/karte/typen';
 
@@ -29,16 +29,16 @@ jest.mock('expo-router', () => ({
   useRouter: () => ({ push: mockPush, replace: mockReplace, back: mockBack, canGoBack: () => mockKannZurueck }),
   useLocalSearchParams: () => ({ id: mockId }),
 }));
-jest.mock('@/features/recap/recapApi', () => ({ fetchRecapMomente: jest.fn() }));
+jest.mock('@/features/recap/recapApi', () => ({ fetchRecapMoments: jest.fn() }));
 // Nur die IO-Funktion wird gemockt. `wiederholenHilft` bleibt echt: sie ist
 // die Regel, ob «Nochmal versuchen» ueberhaupt etwas ausrichten kann, und ein
 // Mock davon liesse den Test genau die Zusicherung nicht mehr pruefen, um die
 // es hier geht. `jest.requireActual` zieht dabei @/lib/supabase mit, deshalb
 // steht dessen Mock daneben (gleiches Muster wie in player.test.tsx).
 jest.mock('@/lib/supabase', () => ({ supabase: { functions: { invoke: jest.fn() } } }));
-jest.mock('@/features/recap/urlVorrat', () => ({
-  ...jest.requireActual('@/features/recap/urlVorrat'),
-  holeVorrat: jest.fn(),
+jest.mock('@/features/recap/urlPool', () => ({
+  ...jest.requireActual('@/features/recap/urlPool'),
+  getPool: jest.fn(),
 }));
 // Ab Task 10 im Spiel: der Ladeweg der Reise gibt seinen Fehler als WERT
 // zurück und hat ihn bisher fallen lassen. Sichtbar wird er auf diesem Screen
@@ -129,8 +129,8 @@ jest.mock('react-native-maps', () => {
 
 import RecapKarte from '../[id]/karte';
 import { SHEET_SCROLL_ANTEIL } from '@/components/Sheet';
-import { fetchRecapMomente } from '@/features/recap/recapApi';
-import { holeVorrat } from '@/features/recap/urlVorrat';
+import { fetchRecapMoments } from '@/features/recap/recapApi';
+import { getPool } from '@/features/recap/urlPool';
 import { reportError } from '@/lib/errorReporter';
 import { fetchTrip } from '@/features/trips/tripsApi';
 import { zuKartenPunkten } from '@/features/karte/kartenPunkte';
@@ -214,7 +214,7 @@ const MITTEL = { ...ENG, latitudeDelta: 0.005, longitudeDelta: 0.005 };
 // und ohne die Angabe erbte VORRAT_OK ein zu enges `string`, ein Vorrat ohne
 // Thumbnail liesse sich dann gar nicht erst hineingeben (siehe
 // VORRAT_OHNE_THUMB).
-function bild(id: string): MedienUrl {
+function bild(id: string): MediaUrl {
   return { post_id: id, medium_url: `https://cdn.example/${id}-medium.jpg`, thumb_url: `https://cdn.example/${id}-thumb.jpg` };
 }
 
@@ -240,7 +240,7 @@ const LADEFEHLER = 'Die Momente konnten nicht geladen werden. Probier es gleich 
 // die Karte ist das kein Sonderfall, sondern ein Moment wie jeder andere.
 const VORRAT_OHNE_THUMB = {
   ...VORRAT_OK,
-  urls: new Map<string, MedienUrl>([
+  urls: new Map<string, MediaUrl>([
     ...VORRAT_OK.urls,
     ['p1', { post_id: 'p1', medium_url: bild('p1').medium_url, thumb_url: null }],
   ]),
@@ -253,9 +253,9 @@ const VORRAT_OHNE_THUMB = {
 // ankommt, nicht was der Typ behauptet.
 const VORRAT_OHNE_JEDES_BILD = {
   ...VORRAT_OK,
-  urls: new Map<string, MedienUrl>([
+  urls: new Map<string, MediaUrl>([
     ...VORRAT_OK.urls,
-    ['p1', { post_id: 'p1', thumb_url: null } as unknown as MedienUrl],
+    ['p1', { post_id: 'p1', thumb_url: null } as unknown as MediaUrl],
   ]),
 };
 
@@ -271,8 +271,8 @@ const REISE: Trip = {
 
 function ladeErfolg(momente = VOLLSTAENDIG, vorrat = VORRAT_OK, reise: Partial<Trip> = {}) {
   (fetchTrip as jest.Mock).mockResolvedValue({ data: { ...REISE, ...reise }, error: null });
-  (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: momente, error: null });
-  (holeVorrat as jest.Mock).mockResolvedValue({ vorrat, error: null, grund: null });
+  (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: momente, error: null });
+  (getPool as jest.Mock).mockResolvedValue({ vorrat, error: null, grund: null });
 }
 
 // Nimmt die mitgeschriebenen Werte EINER Nadel heraus und leert den Verlauf,
@@ -662,8 +662,8 @@ test('hat kein einziger Moment einen Ort, steht gar keine Karte da', async () =>
 // wirft doch eine von beiden, darf das keine unbehandelte Ablehnung werden
 // und den Screen nicht unbedienbar zurücklassen. Der Rückweg muss bleiben.
 test('wirft der Ladeweg, bleibt der Screen bedienbar statt haengen zu bleiben', async () => {
-  (fetchRecapMomente as jest.Mock).mockRejectedValue(new Error('kaputt'));
-  (holeVorrat as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+  (fetchRecapMoments as jest.Mock).mockRejectedValue(new Error('kaputt'));
+  (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
   await wrap();
   await fireEvent.press(await screen.findByLabelText('Zurück'));
   expect(mockBack).toHaveBeenCalled();
@@ -1040,7 +1040,7 @@ const VIELE_AUF_EINEM_FLECK = [
 ];
 const VORRAT_VIELE = {
   ...VORRAT_OK,
-  urls: new Map<string, MedienUrl>([
+  urls: new Map<string, MediaUrl>([
     ...VORRAT_OK.urls,
     ...Array.from({ length: 12 }, (_, i) => [`f${i}`, bild(`f${i}`)] as const),
   ]),
@@ -1177,9 +1177,9 @@ test('mit Reduced Motion erscheinen die Zeilen ohne Staffelung, in 200 ms', asyn
 // Bild vorliegt.
 const VORRAT_OHNE_MEDIUM = {
   ...VORRAT_OK,
-  urls: new Map<string, MedienUrl>([
+  urls: new Map<string, MediaUrl>([
     ...VORRAT_OK.urls,
-    ['p1', { post_id: 'p1', thumb_url: bild('p1').thumb_url } as unknown as MedienUrl],
+    ['p1', { post_id: 'p1', thumb_url: bild('p1').thumb_url } as unknown as MediaUrl],
   ]),
 };
 
@@ -1223,7 +1223,7 @@ const tag2M = moment({ id: 'p6', captured_at: '2026-08-11T10:00:00.000Z', lat: 3
 const MIT_TAGEN = [ohneUrlM, ohneOrtFrueh, mitAllem, m2, pendingM, tag2M];
 const VORRAT_TAGE = {
   ...VORRAT_OK,
-  urls: new Map<string, MedienUrl>([...VORRAT_OK.urls, ['p6', bild('p6')]]),
+  urls: new Map<string, MediaUrl>([...VORRAT_OK.urls, ['p6', bild('p6')]]),
 };
 
 async function oeffneTagesfilter() {
@@ -1413,7 +1413,7 @@ const ost1 = moment({
 const OSTWAERTS = [ost0, ostOhneOrt, ost1];
 const VORRAT_OSTWAERTS = {
   ...VORRAT_OK,
-  urls: new Map<string, MedienUrl>([['o0', bild('o0')], ['o1', bild('o1')], ['o2', bild('o2')]]),
+  urls: new Map<string, MediaUrl>([['o0', bild('o0')], ['o1', bild('o1')], ['o2', bild('o2')]]),
 };
 
 test('die Tagesnummern zaehlen ueber die ganze Spielliste, nicht nur ueber die Momente mit Ort', async () => {
@@ -1436,7 +1436,7 @@ const OHNE_ORT_DAZWISCHEN = [
 ];
 const VORRAT_OHNE_ORT_DAZWISCHEN = {
   ...VORRAT_OK,
-  urls: new Map<string, MedienUrl>([['q1', bild('q1')], ['q2', bild('q2')], ['q3', bild('q3')]]),
+  urls: new Map<string, MediaUrl>([['q1', bild('q1')], ['q2', bild('q2')], ['q3', bild('q3')]]),
 };
 
 test('ein Tag ohne Momente auf der Karte steht nicht zur Wahl', async () => {
@@ -1520,7 +1520,7 @@ const VIELE_TAGE = Array.from({ length: 12 }, (_, i) =>
 );
 const VORRAT_VIELE_TAGE = {
   ...VORRAT_OK,
-  urls: new Map<string, MedienUrl>(
+  urls: new Map<string, MediaUrl>(
     Array.from({ length: 12 }, (_, i) => [`v${i}`, bild(`v${i}`)] as const)
   ),
 };
@@ -1647,12 +1647,12 @@ test('ein halber Reisewechsel zeigt weder Nadeln noch Tagesnummern der vorherige
   (fetchTrip as jest.Mock).mockResolvedValue({
     data: { ...REISE, id: 't2', start_date: '2026-08-08' }, error: null,
   });
-  (fetchRecapMomente as jest.Mock).mockReturnValue(
+  (fetchRecapMoments as jest.Mock).mockReturnValue(
     new Promise<{ data: RecapMoment[]; error: string | null }>((aufloesen) => {
       momenteAufloesen = aufloesen;
     })
   );
-  (holeVorrat as jest.Mock).mockResolvedValue({ vorrat: VORRAT_TAGE, error: null, grund: null });
+  (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_TAGE, error: null, grund: null });
   await rerender(<ThemeProvider><RecapKarte /></ThemeProvider>);
 
   // Nichts von t1 ist mehr zu sehen, kein Filter, der nur aus einer Mischung
@@ -1722,7 +1722,7 @@ const k9 = moment({
 const DREI_OHNE_ORT = [ohneUrlM, k9, k0, k1, k2, k3, k4, k5];
 const VORRAT_DREI = {
   ...VORRAT_OK,
-  urls: new Map<string, MedienUrl>(
+  urls: new Map<string, MediaUrl>(
     ['k0', 'k1', 'k2', 'k3', 'k4', 'k5', 'k9'].map((id) => [id, bild(id)] as const)
   ),
 };
@@ -1884,7 +1884,7 @@ const VIELE_OHNE_ORT = [
 ];
 const VORRAT_VIELE_OHNE_ORT = {
   ...VORRAT_OK,
-  urls: new Map<string, MedienUrl>(
+  urls: new Map<string, MediaUrl>(
     Array.from({ length: 13 }, (_, i) => [`w${i}`, bild(`w${i}`)] as const)
   ),
 };
@@ -1983,8 +1983,8 @@ test('die Leiste schliesst ein offenes Moment-Sheet', async () => {
 // Ein Deep Link auf eine fremde Reise war von einer Reise ohne Orte nicht zu
 // unterscheiden.
 test('vor der ersten Antwort steht ein Skelett, nicht die Erklaerung', async () => {
-  (fetchRecapMomente as jest.Mock).mockReturnValue(new Promise(() => {}));
-  (holeVorrat as jest.Mock).mockReturnValue(new Promise(() => {}));
+  (fetchRecapMoments as jest.Mock).mockReturnValue(new Promise(() => {}));
+  (getPool as jest.Mock).mockReturnValue(new Promise(() => {}));
   await wrap();
 
   expect(screen.getByTestId('karte-skelett')).toBeTruthy();
@@ -1997,8 +1997,8 @@ test('vor der ersten Antwort steht ein Skelett, nicht die Erklaerung', async () 
 // Rückweg eine Sackgasse, die Karte ist, anders als die Übersicht, keine
 // Tab-Wurzel, sondern per `push` erreicht.
 test('auch im Ladezustand fuehrt ein Weg zurueck', async () => {
-  (fetchRecapMomente as jest.Mock).mockReturnValue(new Promise(() => {}));
-  (holeVorrat as jest.Mock).mockReturnValue(new Promise(() => {}));
+  (fetchRecapMoments as jest.Mock).mockReturnValue(new Promise(() => {}));
+  (getPool as jest.Mock).mockReturnValue(new Promise(() => {}));
   await wrap();
 
   await fireEvent.press(screen.getByLabelText('Zurück'));
@@ -2006,8 +2006,8 @@ test('auch im Ladezustand fuehrt ein Weg zurueck', async () => {
 });
 
 test('ein Ladefehler nennt seinen Grund, statt wie eine Reise ohne Orte auszusehen', async () => {
-  (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: [], error: null });
-  (holeVorrat as jest.Mock).mockResolvedValue({
+  (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [], error: null });
+  (getPool as jest.Mock).mockResolvedValue({
     vorrat: null, error: LADEFEHLER, grund: null,
   });
   await wrap();
@@ -2021,10 +2021,10 @@ test('ein Ladefehler nennt seinen Grund, statt wie eine Reise ohne Orte auszuseh
 // sein Fehlen rot machen muss (dieselbe Regel wie bei den beiden Filtern der
 // Spielliste).
 test('auch ein Fehler der Momente-Abfrage bleibt nicht stumm', async () => {
-  (fetchRecapMomente as jest.Mock).mockResolvedValue({
+  (fetchRecapMoments as jest.Mock).mockResolvedValue({
     data: [], error: 'Die Momente konnten nicht geladen werden. Probier es gleich nochmal.',
   });
-  (holeVorrat as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+  (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
   await wrap();
 
   expect(
@@ -2036,8 +2036,8 @@ test('auch ein Fehler der Momente-Abfrage bleibt nicht stumm', async () => {
 // Wirft eine der beiden Abfragen (statt den Fehler zurückzugeben), gibt es
 // keinen Text vom Server, der Screen muss trotzdem sagen, was los ist.
 test('wirft der Ladeweg, erklaert der Screen das trotzdem', async () => {
-  (fetchRecapMomente as jest.Mock).mockRejectedValue(new Error('kaputt'));
-  (holeVorrat as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+  (fetchRecapMoments as jest.Mock).mockRejectedValue(new Error('kaputt'));
+  (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
   await wrap();
 
   expect(
@@ -2047,8 +2047,8 @@ test('wirft der Ladeweg, erklaert der Screen das trotzdem', async () => {
 });
 
 test('«Nochmal versuchen» holt die Karte zurueck', async () => {
-  (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: [], error: 'Gerade keine Verbindung.' });
-  (holeVorrat as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+  (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [], error: 'Gerade keine Verbindung.' });
+  (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
   await wrap();
   await screen.findByText('Gerade keine Verbindung.');
 
@@ -2143,8 +2143,8 @@ test('der eine Knopf des Leer-Zustands fuehrt zurueck', async () => {
 async function wechsleAufHaengendesT2(rerender: (baum: React.ReactElement) => Promise<void>) {
   mockId = 't2';
   (fetchTrip as jest.Mock).mockResolvedValue({ data: { ...REISE, id: 't2' }, error: null });
-  (fetchRecapMomente as jest.Mock).mockReturnValue(new Promise(() => {}));
-  (holeVorrat as jest.Mock).mockReturnValue(new Promise(() => {}));
+  (fetchRecapMoments as jest.Mock).mockReturnValue(new Promise(() => {}));
+  (getPool as jest.Mock).mockReturnValue(new Promise(() => {}));
   await rerender(<ThemeProvider><RecapKarte /></ThemeProvider>);
 }
 
@@ -2160,8 +2160,8 @@ test('der Leer-Zustand von t1 steht nicht ueber t2', async () => {
 });
 
 test('der Fehler von t1 steht nicht ueber t2', async () => {
-  (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: [], error: 'Kein Zugriff auf diese Reise.' });
-  (holeVorrat as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+  (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [], error: 'Kein Zugriff auf diese Reise.' });
+  (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
   const { rerender } = await wrap();
   await screen.findByText('Kein Zugriff auf diese Reise.');
 
@@ -2296,8 +2296,8 @@ function primaerKnoepfe(): unknown[] {
 }
 
 function haengenderLadeweg() {
-  (fetchRecapMomente as jest.Mock).mockReturnValue(new Promise(() => {}));
-  (holeVorrat as jest.Mock).mockReturnValue(new Promise(() => {}));
+  (fetchRecapMoments as jest.Mock).mockReturnValue(new Promise(() => {}));
+  (getPool as jest.Mock).mockReturnValue(new Promise(() => {}));
 }
 
 test('§9: der Ladezustand traegt keinen Primaer-Button', async () => {
@@ -2311,8 +2311,8 @@ test('§9: der Ladezustand traegt keinen Primaer-Button', async () => {
 // also eine Momentaufnahme (Netz weg, 502 beim Signieren). Nur dort steht der
 // Knopf, siehe den Test darunter.
 test('§9: der Fehler-Zustand traegt genau einen Primaer-Button', async () => {
-  (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: [], error: null });
-  (holeVorrat as jest.Mock).mockResolvedValue({
+  (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [], error: null });
+  (getPool as jest.Mock).mockResolvedValue({
     vorrat: null, error: LADEFEHLER, grund: null,
   });
   await wrap();
@@ -2330,8 +2330,8 @@ test.each([
   ['Diese Reise ist noch versiegelt.', 'versiegelt'],
   ['Kein Zugriff auf diese Reise.', 'kein_zugriff'],
 ])('§9: unter «%s» steht kein Knopf, den niemand einloesen kann', async (text, grund) => {
-  (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: [], error: null });
-  (holeVorrat as jest.Mock).mockResolvedValue({ vorrat: null, error: text, grund });
+  (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [], error: null });
+  (getPool as jest.Mock).mockResolvedValue({ vorrat: null, error: text, grund });
   await wrap();
   await screen.findByText(text);
   expect(primaerKnoepfe()).toEqual([]);
@@ -2343,8 +2343,8 @@ test.each([
 // Die Gegenprobe zur Zuordnung: der `grund` gehört zum VORRAT. Scheitern die
 // MOMENTE, ist die Lage eine andere, dort hilft ein zweiter Versuch sehr wohl.
 test('§9: ein Momente-Fehler behaelt seinen Knopf, auch neben einem gelungenen Vorrat', async () => {
-  (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: [], error: LADEFEHLER });
-  (holeVorrat as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+  (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [], error: LADEFEHLER });
+  (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
   await wrap();
   await screen.findByText(LADEFEHLER);
   expect(primaerKnoepfe()).toEqual(['Nochmal versuchen']);
@@ -2356,8 +2356,8 @@ test('§9: ein Momente-Fehler behaelt seinen Knopf, auch neben einem gelungenen 
 // Screen» galt ausgerechnet für den Zustand nicht, in dem ein zweiter Knopf
 // dazukäme, ohne dass es auffiele.
 test('§9: auch ein ladender Primaer-Button zaehlt als Primaer-Button', async () => {
-  (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: [], error: null });
-  (holeVorrat as jest.Mock).mockResolvedValue({
+  (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [], error: null });
+  (getPool as jest.Mock).mockResolvedValue({
     vorrat: null, error: LADEFEHLER, grund: null,
   });
   await wrap();

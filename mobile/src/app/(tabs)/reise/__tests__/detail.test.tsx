@@ -83,9 +83,9 @@ jest.mock('@/features/recap/recapApi', () => ({ revealTrip: jest.fn() }));
 // Task 9: gesehen.ts ist eigens getestet (gesehen.test.ts), hier zählt nur,
 // OB und WANN dieser Screen es aufruft, nicht wie es intern AsyncStorage
 // benutzt.
-jest.mock('@/features/recap/gesehen', () => ({
-  revealGesehen: jest.fn(),
-  merkeRevealGesehen: jest.fn(),
+jest.mock('@/features/recap/seen', () => ({
+  hasSeenReveal: jest.fn(),
+  markRevealSeen: jest.fn(),
 }));
 // expo-image ist ein natives View, im Test reicht ein einfacher Platzhalter
 // (gleiches Muster wie uebersicht.test.tsx), der alle Props durchreicht.
@@ -97,10 +97,10 @@ jest.mock('expo-image', () => {
 // Task 8, Phase 6: meldenApi hat ihre eigene, vollständige Testdatei
 // (features/recap/__tests__/meldenApi.test.ts), hier nur Spione. urlVorrat
 // liefert hier nur die Vorschau-Thumbnails für die Moderationsliste.
-jest.mock('@/features/recap/meldenApi', () => ({
-  fetchMeldungen: jest.fn(),
-  verwirfMeldung: jest.fn(),
-  entferneMoment: jest.fn(),
+jest.mock('@/features/recap/reportApi', () => ({
+  fetchReports: jest.fn(),
+  dismissReport: jest.fn(),
+  removeMoment: jest.fn(),
 }));
 // Nur die IO-Funktion wird gemockt. `wiederholenHilft` bleibt echt: sie ist
 // die Regel, ob «Nochmal versuchen» ueberhaupt etwas ausrichten kann, und ein
@@ -120,9 +120,9 @@ jest.mock('@/lib/supabase', () => ({
     rpc: (...args: unknown[]) => mockRpc(...(args as [])),
   },
 }));
-jest.mock('@/features/recap/urlVorrat', () => ({
-  ...jest.requireActual('@/features/recap/urlVorrat'),
-  holeVorrat: jest.fn(),
+jest.mock('@/features/recap/urlPool', () => ({
+  ...jest.requireActual('@/features/recap/urlPool'),
+  getPool: jest.fn(),
 }));
 // Die Inszenierung selbst (Haptik, Timing, prefers-reduced-motion) ist in
 // RevealInszenierung.test.tsx abgesichert. Hier steht ein steuerbarer
@@ -150,9 +150,9 @@ import { fetchTrip, fetchMembers, removeMember, deleteTrip } from '@/features/tr
 import { ownMomentCount } from '@/features/moments/counter';
 import * as queueDb from '@/features/moments/queueDb';
 import { revealTrip } from '@/features/recap/recapApi';
-import { revealGesehen, merkeRevealGesehen } from '@/features/recap/gesehen';
-import { fetchMeldungen, verwirfMeldung, entferneMoment } from '@/features/recap/meldenApi';
-import { holeVorrat } from '@/features/recap/urlVorrat';
+import { hasSeenReveal, markRevealSeen } from '@/features/recap/seen';
+import { fetchReports, dismissReport, removeMoment } from '@/features/recap/reportApi';
+import { getPool } from '@/features/recap/urlPool';
 import { platzhalterCover } from '@/features/trips/platzhalterCover';
 
 const trip = {
@@ -229,13 +229,13 @@ beforeEach(() => {
   // beschäftigen sich nicht mit der Reveal-Inszenierung, mit `true` bleibt
   // ihr Bildschirm unverändert (sofort «Recap starten», kein Overlay davor).
   // Tests, die explizit die Inszenierung wollen, überschreiben das mit `false`.
-  (revealGesehen as jest.Mock).mockResolvedValue(true);
-  (merkeRevealGesehen as jest.Mock).mockResolvedValue(undefined);
+  (hasSeenReveal as jest.Mock).mockResolvedValue(true);
+  (markRevealSeen as jest.Mock).mockResolvedValue(undefined);
   // Task 8, Phase 6: Default ohne offene Meldungen, die meisten bestehenden
   // Tests in dieser Datei beschäftigen sich nicht mit Moderation. Tests, die
   // das explizit wollen, überschreiben das mit eigenen Daten.
-  (fetchMeldungen as jest.Mock).mockResolvedValue({ data: [], error: null });
-  (holeVorrat as jest.Mock).mockResolvedValue({ vorrat: { urls: new Map(), gueltigBis: 0, ausgelassen: 0 }, error: null, grund: null });
+  (fetchReports as jest.Mock).mockResolvedValue({ data: [], error: null });
+  (getPool as jest.Mock).mockResolvedValue({ vorrat: { urls: new Map(), gueltigBis: 0, ausgelassen: 0 }, error: null, grund: null });
 });
 
 // Das Detail soll dasselbe Platzhalter-Cover tragen wie die Karte, auf die
@@ -875,19 +875,19 @@ test('ein erneutes Öffnen nach einem Fehler zeigt die alte Fehlermeldung nicht 
 test('eine laufende Reise fragt revealGesehen gar nicht erst ab', async () => {
   await wrap();
   await screen.findByText('Norwegen mit dem Camper');
-  expect(revealGesehen).not.toHaveBeenCalled();
+  expect(hasSeenReveal).not.toHaveBeenCalled();
   expect(screen.queryByTestId('reveal-inszenierung-fake')).toBeNull();
   expect(screen.queryByText('Recap starten')).toBeNull();
 });
 
 test('eine bereits gesehene aufgedeckte Reise zeigt sofort «Recap starten», ohne Inszenierung', async () => {
   (fetchTrip as jest.Mock).mockResolvedValue(tripRevealedOk);
-  (revealGesehen as jest.Mock).mockResolvedValue(true);
+  (hasSeenReveal as jest.Mock).mockResolvedValue(true);
   await wrap();
   expect(await screen.findByText('Recap starten')).toBeTruthy();
   expect(screen.queryByTestId('reveal-inszenierung-fake')).toBeNull();
-  expect(revealGesehen).toHaveBeenCalledWith('t1');
-  expect(merkeRevealGesehen).not.toHaveBeenCalled();
+  expect(hasSeenReveal).toHaveBeenCalledWith('t1');
+  expect(markRevealSeen).not.toHaveBeenCalled();
 });
 
 // Das Kernstück von V6: die App entdeckt den Reveal SELBST beim
@@ -895,7 +895,7 @@ test('eine bereits gesehene aufgedeckte Reise zeigt sofort «Recap starten», oh
 // anderes als rendern und wartet ab.
 test('eine frisch aufgedeckte, noch nie gesehene Reise spielt zuerst die Inszenierung, «Recap starten» erscheint erst danach und wird gemerkt', async () => {
   (fetchTrip as jest.Mock).mockResolvedValue(tripRevealedOk);
-  (revealGesehen as jest.Mock).mockResolvedValue(false);
+  (hasSeenReveal as jest.Mock).mockResolvedValue(false);
   await wrap();
 
   await screen.findByTestId('reveal-inszenierung-fake');
@@ -903,7 +903,7 @@ test('eine frisch aufgedeckte, noch nie gesehene Reise spielt zuerst die Inszeni
   // «zeigt DANACH» aus dem Task-9-Brief ist eine Reihenfolge, keine blosse
   // Koexistenz.
   expect(screen.queryByText('Recap starten')).toBeNull();
-  expect(merkeRevealGesehen).not.toHaveBeenCalled();
+  expect(markRevealSeen).not.toHaveBeenCalled();
 
   // Simuliert das Ende der Inszenierung (onFertig), die echte Optik/Timing
   // sind in RevealInszenierung.test.tsx abgesichert.
@@ -911,12 +911,12 @@ test('eine frisch aufgedeckte, noch nie gesehene Reise spielt zuerst die Inszeni
 
   await waitFor(() => expect(screen.queryByTestId('reveal-inszenierung-fake')).toBeNull());
   expect(await screen.findByText('Recap starten')).toBeTruthy();
-  expect(merkeRevealGesehen).toHaveBeenCalledWith('t1');
+  expect(markRevealSeen).toHaveBeenCalledWith('t1');
 });
 
 test('«Recap starten» führt zur Recap-Übersicht dieser Reise', async () => {
   (fetchTrip as jest.Mock).mockResolvedValue(tripRevealedOk);
-  (revealGesehen as jest.Mock).mockResolvedValue(true);
+  (hasSeenReveal as jest.Mock).mockResolvedValue(true);
   await wrap();
   await fireEvent.press(await screen.findByText('Recap starten'));
   expect(mockPush).toHaveBeenCalledWith({ pathname: '/recap/[id]/uebersicht', params: { id: 't1' } });
@@ -927,7 +927,7 @@ test('«Recap starten» führt zur Recap-Übersicht dieser Reise', async () => {
 // bestehenden Zuständen (vor/ab Enddatum), die weiter oben geprüft werden.
 test('«Recap starten» bleibt der einzige Primär-Button einer aufgedeckten Reise', async () => {
   (fetchTrip as jest.Mock).mockResolvedValue(tripRevealedOk);
-  (revealGesehen as jest.Mock).mockResolvedValue(true);
+  (hasSeenReveal as jest.Mock).mockResolvedValue(true);
   await wrap();
   await screen.findByText('Recap starten');
   expect(zaehleAccentFlaechen(screen.toJSON())).toBe(1);
@@ -935,10 +935,10 @@ test('«Recap starten» bleibt der einzige Primär-Button einer aufgedeckten Rei
 
 test('eine archivierte Reise bekommt dieselbe Reveal-Entdeckung wie eine aufgedeckte', async () => {
   (fetchTrip as jest.Mock).mockResolvedValue({ data: { ...trip, status: 'archived' as const }, error: null });
-  (revealGesehen as jest.Mock).mockResolvedValue(true);
+  (hasSeenReveal as jest.Mock).mockResolvedValue(true);
   await wrap();
   expect(await screen.findByText('Recap starten')).toBeTruthy();
-  expect(revealGesehen).toHaveBeenCalledWith('t1');
+  expect(hasSeenReveal).toHaveBeenCalledWith('t1');
 });
 
 // Beweist gleich zwei Dinge aus dem Task-9-Brief: dass die Prüfung
@@ -953,12 +953,12 @@ test('eine archivierte Reise bekommt dieselbe Reveal-Entdeckung wie eine aufgede
 // starten»-Knopf legen.
 test('ein zweiter Ladevorgang nach abgeschlossener Entscheidung fragt revealGesehen nicht nochmal ab, selbst wenn das Merken weiterhin als gescheitert gilt', async () => {
   (fetchTrip as jest.Mock).mockResolvedValue(tripRevealedOk);
-  (revealGesehen as jest.Mock).mockResolvedValue(false);
+  (hasSeenReveal as jest.Mock).mockResolvedValue(false);
   await wrap();
 
   await fireEvent.press(await screen.findByTestId('reveal-inszenierung-fake'));
   await screen.findByText('Recap starten');
-  expect(revealGesehen).toHaveBeenCalledTimes(1);
+  expect(hasSeenReveal).toHaveBeenCalledTimes(1);
 
   // Der zweite laden()-Aufruf kam bis zur Facepile aus dem Entfernen-X, das
   // direkt im Screen stand. Es steckt jetzt im Sheet, und das zeigt nach dem
@@ -968,7 +968,7 @@ test('ein zweiter Ladevorgang nach abgeschlossener Entscheidung fragt revealGese
   await erneutFokussieren();
   await waitFor(() => expect((fetchTrip as jest.Mock).mock.calls.length).toBeGreaterThan(1));
 
-  expect(revealGesehen).toHaveBeenCalledTimes(1);
+  expect(hasSeenReveal).toHaveBeenCalledTimes(1);
   expect(screen.queryByTestId('reveal-inszenierung-fake')).toBeNull();
   expect(screen.getByText('Recap starten')).toBeTruthy();
 });
@@ -982,11 +982,11 @@ test('ein zweiter Ladevorgang nach abgeschlossener Entscheidung fragt revealGese
 test('zwei überlappende laden()-Aufrufe fragen revealGesehen nur einmal ab (Schutz vor Nebenläufigkeit)', async () => {
   (fetchTrip as jest.Mock).mockResolvedValue(tripRevealedOk);
   let freigeben!: (wert: boolean) => void;
-  (revealGesehen as jest.Mock).mockImplementation(
+  (hasSeenReveal as jest.Mock).mockImplementation(
     () => new Promise<boolean>((resolve) => { freigeben = resolve; })
   );
   await wrap();
-  await waitFor(() => expect(revealGesehen).toHaveBeenCalledTimes(1));
+  await waitFor(() => expect(hasSeenReveal).toHaveBeenCalledTimes(1));
 
   // Der erste Aufruf (vom Mount) wartet noch auf revealGesehen(), jetzt
   // löst ein zweiter, unabhängiger laden()-Aufruf aus.
@@ -996,7 +996,7 @@ test('zwei überlappende laden()-Aufrufe fragen revealGesehen nur einmal ab (Sch
   // Ohne den «läuft gerade»-Schutz (Ref-Zuweisung VOR dem await) hätte der
   // zweite Aufruf revealGesehen ein zweites Mal befragt, obwohl der erste
   // noch nicht fertig war.
-  expect(revealGesehen).toHaveBeenCalledTimes(1);
+  expect(hasSeenReveal).toHaveBeenCalledTimes(1);
 
   freigeben(false);
   await screen.findByTestId('reveal-inszenierung-fake');
@@ -1023,7 +1023,7 @@ test('bei offenem Sheet bleibt nur das «Abschliessen» im Sheet primär, der Sc
 // hätte.
 test('ein Reveal während offenem Sheet (z. B. von einem zweiten Gerät) lässt trotzdem nur eine Akzentfläche stehen', async () => {
   (fetchTrip as jest.Mock).mockResolvedValue(tripAmEndeOk);
-  (revealGesehen as jest.Mock).mockResolvedValue(true);
+  (hasSeenReveal as jest.Mock).mockResolvedValue(true);
   await wrap();
   await fireEvent.press(await screen.findByText('Reise abschliessen'));
   await screen.findByText('Reise abschliessen?');
@@ -1059,7 +1059,7 @@ test('ab dem Enddatum tritt auch «Reise abschliessen» hinter das offene Mitrei
 // Mitreisenden-Sheet offen steht, verliert das Sheet seinen Knopf und der
 // Screen bekommt «Recap starten». Es bleibt bei genau einer Akzentfläche.
 test('ein Reveal während offenem Mitreisenden-Sheet nimmt dem Sheet seinen Knopf', async () => {
-  (revealGesehen as jest.Mock).mockResolvedValue(true);
+  (hasSeenReveal as jest.Mock).mockResolvedValue(true);
   await wrap();
   await mitreisendeOeffnen();
 
@@ -1079,7 +1079,7 @@ test('ein Reveal während offenem Mitreisenden-Sheet nimmt dem Sheet seinen Knop
 test('«Recap starten» verwendet die tatsächliche Reise-Kennung, nicht fest verdrahtet «t1»', async () => {
   mockRouteId = 'reise-xyz';
   (fetchTrip as jest.Mock).mockResolvedValue({ data: { ...tripRevealed, id: 'reise-xyz' }, error: null });
-  (revealGesehen as jest.Mock).mockResolvedValue(true);
+  (hasSeenReveal as jest.Mock).mockResolvedValue(true);
   await wrap();
   await fireEvent.press(await screen.findByText('Recap starten'));
   expect(mockPush).toHaveBeenCalledWith({
@@ -1104,7 +1104,7 @@ describe('Moderation (Task 8)', () => {
   });
 
   test('die Owner-Person sieht «N gemeldete Momente», ein Mitglied ohne Owner-Rolle NICHT, selbst mit denselben Daten', async () => {
-    (fetchMeldungen as jest.Mock).mockResolvedValue({ data: [meldungFixture], error: null });
+    (fetchReports as jest.Mock).mockResolvedValue({ data: [meldungFixture], error: null });
     await wrap();
     expect(await screen.findByText('Ein gemeldeter Moment')).toBeTruthy();
 
@@ -1115,7 +1115,7 @@ describe('Moderation (Task 8)', () => {
   });
 
   test('der Singular/Plural-Text folgt der Anzahl', async () => {
-    (fetchMeldungen as jest.Mock).mockResolvedValue({
+    (fetchReports as jest.Mock).mockResolvedValue({
       data: [meldungFixture, { ...meldungFixture, id: 'r2', post_id: 'p2' }],
       error: null,
     });
@@ -1124,8 +1124,8 @@ describe('Moderation (Task 8)', () => {
   });
 
   test('Tippen öffnet die Liste mit Vorschaubild, Grund und Zeitpunkt', async () => {
-    (fetchMeldungen as jest.Mock).mockResolvedValue({ data: [meldungFixture], error: null });
-    (holeVorrat as jest.Mock).mockResolvedValue({
+    (fetchReports as jest.Mock).mockResolvedValue({ data: [meldungFixture], error: null });
+    (getPool as jest.Mock).mockResolvedValue({
       vorrat: {
         urls: new Map([['p1', { post_id: 'p1', medium_url: 'https://cdn.example/p1.jpg', thumb_url: 'https://cdn.example/p1-thumb.jpg' }]]),
         gueltigBis: Date.now() + 999_999,
@@ -1146,8 +1146,8 @@ describe('Moderation (Task 8)', () => {
   });
 
   test('ohne Thumbnail im Vorrat erscheint eine leere Fläche statt eines kaputten Bildes', async () => {
-    (fetchMeldungen as jest.Mock).mockResolvedValue({ data: [meldungFixture], error: null });
-    (holeVorrat as jest.Mock).mockResolvedValue({
+    (fetchReports as jest.Mock).mockResolvedValue({ data: [meldungFixture], error: null });
+    (getPool as jest.Mock).mockResolvedValue({
       vorrat: { urls: new Map(), gueltigBis: Date.now() + 999_999, ausgelassen: 0 },
       error: null,
       grund: null,
@@ -1159,7 +1159,7 @@ describe('Moderation (Task 8)', () => {
   });
 
   test('ein Ladefehler der Liste zeigt die Ursache mit Retry, keine leere Liste', async () => {
-    (fetchMeldungen as jest.Mock)
+    (fetchReports as jest.Mock)
       .mockResolvedValueOnce({ data: [meldungFixture], error: null }) // Startzähler
       .mockResolvedValueOnce({ data: null as unknown as [], error: 'Die Meldungen konnten nicht geladen werden. Probier es gleich nochmal.' });
     await wrap();
@@ -1171,15 +1171,15 @@ describe('Moderation (Task 8)', () => {
   });
 
   test('«Meldung verwerfen» entfernt die Zeile und verringert den Zähler, der Moment selbst bleibt unberührt (kein entferneMoment-Aufruf)', async () => {
-    (fetchMeldungen as jest.Mock).mockResolvedValue({ data: [meldungFixture], error: null });
-    (verwirfMeldung as jest.Mock).mockResolvedValue({ error: null });
+    (fetchReports as jest.Mock).mockResolvedValue({ data: [meldungFixture], error: null });
+    (dismissReport as jest.Mock).mockResolvedValue({ error: null });
     await wrap();
     await fireEvent.press(await screen.findByText('Ein gemeldeter Moment'));
     await screen.findByTestId('meldung-r1');
 
     await fireEvent.press(screen.getByText('Meldung verwerfen'));
-    expect(verwirfMeldung).toHaveBeenCalledWith('r1');
-    expect(entferneMoment).not.toHaveBeenCalled();
+    expect(dismissReport).toHaveBeenCalledWith('r1');
+    expect(removeMoment).not.toHaveBeenCalled();
     await waitFor(() => expect(screen.queryByTestId('meldung-r1')).toBeNull());
     expect(screen.getByText('Keine offenen Meldungen mehr.')).toBeTruthy();
     // Der Einstiegspunkt verschwindet, weil die Anzahl jetzt 0 ist.
@@ -1187,8 +1187,8 @@ describe('Moderation (Task 8)', () => {
   });
 
   test('ein Fehlschlag beim Verwerfen zeigt die Ursache an GENAU dieser Zeile, die Liste bleibt bestehen', async () => {
-    (fetchMeldungen as jest.Mock).mockResolvedValue({ data: [meldungFixture], error: null });
-    (verwirfMeldung as jest.Mock).mockResolvedValue({
+    (fetchReports as jest.Mock).mockResolvedValue({ data: [meldungFixture], error: null });
+    (dismissReport as jest.Mock).mockResolvedValue({
       error: 'Die Meldung konnte nicht verworfen werden. Probier es gleich nochmal.',
     });
     await wrap();
@@ -1205,22 +1205,22 @@ describe('Moderation (Task 8)', () => {
   // destruktiven Knopf sofort auf, «Moment entfernen» braucht darum keine
   // separate Bestätigungs-Simulation, exakt wie loeschen()/entfernen() oben.
   test('«Moment entfernen» fragt destruktiv nach (warning-Haptik) und entfernt danach den Moment UND die Zeile', async () => {
-    (fetchMeldungen as jest.Mock).mockResolvedValue({ data: [meldungFixture], error: null });
-    (entferneMoment as jest.Mock).mockResolvedValue({ error: null });
+    (fetchReports as jest.Mock).mockResolvedValue({ data: [meldungFixture], error: null });
+    (removeMoment as jest.Mock).mockResolvedValue({ error: null });
     await wrap();
     await fireEvent.press(await screen.findByText('Ein gemeldeter Moment'));
     await screen.findByTestId('meldung-r1');
 
     await fireEvent.press(screen.getByText('Moment entfernen'));
     expect(Haptics.notificationAsync).toHaveBeenCalledWith('warning');
-    expect(entferneMoment).toHaveBeenCalledWith('p1');
+    expect(removeMoment).toHaveBeenCalledWith('p1');
     await waitFor(() => expect(screen.queryByTestId('meldung-r1')).toBeNull());
     expect(screen.getByText('Keine offenen Meldungen mehr.')).toBeTruthy();
   });
 
   test('ein Fehlschlag beim Entfernen zeigt die Ursache an GENAU dieser Zeile, die Liste bleibt bestehen', async () => {
-    (fetchMeldungen as jest.Mock).mockResolvedValue({ data: [meldungFixture], error: null });
-    (entferneMoment as jest.Mock).mockResolvedValue({
+    (fetchReports as jest.Mock).mockResolvedValue({ data: [meldungFixture], error: null });
+    (removeMoment as jest.Mock).mockResolvedValue({
       error: 'Der Moment konnte nicht entfernt werden. Probier es gleich nochmal.',
     });
     await wrap();
@@ -1234,7 +1234,7 @@ describe('Moderation (Task 8)', () => {
   });
 
   test('das Öffnen lädt die Liste FRISCH, nicht den beim ersten Laden gesehenen Stand', async () => {
-    (fetchMeldungen as jest.Mock)
+    (fetchReports as jest.Mock)
       .mockResolvedValueOnce({ data: [meldungFixture], error: null }) // beim ersten laden()
       .mockResolvedValueOnce({
         data: [meldungFixture, { ...meldungFixture, id: 'r2', post_id: 'p2', reason: 'Zweite Meldung' }],
@@ -1243,7 +1243,7 @@ describe('Moderation (Task 8)', () => {
     await wrap();
     await fireEvent.press(await screen.findByText('Ein gemeldeter Moment'));
     expect(await screen.findByText('Zweite Meldung')).toBeTruthy();
-    expect(fetchMeldungen).toHaveBeenCalledTimes(2);
+    expect(fetchReports).toHaveBeenCalledTimes(2);
   });
 });
 

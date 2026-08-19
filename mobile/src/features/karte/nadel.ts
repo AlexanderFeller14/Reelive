@@ -1,5 +1,5 @@
 import type { RecapMoment } from '@/features/recap/types';
-import { zeitInZone } from '@/features/recap/uhrzeit';
+import { timeInZone } from '@/features/recap/timeOfDay';
 
 // Was eine Nadel SAGT und WOVON ihr Aussehen abhängt, die beiden Regeln, die
 // sich die native Nadel (components/KartenNadel.tsx) und die Browser-Nadel
@@ -75,6 +75,6 @@ export function nadelBeschriftung(
 // auseinander, sobald eine davon angefasst wird, und die Abweichung sieht nur,
 // wer VoiceOver einschaltet.
 export function momentLabel(moment: RecapMoment): string {
-  const uhrzeit = zeitInZone(moment.captured_at, moment.captured_tz);
+  const uhrzeit = timeInZone(moment.captured_at, moment.captured_tz);
   return `Moment von ${moment.autor_name} um ${uhrzeit} öffnen`;
 }

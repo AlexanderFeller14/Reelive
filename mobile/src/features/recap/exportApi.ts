@@ -1,190 +1,170 @@
-// Export in die Galerie (Task-7-Brief, Spec §6, Versprechen W9): einen
-// Moment sichern, alle sichern, über dieselben signierten Lese-URLs, die
-// der Player schon hat (urlVorrat.ts). Gesichert wird IMMER `medium_url`
-// (volle Auflösung), nie `thumb_url`.
+// Export to the gallery (Task-7 brief, Spec §6, promise W9): save one
+// moment, save all of them, via the same signed read URLs the player
+// already has (urlPool.ts). What gets saved is ALWAYS `medium_url` (full
+// resolution), never `thumb_url`.
 //
-// === Der Zwischenschritt, und warum er diesmal aufräumt (Phase-4-Lehre) ===
+// === The intermediate step, and why it cleans up this time (Phase-4 lesson) ===
 //
-// expo-media-library sichert nur von einer LOKALEN Datei
-// (MediaLibrary.createAssetAsync(filePath)), die Medien liegen aber hinter
-// einer signierten HTTPS-URL. Es braucht also einen Download über
-// expo-file-system, bevor überhaupt etwas in die Galerie kann.
+// expo-media-library only saves from a LOCAL file
+// (MediaLibrary.createAssetAsync(filePath)), but the media sits behind a
+// signed HTTPS URL. So it needs a download via expo-file-system before
+// anything can reach the gallery at all.
 //
-// In Phase 4 hat genau dieses Muster (Rohaufnahme → aufbereitete Datei →
-// Warteschlange) einen Fehler produziert: abgeleitete Zwischendateien blieben
-// nach Gebrauch liegen und erzeugten selbst den Speicherdruck, der die
-// eigene Warteschlange zerstörte (siehe medien.ts, Abschnitt "Dauerhafte
-// Ablage"). Drei Entscheidungen, die das hier von Anfang an vermeiden:
+// In Phase 4, exactly this pattern (raw capture → prepared file → queue)
+// produced a bug: derived intermediate files stayed behind after use and
+// created the very storage pressure that destroyed their own queue (see
+// media.ts, "Durable storage" section). Three decisions that avoid that
+// from the start here:
 //
-// 1. **Cache, nicht Documents.** medien.ts kopiert bewusst NACH Documents,
-//    weil die Warteschlange Momente tagelang halten muss, bevor der Upload
-//    sie verbraucht. Hier ist es umgekehrt: die heruntergeladene Datei lebt
-//    nur für die Dauer EINES einzelnen `Asset.create()`-Aufrufs, Sekunden,
-//    nicht Tage. `Paths.cache` (vom System bei Speicherdruck löschbar) ist
-//    dafür der richtige Ort, nicht der falsche: es gibt nichts, das über
-//    diesen einen Aufruf hinaus erhalten bleiben müsste.
-// 2. **`finally`, nicht "danach".** Jede heruntergeladene Datei wird in
-//    einem `finally`-Block gelöscht, der auf JEDEM Pfad läuft, Erfolg,
-//    ein regulärer Fehlschlag (Netzwerk, 4xx/5xx) UND ein Abbruch über
-//    `AbortSignal`. Ein "danach aufräumen" nur im Erfolgspfad war genau die
-//    Lücke, die Phase 4 offen liess: ein abgebrochener oder fehlgeschlagener
-//    Download hinterliess dort ebenfalls eine Datei, nur unbeobachtet.
-// 3. **Aufräumen VOR dem ersten Download, nicht nur danach.** Stürzt die App
-//    mitten in einem Download ab (kein JS-`finally` kann das auffangen),
-//    bliebe ohne diesen Schritt eine verwaiste Datei bis zum nächsten
-//    Export liegen. `raeumeExportOrdnerAufNeu()` löscht den GESAMTEN
-//    Export-Ordner, bevor ein neuer Lauf beginnt, ein verwaistes Rest aus
-//    einem abgestürzten vorherigen Lauf überlebt also nie länger als bis
-//    zum nächsten Export-Versuch.
-// Bewusst der LEGACY-Einstieg ('expo-media-library/legacy'), nicht die
-// modernere klassenbasierte API (Asset.create(), aus dem Hauptexport),
-// obwohl das SDK-57-Changelog Letztere für neuen Code empfiehlt. Grund:
-// `expo-media-library`s Haupteinstieg (`index.ts`) deklariert
-// `class Asset extends ExpoMediaLibraryNext.Asset {}`, ausgewertet BEIM
-// MODUL-LADEN, `ExpoMediaLibraryNext` selbst ist `requireNativeModule(...)`
-// OHNE eigene Web-Fassung. Web-Export dieses Projekts bündelt laut Task 4/5
-// dieser Phase die GESAMTE App als SPA, inklusive dieses Screens, mit dem
-// modernen Einstieg bricht `npx expo export --platform web` deshalb schon
-// beim Bündeln mit "Class extends value undefined is not a constructor or
-// null" (selbst geprüft, reproduziert, siehe Bericht). Der LEGACY-Einstieg
-// importiert stattdessen `ExpoMediaLibrary` (ohne "Next"), DAFÜR existiert
-// eine echte `ExpoMediaLibrary.web.ts`, die `getPermissionsAsync`/
-// `requestPermissionsAsync` mit `granted:false` beantwortet, statt beim
-// Import zu werfen. Auf Web (ohnehin über `istWebGesperrt()` gesperrt,
-// Task 4/5) bleibt der Effekt derselbe wie beabsichtigt: keine Berechtigung,
-// also nie ein tatsächlicher `createAssetAsync`-Aufruf, nur bricht das
-// Bündeln selbst nicht mehr.
+// 1. **Cache, not Documents.** media.ts deliberately copies TO Documents,
+//    because the queue has to hold moments for days before the upload
+//    consumes them. Here it's the reverse: the downloaded file lives only
+//    for the duration of ONE single `Asset.create()` call, seconds, not
+//    days. `Paths.cache` (deletable by the system under storage pressure)
+//    is the right place for that, not the wrong one: nothing needs to
+//    survive beyond this one call.
+// 2. **`finally`, not "afterwards".** Every downloaded file gets deleted in
+//    a `finally` block that runs on EVERY path, success, a regular failure
+//    (network, 4xx/5xx), AND an abort via `AbortSignal`. Cleaning up
+//    "afterwards" only on the success path was exactly the gap Phase 4
+//    left open: an aborted or failed download left a file behind there
+//    too, just unwatched.
+// 3. **Clean up BEFORE the first download, not only afterwards.** If the
+//    app crashes mid-download (no JS `finally` can catch that), an orphaned
+//    file would be left behind until the next export without this step.
+//    `resetExportFolder()` deletes the ENTIRE export folder before a new
+//    run starts, so an orphaned remnant from a crashed previous run never
+//    survives longer than until the next export attempt.
+// Deliberately the LEGACY entry point ('expo-media-library/legacy'), not the
+// more modern class-based API (Asset.create(), from the main export), even
+// though the SDK-57 changelog recommends the latter for new code. Reason:
+// `expo-media-library`'s main entry point (`index.ts`) declares
+// `class Asset extends ExpoMediaLibraryNext.Asset {}`, evaluated AT MODULE
+// LOAD time, `ExpoMediaLibraryNext` itself is `requireNativeModule(...)`
+// WITHOUT its own web version. This phase's web export bundles the ENTIRE
+// app as an SPA per Task 4/5, including this screen; with the modern entry
+// point, `npx expo export --platform web` therefore already breaks while
+// bundling with "Class extends value undefined is not a constructor or
+// null" (verified and reproduced myself, see the report). The LEGACY entry
+// point instead imports `ExpoMediaLibrary` (without "Next"), for which a
+// real `ExpoMediaLibrary.web.ts` exists, which answers
+// `getPermissionsAsync`/`requestPermissionsAsync` with `granted:false`
+// instead of throwing on import. On web (locked out via `istWebGesperrt()`
+// anyway, Task 4/5), the effect stays the same as intended: no permission,
+// so never an actual `createAssetAsync` call, only the bundling itself no
+// longer breaks.
 import * as MediaLibrary from 'expo-media-library/legacy';
 import { Directory, File, Paths } from 'expo-file-system';
 import { mediaExtension } from '@/features/moments/media';
 import type { RecapMoment } from './types';
-import type { MedienUrl } from './urlVorrat';
+import type { MediaUrl } from './urlPool';
 
-const EXPORT_ORDNER = 'export';
+const EXPORT_FOLDER = 'export';
 
-function exportOrdner(): Directory {
-  return new Directory(Paths.cache, EXPORT_ORDNER);
+function exportFolder(): Directory {
+  return new Directory(Paths.cache, EXPORT_FOLDER);
 }
 
-// Best effort, wirft nie (gleiches Prinzip wie medien.ts,
-// momentDateienEntfernen/dateiVerwerfen): ein misslungenes Aufräumen darf
-// weder den Export selbst noch einen späteren Versuch blockieren.
-function raeumeExportOrdnerAufNeu(): void {
-  const ordner = exportOrdner();
+// Best effort, never throws (same principle as media.ts,
+// removeMomentFiles/discardFile): a failed cleanup must block neither the
+// export itself nor a later attempt.
+function resetExportFolder(): void {
+  const folder = exportFolder();
   try {
-    if (ordner.exists) ordner.delete();
-  } catch (fehler) {
-    console.error('[exportApi] Export-Ordner konnte nicht geräumt werden', fehler);
+    if (folder.exists) folder.delete();
+  } catch (error) {
+    console.error('[exportApi] Export-Ordner konnte nicht geräumt werden', error);
   }
-  ordner.create({ intermediates: true, idempotent: true });
+  folder.create({ intermediates: true, idempotent: true });
 }
 
-// Ohne Berechtigung: ein erklärender Hinweis mit Weg in die Einstellungen,
-// NIE ein stiller Fehlschlag (Brief, wörtlich). `writeOnly: true` fragt auf
-// iOS gezielt "Fotos hinzufügen" statt vollen Lesezugriff auf die
-// Bibliothek, die App liest nie vorhandene Fotos, sie schreibt nur eigene.
-export const KEIN_ZUGRIFF_TEXT =
+export const NO_ACCESS_TEXT =
   'Reelive braucht Zugriff auf deine Fotobibliothek, um Momente dort zu sichern. Erlaube das in den Systemeinstellungen.';
-const BERECHTIGUNGSPRUEFUNG_FEHLER =
+const PERMISSION_CHECK_ERROR =
   'Der Zugriff auf die Fotobibliothek konnte nicht geprüft werden. Probier es gleich nochmal.';
 
-export type BerechtigungsErgebnis = { erlaubt: true } | { erlaubt: false; text: string };
+export type PermissionResult = { erlaubt: true } | { erlaubt: false; text: string };
 
-export async function sichergestellteBerechtigung(): Promise<BerechtigungsErgebnis> {
+export async function ensurePermission(): Promise<PermissionResult> {
   try {
-    const aktuell = await MediaLibrary.getPermissionsAsync(true);
-    if (aktuell.granted) return { erlaubt: true };
-    if (!aktuell.canAskAgain) return { erlaubt: false, text: KEIN_ZUGRIFF_TEXT };
-    const angefragt = await MediaLibrary.requestPermissionsAsync(true);
-    if (angefragt.granted) return { erlaubt: true };
-    return { erlaubt: false, text: KEIN_ZUGRIFF_TEXT };
+    const current = await MediaLibrary.getPermissionsAsync(true);
+    if (current.granted) return { erlaubt: true };
+    if (!current.canAskAgain) return { erlaubt: false, text: NO_ACCESS_TEXT };
+    const requested = await MediaLibrary.requestPermissionsAsync(true);
+    if (requested.granted) return { erlaubt: true };
+    return { erlaubt: false, text: NO_ACCESS_TEXT };
   } catch {
-    // Praktisch nie erreichbar (reine OS-Abfrage, kein Netzwerk), aber
-    // "nie ein stiller Fehlschlag" gilt auch für diesen Randfall.
-    return { erlaubt: false, text: BERECHTIGUNGSPRUEFUNG_FEHLER };
+    return { erlaubt: false, text: PERMISSION_CHECK_ERROR };
   }
 }
 
-function istAbbruchFehler(fehler: unknown): boolean {
-  return fehler instanceof Error && fehler.name === 'AbortError';
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === 'AbortError';
 }
 
-// Lädt EIN Medium in eine temporäre Cache-Datei und übergibt sie an
-// expo-media-library. Räumt die temporäre Datei auf JEDEM Pfad auf (siehe
-// Kopfkommentar, Punkt 2), deshalb `finally`, nicht ein zusätzlicher aufruf
-// nach einem erfolgreichen `try`.
-async function ladeUndSichereEinzeln(url: string, dateiname: string, signal?: AbortSignal): Promise<void> {
-  const ziel = new File(exportOrdner(), dateiname);
+async function downloadAndSaveOne(url: string, filename: string, signal?: AbortSignal): Promise<void> {
+  const target = new File(exportFolder(), filename);
   try {
-    const datei = await File.downloadFileAsync(url, ziel, { idempotent: true, signal });
-    await MediaLibrary.createAssetAsync(datei.uri);
+    const file = await File.downloadFileAsync(url, target, { idempotent: true, signal });
+    await MediaLibrary.createAssetAsync(file.uri);
   } finally {
-    if (ziel.exists) {
+    if (target.exists) {
       try {
-        ziel.delete();
-      } catch (fehler) {
-        // Ein misslungenes Aufräumen darf den Erfolg/Fehlschlag des
-        // Sicherns selbst nicht überschreiben (gleiches Prinzip wie
-        // medien.ts), nur geloggt, nie geworfen.
-        console.error('[exportApi] Zwischendatei konnte nicht gelöscht werden', dateiname, fehler);
+        target.delete();
+      } catch (error) {
+        // A failed cleanup must not override the success/failure of the
+        // save itself (same principle as media.ts), only logged, never
+        // thrown.
+        console.error('[exportApi] Zwischendatei konnte nicht gelöscht werden', filename, error);
       }
     }
   }
 }
 
-const EINZEL_FEHLER = 'Dieser Moment konnte nicht gesichert werden. Probier es gleich nochmal.';
+const SINGLE_ERROR = 'Dieser Moment konnte nicht gesichert werden. Probier es gleich nochmal.';
 
-export type EinzelErgebnis = { ok: true } | { ok: false; grund: 'keine_berechtigung' | 'fehler'; text: string };
+export type SingleResult = { ok: true } | { ok: false; grund: 'keine_berechtigung' | 'fehler'; text: string };
 
-// Sichert GENAU EINEN Moment: den vollen Datenträger (url.medium_url), nie
-// das Thumbnail (Brief, Versprechen W9: "der Export schreibt genau das, was
-// man sieht").
-export async function sichereMomentInGalerie(moment: RecapMoment, url: MedienUrl): Promise<EinzelErgebnis> {
-  const berechtigung = await sichergestellteBerechtigung();
-  if (!berechtigung.erlaubt) return { ok: false, grund: 'keine_berechtigung', text: berechtigung.text };
+export async function saveMomentToGallery(moment: RecapMoment, url: MediaUrl): Promise<SingleResult> {
+  const permission = await ensurePermission();
+  if (!permission.erlaubt) return { ok: false, grund: 'keine_berechtigung', text: permission.text };
 
-  raeumeExportOrdnerAufNeu();
-  const endung = mediaExtension(moment.type, url.medium_url);
+  resetExportFolder();
+  const extension = mediaExtension(moment.type, url.medium_url);
   try {
-    await ladeUndSichereEinzeln(url.medium_url, `${moment.id}.${endung}`);
+    await downloadAndSaveOne(url.medium_url, `${moment.id}.${extension}`);
     return { ok: true };
   } catch {
-    return { ok: false, grund: 'fehler', text: EINZEL_FEHLER };
+    return { ok: false, grund: 'fehler', text: SINGLE_ERROR };
   }
 }
 
-export type AlleFortschritt = { erledigt: number; gesamt: number };
+export type AllProgress = { erledigt: number; gesamt: number };
 
-// Diskriminiert bewusst zwischen "kam nie los" (keine Berechtigung, vor dem
-// ersten Download) und "ist fertig" (eine Bilanz, auch wenn sie unvollständig
-// ist), eine gemeinsame Form hätte einen Aufrufer gezwungen, `gesichert:0,
-// gesamt:0` von einem echten Nulldurchlauf zu unterscheiden, ohne dass die
-// Form selbst das hergäbe.
-export type AlleErgebnis =
+// Deliberately discriminates between "never got started" (no permission,
+// before the first download) and "is done" (a tally, even if incomplete),
+// a shared shape would have forced a caller to distinguish `gesichert:0,
+// gesamt:0` from a genuine zero-length run, without the shape itself
+// providing a way to do so.
+export type AllResult =
   | { status: 'keine_berechtigung'; text: string }
   | { status: 'fertig'; gesichert: number; gesamt: number; fehlgeschlagen: number; abgebrochen: boolean };
 
-// «Alle sichern»: Fortschritt («7 von 23») über `onFortschritt`, abbrechbar
-// über `signal` (Brief). Bricht ein Aufruf per Signal ab, vor dem nächsten
-// Element ODER mitten in einem laufenden Download, endet die Schleife
-// SOFORT mit `abgebrochen:true` und der bis dahin ehrlich gezählten Bilanz,
-// statt weiterzumachen oder die bisherigen Zahlen zu verschweigen.
-//
-// Kein `Promise.all`: sequentiell, absichtlich, ein Fortschritt "7 von 23"
-// setzt voraus, dass es zu jedem Zeitpunkt ein wohldefiniertes "bis hierhin
-// erledigt" gibt; parallele Downloads würden das nur verkomplizieren, ohne
-// dass der Brief eine Parallelität verlangt.
-export async function sichereAlleInGalerie(
-  eintraege: { moment: RecapMoment; url: MedienUrl }[],
-  onFortschritt: (stand: AlleFortschritt) => void,
+// No `Promise.all`: sequential, on purpose, a progress of "7 of 23" assumes
+// there's a well-defined "done so far" at every point in time; parallel
+// downloads would only complicate that, without the brief calling for any
+// parallelism.
+export async function saveAllToGallery(
+  entries: { moment: RecapMoment; url: MediaUrl }[],
+  onProgress: (progress: AllProgress) => void,
   signal?: AbortSignal
-): Promise<AlleErgebnis> {
-  const berechtigung = await sichergestellteBerechtigung();
-  if (!berechtigung.erlaubt) return { status: 'keine_berechtigung', text: berechtigung.text };
+): Promise<AllResult> {
+  const permission = await ensurePermission();
+  if (!permission.erlaubt) return { status: 'keine_berechtigung', text: permission.text };
 
-  raeumeExportOrdnerAufNeu();
+  resetExportFolder();
 
-  const gesamt = eintraege.length;
+  const gesamt = entries.length;
   let gesichert = 0;
   let fehlgeschlagen = 0;
 
@@ -192,18 +172,18 @@ export async function sichereAlleInGalerie(
     if (signal?.aborted) {
       return { status: 'fertig', gesichert, gesamt, fehlgeschlagen, abgebrochen: true };
     }
-    const { moment, url } = eintraege[i];
-    const endung = mediaExtension(moment.type, url.medium_url);
+    const { moment, url } = entries[i];
+    const extension = mediaExtension(moment.type, url.medium_url);
     try {
-      await ladeUndSichereEinzeln(url.medium_url, `${moment.id}.${endung}`, signal);
+      await downloadAndSaveOne(url.medium_url, `${moment.id}.${extension}`, signal);
       gesichert += 1;
-    } catch (fehler) {
-      if (istAbbruchFehler(fehler)) {
+    } catch (error) {
+      if (isAbortError(error)) {
         return { status: 'fertig', gesichert, gesamt, fehlgeschlagen, abgebrochen: true };
       }
       fehlgeschlagen += 1;
     }
-    onFortschritt({ erledigt: i + 1, gesamt });
+    onProgress({ erledigt: i + 1, gesamt });
   }
 
   return { status: 'fertig', gesichert, gesamt, fehlgeschlagen, abgebrochen: false };

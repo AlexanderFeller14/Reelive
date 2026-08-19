@@ -102,7 +102,7 @@ describe('die Browser-Fassung der Kartenflaeche zieht react-native-maps nicht mi
     expect(dateien.some((d) => d.endsWith(path.join('karte', 'nadel.ts')))).toBe(true);
     expect(dateien.some((d) => d.endsWith(path.join('karte', 'typen.ts')))).toBe(true);
     expect(dateien.some((d) => d.endsWith(path.join('theme', 'tokens.ts')))).toBe(true);
-    expect(dateien.some((d) => d.endsWith(path.join('recap', 'uhrzeit.ts')))).toBe(true);
+    expect(dateien.some((d) => d.endsWith(path.join('recap', 'timeOfDay.ts')))).toBe(true);
     expect(dateien.length).toBeGreaterThan(5);
   });
 

@@ -22,9 +22,9 @@ import * as queueDb from '@/features/moments/queueDb';
 import { pendingCount } from '@/features/moments/queueLogic';
 import type { QueueJob, DiscardedMoment } from '@/features/moments/types';
 import { revealTrip } from '@/features/recap/recapApi';
-import { merkeRevealGesehen, revealGesehen } from '@/features/recap/gesehen';
-import { holeVorrat } from '@/features/recap/urlVorrat';
-import { entferneMoment, fetchMeldungen, verwirfMeldung, type Meldung } from '@/features/recap/meldenApi';
+import { markRevealSeen, hasSeenReveal } from '@/features/recap/seen';
+import { getPool } from '@/features/recap/urlPool';
+import { removeMoment, fetchReports, dismissReport, type Report } from '@/features/recap/reportApi';
 import { istRecapGeteilt } from '@/features/teilen/linkVerwaltenApi';
 import { LINK_REICHWEITE } from '@/features/teilen/texte';
 
@@ -101,7 +101,7 @@ function formatMeldezeit(iso: string): string {
 function MeldungZeile({
   meldung, vorschauUrl, laeuft, fehler, onEntfernen, onVerwerfen,
 }: {
-  meldung: Meldung;
+  meldung: Report;
   vorschauUrl: string | null;
   laeuft: boolean;
   fehler: string | undefined;
@@ -211,7 +211,7 @@ export default function ReiseDetail() {
   const [moderationSichtbar, setModerationSichtbar] = useState(false);
   const [moderationPhase, setModerationPhase] = useState<'laedt' | 'bereit' | 'fehler'>('laedt');
   const [moderationFehler, setModerationFehler] = useState<string | null>(null);
-  const [meldungen, setMeldungen] = useState<Meldung[]>([]);
+  const [meldungen, setMeldungen] = useState<Report[]>([]);
   // post_id -> Vorschau-URL (Thumbnail aus demselben Vorrat wie der Player,
   // holeVorrat/media-urls). `null` heisst "kein Thumbnail vorhanden", nicht
   // "noch nicht geladen", die Sheet-Phase trägt das Ladestadium bereits.
@@ -303,7 +303,7 @@ export default function ReiseDetail() {
       // meldungenAnzahl > 0, ein falsch positiver Treffer ist also
       // ausgeschlossen. fetchMeldungen wirft nie (gleicher Vertrag wie
       // fetchTrip/fetchMembers), kein .catch() nötig.
-      fetchMeldungen(id),
+      fetchReports(id),
     ]);
     if (!aktiv.current) return;
     setTrip(t.data);
@@ -345,7 +345,7 @@ export default function ReiseDetail() {
       !revealPruefungLaeuftRef.current
     ) {
       revealPruefungLaeuftRef.current = true;
-      const gesehen = await revealGesehen(id);
+      const gesehen = await hasSeenReveal(id);
       // VOR dem aktiv-Check zurückgesetzt: der In-Flight-Zustand endet hier
       // so oder so, ob der Screen inzwischen den Fokus verloren hat oder
       // nicht, sonst bliebe er bei einem Abbruch hängen und würde jeden
@@ -371,7 +371,7 @@ export default function ReiseDetail() {
   const inszenierungFertig = useCallback(() => {
     setInszenierungSichtbar(false);
     setRevealBereit(true);
-    void merkeRevealGesehen(id);
+    void markRevealSeen(id);
   }, [id]);
 
   const zumRecap = () => {
@@ -546,7 +546,7 @@ export default function ReiseDetail() {
     setModerationPhase('laedt');
     setModerationFehler(null);
     setAktionFehler({});
-    void Promise.all([fetchMeldungen(id), holeVorrat(id)]).then(([{ data: liste, error }, { vorrat }]) => {
+    void Promise.all([fetchReports(id), getPool(id)]).then(([{ data: liste, error }, { vorrat }]) => {
       if (!aktiv.current) return;
       if (error) {
         setModerationFehler(error);
@@ -564,7 +564,7 @@ export default function ReiseDetail() {
 
   const moderationSchliessen = () => setModerationSichtbar(false);
 
-  const meldungVerwerfen = (meldung: Meldung) => {
+  const meldungVerwerfen = (meldung: Report) => {
     setAktionLaeuftFuer(meldung.id);
     setAktionFehler((f) => {
       if (!(meldung.id in f)) return f;
@@ -572,7 +572,7 @@ export default function ReiseDetail() {
       delete naechste[meldung.id];
       return naechste;
     });
-    void verwirfMeldung(meldung.id).then(({ error }) => {
+    void dismissReport(meldung.id).then(({ error }) => {
       if (!aktiv.current) return;
       setAktionLaeuftFuer(null);
       if (error) {
@@ -588,7 +588,7 @@ export default function ReiseDetail() {
   // verlassen/loeschen oben), anders als «Meldung verwerfen» lässt sich
   // dies nicht rückgängig machen: der Moment verschwindet für ALLE
   // Mitreisenden, nicht nur aus der Moderationsliste.
-  const momentEntfernen = (meldung: Meldung) => {
+  const momentEntfernen = (meldung: Report) => {
     warnhaptik();
     Alert.alert(
       'Moment entfernen?',
@@ -600,7 +600,7 @@ export default function ReiseDetail() {
           style: 'destructive',
           onPress: () => {
             setAktionLaeuftFuer(meldung.id);
-            void entferneMoment(meldung.post_id).then(({ error }) => {
+            void removeMoment(meldung.post_id).then(({ error }) => {
               if (!aktiv.current) return;
               setAktionLaeuftFuer(null);
               if (error) {

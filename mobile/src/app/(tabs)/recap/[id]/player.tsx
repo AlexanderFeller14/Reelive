@@ -29,37 +29,37 @@ import { useTopInset, useBottomInset } from '@/theme/useTopInset';
 import { useReducedMotion } from '@/theme/useReducedMotion';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { fetchTrip } from '@/features/trips/tripsApi';
-import { fetchRecapMomente } from '@/features/recap/recapApi';
-import { sichereMomentInGalerie } from '@/features/recap/exportApi';
-import { meldeMoment, MELDEN_MAX_LAENGE } from '@/features/recap/meldenApi';
-import { gruppiereNachTagen } from '@/features/recap/tage';
-import type { Kommentar, Reaktion, RecapMoment, RecapTag } from '@/features/recap/types';
+import { fetchRecapMoments } from '@/features/recap/recapApi';
+import { saveMomentToGallery } from '@/features/recap/exportApi';
+import { reportMoment, REPORT_MAX_LENGTH } from '@/features/recap/reportApi';
+import { groupByDays } from '@/features/recap/days';
+import type { Comment, Reaction, RecapMoment, RecapDay } from '@/features/recap/types';
 import {
-  holeVorrat,
-  laeuftBaldAb,
-  wiederholenHilft,
-  type MedienUrl,
-} from '@/features/recap/urlVorrat';
+  getPool,
+  isSoonExpiring,
+  retryHelps,
+  type MediaUrl,
+} from '@/features/recap/urlPool';
 import {
-  blockiertAutomatischenVorschub,
-  dauerFuer,
-  mitGrund,
-  ohneGrund,
-  ohneGruende,
-  tagWechselt,
-  weiter,
-  zurueck,
-  type PauseGrund,
-  type PlayerStand,
+  blocksAutoAdvance,
+  durationFor,
+  withReason,
+  withoutReason,
+  withoutReasons,
+  dayChanges,
+  advance,
+  goBack,
+  type PauseReason,
+  type PlayerState,
 } from '@/features/recap/playerLogic';
 import {
-  entferneReaktion,
-  fetchKommentare,
-  fetchReaktionen,
-  KOMMENTAR_MAX_LAENGE,
-  schreibeKommentar,
-  setzeReaktion,
-} from '@/features/recap/sozialApi';
+  removeReaction,
+  fetchComments,
+  fetchReactions,
+  COMMENT_MAX_LENGTH,
+  writeComment,
+  setReaction,
+} from '@/features/recap/socialApi';
 
 // Die nächsten drei Fotos werden per expo-image vorgeladen (V8), beim
 // Weitertippen darf nichts schwarz blitzen.
@@ -96,7 +96,7 @@ const KINO_FADE_REDUZIERT_MS = 200;
 // nicht über einen Indexwechsel, während es offen ist, sind die Tipp-Zonen
 // ohnehin vom Sheet verdeckt), 'zwischenkarte' ist über den eigenen Effekt
 // (Deps u.a. stand.index) bereits selbstverwaltend.
-const MOMENTWECHSEL_GRUENDE: PauseGrund[] = ['halten', 'neuversuch'];
+const MOMENTWECHSEL_GRUENDE: PauseReason[] = ['halten', 'neuversuch'];
 
 // Feste kleine Emoji-Leiste (Task-12-Brief: kein Picker, kein neues Paket).
 // `id` ist der stabile Schlüssel für testID/React-key (ein Emoji-Glyph kann
@@ -134,7 +134,7 @@ function formatTagesdatum(iso: string): string {
   const [, m, d] = iso.split('-').map(Number);
   return `${d}. ${MONATE_LANG[m - 1]}`;
 }
-function tagesueberschrift(tag: RecapTag): string {
+function tagesueberschrift(tag: RecapDay): string {
   const teile = [`Tag ${tag.nummer}`];
   if (tag.ort) teile.push(tag.ort);
   teile.push(formatTagesdatum(tag.datum));
@@ -251,7 +251,7 @@ function AndereReaktionenPille({ emojis }: { emojis: string[] }) {
   );
 }
 
-function KommentarZeile({ kommentar }: { kommentar: Kommentar }) {
+function KommentarZeile({ kommentar }: { kommentar: Comment }) {
   return (
     <View testID={`kommentar-${kommentar.id}`} style={styles.kommentarZeile}>
       <Text style={[type.bodyMedium, { color: cinema['text-1'] }]}>{kommentar.autor_name}</Text>
@@ -344,7 +344,7 @@ function MomentAnzeige({
   moment, url, fehlgeschlagen, pausiert, onVideoEnde, onFehler,
 }: {
   moment: RecapMoment;
-  url: MedienUrl | undefined;
+  url: MediaUrl | undefined;
   fehlgeschlagen: boolean;
   pausiert: boolean;
   onVideoEnde: () => void;
@@ -405,18 +405,18 @@ export default function RecapPlayer() {
   // nicht über Inhalt/Länge, diese Liste wird darum NIE inline neu gebaut,
   // sondern genau einmal pro erfolgreichem Laden per setState ersetzt).
   const [spielliste, setSpielliste] = useState<RecapMoment[]>([]);
-  const [urls, setUrls] = useState<Map<string, MedienUrl>>(new Map());
+  const [urls, setUrls] = useState<Map<string, MediaUrl>>(new Map());
   const [gueltigBis, setGueltigBis] = useState(0);
   const [pendingAnzahl, setPendingAnzahl] = useState(0);
   const [ausgelassenAnzahl, setAusgelassenAnzahl] = useState(0);
 
-  const [stand, setStand] = useState<PlayerStand>({ index: 0, pausiert: new Set(), fortschritt: 0 });
+  const [stand, setStand] = useState<PlayerState>({ index: 0, pausiert: new Set(), fortschritt: 0 });
   const [fehlgeschlagen, setFehlgeschlagen] = useState<Set<string>>(new Set());
 
   // Reaktionen (Task 12): `reaktionen` trägt den OPTIMISTISCHEN Zustand, ein
   // Tipp schreibt hier sofort, bevor die Antwort von setzeReaktion/
   // entferneReaktion da ist (siehe tippeEmoji unten).
-  const [reaktionen, setReaktionen] = useState<Record<string, Reaktion[]>>({});
+  const [reaktionen, setReaktionen] = useState<Record<string, Reaction[]>>({});
   const [reaktionFehler, setReaktionFehler] = useState<string | null>(null);
 
   // Task 7: «In Galerie sichern» für den GERADE aktiven Moment. Eigener
@@ -428,7 +428,7 @@ export default function RecapPlayer() {
   const [exportHinweis, setExportHinweis] = useState<string | null>(null);
 
   const [kommentarMomentId, setKommentarMomentId] = useState<string | null>(null);
-  const [kommentare, setKommentare] = useState<Kommentar[]>([]);
+  const [kommentare, setKommentare] = useState<Comment[]>([]);
   const [kommentareLaden, setKommentareLaden] = useState(false);
   const [kommentareFehler, setKommentareFehler] = useState<string | null>(null);
   const [kommentarText, setKommentarText] = useState('');
@@ -471,7 +471,7 @@ export default function RecapPlayer() {
   // Mit PauseGrund als benannter Menge genügt EIN Ref auf das aktuelle
   // `stand.pausiert`, `blockiertAutomatischenVorschub` (playerLogic.ts)
   // kennt den Unterschied selbst.
-  const pausiertRef = useRef<ReadonlySet<PauseGrund>>(new Set());
+  const pausiertRef = useRef<ReadonlySet<PauseReason>>(new Set());
   // Schlüssel `${postId}:${emoji}`, verhindert, dass ein schneller
   // Doppeltipp auf dasselbe Emoji zwei sich widersprechende Anfragen lostritt
   // (Frage aus dem Task-12-Auftrag). Ein Ref statt ein State-Flag: Prüfen und
@@ -496,7 +496,7 @@ export default function RecapPlayer() {
       { data: trip, error: tFehler },
       { data: momente, error: mFehler },
       { vorrat, error: vFehler, grund: vGrund },
-    ] = await Promise.all([fetchTrip(tripId), fetchRecapMomente(tripId), holeVorrat(tripId)]);
+    ] = await Promise.all([fetchTrip(tripId), fetchRecapMoments(tripId), getPool(tripId)]);
     if (!aktiv.current) return;
 
     // Priorität Reise vor Vorrat vor Momenten, gleiche Reihenfolge wie in
@@ -510,13 +510,13 @@ export default function RecapPlayer() {
         // auch der angezeigte ist (siehe die Priorität darüber). Steht eine
         // gescheiterte Reise-Abfrage vorn, ist die Lage eine andere, und dort
         // ist Wiederholen genau die richtige Handlung.
-        nochmalHilft: tFehler === null && vFehler !== null ? wiederholenHilft(vGrund) : true,
+        nochmalHilft: tFehler === null && vFehler !== null ? retryHelps(vGrund) : true,
       });
       setPhase('fehler');
       return;
     }
 
-    const urlsMap = vorrat?.urls ?? new Map<string, MedienUrl>();
+    const urlsMap = vorrat?.urls ?? new Map<string, MediaUrl>();
     const uploaded = momente.filter((m) => m.upload_status === 'uploaded');
     // Dieselbe Filterung wie uebersicht.tsx: nur Momente mit Vorrats-URL
     // gehören in die Filmrolle (Vertrag 2).
@@ -617,7 +617,7 @@ export default function RecapPlayer() {
   // nur an der referenzstabilen `spielliste` + `startDate`, muss also nicht
   // bei jedem Fortschritts-Tick neu berechnet werden, dieselbe
   // Performance-Überlegung wie tagWechselt.
-  const tage = useMemo(() => gruppiereNachTagen(spielliste, startDate), [spielliste, startDate]);
+  const tage = useMemo(() => groupByDays(spielliste, startDate), [spielliste, startDate]);
   const aktuellerTag = useMemo(() => {
     if (!aktivMoment) return null;
     return tage.find((t) => t.momente.some((m) => m.id === aktivMoment.id)) ?? null;
@@ -631,7 +631,7 @@ export default function RecapPlayer() {
   useEffect(() => {
     if (spielliste.length === 0) return;
     let lebt = true;
-    void fetchReaktionen(spielliste.map((m) => m.id)).then(({ data, error }) => {
+    void fetchReactions(spielliste.map((m) => m.id)).then(({ data, error }) => {
       if (!lebt || !aktiv.current) return;
       setReaktionen(data);
       // Fix-Runde 1, Klein 4: ein verschluckter Ladefehler liess jeden
@@ -708,11 +708,11 @@ export default function RecapPlayer() {
 
     const warReagiert = (reaktionen[momentId] ?? []).some((r) => r.emoji === emoji && r.user_id === uid);
 
-    const hinzufuegen = (stand: Record<string, Reaktion[]>) => ({
+    const hinzufuegen = (stand: Record<string, Reaction[]>) => ({
       ...stand,
       [momentId]: [...(stand[momentId] ?? []), { post_id: momentId, user_id: uid, emoji }],
     });
-    const entfernen = (stand: Record<string, Reaktion[]>) => ({
+    const entfernen = (stand: Record<string, Reaction[]>) => ({
       ...stand,
       [momentId]: (stand[momentId] ?? []).filter((r) => !(r.emoji === emoji && r.user_id === uid)),
     });
@@ -733,7 +733,7 @@ export default function RecapPlayer() {
     };
 
     setReaktionen(warReagiert ? entfernen : hinzufuegen);
-    const aufruf = warReagiert ? entferneReaktion(momentId, emoji) : setzeReaktion(momentId, emoji);
+    const aufruf = warReagiert ? removeReaction(momentId, emoji) : setReaction(momentId, emoji);
     void aufruf
       .then(({ error }) => {
         if (error) rollback(error);
@@ -836,9 +836,9 @@ export default function RecapPlayer() {
     // `kommentarOffen` (Render-Zeile oben) ist AUS `stand.pausiert`
     // abgeleitet, es gibt also nur diesen einen Schreibzugriff, keinen
     // separaten `setKommentarOffen`-Aufruf mehr.
-    setStand((s) => ({ ...s, pausiert: mitGrund(s.pausiert, 'kommentare') }));
+    setStand((s) => ({ ...s, pausiert: withReason(s.pausiert, 'kommentare') }));
 
-    void fetchKommentare(momentId).then(({ data, error }) => {
+    void fetchComments(momentId).then(({ data, error }) => {
       // Das Sheet wurde inzwischen für einen ANDEREN Moment neu geöffnet
       // (schliessen → weiter → wieder öffnen, während diese Antwort noch
       // unterwegs war), eine späte Antwort für den ALTEN Moment darf den
@@ -855,7 +855,7 @@ export default function RecapPlayer() {
     // Punkt 1), bleibt der Player aus einem ANDEREN Grund pausiert (z.B.
     // eine Halten-Geste, die währenddessen begonnen hätte), bleibt er das
     // auch nach dem Schliessen des Sheets.
-    setStand((s) => ({ ...s, pausiert: ohneGrund(s.pausiert, 'kommentare') }));
+    setStand((s) => ({ ...s, pausiert: withoutReason(s.pausiert, 'kommentare') }));
   };
 
   // Task 7: «In Galerie sichern» für den gerade aktiven Moment, exportApi
@@ -874,7 +874,7 @@ export default function RecapPlayer() {
     const momentId = moment.id;
     setExportLaeuft(true);
     setExportHinweis(null);
-    const ergebnis = await sichereMomentInGalerie(moment, url);
+    const ergebnis = await saveMomentToGallery(moment, url);
     if (!aktiv.current || aktivIdRef.current !== momentId) return;
     setExportLaeuft(false);
     if (!ergebnis.ok) {
@@ -896,7 +896,7 @@ export default function RecapPlayer() {
     if (!postId || kommentarSendetLaeuft) return;
     setKommentarSendetLaeuft(true);
     setKommentarSendenFehler(null);
-    void schreibeKommentar(postId, kommentarText).then(({ error }) => {
+    void writeComment(postId, kommentarText).then(({ error }) => {
       if (!aktiv.current || kommentarMomentIdRef.current !== postId) return;
       setKommentarSendetLaeuft(false);
       if (error) {
@@ -909,7 +909,7 @@ export default function RecapPlayer() {
       // Autorennamen/Zeitstempel, ohne dass der Player das Profil der
       // angemeldeten Person selbst kennen müsste.
       setKommentareLaden(true);
-      void fetchKommentare(postId).then(({ data, error: ladeFehler }) => {
+      void fetchComments(postId).then(({ data, error: ladeFehler }) => {
         if (!aktiv.current || kommentarMomentIdRef.current !== postId) return;
         setKommentareLaden(false);
         setKommentare(data);
@@ -938,14 +938,14 @@ export default function RecapPlayer() {
     setMeldenGrund('');
     setMeldenSendenFehler(null);
     setMeldenBestaetigt(false);
-    setStand((s) => ({ ...s, pausiert: mitGrund(s.pausiert, 'melden') }));
+    setStand((s) => ({ ...s, pausiert: withReason(s.pausiert, 'melden') }));
   };
 
   const schliesseMelden = () => {
     // Nimmt AUSSCHLIESSLICH den eigenen Grund zurück (gleiches Prinzip wie
     // schliesseKommentare), ein aus einem anderen Grund pausierter Player
     // bleibt das auch nach dem Schliessen dieses Sheets.
-    setStand((s) => ({ ...s, pausiert: ohneGrund(s.pausiert, 'melden') }));
+    setStand((s) => ({ ...s, pausiert: withoutReason(s.pausiert, 'melden') }));
   };
 
   // Der Moment bleibt in JEDEM Fall unverändert sichtbar (Brief, wörtlich:
@@ -956,7 +956,7 @@ export default function RecapPlayer() {
     if (!postId || meldenSendetLaeuft) return;
     setMeldenSendetLaeuft(true);
     setMeldenSendenFehler(null);
-    void meldeMoment(postId, meldenGrund).then(({ error }) => {
+    void reportMoment(postId, meldenGrund).then(({ error }) => {
       // Stale-Guard: das Sheet kann inzwischen für einen ANDEREN Moment neu
       // geöffnet worden sein (gleiches Prinzip wie kommentarAbsenden).
       if (!aktiv.current || meldenMomentIdRef.current !== postId) return;
@@ -971,10 +971,10 @@ export default function RecapPlayer() {
 
   const pruefeUndErneuereVorratImHintergrund = useCallback(async () => {
     if (erneuerungLaeuftRef.current) return;
-    if (!laeuftBaldAb({ urls, gueltigBis, ausgelassen: ausgelassenAnzahl }, Date.now())) return;
+    if (!isSoonExpiring({ urls, gueltigBis, ausgelassen: ausgelassenAnzahl }, Date.now())) return;
     erneuerungLaeuftRef.current = true;
     try {
-      const { vorrat } = await holeVorrat(tripId);
+      const { vorrat } = await getPool(tripId);
       if (vorrat && aktiv.current) {
         setUrls(vorrat.urls);
         setGueltigBis(vorrat.gueltigBis);
@@ -1001,12 +1001,12 @@ export default function RecapPlayer() {
   // unangetastet, siehe Kommentar bei `MOMENTWECHSEL_GRUENDE`.
   const weiterAutomatisch = useCallback(() => {
     void pruefeUndErneuereVorratImHintergrund();
-    const ergebnis = weiter(stand, spielliste.length);
+    const ergebnis = advance(stand, spielliste.length);
     if (ergebnis === 'ende') {
       setPhase('ende');
       return;
     }
-    setStand({ ...ergebnis, pausiert: ohneGruende(ergebnis.pausiert, MOMENTWECHSEL_GRUENDE) });
+    setStand({ ...ergebnis, pausiert: withoutReasons(ergebnis.pausiert, MOMENTWECHSEL_GRUENDE) });
   }, [stand, spielliste.length, pruefeUndErneuereVorratImHintergrund]);
   // Ref-Indirektion (gleiches Muster wie Versiegelung.tsx/onFertigRef): der
   // Auto-Vorschub-Timer und das Video-Ende-Event rufen IMMER die neueste
@@ -1042,7 +1042,7 @@ export default function RecapPlayer() {
     // Fenster ein, würde der Player sonst unsichtbar unter dem offenen
     // Sheet weiterlaufen), oder läuft gerade ein stiller Neuversuch nach
     // einem Ladefehler.
-    if (blockiertAutomatischenVorschub(pausiertRef.current)) return;
+    if (blocksAutoAdvance(pausiertRef.current)) return;
     weiterAutomatischRef.current();
   }, []);
 
@@ -1063,7 +1063,7 @@ export default function RecapPlayer() {
     if (phase !== 'bereit' || stand.pausiert.size > 0) return;
     const moment = spielliste[stand.index];
     if (!moment) return;
-    const dauer = dauerFuer(moment);
+    const dauer = durationFor(moment);
     const rest = Math.max(0, dauer - stand.fortschritt);
     segmentStartRef.current = Date.now() - stand.fortschritt;
     const timer = setTimeout(() => weiterAutomatischRef.current(), rest);
@@ -1089,7 +1089,7 @@ export default function RecapPlayer() {
   // Kommentar-Sheet) pausierter Player bleibt davon unberührt.
   useEffect(() => {
     if (phase !== 'bereit') return;
-    if (!tagWechselt(spielliste, startDate, stand.index)) {
+    if (!dayChanges(spielliste, startDate, stand.index)) {
       // Kleinigkeit (Final-Review-Nachbesserung): dieser Zweig läuft bei
       // JEDEM Indexwechsel, der KEIN Tageswechsel ist, der ganz normale
       // Regelfall. `ohneGrund` selbst ist zwar No-Op-sicher (liefert
@@ -1099,12 +1099,12 @@ export default function RecapPlayer() {
       // ohnehin schon fehlt. Der explizite `.has()`-Check davor lässt
       // `setStand` in diesem, häufigsten, Fall ganz aus, React bailt dann
       // vollständig aus (dieselbe `s`-Referenz zurückgegeben).
-      setStand((s) => (s.pausiert.has('zwischenkarte') ? { ...s, pausiert: ohneGrund(s.pausiert, 'zwischenkarte') } : s));
+      setStand((s) => (s.pausiert.has('zwischenkarte') ? { ...s, pausiert: withoutReason(s.pausiert, 'zwischenkarte') } : s));
       return;
     }
-    setStand((s) => ({ ...s, pausiert: mitGrund(s.pausiert, 'zwischenkarte') }));
+    setStand((s) => ({ ...s, pausiert: withReason(s.pausiert, 'zwischenkarte') }));
     const timer = setTimeout(() => {
-      setStand((s) => ({ ...s, pausiert: ohneGrund(s.pausiert, 'zwischenkarte') }));
+      setStand((s) => ({ ...s, pausiert: withoutReason(s.pausiert, 'zwischenkarte') }));
     }, ZWISCHENKARTE_DAUER_MS);
     return () => clearTimeout(timer);
   }, [phase, spielliste, startDate, stand.index]);
@@ -1132,7 +1132,7 @@ export default function RecapPlayer() {
   const ueberspringen = () => {
     // Nimmt AUSSCHLIESSLICH den eigenen Grund zurück (Phase-5-Final-Review,
     // Punkt 1), siehe der lange Kommentar beim Zwischenkarten-Effekt oben.
-    setStand((s) => ({ ...s, pausiert: ohneGrund(s.pausiert, 'zwischenkarte') }));
+    setStand((s) => ({ ...s, pausiert: withoutReason(s.pausiert, 'zwischenkarte') }));
   };
 
   const beiLadefehler = useCallback(
@@ -1148,9 +1148,9 @@ export default function RecapPlayer() {
       // Der einmalige, unsichtbare Neuversuch (V10): den Player anhalten,
       // während im Hintergrund neu signiert wird, "das darf man nicht
       // sehen" heisst hier: kein Fehlertext, nur ein kurzes, stilles Warten.
-      setStand((s) => ({ ...s, pausiert: mitGrund(s.pausiert, 'neuversuch') }));
+      setStand((s) => ({ ...s, pausiert: withReason(s.pausiert, 'neuversuch') }));
       void (async () => {
-        const { vorrat } = await holeVorrat(tripId);
+        const { vorrat } = await getPool(tripId);
         if (aktiv.current && vorrat) {
           setUrls(vorrat.urls);
           setGueltigBis(vorrat.gueltigBis);
@@ -1175,7 +1175,7 @@ export default function RecapPlayer() {
         // (beendeBeruehrung/weiterAutomatisch) nimmt 'neuversuch' selbst
         // zurück, bevor diese verspätete Antwort überhaupt eintrifft.
         if (aktiv.current && aktivIdRef.current === postId) {
-          setStand((s) => ({ ...s, pausiert: ohneGrund(s.pausiert, 'neuversuch') }));
+          setStand((s) => ({ ...s, pausiert: withoutReason(s.pausiert, 'neuversuch') }));
         }
       })();
     },
@@ -1189,9 +1189,9 @@ export default function RecapPlayer() {
     beruehrungStartRef.current = Date.now();
     const moment = spielliste[stand.index];
     if (!moment) return;
-    const dauer = dauerFuer(moment);
+    const dauer = durationFor(moment);
     const vergangen = Math.min(dauer, Math.max(0, Date.now() - segmentStartRef.current));
-    setStand((s) => ({ ...s, pausiert: mitGrund(s.pausiert, 'halten'), fortschritt: vergangen }));
+    setStand((s) => ({ ...s, pausiert: withReason(s.pausiert, 'halten'), fortschritt: vergangen }));
   };
 
   const beendeBeruehrung = (seite: 'links' | 'rechts') => {
@@ -1206,7 +1206,7 @@ export default function RecapPlayer() {
     if (gehalten < TAP_SCHWELLE_MS) {
       if (seite === 'rechts') {
         void pruefeUndErneuereVorratImHintergrund();
-        const ergebnis = weiter(stand, spielliste.length);
+        const ergebnis = advance(stand, spielliste.length);
         if (ergebnis === 'ende') {
           setPhase('ende');
           return;
@@ -1215,20 +1215,20 @@ export default function RecapPlayer() {
         // zurück, nicht nur `'halten'` (Final-Review Phase-5-Nachbesserung,
         // siehe Kommentar dort, `'neuversuch'` gehört ebenfalls zum
         // VERLASSENEN Moment und darf den neuen nicht blockieren).
-        setStand({ ...ergebnis, pausiert: ohneGruende(ergebnis.pausiert, MOMENTWECHSEL_GRUENDE) });
+        setStand({ ...ergebnis, pausiert: withoutReasons(ergebnis.pausiert, MOMENTWECHSEL_GRUENDE) });
         return;
       }
       // Klein (Review-Fund): V10 gilt in BEIDE Richtungen ("vor jedem
       // Weiter" schliesst ein zurueck() nicht aus, auch dabei bleibt der
       // Player sichtbar auf demselben Vorrat angewiesen).
       void pruefeUndErneuereVorratImHintergrund();
-      const ergebnisZurueck = zurueck(stand);
-      setStand({ ...ergebnisZurueck, pausiert: ohneGruende(ergebnisZurueck.pausiert, MOMENTWECHSEL_GRUENDE) });
+      const ergebnisZurueck = goBack(stand);
+      setStand({ ...ergebnisZurueck, pausiert: withoutReasons(ergebnisZurueck.pausiert, MOMENTWECHSEL_GRUENDE) });
       return;
     }
     // Halten, dann losgelassen: "und weiter beim Loslassen" (Brief) heisst
     // hier fortsetzen, NICHT zum nächsten Moment springen.
-    setStand((s) => ({ ...s, pausiert: ohneGrund(s.pausiert, 'halten') }));
+    setStand((s) => ({ ...s, pausiert: withoutReason(s.pausiert, 'halten') }));
   };
 
   const schliessen = () => {
@@ -1362,7 +1362,7 @@ export default function RecapPlayer() {
           <Fortschrittsbalken
             anzahl={spielliste.length}
             aktivIndex={stand.index}
-            dauerMs={dauerFuer(aktivMoment)}
+            dauerMs={durationFor(aktivMoment)}
             vergangenMs={stand.fortschritt}
             pausiert={gestoppt}
           />
@@ -1535,7 +1535,7 @@ export default function RecapPlayer() {
               value={kommentarText}
               onChangeText={setKommentarText}
               error={kommentarSendenFehler ?? undefined}
-              maxLength={KOMMENTAR_MAX_LAENGE}
+              maxLength={COMMENT_MAX_LENGTH}
               // Phase-5-Final-Review, Punkt 4: ohne diesen Schalter zieht
               // `Input` über `useTheme()` zwingend die Licht-Palette (siehe
               // dort), eine weisse Box mitten im Kinosaal.
@@ -1589,7 +1589,7 @@ export default function RecapPlayer() {
               value={meldenGrund}
               onChangeText={setMeldenGrund}
               error={meldenSendenFehler ?? undefined}
-              maxLength={MELDEN_MAX_LAENGE}
+              maxLength={REPORT_MAX_LENGTH}
               // Gleicher Grund wie beim Kommentar-Eingabefeld oben.
               kino
             />

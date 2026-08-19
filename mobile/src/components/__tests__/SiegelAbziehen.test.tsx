@@ -1,7 +1,7 @@
 import { act, fireEvent, render } from '@testing-library/react-native';
 import * as React from 'react';
 import { SiegelAbziehen } from '../SiegelAbziehen';
-import { ABGEZOGEN_AB_MS, DAUER_MS, RASTER } from '@/features/recap/siegelPeel';
+import { PEELED_AT_MS, DURATION_MS, GRID_RESOLUTION } from '@/features/recap/sealPeel';
 
 // Skia ist global in jest.setup.ts gemockt (natives Zeichen-Backend, gleiche
 // Fehlstelle wie react-native-maps). Reanimated treibt den Fortschritt auf
@@ -48,9 +48,9 @@ test('steht als Knopf «Siegel abziehen» da und zeichnet Schatten und Netz in B
   // Dreiecke und für jeden Knoten eine Texturkoordinate.
   expect(getByTestId('skia-oval')).toBeTruthy();
   const netz = getByTestId('skia-vertices');
-  expect(netz.props.indices).toHaveLength(RASTER * RASTER * 6);
-  expect(netz.props.textures).toHaveLength((RASTER + 1) * (RASTER + 1));
-  expect(netz.props.vertices.value).toHaveLength((RASTER + 1) * (RASTER + 1));
+  expect(netz.props.indices).toHaveLength(GRID_RESOLUTION * GRID_RESOLUTION * 6);
+  expect(netz.props.textures).toHaveLength((GRID_RESOLUTION + 1) * (GRID_RESOLUTION + 1));
+  expect(netz.props.vertices.value).toHaveLength((GRID_RESOLUTION + 1) * (GRID_RESOLUTION + 1));
 });
 
 test('ein Tipp löst genau einmal die success-Haptik aus und meldet onAbgezogen erst, wenn die Bühne leer ist', async () => {
@@ -66,7 +66,7 @@ test('ein Tipp löst genau einmal die success-Haptik aus und meldet onAbgezogen 
   expect(onAbgezogen).not.toHaveBeenCalled();
 
   await act(async () => {
-    jest.advanceTimersByTime(ABGEZOGEN_AB_MS - 1);
+    jest.advanceTimersByTime(PEELED_AT_MS - 1);
   });
   expect(onAbgezogen).not.toHaveBeenCalled();
 
@@ -77,7 +77,7 @@ test('ein Tipp löst genau einmal die success-Haptik aus und meldet onAbgezogen 
 
   // Danach kommt nichts mehr nach, auch nicht am Ende der vollen Dauer.
   await act(async () => {
-    jest.advanceTimersByTime(DAUER_MS);
+    jest.advanceTimersByTime(DURATION_MS);
   });
   expect(onAbgezogen).toHaveBeenCalledTimes(1);
 });
@@ -99,7 +99,7 @@ test('während des Abziehens ist der Knopf gesperrt: ein zweiter Tipp tut nichts
   expect(mockNotificationAsync).toHaveBeenCalledTimes(1);
 
   await act(async () => {
-    jest.advanceTimersByTime(DAUER_MS);
+    jest.advanceTimersByTime(DURATION_MS);
   });
   expect(onAbgezogen).toHaveBeenCalledTimes(1);
 });
@@ -131,7 +131,7 @@ test('Unmount während des Abziehens: onAbgezogen kommt nicht mehr', async () =>
   });
   await unmount();
   await act(async () => {
-    jest.advanceTimersByTime(DAUER_MS);
+    jest.advanceTimersByTime(DURATION_MS);
   });
   expect(onAbgezogen).not.toHaveBeenCalled();
 });
