@@ -74,6 +74,17 @@ describe('sortMoments', () => {
     const b = moment({ id: 'b', captured_at: '2026-08-01T22:00:00Z' }); // = 22:00 UTC
     expect(sortMoments([b, a]).map((m) => m.id)).toEqual(['a', 'b']);
   });
+
+  // An unparsable captured_at must not make the sort throw (Date.parse
+  // returns NaN for it), it lands deterministically at the end instead, id
+  // decides here too when there are several broken values.
+  test('an unparsable captured_at does not throw and lands deterministically at the end', () => {
+    const valid = moment({ id: 'a', captured_at: '2026-08-01T09:00:00.000Z' });
+    const brokenZ = moment({ id: 'z', captured_at: 'kein-datum' });
+    const brokenY = moment({ id: 'y', captured_at: 'auch-kaputt' });
+    expect(() => sortMoments([brokenZ, valid, brokenY])).not.toThrow();
+    expect(sortMoments([brokenZ, valid, brokenY]).map((m) => m.id)).toEqual(['a', 'y', 'z']);
+  });
 });
 
 describe('groupByDays', () => {
