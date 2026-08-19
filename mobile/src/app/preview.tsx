@@ -24,8 +24,8 @@ import { Pill } from '@/components/Pill';
 import { PressScale } from '@/components/PressScale';
 import { cinema, palette, radius, spacing, type } from '@/theme/tokens';
 import { useTopInset } from '@/theme/useTopInset';
-import * as medien from '@/features/moments/media';
-import * as ortUndZeit from '@/features/moments/placeAndTime';
+import * as media from '@/features/moments/media';
+import * as placeAndTime from '@/features/moments/placeAndTime';
 import * as handoff from '@/features/camera/handoff';
 import * as nativeCapture from '@/features/camera/nativeCapture';
 import * as uploadWorker from '@/features/moments/uploadWorker';
@@ -37,42 +37,38 @@ const { InstantPreview } = nativeCapture;
 
 const CAPTION_MAX = 120;
 
-// Wie lange nach einer Fremd-Pause des Video-Players der Nachzügler prüft,
-// ob das sofortige Weiterspielen gegriffen hat (siehe den Effekt am Player
-// unten). Kurz genug, dass die Vorschau nicht spürbar steht; lang genug,
-// dass der Session-Umbau der Kamera darunter abgeschlossen sein kann.
-const WEITERSPIEL_NACHZUEGLER_MS = 250;
+// How long after a foreign pause of the video player the straggler checks
+// whether the immediate resume took hold (see the effect on the player
+// below). Short enough that the preview does not visibly stand still, long
+// enough that the camera session rebuild underneath can have finished.
+const RESUME_STRAGGLER_MS = 250;
 
-const OHNE_REISE_MELDUNG =
+const WITHOUT_TRIP_MESSAGE =
   'Diese Aufnahme lässt sich keiner Reise zuordnen. Geh zurück zur Kamera und versuch es nochmal.';
-// Praktisch unerreichbar (das Root-Layout lässt diesen Screen nur bei
-// status === 'signedIn' zu), aber ein Job ohne Autoren-Kennung darf nie
-// erzeugt werden, deshalb sichtbar abgelehnt statt geraten, gleiches Prinzip
-// wie OHNE_REISE_MELDUNG (Task-13-Fix-Runde-2).
-const OHNE_SITZUNG_MELDUNG = 'Du bist nicht angemeldet. Melde dich an und probier es nochmal.';
-const SENDEN_FEHLGESCHLAGEN_MELDUNG =
+const WITHOUT_SESSION_MESSAGE = 'Du bist nicht angemeldet. Melde dich an und probier es nochmal.';
+const SENDING_FAILED_MESSAGE =
   'Der Moment konnte nicht gesichert werden, oft weil kein Speicherplatz mehr frei ist. Räum etwas Platz frei und versuch es nochmal.';
 
-function zweistellig(n: number): string {
+function twoDigits(n: number): string {
   return String(n).padStart(2, '0');
 }
 
-// Lokale Uhrzeit auf dem Gerät, das die Aufnahme gemacht hat, bewusst ohne
-// Intl, um von der Jest-/Hermes-ICU-Unterstützung unabhängig zu bleiben
-// (gleiches Vorsichtsprinzip wie tripDay.ts).
-function zeitAnzeige(iso: string): string {
-  const datum = new Date(iso);
-  return `${zweistellig(datum.getHours())}:${zweistellig(datum.getMinutes())}`;
+// Local time on the device that took the capture, deliberately without Intl,
+// to stay independent of the Jest/Hermes ICU support (same caution as
+// tripDay.ts).
+function timeDisplay(iso: string): string {
+  const date = new Date(iso);
+  return `${twoDigits(date.getHours())}:${twoDigits(date.getMinutes())}`;
 }
 
-type Ort = { lat: number | null; lng: number | null; place_name: string | null };
-const KEIN_ORT: Ort = { lat: null, lng: null, place_name: null };
+type Place = { lat: number | null; lng: number | null; place_name: string | null };
+const NO_PLACE: Place = { lat: null, lng: null, place_name: null };
 
-// Medien-Screen (DESIGN-LANGUAGE v2 §1): feste Kino-Palette, kein useTheme(),
-// gleiches Muster wie index.tsx. `accent`/`on-accent`/`danger` kommen direkt
-// aus `palette`, weil es reine Interaktions-/Fehlerfarben sind, die
-// unabhängig von Hell/Kino funktionieren.
-function EinsendenButton({
+// Media screen (DESIGN-LANGUAGE v2 §1): fixed cinema palette, no useTheme(),
+// same pattern as capture/index.tsx. `accent`/`on-accent`/`danger` come
+// straight from `palette` because they are pure interaction and error colors
+// that work independently of light or cinema.
+function SubmitButton({
   onPress,
   loading,
 }: {
@@ -92,7 +88,7 @@ function EinsendenButton({
       {({ pressed }) => (
         <View
           style={[
-            styles.einsendenButton,
+            styles.submitButton,
             { backgroundColor: pressed ? palette['accent-pressed'] : palette.accent },
           ]}
         >
@@ -110,18 +106,25 @@ function EinsendenButton({
 export default function PreviewScreen() {
   const router = useRouter();
   const { userId } = useAuth();
-  // Randloser Medien-Screen ohne Header: die Pille oben lag unter der Insel,
-  // der Einsenden-Knopf unten auf dem Home-Indicator. Die drei unteren Ebenen
-  // (Fuss, Fehler, Bildunterschrift) stehen in festen Abstaenden zueinander
-  // und muessen deshalb GEMEINSAM ausweichen, sonst ueberlappen sie.
-  const oberkante = useTopInset(spacing.xl);
-  // Der Fuss steht bewusst näher am Rand als useBottomInset() vorgibt: Auf
-  // diesem Screen trägt er nur EINEN Knopf, und der gehört in Daumenreichweite
-  // ans untere Ende. `insets.bottom` heisst «direkt über dem Home-Indicator»,
-  // nicht darauf; Geräte ohne Indicator behalten den gestalteten Mindestrand.
+  // Edge to edge media screen without a header: the pill on top used to sit
+  // under the island, the submit button at the bottom on the home indicator.
+  // The three lower layers (footer, error, caption) stand at fixed distances
+  // from each other and must therefore give way TOGETHER, otherwise they
+  // overlap.
+  const topInset = useTopInset(spacing.xl);
+  // The footer sits deliberately closer to the edge than useBottomInset()
+  // prescribes: on this screen it carries only ONE button, and that belongs
+  // within thumb reach at the very bottom. `insets.bottom` means "directly
+  // above the home indicator", not on it; devices without an indicator keep
+  // the designed minimum margin.
   const insets = useSafeAreaInsets();
-  const unterkante = Math.max(spacing.base, insets.bottom);
-  const { uri, typ, dauer, tripId } = useLocalSearchParams<{
+  const bottomInset = Math.max(spacing.base, insets.bottom);
+  const {
+    uri,
+    typ: mediaType,
+    dauer: duration,
+    tripId,
+  } = useLocalSearchParams<{
     uri?: string;
     typ: 'photo' | 'video';
     dauer: string;
@@ -129,218 +132,183 @@ export default function PreviewScreen() {
   }>();
 
   const [caption, setCaption] = useState('');
-  const [ort, setOrt] = useState<Ort>(KEIN_ORT);
-  const [sendet, setSendet] = useState(false);
-  const [sendeFehler, setSendeFehler] = useState<string | null>(null);
-  // Wird erst wahr, NACHDEM der Job sicher in der Warteschlange steckt (siehe
-  // absenden unten), die Erfolgsanimation entscheidet nie darüber, ob ein
-  // Moment gesichert ist, sie kommentiert nur einen bereits gesicherten.
-  const [versiegelt, setVersiegelt] = useState(false);
-  // Der Zählerstand der Reise VOR diesem Moment, die Erfolgsanimation rollt
-  // darauf +1 hoch. Einmal beim Erscheinen geholt (offline-fest über den
-  // Cache in zaehler.ts); scheitert der Abruf, entfällt nur die Zahl, das
-  // Einsenden hängt nie daran.
-  const [zaehler, setZaehler] = useState<number | null>(null);
+  const [place, setPlace] = useState<Place>(NO_PLACE);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [sealed, setSealed] = useState(false);
+  const [counter, setCounter] = useState<number | null>(null);
 
   useEffect(() => {
     if (!tripId) return;
-    let aktiv = true;
+    let active = true;
     ownMomentCount(tripId)
-      .then((stand) => {
-        if (aktiv) setZaehler(stand);
+      .then((count) => {
+        if (active) setCounter(count);
       })
       .catch(() => {});
     return () => {
-      aktiv = false;
+      active = false;
     };
   }, [tripId]);
-  // captured_at/captured_tz werden EINMAL beim Erscheinen dieses Screens
-  // eingefroren (lazy state init), das liegt so nah wie möglich am
-  // tatsächlichen Auslöser-Moment aus Task 7 und darf sich nicht mit jedem
-  // Tastenanschlag an der Caption weiterbewegen.
-  const [zeit] = useState(() => ortUndZeit.now());
+  const [time] = useState(() => placeAndTime.now());
 
-  // Das Foto kommt seit dem Instant-Foto (Spec 2026-08-13 §4) als natives
-  // Speicher-Objekt über das Übergabe-Modul, nicht als Datei-URI: EINMAL
-  // beim Erscheinen abgeholt, wie `zeit` daneben. Videos (und der
-  // Deep-Link-Fall) tragen weiterhin eine uri in den Params — `foto` ist
-  // dann null und alles läuft den alten Weg.
-  const [foto] = useState(() => (typ === 'photo' ? handoff.takePhoto() : null));
+  const [photo] = useState(() => (mediaType === 'photo' ? handoff.takePhoto() : null));
 
-  // Der vorgewärmte Player aus der Übergabe (Gerätefund 2026-08-14,
-  // Snapchat-Massstab): die Kamera erzeugt und lädt ihn VOR der Navigation,
-  // die Blende geht dann in ein bereits laufendes Video. Wie das Foto EINMAL
-  // beim Erscheinen abgeholt; ohne Übergabe (Deep Link, gescheitertes
-  // Vorwärmen) lädt der Hook darunter selbst über die uri.
-  const [vorbereitet] = useState(() => (typ === 'video' ? handoff.takeVideo() : null));
+  // The prewarmed player from the handoff (device finding 2026-08-14,
+  // Snapchat as the benchmark): the camera creates and loads it BEFORE the
+  // navigation, so the cut goes into an already running video. Without a
+  // handoff (deep link, failed prewarming) the hook below loads from the uri
+  // itself.
+  const [prewarmed] = useState(() => (mediaType === 'video' ? handoff.takeVideo() : null));
 
-  // `vorbereiteterPlayer` ist NUR für die Player-Form gesetzt (Task 12: die
-  // native Form hat ihr eigenes Verhalten, direkt an `vorbereitet?.kind` in
-  // Render, `absenden` und `verwerfen`). Ein kind-bewusster Blick genügt hier,
-  // statt an mehreren Stellen `.kind === 'player'` zu wiederholen.
-  const vorbereiteterPlayer = vorbereitet?.kind === 'player' ? vorbereitet : null;
+  const prewarmedPlayer = prewarmed?.kind === 'player' ? prewarmed : null;
 
-  // Nachzug aus Task 8 (Video-Nachzug): «das Aufgenommene formatfüllend» gilt
-  // auch für Videos, dieser Screen ist der letzte Blick vor dem Versiegeln.
-  // Stumm und in Schleife, ohne Bedienelemente: eine Vorschau, kein Player.
-  // `source: null` bei Fotos und bei übernommenem Player, damit nicht
-  // dieselbe Datei ein zweites Mal lädt (Hooks laufen unabhängig von `typ`
-  // unbedingt, siehe Hook-Regeln).
-  const eigenerPlayer = useVideoPlayer(
-    typ === 'video' && !vorbereitet ? (uri ?? null) : null,
+  const ownPlayer = useVideoPlayer(
+    mediaType === 'video' && !prewarmed ? (uri ?? null) : null,
     (p) => {
       p.loop = true;
       p.muted = true;
-      // mixWithOthers statt des Standards 'auto': die Vorschau ist stumm, sie
-      // braucht die Audio-Session nicht — und nur so lässt der Mikrofon-Umbau
-      // des Kamera-Screens darunter (siehe den Effekt unten) sie beim Öffnen
-      // in Ruhe weiterspielen, statt sie zu pausieren.
+      // mixWithOthers instead of the default 'auto': the preview is muted, it
+      // does not need the audio session, and only this way does the
+      // microphone rebuild of the camera screen underneath (see the effect
+      // below) leave it playing on open instead of pausing it (device finding
+      // 2026-08-14).
       p.audioMixingMode = 'mixWithOthers';
       p.play();
     }
   );
-  const player = vorbereiteterPlayer?.player ?? eigenerPlayer;
+  const player = prewarmedPlayer?.player ?? ownPlayer;
 
-  // Das Poster aus der Übergabe (Bild 0 des Videos) steht, bis die VideoView
-  // ihr erstes Bild wirklich gezeichnet hat — sie braucht dafür am Gerät
-  // ~0,8 s, auch wenn der Player längst läuft (gemessen 2026-08-14, konstant,
-  // JS-Thread frei; die Kosten stecken im nativen View-Aufbau). Der Wechsel
-  // Poster → Video ist unsichtbar, weil die Schleife bei Bild 0 beginnt.
-  const [posterSteht, setPosterSteht] = useState(true);
+  // The poster from the handoff (frame 0 of the video) stands until the
+  // VideoView has really drawn its first frame: on the device it needs ~0.8 s
+  // for that even when the player has long been running (measured 2026-08-14,
+  // constant, JS thread free; the cost sits in the native view setup). The
+  // switch from poster to video is invisible because the loop starts at frame
+  // 0.
+  const [posterVisible, setPosterVisible] = useState(true);
 
-  // Der übernommene Player gehört ab jetzt diesem Screen: beim Verlassen wird
-  // er freigegeben — createVideoPlayer verlangt ein explizites release, sonst
-  // leckt der native Player. Den Hook-Player räumt der Hook selbst ab. Die
-  // Poster-Datei liegt im Cache und geht mit.
+  // createVideoPlayer demands an explicit release, otherwise the native
+  // player leaks. The hook player is cleaned up by the hook itself, the
+  // poster file lies in the cache and goes with it.
   useEffect(() => {
-    if (!vorbereiteterPlayer) return;
-    const { player, poster } = vorbereiteterPlayer;
+    if (!prewarmedPlayer) return;
+    const { player, poster } = prewarmedPlayer;
     return () => {
       player.release();
-      if (poster) medien.discardFile(poster);
+      if (poster) media.discardFile(poster);
     };
-  }, [vorbereiteterPlayer]);
+  }, [prewarmedPlayer]);
 
-  // Gerätefund 2026-08-14: der Kamera-Screen unter dieser Vorschau gibt beim
-  // Verlassen sein Mikrofon frei (der mute-Wechsel an seiner CameraView) und
-  // baut dabei seine Capture-Session um — iOS pausiert währenddessen auch den
-  // stummen Player hier drüber. Einmalig, kurz nach dem Öffnen, ohne Fehler
-  // und ohne Statuswechsel: das Video stand dann als Standbild. Diese
-  // Vorschau kennt keine gewollte Pause (bewusst ohne Bedienelemente), also
-  // beantwortet sie jede Pause sofort mit Weiterspielen. Die Pause am
-  // Schleifenende ist davon nicht zu unterscheiden und verträgt es: play()
-  // ist dort ein Leerlauf. Der Nachzügler deckt den Fall, dass der
-  // Session-Umbau das sofortige play() noch verschluckt.
+  // Device finding 2026-08-14: on leaving, the camera screen under this
+  // preview releases its microphone (the mute switch on its CameraView) and
+  // rebuilds its capture session while doing so; iOS pauses the muted player
+  // up here along with it. Once, shortly after opening, without an error and
+  // without a status change: the video then stood as a still. This preview
+  // knows no intentional pause (deliberately without controls), so it answers
+  // every pause with resuming immediately. The pause at the end of the loop
+  // cannot be told apart from it and tolerates it: play() is a no-op there.
+  // The straggler covers the case where the session rebuild swallows the
+  // immediate play().
   useEffect(() => {
-    if (typ !== 'video') return;
-    let nachzuegler: ReturnType<typeof setTimeout> | undefined;
-    const abo = player.addListener('playingChange', ({ isPlaying }) => {
+    if (mediaType !== 'video') return;
+    let straggler: ReturnType<typeof setTimeout> | undefined;
+    const subscription = player.addListener('playingChange', ({ isPlaying }) => {
       if (isPlaying) return;
       player.play();
-      if (nachzuegler !== undefined) clearTimeout(nachzuegler);
-      nachzuegler = setTimeout(() => {
+      if (straggler !== undefined) clearTimeout(straggler);
+      straggler = setTimeout(() => {
         if (!player.playing) player.play();
-      }, WEITERSPIEL_NACHZUEGLER_MS);
+      }, RESUME_STRAGGLER_MS);
     });
     return () => {
-      abo.remove();
-      if (nachzuegler !== undefined) clearTimeout(nachzuegler);
+      subscription.remove();
+      if (straggler !== undefined) clearTimeout(straggler);
     };
-  }, [player, typ]);
+  }, [player, mediaType]);
 
   useEffect(() => {
     setStatusBarStyle('light');
     return () => setStatusBarStyle('dark');
   }, []);
 
-  // Weder Übergabe noch uri: per Deep Link geöffnet, ohne dass je eine
-  // Aufnahme entstand. Zurück zur Kamera statt eines leeren Screens.
-  const quelleFehlt = typ === 'photo' ? !foto && !uri : !uri;
+  const sourceMissing = mediaType === 'photo' ? !photo && !uri : !uri;
   useEffect(() => {
-    if (quelleFehlt) router.replace('/capture');
-  }, [quelleFehlt, router]);
+    if (sourceMissing) router.replace('/capture');
+  }, [sourceMissing, router]);
 
-  // Höhe der stehenden Tastatur, 0 heisst geschlossen.
+  // Height of the standing keyboard, 0 means closed.
   //
-  // Der Screen weicht ihr selbst aus, statt sich auf eine
-  // KeyboardAvoidingView zu verlassen: die setzt bei `behavior="padding"` nur
-  // ein `paddingBottom` an ihrem eigenen View, und das erreicht absolut
-  // positionierte Kinder nicht. Hier ist aber JEDE Ebene absolut positioniert.
+  // The screen gives way to it itself instead of relying on a
+  // KeyboardAvoidingView: with `behavior="padding"` that one only sets a
+  // `paddingBottom` on its own view, and that never reaches absolutely
+  // positioned children. Here EVERY layer is absolutely positioned.
   //
-  // Was hier NICHT hineinzählen darf, ist eine eigene InputAccessoryView: Sie
-  // wird in die gemeldete Tastaturhöhe eingerechnet, auch wenn man sie nicht
-  // sieht, und das Feld sass dadurch rund 100 Punkte zu hoch. Es gibt sie
-  // nicht mehr, das «Fertig» sitzt jetzt auf der Tastatur selbst.
-  const [tastatur, setTastatur] = useState(0);
-  // Gemessene Höhe des unteren Blocks (Fehlermeldung + Einsenden-Knopf), an
-  // der die Bildunterschrift in Ruhe hängt.
-  const [fussHoehe, setFussHoehe] = useState(0);
-  // Ob das Eingabefeld gerade offen ist. In Ruhe steht an seiner Stelle nur
-  // ein Chip, so breit wie sein Text: Ein leeres Eingabefeld über die ganze
-  // Breite ist ein Kasten, der nichts zeigt und dem Foto den Platz nimmt. Erst
-  // ein Tipp darauf holt das Feld (und mit `autoFocus` die Tastatur) hervor,
-  // und es erscheint gleich dort, wo man es beim Schreiben braucht.
-  const [feldOffen, setFeldOffen] = useState(false);
+  // What must NOT count into this is an own InputAccessoryView: it is
+  // included in the reported keyboard height even when you cannot see it, and
+  // the field sat about 100 points too high because of it. It is gone, the
+  // "Fertig" now sits on the keyboard itself.
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [footerHeight, setFooterHeight] = useState(0);
+  const [fieldOpen, setFieldOpen] = useState(false);
 
   useEffect(() => {
-    // iOS meldet die Tastatur an, BEVOR sie steht, und liefert Dauer und
-    // Kurve ihrer Bewegung gleich mit. Android meldet erst danach.
-    const istIOS = Platform.OS === 'ios';
-    const mitfahren = (dauer?: number, kurve?: keyof typeof LayoutAnimation.Types) => {
-      if (!dauer) return;
-      // Dasselbe Mittel, mit dem die KeyboardAvoidingView ihr Padding
-      // animiert: die Pille fährt mit der Tastatur statt vor ihr her zu
-      // springen. `prefers-reduced-motion` bleibt hier bewusst unbefragt,
-      // weil das die Bewegung des Systems selbst ist, nicht unsere
-      // Inszenierung; iOS dämpft sie dort bereits an der Quelle.
+    // iOS announces the keyboard BEFORE it stands and delivers duration and
+    // curve of its movement along with it. Android reports only afterwards.
+    const isIOS = Platform.OS === 'ios';
+    const rideAlong = (durationMs?: number, curve?: keyof typeof LayoutAnimation.Types) => {
+      if (!durationMs) return;
+      // The same means with which the KeyboardAvoidingView animates its
+      // padding: the pill rides with the keyboard instead of jumping ahead of
+      // it. `prefers-reduced-motion` stays deliberately unasked here because
+      // this is the movement of the system itself, not our staging; iOS
+      // already dampens it at the source.
       LayoutAnimation.configureNext({
-        duration: dauer,
-        update: { duration: dauer, type: LayoutAnimation.Types[kurve ?? 'keyboard'] },
+        duration: durationMs,
+        update: { duration: durationMs, type: LayoutAnimation.Types[curve ?? 'keyboard'] },
       });
     };
-    const auf = Keyboard.addListener(istIOS ? 'keyboardWillShow' : 'keyboardDidShow', (e) => {
-      mitfahren(e.duration, e.easing);
-      // Die grösste gemeldete Höhe gewinnt, solange die Tastatur steht: Beim
-      // Tippen tauscht iOS die Leiste über den Tasten aus (der «Write with
-      // Siri»-Hinweis weicht den Wortvorschlägen) und meldet dabei eine neue,
-      // oft kleinere Höhe. Folgte das Feld jeder Meldung, ruckte es mitten im
-      // Schreiben auf und ab. Nach oben geht es weiterhin mit, sonst
-      // verschwände es hinter einer Tastatur, die wächst (Emoji, andere
-      // Sprache). Zurückgesetzt wird beim Schliessen.
-      setTastatur((bisher) => Math.max(bisher, e.endCoordinates.height));
-    });
-    const zu = Keyboard.addListener(istIOS ? 'keyboardWillHide' : 'keyboardDidHide', (e) => {
-      mitfahren(e.duration, e.easing);
-      setTastatur(0);
-      // Mit der Tastatur geht auch das Feld: Was geschrieben wurde, steht
-      // danach im Chip, und ein leeres Feld bleibt nicht als Kasten stehen.
-      setFeldOffen(false);
-    });
+    const showListener = Keyboard.addListener(
+      isIOS ? 'keyboardWillShow' : 'keyboardDidShow',
+      (e) => {
+        rideAlong(e.duration, e.easing);
+        // The largest reported height wins as long as the keyboard stands:
+        // while typing, iOS swaps the bar above the keys (the "Write with
+        // Siri" hint gives way to the word suggestions) and reports a new,
+        // often smaller height while doing so.
+        setKeyboardHeight((previous) => Math.max(previous, e.endCoordinates.height));
+      }
+    );
+    const hideListener = Keyboard.addListener(
+      isIOS ? 'keyboardWillHide' : 'keyboardDidHide',
+      (e) => {
+        rideAlong(e.duration, e.easing);
+        setKeyboardHeight(0);
+        setFieldOpen(false);
+      }
+    );
     return () => {
-      auf.remove();
-      zu.remove();
+      showListener.remove();
+      hideListener.remove();
     };
   }, []);
 
-  // Die Ortsbestimmung darf die Aufnahme nie kosten: sie läuft im Hintergrund
-  // los, der Screen wartet nicht auf sie, um zu erscheinen (Task-8-Kontext).
   useEffect(() => {
-    let aktiv = true;
-    void ortUndZeit.determinePlace().then((ergebnis) => {
-      if (aktiv) setOrt(ergebnis);
+    let active = true;
+    void placeAndTime.determinePlace().then((result) => {
+      if (active) setPlace(result);
     });
     return () => {
-      aktiv = false;
+      active = false;
     };
   }, []);
 
-  // Draggable Caption: nur `transform` bewegt sich (DESIGN-LANGUAGE §5),
-  // Position akkumuliert über extractOffset() statt bei jedem Loslassen auf
-  // 0 zurückzuspringen.
+  // Draggable caption: only `transform` moves (DESIGN-LANGUAGE §5), the
+  // position accumulates via extractOffset() instead of jumping back to 0 on
+  // every release.
   const [pan] = useState(() => new Animated.ValueXY());
-  // Über useState statt useRef, wie schon bei `pan`: die Wisch-Handler werden
-  // beim Rendern gelesen, und ein Ref darf beim Rendern nicht gelesen werden
-  // (react-hooks/refs). Erzeugt wird der Responder trotzdem nur einmal.
+  // Via useState instead of useRef, as with `pan` already: the swipe handlers
+  // are read while rendering, and a ref must not be read while rendering
+  // (react-hooks/refs). The responder is still created only once.
   const [panResponder] = useState(() =>
     PanResponder.create({
       onMoveShouldSetPanResponder: (_evt, gesture) => Math.abs(gesture.dx) > 2 || Math.abs(gesture.dy) > 2,
@@ -351,140 +319,93 @@ export default function PreviewScreen() {
     })
   );
 
-  // Final-Review, Important 3: die Vorfassung navigierte mit
-  // router.replace('/capture') zurück. replace ersetzt aber nur den
-  // fokussierten Eintrag durch einen NEUEN, aus [kamera, preview] wurde
-  // [kamera, kamera]. Jede Aufnahme stapelte damit einen weiteren
-  // Kamera-Screen, jeder mit eigener Kamera-Instanz, und die Zurück-Geste lief
-  // rückwärts durch alte Kameras statt aus dem Tab heraus. Diese Vorschau
-  // schliessen heisst: sie vom Stapel nehmen. Das erfüllt zugleich «kein
-  // Zurück zum Moment» (Spec §4), der Screen ist dann weg, nicht überdeckt.
+  // Final-Review, Important 3: replace only swaps the focused entry for a NEW
+  // one, so [camera, preview] became [camera, camera]. Every capture stacked
+  // another camera screen, each with its own camera instance, and the back
+  // gesture ran backwards through old cameras instead of out of the tab.
+  // Closing this preview means taking it off the stack, which also fulfils
+  // "no way back to the moment" (Spec §4). canGoBack(): the screen is also
+  // reachable by deep link, and only THERE is replace right.
   //
-  // canGoBack(): der Screen ist auch per Deep Link erreichbar, dann gibt es
-  // nichts zurückzunehmen, nur DORT ist replace richtig.
-  // Auch der Rückweg ist ein Instant-Schnitt (Nutzer-Entscheid 2026-08-18:
-  // «man sollte instant zurück sein» — ein probierter 250-ms-Fade flog
-  // wieder raus). Was den Rückweg tatsächlich unsauber machte, war die
-  // Tab-Leiste, die unter der Vorschau kurz in die helle Form zurückfiel
-  // und beim Zurückkommen sichtbar umsprang; seit die Kino-Leiste am
-  // GEWÄHLTEN Tab hängt statt am Fokus, steht das Layout schon beim
-  // ersten Frame (cinemaStage.ts / _layout.tsx).
-  const zurueckZurKamera = () => {
+  // The way back is an instant cut too (user decision 2026-08-18: a tried
+  // 250 ms fade flew out again). What actually made the way back untidy was
+  // the tab bar, which briefly fell back into its light shape under the
+  // preview and visibly jumped on return; since the cinema bar hangs on the
+  // SELECTED tab instead of on the focus, the layout stands from the first
+  // frame (cinemaStage.ts / _layout.tsx).
+  const backToCamera = () => {
     if (router.canGoBack()) router.back();
     else router.replace('/capture');
   };
 
-  const verwerfen = () => {
-    if (sendet) return;
-    // Die eigene Pipeline (Task 12): die Hintergrund-Datei liegt im
-    // Verantwortungsbereich des nativen Moduls, nicht in dem von
-    // medien.dateiVerwerfen — sie kennt weder uri noch fertigen Zustand
-    // dieses Screens.
-    if (vorbereitet?.kind === 'native') {
+  const discard = () => {
+    if (submitting) return;
+    if (prewarmed?.kind === 'native') {
       nativeCapture.discard();
-      zurueckZurKamera();
+      backToCamera();
       return;
     }
-    // Final-Review, Critical 2 (unverändert gültig): auch der Verwerfen-Weg
-    // darf keine Datei hinterlassen. Beim Instant-Foto entsteht sie im
-    // Hintergrund und ist womöglich noch nicht fertig — deshalb hängt das
-    // Abräumen am Promise statt an einem Wert. Scheiterte das Speichern,
-    // gibt es nichts zu räumen.
-    if (foto) {
-      void foto.file.then((d) => medien.discardFile(d.uri)).catch(() => {});
+    if (photo) {
+      void photo.file.then((d) => media.discardFile(d.uri)).catch(() => {});
     } else if (uri) {
-      medien.discardFile(uri);
+      media.discardFile(uri);
     }
-    zurueckZurKamera();
+    backToCamera();
   };
 
-  const absenden = async () => {
-    // Doppel-Tipp während eines laufenden Sendevorgangs darf keinen zweiten
-    // Job erzeugen.
-    if (sendet) return;
+  const submit = async () => {
+    if (submitting) return;
 
-    // Navigationslücke: der Kamera-Screen (Task 7) reicht aktuell nur uri/typ/
-    // dauer weiter, kein tripId. Ohne trip_id liesse sich weder der storage_key
-    // noch die posts-Zeile korrekt bilden, ein Raten wäre eine stillschweigend
-    // falsch zugeordnete Aufnahme, also wird hier sichtbar abgelehnt statt
-    // geraten (gleiches Prinzip wie beim Speicherfehler unten).
     if (!tripId) {
-      setSendeFehler(OHNE_REISE_MELDUNG);
+      setSubmitError(WITHOUT_TRIP_MESSAGE);
       return;
     }
 
-    // Autoren-Kennung wird HIER, beim Einreihen, festgehalten, nicht erst
-    // vom Worker beim Schreiben aus der dann aktuell aktiven Sitzung gelesen
-    // (Task-13-Fix-Runde-2). Sonst könnte ein Moment, der noch in der
-    // Warteschlange liegt, unter dem Namen der nächsten angemeldeten Person
-    // auf demselben Gerät landen.
     if (!userId) {
-      setSendeFehler(OHNE_SITZUNG_MELDUNG);
+      setSubmitError(WITHOUT_SESSION_MESSAGE);
       return;
     }
 
-    setSendeFehler(null);
-    setSendet(true);
-    const postId = medien.newMomentId();
-    // Ausserhalb des try: der catch-Zweig muss wissen, was schon entstanden
-    // ist, um genau das Abgeleitete freizugeben, und nichts sonst.
-    let aufbereitet: { medium: string; thumb: string } | null = null;
-    // Die Quelle der Aufnahme: beim Instant-Foto die im Hintergrund
-    // gespeicherte Datei (das await unten wartet, falls sie noch schreibt,
-    // und wirft, falls sie scheiterte — voller Speicher landet damit im
-    // selben catch wie bisher), sonst die uri aus den Params.
-    let quelle: string | null = null;
+    setSubmitError(null);
+    setSubmitting(true);
+    const postId = media.newMomentId();
+    let prepared: { medium: string; thumb: string } | null = null;
+    let source: string | null = null;
     try {
-      // Die eigene Pipeline (Task 12): die Hintergrund-Datei schreibt der
-      // native Ringpuffer, dieses await wartet darauf wie beim Instant-Foto
-      // auf foto.file — eine Ablehnung (voller Speicher) landet dadurch im
-      // selben catch wie jeder andere Sendefehler, VOR dem Lesen der uri.
-      if (vorbereitet?.kind === 'native') await vorbereitet.fileReady;
-      quelle = foto ? (await foto.file).uri : (uri ?? null);
-      if (!quelle) {
-        // quelleFehlt leitet bereits um, hierher kommt es nie — aber wenn
-        // doch (etwa eine Übergabe ohne brauchbare uri, Gerätefund
-        // 2026-08-14: genau so ein stiller Ausstieg hat den
-        // savePictureAsync-Plattformfehler wochenlang unsichtbar gemacht),
-        // scheitert es SICHTBAR über den Fehlerpfad unten, der Knopf wird
-        // dort wieder frei.
+      if (prewarmed?.kind === 'native') await prewarmed.fileReady;
+      source = photo ? (await photo.file).uri : (uri ?? null);
+      if (!source) {
         throw new Error('Aufnahme ohne Quelle');
       }
-      aufbereitet =
-        typ === 'video' ? await medien.prepareVideo(quelle) : await medien.preparePhoto(quelle);
+      prepared =
+        mediaType === 'video' ? await media.prepareVideo(source) : await media.preparePhoto(source);
 
-      // Final-Review, Critical 2: Kamera, Bildbearbeitung und Video-Standbild
-      // schreiben alle nach Library/Caches, ein Verzeichnis, das iOS unter
-      // Speicherdruck leeren darf. Die Warteschlange soll Momente aber
-      // tagelang halten. Deshalb entsteht HIER, vor dem Einreihen, eine
-      // dauerhafte Kopie, und der Job merkt sich diese Pfade, nicht die
-      // flüchtigen.
-      const { medium, thumb } = await medien.persistDurably(postId, aufbereitet);
+      // Final-Review, Critical 2: camera, image processing and video still
+      // all write into Library/Caches, a directory iOS may empty under
+      // storage pressure, while the queue is supposed to hold moments for
+      // days. Hence the durable copy here, before enqueuing.
+      const { medium, thumb } = await media.persistDurably(postId, prepared);
 
-      // Final-Review, Important 5: die Endung kommt aus der TATSÄCHLICHEN
-      // Aufnahme, nicht aus der Aufnahmeart, expo-camera liefert auf iOS
-      // QuickTime (.mov), auf Android .mp4. Fotos gehen immer als JPEG raus,
-      // weil fotoAufbereiten sie ohnehin neu kodiert.
-      const endung = medien.mediaExtension(typ, aufbereitet.medium);
+      const extension = media.mediaExtension(mediaType, prepared.medium);
 
-      const getrimmteCaption = caption.trim();
+      const trimmedCaption = caption.trim();
       const job: QueueJob = {
         id: postId,
         post_id: postId,
         trip_id: tripId,
         author_id: userId,
-        typ,
+        typ: mediaType,
         medium_uri: medium,
         thumb_uri: thumb,
-        storage_key: medien.storageKey(tripId, postId, endung),
-        thumb_key: medien.thumbKey(tripId, postId),
-        caption: getrimmteCaption.length > 0 ? getrimmteCaption : null,
-        captured_at: zeit.captured_at,
-        captured_tz: zeit.captured_tz,
-        lat: ort.lat,
-        lng: ort.lng,
-        place_name: ort.place_name,
-        duration_s: typ === 'video' ? Number(dauer) : null,
+        storage_key: media.storageKey(tripId, postId, extension),
+        thumb_key: media.thumbKey(tripId, postId),
+        caption: trimmedCaption.length > 0 ? trimmedCaption : null,
+        captured_at: time.captured_at,
+        captured_tz: time.captured_tz,
+        lat: place.lat,
+        lng: place.lng,
+        place_name: place.place_name,
+        duration_s: mediaType === 'video' ? Number(duration) : null,
         zustand: 'wartet',
         versuche: 0,
         naechster_versuch: Date.now(),
@@ -493,79 +414,42 @@ export default function PreviewScreen() {
         thumb_geladen: false,
       };
 
-      // Nicht verhandelbar (Task-8-Brief): der Job muss in der Warteschlange
-      // stecken, BEVOR irgendeine Inszenierung läuft, die Inszenierung darf
-      // nie darüber entscheiden, ob ein Moment gesichert ist.
       await uploadWorker.enqueueJob(job);
 
-      // ERST HIER gehört der Moment der Warteschlange, und erst jetzt dürfen
-      // die Quellen weg: die Rohaufnahme aus der Kamera und alles daraus
-      // Abgeleitete im Cache. Vorher wäre bei einem Video die einzige Kopie
-      // dran (Re-Review).
-      medien.discardFile(quelle);
-      medien.discardIntermediates(quelle, aufbereitet);
+      media.discardFile(source);
+      media.discardIntermediates(source, prepared);
 
-      // Der Moment ist ab hier bereits sicher in der Warteschlange, die
-      // Erfolgsanimation (~2,5 s, DESIGN-LANGUAGE §5) kommentiert das nur
-      // noch, sie entscheidet über nichts mehr. Sie navigiert selbst weiter,
-      // sobald sie fertig ist (onFinished unten), bis dahin bleibt der
-      // Screen stehen, überdeckt vom weissen Erfolgs-Zwischenschirm, der
-      // auch jeden weiteren Tipp schluckt.
-      setVersiegelt(true);
-    } catch (fehler) {
-      // Ein Fehler beim Aufbereiten oder Einreihen (z.B. voller Gerätespeicher,
-      // Spec §7/§8) wird sichtbar gemacht statt den Moment stillschweigend
-      // verschwinden zu lassen, der Screen bleibt stehen.
-      //
-      // Was schon im dauerhaften Ordner liegt, muss dabei weg: ohne Job in der
-      // Warteschlange käme nie wieder jemand daran vorbei, der ihn aufräumt.
-      // Es ist nur eine KOPIE, das Original bleibt unangetastet (Re-Review).
-      medien.removeMomentFiles(postId);
-      // Die abgeleiteten Zwischenfassungen im Cache dazu; ein zweiter Versuch
-      // erzeugt sie neu. Die Rohaufnahme bleibt garantiert liegen, der Screen
-      // bleibt stehen und ein zweiter Versuch braucht sie noch. Bei einem Video
-      // IST sie das Medium, und zwischenfassungenVerwerfen lässt genau sie in
-      // Ruhe.
-      if (aufbereitet && quelle) medien.discardIntermediates(quelle, aufbereitet);
-      console.error('[preview] Einsenden fehlgeschlagen', fehler);
-      setSendeFehler(SENDEN_FEHLGESCHLAGEN_MELDUNG);
-      setSendet(false);
+      setSealed(true);
+    } catch (error) {
+      media.removeMomentFiles(postId);
+      if (prepared && source) media.discardIntermediates(source, prepared);
+      console.error('[preview] Einsenden fehlgeschlagen', error);
+      setSubmitError(SENDING_FAILED_MESSAGE);
+      setSubmitting(false);
     }
   };
 
-  const ortZeitText = ort.place_name ? `${ort.place_name} · ${zeitAnzeige(zeit.captured_at)}` : zeitAnzeige(zeit.captured_at);
+  const placeTimeText = place.place_name
+    ? `${place.place_name} · ${timeDisplay(time.captured_at)}`
+    : timeDisplay(time.captured_at);
 
-  const schreibt = tastatur > 0;
-  // Wo die Bildunterschrift beim Schreiben steht: direkt über der Tastatur,
-  // einen gestalteten Abstand darüber. Auf iOS bleibt das Fenster gleich
-  // gross, der Screen überbrückt die volle Tastaturhöhe selbst (die gemeldete
-  // Höhe schliesst die Tastaturleiste mit ein). Auf Android verkleinert das
-  // Fenster sich bereits von aussen (softwareKeyboardLayoutMode «resize», der
-  // Expo-Standard), dort wäre die Höhe ein zweites Mal gerechnet.
-  const schreibPosition = (Platform.OS === 'ios' ? tastatur : 0) + spacing.base;
-  // Und wo sie in Ruhe steht: direkt über dem Fuss, wie hoch der auch gerade
-  // ist. `spacing.xl` ist nur der Stand, bis der Fuss sich einmal gemessen hat.
-  const ruhePosition = unterkante + (fussHoehe || spacing.xl) + spacing.base;
+  const writing = keyboardHeight > 0;
+  const writingPosition = (Platform.OS === 'ios' ? keyboardHeight : 0) + spacing.base;
+  // `spacing.xl` is only the stand-in until the footer has measured itself
+  // once.
+  const restingPosition = bottomInset + (footerHeight || spacing.xl) + spacing.base;
 
-  if (quelleFehlt) return null;
+  if (sourceMissing) return null;
 
   return (
     <View style={styles.screen}>
-      {/* Ohne Slide und ohne Blende, als dokumentierte §5-Ausnahme (Spec
-          2026-08-13 §6, bekräftigt 2026-08-14): ein Parallax-Slide würde
-          dasselbe Vollbild wegschieben und wieder hereinholen, und eine
-          Blende hat nichts mehr zu überbrücken, seit beim Video ein Poster
-          (Bild 0) sofort steht — der harte Schnitt vom lebendigen Sucher auf
-          das volle Vorschaubild ist das Snapchat-Muster. Eine Blende würde
-          den Wechsel nur künstlich verlangsamen (am Gerät gemessen: an der
-          Zeichnzeit der VideoView ändert sie nichts). */}
       <Stack.Screen options={{ animation: 'none' }} />
 
-      {typ === 'video' ? (
-        vorbereitet?.kind === 'native' ? (
-          // Die eigene Pipeline (Task 12): der native Ringpuffer spielt
-          // bereits, bevor dieser Screen überhaupt zeichnet — keine
-          // VideoView, kein Poster, davon braucht diese Form keins.
+      {mediaType === 'video' ? (
+        prewarmed?.kind === 'native' ? (
+          // The own pipeline (Task 12): the native ring buffer is already
+          // playing before this screen even draws, so this shape needs
+          // neither a VideoView nor a poster.
           <InstantPreview testID="sofort-vorschau" style={StyleSheet.absoluteFill} />
         ) : (
           <>
@@ -576,12 +460,12 @@ export default function PreviewScreen() {
               contentFit="cover"
               nativeControls={false}
               allowsPictureInPicture={false}
-              onFirstFrameRender={() => setPosterSteht(false)}
+              onFirstFrameRender={() => setPosterVisible(false)}
             />
-            {posterSteht && vorbereiteterPlayer?.poster ? (
+            {posterVisible && prewarmedPlayer?.poster ? (
               <Image
                 testID="video-poster"
-                source={{ uri: vorbereiteterPlayer.poster }}
+                source={{ uri: prewarmedPlayer.poster }}
                 style={StyleSheet.absoluteFill}
                 contentFit="cover"
               />
@@ -591,29 +475,25 @@ export default function PreviewScreen() {
       ) : (
         <Image
           testID="foto-vorschau"
-          source={foto ? foto.ref : { uri }}
+          source={photo ? photo.ref : { uri }}
           style={StyleSheet.absoluteFill}
           contentFit="cover"
         />
       )}
 
-      {/* Foto-Scrims: der einzige erlaubte Gradient der App (DESIGN-LANGUAGE §1). */}
+      {/* Photo scrims: the only gradient the app allows (DESIGN-LANGUAGE §1). */}
       <LinearGradient
         colors={['rgba(0,0,0,0.35)', 'transparent']}
-        style={styles.scrimOben}
+        style={styles.scrimTop}
         pointerEvents="none"
       />
       <LinearGradient
         colors={['transparent', 'rgba(0,0,0,0.35)']}
-        style={styles.scrimUnten}
+        style={styles.scrimBottom}
         pointerEvents="none"
       />
 
-      {/* Zweiter Ausweg aus dem Feld, neben der Fertig-Taste auf der Tastatur:
-          ein Tipp irgendwohin auf das Foto. Er liegt bewusst NUR über dem
-          Medium und unter allem Bedienbaren, sonst verschluckte er den ersten
-          Tipp auf «Einsenden». */}
-      {schreibt && (
+      {writing && (
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Tastatur schliessen"
@@ -622,45 +502,45 @@ export default function PreviewScreen() {
         />
       )}
 
-      <Pill style={[styles.kopfPille, { top: oberkante }]}>
-        <Text style={[type.secondary, { color: cinema['text-1'] }]}>{ortZeitText}</Text>
+      <Pill style={[styles.headerPill, { top: topInset }]}>
+        <Text style={[type.secondary, { color: cinema['text-1'] }]}>{placeTimeText}</Text>
       </Pill>
 
-      {/* Verwerfen sitzt als X in der Kopfzeile, gegenüber von Ort und Zeit:
-          Es ist der Rückweg aus diesem Screen, keine gleichrangige Alternative
-          zum Einsenden. Unten stand es vorher neben dem Primär-Knopf und nahm
-          ihm ein Drittel der Breite. */}
+      {/* Discarding sits as an X in the header, opposite place and time: it is
+          the way back out of this screen, not an equal alternative to
+          submitting. Below it used to stand next to the primary button and
+          took a third of its width. */}
       <PressScale
         testID="verwerfen-knopf"
         accessibilityRole="button"
         accessibilityLabel="Aufnahme verwerfen"
-        disabled={sendet}
-        onPress={verwerfen}
-        style={[styles.verwerfenWrap, { top: oberkante }]}
+        disabled={submitting}
+        onPress={discard}
+        style={[styles.discardWrap, { top: topInset }]}
       >
-        <Pill style={styles.verwerfenPille}>
+        <Pill style={styles.discardPill}>
           <X size={18} color={cinema['text-1']} strokeWidth={1.75} />
         </Pill>
       </PressScale>
 
-      {/* Beim Schreiben steht die Bildunterschrift über der Tastatur, in Ruhe
-          direkt über dem Einsenden-Knopf: die beiden gehören zusammen, sie
-          sollen nicht als zwei Bänder mit Leere dazwischen dastehen. Die
-          Wisch-Geste ruht beim Schreiben, sonst zöge jeder Tippfehler-Wisch
-          das Feld wieder unter die Tastatur; der Versatz bleibt erhalten und
-          kommt beim Schliessen zurück. */}
+      {/* While writing the caption stands above the keyboard, at rest
+          directly above the submit button: the two belong together, they
+          should not stand there as two bands with emptiness in between. The
+          swipe gesture rests while writing, otherwise every typo swipe would
+          pull the field back under the keyboard; the offset is kept and
+          returns on closing. */}
       <Animated.View
         testID="bildunterschrift-feld"
-        {...(schreibt ? {} : panResponder.panHandlers)}
+        {...(writing ? {} : panResponder.panHandlers)}
         style={[
           styles.captionWrap,
-          schreibt
-            ? { bottom: schreibPosition }
-            : { bottom: ruhePosition, transform: pan.getTranslateTransform() },
+          writing
+            ? { bottom: writingPosition }
+            : { bottom: restingPosition, transform: pan.getTranslateTransform() },
         ]}
       >
-        {feldOffen ? (
-          <Pill style={styles.captionPille}>
+        {fieldOpen ? (
+          <Pill style={styles.captionPill}>
             <TextInput
               accessibilityLabel="Bildunterschrift"
               value={caption}
@@ -669,17 +549,10 @@ export default function PreviewScreen() {
               placeholderTextColor={cinema['text-2']}
               maxLength={CAPTION_MAX}
               autoFocus
-              // Einzeilig, und damit steht auf der Eingabetaste unten rechts
-              // «Fertig» statt eines Zeilenumbruchs: der Weg aus der Tastatur,
-              // den iOS selbst anbietet. Bei `multiline` gibt es ihn nicht,
-              // dort setzt dieselbe Taste eine neue Zeile, und genau deshalb
-              // kam man aus diesem Feld vorher nicht mehr heraus. Für eine
-              // Bildunterschrift von höchstens 120 Zeichen braucht es keine
-              // Absätze.
               returnKeyType="done"
               submitBehavior="blurAndSubmit"
               onSubmitEditing={() => Keyboard.dismiss()}
-              // Android setzt Text in einem Eingabefeld sonst an die Oberkante.
+              // Android otherwise sets text in an input field to the top edge.
               textAlignVertical="center"
               style={[styles.captionInput, { color: cinema['text-1'] }]}
             />
@@ -689,12 +562,12 @@ export default function PreviewScreen() {
             testID="bildunterschrift-chip"
             accessibilityRole="button"
             accessibilityLabel={caption ? `Bildunterschrift ändern: ${caption}` : 'Etwas dazu schreiben'}
-            onPress={() => setFeldOffen(true)}
+            onPress={() => setFieldOpen(true)}
             style={styles.chipWrap}
           >
-            <Pill style={styles.chipPille}>
-              {/* Der Stift lädt zum Schreiben ein. Steht schon etwas da,
-                  spricht der Text für sich und der Stift wäre Rauschen. */}
+            <Pill style={styles.chipPill}>
+              {/* The pencil invites writing. Once something stands there the
+                  text speaks for itself and the pencil would be noise. */}
               {!caption && <Pencil size={14} color={cinema['text-2']} strokeWidth={1.75} />}
               <Text
                 style={[type.body, { color: caption ? cinema['text-1'] : cinema['text-2'] }]}
@@ -707,28 +580,24 @@ export default function PreviewScreen() {
         )}
       </Animated.View>
 
-      {/* Fehlermeldung und Knopf stehen als EIN Block am unteren Rand und
-          werden zusammen gemessen (onLayout). Die Bildunterschrift hängt sich
-          an diese Höhe, statt an eine geratene Zahl: sonst überlappte sie den
-          Text, sobald eine Meldung dazukommt und den Block wachsen lässt. */}
       <View
         testID="fuss"
-        style={[styles.fuss, { bottom: unterkante }]}
-        onLayout={(e) => setFussHoehe(e.nativeEvent.layout.height)}
+        style={[styles.footer, { bottom: bottomInset }]}
+        onLayout={(e) => setFooterHeight(e.nativeEvent.layout.height)}
       >
-        {sendeFehler && (
-          <Text style={[type.secondary, styles.fehlerText, { color: palette.danger }]}>
-            {sendeFehler}
+        {submitError && (
+          <Text style={[type.secondary, styles.errorText, { color: palette.danger }]}>
+            {submitError}
           </Text>
         )}
-        <EinsendenButton onPress={() => void absenden()} loading={sendet} />
+        <SubmitButton onPress={() => void submit()} loading={submitting} />
       </View>
 
 
       <MomentSubmissionAnimation
-        visible={versiegelt}
-        onFinished={zurueckZurKamera}
-        counter={zaehler}
+        visible={sealed}
+        onFinished={backToCamera}
+        counter={counter}
       />
     </View>
   );
@@ -736,21 +605,21 @@ export default function PreviewScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: cinema['bg-0'] },
-  scrimOben: {
+  scrimTop: {
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
     height: 140,
   },
-  scrimUnten: {
+  scrimBottom: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
     height: 220,
   },
-  kopfPille: {
+  headerPill: {
     position: 'absolute',
     top: spacing.xl,
     left: spacing.screen,
@@ -758,43 +627,37 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.s,
     borderRadius: radius.pill,
   },
-  // Positionierung + Wisch-Transform bleiben auf dem äusseren Animated.View
-  // (panResponder braucht ein direktes Ziel für die Geste), die eigentliche
-  // Pillen-Optik (Radius, Blur, Tönung, Innenabstand) sitzt eine Ebene
-  // tiefer auf `captionPille` (components/Pille.tsx), sonst liesse sich
-  // beides nicht trennen: `Pille` ist keine `Animated.View`.
+  // Position and swipe transform stay on the outer Animated.View (panResponder
+  // needs a direct target for the gesture), the actual pill look (radius,
+  // blur, tint, inner spacing) sits one layer deeper on `captionPill`
+  // (components/Pill.tsx), otherwise the two could not be separated: `Pill` is
+  // not an `Animated.View`.
   captionWrap: {
     position: 'absolute',
     left: spacing.screen,
     right: spacing.screen,
     bottom: 168,
   },
-  // Dieselbe Form wie der Chip, aus dem sie hervorgeht: Beim Antippen soll sich
-  // die Pille öffnen, nicht in einen Kasten umspringen. `minHeight` +
-  // `justifyContent` halten den Text auf halber Höhe, statt ihn oben kleben zu
-  // lassen.
-  // Wie `type.body`, aber bewusst OHNE dessen `lineHeight: 24`: Auf iOS legt
-  // eine gesetzte Zeilenhöhe einen Absatz-Stil über den EINGEGEBENEN Text,
-  // nicht aber über den Platzhalter. Der Text sprang dadurch beim ersten
-  // Zeichen ein paar Punkte nach unten. Für eine einzeilige Bildunterschrift
-  // trägt die Zeilenhöhe ohnehin nichts bei.
   captionInput: {
     fontFamily: type.body.fontFamily,
     fontSize: type.body.fontSize,
     fontVariant: type.body.fontVariant,
   },
-  captionPille: {
+  // The same shape as the chip it grows out of: on tap the pill should open,
+  // not jump into a box. `minHeight` and `justifyContent` hold the text at
+  // half height instead of letting it stick to the top.
+  captionPill: {
     minHeight: 44,
     justifyContent: 'center',
     borderRadius: radius.pill,
     paddingHorizontal: spacing.base,
     paddingVertical: spacing.s,
   },
-  // Der Chip nimmt nur die Breite, die sein Text braucht: `flex-start` am
-  // Halter, der über die volle Screenbreite geht. Die Pille selbst ist rund
-  // (radius.pill) wie jede andere UI auf einem Foto, DESIGN-LANGUAGE §4.
+  // The chip takes only the width its text needs: `flex-start` on the holder,
+  // which spans the full screen width. The pill itself is round (radius.pill)
+  // like every other UI on a photo, DESIGN-LANGUAGE §4.
   chipWrap: { alignSelf: 'flex-start', maxWidth: '100%' },
-  chipPille: {
+  chipPill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.s,
@@ -802,27 +665,27 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.base,
     paddingVertical: spacing.s,
   },
-  // Das X liegt der Ort-und-Zeit-Pille gegenüber, auf gleicher Höhe.
-  verwerfenWrap: {
+  // The X lies opposite the place and time pill, at the same height.
+  discardWrap: {
     position: 'absolute',
     right: spacing.screen,
   },
-  verwerfenPille: {
+  discardPill: {
     width: 36,
     height: 36,
     borderRadius: radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  fehlerText: { textAlign: 'center' },
-  fuss: {
+  errorText: { textAlign: 'center' },
+  footer: {
     position: 'absolute',
     left: spacing.screen,
     right: spacing.screen,
     bottom: spacing.xl,
     gap: spacing.m,
   },
-  einsendenButton: {
+  submitButton: {
     height: 52,
     borderRadius: radius.control,
     alignItems: 'center',

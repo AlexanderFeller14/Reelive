@@ -7,9 +7,9 @@
 //
 // DELIBERATELY NOT added to shareApi.ts, even though the plan (phase-6
 // plan, file structure) sketches exactly one shared file "create, revoke,
-// resolve link": `mobile/src/app/share/__tests__/modulgraph.test.ts`
+// resolve link": `mobile/src/app/share/__tests__/moduleGraph.test.ts`
 // (Task 5, W4 proof) reads the ENTIRE source text of every file reachable
-// from teilen/[token].tsx and demands that EXACTLY ONE `aktion` literal
+// from share/[token].tsx and demands that EXACTLY ONE `aktion` literal
 // appears in the whole graph: `'aufloesen'`. shareApi.ts is in this graph
 // (the web player imports it). Additional `aktion: 'erstellen'`/
 // `'widerrufen'` literals in the SAME file would have broken this

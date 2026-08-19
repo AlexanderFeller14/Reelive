@@ -22,8 +22,8 @@ import type { MapPoint } from './types';
 
 // What a tap on a pin shows: the single moment and, where several sit on
 // the same coordinate, their list (Spec §5.7). The same surface, needed in
-// two places: on the map in the app (recap/[id]/karte.tsx) and on the map
-// of the shared recap (teilen/[token].tsx).
+// two places: on the map in the app (recap/[id]/map.tsx) and on the map
+// of the shared recap (share/[token].tsx).
 //
 // It lived here twice in the project until now, about 250 lines, in this
 // order: first the app version, then the shared one, which took it over.
@@ -37,12 +37,12 @@ import type { MapPoint } from './types';
 // This file lives in features/map, not in components: it knows `MapPoint`,
 // i.e. the map. And it deliberately pulls in NOTHING native, react-native-maps
 // doesn't appear here. The shared recap also runs in the browser bundle
-// (see teilen/__tests__/modulgraph.test.ts), and an import from there would
+// (see share/__tests__/moduleGraph.test.ts), and an import from there would
 // be the end of the web export.
 
 // What an image can be loaded from. Deliberately narrower than the two
-// types the callers hold (`MedienUrl` from urlVorrat.ts additionally
-// carries `post_id`, `MedienLink` in teilen/[token].tsx is structurally
+// types the callers hold (`MediaUrl` from urlPool.ts additionally
+// carries `post_id`, `MedienLink` in share/[token].tsx is structurally
 // this one): exactly these two fields are needed, and asking for less
 // accepts both without a screen having to rebuild its type.
 export type ImageSource = { medium_url: string; thumb_url: string | null };
@@ -50,7 +50,7 @@ export type ImageSource = { medium_url: string; thumb_url: string | null };
 // A URL an image can actually be loaded from, or `null`.
 //
 // `medium_url` is typed as `string` in both source types, but is taken
-// over unchecked from an Edge Function's response (urlVorrat.ts checks the
+// over unchecked from an Edge Function's response (urlPool.ts checks the
 // SHAPE of the response, not every field of every moment; shareApi.ts
 // likewise). If the field is missing there, the type lies, and without
 // this check an `undefined` would go to the pin as an image source.
@@ -188,7 +188,7 @@ export function MomentSheetContent({
         <View style={[styles.sheetImage, { backgroundColor: colors['bg-1'] }]}>
           {/* Without a usable URL, the calm bg-1 surface stays, no pulse:
               nothing more is coming (same distinction as in the pin
-              skeleton, components/KartenNadel.tsx). */}
+              skeleton, components/MapPin.tsx). */}
           {imageUrl !== null && (
             <Image
               testID={`${form.prefix}sheet-bild`}

@@ -5,37 +5,37 @@ import { spacing } from '@/theme/tokens';
 
 const mockReplace = jest.fn();
 const mockBack = jest.fn();
-// Final-Review, Important 3: die Vorschau wird vom Stapel GENOMMEN statt durch
-// einen neuen Kamera-Screen ersetzt. Nur ohne Rückweg (Deep Link) bleibt
-// replace übrig, deshalb steuerbar.
-let mockKannZurueck = true;
+// Final-Review, Important 3: the preview is TAKEN OFF the stack instead of
+// being replaced by a new camera screen. Only without a way back (deep link)
+// does replace remain, hence steerable.
+let mockCanGoBack = true;
 let mockParams: Record<string, string | undefined> = {
   uri: 'file://foto.jpg',
   typ: 'photo',
   dauer: '0',
   tripId: 't1',
 };
-const mockStackScreenOptionen = jest.fn();
+const mockStackScreenOptions = jest.fn();
 const mockSetOptions = jest.fn();
 jest.mock('expo-router', () => ({
   useRouter: () => ({
     replace: mockReplace,
     back: mockBack,
     push: jest.fn(),
-    canGoBack: () => mockKannZurueck,
+    canGoBack: () => mockCanGoBack,
   }),
   useNavigation: () => ({ setOptions: mockSetOptions }),
   useLocalSearchParams: () => mockParams,
   Stack: {
     Screen: (props: { options?: object }) => {
-      mockStackScreenOptionen(props.options);
+      mockStackScreenOptions(props.options);
       return null;
     },
   },
 }));
 
-// expo-image ist ein natives View; der Platzhalter reicht den source-Prop
-// durch, damit die Tests prüfen können, ob Ref oder URI ankommt.
+// expo-image is a native view; the stand-in passes the source prop through so
+// the tests can check whether a ref or a uri arrives.
 jest.mock('expo-image', () => {
   const ReactActual = require('react');
   const { View } = require('react-native');
@@ -47,11 +47,11 @@ jest.mock('expo-status-bar', () => ({
   setStatusBarStyle: (...args: unknown[]) => mockSetStatusBarStyle(...args),
 }));
 
-// expo-video braucht ein natives Modul, das es in diesem Jest-Setup nicht
-// gibt (gleiche Einschränkung wie expo-image in Task 8, siehe dessen
-// Bericht), deshalb gemockt statt real importiert. `useVideoPlayer` liefert
-// ein greifbares Fake-Player-Objekt, damit der Video-Nachzug prüfen kann,
-// dass die Vorschau stumm und in Schleife läuft.
+// expo-video needs a native module that this Jest setup does not have (the
+// same limitation as expo-image in Task 8, see its report), hence mocked
+// instead of really imported. `useVideoPlayer` returns a tangible fake player
+// object so the video follow-up can check that the preview runs muted and in
+// a loop.
 const mockVideoPlayer = {
   loop: false,
   muted: false,
@@ -59,7 +59,7 @@ const mockVideoPlayer = {
   audioMixingMode: 'auto',
   play: jest.fn(),
   addListener: jest.fn(
-    (_ereignis: string, _horcher: (e: { isPlaying: boolean }) => void) => ({ remove: jest.fn() })
+    (_event: string, _listener: (e: { isPlaying: boolean }) => void) => ({ remove: jest.fn() })
   ),
 };
 const mockUseVideoPlayer = jest.fn((source: unknown, setup?: (p: typeof mockVideoPlayer) => void) => {
@@ -71,9 +71,9 @@ jest.mock('expo-video', () => ({
   VideoView: (props: Record<string, unknown>) => {
     const ReactActual = require('react');
     const { View } = require('react-native');
-    // player und onFirstFrameRender werden durchgereicht: die Tests prüfen,
-    // ob der vorgewärmte Player aus der Übergabe spielt und ob das Poster
-    // dem ersten gezeichneten Bild weicht.
+    // player and onFirstFrameRender are passed through: the tests check
+    // whether the prewarmed player from the handoff plays and whether the
+    // poster gives way to the first drawn frame.
     return ReactActual.createElement(View, {
       testID: props.testID,
       player: props.player,
@@ -82,11 +82,11 @@ jest.mock('expo-video', () => ({
   },
 }));
 
-// Native Sofort-Vorschau (Task 12): das Modul bleibt für diesen Screen eine
-// Blackbox, der Mock rendert nur ein View mit durchgereichtem testID.
-// Indirektion wegen derselben Hoisting-Falle wie bei den übrigen Mocks
-// dieser Datei (jest.mock wird vor die const-Deklaration gehoben, ein Zugriff
-// auf eine Variable mit dem Präfix `mock` ist davon ausgenommen).
+// Native instant preview (Task 12): the module stays a black box for this
+// screen, the mock only renders a view with the testID passed through.
+// Indirection because of the same hoisting trap as with the other mocks in
+// this file (jest.mock is hoisted above the const declaration, an access to a
+// variable with the prefix `mock` is exempt from that).
 const mockNativeDiscard = jest.fn();
 jest.mock('@/features/camera/nativeCapture', () => ({
   discard: () => mockNativeDiscard(),
@@ -97,57 +97,57 @@ jest.mock('@/features/camera/nativeCapture', () => ({
   },
 }));
 
-const mockNeuePostId = jest.fn();
-const mockFotoAufbereiten = jest.fn();
-const mockVideoAufbereiten = jest.fn();
-// Final-Review, Critical 2: Aufnahmen wandern beim Einreihen aus dem
-// flüchtigen Cache an einen dauerhaften Ort, und beide Verlassenswege
-// (Verwerfen, gescheitertes Einsenden) räumen auf.
-const mockDauerhaftSichern = jest.fn();
-const mockMomentDateienEntfernen = jest.fn();
-const mockDateiVerwerfen = jest.fn();
-const mockZwischenfassungenVerwerfen = jest.fn();
+const mockNewMomentId = jest.fn();
+const mockPreparePhoto = jest.fn();
+const mockPrepareVideo = jest.fn();
+// Final-Review, Critical 2: captures move out of the volatile cache to a
+// durable place when enqueued, and both ways of leaving (discarding, failed
+// submitting) clean up.
+const mockPersistDurably = jest.fn();
+const mockRemoveMomentFiles = jest.fn();
+const mockDiscardFile = jest.fn();
+const mockDiscardIntermediates = jest.fn();
 jest.mock('@/features/moments/media', () => ({
-  newMomentId: () => mockNeuePostId(),
-  preparePhoto: (uri: string) => mockFotoAufbereiten(uri),
-  prepareVideo: (uri: string) => mockVideoAufbereiten(uri),
-  persistDurably: (postId: string, dateien: unknown) => mockDauerhaftSichern(postId, dateien),
-  removeMomentFiles: (postId: string) => mockMomentDateienEntfernen(postId),
-  discardFile: (uri: string) => mockDateiVerwerfen(uri),
-  discardIntermediates: (roh: string, aufbereitet: unknown) =>
-    mockZwischenfassungenVerwerfen(roh, aufbereitet),
-  storageKey: (tripId: string, postId: string, endung: string) =>
-    `trips/${tripId}/${postId}.${endung}`,
-  // Important 5: die Endung kommt aus der tatsächlichen Aufnahme.
-  mediaExtension: (typ: string, uri: string) =>
-    typ === 'video' ? (uri.endsWith('.mov') ? 'mov' : 'mp4') : 'jpg',
+  newMomentId: () => mockNewMomentId(),
+  preparePhoto: (uri: string) => mockPreparePhoto(uri),
+  prepareVideo: (uri: string) => mockPrepareVideo(uri),
+  persistDurably: (postId: string, files: unknown) => mockPersistDurably(postId, files),
+  removeMomentFiles: (postId: string) => mockRemoveMomentFiles(postId),
+  discardFile: (uri: string) => mockDiscardFile(uri),
+  discardIntermediates: (raw: string, prepared: unknown) =>
+    mockDiscardIntermediates(raw, prepared),
+  storageKey: (tripId: string, postId: string, extension: string) =>
+    `trips/${tripId}/${postId}.${extension}`,
+  // Important 5: the extension comes from the actual capture.
+  mediaExtension: (mediaType: string, uri: string) =>
+    mediaType === 'video' ? (uri.endsWith('.mov') ? 'mov' : 'mp4') : 'jpg',
   thumbKey: (tripId: string, postId: string) => `trips/${tripId}/${postId}_t.jpg`,
 }));
 
-const mockJobEinreihen = jest.fn();
+const mockEnqueueJob = jest.fn();
 jest.mock('@/features/moments/uploadWorker', () => ({
-  enqueueJob: (job: unknown) => mockJobEinreihen(job),
+  enqueueJob: (job: unknown) => mockEnqueueJob(job),
 }));
 
-// Task-13-Fix-Runde-2: die Autoren-Kennung wird beim Einreihen aus useAuth()
-// gelesen, nicht mehr erst vom Worker beim Schreiben aus der Sitzung.
+// Task-13-Fix-Runde-2: the author id is read from useAuth() when enqueuing,
+// no longer by the worker from the session when writing.
 const mockAuth: { userId: string | null } = { userId: 'u1' };
 jest.mock('@/features/auth/AuthProvider', () => ({ useAuth: () => mockAuth }));
 
-const mockJetzt = jest.fn();
-const mockOrtBestimmen = jest.fn();
+const mockNow = jest.fn();
+const mockDeterminePlace = jest.fn();
 jest.mock('@/features/moments/placeAndTime', () => ({
-  now: () => mockJetzt(),
-  determinePlace: () => mockOrtBestimmen(),
+  now: () => mockNow(),
+  determinePlace: () => mockDeterminePlace(),
 }));
 
-// Die echte Erfolgsanimation läuft ~2,5 s und ist für sich getestet
-// (MomentSubmissionAnimation.test.tsx), hier interessiert nur der Vertrag
-// «wird sichtbar, sobald der Job eingereiht ist, und navigiert über
-// onFinished weiter». Der Mock feuert onFinished synchron, sobald er
-// sichtbar wird, damit die bestehenden Erwartungen an mockReplace/mockBack
-// ohne Timer-Steuerung auskommen.
-const mockAnimationSichtbar = jest.fn();
+// The real success animation runs ~2.5 s and is tested for itself
+// (MomentSubmissionAnimation.test.tsx), here only the contract matters:
+// "becomes visible as soon as the job is enqueued, and navigates on via
+// onFinished". The mock fires onFinished synchronously as soon as it becomes
+// visible so the existing expectations on mockReplace/mockBack get by without
+// timer steering.
+const mockAnimationVisible = jest.fn();
 const mockAnimationProps = jest.fn();
 jest.mock('@/components/MomentSubmissionAnimation', () => {
   const react = jest.requireActual('react');
@@ -161,7 +161,7 @@ jest.mock('@/components/MomentSubmissionAnimation', () => {
       onFinished: () => void;
       counter?: number | null;
     }) => {
-      mockAnimationSichtbar(visible);
+      mockAnimationVisible(visible);
       mockAnimationProps({ visible, counter });
       react.useEffect(() => {
         if (visible) onFinished();
@@ -171,33 +171,34 @@ jest.mock('@/components/MomentSubmissionAnimation', () => {
   };
 });
 
-// Der Zählerstand vor dem Moment kommt aus zaehler.ts (offline-fest); die
-// Animation rollt darauf +1 hoch. Der Abruf darf scheitern, dann entfällt
-// nur die Zahl.
-const mockEigenerZaehler = jest.fn();
+// The counter before the moment comes from counter.ts (offline proof); the
+// animation rolls up by one from there. The fetch may fail, then only the
+// number falls away.
+const mockOwnCounter = jest.fn();
 jest.mock('@/features/moments/counter', () => ({
-  ownMomentCount: (tripId: string) => mockEigenerZaehler(tripId),
+  ownMomentCount: (tripId: string) => mockOwnCounter(tripId),
 }));
 
 import * as handoff from '@/features/camera/handoff';
 import type { VideoPlayer } from 'expo-video';
 import PreviewScreen from '../preview';
 
-// Nicht hart auf "14:34" verdrahtet: welche lokale Uhrzeit aus dem UTC-ISO-Wert
-// wird, hängt von der Zeitzone der ausführenden Maschine ab (hier zufällig
-// Europe/Zurich/CEST, auf einem CI-Runner mit UTC wäre es "12:34"). Dieselbe
-// Umrechnung wie preview.tsx macht die Erwartung unabhängig davon korrekt.
+// Not hard wired to "14:34": which local time comes out of the UTC ISO value
+// depends on the time zone of the running machine (here by chance
+// Europe/Zurich/CEST, on a CI runner with UTC it would be "12:34"). The same
+// conversion as in preview.tsx makes the expectation correct independently of
+// that.
 const CAPTURED_AT = '2026-08-07T12:34:00.000Z';
-function erwarteteZeit(iso: string): string {
-  const datum = new Date(iso);
-  const zweistellig = (n: number) => String(n).padStart(2, '0');
-  return `${zweistellig(datum.getHours())}:${zweistellig(datum.getMinutes())}`;
+function expectedTime(iso: string): string {
+  const date = new Date(iso);
+  const twoDigits = (n: number) => String(n).padStart(2, '0');
+  return `${twoDigits(date.getHours())}:${twoDigits(date.getMinutes())}`;
 }
 
-// In Ruhe steht an der Stelle der Bildunterschrift nur ein Chip; das
-// Eingabefeld entsteht erst mit dem Tipp darauf (und holt sich per autoFocus
-// die Tastatur). Wer im Test schreiben will, muss es also erst öffnen.
-async function bildunterschriftOeffnen() {
+// At rest only a chip stands where the caption goes; the input field comes
+// into being with the tap on it (and fetches the keyboard via autoFocus).
+// Whoever wants to write in a test has to open it first.
+async function openCaption() {
   await fireEvent.press(screen.getByTestId('bildunterschrift-chip'));
 }
 
@@ -206,88 +207,88 @@ beforeEach(() => {
   mockVideoPlayer.playing = false;
   mockAuth.userId = 'u1';
   mockParams = { uri: 'file://foto.jpg', typ: 'photo', dauer: '0', tripId: 't1' };
-  mockNeuePostId.mockReturnValue('post-1');
-  mockFotoAufbereiten.mockResolvedValue({ medium: 'file://medium.jpg', thumb: 'file://thumb.jpg' });
-  mockVideoAufbereiten.mockResolvedValue({ medium: 'file://video.mp4', thumb: 'file://thumb.jpg' });
-  // Gibt zurück, was die echte Fassung zurückgibt: die Pfade im dauerhaften
-  // Ordner. Genau diese müssen im Job landen, nicht die Cache-Pfade.
-  mockDauerhaftSichern.mockImplementation(async (postId: string) => ({
+  mockNewMomentId.mockReturnValue('post-1');
+  mockPreparePhoto.mockResolvedValue({ medium: 'file://medium.jpg', thumb: 'file://thumb.jpg' });
+  mockPrepareVideo.mockResolvedValue({ medium: 'file://video.mp4', thumb: 'file://thumb.jpg' });
+  // Returns what the real implementation returns: the paths in the durable
+  // folder. Exactly those have to land in the job, not the cache paths.
+  mockPersistDurably.mockImplementation(async (postId: string) => ({
     medium: `file://dokumente/momente/${postId}/medium.jpg`,
     thumb: `file://dokumente/momente/${postId}/thumb.jpg`,
   }));
-  mockJobEinreihen.mockResolvedValue(undefined);
-  mockEigenerZaehler.mockResolvedValue(4);
-  mockJetzt.mockReturnValue({ captured_at: CAPTURED_AT, captured_tz: 'Europe/Zurich' });
-  mockKannZurueck = true;
-  // Standardmässig hängend (nie auflösend): jeder Test, der eine bestimmte
-  // Antwort braucht, überschreibt das explizit. So bleibt sichtbar, dass die
-  // Anzeige nicht auf den Ort wartet, bevor sie den Screen zeigt.
-  mockOrtBestimmen.mockImplementation(() => new Promise(() => {}));
-  // Leert den Holder zwischen den Tests: ohne Test-Foto läuft jeder
-  // bestehende Foto-Test über den alten uri-Weg (foto === null), ohne
-  // Test-Player jeder Video-Test über den eigenen Hook-Player.
+  mockEnqueueJob.mockResolvedValue(undefined);
+  mockOwnCounter.mockResolvedValue(4);
+  mockNow.mockReturnValue({ captured_at: CAPTURED_AT, captured_tz: 'Europe/Zurich' });
+  mockCanGoBack = true;
+  // Hanging by default (never resolving): every test that needs a particular
+  // answer overrides this explicitly. That keeps it visible that the display
+  // does not wait for the place before showing the screen.
+  mockDeterminePlace.mockImplementation(() => new Promise(() => {}));
+  // Empties the holder between the tests: without a test photo every existing
+  // photo test runs the old uri way (photo === null), without a test player
+  // every video test runs on its own hook player.
   handoff.takePhoto();
   handoff.takeVideo();
 });
 
-test('die Aufnahme erscheint sofort, ohne auf den Ort zu warten', async () => {
+test('the capture appears at once, without waiting for the place', async () => {
   await render(<PreviewScreen />);
   expect(await screen.findByText('Einsenden')).toBeTruthy();
 });
 
-test('eine Caption über 120 Zeichen wird begrenzt', async () => {
-  mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
+test('a caption beyond 120 characters is cut back to the limit', async () => {
+  mockDeterminePlace.mockResolvedValue({ lat: null, lng: null, place_name: null });
   await render(<PreviewScreen />);
-  await bildunterschriftOeffnen();
-  const eingabe = screen.getByLabelText('Bildunterschrift');
-  await fireEvent.changeText(eingabe, 'a'.repeat(150));
-  expect((eingabe.props.value as string).length).toBe(120);
+  await openCaption();
+  const input = screen.getByLabelText('Bildunterschrift');
+  await fireEvent.changeText(input, 'a'.repeat(150));
+  expect((input.props.value as string).length).toBe(120);
 });
 
-test('Ort und Zeit erscheinen klein, sobald ortBestimmen geantwortet hat', async () => {
-  let aufloesen: (v: { lat: number; lng: number; place_name: string }) => void = () => {};
-  mockOrtBestimmen.mockImplementation(
+test('place and time appear in small type as soon as determinePlace has answered', async () => {
+  let resolvePlace: (v: { lat: number; lng: number; place_name: string }) => void = () => {};
+  mockDeterminePlace.mockImplementation(
     () =>
       new Promise((resolve) => {
-        aufloesen = resolve;
+        resolvePlace = resolve;
       })
   );
   await render(<PreviewScreen />);
   expect(screen.queryByText(/Luzern/)).toBeNull();
 
   await act(async () => {
-    aufloesen({ lat: 47.05, lng: 8.31, place_name: 'Luzern' });
+    resolvePlace({ lat: 47.05, lng: 8.31, place_name: 'Luzern' });
   });
 
-  expect(await screen.findByText(`Luzern · ${erwarteteZeit(CAPTURED_AT)}`)).toBeTruthy();
+  expect(await screen.findByText(`Luzern · ${expectedTime(CAPTURED_AT)}`)).toBeTruthy();
 });
 
-test('ohne Ortsnamen zeigt die Pille nur die Zeit', async () => {
-  mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
+test('without a place name the pill shows the time alone', async () => {
+  mockDeterminePlace.mockResolvedValue({ lat: null, lng: null, place_name: null });
   await render(<PreviewScreen />);
-  expect(await screen.findByText(erwarteteZeit(CAPTURED_AT))).toBeTruthy();
+  expect(await screen.findByText(expectedTime(CAPTURED_AT))).toBeTruthy();
 });
 
-test('Einsenden reiht genau einen Job ein und navigiert zur Kamera zurück', async () => {
-  mockOrtBestimmen.mockResolvedValue({ lat: 47.05, lng: 8.31, place_name: 'Luzern' });
+test('submitting enqueues exactly one job and navigates back to the camera', async () => {
+  mockDeterminePlace.mockResolvedValue({ lat: 47.05, lng: 8.31, place_name: 'Luzern' });
   await render(<PreviewScreen />);
-  await bildunterschriftOeffnen();
+  await openCaption();
   await fireEvent.changeText(screen.getByLabelText('Bildunterschrift'), 'Was für ein Abend');
 
   await act(async () => {
     await fireEvent.press(screen.getByText('Einsenden'));
   });
 
-  expect(mockFotoAufbereiten).toHaveBeenCalledWith('file://foto.jpg');
-  expect(mockJobEinreihen).toHaveBeenCalledTimes(1);
-  const job = mockJobEinreihen.mock.calls[0][0];
+  expect(mockPreparePhoto).toHaveBeenCalledWith('file://foto.jpg');
+  expect(mockEnqueueJob).toHaveBeenCalledTimes(1);
+  const job = mockEnqueueJob.mock.calls[0][0];
   expect(job).toMatchObject({
     id: 'post-1',
     post_id: 'post-1',
     trip_id: 't1',
     author_id: 'u1',
     typ: 'photo',
-    // Die dauerhaften Pfade, nicht die aus dem Cache (Critical 2).
+    // The durable paths, not the ones from the cache (Critical 2).
     medium_uri: 'file://dokumente/momente/post-1/medium.jpg',
     thumb_uri: 'file://dokumente/momente/post-1/thumb.jpg',
     storage_key: 'trips/t1/post-1.jpg',
@@ -305,17 +306,17 @@ test('Einsenden reiht genau einen Job ein und navigiert zur Kamera zurück', asy
     medium_geladen: false,
     thumb_geladen: false,
   });
-  // Important 3: die Vorschau wird vom Stapel genommen, nicht durch einen
-  // zweiten Kamera-Screen ersetzt.
+  // Important 3: the preview is taken off the stack, not replaced by a second
+  // camera screen.
   expect(mockBack).toHaveBeenCalledTimes(1);
   expect(mockReplace).not.toHaveBeenCalled();
 });
 
-// Ohne Rückweg (per Deep Link direkt in die Vorschau) gibt es nichts vom
-// Stapel zu nehmen, nur dort bleibt replace richtig.
-test('ohne Rückweg im Stapel führt der Weg zurück per replace zur Kamera', async () => {
-  mockKannZurueck = false;
-  mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
+// Without a way back (straight into the preview by deep link) there is
+// nothing to take off the stack, only there does replace remain right.
+test('without a way back on the stack the return leads to the camera via replace', async () => {
+  mockCanGoBack = false;
+  mockDeterminePlace.mockResolvedValue({ lat: null, lng: null, place_name: null });
   await render(<PreviewScreen />);
 
   await act(async () => {
@@ -326,35 +327,33 @@ test('ohne Rückweg im Stapel führt der Weg zurück per replace zur Kamera', as
   expect(mockBack).not.toHaveBeenCalled();
 });
 
-test('die Erfolgsanimation wird erst sichtbar, nachdem der Job eingereiht ist, und navigiert erst über ihr onFinished', async () => {
-  mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
+test('the success animation shows only after the job is enqueued and navigates only through its onFinished', async () => {
+  mockDeterminePlace.mockResolvedValue({ lat: null, lng: null, place_name: null });
   await render(<PreviewScreen />);
-  // Vor dem Senden: die Animation ist unsichtbar.
-  expect(mockAnimationSichtbar).toHaveBeenLastCalledWith(false);
+  expect(mockAnimationVisible).toHaveBeenLastCalledWith(false);
 
-  const reihenfolge: string[] = [];
-  mockJobEinreihen.mockImplementation(async () => {
-    reihenfolge.push('eingereiht');
+  const order: string[] = [];
+  mockEnqueueJob.mockImplementation(async () => {
+    order.push('enqueued');
   });
   mockBack.mockImplementation(() => {
-    reihenfolge.push('navigiert');
+    order.push('navigated');
   });
 
   await act(async () => {
     await fireEvent.press(screen.getByText('Einsenden'));
   });
 
-  expect(mockAnimationSichtbar).toHaveBeenLastCalledWith(true);
-  expect(reihenfolge).toEqual(['eingereiht', 'navigiert']);
-  // Die Navigation kommt genau einmal, aus genau einem onFinished.
+  expect(mockAnimationVisible).toHaveBeenLastCalledWith(true);
+  expect(order).toEqual(['enqueued', 'navigated']);
   expect(mockBack).toHaveBeenCalledTimes(1);
 });
 
-test('die Erfolgsanimation bekommt den Zählerstand der Reise fürs Hochrollen', async () => {
-  mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
-  mockEigenerZaehler.mockResolvedValue(11);
+test('the success animation gets the trip counter to roll up from', async () => {
+  mockDeterminePlace.mockResolvedValue({ lat: null, lng: null, place_name: null });
+  mockOwnCounter.mockResolvedValue(11);
   await render(<PreviewScreen />);
-  expect(mockEigenerZaehler).toHaveBeenCalledWith('t1');
+  expect(mockOwnCounter).toHaveBeenCalledWith('t1');
 
   await act(async () => {
     await fireEvent.press(screen.getByText('Einsenden'));
@@ -363,9 +362,9 @@ test('die Erfolgsanimation bekommt den Zählerstand der Reise fürs Hochrollen',
   expect(mockAnimationProps).toHaveBeenLastCalledWith({ visible: true, counter: 11 });
 });
 
-test('scheitert der Zählerabruf, läuft die Erfolgsanimation ohne Zahl', async () => {
-  mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
-  mockEigenerZaehler.mockRejectedValue(new Error('kaputte Warteschlange'));
+test('when the counter fetch fails the success animation runs without a number', async () => {
+  mockDeterminePlace.mockResolvedValue({ lat: null, lng: null, place_name: null });
+  mockOwnCounter.mockRejectedValue(new Error('broken queue'));
   await render(<PreviewScreen />);
 
   await act(async () => {
@@ -375,12 +374,13 @@ test('scheitert der Zählerabruf, läuft die Erfolgsanimation ohne Zahl', async 
   expect(mockAnimationProps).toHaveBeenLastCalledWith({ visible: true, counter: null });
 });
 
-// Gerätefund 2026-08-14: eine Übergabe ohne brauchbare uri (die iOS-Form von
-// savePictureAsync vor der Begradigung in handoff.ts) liess das Einsenden
-// KOMMENTARLOS abbrechen: kein Job, keine Meldung, der Screen stand einfach
-// da. Fehlt die Quelle, muss das sichtbar scheitern wie jeder Sendefehler.
-test('eine Übergabe ohne uri lässt das Einsenden sichtbar scheitern statt still', async () => {
-  mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
+// Device finding 2026-08-14: a handoff without a usable uri (the iOS shape of
+// savePictureAsync before it was straightened out in handoff.ts) let
+// submitting break off WITHOUT A WORD: no job, no message, the screen just
+// stood there. If the source is missing, that has to fail visibly like every
+// other submit error.
+test('a handoff without a uri lets submitting fail visibly instead of silently', async () => {
+  mockDeterminePlace.mockResolvedValue({ lat: null, lng: null, place_name: null });
   handoff.setPhoto({ ref: {}, file: Promise.resolve({}) } as never);
   await render(<PreviewScreen />);
 
@@ -388,132 +388,150 @@ test('eine Übergabe ohne uri lässt das Einsenden sichtbar scheitern statt stil
     await fireEvent.press(screen.getByText('Einsenden'));
   });
 
-  expect(mockJobEinreihen).not.toHaveBeenCalled();
+  expect(mockEnqueueJob).not.toHaveBeenCalled();
   expect(screen.getByText(/konnte nicht gesichert werden/)).toBeTruthy();
-  expect(mockAnimationSichtbar).toHaveBeenLastCalledWith(false);
+  expect(mockAnimationVisible).toHaveBeenLastCalledWith(false);
 });
 
-test('bei einem Fehler beim Einreihen bleibt die Erfolgsanimation unsichtbar und nichts navigiert', async () => {
-  mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
-  mockJobEinreihen.mockRejectedValue(new Error('SQLITE_FULL'));
+test('when enqueuing fails the success animation stays invisible and nothing navigates', async () => {
+  mockDeterminePlace.mockResolvedValue({ lat: null, lng: null, place_name: null });
+  mockEnqueueJob.mockRejectedValue(new Error('SQLITE_FULL'));
   await render(<PreviewScreen />);
 
   await act(async () => {
     await fireEvent.press(screen.getByText('Einsenden'));
   });
 
-  expect(mockAnimationSichtbar).toHaveBeenLastCalledWith(false);
+  expect(mockAnimationVisible).toHaveBeenLastCalledWith(false);
   expect(mockBack).not.toHaveBeenCalled();
   expect(mockReplace).not.toHaveBeenCalled();
 });
 
-test('eine leere Caption wird als null statt als Leerstring eingereiht', async () => {
-  mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
+test('an empty caption is enqueued as null instead of an empty string', async () => {
+  mockDeterminePlace.mockResolvedValue({ lat: null, lng: null, place_name: null });
   await render(<PreviewScreen />);
 
   await act(async () => {
     await fireEvent.press(screen.getByText('Einsenden'));
   });
 
-  expect(mockJobEinreihen.mock.calls[0][0]).toMatchObject({ caption: null });
+  expect(mockEnqueueJob.mock.calls[0][0]).toMatchObject({ caption: null });
 });
 
-test('ein Video trägt seine Dauer in duration_s ein und ruft videoAufbereiten auf', async () => {
+test('the capture time freezes when the screen appears instead of moving with every keystroke', async () => {
+  mockDeterminePlace.mockResolvedValue({ lat: null, lng: null, place_name: null });
+  await render(<PreviewScreen />);
+  // From here on the clock would deliver a later value: whoever reads it
+  // again while typing writes the wrong moment into the job.
+  mockNow.mockReturnValue({ captured_at: '2026-08-07T13:00:00.000Z', captured_tz: 'Europe/Zurich' });
+  await openCaption();
+  await fireEvent.changeText(screen.getByLabelText('Bildunterschrift'), 'abc');
+
+  await act(async () => {
+    await fireEvent.press(screen.getByTestId('einsenden-knopf'));
+  });
+
+  expect(mockNow).toHaveBeenCalledTimes(1);
+  expect(mockEnqueueJob.mock.calls[0][0]).toMatchObject({ captured_at: CAPTURED_AT });
+});
+
+test('a video carries its duration in duration_s and goes through prepareVideo', async () => {
   mockParams = { uri: 'file://video.mp4', typ: 'video', dauer: '12', tripId: 't1' };
-  mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
+  mockDeterminePlace.mockResolvedValue({ lat: null, lng: null, place_name: null });
   await render(<PreviewScreen />);
 
   await act(async () => {
     await fireEvent.press(screen.getByText('Einsenden'));
   });
 
-  expect(mockVideoAufbereiten).toHaveBeenCalledWith('file://video.mp4');
-  expect(mockFotoAufbereiten).not.toHaveBeenCalled();
-  expect(mockJobEinreihen.mock.calls[0][0]).toMatchObject({
+  expect(mockPrepareVideo).toHaveBeenCalledWith('file://video.mp4');
+  expect(mockPreparePhoto).not.toHaveBeenCalled();
+  expect(mockEnqueueJob.mock.calls[0][0]).toMatchObject({
     typ: 'video',
     duration_s: 12,
     storage_key: 'trips/t1/post-1.mp4',
   });
 });
 
-// Final-Review, Important 5: expo-camera nimmt auf iOS QuickTime auf. Bis zur
-// Fix-Welle landete das unter ….mp4 mit Content-Type video/mp4, dauerhaft
-// falsch etikettiert, und weil der Schlüssel pro Moment unveränderlich ist,
-// nachträglich nicht mehr zu heilen.
-test('eine iOS-Aufnahme (.mov) bekommt einen Schlüssel mit der tatsächlichen Endung', async () => {
+// Final-Review, Important 5: expo-camera records QuickTime on iOS. Until the
+// fix wave that landed under ….mp4 with content type video/mp4, permanently
+// mislabelled, and because the key is immutable per moment it could not be
+// healed afterwards.
+test('an iOS capture (.mov) gets a storage key with the actual extension', async () => {
   mockParams = { uri: 'file://video.mov', typ: 'video', dauer: '12', tripId: 't1' };
-  mockVideoAufbereiten.mockResolvedValue({ medium: 'file://video.mov', thumb: 'file://thumb.jpg' });
-  mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
+  mockPrepareVideo.mockResolvedValue({ medium: 'file://video.mov', thumb: 'file://thumb.jpg' });
+  mockDeterminePlace.mockResolvedValue({ lat: null, lng: null, place_name: null });
   await render(<PreviewScreen />);
 
   await act(async () => {
     await fireEvent.press(screen.getByText('Einsenden'));
   });
 
-  expect(mockJobEinreihen.mock.calls[0][0]).toMatchObject({
+  expect(mockEnqueueJob.mock.calls[0][0]).toMatchObject({
     storage_key: 'trips/t1/post-1.mov',
-    // Das Thumbnail bleibt JPEG, unabhängig vom Container des Mediums.
+    // The thumbnail stays JPEG, no matter the container of the medium.
     thumb_key: 'trips/t1/post-1_t.jpg',
   });
 });
 
-// Nachzug aus Task 8: der letzte Blick vor dem Versiegeln zeigt bei Videos
-// «das Aufgenommene formatfüllend» (Spec) statt nur eines Symbols mit Dauer,
-// stumm, in Schleife, ohne Bedienelemente (eine Vorschau, kein Player).
-test('ein Video wird als stumme, endlos wiederholte Vorschau ohne Bedienelemente angezeigt', async () => {
+// Follow-up from Task 8: the last look before sealing shows "the captured
+// thing edge to edge" for videos too (Spec) instead of only a symbol with a
+// duration: muted, in a loop, without controls (a preview, not a player).
+test('a video is shown as a muted, endlessly looping preview without controls', async () => {
   mockParams = { uri: 'file://video.mp4', typ: 'video', dauer: '12', tripId: 't1' };
-  mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
+  mockDeterminePlace.mockResolvedValue({ lat: null, lng: null, place_name: null });
   await render(<PreviewScreen />);
 
   expect(mockUseVideoPlayer).toHaveBeenCalledWith('file://video.mp4', expect.any(Function));
   expect(mockVideoPlayer.loop).toBe(true);
   expect(mockVideoPlayer.muted).toBe(true);
-  // mixWithOthers: der Player beansprucht die Audio-Session nicht exklusiv —
-  // sonst pausiert ihn der Mikrofon-Umbau des Kamera-Screens darunter kurz
-  // nach dem Öffnen, und der Einstieg ruckelt (Gerätefund 2026-08-14).
+  // mixWithOthers: the player does not claim the audio session exclusively,
+  // otherwise the microphone rebuild of the camera screen underneath pauses
+  // it shortly after opening and the entry stutters (device finding
+  // 2026-08-14).
   expect(mockVideoPlayer.audioMixingMode).toBe('mixWithOthers');
   expect(mockVideoPlayer.play).toHaveBeenCalled();
   expect(screen.getByTestId('video-vorschau')).toBeTruthy();
 });
 
-// Gerätefund 2026-08-14: der Kamera-Screen unter dieser Vorschau gibt beim
-// Verlassen sein Mikrofon frei und baut dabei seine Capture-Session um —
-// iOS pausiert währenddessen auch den stummen Player hier drüber, einmalig,
-// kurz nach dem Öffnen. Ohne Antwort darauf stand jedes Video als Standbild.
-function playingChangeHorcher(): ((e: { isPlaying: boolean }) => void) | undefined {
-  const aufruf = mockVideoPlayer.addListener.mock.calls.find(
-    ([ereignis]) => ereignis === 'playingChange'
+// Device finding 2026-08-14: on leaving, the camera screen under this preview
+// releases its microphone and rebuilds its capture session while doing so;
+// iOS pauses the muted player up here along with it, once, shortly after
+// opening. Without an answer to that every video stood as a still.
+function playingChangeListener(): ((e: { isPlaying: boolean }) => void) | undefined {
+  const call = mockVideoPlayer.addListener.mock.calls.find(
+    ([event]) => event === 'playingChange'
   );
-  return aufruf?.[1];
+  return call?.[1];
 }
 
-test('eine Fremd-Pause des Players wird sofort mit Weiterspielen beantwortet', async () => {
+test('a foreign pause of the player is answered at once with playing on', async () => {
   mockParams = { uri: 'file://video.mp4', typ: 'video', dauer: '12', tripId: 't1' };
-  mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
+  mockDeterminePlace.mockResolvedValue({ lat: null, lng: null, place_name: null });
   await render(<PreviewScreen />);
 
-  const horcher = playingChangeHorcher();
-  expect(horcher).toBeDefined();
+  const listener = playingChangeListener();
+  expect(listener).toBeDefined();
   mockVideoPlayer.play.mockClear();
   await act(async () => {
-    horcher?.({ isPlaying: false });
+    listener?.({ isPlaying: false });
   });
   expect(mockVideoPlayer.play).toHaveBeenCalled();
 });
 
-test('verschluckt der Session-Umbau das sofortige Weiterspielen, greift ein Nachzügler', async () => {
+test('when the session rebuild swallows the immediate resume, a straggler steps in', async () => {
   mockParams = { uri: 'file://video.mp4', typ: 'video', dauer: '12', tripId: 't1' };
-  mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
+  mockDeterminePlace.mockResolvedValue({ lat: null, lng: null, place_name: null });
   await render(<PreviewScreen />);
-  const horcher = playingChangeHorcher();
-  expect(horcher).toBeDefined();
+  const listener = playingChangeListener();
+  expect(listener).toBeDefined();
 
   jest.useFakeTimers();
   try {
     mockVideoPlayer.play.mockClear();
     mockVideoPlayer.playing = false;
     await act(async () => {
-      horcher?.({ isPlaying: false });
+      listener?.({ isPlaying: false });
       jest.advanceTimersByTime(300);
     });
     expect(mockVideoPlayer.play.mock.calls.length).toBeGreaterThanOrEqual(2);
@@ -522,57 +540,56 @@ test('verschluckt der Session-Umbau das sofortige Weiterspielen, greift ein Nach
   }
 });
 
-// Gerätefund 2026-08-14: weder Slide noch Blende — seit das Poster (Bild 0)
-// sofort steht, gibt es keinen dunklen Frame mehr zu überbrücken, und der
-// harte Schnitt vom lebendigen Sucher aufs volle Vorschaubild ist das
-// Snapchat-Muster (§5-Ausnahme, Spec 2026-08-13 §6). Eine Blende würde den
-// Wechsel nur künstlich verlangsamen.
-test('der Wechsel von der Kamera hierher schneidet hart, ohne Slide und ohne Blende', async () => {
+// Device finding 2026-08-14: neither slide nor fade. Since the poster
+// (frame 0) stands at once there is no dark frame left to bridge, and the
+// hard cut from the living viewfinder to the full preview image is the
+// Snapchat pattern (§5 exception, Spec 2026-08-13 §6). A fade would only slow
+// the switch down artificially.
+test('the switch from the camera to here cuts hard, without slide and without fade', async () => {
   mockParams = { uri: 'file://video.mp4', typ: 'video', dauer: '12', tripId: 't1' };
-  mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
+  mockDeterminePlace.mockResolvedValue({ lat: null, lng: null, place_name: null });
   await render(<PreviewScreen />);
 
-  expect(mockStackScreenOptionen).toHaveBeenCalledWith(
+  expect(mockStackScreenOptions).toHaveBeenCalledWith(
     expect.objectContaining({ animation: 'none' })
   );
 });
 
-// Der vorgewärmte Player aus der Übergabe (Gerätefund 2026-08-14,
-// Snapchat-Massstab): die Kamera erzeugt und lädt ihn VOR der Navigation,
-// die Vorschau zeigt ihn nur noch — und gibt ihn beim Verlassen frei
-// (createVideoPlayer verlangt ein explizites release, sonst leckt der
-// native Player).
-function vorgewaermterPlayer() {
+// The prewarmed player from the handoff (device finding 2026-08-14, Snapchat
+// as the benchmark): the camera creates and loads it BEFORE the navigation,
+// the preview only shows it, and releases it on leaving (createVideoPlayer
+// demands an explicit release, otherwise the native player leaks).
+function prewarmedPlayer() {
   return {
     playing: true,
     play: jest.fn(),
     release: jest.fn(),
     addListener: jest.fn(
-      (_ereignis: string, _horcher: (e: { isPlaying: boolean }) => void) => ({ remove: jest.fn() })
+      (_event: string, _listener: (e: { isPlaying: boolean }) => void) => ({ remove: jest.fn() })
     ),
   };
 }
 
-test('ein vorgewärmter Player aus der Übergabe geht direkt an die VideoView', async () => {
+test('a prewarmed player from the handoff goes straight to the VideoView', async () => {
   mockParams = { uri: 'file://video.mp4', typ: 'video', dauer: '12', tripId: 't1' };
-  mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
-  const player = vorgewaermterPlayer();
+  mockDeterminePlace.mockResolvedValue({ lat: null, lng: null, place_name: null });
+  const player = prewarmedPlayer();
   handoff.setVideo({ kind: 'player', player: player as unknown as VideoPlayer, poster: null });
   await render(<PreviewScreen />);
 
   expect(screen.getByTestId('video-vorschau').props.player).toBe(player);
-  // Kein zweites Laden derselben Datei: der eigene Hook bekommt keine Quelle.
+  // No second load of the same file: the own hook gets no source.
   expect(mockUseVideoPlayer).toHaveBeenCalledWith(null, expect.any(Function));
 });
 
-// Das Poster (Bild 0, vom Stopp mitgeliefert) steht sofort über der
-// VideoView — die braucht am Gerät ~0,8 s zum ersten Zeichnen (gemessen
-// 2026-08-14) — und weicht dann unsichtbar, weil die Schleife bei Bild 0
-// beginnt.
-test('das Poster steht sofort über dem Video und weicht dem ersten gezeichneten Bild', async () => {
+// The poster (frame 0, delivered by the stop) stands over the VideoView at
+// once, which needs ~0.8 s on the device for its first draw (measured
+// 2026-08-14), and then gives way invisibly because the loop starts at
+// frame 0.
+test('the poster stands over the video at once and gives way to the first drawn frame', async () => {
   mockParams = { uri: 'file://video.mp4', typ: 'video', dauer: '12', tripId: 't1' };
-  mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
-  const player = vorgewaermterPlayer();
+  mockDeterminePlace.mockResolvedValue({ lat: null, lng: null, place_name: null });
+  const player = prewarmedPlayer();
   handoff.setVideo({
     kind: 'player',
     player: player as unknown as VideoPlayer,
@@ -588,10 +605,10 @@ test('das Poster steht sofort über dem Video und weicht dem ersten gezeichneten
   expect(screen.queryByTestId('video-poster')).toBeNull();
 });
 
-test('der übernommene Player wird beim Verlassen freigegeben, das Poster aufgeräumt', async () => {
+test('the taken over player is released on leaving and the poster cleaned up', async () => {
   mockParams = { uri: 'file://video.mp4', typ: 'video', dauer: '12', tripId: 't1' };
-  mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
-  const player = vorgewaermterPlayer();
+  mockDeterminePlace.mockResolvedValue({ lat: null, lng: null, place_name: null });
+  const player = prewarmedPlayer();
   handoff.setVideo({
     kind: 'player',
     player: player as unknown as VideoPlayer,
@@ -604,110 +621,109 @@ test('der übernommene Player wird beim Verlassen freigegeben, das Poster aufger
     unmount();
   });
   expect(player.release).toHaveBeenCalled();
-  expect(mockDateiVerwerfen).toHaveBeenCalledWith('file://poster.jpg');
+  expect(mockDiscardFile).toHaveBeenCalledWith('file://poster.jpg');
 });
 
-test('auch der übernommene Player wird bei einer Fremd-Pause weitergespielt', async () => {
+test('the taken over player is played on as well after a foreign pause', async () => {
   mockParams = { uri: 'file://video.mp4', typ: 'video', dauer: '12', tripId: 't1' };
-  mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
-  const player = vorgewaermterPlayer();
+  mockDeterminePlace.mockResolvedValue({ lat: null, lng: null, place_name: null });
+  const player = prewarmedPlayer();
   handoff.setVideo({ kind: 'player', player: player as unknown as VideoPlayer, poster: null });
   await render(<PreviewScreen />);
 
-  const aufruf = player.addListener.mock.calls.find(([ereignis]) => ereignis === 'playingChange');
-  const horcher = aufruf?.[1];
-  expect(horcher).toBeDefined();
+  const call = player.addListener.mock.calls.find(([event]) => event === 'playingChange');
+  const listener = call?.[1];
+  expect(listener).toBeDefined();
   player.play.mockClear();
   await act(async () => {
-    horcher?.({ isPlaying: false });
+    listener?.({ isPlaying: false });
   });
   expect(player.play).toHaveBeenCalled();
 });
 
-// ——— Native Übergabe (Task 12: SofortVorschau, Einsenden wartet, Verwerfen
-// räumt nativ) ———
-test('eine native Übergabe zeigt die SofortVorschau statt der VideoView', async () => {
+// --- Native handoff (Task 12: InstantPreview, submitting waits, discarding
+// cleans up natively) ---
+test('a native handoff shows the instant preview instead of the VideoView', async () => {
   mockParams = { uri: 'file://nativ.mov', typ: 'video', dauer: '3', tripId: 't1' };
-  mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
+  mockDeterminePlace.mockResolvedValue({ lat: null, lng: null, place_name: null });
   handoff.setVideo({ kind: 'native', fileReady: Promise.resolve() });
   await render(<PreviewScreen />);
   expect(screen.getByTestId('sofort-vorschau')).toBeTruthy();
   expect(screen.queryByTestId('video-vorschau')).toBeNull();
 });
 
-test('Einsenden wartet bei nativer Übergabe auf dateiFertig', async () => {
+test('on a native handoff submitting waits for fileReady', async () => {
   mockParams = { uri: 'file://nativ.mov', typ: 'video', dauer: '3', tripId: 't1' };
-  mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
-  let aufloesen: () => void = () => {};
+  mockDeterminePlace.mockResolvedValue({ lat: null, lng: null, place_name: null });
+  let resolveReady: () => void = () => {};
   handoff.setVideo({
     kind: 'native',
     fileReady: new Promise((r) => {
-      aufloesen = r;
+      resolveReady = r;
     }),
   });
   await render(<PreviewScreen />);
   await act(async () => {
     await fireEvent.press(screen.getByText('Einsenden'));
   });
-  expect(mockJobEinreihen).not.toHaveBeenCalled();
+  expect(mockEnqueueJob).not.toHaveBeenCalled();
   await act(async () => {
-    aufloesen();
+    resolveReady();
   });
-  expect(mockJobEinreihen).toHaveBeenCalled();
-  expect(mockVideoAufbereiten).toHaveBeenCalledWith('file://nativ.mov');
+  expect(mockEnqueueJob).toHaveBeenCalled();
+  expect(mockPrepareVideo).toHaveBeenCalledWith('file://nativ.mov');
 });
 
-test('scheitert das Hintergrund-Schreiben, zeigt Einsenden den bestehenden Fehlerweg', async () => {
+test('when the background write fails, submitting takes the existing error path', async () => {
   mockParams = { uri: 'file://nativ.mov', typ: 'video', dauer: '3', tripId: 't1' };
-  mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
-  handoff.setVideo({ kind: 'native', fileReady: Promise.reject(new Error('voll')) });
+  mockDeterminePlace.mockResolvedValue({ lat: null, lng: null, place_name: null });
+  handoff.setVideo({ kind: 'native', fileReady: Promise.reject(new Error('full')) });
   await render(<PreviewScreen />);
   await act(async () => {
     await fireEvent.press(screen.getByText('Einsenden'));
   });
-  expect(mockJobEinreihen).not.toHaveBeenCalled();
+  expect(mockEnqueueJob).not.toHaveBeenCalled();
   expect(screen.getByText(/konnte nicht gesichert werden/)).toBeTruthy();
 });
 
-test('Verwerfen räumt bei nativer Übergabe über das Modul', async () => {
+test('discarding a native handoff cleans up through the module', async () => {
   mockParams = { uri: 'file://nativ.mov', typ: 'video', dauer: '3', tripId: 't1' };
-  mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
+  mockDeterminePlace.mockResolvedValue({ lat: null, lng: null, place_name: null });
   handoff.setVideo({ kind: 'native', fileReady: Promise.resolve() });
   await render(<PreviewScreen />);
   await fireEvent.press(screen.getByTestId('verwerfen-knopf'));
   expect(mockNativeDiscard).toHaveBeenCalled();
-  expect(mockDateiVerwerfen).not.toHaveBeenCalled();
+  expect(mockDiscardFile).not.toHaveBeenCalled();
 });
 
-test('bei einem Foto wird kein Video-Player angelegt', async () => {
-  mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
+test('no video player is created for a photo', async () => {
+  mockDeterminePlace.mockResolvedValue({ lat: null, lng: null, place_name: null });
   await render(<PreviewScreen />);
 
   expect(mockUseVideoPlayer).toHaveBeenCalledWith(null, expect.any(Function));
   expect(screen.queryByTestId('video-vorschau')).toBeNull();
 });
 
-test('Verwerfen reiht nichts ein, räumt die Rohaufnahme weg und geht zurück zur Kamera', async () => {
-  mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
+test('discarding enqueues nothing, clears the raw capture away and goes back to the camera', async () => {
+  mockDeterminePlace.mockResolvedValue({ lat: null, lng: null, place_name: null });
   await render(<PreviewScreen />);
 
-  // Verwerfen ist das X in der Kopfzeile, kein Textknopf mehr neben dem
-  // Einsenden: es ist der Rückweg, keine gleichrangige Alternative.
+  // Discarding is the X in the header, no longer a text button next to the
+  // submit: it is the way back, not an equal alternative.
   await fireEvent.press(screen.getByTestId('verwerfen-knopf'));
 
-  expect(mockJobEinreihen).not.toHaveBeenCalled();
-  expect(mockFotoAufbereiten).not.toHaveBeenCalled();
-  // Critical 2: auch dieser Weg hinterliess bisher eine Datei im Cache.
-  expect(mockDateiVerwerfen).toHaveBeenCalledWith('file://foto.jpg');
+  expect(mockEnqueueJob).not.toHaveBeenCalled();
+  expect(mockPreparePhoto).not.toHaveBeenCalled();
+  // Critical 2: this way too used to leave a file in the cache.
+  expect(mockDiscardFile).toHaveBeenCalledWith('file://foto.jpg');
   expect(mockBack).toHaveBeenCalledTimes(1);
 });
 
-// Hin- UND Rückweg sind Instant-Schnitte (Nutzer-Entscheid 2026-08-18: «man
-// sollte instant zurück sein» — ein probierter 250-ms-Fade flog wieder
-// raus). Dieser Test hält die Entscheidung fest: das Verwerfen stellt KEINE
-// Abgangs-Animation um, es geht einfach zurück.
-test('Verwerfen geht instant zurück, ohne eine Abgangs-Animation umzustellen', async () => {
-  mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
+// Way there and way back are both instant cuts (user decision 2026-08-18: a
+// tried 250 ms fade flew out again). This test holds the decision: discarding
+// does NOT switch an exit animation, it simply goes back.
+test('discarding goes back instantly, without switching an exit animation', async () => {
+  mockDeterminePlace.mockResolvedValue({ lat: null, lng: null, place_name: null });
   await render(<PreviewScreen />);
 
   await fireEvent.press(screen.getByTestId('verwerfen-knopf'));
@@ -716,80 +732,80 @@ test('Verwerfen geht instant zurück, ohne eine Abgangs-Animation umzustellen', 
   expect(mockBack).toHaveBeenCalledTimes(1);
 });
 
-test('erst nach dem Einreihen werden Rohaufnahme und Zwischenfassungen freigegeben', async () => {
-  mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
+test('only after enqueuing are the raw capture and the intermediates released', async () => {
+  mockDeterminePlace.mockResolvedValue({ lat: null, lng: null, place_name: null });
   await render(<PreviewScreen />);
 
   await act(async () => {
     await fireEvent.press(screen.getByText('Einsenden'));
   });
 
-  expect(mockDauerhaftSichern).toHaveBeenCalledWith('post-1', {
+  expect(mockPersistDurably).toHaveBeenCalledWith('post-1', {
     medium: 'file://medium.jpg',
     thumb: 'file://thumb.jpg',
   });
-  expect(mockDateiVerwerfen).toHaveBeenCalledWith('file://foto.jpg');
-  expect(mockZwischenfassungenVerwerfen).toHaveBeenCalledWith('file://foto.jpg', {
+  expect(mockDiscardFile).toHaveBeenCalledWith('file://foto.jpg');
+  expect(mockDiscardIntermediates).toHaveBeenCalledWith('file://foto.jpg', {
     medium: 'file://medium.jpg',
     thumb: 'file://thumb.jpg',
   });
-  expect(mockMomentDateienEntfernen).not.toHaveBeenCalled();
+  expect(mockRemoveMomentFiles).not.toHaveBeenCalled();
 });
 
-// Ohne Job in der Warteschlange käme nie wieder jemand an diesen Dateien
-// vorbei, der sie aufräumt, sie lägen für immer im Dokumentenverzeichnis.
-test('scheitert das Einreihen, wird der dauerhafte Ordner wieder abgeräumt', async () => {
-  mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
-  mockJobEinreihen.mockRejectedValue(new Error('SQLITE_FULL'));
+// Without a job in the queue nobody would ever come past these files again to
+// clean them up, they would lie in the documents directory forever.
+test('when enqueuing fails the durable folder is cleared away again', async () => {
+  mockDeterminePlace.mockResolvedValue({ lat: null, lng: null, place_name: null });
+  mockEnqueueJob.mockRejectedValue(new Error('SQLITE_FULL'));
   await render(<PreviewScreen />);
 
   await act(async () => {
     await fireEvent.press(screen.getByText('Einsenden'));
   });
 
-  expect(mockMomentDateienEntfernen).toHaveBeenCalledWith('post-1');
-  // Die Rohaufnahme bleibt: der Screen bleibt stehen, ein zweiter Versuch
-  // braucht sie noch.
-  expect(mockDateiVerwerfen).not.toHaveBeenCalled();
+  expect(mockRemoveMomentFiles).toHaveBeenCalledWith('post-1');
+  // The raw capture stays: the screen stays standing and a second attempt
+  // still needs it.
+  expect(mockDiscardFile).not.toHaveBeenCalled();
 });
 
-// === Re-Review: der Aufräumpfad vernichtete bei Videos die Aufnahme ===
-// videoAufbereiten gibt die Rohaufnahme SELBST als Medium zurück. Solange
-// dauerhaftSichern verschob, nahm der Fehlerpfad (momentDateienEntfernen) die
-// einzige Kopie mit: ein zweiter Druck auf «Einsenden» scheiterte schon beim
-// Standbild, der Moment war weg. Der Foto-Test darüber hat die Lücke
-// durchgelassen, weil fotoAufbereiten ohnehin neue Dateien erzeugt.
-test('bei einem Video überlebt die Rohaufnahme ein gescheitertes Einreihen', async () => {
+// === Re-Review: the cleanup path destroyed the capture for videos ===
+// prepareVideo returns the raw capture ITSELF as the medium. As long as
+// persistDurably moved instead of copied, the error path (removeMomentFiles)
+// took the only copy with it: a second press on submit already failed at the
+// still frame, the moment was gone. The photo test above let the gap through
+// because preparePhoto creates new files anyway.
+test('for a video the raw capture survives a failed enqueue', async () => {
   mockParams = { uri: 'file://video.mov', typ: 'video', dauer: '12', tripId: 't1' };
-  // Genau der Fall: medium IST die Rohaufnahme.
-  mockVideoAufbereiten.mockResolvedValue({ medium: 'file://video.mov', thumb: 'file://thumb.jpg' });
-  mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
-  mockJobEinreihen.mockRejectedValue(new Error('SQLITE_FULL'));
+  // Exactly the case: the medium IS the raw capture.
+  mockPrepareVideo.mockResolvedValue({ medium: 'file://video.mov', thumb: 'file://thumb.jpg' });
+  mockDeterminePlace.mockResolvedValue({ lat: null, lng: null, place_name: null });
+  mockEnqueueJob.mockRejectedValue(new Error('SQLITE_FULL'));
   await render(<PreviewScreen />);
 
   await act(async () => {
     await fireEvent.press(screen.getByText('Einsenden'));
   });
 
-  // Die dauerhafte KOPIE wird abgeräumt, sie ist ohne Job herrenlos.
-  expect(mockMomentDateienEntfernen).toHaveBeenCalledWith('post-1');
-  // Die Rohaufnahme aber unter keinen Umständen: sie ist die einzige Kopie.
-  expect(mockDateiVerwerfen).not.toHaveBeenCalledWith('file://video.mov');
-  expect(mockDateiVerwerfen).not.toHaveBeenCalled();
-  // Und auch nicht über den Umweg „Zwischenfassungen": die Funktion bekommt
-  // die Rohaufnahme mit, damit sie genau diese auslassen kann.
-  expect(mockZwischenfassungenVerwerfen).toHaveBeenCalledWith('file://video.mov', {
+  // The durable COPY is cleared away, without a job it is ownerless.
+  expect(mockRemoveMomentFiles).toHaveBeenCalledWith('post-1');
+  // The raw capture under no circumstances: it is the only copy.
+  expect(mockDiscardFile).not.toHaveBeenCalledWith('file://video.mov');
+  expect(mockDiscardFile).not.toHaveBeenCalled();
+  // And not through the detour "intermediates" either: the function is handed
+  // the raw capture so it can leave exactly that one out.
+  expect(mockDiscardIntermediates).toHaveBeenCalledWith('file://video.mov', {
     medium: 'file://video.mov',
     thumb: 'file://thumb.jpg',
   });
 });
 
-// Die Probe aufs Exempel: der zweite Versuch läuft wirklich durch.
-test('nach einem gescheiterten Einsenden gelingt der zweite Versuch bei einem Video', async () => {
+// The proof of the pudding: the second attempt really goes through.
+test('after a failed submit the second attempt succeeds for a video', async () => {
   mockParams = { uri: 'file://video.mov', typ: 'video', dauer: '12', tripId: 't1' };
-  mockVideoAufbereiten.mockResolvedValue({ medium: 'file://video.mov', thumb: 'file://thumb.jpg' });
-  mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
-  mockJobEinreihen.mockRejectedValueOnce(new Error('SQLITE_FULL'));
+  mockPrepareVideo.mockResolvedValue({ medium: 'file://video.mov', thumb: 'file://thumb.jpg' });
+  mockDeterminePlace.mockResolvedValue({ lat: null, lng: null, place_name: null });
+  mockEnqueueJob.mockRejectedValueOnce(new Error('SQLITE_FULL'));
   await render(<PreviewScreen />);
 
   await act(async () => {
@@ -801,48 +817,48 @@ test('nach einem gescheiterten Einsenden gelingt der zweite Versuch bei einem Vi
     await fireEvent.press(screen.getByText('Einsenden'));
   });
 
-  expect(mockVideoAufbereiten).toHaveBeenCalledTimes(2);
-  expect(mockJobEinreihen).toHaveBeenCalledTimes(2);
+  expect(mockPrepareVideo).toHaveBeenCalledTimes(2);
+  expect(mockEnqueueJob).toHaveBeenCalledTimes(2);
   expect(mockBack).toHaveBeenCalledTimes(1);
 });
 
-// Der Kopiervorgang selbst scheitert (kein Platz): auch dann muss die Aufnahme
-// überleben, genau dafür wird kopiert statt verschoben.
-test('scheitert schon das dauerhafte Sichern, bleibt die Rohaufnahme liegen', async () => {
+// The copying itself fails (no space): even then the capture has to survive,
+// that is exactly why it is copied instead of moved.
+test('when the durable save already fails, the raw capture stays put', async () => {
   mockParams = { uri: 'file://video.mov', typ: 'video', dauer: '12', tripId: 't1' };
-  mockVideoAufbereiten.mockResolvedValue({ medium: 'file://video.mov', thumb: 'file://thumb.jpg' });
-  mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
-  mockDauerhaftSichern.mockRejectedValue(new Error('ENOSPC'));
+  mockPrepareVideo.mockResolvedValue({ medium: 'file://video.mov', thumb: 'file://thumb.jpg' });
+  mockDeterminePlace.mockResolvedValue({ lat: null, lng: null, place_name: null });
+  mockPersistDurably.mockRejectedValue(new Error('ENOSPC'));
   await render(<PreviewScreen />);
 
   await act(async () => {
     await fireEvent.press(screen.getByText('Einsenden'));
   });
 
-  expect(mockDateiVerwerfen).not.toHaveBeenCalled();
+  expect(mockDiscardFile).not.toHaveBeenCalled();
   expect(await screen.findByText(/Speicherplatz/)).toBeTruthy();
 });
 
-test('ein Fehler beim Aufbereiten reiht keinen Job ein, zeigt eine Meldung und der Screen bleibt stehen', async () => {
-  mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
-  mockFotoAufbereiten.mockRejectedValue(new Error('ENOSPC: no space left on device'));
+test('an error while preparing enqueues no job, shows a message and leaves the screen standing', async () => {
+  mockDeterminePlace.mockResolvedValue({ lat: null, lng: null, place_name: null });
+  mockPreparePhoto.mockRejectedValue(new Error('ENOSPC: no space left on device'));
   await render(<PreviewScreen />);
 
   await act(async () => {
     await fireEvent.press(screen.getByText('Einsenden'));
   });
 
-  expect(mockJobEinreihen).not.toHaveBeenCalled();
+  expect(mockEnqueueJob).not.toHaveBeenCalled();
   expect(mockBack).not.toHaveBeenCalled();
   expect(await screen.findByText(/Speicherplatz/)).toBeTruthy();
-  // Der Screen bleibt stehen, Einsenden ist weiterhin da und lässt sich
-  // erneut versuchen.
+  // The screen stays standing, submitting is still there and can be tried
+  // again.
   expect(screen.getByText('Einsenden')).toBeTruthy();
 });
 
-test('ein Fehler beim Einreihen reiht keinen zweiten Versuch fälschlich als Erfolg und der Screen bleibt stehen', async () => {
-  mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
-  mockJobEinreihen.mockRejectedValue(new Error('SQLITE_FULL'));
+test('an error while enqueuing never passes as success and the screen stays standing', async () => {
+  mockDeterminePlace.mockResolvedValue({ lat: null, lng: null, place_name: null });
+  mockEnqueueJob.mockRejectedValue(new Error('SQLITE_FULL'));
   await render(<PreviewScreen />);
 
   await act(async () => {
@@ -853,121 +869,120 @@ test('ein Fehler beim Einreihen reiht keinen zweiten Versuch fälschlich als Erf
   expect(await screen.findByText(/Speicherplatz/)).toBeTruthy();
 });
 
-test('ohne trip_id (Navigationslücke aus dem Kamera-Screen) wird das Einsenden mit klarer Ursache abgelehnt', async () => {
+test('without a trip_id (navigation gap from the camera screen) submitting is refused with a clear cause', async () => {
   mockParams = { uri: 'file://foto.jpg', typ: 'photo', dauer: '0', tripId: undefined };
-  mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
+  mockDeterminePlace.mockResolvedValue({ lat: null, lng: null, place_name: null });
   await render(<PreviewScreen />);
 
   await act(async () => {
     await fireEvent.press(screen.getByText('Einsenden'));
   });
 
-  expect(mockFotoAufbereiten).not.toHaveBeenCalled();
-  expect(mockJobEinreihen).not.toHaveBeenCalled();
+  expect(mockPreparePhoto).not.toHaveBeenCalled();
+  expect(mockEnqueueJob).not.toHaveBeenCalled();
   expect(mockBack).not.toHaveBeenCalled();
   expect(await screen.findByText(/keiner Reise zuordnen/)).toBeTruthy();
 });
 
-// Task-13-Fix-Runde-2: ein Job ohne Autoren-Kennung darf nie entstehen, in
-// der Praxis lässt das Root-Layout diesen Screen ohne Sitzung gar nicht erst
-// zu, aber der Screen rät hier bewusst nicht, sondern lehnt sichtbar ab
-// (gleiches Prinzip wie ohne trip_id oben).
-test('ohne Sitzung (userId fehlt) wird das Einsenden abgelehnt, statt einen Job ohne Autoren-Kennung einzureihen', async () => {
+// Task-13-Fix-Runde-2: a job without an author id must never come into being.
+// In practice the root layout does not even let this screen appear without a
+// session, but the screen deliberately does not guess here, it refuses
+// visibly (same principle as without a trip_id above).
+test('without a session (userId missing) submitting is refused instead of enqueuing a job without an author id', async () => {
   mockAuth.userId = null;
-  mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
+  mockDeterminePlace.mockResolvedValue({ lat: null, lng: null, place_name: null });
   await render(<PreviewScreen />);
 
   await act(async () => {
     await fireEvent.press(screen.getByText('Einsenden'));
   });
 
-  expect(mockFotoAufbereiten).not.toHaveBeenCalled();
-  expect(mockJobEinreihen).not.toHaveBeenCalled();
+  expect(mockPreparePhoto).not.toHaveBeenCalled();
+  expect(mockEnqueueJob).not.toHaveBeenCalled();
   expect(mockBack).not.toHaveBeenCalled();
   expect(await screen.findByText(/nicht angemeldet/)).toBeTruthy();
 });
 
-test('setzt die StatusBar beim Erscheinen auf hell und beim Verlassen zurück auf dunkel', async () => {
-  mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
+test('sets the status bar to light on appearing and back to dark on leaving', async () => {
+  mockDeterminePlace.mockResolvedValue({ lat: null, lng: null, place_name: null });
   const { unmount } = await render(<PreviewScreen />);
   expect(mockSetStatusBarStyle).toHaveBeenCalledWith('light');
   await unmount();
   expect(mockSetStatusBarStyle).toHaveBeenCalledWith('dark');
 });
 
-test('ein zweiter Tipp auf Einsenden während des Sendens reiht keinen zweiten Job ein', async () => {
-  mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
-  let aufloesen: (v: { medium: string; thumb: string }) => void = () => {};
-  mockFotoAufbereiten.mockImplementation(
+test('a second tap on submit while sending enqueues no second job', async () => {
+  mockDeterminePlace.mockResolvedValue({ lat: null, lng: null, place_name: null });
+  let resolvePrepared: (v: { medium: string; thumb: string }) => void = () => {};
+  mockPreparePhoto.mockImplementation(
     () =>
       new Promise((resolve) => {
-        aufloesen = resolve;
+        resolvePrepared = resolve;
       })
   );
   await render(<PreviewScreen />);
-  const knopf = screen.getByTestId('einsenden-knopf');
+  const button = screen.getByTestId('einsenden-knopf');
 
-  await fireEvent.press(knopf);
-  await fireEvent.press(knopf);
+  await fireEvent.press(button);
+  await fireEvent.press(button);
 
   await act(async () => {
-    aufloesen({ medium: 'file://medium.jpg', thumb: 'file://thumb.jpg' });
+    resolvePrepared({ medium: 'file://medium.jpg', thumb: 'file://thumb.jpg' });
   });
   await waitFor(() => expect(mockBack).toHaveBeenCalled());
 
-  expect(mockFotoAufbereiten).toHaveBeenCalledTimes(1);
-  expect(mockJobEinreihen).toHaveBeenCalledTimes(1);
+  expect(mockPreparePhoto).toHaveBeenCalledTimes(1);
+  expect(mockEnqueueJob).toHaveBeenCalledTimes(1);
 });
 
-// Die Bildunterschrift lag hinter der stehenden Tastatur, und aus dem
-// mehrzeiligen Feld kam man nicht mehr heraus: Return setzt dort einen
-// Zeilenumbruch, iOS bietet keine Fertig-Taste an, und alle anderen
-// Bedienelemente des Screens lagen selbst unter der Tastatur. Die
-// KeyboardAvoidingView, die das verhindern sollte, konnte hier nie wirken:
-// sie setzt bei `behavior="padding"` nur ein `paddingBottom` an ihrem eigenen
-// View, und dieses Padding erreicht absolut positionierte Kinder nicht. Auf
-// diesem Screen ist aber JEDE Ebene absolut positioniert. Der Screen weicht
-// deshalb selbst aus, anhand der gemeldeten Tastaturhöhe.
-describe('stehende Tastatur', () => {
-  const zuhoerer: Record<string, (e: unknown) => void> = {};
+// The caption used to lie behind the standing keyboard, and there was no way
+// out of the multiline field: return sets a line break there, iOS offers no
+// done key, and all other controls of the screen lay under the keyboard
+// themselves. The KeyboardAvoidingView that was supposed to prevent this
+// could never work here: with `behavior="padding"` it only sets a
+// `paddingBottom` on its own view, and that padding never reaches absolutely
+// positioned children. On this screen EVERY layer is absolutely positioned.
+// The screen therefore gives way itself, along the reported keyboard height.
+describe('standing keyboard', () => {
+  const listeners: Record<string, (e: unknown) => void> = {};
   let dismiss: jest.SpyInstance;
 
-  // Der Name des Ereignisses ist plattformabhängig: iOS meldet die Tastatur
-  // an, bevor sie steht (will), Android erst danach (did). Der Test spricht
-  // denselben Zuhörer an, den der Screen auf der jeweiligen Plattform bestellt.
-  const ZEIGEN = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-  const VERBERGEN = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-  const TASTATUR_HOEHE = 336;
+  // The name of the event depends on the platform: iOS announces the keyboard
+  // before it stands (will), Android only afterwards (did). The test speaks to
+  // the same listener the screen ordered on the respective platform.
+  const SHOW = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+  const HIDE = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+  const KEYBOARD_HEIGHT = 336;
 
   beforeEach(() => {
-    for (const schluessel of Object.keys(zuhoerer)) delete zuhoerer[schluessel];
+    for (const key of Object.keys(listeners)) delete listeners[key];
     jest
       .spyOn(Keyboard, 'addListener')
-      .mockImplementation(((typ: string, rueckruf: (e: unknown) => void) => {
-        zuhoerer[typ] = rueckruf;
+      .mockImplementation(((event: string, callback: (e: unknown) => void) => {
+        listeners[event] = callback;
         return { remove: jest.fn() };
       }) as unknown as typeof Keyboard.addListener);
     dismiss = jest.spyOn(Keyboard, 'dismiss').mockImplementation(() => {});
-    mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
+    mockDeterminePlace.mockResolvedValue({ lat: null, lng: null, place_name: null });
   });
 
   afterEach(() => {
     jest.restoreAllMocks();
   });
 
-  async function tastaturAuf(hoehe = TASTATUR_HOEHE) {
+  async function showKeyboard(height = KEYBOARD_HEIGHT) {
     await act(async () => {
-      zuhoerer[ZEIGEN]?.({
-        endCoordinates: { height: hoehe, screenX: 0, screenY: 812 - hoehe, width: 390 },
+      listeners[SHOW]?.({
+        endCoordinates: { height, screenX: 0, screenY: 812 - height, width: 390 },
         duration: 250,
         easing: 'keyboard',
       });
     });
   }
 
-  async function tastaturZu() {
+  async function hideKeyboard() {
     await act(async () => {
-      zuhoerer[VERBERGEN]?.({
+      listeners[HIDE]?.({
         endCoordinates: { height: 0, screenX: 0, screenY: 812, width: 390 },
         duration: 250,
         easing: 'keyboard',
@@ -975,96 +990,106 @@ describe('stehende Tastatur', () => {
     });
   }
 
-  function unterkanteDerBildunterschrift(): number {
-    const feld = screen.getByTestId('bildunterschrift-feld');
-    return StyleSheet.flatten(feld.props.style).bottom as number;
+  function captionBottom(): number {
+    const field = screen.getByTestId('bildunterschrift-feld');
+    return StyleSheet.flatten(field.props.style).bottom as number;
   }
 
-  test('die Bildunterschrift rückt direkt über die stehende Tastatur', async () => {
+  test('the caption moves directly above the standing keyboard', async () => {
     await render(<PreviewScreen />);
-    await tastaturAuf();
+    await showKeyboard();
 
-    // Auf iOS bleibt das Fenster gleich gross, der Screen muss die volle
-    // Tastaturhöhe selbst überbrücken. Auf Android verkleinert das Fenster
-    // sich bereits (softwareKeyboardLayoutMode "resize", Expo-Standard), dort
-    // zählt nur noch der gestaltete Abstand zur neuen Unterkante.
-    const erwartet = Platform.OS === 'ios' ? TASTATUR_HOEHE + spacing.base : spacing.base;
-    expect(unterkanteDerBildunterschrift()).toBe(erwartet);
+    // On iOS the window stays the same size, the screen has to bridge the full
+    // keyboard height itself. On Android the window already shrinks
+    // (softwareKeyboardLayoutMode "resize", the Expo default), there only the
+    // designed distance to the new bottom edge counts.
+    const expected = Platform.OS === 'ios' ? KEYBOARD_HEIGHT + spacing.base : spacing.base;
+    expect(captionBottom()).toBe(expected);
   });
 
-  // Beim Tippen tauscht iOS die Leiste über den Tasten aus (der
-  // «Write with Siri»-Hinweis weicht den Wortvorschlägen) und meldet dabei
-  // eine andere Tastaturhöhe. Folgte das Feld jeder Meldung, ruckte es beim
-  // Schreiben auf und ab. Es hält deshalb die grösste gemeldete Höhe: lieber
-  // ein paar Punkte zu hoch stehen als wackeln.
-  test('eine schrumpfende Tastatur zieht das Feld nicht mit nach unten', async () => {
+  // While typing, iOS swaps the bar above the keys (the "Write with Siri" hint
+  // gives way to the word suggestions) and reports a different keyboard height
+  // while doing so. If the field followed every report it would jump up and
+  // down while writing. It therefore holds the largest reported height: rather
+  // stand a few points too high than wobble.
+  test('a shrinking keyboard does not drag the field down with it', async () => {
     await render(<PreviewScreen />);
-    await bildunterschriftOeffnen();
-    await tastaturAuf(TASTATUR_HOEHE);
-    const stand = unterkanteDerBildunterschrift();
+    await openCaption();
+    await showKeyboard(KEYBOARD_HEIGHT);
+    const bottomBefore = captionBottom();
 
-    await tastaturAuf(TASTATUR_HOEHE - 45);
+    await showKeyboard(KEYBOARD_HEIGHT - 45);
 
-    expect(unterkanteDerBildunterschrift()).toBe(stand);
+    expect(captionBottom()).toBe(bottomBefore);
   });
 
-  // Andersherum muss es mitgehen, sonst verschwände das Feld hinter einer
-  // Tastatur, die höher wird (Emoji-Tastatur, andere Sprache).
-  test('eine wachsende Tastatur schiebt das Feld weiter hoch', async () => {
+  // The other way round it has to go along, otherwise the field would vanish
+  // behind a keyboard that grows (emoji keyboard, another language).
+  test('a growing keyboard pushes the field further up', async () => {
     await render(<PreviewScreen />);
-    await bildunterschriftOeffnen();
-    await tastaturAuf(TASTATUR_HOEHE);
-    const stand = unterkanteDerBildunterschrift();
+    await openCaption();
+    await showKeyboard(KEYBOARD_HEIGHT);
+    const bottomBefore = captionBottom();
 
-    await tastaturAuf(TASTATUR_HOEHE + 60);
+    await showKeyboard(KEYBOARD_HEIGHT + 60);
 
-    expect(unterkanteDerBildunterschrift()).toBeGreaterThan(stand);
+    expect(captionBottom()).toBeGreaterThan(bottomBefore);
   });
 
-  test('nach dem Schliessen steht die Bildunterschrift wieder an ihrem Platz', async () => {
+  test('after closing, the caption stands in its place again', async () => {
     await render(<PreviewScreen />);
-    const ruhe = unterkanteDerBildunterschrift();
+    const resting = captionBottom();
 
-    await tastaturAuf();
-    await tastaturZu();
+    await showKeyboard();
+    await hideKeyboard();
 
-    expect(unterkanteDerBildunterschrift()).toBe(ruhe);
+    expect(captionBottom()).toBe(resting);
   });
 
-  // Der Weg aus dem Feld, den die Tastatur selbst anbietet: Bei einem
-  // EINZEILIGEN Feld heisst die Eingabetaste unten rechts «Fertig» und
-  // schliesst. Bei `multiline` setzt dieselbe Taste einen Zeilenumbruch, es
-  // gibt dann gar keine Fertig-Taste, und genau daran blieb man hängen.
-  test('die Eingabetaste schliesst die Tastatur, statt eine Zeile umzubrechen', async () => {
+  test('the keyboard going away takes the open field with it and leaves the chip behind', async () => {
     await render(<PreviewScreen />);
-    await bildunterschriftOeffnen();
-    const feld = screen.getByLabelText('Bildunterschrift');
+    await openCaption();
+    await showKeyboard();
+    expect(screen.queryByTestId('bildunterschrift-chip')).toBeNull();
 
-    expect(feld.props.multiline).toBeFalsy();
-    expect(feld.props.returnKeyType).toBe('done');
+    await hideKeyboard();
 
-    await fireEvent(feld, 'submitEditing');
+    expect(screen.getByTestId('bildunterschrift-chip')).toBeTruthy();
+  });
+
+  // The way out of the field that the keyboard itself offers: on a SINGLE LINE
+  // field the return key bottom right reads "Fertig" and closes. With
+  // `multiline` the same key sets a line break, there is no done key at all,
+  // and that is exactly where people got stuck.
+  test('the return key closes the keyboard instead of breaking a line', async () => {
+    await render(<PreviewScreen />);
+    await openCaption();
+    const field = screen.getByLabelText('Bildunterschrift');
+
+    expect(field.props.multiline).toBeFalsy();
+    expect(field.props.returnKeyType).toBe('done');
+
+    await fireEvent(field, 'submitEditing');
 
     expect(dismiss).toHaveBeenCalledTimes(1);
   });
 
-  test('ein Tipp neben das Feld schliesst die Tastatur', async () => {
+  test('a tap next to the field closes the keyboard', async () => {
     await render(<PreviewScreen />);
     expect(screen.queryByLabelText('Tastatur schliessen')).toBeNull();
 
-    await tastaturAuf();
+    await showKeyboard();
     await fireEvent.press(screen.getByLabelText('Tastatur schliessen'));
 
     expect(dismiss).toHaveBeenCalledTimes(1);
   });
 
-  // Der Auffangbereich liegt über dem ganzen Medium. Läge er über den
-  // Bedienelementen, wäre der erste Tipp auf «Einsenden» nach dem Schreiben
-  // verschluckt.
-  test('bei stehender Tastatur bleibt das Feld selbst bedienbar', async () => {
+  // The catch area lies over the whole medium. If it lay over the controls,
+  // the first tap on submit after writing would be swallowed.
+  test('with the keyboard standing the field itself stays operable', async () => {
     await render(<PreviewScreen />);
-    await bildunterschriftOeffnen();
-    await tastaturAuf();
+    await openCaption();
+    await showKeyboard();
 
     await fireEvent.changeText(screen.getByLabelText('Bildunterschrift'), 'Abendlicht');
 
@@ -1073,97 +1098,97 @@ describe('stehende Tastatur', () => {
   });
 });
 
-// Die Bildunterschrift und der Einsenden-Knopf gehören zusammen: Vorher stand
-// sie an einer festen Zahl (168) und liess eine Lücke von einem halben
-// Bildschirm zwischen sich und dem Knopf. Jetzt hängt sie an der GEMESSENEN
-// Höhe des Fusses, damit sie auch dann direkt darüber steht, wenn eine
-// Fehlermeldung den Fuss wachsen lässt.
-test('die Bildunterschrift hängt an der gemessenen Höhe des Fusses, nicht an einer festen Zahl', async () => {
-  mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
+// The caption and the submit button belong together: before, it hung on a
+// fixed number (168) and left a gap of half a screen between itself and the
+// button. Now it hangs on the MEASURED height of the footer so it stands
+// directly above it even when an error message makes the footer grow.
+test('the caption hangs on the measured height of the footer, not on a fixed number', async () => {
+  mockDeterminePlace.mockResolvedValue({ lat: null, lng: null, place_name: null });
   await render(<PreviewScreen />);
 
-  // Im Test gibt es keine Layout-Phase, die Höhe kommt darum von Hand.
+  // In the test there is no layout phase, so the height comes by hand.
   await act(async () => {
     fireEvent(screen.getByTestId('fuss'), 'layout', {
       nativeEvent: { layout: { x: 0, y: 0, width: 320, height: 52 } },
     });
   });
 
-  // Insets sind im Test 0 (siehe jest.setup.ts). Ohne Home-Indicator bleibt
-  // vom Fuss-Abstand der gestaltete Mindestrand spacing.base.
-  const unterkante = spacing.base;
-  const feld = screen.getByTestId('bildunterschrift-feld');
-  expect(StyleSheet.flatten(feld.props.style).bottom).toBe(unterkante + 52 + spacing.base);
+  // Insets are 0 in the test (see jest.setup.ts). Without a home indicator the
+  // designed minimum margin spacing.base remains of the footer distance.
+  const bottomInset = spacing.base;
+  const field = screen.getByTestId('bildunterschrift-feld');
+  expect(StyleSheet.flatten(field.props.style).bottom).toBe(bottomInset + 52 + spacing.base);
 });
 
-// Ein leeres Eingabefeld über die ganze Breite ist ein Kasten, der nichts
-// zeigt und dem Foto den Platz nimmt. In Ruhe steht deshalb nur ein Chip da,
-// so breit wie sein Text; das Feld entsteht erst mit dem Tipp darauf.
-test('in Ruhe steht nur ein Chip, das Eingabefeld kommt erst mit dem Tipp darauf', async () => {
-  mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
+// An empty input field across the full width is a box that shows nothing and
+// takes the space from the photo. At rest only a chip stands there therefore,
+// as wide as its text; the field comes into being with the tap on it.
+test('at rest only a chip stands there, the input field comes with the tap on it', async () => {
+  mockDeterminePlace.mockResolvedValue({ lat: null, lng: null, place_name: null });
   await render(<PreviewScreen />);
 
   expect(screen.queryByLabelText('Bildunterschrift')).toBeNull();
   expect(screen.getByText('Schreib etwas dazu')).toBeTruthy();
 
-  await bildunterschriftOeffnen();
+  await openCaption();
 
   expect(screen.getByLabelText('Bildunterschrift')).toBeTruthy();
   expect(screen.queryByTestId('bildunterschrift-chip')).toBeNull();
 });
 
-// Auf iOS legt eine gesetzte Zeilenhöhe im Eingabefeld einen Absatz-Stil über
-// den EINGEGEBENEN Text, nicht aber über den Platzhalter: Der Text sprang
-// dadurch beim ersten Zeichen ein paar Punkte nach unten. `type.body` bringt
-// eine mit (24), das Feld darf sie deshalb nicht übernehmen.
-test('das Eingabefeld setzt keine Zeilenhöhe', async () => {
-  mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
+// On iOS a set line height in the input field lays a paragraph style over the
+// TYPED text but not over the placeholder: the text jumped down a few points
+// with the first character because of it. `type.body` brings one along (24),
+// so the field must not take it over.
+test('the input field sets no line height', async () => {
+  mockDeterminePlace.mockResolvedValue({ lat: null, lng: null, place_name: null });
   await render(<PreviewScreen />);
-  await bildunterschriftOeffnen();
+  await openCaption();
 
-  const stil = StyleSheet.flatten(screen.getByLabelText('Bildunterschrift').props.style);
-  expect(stil.lineHeight).toBeUndefined();
-  expect(stil.fontSize).toBe(16);
+  const style = StyleSheet.flatten(screen.getByLabelText('Bildunterschrift').props.style);
+  expect(style.lineHeight).toBeUndefined();
+  expect(style.fontSize).toBe(16);
 });
 
-// ——— Instant-Foto (Spec 2026-08-13-aufnahme-tempo-design.md §4) ———
+// --- Instant photo (Spec 2026-08-13-aufnahme-tempo-design.md §4) ---
 //
-// Das Foto kommt als natives Speicher-Objekt über das Übergabe-Modul, nicht
-// mehr als Datei-URI durch die Params. Die Datei entsteht im Hintergrund;
-// Einsenden wartet auf sie, der Rest der Pipeline bleibt unverändert.
-const fakeRef = { breite: 1920 } as never;
+// The photo comes as a native memory object through the handoff module, no
+// longer as a file uri through the params. The file comes into being in the
+// background; submitting waits for it, the rest of the pipeline stays
+// unchanged.
+const fakeRef = { width: 1920 } as never;
 
-test('ein übergebenes Foto wird aus dem Speicher angezeigt', async () => {
+test('a handed over photo is shown straight from memory', async () => {
   mockParams = { typ: 'photo', dauer: '0', tripId: 't1' };
   handoff.setPhoto({ ref: fakeRef, file: Promise.resolve({ uri: 'file://gespeichert.jpg' }) });
   await render(<PreviewScreen />);
   expect(screen.getByTestId('foto-vorschau').props.source).toBe(fakeRef);
 });
 
-test('Einsenden wartet auf die im Hintergrund gespeicherte Datei', async () => {
+test('submitting waits for the file saved in the background', async () => {
   mockParams = { typ: 'photo', dauer: '0', tripId: 't1' };
-  let dateiAufloesen: (v: { uri: string }) => void = () => {};
+  let resolveFile: (v: { uri: string }) => void = () => {};
   handoff.setPhoto({
     ref: fakeRef,
     file: new Promise((resolve) => {
-      dateiAufloesen = resolve;
+      resolveFile = resolve;
     }),
   });
   await render(<PreviewScreen />);
   await fireEvent.press(screen.getByTestId('einsenden-knopf'));
 
-  // Vor der Datei darf nichts aufbereitet werden.
-  expect(mockFotoAufbereiten).not.toHaveBeenCalled();
+  // Before the file nothing may be prepared.
+  expect(mockPreparePhoto).not.toHaveBeenCalled();
 
   await act(async () => {
-    dateiAufloesen({ uri: 'file://gespeichert.jpg' });
+    resolveFile({ uri: 'file://gespeichert.jpg' });
   });
-  await waitFor(() => expect(mockFotoAufbereiten).toHaveBeenCalledWith('file://gespeichert.jpg'));
+  await waitFor(() => expect(mockPreparePhoto).toHaveBeenCalledWith('file://gespeichert.jpg'));
 });
 
-test('scheitert das Hintergrund-Speichern, sagt es der bestehende Fehlerpfad', async () => {
+test('when the background save fails, the existing error path says so', async () => {
   mockParams = { typ: 'photo', dauer: '0', tripId: 't1' };
-  handoff.setPhoto({ ref: fakeRef, file: Promise.reject(new Error('voll')) });
+  handoff.setPhoto({ ref: fakeRef, file: Promise.reject(new Error('full')) });
   await render(<PreviewScreen />);
   await fireEvent.press(screen.getByTestId('einsenden-knopf'));
   expect(
@@ -1171,19 +1196,19 @@ test('scheitert das Hintergrund-Speichern, sagt es der bestehende Fehlerpfad', a
       'Der Moment konnte nicht gesichert werden, oft weil kein Speicherplatz mehr frei ist. Räum etwas Platz frei und versuch es nochmal.'
     )
   ).toBeTruthy();
-  expect(mockJobEinreihen).not.toHaveBeenCalled();
+  expect(mockEnqueueJob).not.toHaveBeenCalled();
 });
 
-test('Verwerfen räumt auch die im Hintergrund entstandene Datei ab', async () => {
+test('discarding also clears away the file created in the background', async () => {
   mockParams = { typ: 'photo', dauer: '0', tripId: 't1' };
   handoff.setPhoto({ ref: fakeRef, file: Promise.resolve({ uri: 'file://gespeichert.jpg' }) });
   await render(<PreviewScreen />);
   await fireEvent.press(screen.getByTestId('verwerfen-knopf'));
-  await waitFor(() => expect(mockDateiVerwerfen).toHaveBeenCalledWith('file://gespeichert.jpg'));
+  await waitFor(() => expect(mockDiscardFile).toHaveBeenCalledWith('file://gespeichert.jpg'));
   expect(mockBack).toHaveBeenCalled();
 });
 
-test('ohne Übergabe und ohne uri führt die Vorschau zurück zur Kamera', async () => {
+test('without a handoff and without a uri the preview leads back to the camera', async () => {
   mockParams = { typ: 'photo', dauer: '0', tripId: 't1' };
   await render(<PreviewScreen />);
   await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/capture'));

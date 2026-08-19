@@ -30,7 +30,7 @@ import { useCallback, useState } from 'react';
 // loaded state is the right one again, and discarding it would show a
 // skeleton over data that has been correct all along, for the duration of a
 // fresh load. States like that carry their own stamp along and get compared
-// while deriving (see `sichtbarerStand` in recap/[id]/karte.tsx).
+// while deriving (see `visibleState` in recap/[id]/map.tsx).
 export function useTripBound<T>(tripId: string, initial: T): [T, (value: T) => void] {
   const [state, setState] = useState<{ tripId: string; value: T }>({ tripId, value: initial });
 

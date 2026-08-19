@@ -12,68 +12,66 @@ import { createTrip } from '@/features/trips/tripsApi';
 import { validateDateRange } from '@/features/trips/tripDay';
 import type { Selection } from '@/features/trips/calendar';
 
-export default function NeueReise() {
+export default function NewTrip() {
   const { colors } = useTheme();
-  const oben = useTopInset(spacing.xxl);
+  const topInset = useTopInset(spacing.xxl);
   const router = useRouter();
   const { userId } = useAuth();
   const [name, setName] = useState('');
-  const [zeitraum, setZeitraum] = useState<Selection>({ start: null, end: null });
-  const [nameFehler, setNameFehler] = useState<string | undefined>();
-  const [zeitraumFehler, setZeitraumFehler] = useState<string | undefined>();
-  const [laedt, setLaedt] = useState(false);
+  const [dateRange, setDateRange] = useState<Selection>({ start: null, end: null });
+  const [nameError, setNameError] = useState<string | undefined>();
+  const [dateRangeError, setDateRangeError] = useState<string | undefined>();
+  const [loading, setLoading] = useState(false);
 
-  const absenden = async () => {
-    const nFehler = name.trim().length === 0 ? 'Gib deiner Reise einen Namen.' : null;
-    const { start, end } = zeitraum;
-    // Der Kalender liefert entweder beide Enden oder keines, und ein Ende vor
-    // dem Beginn kann er nicht erzeugen. Es bleibt der eine Fall, dass gar
-    // nichts gewählt wurde. `validateDateRange` steht trotzdem als letzte
-    // Prüfung davor, sie kostet nichts und hält den Fall abgedeckt, falls der
-    // Zeitraum je aus einer anderen Quelle käme.
-    const zFehler = !start || !end ? 'Trag den Zeitraum ein.' : validateDateRange(start, end);
-    setNameFehler(nFehler ?? undefined);
-    setZeitraumFehler(zFehler ?? undefined);
-    if (nFehler || zFehler || !start || !end || !userId) return;
+  const submit = async () => {
+    const nextNameError = name.trim().length === 0 ? 'Gib deiner Reise einen Namen.' : null;
+    const { start, end } = dateRange;
+    // The calendar hands over either both ends or neither, and it cannot
+    // produce an end before the start. `validateDateRange` stays in front as
+    // the last check anyway: it costs nothing and keeps the case covered
+    // should the date range ever come from another source.
+    const nextRangeError = !start || !end ? 'Trag den Zeitraum ein.' : validateDateRange(start, end);
+    setNameError(nextNameError ?? undefined);
+    setDateRangeError(nextRangeError ?? undefined);
+    if (nextNameError || nextRangeError || !start || !end || !userId) return;
 
-    setLaedt(true);
+    setLoading(true);
     const { id, error } = await createTrip({
       name, startDate: start, endDate: end, ownerId: userId,
     });
-    setLaedt(false);
-    if (error || !id) return setNameFehler(error ?? undefined);
-    // Direkt weiter zum Einladen (App-Konzept §5.3); replace, damit «zurück»
-    // wieder in der Liste landet und nicht im ausgefüllten Formular.
+    setLoading(false);
+    if (error || !id) return setNameError(error ?? undefined);
     router.replace(`/trip/${id}/invite`);
   };
 
   return (
-    // Seit der Knopf unten klebt, braucht der Screen Tastatur-Ausweichlogik:
-    // das Namensfeld hat `autoFocus`, die Tastatur steht also sofort und
-    // verdeckte ihn sonst. Gleiches Muster wie preview.tsx: `padding` auf iOS,
-    // Android regelt das über windowSoftInputMode am Fenster.
+    // Since the button sticks to the bottom, the screen needs keyboard
+    // avoidance: the name field has `autoFocus`, so the keyboard stands right
+    // away and used to cover it. Same pattern as preview.tsx: `padding` on
+    // iOS, Android handles it through windowSoftInputMode on the window.
     //
-    // Die Abstände liegen am INNEREN View, nicht an der KeyboardAvoidingView:
-    // die setzt bei `behavior="padding"` ihr eigenes `paddingBottom` und
-    // überschrieb damit den Screen-Rand, sobald keine Tastatur stand. Der Knopf
-    // klebte dadurch direkt auf der Tab-Bar.
+    // The spacing sits on the INNER view, not on the KeyboardAvoidingView:
+    // with `behavior="padding"` that one sets its own `paddingBottom` and
+    // thereby overwrote the screen margin as soon as no keyboard stood. The
+    // button then stuck directly to the tab bar.
     <KeyboardAvoidingView
       style={{ flex: 1, backgroundColor: colors['bg-0'] }}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <View style={[styles.screen, { paddingTop: oben }]}>
+      <View style={[styles.screen, { paddingTop: topInset }]}>
         <Text style={[type.h1, { color: colors['text-1'] }]}>Neue Reise</Text>
         <Text style={[type.secondary, { color: colors['text-2'] }]}>
           Name und Zeitraum reichen. Freunde lädst du gleich danach ein.
         </Text>
-        <Input label="Name der Reise" value={name} onChangeText={setName} error={nameFehler} placeholder="Norwegen mit dem Camper" autoFocus />
-        <DateRangeField value={zeitraum} onChange={setZeitraum} error={zeitraumFehler} />
-        {/* Schiebt den Knopf ans untere Ende, in Daumenreichweite, statt ihn
-            mitten im Bild kleben zu lassen. Die Felder bleiben oben, wo die
-            Leseachse beginnt: bei zentriertem Inhalt spränge der ganze Block,
-            sobald unter einem Feld eine Fehlermeldung erscheint. */}
-        <View style={styles.fueller} />
-        <Button variant="primary" label="Reise anlegen" onPress={absenden} loading={laedt} />
+        <Input label="Name der Reise" value={name} onChangeText={setName} error={nameError} placeholder="Norwegen mit dem Camper" autoFocus />
+        <DateRangeField value={dateRange} onChange={setDateRange} error={dateRangeError} />
+        {/* Pushes the button to the bottom edge, within thumb reach, instead
+            of letting it stick in the middle of the picture. The fields stay
+            at the top where the reading axis begins: with centred content the
+            whole block would jump as soon as an error message appears under
+            one field. */}
+        <View style={styles.filler} />
+        <Button variant="primary" label="Reise anlegen" onPress={submit} loading={loading} />
       </View>
     </KeyboardAvoidingView>
   );
@@ -81,5 +79,5 @@ export default function NeueReise() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, padding: spacing.screen, paddingTop: spacing.xxl, gap: spacing.l },
-  fueller: { flex: 1 },
+  filler: { flex: 1 },
 });

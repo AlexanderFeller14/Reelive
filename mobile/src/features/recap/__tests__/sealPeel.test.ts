@@ -112,21 +112,21 @@ test('PEELED_AT_MS is the point in time at which the stage is empty', () => {
 
 test('shadow: sits under the seal at rest, keeps up, gets softer and weaker, and is gone by the end', () => {
   const s0 = shadowParameters(0);
-  expect(s0).toEqual({ x: 360, y: 590, rx: 215, ry: 45, deckkraft: 0.2, weichheit: 16 });
+  expect(s0).toEqual({ x: 360, y: 590, rx: 215, ry: 45, opacity: 0.2, softness: 16 });
   const s05 = shadowParameters(0.5);
   expect(s05.x).toBeGreaterThan(s0.x);
   expect(s05.y).toBeLessThan(s0.y);
   expect(s05.rx).toBeLessThan(s0.rx);
-  expect(s05.deckkraft).toBeLessThan(s0.deckkraft);
-  expect(s05.weichheit).toBeGreaterThan(s0.weichheit);
+  expect(s05.opacity).toBeLessThan(s0.opacity);
+  expect(s05.softness).toBeGreaterThan(s0.softness);
   // The prototype leaves a remainder of 0.09 at p=1; in the app screen the
   // content takes over that spot afterwards, so the shadow fades to zero
   // here instead, without its curve changing before that point.
   // Exactly the prototype up to 0.85: 0.20 * (1 - 0.55 * smooth((p - 0.05) / 0.85)).
   const t = (0.85 - 0.05) / 0.85;
   const smooth = t * t * (3 - 2 * t);
-  expect(shadowParameters(0.85).deckkraft).toBeCloseTo(0.2 * (1 - 0.55 * smooth), 6);
-  expect(shadowParameters(0.925).deckkraft).toBeGreaterThan(0);
-  expect(shadowParameters(0.925).deckkraft).toBeLessThan(shadowParameters(0.85).deckkraft);
-  expect(shadowParameters(1).deckkraft).toBe(0);
+  expect(shadowParameters(0.85).opacity).toBeCloseTo(0.2 * (1 - 0.55 * smooth), 6);
+  expect(shadowParameters(0.925).opacity).toBeGreaterThan(0);
+  expect(shadowParameters(0.925).opacity).toBeLessThan(shadowParameters(0.85).opacity);
+  expect(shadowParameters(1).opacity).toBe(0);
 });

@@ -3,7 +3,7 @@ import { isSameSpot } from './clustering';
 import type { Viewport, Cluster } from './types';
 
 // What a tap on a cluster triggers, the rule shared by the app's map screen
-// (recap/[id]/karte.tsx) and the shared recap (teilen/[token].tsx). Two
+// (recap/[id]/map.tsx) and the shared recap (share/[token].tsx). Two
 // copies here were guaranteed to drift apart, and the one that drifted
 // would be the one where the dead end below reopened.
 //

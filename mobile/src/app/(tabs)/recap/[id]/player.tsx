@@ -61,49 +61,35 @@ import {
   setReaction,
 } from '@/features/recap/socialApi';
 
-// Die nächsten drei Fotos werden per expo-image vorgeladen (V8), beim
-// Weitertippen darf nichts schwarz blitzen.
-const VORLADEN_ANZAHL = 3;
-// Tages-Zwischenkarte steht 1,5 Sekunden, dann geht es von selbst weiter
-// (Task-11-Brief, Schritt 4).
-const ZWISCHENKARTE_DAUER_MS = 1500;
-// Unterhalb dieser Haltedauer zählt eine Berührung als "Tipp" (navigiert),
-// darüber als "Halten" (pausiert nur und setzt beim Loslassen fort, ohne zu
-// navigieren), Snapchat/Instagram-Story-Konvention, siehe Bericht.
-const TAP_SCHWELLE_MS = 250;
-// Task 8, Phase 6: langes Tippen öffnet «Diesen Moment melden». Bewusst
-// deutlich über TAP_SCHWELLE_MS (250 ms, das ist schon "halten" = pausieren),
-// 500 ms ist der plattformübliche Wert für eine Long-Press-Geste
-// (iOS/Android-Konvention, von RN Pressable auch als Default für
-// `delayLongPress` verwendet) und lässt sich klar von einem blossen Halten
-// unterscheiden: WÄHREND der ersten 500 ms verhält sich eine Berührung exakt
-// wie bisher (pausiert, siehe onPressIn), erst danach kommt zusätzlich das
-// Melden-Sheet dazu. Kein Konflikt mit der bestehenden Gesten-Schicht nötig,
-// siehe Kommentar bei `onLongPress` an den Tipp-Zonen unten.
-const LANGES_TIPPEN_MS = 500;
-// Wisch nach unten weiter als diese Schwelle schliesst den Player.
-const SCHLIESSEN_SCHWELLE_PX = 120;
-// DESIGN-LANGUAGE §5: „hell → Kino = Fade durch Dunkel 350 ms", der
-// inszenierte Übergang beim Betreten des Players ("das Licht geht aus").
-const KINO_FADE_DAUER_MS = 350;
-const KINO_FADE_REDUZIERT_MS = 200;
+// The next three photos are preloaded via expo-image (V8): tapping onward
+// must never flash black.
+const PRELOAD_COUNT = 3;
+const INTERSTITIAL_DURATION_MS = 1500;
+// Story convention (Snapchat/Instagram): 250 ms separates a tap from a hold.
+const TAP_THRESHOLD_MS = 250;
+// Task 8, Phase 6: a long press opens "report this moment". Deliberately
+// well above TAP_THRESHOLD_MS (250 ms already counts as a hold, i.e. as a
+// pause); 500 ms is the platform-usual long-press value (iOS/Android, and
+// RN Pressable's own default for `delayLongPress`).
+const LONG_PRESS_MS = 500;
+const CLOSE_THRESHOLD_PX = 120;
+// DESIGN-LANGUAGE §5: "light to cinema = fade through dark, 350 ms", the
+// staged transition when entering the player ("the lights go out").
+const CINEMA_FADE_DURATION_MS = 350;
+const CINEMA_FADE_REDUCED_MS = 200;
 
-// Final-Review Phase-5-Nachbesserung: Gründe, die zum VERLASSENEN Moment
-// gehören und bei jedem TATSÄCHLICHEN Indexwechsel (Tipp-Navigation,
-// automatischer Vorschub) zurückgenommen werden, nie zum NEUEN Moment
-// mitgeschleppt. 'kommentare' und 'zwischenkarte' gehören bewusst NICHT
-// hierher: 'kommentare' hängt am Sheet (schliesst über schliesseKommentare,
-// nicht über einen Indexwechsel, während es offen ist, sind die Tipp-Zonen
-// ohnehin vom Sheet verdeckt), 'zwischenkarte' ist über den eigenen Effekt
-// (Deps u.a. stand.index) bereits selbstverwaltend.
-const MOMENTWECHSEL_GRUENDE: PauseReason[] = ['halten', 'neuversuch'];
+// Reasons that belong to the moment being LEFT and are taken back on every
+// ACTUAL index change, never carried over to the NEW moment. 'kommentare'
+// and 'zwischenkarte' deliberately do NOT belong here: 'kommentare' hangs on
+// the sheet (it is taken back by closeComments), 'zwischenkarte' manages
+// itself through its own effect.
+const MOMENT_CHANGE_REASONS: PauseReason[] = ['halten', 'neuversuch'];
 
-// Feste kleine Emoji-Leiste (Task-12-Brief: kein Picker, kein neues Paket).
-// `id` ist der stabile Schlüssel für testID/React-key (ein Emoji-Glyph kann
-// aus mehreren Codepoints bestehen, z.B. Herz + Variationsselektor, als
-// testID unpraktisch), `emoji` ist der Wert, den sozialApi tatsächlich
-// speichert.
-const EMOJI_LEISTE: { id: string; emoji: string; label: string }[] = [
+// Fixed small emoji bar (Task-12 brief: no picker, no new package). `id` is
+// the stable key for testID and React key (an emoji glyph can consist of
+// several codepoints, e.g. heart plus variation selector, which makes a poor
+// testID), `emoji` is the value socialApi actually stores.
+const EMOJI_BAR: { id: string; emoji: string; label: string }[] = [
   { id: 'herz', emoji: '❤️', label: 'Herz' },
   { id: 'lachen', emoji: '😂', label: 'Lachen' },
   { id: 'staunen', emoji: '😮', label: 'Staunen' },
@@ -111,44 +97,40 @@ const EMOJI_LEISTE: { id: string; emoji: string; label: string }[] = [
   { id: 'weinen', emoji: '😢', label: 'Träne' },
 ];
 
-// Dieselben Formulierungen wie im Schwester-Screen recap/[id]/uebersicht.tsx
-// für Nachzügler/Ausgelassene (Task-11-Brief: "nimm dieselben, statt neue zu
-// erfinden"), hier bewusst als eigene, kleine Kopie statt eines Imports:
-// uebersicht.tsx exportiert diese Hilfsfunktionen nicht, und diese Aufgabe
-// darf laut Auftrag ausschliesslich die eigenen vier Dateien anfassen, nicht
-// uebersicht.tsx umbauen, um sie zu exportieren.
-function unterwegsText(anzahl: number): string {
-  return `${anzahl} ${anzahl === 1 ? 'Moment ist' : 'Momente sind'} noch unterwegs.`;
+// Same wording as the sister screen recap/[id]/overview.tsx for latecomers
+// and skipped moments, deliberately a small local copy instead of an import:
+// overview.tsx does not export these helpers.
+function pendingText(count: number): string {
+  return `${count} ${count === 1 ? 'Moment ist' : 'Momente sind'} noch unterwegs.`;
 }
-function ausgelassenText(anzahl: number): string {
-  return `${anzahl} ${anzahl === 1 ? 'Moment liess' : 'Momente liessen'} sich gerade nicht laden. Schau später nochmal rein.`;
+function skippedText(count: number): string {
+  return `${count} ${count === 1 ? 'Moment liess' : 'Momente liessen'} sich gerade nicht laden. Schau später nochmal rein.`;
 }
 
-// Gleiche Kopie-Begründung wie oben: „Tag 3 · Lissabon · 12. August" ist das
-// exakte Format aus uebersicht.tsx (dort ebenfalls nicht exportiert).
-const MONATE_LANG = [
+// Same copy rationale as above: "Tag 3 · Lissabon · 12. August" is the exact
+// format from overview.tsx (not exported there either).
+const MONTHS_LONG = [
   'Januar', 'Februar', 'März', 'April', 'Mai', 'Juni',
   'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember',
 ];
-function formatTagesdatum(iso: string): string {
+function formatDayDate(iso: string): string {
   const [, m, d] = iso.split('-').map(Number);
-  return `${d}. ${MONATE_LANG[m - 1]}`;
+  return `${d}. ${MONTHS_LONG[m - 1]}`;
 }
-function tagesueberschrift(tag: RecapDay): string {
-  const teile = [`Tag ${tag.nummer}`];
-  if (tag.ort) teile.push(tag.ort);
-  teile.push(formatTagesdatum(tag.datum));
-  return teile.join(' · ');
+function dayHeading(day: RecapDay): string {
+  const parts = [`Tag ${day.number}`];
+  if (day.place) parts.push(day.place);
+  parts.push(formatDayDate(day.date));
+  return parts.join(' · ');
 }
 
-// Uhrzeit in DER ZEITZONE DES MOMENTS (captured_tz), nicht in Gerätezeit
-// (Task-11-Brief, Schritt 3), anders als preview.tsx (dort ist Moment- und
-// Gerätezeit dieselbe, weil dort live aufgenommen wird) braucht das hier
-// zwingend Intl.DateTimeFormat mit `timeZone`, es gibt dafür keinen
-// Intl-freien Weg. Ein ungültiger/unbekannter Zonenname (siehe tage.ts,
-// gleiches Verteidigungsprinzip) wirft dort einen RangeError, lieber eine
-// best-effort Gerätezeit zeigen als abstürzen oder eine leere Pille.
-function zeitInZone(capturedAt: string, capturedTz: string): string {
+// Time in THE MOMENT'S TIME ZONE (captured_tz), not in device time. Unlike
+// preview.tsx (where moment time and device time are the same, because the
+// shot is taken live) this strictly needs Intl.DateTimeFormat with
+// `timeZone`, there is no Intl-free way. An invalid or unknown zone name
+// (see days.ts, same defensive principle) makes it throw a RangeError, and
+// showing a best-effort device time beats crashing or an empty pill.
+function timeInZone(capturedAt: string, capturedTz: string): string {
   try {
     return new Intl.DateTimeFormat('de-DE', {
       timeZone: capturedTz,
@@ -161,28 +143,26 @@ function zeitInZone(capturedAt: string, capturedTz: string): string {
   }
 }
 
-// Vertrag 2 (Review-Fund der Vorgänger-Tasks): der Startindex aus der
-// Übersicht bezieht sich auf die Momente mit upload_status==='uploaded', die
-// AUCH im Vorrat eine URL haben, in der Reihenfolge von fetchRecapMomente,
-// dieselbe Liste, die `laden()` unten als `spielliste` aufbaut. Verteidigt
-// gegen fehlendes, nicht-numerisches und ausserhalb des Bereichs liegendes
-// `start`, statt zu raten oder zu werfen.
-function parseStartIndex(raw: string | undefined, laenge: number): number {
-  if (laenge === 0) return 0;
+// Contract 2: the start index from the overview refers to the moments with
+// upload_status==='uploaded' that ALSO have a URL in the pool, in the order
+// fetchRecapMoments returns them, the same list `load()` below builds as
+// `playlist`.
+function parseStartIndex(raw: string | undefined, length: number): number {
+  if (length === 0) return 0;
   if (raw === undefined) return 0;
   const n = Number(raw);
-  if (!Number.isFinite(n) || !Number.isInteger(n) || n < 0 || n >= laenge) return 0;
+  if (!Number.isFinite(n) || !Number.isInteger(n) || n < 0 || n >= length) return 0;
   return n;
 }
 
-type LadePhase = 'laedt' | 'fehler' | 'leer' | 'bereit' | 'ende';
+type LoadPhase = 'loading' | 'error' | 'empty' | 'ready' | 'ended';
 
-// Medien-Screen (DESIGN-LANGUAGE v2 §1): feste Kino-Palette, kein useTheme(),
-// gleiches Muster wie aufnehmen/index.tsx und preview.tsx.
-function KinoButton({ label, onPress }: { label: string; onPress: () => void }) {
+// Media screen (DESIGN-LANGUAGE v2 §1): fixed cinema palette, no useTheme(),
+// same pattern as capture/index.tsx and preview.tsx.
+function CinemaButton({ label, onPress }: { label: string; onPress: () => void }) {
   return (
     <PressScale accessibilityRole="button" onPress={onPress}>
-      <View style={styles.kinoButton}>
+      <View style={styles.cinemaButton}>
         <Text style={[type.bodyMedium, { color: cinema['bg-0'] }]}>{label}</Text>
       </View>
     </PressScale>
@@ -197,21 +177,18 @@ function TextLink({ label, onPress }: { label: string; onPress: () => void }) {
   );
 }
 
-// Ein Emoji der festen Leiste. Aktiv (eigene Reaktion): Pille füllt sich mit
-// `cinema['text-1']`, derselbe Ton, den `KinoButton` bereits für "solide
-// Fläche auf Kino-Hintergrund" benutzt, kein neuer Wert. 44×44: minimales
-// Touch-Target (DESIGN-LANGUAGE v2 §8).
-// Aktiv (eigene Reaktion) füllt sich SOLIDE mit `cinema['text-1']`, keine
-// translucente Pille, also auch kein Blur: eine deckende Fläche hat nichts,
-// das durchscheinen könnte. Inaktiv bleibt die Pille translucent + Blur
-// (DESIGN-LANGUAGE §1/§4, Task 10).
-function EmojiPille({
-  id, emoji, label, aktiv, onPress,
+// One emoji of the fixed bar. Active (own reaction) fills SOLIDLY with
+// `cinema['text-1']`, the same tone CinemaButton already uses for "solid
+// surface on a cinema background", so no blur either: an opaque surface has
+// nothing that could shine through. Inactive stays a translucent pill with
+// blur (DESIGN-LANGUAGE §1/§4). 44x44 is the minimum touch target (v2 §8).
+function EmojiPill({
+  id, emoji, label, active, onPress,
 }: {
   id: string;
   emoji: string;
   label: string;
-  aktiv: boolean;
+  active: boolean;
   onPress: () => void;
 }) {
   return (
@@ -219,31 +196,28 @@ function EmojiPille({
       testID={`player-emoji-${id}`}
       accessibilityRole="button"
       accessibilityLabel={label}
-      accessibilityState={{ selected: aktiv }}
+      accessibilityState={{ selected: active }}
       onPress={onPress}
     >
-      {aktiv ? (
-        <View style={[styles.emojiPille, styles.emojiPilleAktiv]}>
-          <Text style={styles.emojiZeichen}>{emoji}</Text>
+      {active ? (
+        <View style={[styles.emojiPill, styles.emojiPillActive]}>
+          <Text style={styles.emojiGlyph}>{emoji}</Text>
         </View>
       ) : (
-        <Pill style={styles.emojiPille}>
-          <Text style={styles.emojiZeichen}>{emoji}</Text>
+        <Pill style={styles.emojiPill}>
+          <Text style={styles.emojiGlyph}>{emoji}</Text>
         </Pill>
       )}
     </PressScale>
   );
 }
 
-// Reaktionen ANDERER Personen auf den aktiven Moment, dezent, nur die
-// Emojis, ohne Namen und ohne Zähler (Task-12-Brief, Schritt 4: "nicht als
-// Zählerbalken").
-function AndereReaktionenPille({ emojis }: { emojis: string[] }) {
+function OtherReactionsPill({ emojis }: { emojis: string[] }) {
   if (emojis.length === 0) return null;
   return (
     <Pill
       testID="player-reaktionen-andere"
-      style={styles.andereReaktionenPille}
+      style={styles.otherReactionsPill}
       accessibilityLabel={`Weitere Reaktionen: ${emojis.join(', ')}`}
     >
       <Text style={[type.secondary, { color: cinema['text-1'] }]}>{emojis.join(' ')}</Text>
@@ -251,24 +225,24 @@ function AndereReaktionenPille({ emojis }: { emojis: string[] }) {
   );
 }
 
-function KommentarZeile({ kommentar }: { kommentar: Comment }) {
+function CommentRow({ comment }: { comment: Comment }) {
   return (
-    <View testID={`kommentar-${kommentar.id}`} style={styles.kommentarZeile}>
-      <Text style={[type.bodyMedium, { color: cinema['text-1'] }]}>{kommentar.autor_name}</Text>
-      <Text style={[type.body, { color: cinema['text-1'] }]}>{kommentar.text}</Text>
+    <View testID={`kommentar-${comment.id}`} style={styles.commentRow}>
+      <Text style={[type.bodyMedium, { color: cinema['text-1'] }]}>{comment.authorName}</Text>
+      <Text style={[type.body, { color: cinema['text-1'] }]}>{comment.text}</Text>
     </View>
   );
 }
 
-function LadeHinweisPille({ text }: { text: string }) {
+function LoadingHintPill({ text }: { text: string }) {
   return (
-    <Pill style={styles.ladeHinweisPille}>
+    <Pill style={styles.loadingHintPill}>
       <Text style={[type.secondary, { color: cinema['text-1'] }]}>{text}</Text>
     </Pill>
   );
 }
 
-function FotoMoment({ url, onFehler }: { url: string; onFehler: () => void }) {
+function PhotoMoment({ url, onError }: { url: string; onError: () => void }) {
   return (
     <Image
       testID="player-foto"
@@ -276,35 +250,27 @@ function FotoMoment({ url, onFehler }: { url: string; onFehler: () => void }) {
       style={StyleSheet.absoluteFill}
       contentFit="cover"
       transition={150}
-      onError={onFehler}
+      onError={onError}
     />
   );
 }
 
-// Videoende erkennen: das `playToEnd`-Event des Players (nicht ein Timer),
-// der uniforme dauerFuer-Timer im Elternteil läuft trotzdem als Rückfall
-// weiter (siehe dort) und schaltet notfalls auch bei einem Video weiter, das
-// wegen fehlendem Netz nie lädt. `statusChange` mit status==='error' meldet
-// genau diesen Ladefehlschlag an den Elternteil (V10: einmal still neu
-// versuchen, bevor irgendetwas sichtbar wird).
+// Video end is detected through the player's `playToEnd` event, not through
+// a timer; the uniform durationFor timer in the parent still runs as a
+// fallback and advances even a video that never loads for lack of network.
+// `statusChange` with status==='error' reports exactly that load failure to
+// the parent (V10: retry once silently before anything becomes visible).
 //
-// `pausiert` (die für DIESE Komponente auf ein einzelnes boolean verdichtete
-// Frage "läuft gerade IRGENDEIN Pausier-Grund", siehe `gestoppt` weiter
-// unten) steuert player.pause()/play() direkt: "Halten = Pause" darf sich
-// nicht auf das Einfrieren des Fortschrittsbalkens beschränken, sonst liefe
-// Bild UND Ton eines Videos unbeirrt weiter, während die Anzeige stillstünde.
-// Genau dieser Fall (gehalten, während das Video währenddessen zu Ende
-// liefe) ist auch der Grund, warum `weiterAutomatisch` beim Vorschub den
-// Grund `'halten'` explizit zurücknimmt (Vertrag 4, playerLogic.ts): ohne
-// echtes player.pause() könnte `playToEnd` sogar während einer Halten-Geste
-// feuern.
+// `paused` drives player.pause()/play() directly: "hold = pause" must not
+// stop at freezing the progress bar, otherwise picture AND sound of a video
+// would keep running while the display stood still.
 function VideoMoment({
-  url, pausiert, onEnde, onFehler,
+  url, paused, onEnded, onError,
 }: {
   url: string;
-  pausiert: boolean;
-  onEnde: () => void;
-  onFehler: () => void;
+  paused: boolean;
+  onEnded: () => void;
+  onError: () => void;
 }) {
   const player = useVideoPlayer(url, (p) => {
     p.loop = false;
@@ -312,21 +278,21 @@ function VideoMoment({
   });
 
   useEffect(() => {
-    const endeSub = player.addListener('playToEnd', onEnde);
+    const endedSub = player.addListener('playToEnd', onEnded);
     const statusSub = player.addListener('statusChange', (payload: { status: string }) => {
-      if (payload.status === 'error') onFehler();
+      if (payload.status === 'error') onError();
     });
     return () => {
-      endeSub.remove();
+      endedSub.remove();
       statusSub.remove();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [player]);
 
   useEffect(() => {
-    if (pausiert) player.pause();
+    if (paused) player.pause();
     else player.play();
-  }, [pausiert, player]);
+  }, [paused, player]);
 
   return (
     <VideoView
@@ -340,36 +306,34 @@ function VideoMoment({
   );
 }
 
-function MomentAnzeige({
-  moment, url, fehlgeschlagen, pausiert, onVideoEnde, onFehler,
+function MomentView({
+  moment, url, failed, paused, onVideoEnded, onError,
 }: {
   moment: RecapMoment;
   url: MediaUrl | undefined;
-  fehlgeschlagen: boolean;
-  pausiert: boolean;
-  onVideoEnde: () => void;
-  onFehler: () => void;
+  failed: boolean;
+  paused: boolean;
+  onVideoEnded: () => void;
+  onError: () => void;
 }) {
-  // Kein Ladefehler bekannt und eine URL vorhanden: normal anzeigen.
-  if (!fehlgeschlagen && url) {
+  if (!failed && url) {
     return moment.type === 'video' ? (
-      <VideoMoment url={url.medium_url} pausiert={pausiert} onEnde={onVideoEnde} onFehler={onFehler} />
+      <VideoMoment url={url.medium_url} paused={paused} onEnded={onVideoEnded} onError={onError} />
     ) : (
-      <FotoMoment url={url.medium_url} onFehler={onFehler} />
+      <PhotoMoment url={url.medium_url} onError={onError} />
     );
   }
-  // Randfall (Task-11-Brief, Schritt 7): ein Video, das nicht lädt, zeigt
-  // sein Thumbnail plus Hinweis, Weitertippen bleibt möglich (die Tap-Zonen
-  // liegen unverändert über dieser Fläche, sie ist rein informativ). Dieselbe
-  // Behandlung gilt symmetrisch für ein Foto, dessen Laden zweimal
-  // fehlschlägt (V10: eine kaputte URL darf den Recap nie beenden).
+  // Edge case: a video that does not load shows its thumbnail plus a hint and
+  // stays tappable (the tap zones sit unchanged above this surface, which is
+  // purely informational). The same treatment applies symmetrically to a photo
+  // whose loading fails twice (V10: a broken URL must never end the recap).
   return (
     <View style={StyleSheet.absoluteFill}>
       {url?.thumb_url && (
         <Image source={{ uri: url.thumb_url }} style={StyleSheet.absoluteFill} contentFit="cover" />
       )}
-      <View style={styles.ladeHinweisWrap}>
-        <LadeHinweisPille
+      <View style={styles.loadingHintWrap}>
+        <LoadingHintPill
           text={
             moment.type === 'video'
               ? 'Dieses Video lässt sich gerade nicht laden.'
@@ -385,175 +349,142 @@ export default function RecapPlayer() {
   const router = useRouter();
   const { id: tripId, start: startParam } = useLocalSearchParams<{ id: string; start?: string }>();
   const reducedMotion = useReducedMotion();
-  // Der Player zeigt keinen Header und liegt randlos hinter Insel und
-  // Home-Indicator. Die gestalteten 32 aus dem StyleSheet reichten am Geraet
-  // nicht: die Fortschrittssegmente lagen unter der Dynamic Island.
-  const oberkante = useTopInset(spacing.xl);
-  const unterkante = useBottomInset(spacing.xl);
+  // The player shows no header and lies edge to edge behind the island and the
+  // home indicator. Device finding: the designed 32 from the StyleSheet were
+  // not enough, the progress segments sat under the Dynamic Island.
+  const topInset = useTopInset(spacing.xl);
+  const bottomInset = useBottomInset(spacing.xl);
   const { userId } = useAuth();
 
-  const [phase, setPhase] = useState<LadePhase>('laedt');
-  // Der Fehler und die Frage, ob ein zweiter Versuch etwas ausrichtet, in
-  // EINEM Wert. Sie gehören zusammen: ein Text ohne die Antwort darauf hiesse,
-  // «Nochmal versuchen» unter jeden Satz zu stellen, auch unter «Diese Reise
-  // ist noch versiegelt.». Getrennt gehalten könnten sie auseinanderlaufen,
-  // und der Knopf verspräche wieder etwas, was er nicht hält.
-  const [fehler, setFehler] = useState<{ text: string; nochmalHilft: boolean } | null>(null);
+  const [phase, setPhase] = useState<LoadPhase>('loading');
+  // The error and the question whether a second attempt achieves anything in
+  // ONE value. They belong together: a text without that answer would mean
+  // putting «Nochmal versuchen» under every sentence, including «Diese Reise
+  // ist noch versiegelt.». Kept apart they could drift, and the button would
+  // promise something it cannot keep again.
+  const [error, setError] = useState<{ text: string; canRetry: boolean } | null>(null);
   const [startDate, setStartDate] = useState('');
-  // Referenzstabil ab dem Moment, in dem laden() sie einmal setzt (Vertrag 1
-  // der Vorgänger-Tasks: tagWechselt memoisiert über die ARRAY-REFERENZ,
-  // nicht über Inhalt/Länge, diese Liste wird darum NIE inline neu gebaut,
-  // sondern genau einmal pro erfolgreichem Laden per setState ersetzt).
-  const [spielliste, setSpielliste] = useState<RecapMoment[]>([]);
+  // Reference-stable from the moment `load()` sets it once (contract 1:
+  // dayChanges memoises over the ARRAY REFERENCE, not over content or length,
+  // so this list is NEVER rebuilt inline, only replaced exactly once per
+  // successful load through setState).
+  const [playlist, setPlaylist] = useState<RecapMoment[]>([]);
   const [urls, setUrls] = useState<Map<string, MediaUrl>>(new Map());
-  const [gueltigBis, setGueltigBis] = useState(0);
-  const [pendingAnzahl, setPendingAnzahl] = useState(0);
-  const [ausgelassenAnzahl, setAusgelassenAnzahl] = useState(0);
+  const [validUntil, setValidUntil] = useState(0);
+  const [pendingCount, setPendingCount] = useState(0);
+  const [skippedCount, setSkippedCount] = useState(0);
 
-  const [stand, setStand] = useState<PlayerState>({ index: 0, pausiert: new Set(), fortschritt: 0 });
-  const [fehlgeschlagen, setFehlgeschlagen] = useState<Set<string>>(new Set());
+  const [state, setState] = useState<PlayerState>({ index: 0, paused: new Set(), progress: 0 });
+  const [failed, setFailed] = useState<Set<string>>(new Set());
 
-  // Reaktionen (Task 12): `reaktionen` trägt den OPTIMISTISCHEN Zustand, ein
-  // Tipp schreibt hier sofort, bevor die Antwort von setzeReaktion/
-  // entferneReaktion da ist (siehe tippeEmoji unten).
-  const [reaktionen, setReaktionen] = useState<Record<string, Reaction[]>>({});
-  const [reaktionFehler, setReaktionFehler] = useState<string | null>(null);
+  const [reactions, setReactions] = useState<Record<string, Reaction[]>>({});
+  const [reactionError, setReactionError] = useState<string | null>(null);
 
-  // Task 7: «In Galerie sichern» für den GERADE aktiven Moment. Eigener
-  // Hinweistext statt Wiederverwendung von `reaktionFehler`, ein Erfolg
-  // ("gesichert.") ist kein Fehler, beide sollen aber nach demselben Muster
-  // (eine Pille unter der Reaktionsreihe, verschwindet beim Momentwechsel)
-  // behandelt werden.
-  const [exportLaeuft, setExportLaeuft] = useState(false);
-  const [exportHinweis, setExportHinweis] = useState<string | null>(null);
+  // Task 7: «In Galerie sichern» for the CURRENTLY active moment. Its own
+  // notice text instead of reusing `reactionError`: a success is not an error,
+  // yet both follow the same pattern (a pill under the reaction row that
+  // disappears when the moment changes).
+  const [exportRunning, setExportRunning] = useState(false);
+  const [exportNotice, setExportNotice] = useState<string | null>(null);
 
-  const [kommentarMomentId, setKommentarMomentId] = useState<string | null>(null);
-  const [kommentare, setKommentare] = useState<Comment[]>([]);
-  const [kommentareLaden, setKommentareLaden] = useState(false);
-  const [kommentareFehler, setKommentareFehler] = useState<string | null>(null);
-  const [kommentarText, setKommentarText] = useState('');
-  const [kommentarSendetLaeuft, setKommentarSendetLaeuft] = useState(false);
-  const [kommentarSendenFehler, setKommentarSendenFehler] = useState<string | null>(null);
+  const [commentMomentId, setCommentMomentId] = useState<string | null>(null);
+  const [comments, setComments] = useState<Comment[]>([]);
+  const [commentsLoading, setCommentsLoading] = useState(false);
+  const [commentsError, setCommentsError] = useState<string | null>(null);
+  const [commentText, setCommentText] = useState('');
+  const [commentSending, setCommentSending] = useState(false);
+  const [commentSendError, setCommentSendError] = useState<string | null>(null);
 
-  // Task 8, Phase 6: «Diesen Moment melden», ausgelöst durch langes Tippen
-  // (siehe onLongPress an den Tipp-Zonen unten), gleiches Zustandsmuster wie
-  // das Kommentar-Sheet direkt darüber. `meldenBestaetigt` schaltet den
-  // Sheet-Inhalt nach einem erfolgreichen Absenden auf die Bestätigung um
-  // (Brief: "Danach eine Bestätigung."); der Moment selbst bleibt in JEDEM
-  // Fall unverändert sichtbar, Melden entfernt nichts, das übernimmt
-  // ausschliesslich die Moderation im Reise-Detail.
-  const [meldenMomentId, setMeldenMomentId] = useState<string | null>(null);
-  const [meldenGrund, setMeldenGrund] = useState('');
-  const [meldenSendetLaeuft, setMeldenSendetLaeuft] = useState(false);
-  const [meldenSendenFehler, setMeldenSendenFehler] = useState<string | null>(null);
-  const [meldenBestaetigt, setMeldenBestaetigt] = useState(false);
+  // Task 8, Phase 6: «Diesen Moment melden», triggered by a long press (see
+  // onLongPress on the tap zones below), same state pattern as the comment
+  // sheet directly above. Reporting removes nothing; only the moderation in
+  // the trip detail does that.
+  const [reportMomentId, setReportMomentId] = useState<string | null>(null);
+  const [reportReason, setReportReason] = useState('');
+  const [reportSending, setReportSending] = useState(false);
+  const [reportSendError, setReportSendError] = useState<string | null>(null);
+  const [reportConfirmed, setReportConfirmed] = useState(false);
 
-  const aktiv = useRef(true);
-  // Wandzeit, zu der das aktuelle Segment (bei fortschritt=0) begonnen hätte,
-  // daraus lässt sich beim Berühren (Halten-Geste) exakt zurückrechnen,
-  // wie viel von diesem Moment schon "gesehen" wurde, ohne einen zweiten,
-  // separat tickenden Zähler zu pflegen (dieselbe Trennung von Optik/Zeitgeber
-  // wie SealAnimation.tsx: die Animation läuft für sich, der eigentliche
-  // Zeitpunkt kommt aus Date.now()).
+  const mounted = useRef(true);
+  // Wall-clock time at which the current segment would have started (at
+  // progress 0). On touch (hold gesture) that allows computing exactly how
+  // much of this moment has already been "seen", without keeping a second,
+  // separately ticking counter (the same separation of optics and timer as
+  // SealAnimation.tsx: the animation runs on its own, the actual point in time
+  // comes from Date.now()).
   const segmentStartRef = useRef(0);
-  const beruehrungStartRef = useRef(0);
-  const erneuerungLaeuftRef = useRef(false);
-  // Pro Moment höchstens EIN automatischer, unsichtbarer Neuversuch (V10),
-  // scheitert der auch, gilt der Moment als endgültig fehlgeschlagen.
-  const versuchtRef = useRef<Set<string>>(new Set());
-  const aktivIdRef = useRef<string | undefined>(undefined);
-  // Phase-5-Final-Review, Punkt 1 (korrigiert): früher zwei separate Refs
-  // (`zwischenkarteRef`, `kommentarOffenRef`), weil `stand.pausiert` als
-  // einzelnes boolean die drei Gründe (Halten, Zwischenkarte,
-  // Kommentar-Sheet) nicht auseinanderhalten konnte, videoZuEnde brauchte
-  // zwei EIGENE, parallel geführte Booleans, um "Halten" (soll durchlassen,
-  // Vertrag 4) von den anderen beiden (sollen blockieren) zu unterscheiden.
-  // Mit PauseGrund als benannter Menge genügt EIN Ref auf das aktuelle
-  // `stand.pausiert`, `blockiertAutomatischenVorschub` (playerLogic.ts)
-  // kennt den Unterschied selbst.
-  const pausiertRef = useRef<ReadonlySet<PauseReason>>(new Set());
-  // Schlüssel `${postId}:${emoji}`, verhindert, dass ein schneller
-  // Doppeltipp auf dasselbe Emoji zwei sich widersprechende Anfragen lostritt
-  // (Frage aus dem Task-12-Auftrag). Ein Ref statt ein State-Flag: Prüfen und
-  // Setzen müssen SYNCHRON im selben Tastendruck passieren, bevor der
-  // nächste Tipp überhaupt eintrifft, React committed einen State-Wechsel
-  // erst beim nächsten Renderzyklus, ein zweiter, sehr schneller Tipp könnte
-  // ihn also noch mit dem alten Wert lesen.
-  const pendingReaktionenRef = useRef<Set<string>>(new Set());
-  // Für welchen Moment das Kommentar-Sheet zuletzt geöffnet/geladen hat, mit
-  // dem State `kommentarMomentId` synchron gehalten, damit eine spät
-  // eintreffende Antwort (Sheet inzwischen für einen ANDEREN Moment neu
-  // geöffnet) das dann aktuellere Ergebnis nicht überschreibt.
-  const kommentarMomentIdRef = useRef<string | null>(null);
-  // Gleiches Stale-Guard-Prinzip wie kommentarMomentIdRef, für das
-  // Melden-Sheet.
-  const meldenMomentIdRef = useRef<string | null>(null);
+  const touchStartRef = useRef(0);
+  const refreshRunningRef = useRef(false);
+  const retriedRef = useRef<Set<string>>(new Set());
+  const activeIdRef = useRef<string | undefined>(undefined);
+  // Phase-5 final review, point 1: ONE ref on the current `state.paused` is
+  // enough, `blocksAutoAdvance` (playerLogic.ts) knows the difference between
+  // the reasons itself. Earlier this needed two separately kept booleans,
+  // because a single `paused` boolean could not tell the reasons apart.
+  const pausedRef = useRef<ReadonlySet<PauseReason>>(new Set());
+  // Key `${postId}:${emoji}`. A ref rather than a state flag: checking and
+  // setting have to happen SYNCHRONOUSLY within the same key press, before the
+  // next tap even arrives; React commits a state change only on the next
+  // render cycle, so a second, very fast tap could still read the old value.
+  const pendingReactionsRef = useRef<Set<string>>(new Set());
+  const commentMomentIdRef = useRef<string | null>(null);
+  const reportMomentIdRef = useRef<string | null>(null);
 
-  const laden = useCallback(async () => {
-    setPhase('laedt');
-    setFehler(null);
+  const load = useCallback(async () => {
+    setPhase('loading');
+    setError(null);
     const [
-      { data: trip, error: tFehler },
-      { data: momente, error: mFehler },
-      { vorrat, error: vFehler, grund: vGrund },
+      { data: trip, error: tripError },
+      { data: moments, error: momentsError },
+      { pool, error: poolError, reason: poolReason },
     ] = await Promise.all([fetchTrip(tripId), fetchRecapMoments(tripId), getPool(tripId)]);
-    if (!aktiv.current) return;
+    if (!mounted.current) return;
 
-    // Priorität Reise vor Vorrat vor Momenten, gleiche Reihenfolge wie in
-    // uebersicht.tsx: eine kaputte Reise-Abfrage macht die anderen beiden
-    // ohnehin bedeutungslos.
-    const gemeinsamerFehler = tFehler ?? vFehler ?? mFehler ?? null;
-    if (gemeinsamerFehler || !trip) {
-      setFehler({
-        text: gemeinsamerFehler ?? 'Diese Reise gibt es nicht mehr.',
-        // `grund` gehört zum VORRAT und zählt deshalb nur, wenn dessen Fehler
-        // auch der angezeigte ist (siehe die Priorität darüber). Steht eine
-        // gescheiterte Reise-Abfrage vorn, ist die Lage eine andere, und dort
-        // ist Wiederholen genau die richtige Handlung.
-        nochmalHilft: tFehler === null && vFehler !== null ? retryHelps(vGrund) : true,
+    // Trip before pool before moments, the same order as overview.tsx: a broken
+    // trip query makes the other two meaningless anyway.
+    const sharedError = tripError ?? poolError ?? momentsError ?? null;
+    if (sharedError || !trip) {
+      setError({
+        text: sharedError ?? 'Diese Reise gibt es nicht mehr.',
+        canRetry: tripError === null && poolError !== null ? retryHelps(poolReason) : true,
       });
-      setPhase('fehler');
+      setPhase('error');
       return;
     }
 
-    const urlsMap = vorrat?.urls ?? new Map<string, MediaUrl>();
-    const uploaded = momente.filter((m) => m.upload_status === 'uploaded');
-    // Dieselbe Filterung wie uebersicht.tsx: nur Momente mit Vorrats-URL
-    // gehören in die Filmrolle (Vertrag 2).
-    const mitBild = uploaded.filter((m) => urlsMap.has(m.id));
+    const urlsMap = pool?.urls ?? new Map<string, MediaUrl>();
+    const uploaded = moments.filter((m) => m.upload_status === 'uploaded');
+    // Same filtering as overview.tsx: only moments with a pool URL belong in the
+    // reel (contract 2).
+    const withUrl = uploaded.filter((m) => urlsMap.has(m.id));
 
     setStartDate(trip.start_date);
     setUrls(urlsMap);
-    setGueltigBis(vorrat?.gueltigBis ?? 0);
-    setPendingAnzahl(momente.length - uploaded.length);
-    setAusgelassenAnzahl(vorrat?.ausgelassen ?? 0);
-    setSpielliste(mitBild);
-    // Klein (Review-Fund): ein frisches Laden ist ein frischer Anlauf, ein
-    // Moment, der beim VORHERIGEN Anlauf zweimal scheiterte, bekommt sonst
-    // nie wieder einen stillen Neuversuch und zeigt dauerhaft die
-    // Hinweispille, auch wenn das zugrunde liegende Problem (z.B. eine
-    // einzelne kaputte Signatur) längst behoben ist.
-    versuchtRef.current.clear();
-    setFehlgeschlagen(new Set());
+    setValidUntil(pool?.gueltigBis ?? 0);
+    setPendingCount(moments.length - uploaded.length);
+    setSkippedCount(pool?.ausgelassen ?? 0);
+    setPlaylist(withUrl);
+    retriedRef.current.clear();
+    setFailed(new Set());
 
-    if (mitBild.length === 0) {
-      setPhase('leer');
+    if (withUrl.length === 0) {
+      setPhase('empty');
       return;
     }
-    setStand({ index: parseStartIndex(startParam, mitBild.length), pausiert: new Set(), fortschritt: 0 });
-    setPhase('bereit');
+    setState({ index: parseStartIndex(startParam, withUrl.length), paused: new Set(), progress: 0 });
+    setPhase('ready');
   }, [tripId, startParam]);
 
   useEffect(() => {
-    aktiv.current = true;
-    void laden();
+    mounted.current = true;
+    void load();
     return () => {
-      aktiv.current = false;
+      mounted.current = false;
     };
-  }, [laden]);
+  }, [load]);
 
-  // Medien-Screens stellen die StatusBar lokal um (gleiches Muster wie
-  // aufnehmen/index.tsx und preview.tsx).
+  // Media screens switch the status bar locally (same pattern as
+  // capture/index.tsx and preview.tsx).
   useFocusEffect(
     useCallback(() => {
       setStatusBarStyle('light');
@@ -561,621 +492,429 @@ export default function RecapPlayer() {
     }, [])
   );
 
-  // «Das Licht geht aus»: der inszenierte Fade durch Dunkel beim Betreten
-  // des Players (DESIGN-LANGUAGE §5).
+  // "The lights go out": the staged fade through dark when entering the player
+  // (DESIGN-LANGUAGE §5).
   //
-  // Review-Fund: `reducedMotion` hängt bewusst in den Deps, obwohl die
-  // Inszenierung konzeptionell "einmalig" ist. Grund: `useReducedMotion()`
-  // liefert beim allerersten Render IMMER `false` (useState(false)) und löst
-  // erst ASYNCHRON auf, sobald `AccessibilityInfo.isReduceMotionEnabled()`
-  // zurückkommt (useReducedMotion.ts). Mit `[]`-Deps lief dieser Effekt genau
-  // einmal, exakt beim Mount, zu einem Zeitpunkt, an dem `reducedMotion`
-  // strukturell IMMER `false` ist, egal was die echte Systemeinstellung
-  // sagt. `KINO_FADE_REDUZIERT_MS` war dadurch zur Laufzeit unerreichbar,
-  // nur im (den echten Hook synchron mockenden) Test erreichbar. Mit
-  // `[reducedMotion]` läuft der Effekt ein zweites Mal, FALLS der Hook nach
-  // dem Mount tatsächlich auf `true` auflöst, und startet die Animation dann
-  // mit der kürzeren Dauer neu, dasselbe akzeptierte Verhalten wie
-  // SealAnimation.tsx/RevealSequence.tsx (dort ebenfalls `reducedMotion`
-  // in den Deps, siehe deren Fix-Runde-1-Kommentar). Löst der Hook (der
-  // Normalfall) auf `false` auf, ändert sich der State-Wert nicht, React
-  // rendert nicht neu, der Effekt läuft kein zweites Mal, keine zusätzliche
-  // Animation im Normalfall.
-  const [kinoFade] = useState(() => new Animated.Value(1));
+  // `reducedMotion` sits in the deps on purpose, although the staging is
+  // conceptually one-off: `useReducedMotion()` always returns `false` on the
+  // very first render and only resolves ASYNCHRONOUSLY once
+  // `AccessibilityInfo.isReduceMotionEnabled()` comes back. With `[]` deps
+  // CINEMA_FADE_REDUCED_MS would be unreachable at runtime. Same accepted
+  // behaviour as SealAnimation.tsx and RevealSequence.tsx. If the hook
+  // resolves to `false` (the normal case) the state value does not change and
+  // the effect does not run a second time.
+  const [cinemaFade] = useState(() => new Animated.Value(1));
   useEffect(() => {
-    Animated.timing(kinoFade, {
+    Animated.timing(cinemaFade, {
       toValue: 0,
-      duration: reducedMotion ? KINO_FADE_REDUZIERT_MS : KINO_FADE_DAUER_MS,
+      duration: reducedMotion ? CINEMA_FADE_REDUCED_MS : CINEMA_FADE_DURATION_MS,
       easing: Easing.bezier(...motion.easeSmooth),
       useNativeDriver: true,
     }).start();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reducedMotion]);
 
-  const aktivMoment = spielliste[stand.index];
-  aktivIdRef.current = aktivMoment?.id;
-  // Beide aus `stand.pausiert` abgeleitet (Phase-5-Final-Review, Punkt 1):
-  // `zwischenkarte`, zeigt die Tages-Zwischenkarte gerade, `kommentarOffen`,
-  // ist das Kommentar-Sheet gerade offen. Kein eigener State mehr (vorher
-  // je ein `useState`, das im gleichen Atemzug wie der jeweilige Grund
-  // gesetzt/entfernt wurde, zwei Quellen der Wahrheit für dieselbe
-  // Information). `gestoppt` ist die für Fortschrittsbalken/VideoMoment
-  // verdichtete Frage "läuft gerade IRGENDEIN Grund" (die einzige Stelle,
-  // an der die Unterscheidung der Gründe bewusst NICHT mehr interessiert).
-  const zwischenkarte = stand.pausiert.has('zwischenkarte');
-  const kommentarOffen = stand.pausiert.has('kommentare');
-  // Task 8: dasselbe Prinzip, für das Melden-Sheet.
-  const meldenOffen = stand.pausiert.has('melden');
-  const gestoppt = stand.pausiert.size > 0;
-  // Für videoZuEnde unten, direkt in der Render-Zeile aktuell gehalten
-  // (gleiches Muster wie aktivIdRef, siehe dort).
-  pausiertRef.current = stand.pausiert;
-  kommentarMomentIdRef.current = kommentarMomentId;
-  meldenMomentIdRef.current = meldenMomentId;
+  const activeMoment = playlist[state.index];
+  activeIdRef.current = activeMoment?.id;
+  // All derived from `state.paused` (Phase-5 final review, point 1), no own
+  // state any more: that used to be two sources of truth for the same
+  // information. `stopped` is the question "is ANY reason running", condensed
+  // for the progress bar and VideoMoment, the only place where the difference
+  // between the reasons deliberately no longer matters.
+  const interstitial = state.paused.has('zwischenkarte');
+  const commentsOpen = state.paused.has('kommentare');
+  const reportOpen = state.paused.has('melden');
+  const stopped = state.paused.size > 0;
+  // Kept current directly in the render pass (same pattern as activeIdRef).
+  pausedRef.current = state.paused;
+  commentMomentIdRef.current = commentMomentId;
+  reportMomentIdRef.current = reportMomentId;
 
-  // Erstes (und einziges) useMemo dieser Codebase (Vertrag 1): `tage` hängt
-  // nur an der referenzstabilen `spielliste` + `startDate`, muss also nicht
-  // bei jedem Fortschritts-Tick neu berechnet werden, dieselbe
-  // Performance-Überlegung wie tagWechselt.
-  const tage = useMemo(() => groupByDays(spielliste, startDate), [spielliste, startDate]);
-  const aktuellerTag = useMemo(() => {
-    if (!aktivMoment) return null;
-    return tage.find((t) => t.momente.some((m) => m.id === aktivMoment.id)) ?? null;
-  }, [tage, aktivMoment]);
+  // Contract 1: `days` only depends on the reference-stable `playlist` plus
+  // `startDate`, so it need not be recomputed on every progress tick, the same
+  // performance consideration as dayChanges.
+  const days = useMemo(() => groupByDays(playlist, startDate), [playlist, startDate]);
+  const currentDay = useMemo(() => {
+    if (!activeMoment) return null;
+    return days.find((d) => d.moments.some((m) => m.id === activeMoment.id)) ?? null;
+  }, [days, activeMoment]);
 
-  // EIN fetchReaktionen()-Aufruf für die GANZE Spielliste (Brief: nicht pro
-  // Moment, bei 200 Momenten der Unterschied zwischen "lädt" und "lädt
-  // nicht"), sobald sie feststeht. `spielliste` ist referenzstabil (Vertrag
-  // 1 aus Task 11), der Effekt feuert also genau einmal pro erfolgreichem
-  // Laden, nicht bei jedem Momentwechsel.
   useEffect(() => {
-    if (spielliste.length === 0) return;
-    let lebt = true;
-    void fetchReactions(spielliste.map((m) => m.id)).then(({ data, error }) => {
-      if (!lebt || !aktiv.current) return;
-      setReaktionen(data);
-      // Fix-Runde 1, Klein 4: ein verschluckter Ladefehler liess jeden
-      // Moment fälschlich reaktionslos wirken, die eigene, tatsächlich
-      // schon bestehende Reaktion zeigte sich nicht als aktiv, UND der
-      // erste Tipp darauf wurde dank `ignoreDuplicates` zu einem stillen
-      // No-Op (erst der zweite Tipp hätte sie entfernt), ohne dass die
-      // Person je erfahren hätte, warum. Dieselbe Pille wie ein
-      // fehlgeschlagener Tipp selbst, verschwindet beim nächsten
-      // Momentwechsel (siehe Effekt unten).
-      if (error) setReaktionFehler(error);
+    if (playlist.length === 0) return;
+    let alive = true;
+    void fetchReactions(playlist.map((m) => m.id)).then(({ data, error }) => {
+      if (!alive || !mounted.current) return;
+      setReactions(data);
+      if (error) setReactionError(error);
     });
     return () => {
-      lebt = false;
+      alive = false;
     };
-  }, [spielliste]);
+  }, [playlist]);
 
-  // Eine stehengebliebene Fehlermeldung vom vorherigen Moment darf nicht auf
-  // dem neuen weiterhängen. Gleiches gilt für den Export-Hinweis (Task 7),
-  // ein "gesichert."-Text von Moment A darf nicht unter Moment B weiterstehen.
-  // `exportLaeuft` wird HIER ebenfalls zurückgesetzt (nicht nur am Ende von
-  // sichereAktuellenMoment): wechselt die Person WÄHREND eines laufenden
-  // Exports von Moment A zu Moment B, greift dort die Stale-Guard
-  // (aktivIdRef.current !== momentId) und lässt `exportLaeuft` NIE mehr auf
-  // false zurückfallen, ohne diesen Reset bliebe der Sichern-Knopf auf dem
-  // NEUEN, unbeteiligten Moment B fälschlich im Ladezustand hängen.
   useEffect(() => {
-    setReaktionFehler(null);
-    setExportHinweis(null);
-    setExportLaeuft(false);
-  }, [aktivMoment?.id]);
+    setReactionError(null);
+    setExportNotice(null);
+    setExportRunning(false);
+  }, [activeMoment?.id]);
 
-  const eigeneEmojis = useMemo(() => {
-    if (!aktivMoment || !userId) return new Set<string>();
-    const liste = reaktionen[aktivMoment.id] ?? [];
-    return new Set(liste.filter((r) => r.user_id === userId).map((r) => r.emoji));
-  }, [reaktionen, aktivMoment, userId]);
+  const ownEmojis = useMemo(() => {
+    if (!activeMoment || !userId) return new Set<string>();
+    const list = reactions[activeMoment.id] ?? [];
+    return new Set(list.filter((r) => r.user_id === userId).map((r) => r.emoji));
+  }, [reactions, activeMoment, userId]);
 
-  // Nur die EMOJIS anderer Personen, dedupliziert, kein Name, kein Zähler
-  // (Brief, Schritt 4).
-  const andereEmojis = useMemo(() => {
-    if (!aktivMoment) return [];
-    const liste = reaktionen[aktivMoment.id] ?? [];
-    const menge = new Set<string>();
-    for (const r of liste) {
-      if (r.user_id !== userId) menge.add(r.emoji);
+  const otherEmojis = useMemo(() => {
+    if (!activeMoment) return [];
+    const list = reactions[activeMoment.id] ?? [];
+    const unique = new Set<string>();
+    for (const r of list) {
+      if (r.user_id !== userId) unique.add(r.emoji);
     }
-    return Array.from(menge);
-  }, [reaktionen, aktivMoment, userId]);
+    return Array.from(unique);
+  }, [reactions, activeMoment, userId]);
 
-  // Tippen auf ein Emoji: OPTIMISTISCH setzen/entfernen (Brief, Kernstück
-  // dieses Screens), die Reaktion ändert sich sofort im UI, ohne auf die
-  // Antwort von setzeReaktion/entferneReaktion zu warten. Scheitert der
-  // Aufruf, macht der `.then()`-Zweig unten GENAU die entgegengesetzte
-  // Änderung und zeigt die Ursache kurz an. Ein zweiter Tipp auf eine bereits
-  // eigene Reaktion ENTFERNT sie (Toggle), die einzige Deutung, die zu
-  // "Tippen setzt, Tippen nimmt zurück" ohne einen zweiten Interaktionsweg
-  // (z.B. Halten) auskommt; ein PK aus (post_id, user_id, emoji) erlaubt
-  // ohnehin nur genau diese zwei Zustände pro Person und Emoji.
-  const tippeEmoji = (emoji: string) => {
-    const moment = aktivMoment;
+  // Tapping an emoji sets or removes OPTIMISTICALLY; if the call fails, the
+  // `.then()` branch below makes exactly the opposite change again. A primary
+  // key of (post_id, user_id, emoji) allows exactly these two states per person
+  // and emoji anyway, so a second tap on an own reaction can only mean
+  // "remove", without a second interaction path.
+  const tapEmoji = (emoji: string) => {
+    const moment = activeMoment;
     if (!moment || !userId) return;
     const momentId = moment.id;
     const uid = userId;
-    const schluessel = `${momentId}:${emoji}`;
-    // Doppeltipp-Schutz: eine Anfrage für GENAU dieses Tripel läuft schon.
-    // Der zweite (schnelle) Tipp wird bis zur Antwort schlicht ignoriert,
-    // statt eine zweite, sich widersprechende Anfrage loszuschicken.
-    if (pendingReaktionenRef.current.has(schluessel)) return;
-    pendingReaktionenRef.current.add(schluessel);
+    const key = `${momentId}:${emoji}`;
+    if (pendingReactionsRef.current.has(key)) return;
+    pendingReactionsRef.current.add(key);
 
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-    setReaktionFehler(null);
+    setReactionError(null);
 
-    const warReagiert = (reaktionen[momentId] ?? []).some((r) => r.emoji === emoji && r.user_id === uid);
+    const hadReacted = (reactions[momentId] ?? []).some((r) => r.emoji === emoji && r.user_id === uid);
 
-    const hinzufuegen = (stand: Record<string, Reaction[]>) => ({
-      ...stand,
-      [momentId]: [...(stand[momentId] ?? []), { post_id: momentId, user_id: uid, emoji }],
+    const add = (current: Record<string, Reaction[]>) => ({
+      ...current,
+      [momentId]: [...(current[momentId] ?? []), { post_id: momentId, user_id: uid, emoji }],
     });
-    const entfernen = (stand: Record<string, Reaction[]>) => ({
-      ...stand,
-      [momentId]: (stand[momentId] ?? []).filter((r) => !(r.emoji === emoji && r.user_id === uid)),
+    const remove = (current: Record<string, Reaction[]>) => ({
+      ...current,
+      [momentId]: (current[momentId] ?? []).filter((r) => !(r.emoji === emoji && r.user_id === uid)),
     });
 
-    // Rücknahme (Rollback): exakt die entgegengesetzte Änderung der
-    // optimistischen oben, die Reaktion verschwindet wieder (bzw. taucht
-    // wieder auf). Als benannte Funktion, weil sowohl ein AUFGELÖSTES `{
-    // error }` als auch ein tatsächliches `reject()` (Fix-Runde 1, Klein 5)
-    // dieselbe Behandlung brauchen.
-    const rollback = (nachricht: string) => {
-      pendingReaktionenRef.current.delete(schluessel);
-      if (!aktiv.current) return;
-      setReaktionen(warReagiert ? hinzufuegen : entfernen);
-      // Nur anzeigen, wenn noch derselbe Moment aktiv ist, sonst würde ein
-      // Fehler zu einem längst verlassenen Moment auf dem FALSCHEN,
-      // inzwischen aktiven Moment aufblitzen.
-      if (aktivIdRef.current === momentId) setReaktionFehler(nachricht);
+    const rollback = (message: string) => {
+      pendingReactionsRef.current.delete(key);
+      if (!mounted.current) return;
+      setReactions(hadReacted ? add : remove);
+      if (activeIdRef.current === momentId) setReactionError(message);
     };
 
-    setReaktionen(warReagiert ? entfernen : hinzufuegen);
-    const aufruf = warReagiert ? removeReaction(momentId, emoji) : setReaction(momentId, emoji);
-    void aufruf
+    setReactions(hadReacted ? remove : add);
+    const call = hadReacted ? removeReaction(momentId, emoji) : setReaction(momentId, emoji);
+    void call
       .then(({ error }) => {
         if (error) rollback(error);
-        else pendingReaktionenRef.current.delete(schluessel);
+        else pendingReactionsRef.current.delete(key);
       })
       .catch(() => {
-        // sozialApi fängt jeden erwarteten Fehlerpfad selbst ab und liefert
-        // ihn als `{ error }`, statt zu werfen (siehe dortiger Kommentar),
-        // ein tatsächliches reject() hier ist der unerwartete Rest (z.B.
-        // eine Laufzeitausnahme in der fetch-Polyfill). Ohne dieses `.catch`
-        // (Fix-Runde 1, Klein 5) bliebe `schluessel` für immer in
-        // `pendingReaktionenRef` hängen, dieses Emoji auf diesem Moment
-        // liesse sich nie wieder antippen, plus eine Unhandled Rejection.
+        // socialApi catches every expected error path itself and returns it as
+        // `{ error }` instead of throwing (see the comment there), so an actual
+        // reject() here is the unexpected remainder, e.g. a runtime exception in
+        // the fetch polyfill.
         rollback(
-          warReagiert
+          hadReacted
             ? 'Deine Reaktion konnte nicht entfernt werden. Probier es gleich nochmal.'
             : 'Deine Reaktion konnte nicht gespeichert werden. Probier es gleich nochmal.'
         );
       });
   };
 
-  // Öffnet das Kommentar-Sheet für den GERADE aktiven Moment und hält diesen
-  // in einem eigenen State fest (`kommentarMomentId`), statt bei jedem
-  // Zugriff `aktivMoment.id` neu zu lesen, schreibeKommentar bekommt so
-  // IMMER den Moment, für den das Sheet geöffnet wurde, unabhängig davon, ob
-  // währenddessen im Hintergrund der Vorrat erneuert wird (Frage aus dem
-  // Auftrag). Der Player pausiert zusätzlich strukturell (unten), solange
-  // das Sheet offen ist, der eigene State macht die Zusicherung aber
-  // explizit statt sich allein darauf zu verlassen.
+  // Opens the comment sheet for the CURRENTLY active moment and holds that
+  // moment in its own state (`commentMomentId`) instead of reading
+  // `activeMoment.id` again on every access, so submitComment ALWAYS gets the
+  // moment the sheet was opened for, even if the pool is refreshed in the
+  // background meanwhile.
   //
-  // Fix-Runde 1, bewusste Abweichung vom Brief-Wortlaut ("Wisch nach oben
-  // öffnet das Sheet"): dieser Knopf ist der EINZIGE Weg, das Sheet zu
-  // öffnen, es gibt keine Wisch-Geste dafür. Der einzige PanResponder des
-  // Screens (unten, `panResponder`) erkennt ausschliesslich Abwärtswische
-  // zum Schliessen des Players; ihn zusätzlich für Aufwärtswische zu öffnen
-  // hätte entweder eine zweite, unabhängige Touch-Fläche gebraucht (Konflikt
-  // mit den Tipp-Zonen und der Zwischenkarte) oder eine Fallunterscheidung
-  // in `onPanResponderMove` (nur bei Abwärtsbewegung visuell folgen, bei
-  // Aufwärtsbewegung nicht). Ohne echten Gerätetest wollte ich diese
-  // Kombination nicht ungeprüft einbauen. Der Tipp-Knopf ist deterministisch,
-  // hat ein 44×44-Touch-Target (DESIGN-LANGUAGE v2 §8) und ist der einzige
-  // Weg, den auch die Tests unten prüfen, siehe Bericht, Abschnitt
-  // "Wisch-Geste".
-  //
-  // Phase-5-Final-Review, Punkt 1: eine frühere Fassung dieses Kommentars
-  // begründete die Zurückhaltung bei der Wisch-Geste u.a. damit, dass der
-  // Zwischenkarten-Timer `pausiert` "unbedingt auf false zurücksetzt" und
-  // ein währenddessen geöffnetes Sheet dadurch lautlos entpausiert würde,
-  // GENAU dieser Mechanismus war der tatsächliche, unabhängig von der
-  // Wisch-Geste auslösbare Bug (siehe der Effekt bei
-  // `ZWISCHENKARTE_DAUER_MS` und `ueberspringen` unten): der Zwischenkarten-
-  // Timer nimmt jetzt AUSSCHLIESSLICH den Grund `'zwischenkarte'` zurück,
-  // nie `'kommentare'`, ein offenes Sheet bleibt also so oder so
-  // pausiert, auch über einen verwaisten Timer hinweg.
-  const oeffneKommentare = () => {
-    const moment = aktivMoment;
+  // Deliberate deviation from the brief's wording ("a swipe up opens the
+  // sheet"): this button is the ONLY way to open the sheet, there is no swipe
+  // gesture for it. The screen's single PanResponder (below) recognises
+  // downward swipes to close the player and nothing else; using it for upward
+  // swipes as well would have needed either a second, independent touch
+  // surface (conflicting with the tap zones and the interstitial card) or a
+  // case distinction in `onPanResponderMove`. Without a real device test that
+  // combination was not worth building blind.
+  const openComments = () => {
+    const moment = activeMoment;
     if (!moment) return;
     const momentId = moment.id;
-    // Fix-Runde 2 (Review-Fund): der VORHERIGE Wert, BEVOR er unten
-    // überschrieben wird, entscheidet, ob dies ein echter Momentwechsel
-    // ist oder ein Wiederöffnen DESSELBEN Moments (siehe
-    // `kommentarSendetLaeuft`-Reset weiter unten).
-    const vorherigerMomentId = kommentarMomentIdRef.current;
-    // EAGER, synchron gesetzt, nicht erst über die Render-Zeile weiter
-    // unten (`kommentarMomentIdRef.current = kommentarMomentId`). Löst
-    // fetchKommentare unten schneller auf, als React den durch
-    // setKommentarMomentId ausgelösten Re-Render committet (z.B. weil die
-    // Antwort aus einem Cache kommt oder, wie im eigenen Test, synchron
-    // aufgelöst ist), würde der Ref-Vergleich im `.then()` unten sonst noch
-    // den ALTEN Wert sehen und die frische Antwort fälschlich verwerfen,
-    // das Sheet bliebe dann für immer beim Ladespinner stehen.
-    kommentarMomentIdRef.current = momentId;
-    setKommentarMomentId(momentId);
-    setKommentarText('');
-    setKommentarSendenFehler(null);
-    // Fix-Runde 1, Wichtig 3, korrigiert in Fix-Runde 2: NUR bei einem
-    // echten MOMENTWECHSEL zurücksetzen. Der ursprüngliche Fix (Runde 1)
-    // setzte bei JEDEM Öffnen zurück, auch beim Wiederöffnen DESSELBEN
-    // Moments, während schreibeKommentar für GENAU DIESEN Moment noch
-    // lief: Senden → Sheet schliessen, bevor die Antwort da ist → sofort
-    // wieder öffnen (derselbe Moment ist weiterhin aktiv) → der
-    // Senden-Knopf wäre wieder aktiv gewesen, OBWOHL die erste Anfrage noch
-    // läuft, ein zweiter Tipp hätte einen zweiten, überlappenden Versand
-    // ausgelöst. Vor Runde 1 war das nicht möglich (dort wurde nie
-    // zurückgesetzt), Runde 1 hat also eine neue Regression eingeführt.
-    // Ein Wechsel zu einem ANDEREN Moment ist dagegen eine echte neue
-    // Sitzung: die alte, noch laufende Sendung gehört zu einem jetzt
-    // irrelevanten Moment, ihre späte Antwort trifft ohnehin auf den
-    // Stale-Guard in kommentarAbsenden (kommentarMomentIdRef zeigt dann
-    // schon hierher) und würde `setKommentarSendetLaeuft(false)` sonst nie
-    // mehr erreichen.
-    if (vorherigerMomentId !== momentId) {
-      setKommentarSendetLaeuft(false);
+    const previousMomentId = commentMomentIdRef.current;
+    // Set EAGERLY and synchronously, not only through the render pass below:
+    // if fetchComments resolves faster than React commits the re-render, the
+    // ref comparison in the `.then()` below would still see the OLD value and
+    // wrongly discard the fresh answer, leaving the sheet on its spinner.
+    commentMomentIdRef.current = momentId;
+    setCommentMomentId(momentId);
+    setCommentText('');
+    setCommentSendError(null);
+    if (previousMomentId !== momentId) {
+      setCommentSending(false);
     }
-    setKommentare([]);
-    setKommentareFehler(null);
-    setKommentareLaden(true);
-    // Der Screen verwaltet `pausiert` selbst (playerLogic fasst es bewusst
-    // nicht an), solange das Sheet offen ist, läuft weder Timer noch Video.
-    // `kommentarOffen` (Render-Zeile oben) ist AUS `stand.pausiert`
-    // abgeleitet, es gibt also nur diesen einen Schreibzugriff, keinen
-    // separaten `setKommentarOffen`-Aufruf mehr.
-    setStand((s) => ({ ...s, pausiert: withReason(s.pausiert, 'kommentare') }));
+    setComments([]);
+    setCommentsError(null);
+    setCommentsLoading(true);
+    setState((s) => ({ ...s, paused: withReason(s.paused, 'kommentare') }));
 
     void fetchComments(momentId).then(({ data, error }) => {
-      // Das Sheet wurde inzwischen für einen ANDEREN Moment neu geöffnet
-      // (schliessen → weiter → wieder öffnen, während diese Antwort noch
-      // unterwegs war), eine späte Antwort für den ALTEN Moment darf den
-      // inzwischen frischeren Zustand nicht überschreiben.
-      if (!aktiv.current || kommentarMomentIdRef.current !== momentId) return;
-      setKommentareLaden(false);
-      setKommentare(data);
-      setKommentareFehler(error);
+      if (!mounted.current || commentMomentIdRef.current !== momentId) return;
+      setCommentsLoading(false);
+      setComments(data);
+      setCommentsError(error);
     });
   };
 
-  const schliesseKommentare = () => {
-    // Nimmt AUSSCHLIESSLICH den eigenen Grund zurück (Phase-5-Final-Review,
-    // Punkt 1), bleibt der Player aus einem ANDEREN Grund pausiert (z.B.
-    // eine Halten-Geste, die währenddessen begonnen hätte), bleibt er das
-    // auch nach dem Schliessen des Sheets.
-    setStand((s) => ({ ...s, pausiert: withoutReason(s.pausiert, 'kommentare') }));
+  const closeComments = () => {
+    // Takes back ONLY its own reason: a player that is paused for a DIFFERENT
+    // reason stays paused after this sheet closes.
+    setState((s) => ({ ...s, paused: withoutReason(s.paused, 'kommentare') }));
   };
 
-  // Task 7: «In Galerie sichern» für den gerade aktiven Moment, exportApi
-  // sichert IMMER url.medium_url (volle Auflösung), nie das Thumbnail.
-  // Ohne Berechtigung: NIE ein stiller Fehlschlag (Brief, wörtlich), ein
-  // Alert erklärt die Ursache und bietet den Weg in die Einstellungen an,
-  // statt nur eine kleine Pille zu zeigen, die leicht übersehen wird. Ein
-  // sonstiger Fehlschlag (Netzwerk, Galerie-Fehler) bekommt dieselbe kleine
-  // Hinweis-Pille wie `reaktionFehler`, sichtbares, aber nicht blockierendes
-  // Feedback, passend zur Schwere eines einzelnen fehlgeschlagenen Exports.
-  const sichereAktuellenMoment = async () => {
-    const moment = aktivMoment;
+  const saveCurrentMoment = async () => {
+    const moment = activeMoment;
     if (!moment) return;
     const url = urls.get(moment.id);
     if (!url) return;
     const momentId = moment.id;
-    setExportLaeuft(true);
-    setExportHinweis(null);
-    const ergebnis = await saveMomentToGallery(moment, url);
-    if (!aktiv.current || aktivIdRef.current !== momentId) return;
-    setExportLaeuft(false);
-    if (!ergebnis.ok) {
-      if (ergebnis.grund === 'keine_berechtigung') {
-        Alert.alert('Kein Zugriff auf die Fotobibliothek', ergebnis.text, [
+    setExportRunning(true);
+    setExportNotice(null);
+    const result = await saveMomentToGallery(moment, url);
+    if (!mounted.current || activeIdRef.current !== momentId) return;
+    setExportRunning(false);
+    if (!result.ok) {
+      if (result.grund === 'keine_berechtigung') {
+        Alert.alert('Kein Zugriff auf die Fotobibliothek', result.text, [
           { text: 'Abbrechen', style: 'cancel' },
           { text: 'Einstellungen öffnen', onPress: () => void Linking.openSettings() },
         ]);
         return;
       }
-      setExportHinweis(ergebnis.text);
+      setExportNotice(result.text);
       return;
     }
-    setExportHinweis('In der Fotobibliothek gesichert.');
+    setExportNotice('In der Fotobibliothek gesichert.');
   };
 
-  const kommentarAbsenden = () => {
-    const postId = kommentarMomentId;
-    if (!postId || kommentarSendetLaeuft) return;
-    setKommentarSendetLaeuft(true);
-    setKommentarSendenFehler(null);
-    void writeComment(postId, kommentarText).then(({ error }) => {
-      if (!aktiv.current || kommentarMomentIdRef.current !== postId) return;
-      setKommentarSendetLaeuft(false);
+  const submitComment = () => {
+    const postId = commentMomentId;
+    if (!postId || commentSending) return;
+    setCommentSending(true);
+    setCommentSendError(null);
+    void writeComment(postId, commentText).then(({ error }) => {
+      if (!mounted.current || commentMomentIdRef.current !== postId) return;
+      setCommentSending(false);
       if (error) {
-        setKommentarSendenFehler(error);
+        setCommentSendError(error);
         return;
       }
-      setKommentarText('');
-      // Bewusst NICHT optimistisch (anders als Reaktionen, Brief): ein
-      // erneutes fetchKommentare zeigt den serverseitig zugewiesenen
-      // Autorennamen/Zeitstempel, ohne dass der Player das Profil der
-      // angemeldeten Person selbst kennen müsste.
-      setKommentareLaden(true);
-      void fetchComments(postId).then(({ data, error: ladeFehler }) => {
-        if (!aktiv.current || kommentarMomentIdRef.current !== postId) return;
-        setKommentareLaden(false);
-        setKommentare(data);
-        setKommentareFehler(ladeFehler);
+      setCommentText('');
+      // Deliberately NOT optimistic (unlike reactions): a fresh fetchComments
+      // shows the server-assigned author name and timestamp without the player
+      // having to know the signed-in person's profile itself.
+      setCommentsLoading(true);
+      void fetchComments(postId).then(({ data, error: reloadError }) => {
+        if (!mounted.current || commentMomentIdRef.current !== postId) return;
+        setCommentsLoading(false);
+        setComments(data);
+        setCommentsError(reloadError);
       });
     });
   };
 
-  // Task 8, Phase 6: langes Tippen (siehe onLongPress an den Tipp-Zonen
-  // unten) ruft dies auf, gleiches Grundmuster wie oeffneKommentare: eigener
-  // State pro Moment, plus der strukturelle Pausier-Grund 'melden'. Anders
-  // als Kommentare braucht Melden keinen Ladezustand (nichts wird vorab
-  // geholt), das Formular startet sofort leer. Bewusst OHNE eigene Haptik
-  // (anders als z.B. der Auslöser): DESIGN-LANGUAGE §5 kennt ein festes
-  // Vokabular an Anlässen, „Sheet öffnen" gehört nicht dazu, oeffneKommentare
-  // (dieselbe Geste-öffnet-Sheet-Handlung) hat aus demselben Grund ebenfalls
-  // keine.
-  const oeffneMelden = () => {
-    const moment = aktivMoment;
+  // Task 8, Phase 6: same base pattern as openComments, own state per moment
+  // plus the structural pause reason 'melden'. Unlike comments, reporting
+  // needs no loading state (nothing is fetched up front), the form starts
+  // empty right away. Deliberately WITHOUT haptics of its own: DESIGN-LANGUAGE
+  // §5 has a fixed vocabulary of occasions and "opening a sheet" is not one
+  // of them.
+  const openReport = () => {
+    const moment = activeMoment;
     if (!moment) return;
     const momentId = moment.id;
-    // Eager wie kommentarMomentIdRef (siehe dortiger Kommentar), ein
-    // schnelles erneutes Öffnen darf nicht auf den alten Ref-Wert treffen.
-    meldenMomentIdRef.current = momentId;
-    setMeldenMomentId(momentId);
-    setMeldenGrund('');
-    setMeldenSendenFehler(null);
-    setMeldenBestaetigt(false);
-    setStand((s) => ({ ...s, pausiert: withReason(s.pausiert, 'melden') }));
+    // Eager like commentMomentIdRef (see the comment there), a fast reopen must
+    // not hit the old ref value.
+    reportMomentIdRef.current = momentId;
+    setReportMomentId(momentId);
+    setReportReason('');
+    setReportSendError(null);
+    setReportConfirmed(false);
+    setState((s) => ({ ...s, paused: withReason(s.paused, 'melden') }));
   };
 
-  const schliesseMelden = () => {
-    // Nimmt AUSSCHLIESSLICH den eigenen Grund zurück (gleiches Prinzip wie
-    // schliesseKommentare), ein aus einem anderen Grund pausierter Player
-    // bleibt das auch nach dem Schliessen dieses Sheets.
-    setStand((s) => ({ ...s, pausiert: withoutReason(s.pausiert, 'melden') }));
+  const closeReport = () => {
+    // Takes back ONLY its own reason (same principle as closeComments).
+    setState((s) => ({ ...s, paused: withoutReason(s.paused, 'melden') }));
   };
 
-  // Der Moment bleibt in JEDEM Fall unverändert sichtbar (Brief, wörtlich:
-  // "Melden ist kein Verstecken"), dieser Aufruf ändert nichts an
-  // spielliste/urls, nur den Sheet-Zustand selbst.
-  const meldenAbsenden = () => {
-    const postId = meldenMomentId;
-    if (!postId || meldenSendetLaeuft) return;
-    setMeldenSendetLaeuft(true);
-    setMeldenSendenFehler(null);
-    void reportMoment(postId, meldenGrund).then(({ error }) => {
-      // Stale-Guard: das Sheet kann inzwischen für einen ANDEREN Moment neu
-      // geöffnet worden sein (gleiches Prinzip wie kommentarAbsenden).
-      if (!aktiv.current || meldenMomentIdRef.current !== postId) return;
-      setMeldenSendetLaeuft(false);
+  const submitReport = () => {
+    const postId = reportMomentId;
+    if (!postId || reportSending) return;
+    setReportSending(true);
+    setReportSendError(null);
+    void reportMoment(postId, reportReason).then(({ error }) => {
+      if (!mounted.current || reportMomentIdRef.current !== postId) return;
+      setReportSending(false);
       if (error) {
-        setMeldenSendenFehler(error);
+        setReportSendError(error);
         return;
       }
-      setMeldenBestaetigt(true);
+      setReportConfirmed(true);
     });
   };
 
-  const pruefeUndErneuereVorratImHintergrund = useCallback(async () => {
-    if (erneuerungLaeuftRef.current) return;
-    if (!isSoonExpiring({ urls, gueltigBis, ausgelassen: ausgelassenAnzahl }, Date.now())) return;
-    erneuerungLaeuftRef.current = true;
+  const checkAndRefreshPoolInBackground = useCallback(async () => {
+    if (refreshRunningRef.current) return;
+    if (!isSoonExpiring({ urls, gueltigBis: validUntil, ausgelassen: skippedCount }, Date.now())) return;
+    refreshRunningRef.current = true;
     try {
-      const { vorrat } = await getPool(tripId);
-      if (vorrat && aktiv.current) {
-        setUrls(vorrat.urls);
-        setGueltigBis(vorrat.gueltigBis);
+      const { pool } = await getPool(tripId);
+      if (pool && mounted.current) {
+        setUrls(pool.urls);
+        setValidUntil(pool.gueltigBis);
       }
     } finally {
-      erneuerungLaeuftRef.current = false;
+      refreshRunningRef.current = false;
     }
-  }, [tripId, urls, gueltigBis, ausgelassenAnzahl]);
+  }, [tripId, urls, validUntil, skippedCount]);
 
-  // Programmatisches Weiterschalten (Timer-Ablauf ODER Video-Ende), beide
-  // münden hier. Vertrag 4: `weiter()` lässt `pausiert` unangetastet, ein
-  // programmatischer Aufruf MUSS `MOMENTWECHSEL_GRUENDE` hier selbst
-  // zurücknehmen, sonst bliebe der NÄCHSTE Moment nach einer vorherigen
-  // Halten-Geste lautlos stehen (genau der Fall, den
-  // `blockiertAutomatischenVorschub` in videoZuEnde unten für `'halten'`
-  // bewusst DURCHLÄSST). Final-Review Phase-5-Nachbesserung: `'neuversuch'`
-  // gehört ebenfalls hierher, ohne diese Zeile blieb es unentfernbar
-  // gesetzt, wenn eine Person während eines laufenden Neuversuchs
-  // weitertippte (die Stale-Guard in `beiLadefehler` verhindert dann, dass
-  // dessen EIGENE, verspätete Antwort den Grund noch zurücknimmt). `'halten'`
-  // ist ohnehin schon leer, wenn `weiterAutomatisch` über `videoZuEnde` oder
-  // den Auto-Vorschub-Timer erreicht wird (siehe dort), `ohneGruende` bleibt
-  // dafür ein sicheres No-Op. `'zwischenkarte'`/`'kommentare'` bleiben
-  // unangetastet, siehe Kommentar bei `MOMENTWECHSEL_GRUENDE`.
-  const weiterAutomatisch = useCallback(() => {
-    void pruefeUndErneuereVorratImHintergrund();
-    const ergebnis = advance(stand, spielliste.length);
-    if (ergebnis === 'ende') {
-      setPhase('ende');
+  // Programmatic advance (timer expiry OR video end), both end up here.
+  // Contract 4: `advance()` leaves `paused` untouched, so a programmatic call
+  // MUST take back MOMENT_CHANGE_REASONS itself here, otherwise the NEXT
+  // moment would stand still silently after a preceding hold gesture or while
+  // a retry was running.
+  const advanceAutomatically = useCallback(() => {
+    void checkAndRefreshPoolInBackground();
+    const result = advance(state, playlist.length);
+    if (result === 'ende') {
+      setPhase('ended');
       return;
     }
-    setStand({ ...ergebnis, pausiert: withoutReasons(ergebnis.pausiert, MOMENTWECHSEL_GRUENDE) });
-  }, [stand, spielliste.length, pruefeUndErneuereVorratImHintergrund]);
-  // Ref-Indirektion (gleiches Muster wie SealAnimation.tsx/onFertigRef): der
-  // Auto-Vorschub-Timer und das Video-Ende-Event rufen IMMER die neueste
-  // Fassung auf, ohne dass ihre eigenen Effekte bei jedem Render neu
-  // aufgesetzt werden müssten.
-  const weiterAutomatischRef = useRef(weiterAutomatisch);
-  weiterAutomatischRef.current = weiterAutomatisch;
+    setState({ ...result, paused: withoutReasons(result.paused, MOMENT_CHANGE_REASONS) });
+  }, [state, playlist.length, checkAndRefreshPoolInBackground]);
+  // Ref indirection (same pattern as SealAnimation.tsx/onFinishedRef): the
+  // auto-advance timer and the video-end event always call the newest version
+  // without their own effects having to be set up again on every render.
+  const advanceAutomaticallyRef = useRef(advanceAutomatically);
+  advanceAutomaticallyRef.current = advanceAutomatically;
 
-  // Wichtig 2 (Review-Fund): dieselbe Stale-Guard wie beiLadefehler. Der
-  // `playToEnd`-Listener eines VideoMoment ist an dessen `player`-Instanz
-  // gebunden (Effekt-Deps `[player]`, siehe dort) und bleibt darum bis zum
-  // Unmount an genau DIESEN Moment gekoppelt, trifft das Event aus Native
-  // erst ein, NACHDEM der Player bereits auf den nächsten Moment committed
-  // hat (aber bevor React die Abmeldung des alten Listeners tatsächlich
-  // ausgeführt hat), darf es kein zweites Mal weiterschalten. Der
-  // verlässliche Schutz ist NICHT das Effekt-Cleanup (dessen Zeitpunkt
-  // relativ zu einem spät eintreffenden Native-Event nicht garantiert ist),
-  // sondern dieser explizite Abgleich mit dem tatsächlich aktiven Moment.
-  const videoZuEnde = useCallback((postId: string) => {
-    if (aktivIdRef.current !== postId) return;
-    // Phase-5-Final-Review, Punkt 1: EIN Guard statt zwei separater Refs
-    // (frühere Fassung: `zwischenkarteRef`/`kommentarOffenRef`, siehe
-    // Kommentar bei `pausiertRef` oben). `blockiertAutomatischenVorschub`
-    // (playerLogic.ts) lässt genau `'halten'` durch (Vertrag 4, ein
-    // während einer Halten-Geste eintreffendes `playToEnd` MUSS trotzdem
-    // weiterschalten, siehe `weiterAutomatisch`) und blockiert jeden
-    // anderen Grund: steht die Zwischenkarte (eigener Zeitgeber,
-    // ZWISCHENKARTE_DAUER_MS, ein Event, das trotzdem eintrifft, darf sie
-    // nicht überholen), ist das Kommentar-Sheet offen (`oeffneKommentare`
-    // setzt den Grund SYNCHRON, aber VideoMoments eigener Pause-Effekt
-    // committet erst im NÄCHSTEN Durchlauf, siehe VideoMoment oben, Deps
-    // `[pausiert, player]`, trifft `playToEnd` GENAU in diesem schmalen
-    // Fenster ein, würde der Player sonst unsichtbar unter dem offenen
-    // Sheet weiterlaufen), oder läuft gerade ein stiller Neuversuch nach
-    // einem Ladefehler.
-    if (blocksAutoAdvance(pausiertRef.current)) return;
-    weiterAutomatischRef.current();
+  // Same stale guard as onLoadError. A VideoMoment's `playToEnd` listener is
+  // bound to that instance's `player` (effect deps `[player]`) and therefore
+  // stays tied to exactly THAT moment until unmount. The reliable protection
+  // is NOT the effect cleanup (its timing relative to a late native event is
+  // not guaranteed) but this explicit comparison with the actually active
+  // moment.
+  const videoEnded = useCallback((postId: string) => {
+    if (activeIdRef.current !== postId) return;
+    // `blocksAutoAdvance` (playerLogic.ts) lets exactly 'halten' through
+    // (contract 4, a `playToEnd` arriving during a hold gesture MUST still
+    // advance) and blocks every other reason: the interstitial card has its own
+    // timer and must not be overtaken, and an open sheet must not let the player
+    // run on unseen underneath it (VideoMoment's own pause effect commits only
+    // on the NEXT pass, so `playToEnd` can arrive inside that narrow window).
+    if (blocksAutoAdvance(pausedRef.current)) return;
+    advanceAutomaticallyRef.current();
   }, []);
 
-  // Auto-Vorschub: EIN Timer für Fotos UND Videos (dauerFuer liefert für
-  // beide eine sinnvolle Dauer, siehe playerLogic.ts), für ein Video ist das
-  // zugleich der Rückfall, falls es nie lädt (Netz weg): der Timer schaltet
-  // trotzdem nach spätestens dauerFuer(moment) weiter, das echte
-  // `playToEnd`-Event (VideoMoment) kommt bei einem normal ladenden Video
-  // meist etwas früher und schaltet dann stattdessen weiter, React hebt den
-  // hier gesetzten Timer in diesem Fall automatisch per Cleanup auf, sobald
-  // `stand.index` sich dadurch ändert (kein doppeltes Weiterschalten).
+  // Auto-advance: ONE timer for photos AND videos (durationFor yields a
+  // sensible duration for both). For a video it doubles as the fallback if it
+  // never loads because the network is gone: the timer advances anyway, while
+  // a normally loading video usually fires `playToEnd` slightly earlier and
+  // advances instead, on which React cancels this timer through its cleanup.
   useEffect(() => {
-    // `stand.pausiert.size > 0` deckt ALLE Gründe ab, inklusive `'halten'`
-    // und `'zwischenkarte'` (anders als `blockiertAutomatischenVorschub` in
-    // videoZuEnde oben), der reguläre Pro-Moment-Timer ist kein Event, das
-    // eine Halten-Geste ausnahmsweise durchlassen müsste, er darf während
-    // JEDES Grundes schlicht nicht laufen.
-    if (phase !== 'bereit' || stand.pausiert.size > 0) return;
-    const moment = spielliste[stand.index];
+    // Covers ALL reasons, including 'halten' and 'zwischenkarte' (unlike
+    // blocksAutoAdvance in videoEnded above): the regular per-moment timer is not
+    // an event that a hold gesture would have to let through by way of exception.
+    if (phase !== 'ready' || state.paused.size > 0) return;
+    const moment = playlist[state.index];
     if (!moment) return;
-    const dauer = durationFor(moment);
-    const rest = Math.max(0, dauer - stand.fortschritt);
-    segmentStartRef.current = Date.now() - stand.fortschritt;
-    const timer = setTimeout(() => weiterAutomatischRef.current(), rest);
+    const duration = durationFor(moment);
+    const remaining = Math.max(0, duration - state.progress);
+    segmentStartRef.current = Date.now() - state.progress;
+    const timer = setTimeout(() => advanceAutomaticallyRef.current(), remaining);
     return () => clearTimeout(timer);
-  }, [phase, stand.pausiert, stand.index, stand.fortschritt, spielliste]);
+  }, [phase, state.paused, state.index, state.progress, playlist]);
 
-  // Tages-Zwischenkarte: erscheint VOR dem ersten Moment eines neuen Tages
-  // (tagWechselt aus Task 7) und steht 1,5 s, bevor sie selbst weiterschaltet.
+  // Day interstitial card: appears BEFORE the first moment of a new day and
+  // stands for 1.5 s before advancing on its own.
   //
-  // Phase-5-Final-Review, Punkt 1: dieser Effekt hat die Deps `[phase,
-  // spielliste, startDate, stand.index]`, `ueberspringen()` (Tipp auf die
-  // Karte) ändert KEINE davon, Cleanup/Neulauf bleiben also aus, wenn die
-  // Karte per Tipp übersprungen wird. Der hier gesetzte Timer bleibt in dem
-  // Fall bis zu seinem regulären Ablauf verwaist stehen und feuert dann
-  // trotzdem noch, das ist bewusst hingenommen, nicht wegdesignt (ein
-  // zusätzlicher Ref/State allein für "wurde diese Karte schon
-  // übersprungen" wäre mehr Zustand für denselben Fall). Was den früheren
-  // Bug ausmachte, war NICHT der verwaiste Timer selbst, sondern dass sein
-  // Rumpf `pausiert` BEDINGUNGSLOS zurücksetzte, statt nur den eigenen
-  // Grund: `ohneGrund(..., 'zwischenkarte')` ist bei einer bereits (per
-  // Tipp) entfernten Zwischenkarte ein sicheres No-Op (siehe playerLogic.ts),
-  // ein inzwischen aus einem GANZ ANDEREN Grund (z.B. offenes
-  // Kommentar-Sheet) pausierter Player bleibt davon unberührt.
+  // `skip()` (a tap on the card) changes none of this effect's deps, so no
+  // cleanup and no rerun happen when the card is skipped by tap. The timer set
+  // here then stays orphaned until its regular expiry and still fires; that is
+  // deliberately accepted, not designed away. What made the earlier bug was NOT
+  // the orphaned timer itself but that its body reset `paused`
+  // UNCONDITIONALLY instead of only its own reason.
   useEffect(() => {
-    if (phase !== 'bereit') return;
-    if (!dayChanges(spielliste, startDate, stand.index)) {
-      // Kleinigkeit (Final-Review-Nachbesserung): dieser Zweig läuft bei
-      // JEDEM Indexwechsel, der KEIN Tageswechsel ist, der ganz normale
-      // Regelfall. `ohneGrund` selbst ist zwar No-Op-sicher (liefert
-      // dieselbe Set-Referenz), aber `setStand` bekäme trotzdem bei JEDEM
-      // Aufruf ein NEUES `stand`-Objekt (`{...s, pausiert: sameRef}`) und
-      // löste damit immer einen Render aus, selbst wenn 'zwischenkarte'
-      // ohnehin schon fehlt. Der explizite `.has()`-Check davor lässt
-      // `setStand` in diesem, häufigsten, Fall ganz aus, React bailt dann
-      // vollständig aus (dieselbe `s`-Referenz zurückgegeben).
-      setStand((s) => (s.pausiert.has('zwischenkarte') ? { ...s, pausiert: withoutReason(s.pausiert, 'zwischenkarte') } : s));
+    if (phase !== 'ready') return;
+    if (!dayChanges(playlist, startDate, state.index)) {
+      // This branch runs on EVERY index change that is NOT a day change, the
+      // ordinary case. `withoutReason` itself is no-op safe (it returns the same
+      // set reference), but `setState` would still receive a NEW `state` object on
+      // every call and trigger a render even when 'zwischenkarte' is absent
+      // anyway. The explicit `.has()` check keeps `setState` out of this most
+      // frequent case entirely, so React bails out completely.
+      setState((s) => (s.paused.has('zwischenkarte') ? { ...s, paused: withoutReason(s.paused, 'zwischenkarte') } : s));
       return;
     }
-    setStand((s) => ({ ...s, pausiert: withReason(s.pausiert, 'zwischenkarte') }));
+    setState((s) => ({ ...s, paused: withReason(s.paused, 'zwischenkarte') }));
     const timer = setTimeout(() => {
-      setStand((s) => ({ ...s, pausiert: withoutReason(s.pausiert, 'zwischenkarte') }));
-    }, ZWISCHENKARTE_DAUER_MS);
+      setState((s) => ({ ...s, paused: withoutReason(s.paused, 'zwischenkarte') }));
+    }, INTERSTITIAL_DURATION_MS);
     return () => clearTimeout(timer);
-  }, [phase, spielliste, startDate, stand.index]);
+  }, [phase, playlist, startDate, state.index]);
 
-  // Vorladen der nächsten drei FOTOS (V8), Videos werden nicht vorgeladen,
-  // das verlangt der Brief nicht und expo-video puffert selbst beim Mounten.
+  // Videos are deliberately not preloaded: the brief does not ask for it and
+  // expo-video buffers on mount by itself.
   useEffect(() => {
-    if (phase !== 'bereit') return;
-    const kommendeUrls = spielliste
-      .slice(stand.index + 1, stand.index + 1 + VORLADEN_ANZAHL)
+    if (phase !== 'ready') return;
+    const upcomingUrls = playlist
+      .slice(state.index + 1, state.index + 1 + PRELOAD_COUNT)
       .filter((m) => m.type === 'photo')
       .map((m) => urls.get(m.id)?.medium_url)
       .filter((u): u is string => !!u);
-    if (kommendeUrls.length > 0) void Image.prefetch(kommendeUrls);
-  }, [phase, stand.index, spielliste, urls]);
+    if (upcomingUrls.length > 0) void Image.prefetch(upcomingUrls);
+  }, [phase, state.index, playlist, urls]);
 
-  // Ein Tipp UNTERSPRINGT die Zwischenkarte, schaltet aber NICHT gleichzeitig
-  // zum nächsten Moment weiter (das war die Frage aus dem Auftrag): die Karte
-  // ist die einzige `Pressable` an dieser Stelle des Bildschirms, sie wird
-  // (siehe JSX unten) ALS LETZTES gerendert und liegt damit strukturell über
-  // den beiden Tipp-Zonen darunter, ein Touch währenddessen erreicht rein
-  // physisch/strukturell nur ihren eigenen onPress-Handler, niemals auch den
-  // der Tipp-Zonen. Es ist also kein Flag-Check, der das verhindert, sondern
-  // die Render-Reihenfolge selbst.
-  const ueberspringen = () => {
-    // Nimmt AUSSCHLIESSLICH den eigenen Grund zurück (Phase-5-Final-Review,
-    // Punkt 1), siehe der lange Kommentar beim Zwischenkarten-Effekt oben.
-    setStand((s) => ({ ...s, pausiert: withoutReason(s.pausiert, 'zwischenkarte') }));
+  // A tap SKIPS the interstitial card without also advancing to the next
+  // moment: the card is the only `Pressable` at this place on screen, it is
+  // rendered LAST and structurally lies above the two tap zones below it, so a
+  // touch during the card physically reaches only its own onPress handler. It
+  // is the render order that prevents this, not a flag check.
+  const skip = () => {
+    setState((s) => ({ ...s, paused: withoutReason(s.paused, 'zwischenkarte') }));
   };
 
-  const beiLadefehler = useCallback(
+  const onLoadError = useCallback(
     (postId: string) => {
-      // Ein verspätetes Fehler-Event eines längst verlassenen Moments darf
-      // den (inzwischen anderen) aktiven Moment nicht pausieren.
-      if (aktivIdRef.current !== postId) return;
-      if (versuchtRef.current.has(postId)) {
-        setFehlgeschlagen((s) => new Set(s).add(postId));
+      if (activeIdRef.current !== postId) return;
+      if (retriedRef.current.has(postId)) {
+        setFailed((s) => new Set(s).add(postId));
         return;
       }
-      versuchtRef.current.add(postId);
-      // Der einmalige, unsichtbare Neuversuch (V10): den Player anhalten,
-      // während im Hintergrund neu signiert wird, "das darf man nicht
-      // sehen" heisst hier: kein Fehlertext, nur ein kurzes, stilles Warten.
-      setStand((s) => ({ ...s, pausiert: withReason(s.pausiert, 'neuversuch') }));
+      retriedRef.current.add(postId);
+      setState((s) => ({ ...s, paused: withReason(s.paused, 'neuversuch') }));
       void (async () => {
-        const { vorrat } = await getPool(tripId);
-        if (aktiv.current && vorrat) {
-          setUrls(vorrat.urls);
-          setGueltigBis(vorrat.gueltigBis);
+        const { pool } = await getPool(tripId);
+        if (mounted.current && pool) {
+          setUrls(pool.urls);
+          setValidUntil(pool.gueltigBis);
         }
-        // Nimmt AUSSCHLIESSLICH den eigenen Grund zurück (Phase-5-Final-
-        // Review, Punkt 1). Zusätzliche Stale-Guard (gleiches Prinzip wie
-        // videoZuEnde/Wichtig 2): der Player kann inzwischen längst zu einem
-        // ANDEREN Moment weitergeschaltet haben (Tipp, Auto-Vorschub),
-        // dessen eigenen, unabhängig gesetzten Pausier-Zustand (z.B. ein
-        // neues Halten) darf diese verspätete Antwort nicht überschreiben.
-        //
-        // Final-Review Phase-5-Nachbesserung: GENAU diese Stale-Guard machte
-        // 'neuversuch' unentfernbar, wenn währenddessen weitergetippt wurde,
-        // die Bedingung schlägt dann für immer fehl, und keine andere
-        // Stelle nahm bis zu dieser Korrektur je 'neuversuch' zurück. Der
-        // Ausweg liegt bewusst NICHT hier (ein bedingungsloses Zurücknehmen
-        // hätte bei mehreren gleichzeitig scheiternden Momenten den GRUND
-        // eines fremden, noch laufenden Neuversuchs mitreissen können,
-        // 'neuversuch' ist EIN Set-Eintrag ohne Bezug zu einem bestimmten
-        // Moment, mehrere Momente können ihn sich "teilen"), sondern in
-        // MOMENTWECHSEL_GRUENDE: jeder TATSÄCHLICHE Indexwechsel
-        // (beendeBeruehrung/weiterAutomatisch) nimmt 'neuversuch' selbst
-        // zurück, bevor diese verspätete Antwort überhaupt eintrifft.
-        if (aktiv.current && aktivIdRef.current === postId) {
-          setStand((s) => ({ ...s, pausiert: withoutReason(s.pausiert, 'neuversuch') }));
+        // Additional stale guard (same principle as videoEnded): the player may long
+        // since have advanced to ANOTHER moment, whose independently set pause state
+        // this late answer must not overwrite. The way out deliberately does NOT sit
+        // here (an unconditional reset could tear away the reason of another retry
+        // still running, 'neuversuch' is ONE set entry with no reference to a
+        // particular moment) but in MOMENT_CHANGE_REASONS: every ACTUAL index change
+        // takes 'neuversuch' back itself, before this late answer even arrives.
+        if (mounted.current && activeIdRef.current === postId) {
+          setState((s) => ({ ...s, paused: withoutReason(s.paused, 'neuversuch') }));
         }
       })();
     },
@@ -1183,78 +922,63 @@ export default function RecapPlayer() {
   );
 
   const onPressIn = () => {
-    // Neue Berührung, ein evtl. von der VORHERIGEN Berührung übernommener
-    // Wisch darf diese hier nicht mehr betreffen.
-    wischUebernommenRef.current = false;
-    beruehrungStartRef.current = Date.now();
-    const moment = spielliste[stand.index];
+    swipeTakenOverRef.current = false;
+    touchStartRef.current = Date.now();
+    const moment = playlist[state.index];
     if (!moment) return;
-    const dauer = durationFor(moment);
-    const vergangen = Math.min(dauer, Math.max(0, Date.now() - segmentStartRef.current));
-    setStand((s) => ({ ...s, pausiert: withReason(s.pausiert, 'halten'), fortschritt: vergangen }));
+    const duration = durationFor(moment);
+    const elapsed = Math.min(duration, Math.max(0, Date.now() - segmentStartRef.current));
+    setState((s) => ({ ...s, paused: withReason(s.paused, 'halten'), progress: elapsed }));
   };
 
-  const beendeBeruehrung = (seite: 'links' | 'rechts') => {
-    // Klein (Review-Fund): RN-Pressability feuert onPressOut auf einer
-    // Tipp-Zone AUCH DANN, wenn der PanResponder den Touch währenddessen per
-    // Responder-Terminierung übernommen hat (Beginn eines echten Wischs),
-    // das ist kein echtes Loslassen. Ohne diese Sperre navigierte JEDER
-    // Wisch nach unten zusätzlich, und ein erfolgreicher Schliess-Wisch riefe
-    // schliessen() UND weiter()/zurueck() gleichzeitig.
-    if (wischUebernommenRef.current) return;
-    const gehalten = Date.now() - beruehrungStartRef.current;
-    if (gehalten < TAP_SCHWELLE_MS) {
-      if (seite === 'rechts') {
-        void pruefeUndErneuereVorratImHintergrund();
-        const ergebnis = advance(stand, spielliste.length);
-        if (ergebnis === 'ende') {
-          setPhase('ende');
+  const endTouch = (side: 'left' | 'right') => {
+    // RN Pressability fires onPressOut on a tap zone EVEN IF the PanResponder
+    // has taken the touch over meanwhile through responder termination (the
+    // start of a real swipe); that is not a real release.
+    if (swipeTakenOverRef.current) return;
+    const held = Date.now() - touchStartRef.current;
+    if (held < TAP_THRESHOLD_MS) {
+      if (side === 'right') {
+        void checkAndRefreshPoolInBackground();
+        const result = advance(state, playlist.length);
+        if (result === 'ende') {
+          setPhase('ended');
           return;
         }
-        // Ein echter Indexwechsel per Tipp: nimmt `MOMENTWECHSEL_GRUENDE`
-        // zurück, nicht nur `'halten'` (Final-Review Phase-5-Nachbesserung,
-        // siehe Kommentar dort, `'neuversuch'` gehört ebenfalls zum
-        // VERLASSENEN Moment und darf den neuen nicht blockieren).
-        setStand({ ...ergebnis, pausiert: withoutReasons(ergebnis.pausiert, MOMENTWECHSEL_GRUENDE) });
+        setState({ ...result, paused: withoutReasons(result.paused, MOMENT_CHANGE_REASONS) });
         return;
       }
-      // Klein (Review-Fund): V10 gilt in BEIDE Richtungen ("vor jedem
-      // Weiter" schliesst ein zurueck() nicht aus, auch dabei bleibt der
-      // Player sichtbar auf demselben Vorrat angewiesen).
-      void pruefeUndErneuereVorratImHintergrund();
-      const ergebnisZurueck = goBack(stand);
-      setStand({ ...ergebnisZurueck, pausiert: withoutReasons(ergebnisZurueck.pausiert, MOMENTWECHSEL_GRUENDE) });
+      void checkAndRefreshPoolInBackground();
+      const backResult = goBack(state);
+      setState({ ...backResult, paused: withoutReasons(backResult.paused, MOMENT_CHANGE_REASONS) });
       return;
     }
-    // Halten, dann losgelassen: "und weiter beim Loslassen" (Brief) heisst
-    // hier fortsetzen, NICHT zum nächsten Moment springen.
-    setStand((s) => ({ ...s, pausiert: withoutReason(s.pausiert, 'halten') }));
+    setState((s) => ({ ...s, paused: withoutReason(s.paused, 'halten') }));
   };
 
-  const schliessen = () => {
+  const close = () => {
     if (router.canGoBack()) router.back();
     else router.replace('/recap');
   };
 
   const [pan] = useState(() => new Animated.ValueXY());
-  // Klein (Review-Fund): true, sobald der PanResponder den Touch tatsächlich
-  // übernommen hat (onPanResponderGrant feuert nur bei echter Übernahme,
-  // anders als das bloss ANFRAGENDE onMoveShouldSetPanResponderCapture),
-  // beendeBeruehrung() liest das, um ein von RN-Pressability trotzdem
-  // ausgelöstes onPressOut als das zu erkennen, was es ist: kein Loslassen,
-  // sondern der Beginn eines Wischs.
-  const wischUebernommenRef = useRef(false);
+  // True as soon as the PanResponder has actually taken the touch over
+  // (onPanResponderGrant only fires on a real takeover, unlike the merely
+  // ASKING onMoveShouldSetPanResponderCapture), so that endTouch() can
+  // recognise an onPressOut fired anyway for what it is: not a release but the
+  // start of a swipe.
+  const swipeTakenOverRef = useRef(false);
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponderCapture: () => false,
       onMoveShouldSetPanResponderCapture: (_evt, g) => g.dy > 10 && Math.abs(g.dy) > Math.abs(g.dx),
       onPanResponderGrant: () => {
-        wischUebernommenRef.current = true;
+        swipeTakenOverRef.current = true;
       },
       onPanResponderMove: Animated.event([null, { dy: pan.y }], { useNativeDriver: false }),
       onPanResponderRelease: (_evt, g) => {
-        if (g.dy > SCHLIESSEN_SCHWELLE_PX) {
-          schliessen();
+        if (g.dy > CLOSE_THRESHOLD_PX) {
+          close();
           return;
         }
         Animated.spring(pan.y, { toValue: 0, useNativeDriver: false, ...motion.spring }).start();
@@ -1265,7 +989,7 @@ export default function RecapPlayer() {
     })
   ).current;
 
-  if (phase === 'laedt') {
+  if (phase === 'loading') {
     return (
       <View testID="player-laedt" style={styles.screen}>
         <ActivityIndicator color={cinema['text-1']} />
@@ -1273,160 +997,148 @@ export default function RecapPlayer() {
     );
   }
 
-  if (phase === 'fehler') {
+  if (phase === 'error') {
     return (
-      <View testID="player-fehler" style={[styles.screen, styles.mitte]}>
-        <Text style={[type.h2, styles.zentrierterText]}>{fehler?.text}</Text>
+      <View testID="player-fehler" style={[styles.screen, styles.center]}>
+        <Text style={[type.h2, styles.centeredText]}>{error?.text}</Text>
         <View style={{ marginTop: spacing.xl, gap: spacing.base, alignItems: 'center' }}>
-          {/* Nur wo ein zweiter Versuch etwas ausrichten kann
-              (features/recap/urlVorrat.ts). Unter «Diese Reise ist noch
-              versiegelt.» stand der Knopf bis hierher ebenfalls, und drücken
-              konnte man ihn beliebig oft. Der Rückweg darunter bleibt in
-              jedem Fall, er ist dann die einzige Handlung, die es gibt. */}
-          {fehler?.nochmalHilft && (
-            <KinoButton label="Nochmal versuchen" onPress={() => void laden()} />
+          {/* Only where a second attempt can achieve anything
+              (features/recap/urlPool.ts). The way back below stays in any case, it is
+              then the only action there is. */}
+          {error?.canRetry && (
+            <CinemaButton label="Nochmal versuchen" onPress={() => void load()} />
           )}
-          <TextLink label="Zurück zur Übersicht" onPress={schliessen} />
+          <TextLink label="Zurück zur Übersicht" onPress={close} />
         </View>
       </View>
     );
   }
 
-  if (phase === 'leer') {
+  if (phase === 'empty') {
     return (
-      <View testID="player-leer" style={[styles.screen, styles.mitte]}>
-        <Text style={[type.h2, styles.zentrierterText]}>Diese Reise ist leer geblieben.</Text>
+      <View testID="player-leer" style={[styles.screen, styles.center]}>
+        <Text style={[type.h2, styles.centeredText]}>Diese Reise ist leer geblieben.</Text>
         <View style={{ marginTop: spacing.xl }}>
-          <TextLink label="Zurück zur Übersicht" onPress={schliessen} />
+          <TextLink label="Zurück zur Übersicht" onPress={close} />
         </View>
       </View>
     );
   }
 
-  if (phase === 'ende') {
+  if (phase === 'ended') {
     return (
-      <View testID="player-ende" style={[styles.screen, styles.mitte]}>
-        <Text style={[type.h2, styles.zentrierterText]}>Das war der Recap.</Text>
-        {(pendingAnzahl > 0 || ausgelassenAnzahl > 0) && (
+      <View testID="player-ende" style={[styles.screen, styles.center]}>
+        <Text style={[type.h2, styles.centeredText]}>Das war der Recap.</Text>
+        {(pendingCount > 0 || skippedCount > 0) && (
           <View style={{ marginTop: spacing.base, gap: spacing.xs, alignItems: 'center' }}>
-            {pendingAnzahl > 0 && (
-              <Text style={[type.secondary, styles.zentrierterTextSekundaer]}>{unterwegsText(pendingAnzahl)}</Text>
+            {pendingCount > 0 && (
+              <Text style={[type.secondary, styles.centeredTextSecondary]}>{pendingText(pendingCount)}</Text>
             )}
-            {ausgelassenAnzahl > 0 && (
-              <Text style={[type.secondary, styles.zentrierterTextSekundaer]}>{ausgelassenText(ausgelassenAnzahl)}</Text>
+            {skippedCount > 0 && (
+              <Text style={[type.secondary, styles.centeredTextSecondary]}>{skippedText(skippedCount)}</Text>
             )}
           </View>
         )}
         <View style={{ marginTop: spacing.xl }}>
-          <KinoButton label="Zurück zur Übersicht" onPress={schliessen} />
+          <CinemaButton label="Zurück zur Übersicht" onPress={close} />
         </View>
       </View>
     );
   }
 
-  // phase === 'bereit', aktivMoment ist damit garantiert gesetzt (die Liste
-  // ist an dieser Stelle nie leer, siehe laden()).
-  if (!aktivMoment) return null;
-  const url = urls.get(aktivMoment.id);
-  const ortZeitText = aktivMoment.place_name
-    ? `${aktivMoment.place_name} · ${zeitInZone(aktivMoment.captured_at, aktivMoment.captured_tz)}`
-    : zeitInZone(aktivMoment.captured_at, aktivMoment.captured_tz);
+  // phase === 'ready', so activeMoment is guaranteed to be set (the list is
+  // never empty at this point, see load()).
+  if (!activeMoment) return null;
+  const url = urls.get(activeMoment.id);
+  const placeTimeText = activeMoment.place_name
+    ? `${activeMoment.place_name} · ${timeInZone(activeMoment.captured_at, activeMoment.captured_tz)}`
+    : timeInZone(activeMoment.captured_at, activeMoment.captured_tz);
 
   return (
     <View testID="player-bereit" style={styles.screen}>
-      <Animated.View style={[styles.inhalt, { transform: pan.getTranslateTransform() }]} {...panResponder.panHandlers}>
-        <MomentAnzeige
-          key={aktivMoment.id}
-          moment={aktivMoment}
+      <Animated.View style={[styles.content, { transform: pan.getTranslateTransform() }]} {...panResponder.panHandlers}>
+        <MomentView
+          key={activeMoment.id}
+          moment={activeMoment}
           url={url}
-          fehlgeschlagen={fehlgeschlagen.has(aktivMoment.id)}
-          // Wichtig 1 (Review-Fund): auch die Zwischenkarte muss das Video
-          // wirklich pausieren, sie ist vollflächig-opak, ohne diese
-          // Verknüpfung liefe ein Video darunter unbeirrt weiter (Bild UND
-          // Ton) und könnte sogar unter der Karte zu Ende laufen, sodass der
-          // Moment, den die Karte gerade ankündigt, nie gezeigt würde.
-          // `gestoppt` = irgendein Grund aus `stand.pausiert` ist gesetzt
-          // (Halten, Kommentar-Sheet, Zwischenkarte oder Neuversuch), an
-          // DIESER Stelle interessiert bewusst nur "läuft/läuft nicht", nicht
-          // welcher Grund es ist (siehe Render-Zeile oben).
-          pausiert={gestoppt}
-          onVideoEnde={() => videoZuEnde(aktivMoment.id)}
-          onFehler={() => beiLadefehler(aktivMoment.id)}
+          failed={failed.has(activeMoment.id)}
+          paused={stopped}
+          onVideoEnded={() => videoEnded(activeMoment.id)}
+          onError={() => onLoadError(activeMoment.id)}
         />
 
         <View
           testID="player-kopf-bereich"
-          style={[styles.kopfBereich, { top: oberkante }]}
+          style={[styles.headerArea, { top: topInset }]}
           pointerEvents="box-none"
         >
           <ProgressBar
-            count={spielliste.length}
-            activeIndex={stand.index}
-            durationMs={durationFor(aktivMoment)}
-            elapsedMs={stand.fortschritt}
-            paused={gestoppt}
+            count={playlist.length}
+            activeIndex={state.index}
+            durationMs={durationFor(activeMoment)}
+            elapsedMs={state.progress}
+            paused={stopped}
           />
-          <View style={styles.kopfReihe}>
-            <Pill style={styles.namePille}>
-              {/* 32 statt Avatars Default 36: unteres Ende der DESIGN-LANGUAGE-§4-Spanne
-                  (32–44 px), passend zur kompakten Kopf-Pille — dieselbe Grösse, die
-                  die gelöschte lokale AvatarInitiale-Kopie vor Task 9 hier trug. */}
-              <Avatar name={aktivMoment.authorName} avatarKey={aktivMoment.authorAvatarKey} cinemaMode size={32} />
-              <Text style={[type.bodyMedium, { color: cinema['text-1'] }]}>{aktivMoment.authorName}</Text>
+          <View style={styles.headerRow}>
+            <Pill style={styles.namePill}>
+              {/* 32 instead of Avatar's default 36: the lower end of the
+                  DESIGN-LANGUAGE §4 range (32 to 44 px), matching the compact header
+                  pill. */}
+              <Avatar name={activeMoment.authorName} avatarKey={activeMoment.authorAvatarKey} cinemaMode size={32} />
+              <Text style={[type.bodyMedium, { color: cinema['text-1'] }]}>{activeMoment.authorName}</Text>
             </Pill>
-            <Pill style={styles.infoPille}>
-              <Text style={[type.secondary, { color: cinema['text-1'] }]}>{ortZeitText}</Text>
+            <Pill style={styles.infoPill}>
+              <Text style={[type.secondary, { color: cinema['text-1'] }]}>{placeTimeText}</Text>
             </Pill>
           </View>
         </View>
 
         <View
           testID="player-sozial-bereich"
-          style={[styles.sozialBereich, { bottom: unterkante }]}
+          style={[styles.socialArea, { bottom: bottomInset }]}
           pointerEvents="box-none"
         >
-          {aktivMoment.caption && (
-            <Pill testID="player-caption" style={styles.captionPille} pointerEvents="none">
-              <Text style={[type.body, { color: cinema['text-1'] }]}>{aktivMoment.caption}</Text>
+          {activeMoment.caption && (
+            <Pill testID="player-caption" style={styles.captionPill} pointerEvents="none">
+              <Text style={[type.body, { color: cinema['text-1'] }]}>{activeMoment.caption}</Text>
             </Pill>
           )}
-          <AndereReaktionenPille emojis={andereEmojis} />
-          <View style={styles.reaktionsReihe}>
-            {EMOJI_LEISTE.map((r) => (
-              <EmojiPille
+          <OtherReactionsPill emojis={otherEmojis} />
+          <View style={styles.reactionRow}>
+            {EMOJI_BAR.map((r) => (
+              <EmojiPill
                 key={r.id}
                 id={r.id}
                 emoji={r.emoji}
                 label={r.label}
-                aktiv={eigeneEmojis.has(r.emoji)}
-                onPress={() => tippeEmoji(r.emoji)}
+                active={ownEmojis.has(r.emoji)}
+                onPress={() => tapEmoji(r.emoji)}
               />
             ))}
             <PressScale
               testID="player-kommentare-oeffnen"
               accessibilityRole="button"
               accessibilityLabel="Kommentare öffnen"
-              onPress={oeffneKommentare}
+              onPress={openComments}
             >
-              <Pill style={styles.kommentarKnopf}>
+              <Pill style={styles.commentButton}>
                 <MessageCircle size={20} color={cinema['text-1']} strokeWidth={1.75} />
               </Pill>
             </PressScale>
-            {/* Nur sichtbar, wenn es für DIESEN Moment überhaupt eine URL
-                gibt (siehe MomentAnzeige), ein Moment, der gerade nicht
-                lädt, hat nichts, das sich sichern liesse. */}
+            {/* Only visible if there is a URL for THIS moment at all (see MomentView):
+                a moment that is not loading has nothing that could be saved. */}
             {url && (
               <PressScale
                 testID="player-sichern"
                 accessibilityRole="button"
                 accessibilityLabel="In Galerie sichern"
-                accessibilityState={{ disabled: exportLaeuft }}
+                accessibilityState={{ disabled: exportRunning }}
                 onPress={() => {
-                  if (!exportLaeuft) void sichereAktuellenMoment();
+                  if (!exportRunning) void saveCurrentMoment();
                 }}
               >
-                <Pill style={styles.kommentarKnopf}>
-                  {exportLaeuft ? (
+                <Pill style={styles.commentButton}>
+                  {exportRunning ? (
                     <ActivityIndicator testID="player-sichern-laedt" color={cinema['text-1']} size="small" />
                   ) : (
                     <Download size={20} color={cinema['text-1']} strokeWidth={1.75} />
@@ -1435,69 +1147,66 @@ export default function RecapPlayer() {
               </PressScale>
             )}
           </View>
-          {reaktionFehler && (
-            <Pill style={styles.reaktionFehlerPille}>
-              <Text style={[type.secondary, { color: cinema['text-1'] }]}>{reaktionFehler}</Text>
+          {reactionError && (
+            <Pill style={styles.reactionErrorPill}>
+              <Text style={[type.secondary, { color: cinema['text-1'] }]}>{reactionError}</Text>
             </Pill>
           )}
-          {exportHinweis && (
-            <Pill testID="player-export-hinweis" style={styles.reaktionFehlerPille}>
-              <Text style={[type.secondary, { color: cinema['text-1'] }]}>{exportHinweis}</Text>
+          {exportNotice && (
+            <Pill testID="player-export-hinweis" style={styles.reactionErrorPill}>
+              <Text style={[type.secondary, { color: cinema['text-1'] }]}>{exportNotice}</Text>
             </Pill>
           )}
         </View>
 
-        {/* Task 8, Phase 6: `onLongPress`/`delayLongPress` hängen auf GENAU
-            derselben Pressable wie die bestehende Tipp-Navigation, kein
-            zusätzlicher, potenziell verdeckter Bedienbereich (der
-            zIndex-Bug aus Phase 5 entstand durch eine ZWEITE, konkurrierende
-            Fläche; hier gibt es keine zweite Fläche, nur einen zweiten
-            Event-Handler auf der bereits nachweislich obersten/erreichbaren
-           , siehe die zIndex-Tests unten). RN-Pressability liefert
-            onPressIn/onPressOut/onLongPress nebeneinander, ohne dass sie
-            sich gegenseitig unterdrücken: onPressIn pausiert weiterhin
-            SOFORT bei Berührungsbeginn (Halten = Pause, unverändert), erst
-            NACH LANGES_TIPPEN_MS kommt zusätzlich das Melden-Sheet dazu.
-            Löst die Berührung sich vorher (Tipp oder normales Halten unter
-            500 ms), feuert onLongPress nie, beendeBeruehrung entscheidet
-            wie bisher allein über die Haltedauer. */}
+        {/* Task 8, Phase 6: `onLongPress` and `delayLongPress` hang on EXACTLY the
+            same Pressable as the existing tap navigation, no additional,
+            potentially covered touch surface (the zIndex bug from Phase 5 came out
+            of a SECOND, competing surface; here there is no second surface, only a
+            second event handler on the demonstrably topmost one, see the zIndex
+            tests). RN Pressability delivers onPressIn, onPressOut and onLongPress
+            side by side without suppressing each other: onPressIn still pauses
+            IMMEDIATELY on touch start (hold = pause, unchanged), only after
+            LONG_PRESS_MS does the report sheet come on top. If the touch is released
+            before that, onLongPress never fires and endTouch decides on the hold
+            duration alone, as before. */}
         <Pressable
           testID="player-links"
           accessibilityRole="button"
           accessibilityLabel="Zurück zum vorherigen Moment"
-          style={styles.tapZoneLinks}
+          style={styles.tapZoneLeft}
           onPressIn={onPressIn}
-          onPressOut={() => beendeBeruehrung('links')}
-          onLongPress={oeffneMelden}
-          delayLongPress={LANGES_TIPPEN_MS}
+          onPressOut={() => endTouch('left')}
+          onLongPress={openReport}
+          delayLongPress={LONG_PRESS_MS}
         />
         <Pressable
           testID="player-rechts"
           accessibilityRole="button"
           accessibilityLabel="Weiter zum nächsten Moment"
-          style={styles.tapZoneRechts}
+          style={styles.tapZoneRight}
           onPressIn={onPressIn}
-          onPressOut={() => beendeBeruehrung('rechts')}
-          onLongPress={oeffneMelden}
-          delayLongPress={LANGES_TIPPEN_MS}
+          onPressOut={() => endTouch('right')}
+          onLongPress={openReport}
+          delayLongPress={LONG_PRESS_MS}
         />
 
         <PressScale
           testID="player-schliessen"
           accessibilityRole="button"
           accessibilityLabel="Schliessen"
-          onPress={schliessen}
-          style={[styles.schliessenWrap, { top: oberkante }]}
+          onPress={close}
+          style={[styles.closeWrap, { top: topInset }]}
         >
-          <Pill style={styles.schliessenPille}>
+          <Pill style={styles.closePill}>
             <X size={18} color={cinema['text-1']} strokeWidth={1.75} />
           </Pill>
         </PressScale>
 
-        {zwischenkarte && (
-          <Pressable testID="player-zwischenkarte" style={styles.zwischenkarte} onPress={ueberspringen}>
-            <Text style={[type.h1, styles.zentrierterText]}>
-              {aktuellerTag ? tagesueberschrift(aktuellerTag) : 'Ein neuer Tag beginnt.'}
+        {interstitial && (
+          <Pressable testID="player-zwischenkarte" style={styles.interstitial} onPress={skip}>
+            <Text style={[type.h1, styles.centeredText]}>
+              {currentDay ? dayHeading(currentDay) : 'Ein neuer Tag beginnt.'}
             </Text>
           </Pressable>
         )}
@@ -1505,40 +1214,39 @@ export default function RecapPlayer() {
 
       <Animated.View
         pointerEvents="none"
-        style={[StyleSheet.absoluteFill, styles.kinoFade, { opacity: kinoFade }]}
+        style={[StyleSheet.absoluteFill, styles.cinemaFade, { opacity: cinemaFade }]}
       />
 
-      {/* GESCHWISTER des Animated.View mit den Pan-Handlern, nicht sein Kind
-          (gleiches Muster wie reise/[id]/index.tsx), das Sheet muss über
-          allem liegen, inklusive der Tipp-Zonen. */}
-      <Sheet visible={kommentarOffen} title="Kommentare" onClose={schliesseKommentare} cinemaMode>
-        {kommentareLaden ? (
+      {/* SIBLING of the Animated.View with the pan handlers, not its child (same
+          pattern as trip/[id]/index.tsx): the sheet has to lie above everything,
+          including the tap zones. */}
+      <Sheet visible={commentsOpen} title="Kommentare" onClose={closeComments} cinemaMode>
+        {commentsLoading ? (
           <ActivityIndicator testID="kommentare-laedt" color={cinema['text-1']} />
-        ) : kommentareFehler ? (
-          <Text style={[type.secondary, { color: cinema['text-2'] }]}>{kommentareFehler}</Text>
-        ) : kommentare.length === 0 ? (
+        ) : commentsError ? (
+          <Text style={[type.secondary, { color: cinema['text-2'] }]}>{commentsError}</Text>
+        ) : comments.length === 0 ? (
           <Text style={[type.secondary, { color: cinema['text-2'] }]}>
             Noch keine Kommentare. Schreib den ersten.
           </Text>
         ) : (
-          <ScrollView testID="kommentar-liste" style={styles.kommentarListe}>
-            {kommentare.map((k) => (
-              <KommentarZeile key={k.id} kommentar={k} />
+          <ScrollView testID="kommentar-liste" style={styles.commentList}>
+            {comments.map((c) => (
+              <CommentRow key={c.id} comment={c} />
             ))}
           </ScrollView>
         )}
-        <View style={styles.kommentarEingabeReihe}>
+        <View style={styles.commentInputRow}>
           <View style={{ flex: 1 }}>
             <Input
               testID="kommentar-eingabe"
               label="Kommentar schreiben"
-              value={kommentarText}
-              onChangeText={setKommentarText}
-              error={kommentarSendenFehler ?? undefined}
+              value={commentText}
+              onChangeText={setCommentText}
+              error={commentSendError ?? undefined}
               maxLength={COMMENT_MAX_LENGTH}
-              // Phase-5-Final-Review, Punkt 4: ohne diesen Schalter zieht
-              // `Input` über `useTheme()` zwingend die Licht-Palette (siehe
-              // dort), eine weisse Box mitten im Kinosaal.
+              // Without this switch `Input` strictly pulls the light palette through
+              // `useTheme()` (see there), a white box in the middle of the cinema.
               cinemaMode
             />
           </View>
@@ -1546,15 +1254,15 @@ export default function RecapPlayer() {
             testID="kommentar-senden"
             accessibilityRole="button"
             accessibilityLabel="Kommentar senden"
-            disabled={kommentarSendetLaeuft || kommentarText.trim().length === 0}
-            accessibilityState={{ disabled: kommentarSendetLaeuft || kommentarText.trim().length === 0 }}
+            disabled={commentSending || commentText.trim().length === 0}
+            accessibilityState={{ disabled: commentSending || commentText.trim().length === 0 }}
             onPress={() => {
-              if (kommentarText.trim().length === 0 || kommentarSendetLaeuft) return;
-              kommentarAbsenden();
+              if (commentText.trim().length === 0 || commentSending) return;
+              submitComment();
             }}
           >
-            <View style={styles.kommentarSendenKnopf}>
-              {kommentarSendetLaeuft ? (
+            <View style={styles.commentSendButton}>
+              {commentSending ? (
                 <ActivityIndicator color={palette['on-accent']} size="small" />
               ) : (
                 <Text style={[type.bodyMedium, { color: palette['on-accent'] }]}>Senden</Text>
@@ -1564,21 +1272,20 @@ export default function RecapPlayer() {
         </View>
       </Sheet>
 
-      {/* Task 8, Phase 6: gleiches GESCHWISTER-Prinzip wie das Kommentar-
-          Sheet direkt darüber, über allem, inklusive der Tipp-Zonen. */}
-      <Sheet visible={meldenOffen} title="Diesen Moment melden" onClose={schliesseMelden} cinemaMode>
-        {meldenBestaetigt ? (
+      {/* Task 8, Phase 6: same SIBLING principle as the comment sheet directly
+          above, over everything, including the tap zones. */}
+      <Sheet visible={reportOpen} title="Diesen Moment melden" onClose={closeReport} cinemaMode>
+        {reportConfirmed ? (
           <View style={{ gap: spacing.base }}>
             <Text testID="melden-bestaetigung" style={[type.body, { color: cinema['text-1'] }]}>
               Danke. Die Person, die diese Reise angelegt hat, sieht deine Meldung.
             </Text>
-            <KinoButton label="Schliessen" onPress={schliesseMelden} />
+            <CinemaButton label="Schliessen" onPress={closeReport} />
           </View>
         ) : (
           <View style={{ gap: spacing.base }}>
-            {/* Brief, wörtlich: "Der Moment bleibt sichtbar, Melden ist
-                kein Verstecken." Steht hier, BEVOR jemand abschickt, nicht
-                erst danach. */}
+            {/* Brief, verbatim: "Der Moment bleibt sichtbar, Melden ist kein
+                Verstecken." Stands here BEFORE anyone submits, not only afterwards. */}
             <Text style={[type.secondary, { color: cinema['text-2'] }]}>
               Der Moment bleibt für alle sichtbar. Die Person, die diese Reise angelegt hat,
               entscheidet, was als Nächstes passiert.
@@ -1586,26 +1293,26 @@ export default function RecapPlayer() {
             <Input
               testID="melden-grund"
               label="Was stimmt nicht?"
-              value={meldenGrund}
-              onChangeText={setMeldenGrund}
-              error={meldenSendenFehler ?? undefined}
+              value={reportReason}
+              onChangeText={setReportReason}
+              error={reportSendError ?? undefined}
               maxLength={REPORT_MAX_LENGTH}
-              // Gleicher Grund wie beim Kommentar-Eingabefeld oben.
+              // Same reason as for the comment input field above.
               cinemaMode
             />
             <PressScale
               testID="melden-senden"
               accessibilityRole="button"
               accessibilityLabel="Meldung senden"
-              disabled={meldenSendetLaeuft || meldenGrund.trim().length === 0}
-              accessibilityState={{ disabled: meldenSendetLaeuft || meldenGrund.trim().length === 0 }}
+              disabled={reportSending || reportReason.trim().length === 0}
+              accessibilityState={{ disabled: reportSending || reportReason.trim().length === 0 }}
               onPress={() => {
-                if (meldenGrund.trim().length === 0 || meldenSendetLaeuft) return;
-                meldenAbsenden();
+                if (reportReason.trim().length === 0 || reportSending) return;
+                submitReport();
               }}
             >
-              <View style={styles.kommentarSendenKnopf}>
-                {meldenSendetLaeuft ? (
+              <View style={styles.commentSendButton}>
+                {reportSending ? (
                   <ActivityIndicator color={palette['on-accent']} size="small" />
                 ) : (
                   <Text style={[type.bodyMedium, { color: palette['on-accent'] }]}>Melden</Text>
@@ -1621,12 +1328,12 @@ export default function RecapPlayer() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: cinema['bg-0'] },
-  inhalt: { flex: 1 },
-  mitte: { alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.screen },
-  zentrierterText: { color: cinema['text-1'], textAlign: 'center' },
-  zentrierterTextSekundaer: { color: cinema['text-2'], textAlign: 'center' },
-  kinoFade: { backgroundColor: cinema['bg-0'] },
-  kinoButton: {
+  content: { flex: 1 },
+  center: { alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.screen },
+  centeredText: { color: cinema['text-1'], textAlign: 'center' },
+  centeredTextSecondary: { color: cinema['text-2'], textAlign: 'center' },
+  cinemaFade: { backgroundColor: cinema['bg-0'] },
+  cinemaButton: {
     height: 52,
     borderRadius: radius.control,
     alignItems: 'center',
@@ -1635,15 +1342,15 @@ const styles = StyleSheet.create({
     backgroundColor: cinema['text-1'],
   },
   textLink: { color: cinema['text-1'], textDecorationLine: 'underline' },
-  kopfBereich: {
+  headerArea: {
     position: 'absolute',
     top: spacing.xl,
     left: spacing.screen,
     right: spacing.screen,
     gap: spacing.base,
   },
-  kopfReihe: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.s },
-  namePille: {
+  headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.s },
+  namePill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.s,
@@ -1651,50 +1358,44 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.xs,
     borderRadius: radius.pill,
   },
-  infoPille: {
+  infoPill: {
     paddingHorizontal: spacing.base,
     paddingVertical: spacing.xs,
     borderRadius: radius.pill,
   },
-  // Kein `position:absolute` mehr (anders als vor Task 12): die Pille ist
-  // jetzt ein normales Flow-Kind von `sozialBereich`, das seinerseits
-  // GENAU EINMAL vom unteren Rand aus positioniert ist, Caption,
-  // "Reaktionen anderer" und die Emoji-Leiste stapeln sich darin per `gap`,
-  // ohne sich je zu überlappen, unabhängig davon, wie viele Zeilen die
-  // Caption braucht.
-  captionPille: {
+  // No `position: absolute` any more: the pill is a normal flow child of
+  // `socialArea`, which is itself positioned from the bottom edge EXACTLY
+  // ONCE. Caption, other people's reactions and the emoji bar stack inside it
+  // through `gap` without ever overlapping, no matter how many lines the
+  // caption needs.
+  captionPill: {
     alignSelf: 'flex-start',
     maxWidth: '100%',
     borderRadius: radius.control,
     paddingHorizontal: spacing.base,
     paddingVertical: spacing.s,
   },
-  // M5/Klein (Review-Fund): die Stapel-Reihenfolge hing bisher allein an der
-  // Render-Reihenfolge im JSX ("später gerendert = oben"), fragil, weil sie
-  // sich unbemerkt umkehren liess (ein RNTL-`fireEvent.press` prüft keine
-  // Geometrie/Stapelung, jede Verschiebung im Baum blieb also unbemerkt
-  // grün). Jetzt ein expliziter, von der Reihenfolge unabhängiger zIndex:
-  // Tipp-Zonen unten, die Zwischenkarte darüber (blockiert sie strukturell),
-  // die Schliessen-Pille ganz oben (bleibt auch WÄHREND der Karte bedienbar,
-  // sonst liesse sich der Player während der 1,5 s der Karte nicht
-  // verlassen).
-  tapZoneLinks: { position: 'absolute', top: 0, bottom: 0, left: 0, width: '50%', zIndex: 1 },
-  tapZoneRechts: { position: 'absolute', top: 0, bottom: 0, right: 0, width: '50%', zIndex: 1 },
-  schliessenWrap: { position: 'absolute', top: spacing.xl, right: spacing.screen, zIndex: 3 },
-  schliessenPille: {
+  // An explicit zIndex, independent of the render order in the tree: tap zones
+  // at the bottom, the interstitial card above them (blocking them
+  // structurally), the close pill on top (so it stays usable WHILE the card
+  // stands, otherwise the player could not be left during its 1.5 s).
+  tapZoneLeft: { position: 'absolute', top: 0, bottom: 0, left: 0, width: '50%', zIndex: 1 },
+  tapZoneRight: { position: 'absolute', top: 0, bottom: 0, right: 0, width: '50%', zIndex: 1 },
+  closeWrap: { position: 'absolute', top: spacing.xl, right: spacing.screen, zIndex: 3 },
+  closePill: {
     width: 36,
     height: 36,
     borderRadius: radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  ladeHinweisWrap: { flex: 1, alignItems: 'center', justifyContent: 'flex-end', paddingBottom: spacing.xxl },
-  ladeHinweisPille: {
+  loadingHintWrap: { flex: 1, alignItems: 'center', justifyContent: 'flex-end', paddingBottom: spacing.xxl },
+  loadingHintPill: {
     paddingHorizontal: spacing.base,
     paddingVertical: spacing.s,
     borderRadius: radius.pill,
   },
-  zwischenkarte: {
+  interstitial: {
     position: 'absolute',
     top: 0,
     left: 0,
@@ -1706,23 +1407,14 @@ const styles = StyleSheet.create({
     backgroundColor: cinema['bg-0'],
     zIndex: 2,
   },
-  // Fix-Runde 1, Blocker 1: ohne zIndex lag dieser Bereich UNTER den
-  // Tipp-Zonen (zIndex 1, siehe tapZoneLinks/tapZoneRechts unten), jeder
-  // Tipp auf ein Emoji oder den Kommentar-Knopf traf physisch player-links/
-  // -rechts und blätterte nur weiter, statt zu reagieren bzw. das Sheet zu
-  // öffnen. zIndex 2 hebt ihn über die Tipp-Zonen; bleibt unter der
-  // Zwischenkarte (ebenfalls zIndex 2, aber SPÄTER im Baum, bei gleichem
-  // zIndex gewinnt in React Native das später gerenderte Geschwister,
-  // gleiches Prinzip wie beim tapZoneLinks/-Rechts-Kommentar unten), die
-  // Karte deckt die Leiste also weiterhin vollständig ab, während sie steht.
-  //
-  // Fix-Runde 2 (Review-Korrektur): entgegen einer früheren, FALSCHEN Notiz
-  // hier ist das sehr wohl testbar, player.test.tsx prüft `zIndex` direkt
-  // über `StyleSheet.flatten(...props.style)` (Muster aus der
-  // Task-11-Fixrunde für die Zwischenkarte, siehe dort), nicht über echtes
-  // Hit-Testing. Siehe "die Reaktionen/der Kommentar-Knopf liegen per zIndex
-  // über den Tipp-Zonen" in player.test.tsx.
-  sozialBereich: {
+  // Without a zIndex this area lay UNDER the tap zones (zIndex 1, see
+  // tapZoneLeft/tapZoneRight below), and every tap on an emoji or the comment
+  // button physically hit player-links/-rechts and only paged on instead of
+  // reacting or opening the sheet. zIndex 2 lifts it above the tap zones; it
+  // stays below the interstitial card (also zIndex 2, but LATER in the tree,
+  // and at equal zIndex the later rendered sibling wins in React Native), so
+  // the card still covers the bar completely while it stands.
+  socialArea: {
     position: 'absolute',
     left: spacing.screen,
     right: spacing.screen,
@@ -1730,49 +1422,49 @@ const styles = StyleSheet.create({
     gap: spacing.base,
     zIndex: 2,
   },
-  // Fix-Runde 1, Klein 6: sechs 44-px-Pillen + fünf 8-px-Lücken sind 304 px,
-  // auf einem 320-pt-Gerät bleiben zwischen den 24-px-Screen-Rändern nur
-  // 272 px. `flexWrap` lässt die letzte Pille (den Kommentar-Knopf) in eine
-  // zweite Zeile umbrechen, statt über den Rand hinauszulaufen; `gap` gilt
-  // in React Native für beide Achsen, auch für die umgebrochene Zeile.
-  reaktionsReihe: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.s },
-  emojiPille: {
+  // Six 44 px pills plus five 8 px gaps are 304 px; on a 320 pt device only
+  // 272 px remain between the 24 px screen margins. `flexWrap` lets the last
+  // pill (the comment button) wrap to a second line instead of running past the
+  // edge; `gap` applies to both axes in React Native, including the wrapped
+  // row.
+  reactionRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.s },
+  emojiPill: {
     width: 44,
     height: 44,
     borderRadius: radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  emojiPilleAktiv: { backgroundColor: cinema['text-1'] },
-  emojiZeichen: { fontSize: 20 },
-  kommentarKnopf: {
+  emojiPillActive: { backgroundColor: cinema['text-1'] },
+  emojiGlyph: { fontSize: 20 },
+  commentButton: {
     width: 44,
     height: 44,
     borderRadius: radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  andereReaktionenPille: {
+  otherReactionsPill: {
     alignSelf: 'flex-start',
     paddingHorizontal: spacing.base,
     paddingVertical: spacing.xs,
     borderRadius: radius.pill,
   },
-  reaktionFehlerPille: {
+  reactionErrorPill: {
     alignSelf: 'flex-start',
     paddingHorizontal: spacing.base,
     paddingVertical: spacing.xs,
     borderRadius: radius.pill,
   },
-  kommentarListe: { maxHeight: 320 },
-  kommentarZeile: {
+  commentList: { maxHeight: 320 },
+  commentRow: {
     gap: spacing.xs,
     paddingVertical: spacing.s,
     borderBottomWidth: 1,
     borderBottomColor: cinema['bg-0'],
   },
-  kommentarEingabeReihe: { flexDirection: 'row', alignItems: 'flex-end', gap: spacing.s },
-  kommentarSendenKnopf: {
+  commentInputRow: { flexDirection: 'row', alignItems: 'flex-end', gap: spacing.s },
+  commentSendButton: {
     height: 52,
     borderRadius: radius.control,
     alignItems: 'center',

@@ -22,7 +22,7 @@ const JPEG_QUALITAET = 0.8;
 // 512 setzen: das staucht ein Hoch- oder Querformat zum Quadrat, und im runden
 // Rahmen sieht man das sofort an gequetschten Gesichtern.
 //
-// Dasselbe kontextbasierte Muster wie features/moments/medien.ts, inklusive
+// Dasselbe kontextbasierte Muster wie features/moments/media.ts, inklusive
 // release() im finally: die SharedObjects werden auch im Fehlerfall frei.
 async function alsQuadratJpeg(uri: string, gewaehlt?: Crop): Promise<string> {
   let bereich: Crop;
@@ -35,7 +35,7 @@ async function alsQuadratJpeg(uri: string, gewaehlt?: Crop): Promise<string> {
     // Kein gewählter Ausschnitt (Kamera-Selfie): mittig auf die kürzere Kante.
     // Die Masse kennt die kontextbasierte API erst nach renderAsync(), also
     // einmal unverändert laden — gleiches Vorgehen wie quellmasseErmitteln()
-    // in medien.ts.
+    // in media.ts.
     const measureContext = ImageManipulator.manipulate(uri);
     let breite: number;
     let hoehe: number;

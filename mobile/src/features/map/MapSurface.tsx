@@ -18,7 +18,7 @@ import type {
 // with Leaflet.
 //
 // What's in here stood, until Task 14, directly in the map screen
-// (app/(tabs)/recap/[id]/karte.tsx). Pulled out is exactly the SURFACE:
+// (app/(tabs)/recap/[id]/map.tsx). Pulled out is exactly the SURFACE:
 // pins, line, camera and reporting the visible viewport. Everything else
 // stays with the screen: what triggers a cluster, which day is filtered,
 // which sheet is open. This surface knows nothing of trips, sheets and

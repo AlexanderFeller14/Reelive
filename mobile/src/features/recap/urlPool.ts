@@ -80,7 +80,7 @@ const LOAD_ERROR = 'Die Momente konnten nicht geladen werden. Probier es gleich 
 
 export async function getPool(
   tripId: string
-): Promise<{ vorrat: Pool | null; error: string | null; grund: Reason | null }> {
+): Promise<{ pool: Pool | null; error: string | null; reason: Reason | null }> {
   const { data, error } = await supabase.functions.invoke('media-urls', {
     body: { aktion: 'lesen', trip_id: tripId },
   });
@@ -98,18 +98,18 @@ export async function getPool(
       try {
         const body = (await httpError.context.clone().json()) as { fehler?: string };
         const reason = typeof body.fehler === 'string' ? reasonFrom(status, body.fehler) : null;
-        if (reason) return { vorrat: null, error: body.fehler as string, grund: reason };
+        if (reason) return { pool: null, error: body.fehler as string, reason: reason };
       } catch {
         // Antwort war kein JSON, generische Meldung unten.
       }
     }
-    return { vorrat: null, error: functionMessage(error, LOAD_ERROR), grund: null };
+    return { pool: null, error: functionMessage(error, LOAD_ERROR), reason: null };
   }
 
   const response = data as Partial<ReadResponse> | null;
   const gueltigBis = typeof response?.gueltig_bis === 'string' ? Date.parse(response.gueltig_bis) : NaN;
   if (!response || !Array.isArray(response.medien) || Number.isNaN(gueltigBis)) {
-    return { vorrat: null, error: LOAD_ERROR, grund: null };
+    return { pool: null, error: LOAD_ERROR, reason: null };
   }
 
   const urls = new Map<string, MediaUrl>();
@@ -121,7 +121,7 @@ export async function getPool(
     });
   }
 
-  return { vorrat: { urls, gueltigBis, ausgelassen: response.ausgelassen ?? 0 }, error: null, grund: null };
+  return { pool: { urls, gueltigBis, ausgelassen: response.ausgelassen ?? 0 }, error: null, reason: null };
 }
 
 export function isSoonExpiring(pool: Pool, now: number): boolean {

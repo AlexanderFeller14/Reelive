@@ -5,7 +5,7 @@
 //   - in the share sheet, where the owner reads it BEFORE creating a link
 //     (features/sharing/ShareSheetContent.tsx),
 //   - on the trip screen, where every fellow traveler reads it WHILE a link
-//     exists (app/(tabs)/reise/[id]/index.tsx).
+//     exists (app/(tabs)/trip/[id]/index.tsx).
 //
 // Two versions of the same sentence would be especially unpleasant here: it
 // is the disclosure of what happens to other people's moments. If one drifts

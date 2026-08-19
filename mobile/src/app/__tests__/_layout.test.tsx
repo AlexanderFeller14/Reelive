@@ -1,17 +1,17 @@
 import { render, act } from '@testing-library/react-native';
 import * as React from 'react';
 
-// RootLayout verdrahtet native/IO-Abhängigkeiten, die in Tests nie laufen
-// dürfen (Schriftladen, Splash-Screen, Router). Alle werden auf ein Minimum
-// reduziert, damit hier ausschliesslich die Worker-Verdrahtung (Task 13)
-// unter Test steht, stabile Referenzen (Modul-Konstanten statt neuer
-// Objekte pro Aufruf), damit Router/Segmente nicht selbst Rerenders auslösen.
+// RootLayout wires up native/IO dependencies that must never run in tests
+// (font loading, splash screen, router). All of them are cut down to a
+// minimum so that only the worker wiring (Task 13) is under test here, with
+// stable references (module constants instead of fresh objects per call) so
+// that router/segments do not trigger rerenders of their own.
 const mockRouter = { replace: jest.fn() };
 const mockSegments: string[] = ['(tabs)'];
-// Task 5: die Web-Hartsperre braucht einen ECHTEN Nachweis, dass <Stack/>
-// NICHT gemountet wird, nicht nur, dass irgendwo Text erscheint, deshalb
-// ein Spion statt `() => null` (gleiches Prinzip wie mockRouter/mockInvoke
-// in anderen Testdateien: Aufruf UND Nicht-Aufruf müssen prüfbar sein).
+// Task 5: the web hard lock needs REAL proof that <Stack/> is NOT mounted,
+// not just that some text appears, hence a spy instead of `() => null` (same
+// principle as mockRouter/mockInvoke in other test files: both the call and
+// the absence of a call have to be checkable).
 const mockStackRender = jest.fn((_props?: unknown) => null);
 jest.mock('expo-router', () => ({
   useRouter: () => mockRouter,
@@ -19,15 +19,15 @@ jest.mock('expo-router', () => ({
   Stack: (props: unknown) => mockStackRender(props),
 }));
 
-// Platform.OS umschalten (Task 5): react-native wird NICHT gemockt, Platform
-// ist bei react-native ein normales, beschreibbares Datenfeld (kein Getter,
-// gleiches Muster/gleiche Begründung wie pushApi.test.ts, dortiges
-// "Android: Notification-Channel..."-describe), lässt sich also direkt
-// umschalten und danach wiederherstellen. Ein jest.mock('react-native', …)
-// wäre hier zusätzlich riskant: expo-modules-core liest Platform.OS schon
-// beim Laden (jest-expo-Setup), bevor irgendein modul-lokaler `const` dieser
-// Datei initialisiert ist, ein Mock-Factory-Closure darauf träfe auf eine
-// TDZ/Initialisierungsreihenfolge, die nicht zuverlässig ist.
+// Switching Platform.OS (Task 5): react-native is NOT mocked, Platform is a
+// plain writable data field on react-native (no getter, same pattern and
+// reasoning as pushApi.test.ts and its "Android: Notification-Channel..."
+// describe), so it can be flipped directly and restored afterwards. A
+// jest.mock('react-native', …) would be risky on top of that:
+// expo-modules-core reads Platform.OS while loading (jest-expo setup),
+// before any module-local `const` of this file is initialised, so a mock
+// factory closure over it would run into a TDZ/initialisation order that is
+// not reliable.
 import { Platform } from 'react-native';
 
 jest.mock('expo-splash-screen', () => ({
@@ -37,13 +37,13 @@ jest.mock('expo-splash-screen', () => ({
 
 jest.mock('expo-status-bar', () => ({ StatusBar: () => null }));
 
-// Steuerbar, weil der interessante Fall NICHT «geladen» ist, sondern
-// «fehlgeschlagen»: useFonts liefert ein Tupel [geladen, fehler], und solange
-// der Fehler ignoriert wurde, blieb die App bei einem Ladefehler fuer immer
-// im Splash stehen (am Geraet gesehen, 2026-08-11).
-const mockSchriften: { ergebnis: [boolean, Error | null] } = { ergebnis: [true, null] };
+// Controllable, because the interesting case is not "loaded" but "failed":
+// useFonts returns a tuple [loaded, error], and as long as the error was
+// ignored a load failure left the app stuck in the splash forever (seen on
+// the device, 2026-08-11).
+const mockFonts: { result: [boolean, Error | null] } = { result: [true, null] };
 jest.mock('@expo-google-fonts/figtree', () => ({
-  useFonts: () => mockSchriften.ergebnis,
+  useFonts: () => mockFonts.result,
   Figtree_300Light: 0,
   Figtree_400Regular: 0,
   Figtree_500Medium: 0,
@@ -68,17 +68,17 @@ jest.mock('@/features/moments/uploadWorker', () => ({
   stop: jest.fn(),
 }));
 
-// pushApi.ts importiert @/lib/supabase (Task 4), das wiederum echtes
-// AsyncStorage lädt, unter Jest genau wie uploadWorker oben nie ungemockt.
+// pushApi.ts imports @/lib/supabase (Task 4), which in turn loads the real
+// AsyncStorage, never left unmocked under Jest, just like uploadWorker above.
 jest.mock('@/features/push/pushApi', () => ({
   registerPushToken: jest.fn(async () => 'ok'),
 }));
 
-// Der Benachrichtigungs-Schalter (Profil-Tab): das Layout registriert nur,
-// wenn die Einstellung AN ist. Default AN wie in push/settings.ts.
-const mockBenachrichtigungenAktiv = jest.fn(async () => true);
+// The notification switch (profile tab): the layout only registers when the
+// setting is ON. Default ON as in push/settings.ts.
+const mockNotificationsEnabled = jest.fn(async () => true);
 jest.mock('@/features/push/settings', () => ({
-  notificationsActive: () => mockBenachrichtigungenAktiv(),
+  notificationsActive: () => mockNotificationsEnabled(),
 }));
 
 import RootLayout from '../_layout';
@@ -90,20 +90,20 @@ beforeEach(() => {
   mockAuth.status = 'loading';
   mockAuth.userId = null;
   mockSegments[0] = '(tabs)';
-  mockBenachrichtigungenAktiv.mockResolvedValue(true);
+  mockNotificationsEnabled.mockResolvedValue(true);
   Platform.OS = 'ios';
 });
 
-// Task 13: der Worker legt posts-Zeilen an, braucht dafür Sitzung UND Profil,
-// vor signedIn (loading/signedOut/needsProfile) darf er nicht anlaufen.
-test('vor signedIn läuft der Worker nicht an', async () => {
+// Task 13: the worker creates posts rows, which needs session AND profile,
+// so before signedIn (loading/signedOut/needsProfile) it must not start.
+test('before signedIn the upload worker stays put', async () => {
   const { unmount } = await render(<RootLayout />);
   expect(uploadWorker.start).not.toHaveBeenCalled();
   expect(uploadWorker.stop).not.toHaveBeenCalled();
   await unmount();
 });
 
-test('sobald Sitzung und Profil stehen (signedIn), startet der Worker', async () => {
+test('as soon as session and profile stand (signedIn), the upload worker starts', async () => {
   const { rerender, unmount } = await render(<RootLayout />);
   expect(uploadWorker.start).not.toHaveBeenCalled();
 
@@ -116,10 +116,10 @@ test('sobald Sitzung und Profil stehen (signedIn), startet der Worker', async ()
   await unmount();
 });
 
-// Ein weiterlaufender Worker, der mit fremder oder fehlender Sitzung
-// posts-Zeilen anzulegen versucht, wäre falsch, er muss beim Abmelden sofort
-// stehen, nicht erst beim nächsten Intervall-Tick.
-test('beim Abmelden (signedIn -> signedOut) stoppt der Worker sofort', async () => {
+// A worker that keeps running and tries to create posts rows with a foreign
+// or missing session would be wrong: it has to stop the moment someone signs
+// out, not at the next interval tick.
+test('signing out (signedIn -> signedOut) stops the worker right away', async () => {
   mockAuth.status = 'signedIn';
   const { rerender, unmount } = await render(<RootLayout />);
   expect(uploadWorker.start).toHaveBeenCalledTimes(1);
@@ -131,13 +131,13 @@ test('beim Abmelden (signedIn -> signedOut) stoppt der Worker sofort', async () 
   });
 
   expect(uploadWorker.stop).toHaveBeenCalledTimes(1);
-  expect(uploadWorker.start).toHaveBeenCalledTimes(1); // kein erneuter Start
+  expect(uploadWorker.start).toHaveBeenCalledTimes(1); // no second start
   await unmount();
 });
 
-// Verlust des Profils (z.B. eine erneute hasProfile()-Auswertung) ist für den
-// Worker dieselbe Bedingung wie ein Abmelden: nicht signedIn ⇒ stehen.
-test('bei needsProfile (Profil verloren/entfernt) stoppt der Worker ebenfalls', async () => {
+// Losing the profile (a repeated hasProfile() evaluation, say) is the same
+// condition for the worker as signing out: not signedIn means stop.
+test('losing the profile (needsProfile) stops the worker just as signing out does', async () => {
   mockAuth.status = 'signedIn';
   const { rerender, unmount } = await render(<RootLayout />);
   expect(uploadWorker.start).toHaveBeenCalledTimes(1);
@@ -151,7 +151,7 @@ test('bei needsProfile (Profil verloren/entfernt) stoppt der Worker ebenfalls', 
   await unmount();
 });
 
-test('beim Unmount (z.B. App-Beenden) stoppt ein laufender Worker', async () => {
+test('on unmount (closing the app, say) a running worker is stopped', async () => {
   mockAuth.status = 'signedIn';
   const { unmount } = await render(<RootLayout />);
   expect(uploadWorker.start).toHaveBeenCalledTimes(1);
@@ -161,15 +161,15 @@ test('beim Unmount (z.B. App-Beenden) stoppt ein laufender Worker', async () => 
   expect(uploadWorker.stop).toHaveBeenCalledTimes(1);
 });
 
-// Task 4: Push-Registrierung wird wie der Upload-Worker erst bei signedIn
-// angestossen, vorher gibt es weder eine gültige Sitzung noch eine userId.
-test('vor signedIn wird keine Push-Registrierung angestossen', async () => {
+// Task 4: like the upload worker, push registration is only triggered at
+// signedIn, before that there is neither a valid session nor a userId.
+test('before signedIn no push registration is triggered', async () => {
   const { unmount } = await render(<RootLayout />);
   expect(pushApi.registerPushToken).not.toHaveBeenCalled();
   await unmount();
 });
 
-test('sobald Sitzung und Profil stehen (signedIn), wird die Push-Registrierung mit der userId angestossen', async () => {
+test('as soon as session and profile stand (signedIn), push registration is triggered with the userId', async () => {
   const { rerender, unmount } = await render(<RootLayout />);
 
   mockAuth.status = 'signedIn';
@@ -182,11 +182,11 @@ test('sobald Sitzung und Profil stehen (signedIn), wird die Push-Registrierung m
   await unmount();
 });
 
-// Wer den Schalter im Profil-Tab ausgeschaltet hat, dessen Gerät darf sich
-// beim nächsten Start nicht klammheimlich wieder registrieren — sonst wäre
-// der Schalter nur Deko bis zum nächsten App-Start.
-test('mit ausgeschalteten Benachrichtigungen registriert das Layout NICHT', async () => {
-  mockBenachrichtigungenAktiv.mockResolvedValue(false);
+// Whoever turned the switch off in the profile tab must not have their
+// device quietly register itself again at the next start, otherwise the
+// switch would be decoration until the app restarts.
+test('with notifications switched off the layout does NOT register the device', async () => {
+  mockNotificationsEnabled.mockResolvedValue(false);
   const { rerender, unmount } = await render(<RootLayout />);
 
   mockAuth.status = 'signedIn';
@@ -199,12 +199,12 @@ test('mit ausgeschalteten Benachrichtigungen registriert das Layout NICHT', asyn
   await unmount();
 });
 
-// Task 5, Koordinator-Entscheid nach einem Fund aus Task 4: der Web-Export
-// bündelt die GANZE App, isPublicArea() allein sperrt keine Route. Auf Web
-// bleibt jetzt bis auf 'teilen' alles gesperrt, kein <Stack/>, keine
-// Redirect-Logik, nur die freundliche «Reelive gibt es als App»-Seite.
-describe('Web-Hartsperre (istWebGesperrt)', () => {
-  test('auf Web ausserhalb von "teilen" wird <Stack/> NICHT gerendert, die Sperr-Seite steht stattdessen', async () => {
+// Task 5, coordinator decision after a finding from Task 4: the web export
+// bundles the WHOLE app, isPublicArea() alone locks no route. On web
+// everything but 'share' now stays locked: no <Stack/>, no redirect logic,
+// only the friendly "Reelive gibt es als App" page.
+describe('web hard lock (isWebLocked)', () => {
+  test('on web outside "share" no <Stack/> is rendered, the lock page stands instead', async () => {
     Platform.OS = 'web';
     mockSegments[0] = '(tabs)';
     const { getByText, unmount } = await render(<RootLayout />);
@@ -213,10 +213,10 @@ describe('Web-Hartsperre (istWebGesperrt)', () => {
     await unmount();
   });
 
-  // Bewusst KEIN Sonderfall wie bei isPublicArea: 'join' bleibt auf Web
-  // ebenfalls gesperrt (siehe Begründung in guard.ts), der Beitritts-Screen
-  // verzweigt ohne Session selbst in den Login-Flow.
-  test('auf Web bleibt auch "join" gesperrt', async () => {
+  // Deliberately NO special case as with isPublicArea: 'join' stays locked
+  // on web too (see the reasoning in guard.ts), because the join screen
+  // branches into the login flow itself when there is no session.
+  test('on web even "join" stays locked', async () => {
     Platform.OS = 'web';
     mockSegments[0] = 'join';
     const { unmount } = await render(<RootLayout />);
@@ -224,7 +224,7 @@ describe('Web-Hartsperre (istWebGesperrt)', () => {
     await unmount();
   });
 
-  test('auf Web bleibt "teilen" erreichbar, <Stack/> wird gerendert, keine Sperr-Seite', async () => {
+  test('on web "share" remains reachable, <Stack/> is rendered and no lock page appears', async () => {
     Platform.OS = 'web';
     mockSegments[0] = 'share';
     const { queryByText, unmount } = await render(<RootLayout />);
@@ -233,7 +233,7 @@ describe('Web-Hartsperre (istWebGesperrt)', () => {
     await unmount();
   });
 
-  test('auf nativen Plattformen ist die Sperre nie aktiv, <Stack/> wird wie zuvor immer gerendert', async () => {
+  test('on native platforms the lock is never active, <Stack/> is rendered as before', async () => {
     Platform.OS = 'ios';
     mockSegments[0] = '(tabs)';
     const { unmount } = await render(<RootLayout />);
@@ -241,14 +241,14 @@ describe('Web-Hartsperre (istWebGesperrt)', () => {
     await unmount();
   });
 
-  // Der schärfere Test (siehe Bericht): nicht nur behaupten, dass nichts
-  // läuft, sondern eine Situation herstellen, in der es OHNE die Sperre
-  // etwas TÄTE (status künstlich auf signedIn gesetzt), und belegen, dass
-  // trotzdem nichts passiert. In der echten App ist `status === 'signedIn'`
-  // auf Web praktisch unerreichbar (secureSessionStorage.web liefert nie
-  // eine Session), genau deshalb testet dieser Fall die Absicherung selbst,
-  // nicht nur den heutigen Erreichbarkeits-Zufall.
-  test('selbst wenn status künstlich signedIn ist, laufen unter der Web-Sperre weder Redirect noch Worker noch Push-Registrierung an', async () => {
+  // The sharper test (see report): do not just claim that nothing runs, but
+  // build a situation in which something WOULD run without the lock (status
+  // artificially set to signedIn) and show that nothing happens anyway. In
+  // the real app `status === 'signedIn'` is practically unreachable on web
+  // (secureSessionStorage.web never yields a session), which is exactly why
+  // this case tests the safeguard itself and not today's accident of
+  // reachability.
+  test('even with status artificially signedIn, the web lock lets neither redirect nor worker nor push registration run', async () => {
     Platform.OS = 'web';
     mockSegments[0] = '(tabs)';
     mockAuth.status = 'signedIn';
@@ -261,38 +261,38 @@ describe('Web-Hartsperre (istWebGesperrt)', () => {
     expect(mockStackRender).not.toHaveBeenCalled();
 
     await unmount();
-    expect(uploadWorker.stop).not.toHaveBeenCalled(); // war nie gestartet
+    expect(uploadWorker.stop).not.toHaveBeenCalled(); // was never started
   });
 });
 
-// Die Schriften sind verbindlich (DESIGN-LANGUAGE §2), aber sie duerfen den
-// Start nicht verhindern. Bis zum 2026-08-11 wertete RootLayout nur den
-// ersten Rueckgabewert von useFonts aus und rendert bei `false` null: ein
-// Ladefehler liess die App damit dauerhaft im Splash stehen, ohne Meldung,
-// ohne Ausweg. Am echten Geraet gefunden, von keiner Suite bemerkt.
-describe('Schriften', () => {
+// The fonts are binding (DESIGN-LANGUAGE §2), but they must not prevent the
+// start. Until 2026-08-11 RootLayout only evaluated the first return value of
+// useFonts and rendered null on `false`: a load failure left the app stuck in
+// the splash for good, with no message and no way out. Found on the real
+// device, noticed by no suite.
+describe('fonts', () => {
   afterEach(() => {
-    mockSchriften.ergebnis = [true, null];
+    mockFonts.result = [true, null];
   });
 
-  test('solange die Schriften laden, bleibt der Splash stehen', async () => {
-    mockSchriften.ergebnis = [false, null];
+  test('while the fonts are still loading, the splash stays up', async () => {
+    mockFonts.result = [false, null];
     const { unmount } = await render(<RootLayout />);
 
     expect(mockStackRender).not.toHaveBeenCalled();
     await unmount();
   });
 
-  test('ein Ladefehler haelt die App nicht auf, sie startet mit Systemschrift', async () => {
-    const warnung = jest.spyOn(console, 'warn').mockImplementation(() => {});
-    mockSchriften.ergebnis = [false, new Error('Figtree liess sich nicht laden')];
+  test('a load failure does not hold up the app, it starts with the system font', async () => {
+    const warning = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    mockFonts.result = [false, new Error('Figtree liess sich nicht laden')];
     const { unmount } = await render(<RootLayout />);
 
     expect(mockStackRender).toHaveBeenCalled();
-    // Und es verschwindet nicht stillschweigend: der Grund steht in der Konsole.
-    expect(warnung).toHaveBeenCalled();
+    // And it does not vanish silently: the reason is in the console.
+    expect(warning).toHaveBeenCalled();
 
     await unmount();
-    warnung.mockRestore();
+    warning.mockRestore();
   });
 });

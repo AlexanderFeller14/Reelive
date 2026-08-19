@@ -7,10 +7,9 @@ jest.mock('expo-router', () => ({
   useFocusEffect: (cb: () => void) => cb(),
   Stack: { Screen: () => null },
 }));
-// expo-image ist ein natives View, im Test reicht ein Platzhalter, der alle
-// Props durchreicht (gleiches Muster wie uebersicht.test.tsx). Ohne Mock
-// scheitert schon der Import, expo-image/src/observe.ts erwartet eine native
-// Umgebung.
+// expo-image is a native view, in the test a placeholder that passes all props
+// through is enough (same pattern as overview.test.tsx). Without the mock even
+// the import fails, expo-image/src/observe.ts expects a native environment.
 jest.mock('expo-image', () => {
   const ReactActual = require('react');
   const { View } = require('react-native');
@@ -18,7 +17,7 @@ jest.mock('expo-image', () => {
 });
 jest.mock('@/features/trips/tripsApi', () => ({ fetchTrips: jest.fn() }));
 
-import ReiseListe from '../index';
+import TripList from '../index';
 import { fetchTrips } from '@/features/trips/tripsApi';
 
 const trip = {
@@ -32,34 +31,30 @@ const trip = {
 };
 const recap = { ...trip, id: 't2', name: 'Lissabon Städtetrip', status: 'revealed' as const };
 
-const wrap = () => render(<ThemeProvider><ReiseListe /></ThemeProvider>);
+const wrap = () => render(<ThemeProvider><TripList /></ThemeProvider>);
 
 beforeEach(() => jest.clearAllMocks());
 
-const geladen = (trips: unknown[]) => ({ data: trips, error: null });
-const LADEFEHLER = 'Deine Reisen konnten nicht geladen werden. Probier es gleich nochmal.';
+const loaded = (trips: unknown[]) => ({ data: trips, error: null });
+const LOAD_ERROR = 'Deine Reisen konnten nicht geladen werden. Probier es gleich nochmal.';
 
-// Abgeschlossene Reisen gehören dem Recap-Tab; hier stünden sie doppelt und
-// ein Tipp führte woandershin als dort (Verwaltung statt Übersicht).
-test('zeigt nur laufende Reisen, keine Recaps', async () => {
-  (fetchTrips as jest.Mock).mockResolvedValue(geladen([trip, recap]));
+test('shows only ongoing trips, revealed ones belong to the recap tab', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(loaded([trip, recap]));
   await wrap();
   expect(await screen.findByText('Norwegen mit dem Camper')).toBeTruthy();
   expect(screen.queryByText('Lissabon Städtetrip')).toBeNull();
   expect(screen.queryByText('Recaps')).toBeNull();
 });
 
-test('ohne Reisen lädt der leere Zustand zum Handeln ein', async () => {
-  (fetchTrips as jest.Mock).mockResolvedValue(geladen([]));
+test('without a single trip the empty state invites you to act', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(loaded([]));
   await wrap();
   expect(await screen.findByText('Noch keine Reise')).toBeTruthy();
   expect(screen.getByText(/Leg deine erste Reise an/)).toBeTruthy();
 });
 
-// «Noch keine Reise» wäre hier eine falsche Aussage: es gibt Reisen, sie sind
-// nur abgeschlossen. Der Leerzustand sagt das ehrlich und zeigt den Weg.
-test('nur abgeschlossene Reisen: der Leerzustand verweist auf den Recap-Tab', async () => {
-  (fetchTrips as jest.Mock).mockResolvedValue(geladen([recap]));
+test('with only finished trips the empty state points to the recap tab instead of claiming there is none', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(loaded([recap]));
   await wrap();
   expect(await screen.findByText('Gerade keine Reise unterwegs')).toBeTruthy();
   expect(screen.getByText(/Recap-Tab/)).toBeTruthy();
@@ -67,67 +62,64 @@ test('nur abgeschlossene Reisen: der Leerzustand verweist auf den Recap-Tab', as
   expect(screen.queryByText('Noch keine Reise')).toBeNull();
 });
 
-test('der leere Zustand zeigt den Camper', async () => {
-  (fetchTrips as jest.Mock).mockResolvedValue(geladen([]));
+test('the empty state shows the camper', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(loaded([]));
   await wrap();
   expect(await screen.findByTestId('leerzustand-camper')).toBeTruthy();
 });
 
-// Gegenprobe: ohne sie belegte der Test darüber nur, dass das Bild existiert,
-// nicht, dass es am leeren Zustand hängt. Über einer Liste echter Reisen wäre
-// der Camper blosse Deko (DESIGN-LANGUAGE §7).
-test('neben echten Reisen steht kein Camper', async () => {
-  (fetchTrips as jest.Mock).mockResolvedValue(geladen([trip]));
+test('next to real trips no camper stands, it would be mere decoration there', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(loaded([trip]));
   await wrap();
   await screen.findByText('Norwegen mit dem Camper');
   expect(screen.queryByTestId('leerzustand-camper')).toBeNull();
 });
 
-// Das Bild trägt keine Bedeutung, die der Text nicht schon sagt. Läge es im
-// Accessibility-Baum, sagte VoiceOver vor «Noch keine Reise» ein nutzloses
-// «Bild» an.
-test('der Camper ist für VoiceOver unsichtbar', async () => {
-  (fetchTrips as jest.Mock).mockResolvedValue(geladen([]));
+test('the camper stays invisible to VoiceOver, the text below already says it', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(loaded([]));
   await wrap();
-  const bild = await screen.findByTestId('leerzustand-camper');
-  expect(bild.props.accessible).toBe(false);
+  const image = await screen.findByTestId('leerzustand-camper');
+  expect(image.props.accessible).toBe(false);
 });
 
-// Gegenprobe zum Test darüber: Ohne sie belegt «Noch keine Reise» nur, dass der
-// Text existiert, nicht, dass er an eine Bedingung geknüpft ist. Bei einem
-// Ladefehler wäre die Aussage schlicht falsch: über die Reisen des Nutzers ist
-// dann nichts bekannt.
-test('ein Ladefehler zeigt die Ursache statt «Noch keine Reise»', async () => {
-  (fetchTrips as jest.Mock).mockResolvedValue({ data: [], error: LADEFEHLER });
+test('a load error names its cause instead of claiming there is no trip yet', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue({ data: [], error: LOAD_ERROR });
   await wrap();
-  expect(await screen.findByText(LADEFEHLER)).toBeTruthy();
+  expect(await screen.findByText(LOAD_ERROR)).toBeTruthy();
   expect(screen.queryByText('Noch keine Reise')).toBeNull();
 });
 
-test('nach einem Ladefehler lädt der Knopf erneut', async () => {
-  (fetchTrips as jest.Mock).mockResolvedValue({ data: [], error: LADEFEHLER });
+test('after a load error the button loads once more', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue({ data: [], error: LOAD_ERROR });
   await wrap();
-  await screen.findByText(LADEFEHLER);
+  await screen.findByText(LOAD_ERROR);
 
-  (fetchTrips as jest.Mock).mockResolvedValue(geladen([trip]));
+  (fetchTrips as jest.Mock).mockResolvedValue(loaded([trip]));
   await fireEvent.press(screen.getByText('Nochmal versuchen'));
   expect(await screen.findByText('Norwegen mit dem Camper')).toBeTruthy();
-  expect(screen.queryByText(LADEFEHLER)).toBeNull();
+  expect(screen.queryByText(LOAD_ERROR)).toBeNull();
 });
 
-test('der Knopf führt zum Anlegen', async () => {
-  (fetchTrips as jest.Mock).mockResolvedValue(geladen([]));
+test('a retry that fails again hands the button back instead of a dead spinner', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue({ data: [], error: LOAD_ERROR });
+  await wrap();
+  await screen.findByText(LOAD_ERROR);
+
+  await fireEvent.press(screen.getByText('Nochmal versuchen'));
+  expect(await screen.findByText('Nochmal versuchen')).toBeTruthy();
+  expect(screen.queryByTestId('button-loading')).toBeNull();
+});
+
+test('the floating button leads to creating a trip', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(loaded([]));
   await wrap();
   await waitFor(() => expect(fetchTrips).toHaveBeenCalled());
   await fireEvent.press(screen.getByLabelText('Neue Reise'));
   expect(mockPush).toHaveBeenCalledWith('/trip/new');
 });
 
-// `cover` hängt am Weg, nicht an der Reise: Es sagt dem Detail, welches
-// Platzhalter-Bild die angetippte Karte trug, damit dort dasselbe steht
-// (platzhalterCover.ts).
-test('eine Karte führt in die Reise, mit ihrem Cover-Platz', async () => {
-  (fetchTrips as jest.Mock).mockResolvedValue(geladen([trip]));
+test('tapping a card opens the trip and hands its cover slot along', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(loaded([trip]));
   await wrap();
   await fireEvent.press(await screen.findByText('Norwegen mit dem Camper'));
   expect(mockPush).toHaveBeenCalledWith('/trip/t1?cover=0');

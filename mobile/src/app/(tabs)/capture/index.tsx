@@ -53,183 +53,179 @@ import * as captureLock from '@/features/camera/captureLock';
 import * as cinemaStage from '@/features/camera/cinemaStage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-// Höchstdauer eines Videos, dieselbe Zahl geht an den Auslöser UND an
-// CameraView.recordAsync. Ursprünglich 30 (Produktkonzept: Snapchat-Muster),
-// seit dem 2026-08-14 auf User-Entscheid 90: das Story-Mass war im
-// Reise-Alltag zu knapp. Der Ring am Auslöser füllt sich weiterhin über die
-// volle Dauer und stoppt die Aufnahme dann von selbst.
-const MAX_VIDEO_SEKUNDEN = 90;
+// Maximum duration of a video, the same number goes to the shutter AND to
+// CameraView.recordAsync. Originally 30 (product concept: Snapchat pattern),
+// since 2026-08-14 at 90 by user decision: the story measure was too tight in
+// everyday travel. The ring on the shutter still fills over the full duration
+// and then stops the capture by itself.
+const MAX_VIDEO_SECONDS = 90;
 
-// Wie lange der Video-Stopp höchstens auf den vorgewärmten Vorschau-Player
-// wartet, bevor er trotzdem navigiert. Ein lokales Video ist in aller Regel
-// nach ~100–250 ms abspielbereit; die Frist fängt nur den Ausreisser, damit
-// ein zähes Laden die Navigation nie festhält.
-const PLAYER_VORLAUF_MS = 400;
+// How long the video stop waits for the pre-warmed preview player at most
+// before it navigates anyway. A local video is usually ready to play after
+// ~100-250 ms; the deadline only catches the outlier, so that a sluggish load
+// never holds up the navigation.
+const PLAYER_LEAD_MS = 400;
 
-// Wie lange der Stopp höchstens auf das Poster (Bild 0 des Videos) wartet.
-// Es entsteht parallel zum Player-Vorlauf und überbrückt in der Vorschau die
-// ~0,8 s, die die VideoView am Gerät zum ersten Zeichnen braucht (gemessen
-// 2026-08-14). Ohne Poster wird trotzdem navigiert — die Fläche bleibt dann
-// kurz dunkel, der alte Zustand als Rückfallebene.
-const POSTER_FRIST_MS = 300;
+// How long the stop waits for the poster (frame 0 of the video) at most. It is
+// created in parallel with the player lead time and, in the preview, bridges
+// the ~0.8 s the VideoView needs on device to draw for the first time
+// (measured 2026-08-14). Without a poster it navigates anyway: the surface
+// then stays dark briefly, the old state as a fallback.
+const POSTER_DEADLINE_MS = 300;
 
-// Bild 0 der Aufnahme als Poster, oder null bei Fehlschlag oder Trödelei.
-// getThumbnailAsync liefert bei sofort gestoppten Mini-Videos gelegentlich
-// ein Objekt ohne uri (bekannter Fund) — deshalb die Prüfung statt Vertrauen.
-function posterErzeugen(uri: string): Promise<string | null> {
-  return new Promise((weiter) => {
-    const frist = setTimeout(() => weiter(null), POSTER_FRIST_MS);
+// Frame 0 of the capture as a poster, or null on failure or dawdling.
+// getThumbnailAsync occasionally returns an object without a uri for
+// immediately stopped mini videos (known finding), hence the check instead of
+// trust.
+function createPoster(uri: string): Promise<string | null> {
+  return new Promise((resolve) => {
+    const deadline = setTimeout(() => resolve(null), POSTER_DEADLINE_MS);
     getThumbnailAsync(uri, { time: 0 })
-      .then((bild) => bild?.uri ?? null)
+      .then((image) => image?.uri ?? null)
       .catch(() => null)
       .then((poster) => {
-        clearTimeout(frist);
-        weiter(poster);
+        clearTimeout(deadline);
+        resolve(poster);
       });
   });
 }
 
-// Wartet, bis der vorgewärmte Player abspielbereit ist oder scheitert —
-// höchstens PLAYER_VORLAUF_MS. Ist er es schon (oder schon kaputt), geht es
-// sofort weiter, ohne Timer und ohne Horcher.
-function playerBereit(player: VideoPlayer): Promise<void> {
-  return new Promise((weiter) => {
+function playerReady(player: VideoPlayer): Promise<void> {
+  return new Promise((resolve) => {
     if (player.status === 'readyToPlay' || player.status === 'error') {
-      weiter();
+      resolve();
       return;
     }
-    let abo: { remove(): void } | null = null;
-    const fertig = () => {
-      clearTimeout(frist);
-      abo?.remove();
-      weiter();
+    let subscription: { remove(): void } | null = null;
+    const done = () => {
+      clearTimeout(deadline);
+      subscription?.remove();
+      resolve();
     };
-    const frist = setTimeout(fertig, PLAYER_VORLAUF_MS);
-    abo = player.addListener('statusChange', ({ status }) => {
-      if (status === 'readyToPlay' || status === 'error') fertig();
+    const deadline = setTimeout(done, PLAYER_LEAD_MS);
+    subscription = player.addListener('statusChange', ({ status }) => {
+      if (status === 'readyToPlay' || status === 'error') done();
     });
   });
 }
 
-// Wie lange die Meldung nach einer gescheiterten Aufnahme stehen bleibt. Lang
-// genug zum Lesen, kurz genug, dass sie nicht zur Tapete wird und den Sucher
-// verdeckt. Ausserhalb der Motion-Skala (§5), weil die Übergänge bemisst, nicht
-// Lesezeiten.
-const FEHLER_MS = 4000;
+// How long the message stays after a failed capture. Long enough to read,
+// short enough not to become wallpaper that covers the viewfinder. Outside the
+// motion scale (§5), because that one measures transitions, not reading
+// times.
+const ERROR_MS = 4000;
 
-// Am Simulator scheitert jede Videoaufnahme (dort gibt es keine Kamera), am
-// Gerät kann ein Anruf dazwischenkommen oder der Speicher voll sein. Ohne
-// diese Meldung tippt man auf Stopp und steht vor einem Bildschirm, der
-// nichts sagt (DESIGN-LANGUAGE §6: Fehler erklären Ursache und Lösung).
-const FEHLER_TEXT = 'Das Video hat nicht geklappt. Versuch es nochmal.';
+// On the simulator every video capture fails (there is no camera there), on
+// device a call can come in or the storage can be full. Without this message
+// you tap stop and face a screen that says nothing (DESIGN-LANGUAGE §6: errors
+// explain cause and remedy).
+const ERROR_TEXT = 'Das Video hat nicht geklappt. Versuch es nochmal.';
 
-// Das Foto-Gegenstück: scheitert takePictureAsync (am Simulator immer, am
-// Gerät bei vollem Speicher oder entzogener Berechtigung), bleibt man im
-// Sucher und die Pille sagt es (DESIGN-LANGUAGE §6).
-const FOTO_FEHLER_TEXT = 'Das Foto hat nicht geklappt. Versuch es nochmal.';
+// The photo counterpart: if takePictureAsync fails (always on the simulator,
+// on device with full storage or a revoked permission), you stay in the
+// viewfinder and the pill says so (DESIGN-LANGUAGE §6).
+const PHOTO_ERROR_TEXT = 'Das Foto hat nicht geklappt. Versuch es nochmal.';
 
-// Wie oft der Start einer Videoaufnahme wiederholt wird, und wie lange
-// dazwischen gewartet wird.
+// How often the start of a video capture is retried, and how long is waited in
+// between.
 //
-// Seit die Kamera dauerhaft im Video-Modus läuft (Spec 2026-08-13 §3), ist
-// die Session beim Druck aufs Halten längst gebaut und der erste Versuch
-// trifft. Die Schleife bleibt als Sicherheitsnetz: ein Tab-Wechsel oder ein
-// Unterbruch (Anruf) kann die Session genau dann beschäftigen, wenn der
-// Startversuch sie trifft, und ein Ereignis «Session bereit» gibt es nicht
-// (onCameraReady feuert genau einmal beim Sessionstart, nicht danach).
-const VIDEO_START_VERSUCHE = 10;
-const VIDEO_START_WARTE_MS = 100;
+// Since the camera runs permanently in video mode (spec 2026-08-13 §3), the
+// session has long been built by the time the hold is pressed, and the first
+// attempt hits. The loop remains as a safety net: a tab switch or an
+// interruption (a call) can keep the session busy exactly when the start
+// attempt hits it, and there is no "session ready" event (onCameraReady fires
+// exactly once at session start, not afterwards).
+const VIDEO_START_ATTEMPTS = 10;
+const VIDEO_START_WAIT_MS = 100;
 
-// Wie viel Zeit zwischen den beiden Tippern des Kamera-Wechsels liegen darf.
-// Sicherheitsfrist der Wechsel-Blende: bleibt das Geräte-Ereignis aus
-// (Simulator ohne zweite Kamera), räumt sie sich selbst wieder weg, statt
-// für immer über dem Sucher zu stehen. Grosszügig über den gemessenen
-// ~350–650 ms Umbau-Dauern.
-const WECHSEL_BLENDE_FRIST_MS = 1500;
+// Safety deadline of the switch fade: if the device event fails to appear
+// (simulator without a second camera), it clears itself away again instead of
+// standing over the viewfinder forever. Generous over the measured ~350-650 ms
+// rebuild durations.
+const SWITCH_FADE_DEADLINE_MS = 1500;
 
-// 300 ms ist iOS' eigenes Mass für einen Doppeltipp. Ausserhalb der
-// Motion-Skala (§5), und zwar richtig so: die bemisst Übergänge, nicht die
-// Geduld einer Geste.
-const DOPPELTIPP_MS = 300;
+// 300 ms is iOS' own measure for a double tap. Outside the motion scale (§5),
+// and rightly so: that one measures transitions, not the patience of a
+// gesture.
+const DOUBLE_TAP_MS = 300;
 
-// Wie weit ein Finger wandern darf, ohne dass aus dem Tipp ein Wischen wird —
-// und wie weit die beiden Tipper voneinander entfernt liegen dürfen. 24 aus
-// dem 4er-Raster (§3).
-const TIPP_RADIUS = 24;
+// How far a finger may travel before a tap turns into a swipe, and how far
+// apart the two taps may lie. 24 from the 4-pt grid (§3).
+const TAP_RADIUS = 24;
 
-// Die Strecken des Zug-Zooms (Spec 2026-08-13 §7). Nach oben deckt ein
-// fester Anteil der Fensterhöhe den Weg vom Startfaktor zum Maximum ab —
-// Anteil statt Punkte, damit sich ein iPhone SE und ein Pro Max gleich
-// anfühlen. Nach unten bleibt vom Auslöser (sitzt fast am Boden) nur eine
-// kurze Reststrecke bis zum Rand, sie führt zurück zum Minimum. Beides
-// Feintuning-Kandidaten für den Gerätetest.
-const ZUG_WEG_HOCH_ANTEIL = 0.4;
-const ZUG_WEG_RUNTER = 96;
+// The distances of the drag zoom (spec 2026-08-13 §7). Upwards, a fixed share
+// of the window height covers the way from the start factor to the maximum: a
+// share instead of points, so that an iPhone SE and a Pro Max feel the same.
+// Downwards only a short remaining distance to the edge is left from the
+// shutter (which sits almost at the bottom), and it leads back to the minimum.
+// Both are fine-tuning candidates for the device test.
+const DRAG_DISTANCE_UP_RATIO = 0.4;
+const DRAG_DISTANCE_DOWN = 96;
 
-// Durchmesser des Auslösers (components/Ausloeser.tsx). Alles, was über ihm
-// liegt, rechnet ab dieser Zahl.
-const AUSLOESER_GROESSE = 76;
+// Diameter of the shutter (components/ShutterButton.tsx). Everything lying on
+// top of it computes from this number.
+const SHUTTER_SIZE = 76;
 
-// Wie weit der Auslöser über dem unteren Rand sitzt, und damit die ganze
-// untere Bedienung: Die Zoom-Reihe und die Fehlermeldung stapeln sich darüber.
-// In zwei Schritten von 48 auf 16 gesunken, beide Male nach dem Blick aufs
-// Gerät — die Bedienung stand zu weit im Bild. Darunter beginnt die Tab-Bar
-// (49 + 8 + Geräte-Inset), viel tiefer geht es also nicht.
-const AUSLOESER_UNTEN = spacing.base;
+// How far above the bottom edge the shutter sits, and with it the whole lower
+// set of controls: the zoom row and the error message stack above it. Dropped
+// from 48 to 16 in two steps, both times after a look at the device: the
+// controls stood too far into the image. Below it the tab bar begins (49 + 8 +
+// device inset), so it cannot go much lower.
+const SHUTTER_BOTTOM = spacing.base;
 
-// Wie dicht die Zoom-Reihe über dem Auslöser sitzt.
-const ZOOM_ABSTAND = spacing.s;
+// How tightly the zoom row sits above the shutter.
+const ZOOM_DISTANCE = spacing.s;
 
-// Höhe der Zoom-Reihe: 24 Stufe plus zweimal 4 Innenabstand der Pille
-// (components/ZoomWahl.tsx).
-const ZOOM_REIHE_HOEHE = 24 + 2 * spacing.xs;
+// Height of the zoom row: 24 for the step plus twice 4 of the pill's inner
+// spacing (components/ZoomSelector.tsx).
+const ZOOM_ROW_HEIGHT = 24 + 2 * spacing.xs;
 
-// Wo die Fehlermeldung steht: über dem Auslöser, und über der Zoom-Reihe,
-// falls das Gerät eine hat. Ohne diese Verschiebung lägen beide übereinander,
-// denn die Meldung erscheint direkt nach einer Aufnahme — also genau dann,
-// wenn die Reihe wieder im Bild steht.
-function fehlerUnten(mitZoomReihe: boolean): number {
-  const ueberDemAusloeser = AUSLOESER_UNTEN + AUSLOESER_GROESSE + spacing.l;
-  return mitZoomReihe ? ueberDemAusloeser + ZOOM_REIHE_HOEHE + spacing.m : ueberDemAusloeser;
+// Where the error message stands: above the shutter, and above the zoom row if
+// the device has one. Without this shift the two would lie on top of each
+// other, because the message appears right after a capture, i.e. exactly when
+// the row is back in the image.
+function errorBottom(withZoomRow: boolean): number {
+  const aboveShutter = SHUTTER_BOTTOM + SHUTTER_SIZE + spacing.l;
+  return withZoomRow ? aboveShutter + ZOOM_ROW_HEIGHT + spacing.m : aboveShutter;
 }
 
-function momenteText(anzahl: number): string {
-  return `${anzahl} ${anzahl === 1 ? 'Moment' : 'Momente'}`;
+function momentsText(count: number): string {
+  return `${count} ${count === 1 ? 'Moment' : 'Momente'}`;
 }
 
-// Ob unter diesen Linsen ein Ultraweitwinkel ist: als eigene Linse oder als
-// Bestandteil eines virtuellen Geräts. Daran entscheidet multiCamZiel, ob
-// 0,5× eine eigene Linse ist oder nur auf 1× klemmt. Als freie Funktion,
-// weil der Kamerawechsel sie für die NEUE Richtung braucht, bevor React die
-// abgeleiteten Werte der alten ersetzt hat.
-function hatUltraweitIn(linsen: Lens[]): boolean {
-  return linsen.some((l) => l.type === 'ultraWide' || l.components.includes('ultraWide'));
+// Whether there is an ultra-wide among these lenses: as a lens of its own or
+// as a component of a virtual device. multiCamTarget decides on that whether
+// 0.5x is a lens of its own or merely clamps at 1x. A free function, because
+// the camera switch needs it for the NEW facing before React has replaced the
+// derived values of the old one.
+function hasUltraWideIn(lenses: Lens[]): boolean {
+  return lenses.some((l) => l.type === 'ultraWide' || l.components.includes('ultraWide'));
 }
 
-// Kino gilt in diesem Tab NUR dem Sucher (DESIGN-LANGUAGE v2 §1: die feste
-// Kino-Palette gehört den Medien-Screens — und wo kein Bild steht, ist kein
-// Medium). Jeder Zustand, der statt der Kamera nur Text zeigt, ist ein
-// gewöhnlicher Alltags-Screen und liegt auf hellem Grund, wie Reise-, Recap-
-// und Profil-Tab auch. Bis hierher lagen alle vier im dunklen Saal, obwohl
-// nie ein Foto darin vorkam.
+// Cinema applies in this tab ONLY to the viewfinder (DESIGN-LANGUAGE v2 §1:
+// the fixed cinema palette belongs to the media screens, and where no image
+// stands there is no medium). Every state that shows only text instead of the
+// camera is an ordinary everyday screen and lies on a light ground, like the
+// trip, recap and profile tabs. Until now all four lay in the dark hall
+// although a photo never appeared in them.
 //
-// Auch der Wartezustand ist hell: er führt in der Mehrzahl der Fälle direkt in
-// den Sucher, und genau dieser Wechsel soll laut Leitidee inszeniert werden
-// («das Licht geht aus»), nicht dadurch verschwinden, dass es vorher schon
-// dunkel war.
-function LeererScreen() {
-  return <View style={styles.hell} />;
+// The waiting state is light too: in the majority of cases it leads straight
+// into the viewfinder, and that very transition is meant to be staged per the
+// guiding idea ("the lights go out"), not to vanish because it was already
+// dark beforehand.
+function EmptyScreen() {
+  return <View style={styles.light} />;
 }
 
-// Spec §4 verlangt beides wörtlich: «Kamera wechseln und Blitz als translucente
-// Pillen». §10 nimmt nur den Trip-Umschalter aus, im Plan kam «Blitz»
-// nirgends vor (Final-Review, Important 7). Für ein gemeinsames Reisetagebuch
-// heisst keine Frontkamera: keine Gruppenbilder.
+// Spec §4 demands both verbatim: "switch camera and flash as translucent
+// pills". §10 excludes only the trip switcher, and "flash" appeared nowhere in
+// the plan (final review, important 7). For a shared travel diary, no front
+// camera means no group pictures.
 //
-// Translucente Pille nach DESIGN-LANGUAGE §1/§4: `overlay-pill` + Blur
-// (Task 10, Phase 6, siehe components/Pille.tsx), Radius 999. Icons:
-// Lucide, Outline, Stroke 1.75 (§4).
-function PillenKnopf({
+// Translucent pill per DESIGN-LANGUAGE §1/§4: `overlay-pill` + blur (task 10,
+// phase 6, see components/Pill.tsx), radius 999. Icons: Lucide, outline,
+// stroke 1.75 (§4).
+function PillButton({
   label,
   onPress,
   children,
@@ -240,16 +236,16 @@ function PillenKnopf({
 }) {
   return (
     <PressScale accessibilityRole="button" accessibilityLabel={label} onPress={onPress}>
-      <Pill style={styles.steuerPille}>{children}</Pill>
+      <Pill style={styles.controlPill}>{children}</Pill>
     </PressScale>
   );
 }
 
-function FehlerScreen({ fehler, onRetry }: { fehler: string; onRetry: () => void }) {
+function ErrorScreen({ error, onRetry }: { error: string; onRetry: () => void }) {
   return (
-    <View style={[styles.hell, styles.mitte]}>
-      <Text style={[type.h2, styles.titel]}>Das hat nicht geklappt</Text>
-      <Text style={[type.body, styles.text, { marginTop: spacing.s }]}>{fehler}</Text>
+    <View style={[styles.light, styles.center]}>
+      <Text style={[type.h2, styles.title]}>Das hat nicht geklappt</Text>
+      <Text style={[type.body, styles.text, { marginTop: spacing.s }]}>{error}</Text>
       <View style={{ marginTop: spacing.xl }}>
         <Button variant="primary" label="Nochmal versuchen" onPress={onRetry} />
       </View>
@@ -257,161 +253,160 @@ function FehlerScreen({ fehler, onRetry }: { fehler: string; onRetry: () => void
   );
 }
 
-// Grösse des Fokus-Rings: zwischen Bedienknopf (44) und Auslöser (76), im
-// 4er-Raster (§3). Gross genug, dass er als Antwort auffällt, klein genug,
-// dass er das Motiv nicht verstellt.
-const FOKUS_RING_GROESSE = 72;
+// Size of the focus ring: between a control button (44) and the shutter (76),
+// on the 4-pt grid (§3). Big enough to stand out as an answer, small enough
+// not to obstruct the subject.
+const FOCUS_RING_SIZE = 72;
 
-// Wie lange der Ring nach dem Erscheinen stehen bleibt. Ausserhalb der
-// Motion-Skala (§5), die bemisst Übergänge — das hier ist eine Standzeit,
-// wie FEHLER_MS eine Lesezeit ist.
-const FOKUS_RING_STAND_MS = 600;
+// How long the ring stands after appearing. Outside the motion scale (§5),
+// which measures transitions: this is a standing time, the way ERROR_MS is a
+// reading time.
+const FOCUS_RING_HOLD_MS = 600;
 
-// Die sichtbare Antwort auf den Fokus-Tipp (Kamera-App-Muster): der Ring
-// erscheint leicht zu gross am Punkt, setzt sich auf seine Grösse, steht
-// kurz und geht von selbst. Animiert werden nur transform und opacity (§5),
-// beides über useNativeDriver; `fast` fürs Erscheinen und Gehen — das ist
-// Mikro-Feedback, kein Übergang.
-function FokusRing({ x, y, onFertig }: { x: number; y: number; onFertig: () => void }) {
+// The visible answer to the focus tap (camera-app pattern): the ring appears
+// slightly too big at the point, settles onto its size, stands briefly and
+// goes by itself. Only transform and opacity are animated (§5), both through
+// useNativeDriver; `fast` for appearing and going: this is micro feedback, not
+// a transition.
+function FocusRing({ x, y, onDone }: { x: number; y: number; onDone: () => void }) {
   const reducedMotion = useReducedMotion();
-  // Beide per useState statt useRef: gelesen beim Rendern (interpolate),
-  // gleiches Muster wie SchwebendesFlugticket unten.
-  const [auftritt] = useState(() => new Animated.Value(0));
-  const [deckung] = useState(() => new Animated.Value(0));
+  // Both via useState instead of useRef: read during render (interpolate),
+  // same pattern as FloatingFlightTicket below.
+  const [entrance] = useState(() => new Animated.Value(0));
+  const [opacity] = useState(() => new Animated.Value(0));
 
   useEffect(() => {
-    const dauer = reducedMotion ? 0 : motion.duration.fast;
+    const duration = reducedMotion ? 0 : motion.duration.fast;
     const easing = Easing.bezier(...motion.easeSmooth);
-    const lauf = Animated.sequence([
+    const run = Animated.sequence([
       Animated.parallel([
-        Animated.timing(auftritt, { toValue: 1, duration: dauer, easing, useNativeDriver: true }),
-        Animated.timing(deckung, { toValue: 1, duration: dauer, easing, useNativeDriver: true }),
+        Animated.timing(entrance, { toValue: 1, duration, easing, useNativeDriver: true }),
+        Animated.timing(opacity, { toValue: 1, duration, easing, useNativeDriver: true }),
       ]),
-      Animated.delay(FOKUS_RING_STAND_MS),
-      Animated.timing(deckung, { toValue: 0, duration: dauer, easing, useNativeDriver: true }),
+      Animated.delay(FOCUS_RING_HOLD_MS),
+      Animated.timing(opacity, { toValue: 0, duration, easing, useNativeDriver: true }),
     ]);
-    // Nur ein VOLLENDETER Lauf räumt auf: ein Abbruch heisst, ein neuer Ring
-    // (neuer key) hat übernommen — dessen Lauf räumt dann für beide.
-    lauf.start(({ finished }) => {
-      if (finished) onFertig();
+    // Only a COMPLETED run cleans up: an interruption means a new ring (new
+    // key) has taken over, and its run then cleans up for both.
+    run.start(({ finished }) => {
+      if (finished) onDone();
     });
-    return () => lauf.stop();
-  }, [auftritt, deckung, onFertig, reducedMotion]);
+    return () => run.stop();
+  }, [entrance, opacity, onDone, reducedMotion]);
 
-  const groesse = auftritt.interpolate({ inputRange: [0, 1], outputRange: [1.4, 1] });
+  const scale = entrance.interpolate({ inputRange: [0, 1], outputRange: [1.4, 1] });
   return (
     <Animated.View
       testID="fokus-ring"
       pointerEvents="none"
-      // Sagt nichts, was der Tipp nicht schon selbst gesagt hat.
+      // Says nothing the tap has not already said itself.
       accessible={false}
       style={[
-        styles.fokusRing,
+        styles.focusRing,
         {
-          left: x - FOKUS_RING_GROESSE / 2,
-          top: y - FOKUS_RING_GROESSE / 2,
-          opacity: deckung,
-          transform: [{ scale: groesse }],
+          left: x - FOCUS_RING_SIZE / 2,
+          top: y - FOCUS_RING_SIZE / 2,
+          opacity,
+          transform: [{ scale }],
         },
       ]}
     />
   );
 }
 
-// Liegt während des Kamerawechsel-Umbaus über dem zwangsläufig eingefrorenen
-// Sucher (FaceTime-Muster): der Blur macht aus dem Standbild eine bewusste
-// Blende statt eines Hängers (Nutzer-Befund 2026-08-18). Sie blendet sich
-// nur EIN (opacity, §5) — ihr Ende ist das erste lebende Bild der neuen
-// Kamera, das sie ersatzlos ablöst; ein Ausblenden würde genau dieses Bild
-// wieder verschleiern.
-function WechselBlende() {
+// Lies over the inevitably frozen viewfinder during the camera-switch rebuild
+// (FaceTime pattern): the blur turns the still frame into a deliberate fade
+// instead of a hang (user finding 2026-08-18). It only fades IN (opacity, §5);
+// its end is the first live frame of the new camera, which replaces it without
+// a successor, and fading out would veil exactly that frame again.
+function SwitchFade() {
   const reducedMotion = useReducedMotion();
-  const [deckung] = useState(() => new Animated.Value(0));
+  const [opacity] = useState(() => new Animated.Value(0));
 
   useEffect(() => {
-    const lauf = Animated.timing(deckung, {
+    const run = Animated.timing(opacity, {
       toValue: 1,
       duration: reducedMotion ? 0 : motion.duration.fast,
       easing: Easing.bezier(...motion.easeSmooth),
       useNativeDriver: true,
     });
-    lauf.start();
-    return () => lauf.stop();
-  }, [deckung, reducedMotion]);
+    run.start();
+    return () => run.stop();
+  }, [opacity, reducedMotion]);
 
   return (
     <Animated.View
       pointerEvents="none"
       accessible={false}
-      style={[StyleSheet.absoluteFill, { opacity: deckung }]}
+      style={[StyleSheet.absoluteFill, { opacity }]}
     >
       <BlurView testID="wechsel-blende" intensity={50} tint="dark" style={StyleSheet.absoluteFill} />
     </Animated.View>
   );
 }
 
-// Hub des Schwebens. 12 aus dem 4er-Raster (§3), gross genug, dass die
-// Bewegung trägt, klein genug, dass sie den Text darunter nicht anschubst.
-const SCHWEBE_HUB = 12;
+// Travel of the float. 12 from the 4-pt grid (§3), big enough for the movement
+// to carry, small enough not to nudge the text below it.
+const FLOAT_LIFT = 12;
 
-// Breite des Bildes, zugleich seine Obergrenze (siehe styles.ticketFlaeche).
-const TICKET_BREITE = 288;
+// Width of the image, at the same time its upper bound (see styles.ticketSurface).
+const TICKET_WIDTH = 288;
 
-// Eine Dauer ausserhalb der Token-Skala, und zwar bewusst: die Skala (§5)
-// bemisst ÜBERGÄNGE, also wie lange etwas braucht, um etwas anderes zu werden.
-// `gentle` (400) reicht dem Skeleton-Puls, ein Schweben in dem Tempo wäre
-// Zappeln, und `feature` (800) ist laut §5 Inszenierungen vorbehalten. 2400 ms
-// pro Richtung sind knapp fünf Sekunden pro Runde: Bewegung, die man bemerkt,
-// wenn man hinsieht, und die einen sonst in Ruhe lässt.
-const SCHWEBE_MS = 2400;
+// A duration outside the token scale, and deliberately so: the scale (§5)
+// measures TRANSITIONS, i.e. how long something takes to become something
+// else. `gentle` (400) is enough for the skeleton pulse, a float at that pace
+// would be fidgeting, and `feature` (800) is reserved for stagings per §5.
+// 2400 ms per direction is barely five seconds per round: movement you notice
+// when you look, and that leaves you alone otherwise.
+const FLOAT_MS = 2400;
 
-// Freigestellt und schwebend (Wunsch): das Ticket hebt und senkt sich.
+// Cut out and floating (wish): the ticket rises and sinks.
 //
-// Ohne Schatten, vorerst ausdrücklich so gewollt. Drei Anläufe scheiterten am
-// selben Punkt: das Ticket liegt im PNG gekippt (4 Grad, an seiner Unterkante
-// gemessen) und endet bei 84 % der Bildhöhe, jede gezeichnete Form darunter
-// muss beides von Hand treffen. Wer ihn nachrüstet, fängt hier an.
+// Without a shadow, deliberately so for now. Three attempts failed at the same
+// point: the ticket lies tilted in the PNG (4 degrees, measured at its bottom
+// edge) and ends at 84 % of the image height, so every drawn shape below it
+// has to hit both by hand. Whoever adds one starts here.
 //
-// Animiert werden ausschliesslich `transform` und `opacity` (§5), beides läuft
-// damit über `useNativeDriver`.
-function SchwebendesFlugticket() {
+// Only `transform` and `opacity` are animated (§5), so both run through
+// `useNativeDriver`.
+function FloatingFlightTicket() {
   const reducedMotion = useReducedMotion();
-  // 0 = unten (Ruhelage), 1 = oben. `useState` statt `useRef`, weil der Wert
-  // beim Rendern gelesen wird (interpolate) und ein Ref dort nichts zu suchen
-  // hat.
-  const [schwebe] = useState(() => new Animated.Value(0));
+  // 0 = down (rest position), 1 = up. `useState` instead of `useRef`, because
+  // the value is read during render (interpolate) and a ref has no business
+  // there.
+  const [hover] = useState(() => new Animated.Value(0));
 
   useEffect(() => {
     if (reducedMotion) {
-      schwebe.setValue(0);
+      hover.setValue(0);
       return;
     }
-    // Symmetrisches ease-in-out statt `easeSmooth`: das ist ein ease-OUT und
-    // schnellt an jedem Umkehrpunkt los, was bei einem Hin und Her als Ruck
-    // sichtbar wird. Ein Schweben ist eine Sinusbewegung, an beiden Enden
-    // gleich langsam. `linear` bleibt in jedem Fall verboten (§7).
+    // A symmetric ease-in-out instead of `easeSmooth`: that one is an ease-OUT
+    // and shoots off at every turning point, which shows as a jolt in a back
+    // and forth. Floating is a sine movement, equally slow at both ends.
+    // `linear` stays forbidden in any case (§7).
     const easing = Easing.inOut(Easing.ease);
-    const runde = Animated.loop(
+    const cycle = Animated.loop(
       Animated.sequence([
-        Animated.timing(schwebe, { toValue: 1, duration: SCHWEBE_MS, easing, useNativeDriver: true }),
-        Animated.timing(schwebe, { toValue: 0, duration: SCHWEBE_MS, easing, useNativeDriver: true }),
+        Animated.timing(hover, { toValue: 1, duration: FLOAT_MS, easing, useNativeDriver: true }),
+        Animated.timing(hover, { toValue: 0, duration: FLOAT_MS, easing, useNativeDriver: true }),
       ])
     );
-    runde.start();
-    return () => runde.stop();
-  }, [reducedMotion, schwebe]);
+    cycle.start();
+    return () => cycle.stop();
+  }, [reducedMotion, hover]);
 
-  const hoehe = schwebe.interpolate({ inputRange: [0, 1], outputRange: [0, -SCHWEBE_HUB] });
+  const lift = hover.interpolate({ inputRange: [0, 1], outputRange: [0, -FLOAT_LIFT] });
 
   return (
-    <View style={styles.ticketBuehne}>
-      <Animated.View style={[styles.ticketFlaeche, { transform: [{ translateY: hoehe }] }]}>
+    <View style={styles.ticketStage}>
+      <Animated.View style={[styles.ticketSurface, { transform: [{ translateY: lift }] }]}>
         <Image
           testID="leerzustand-flugticket"
           source={require('@/assets/images/flugticket-transparent.png')}
-          style={styles.flugticket}
+          style={styles.flightTicket}
           contentFit="contain"
-          // Sagt nichts, was der Text darunter nicht schon sagt.
+          // Says nothing the text below it does not already say.
           accessible={false}
         />
       </Animated.View>
@@ -419,29 +414,29 @@ function SchwebendesFlugticket() {
   );
 }
 
-function KeineReiseScreen({ onAnlegen }: { onAnlegen: () => void }) {
+function NoTripScreen({ onCreate }: { onCreate: () => void }) {
   return (
-    <View style={[styles.hell, styles.mitte]}>
-      {/* Dritter Leerzustand mit eigenem Bild, nach Camper (Reise-Tab) und
-          Filmrolle (Recap-Tab): das Bild steht NUR dort, wo sonst nichts
-          steht. */}
-      <SchwebendesFlugticket />
-      <Text style={[type.h2, styles.titel]}>Keine laufende Reise</Text>
+    <View style={[styles.light, styles.center]}>
+      {/* The third empty state with an image of its own, after the camper
+          (trip tab) and the film reel (recap tab): the image only stands where
+          nothing else does. */}
+      <FloatingFlightTicket />
+      <Text style={[type.h2, styles.title]}>Keine laufende Reise</Text>
       <Text style={[type.body, styles.text, { marginTop: spacing.s }]}>
         Leg deine erste Reise an oder tritt einer per Einladungslink bei. Sobald sie läuft,
         fängt hier deine Kamera an.
       </Text>
       <View style={{ marginTop: spacing.xl }}>
-        <Button variant="primary" label="Neue Reise anlegen" onPress={onAnlegen} />
+        <Button variant="primary" label="Neue Reise anlegen" onPress={onCreate} />
       </View>
     </View>
   );
 }
 
-function BerechtigungScreen() {
+function PermissionScreen() {
   return (
-    <View style={[styles.hell, styles.mitte]}>
-      <Text style={[type.h2, styles.titel]}>Kamera-Zugriff fehlt</Text>
+    <View style={[styles.light, styles.center]}>
+      <Text style={[type.h2, styles.title]}>Kamera-Zugriff fehlt</Text>
       <Text style={[type.body, styles.text, { marginTop: spacing.s }]}>
         Reelive braucht Zugriff auf Kamera und Mikrofon, um Momente aufzunehmen. Erlaube das in
         den Systemeinstellungen.
@@ -457,22 +452,23 @@ function BerechtigungScreen() {
   );
 }
 
-function ReiseWahlScreen({ reisen, onWahl }: { reisen: CachedTrip[]; onWahl: (id: string) => void }) {
-  // Wird von oben nach unten gelesen und braucht darum die geschonte
-  // Oberkante. Der Sucher braucht sie inzwischen ebenso: randlos ist dort das
-  // Kamerabild (§3, «Fotos randlos in Medien-Screens»), nicht die Bedienung,
-  // die darauf liegt. Solange hier «der Sucher hat oben nichts zu schonen»
-  // stand, klebte die Reise-Pille auf Geräten mit Dynamic Island an der Uhr.
-  const oben = useTopInset(spacing.xl);
+function TripPickerScreen({ trips, onSelect }: { trips: CachedTrip[]; onSelect: (id: string) => void }) {
+  // Read top to bottom, and therefore in need of the spared top edge. The
+  // viewfinder needs it just as much these days: edge-to-edge there is the
+  // camera image (§3, "photos edge-to-edge in media screens"), not the
+  // controls lying on top of it. As long as "the viewfinder has nothing to
+  // spare at the top" stood here, the trip pill stuck to the clock on devices
+  // with a Dynamic Island.
+  const topInset = useTopInset(spacing.xl);
   return (
-    <View style={styles.hell}>
-      <ScrollView contentContainerStyle={[styles.wahlInhalt, { paddingTop: oben }]}>
-        <Text style={[type.h2, styles.titel, { marginBottom: spacing.l }]}>Für welche Reise?</Text>
-        {reisen.map((reise) => (
-          <PressScale key={reise.id} accessibilityRole="button" onPress={() => onWahl(reise.id)}>
-            <View style={styles.wahlZeile}>
-              <Text style={[type.bodyMedium, styles.titel]}>{reise.name}</Text>
-              <Text style={[type.secondary, styles.text]}>{momenteText(reise.my_post_count)}</Text>
+    <View style={styles.light}>
+      <ScrollView contentContainerStyle={[styles.pickerContent, { paddingTop: topInset }]}>
+        <Text style={[type.h2, styles.title, { marginBottom: spacing.l }]}>Für welche Reise?</Text>
+        {trips.map((trip) => (
+          <PressScale key={trip.id} accessibilityRole="button" onPress={() => onSelect(trip.id)}>
+            <View style={styles.pickerRow}>
+              <Text style={[type.bodyMedium, styles.title]}>{trip.name}</Text>
+              <Text style={[type.secondary, styles.text]}>{momentsText(trip.my_post_count)}</Text>
             </View>
           </PressScale>
         ))}
@@ -481,567 +477,555 @@ function ReiseWahlScreen({ reisen, onWahl }: { reisen: CachedTrip[]; onWahl: (id
   );
 }
 
-export default function AufnehmenScreen() {
+export default function CaptureScreen() {
   const router = useRouter();
   const { userId } = useAuth();
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [micPermission, requestMicPermission] = useMicrophonePermissions();
   const [trips, setTrips] = useState<CachedTrip[] | null>(null);
-  const [fehler, setFehler] = useState<string | null>(null);
-  const [ausgewaehlteReiseId, setAusgewaehlteReiseId] = useState<string | null>(null);
-  // Der Trip-Umschalter aus dem Produktkonzept («Oben dezent: aktiver
-  // Trip-Name, bei mehreren aktiven Reisen wechselbar»). Ohne diesen Zustand
-  // war der Auswahl-Screen eine Einbahnstrasse: einmal gewählt, führte kein
-  // Weg zurück, und bei genau einer laufenden Reise war er nie erreichbar,
-  // weil die Reise fest verdrahtet wurde.
-  const [wahlOffen, setWahlOffen] = useState(false);
-  // Die Kamera läuft DAUERHAFT im Video-Modus (Spec 2026-08-13 §3): der
-  // Wechsel des mode-Props baute die native Session um (Preset + Outputs,
-  // setCameraMode auf der sessionQueue) und kostete den Video-Start bis zu
-  // ~1 s. Fotos nimmt der Foto-Output derselben Session auf — er bleibt im
-  // Video-Modus angeschlossen, liefert dann 16:9 mit 1920×1080, und die
-  // Pipeline skaliert ohnehin auf 1080 px lange Kante (medien.ts).
-  // `nimmtAuf` ersetzt die frühere Frage `modus === 'video'`: läuft gerade
-  // eine Aufnahme?
-  const [nimmtAuf, setNimmtAuf] = useState(false);
-  // Ob dieser Tab gerade im Fokus steht: daran hängt `mute`. Das Mikrofon
-  // gehört dauerhaft an die laufende Video-Session (sonst fehlte dem
-  // Videoanfang der Ton), aber NUR solange der Sucher zu sehen ist — die
-  // Tab-Screens bleiben gemountet, und der orange Mikrofon-Punkt soll nicht
-  // app-weit leuchten, während man im Reise-Tab liest.
-  const [fokussiert, setFokussiert] = useState(true);
-  // Ob die EIGENE MultiCam-Session den Sucher trägt (Spec §8/§9). Zustand,
-  // nicht abgeleitete Frage: scheitert der Sitzungsaufbau am Gerät, fällt der
-  // Screen für den REST der Sitzung auf expo-camera zurück, und dieser
-  // Rückfall muss ein Rendern auslösen. Der Startwert kommt vom Modul selbst
-  // (kein Modul, Android, Simulator → sofort false, die CameraView übernimmt,
-  // ohne dass je etwas anlief).
+  const [error, setError] = useState<string | null>(null);
+  const [selectedTripId, setSelectedTripId] = useState<string | null>(null);
+  // The trip switcher from the product concept ("discreet at the top: active
+  // trip name, switchable when several trips are running"). Without this state
+  // the picker screen was a one-way street: chosen once, there was no way
+  // back, and with exactly one running trip it was never reachable, because
+  // the trip was hard-wired.
+  const [pickerOpen, setPickerOpen] = useState(false);
+  // The camera runs PERMANENTLY in video mode (spec 2026-08-13 §3): switching
+  // the mode prop rebuilt the native session (preset + outputs, setCameraMode
+  // on the sessionQueue) and cost the video start up to ~1 s. Photos are taken
+  // by the photo output of the same session: it stays attached in video mode,
+  // then delivers 16:9 at 1920x1080, and the pipeline scales to a 1080 px long
+  // edge anyway (media.ts). `capturing` replaces the earlier question
+  // `mode === 'video'`: is a capture running right now?
+  const [capturing, setCapturing] = useState(false);
+  // Whether this tab currently has focus: `mute` hangs off it. The microphone
+  // belongs permanently to the running video session (otherwise the beginning
+  // of the video had no sound), but ONLY while the viewfinder is visible: the
+  // tab screens stay mounted, and the orange microphone dot must not glow
+  // app-wide while you are reading in the trip tab.
+  const [focused, setFocused] = useState(true);
+  // Whether OUR OWN MultiCam session carries the viewfinder (spec §8/§9). A
+  // state, not a derived question: if the session setup fails on device, the
+  // screen falls back to expo-camera for the REST of the session, and that
+  // fallback has to trigger a render. The initial value comes from the module
+  // itself (no module, Android, simulator -> false right away, the CameraView
+  // takes over without anything ever having started).
   const [multiCam, setMultiCam] = useState(() => multiCamera.available());
-  const [richtung, setRichtung] = useState<'back' | 'front'>('back');
-  const [blitz, setBlitz] = useState<'off' | 'on'>('off');
-  // Zähler-Nachzug aus Task 9 (Task-10-Auftrag): Serverstand PLUS wartende
-  // Momente derselben Reise (eigenerZaehler), statt beim reinen
-  // reise.my_post_count einzufrieren, sonst bewegt sich die Pille nach
-  // einer Offline-Aufnahme nicht (Spec §7, „darf nie rückwärts wirken").
-  // Bleibt `null`, bis die erste Antwort da ist, bis dahin zeigt die Pille
-  // den zuletzt bekannten Serverstand statt kurz „0 Momente" aufblitzen zu
-  // lassen (siehe Fallback beim Rendern unten).
-  const [zaehler, setZaehler] = useState<number | null>(null);
-  // Der Text der Meldung, oder null: seit dem Instant-Foto gibt es zwei
-  // Quellen (Foto und Video), die Pille zeigt, was auch immer zuletzt
-  // schiefging.
-  const [aufnahmeFehler, setAufnahmeFehler] = useState<string | null>(null);
-  // Der ANGEZEIGTE Faktor (0,5 / 1 / 4 …), nicht der des Geräts. Zwischen
-  // beiden liegt die Basis, siehe zoom.ts.
-  const [faktor, setFaktor] = useState(1);
-  // Ob die laufende Aufnahme gesperrt ist, die Hand also frei.
-  const [aufnahmeGesperrt, setAufnahmeGesperrt] = useState(false);
-  // Wo der letzte Fokus-Tipp sass, oder null. `stand` zählt hoch und ist der
-  // key des Rings: ein neuer Tipp ersetzt den stehenden Ring durch einen
-  // frischen, statt dessen ablaufende Animation weiterzuzeigen.
-  const [fokusPunkt, setFokusPunkt] = useState<{ x: number; y: number; stand: number } | null>(null);
-  // Wird bei jedem Fokussieren hochgezählt und hängt am Zähler-Effekt unten
-  // (siehe dort und useFocusEffect).
-  const [fokusStand, setFokusStand] = useState(0);
+  const [facing, setFacing] = useState<'back' | 'front'>('back');
+  const [flash, setFlash] = useState<'off' | 'on'>('off');
+  // Counter catch-up from task 9 (task 10 brief): server state PLUS waiting
+  // moments of the same trip (ownMomentCount), instead of freezing at the bare
+  // trip.my_post_count, otherwise the pill does not move after an offline
+  // capture (spec §7, "must never work backwards"). Stays `null` until the
+  // first answer is in; until then the pill shows the last known server state
+  // instead of briefly flashing "0 Momente" (see the fallback in the render
+  // below).
+  const [counter, setCounter] = useState<number | null>(null);
+  // The text of the message, or null: since the instant photo there are two
+  // sources (photo and video), and the pill shows whatever went wrong last.
+  const [captureError, setCaptureError] = useState<string | null>(null);
+  // The DISPLAYED factor (0.5 / 1 / 4 ...), not the device's. Between the two
+  // lies the base, see zoom.ts.
+  const [factor, setFactor] = useState(1);
+  // Whether the running capture is locked, i.e. the hand is free.
+  const [captureLocked, setCaptureLocked] = useState(false);
+  // Where the last focus tap sat, or null. `state` counts up and is the ring's
+  // key: a new tap replaces the standing ring with a fresh one instead of
+  // showing its expiring animation on.
+  const [focusPoint, setFocusPoint] = useState<{ x: number; y: number; state: number } | null>(null);
+  // Counted up on every focus, and the counter effect below hangs off it (see
+  // there and useFocusEffect).
+  const [focusState, setFocusState] = useState(0);
   const cameraRef = useRef<CameraView>(null);
-  // Ob gerade ein Foto-Zyklus läuft (Tipp bis Navigations-Commit). Der
-  // Auslöser bleibt zwischen Tipp und Navigation bedienbar; ein zweiter
-  // Zyklus würde den Übergabe-Holder überschreiben und die erste Aufnahme
-  // (samt Hintergrund-Datei) verwaisen lassen. Als Ref, weil der Wert
-  // synchron im selben Tick gelesen werden muss.
-  const laeuftFoto = useRef(false);
-  const videoStartZeit = useRef(0);
+  // Whether a photo cycle is running right now (tap until navigation commit).
+  // The shutter stays operable between tap and navigation; a second cycle
+  // would overwrite the handoff holder and orphan the first capture (including
+  // its background file). A ref, because the value has to be read
+  // synchronously within the same tick.
+  const photoRunning = useRef(false);
+  const videoStartTime = useRef(0);
   const videoPromise = useRef<Promise<{ uri: string } | undefined> | null>(null);
-  // Der Start der NATIVEN Pipeline (Task 2), gemerkt als PROMISE statt als
-  // blosser Boolean: ein Blitz-Stopp direkt nach dem Start muss auf genau
-  // dieses Ergebnis warten können, sonst liest handleVideoStop noch den
-  // alten Stand und nimmt versehentlich den Fallback-Weg, während die native
-  // Aufnahme tatsächlich läuft (oder umgekehrt). `null` heisst: kein
-  // Startversuch unterwegs.
-  const nativStart = useRef<Promise<boolean> | null>(null);
-  // Ob die NATIVE Pipeline die laufende Aufnahme trägt (das aufgelöste
-  // Ergebnis von nativStart, als Ref für den synchronen Blick der Gesten).
-  // Der Doppeltipp-Wechsel WÄHREND der Aufnahme hängt daran: expo-camera
-  // tauscht beim Facing-Wechsel nur den Geräte-Input derselben laufenden
-  // Session, die eigene Pipeline hängt an deren Outputs und nimmt einfach
-  // weiter auf — eine laufende recordAsync (Fallback) bräche der Umbau
-  // dagegen ab.
-  const nativLaeuft = useRef(false);
-  // Ob der Auslöser seit dem Start dieser Aufnahme losgelassen wurde. Als Ref,
-  // weil die Startschleife den Wert zwischen zwei Runden synchron lesen muss;
-  // ein State-Wert wäre dort noch der alte.
-  const videoGestoppt = useRef(false);
-  // Schirmt setState nach Blur/Unmount ab (gleiches Muster wie reise/index.tsx).
-  const aktiv = useRef(true);
-  // Ob gerade die AUFNAHME-VORSCHAU über dem Tab liegt (zurPreview setzt
-  // es, der nächste Fokus nimmt es zurück). Der Unterschied zum echten
-  // Tab-Wechsel zählt doppelt (Nutzer-Befund 2026-08-18, «kurzes Standbild
-  // beim Verwerfen»): unter der Vorschau bleibt das Mikrofon angehängt (das
-  // Wiederanhängen beim Rückweg war ein Session-Umbau, der den Sucher exakt
-  // im Moment der Rückkehr einfror), und der fürs Foto eingefrorene Sucher
-  // läuft schon UNTER der Vorschau wieder an — der Instant-Rückweg zeigt
-  // dann sofort ein lebendes Bild. Als State, nicht als Ref: der mute-Prop
-  // hängt daran (Refs im Render sind tabu), und der Blur-Effekt weiter
-  // unten bekommt den aktuellen Wert über seine Abhängigkeit.
-  const [inVorschau, setInVorschau] = useState(false);
-  // Ob gerade der Kamerawechsel-Umbau läuft (kameraWechseln setzt es, das
-  // Eintreffen der neuen Kamera nimmt es zurück): solange liegt eine
-  // Blur-Blende über dem zwangsläufig eingefrorenen Sucher (FaceTime-
-  // Muster) — der Hardware-Umbau dauert ~350–650 ms, und ein nacktes
-  // Standbild fühlte sich nach Hänger an (Nutzer-Befund 2026-08-18).
-  const [wechselLaeuft, setWechselLaeuft] = useState(false);
-  // Derselbe Wert wie `faktor`, nur synchron lesbar: das Nachsetzen und die
-  // Pinch-Geste brauchen ihn ausserhalb des Renderns, wo ein State-Wert noch
-  // der alte wäre.
-  const faktorRef = useRef(1);
-  // Der zuletzt gewählte Anzeige-Faktor JE BLICKRICHTUNG (Nutzer-Befund
-  // 2026-08-19): wer auf 0,5× filmt, kurz zur Front wechselt und zurückkommt,
-  // will wieder seine 0,5× sehen, nicht 1×. Geschrieben und gelesen wird nur
-  // beim Kamerawechsel (richtungAnwenden), dazwischen führt faktorRef.
-  const faktorJeRichtung = useRef<{ back: number; front: number }>({ back: 1, front: 1 });
-  // Laufende Nummer der Kamerawechsel: jede native Antwort trägt die Nummer
-  // ihres Anstosses, und nur die JÜNGSTE darf abstimmen oder nachziehen.
-  // Ohne sie rollte die verspätete Antwort eines überholten Wechsels in
-  // einen Zustand hinein, der längst dem nächsten gehört (Re-Review
-  // 2026-08-19, Minor 2).
-  const wechselNummer = useRef(0);
-  // Dieselben Werte wie `nimmtAuf` und `inVorschau`, ebenfalls nur synchron
-  // lesbar: das Blur-Cleanup des MultiCam-Lebenszyklus (siehe unten) muss
-  // ihren Stand im Moment des Blurs kennen, darf aber nicht an ihnen HÄNGEN:
-  // als Abhängigkeiten stoppte und startete jede einzelne Aufnahme die
-  // Session neu.
-  const nimmtAufRef = useRef(false);
-  const inVorschauRef = useRef(false);
-  // Was beim Aufsetzen der zwei Finger galt. Alles Weitere ist Verhältnis
-  // dazu, deshalb wird es beim Loslassen wieder geräumt.
+  // The start of the NATIVE pipeline (task 2), remembered as a PROMISE instead
+  // of a mere boolean: a lightning-fast stop right after the start must be
+  // able to wait for exactly this result, otherwise handleVideoStop still
+  // reads the old state and accidentally takes the fallback path while the
+  // native capture is actually running (or the other way round). `null` means:
+  // no start attempt under way.
+  const nativeStart = useRef<Promise<boolean> | null>(null);
+  // Whether the NATIVE pipeline carries the running capture (the resolved
+  // result of nativeStart, as a ref for the synchronous look of the gestures).
+  // The double-tap switch DURING the capture hangs off it: on a facing switch
+  // expo-camera swaps only the device input of the same running session, our
+  // own pipeline hangs off its outputs and simply keeps recording, whereas a
+  // running recordAsync (fallback) would be aborted by that rebuild.
+  const nativeRunning = useRef(false);
+  // Whether the shutter has been released since this capture started. A ref,
+  // because the start loop has to read the value synchronously between two
+  // rounds; a state value would still be the old one there.
+  const videoStopped = useRef(false);
+  // Shields setState after blur/unmount (same pattern as trip/index.tsx).
+  const active = useRef(true);
+  // Whether the CAPTURE PREVIEW currently lies over the tab (goToPreview sets
+  // it, the next focus takes it back). The difference from a real tab switch
+  // counts twice (user finding 2026-08-18, "brief still image when
+  // discarding"): under the preview the microphone stays attached
+  // (re-attaching it on the way back was a session rebuild that froze the
+  // viewfinder exactly at the moment of return), and the viewfinder frozen for
+  // the photo starts running again UNDER the preview already, so the instant
+  // way back shows a live image right away. A state, not a ref: the mute prop
+  // hangs off it (refs in the render are taboo), and the blur effect further
+  // below gets the current value through its dependency.
+  const [inPreview, setInPreview] = useState(false);
+  // Whether the camera-switch rebuild is running (switchCamera sets it, the
+  // arrival of the new camera takes it back): while it is, a blur fade lies
+  // over the inevitably frozen viewfinder (FaceTime pattern). The hardware
+  // rebuild takes ~350-650 ms, and a bare still frame felt like a hang (user
+  // finding 2026-08-18).
+  const [switching, setSwitching] = useState(false);
+  // The same value as `factor`, only readable synchronously: the re-applying
+  // and the pinch gesture need it outside the render, where a state value
+  // would still be the old one.
+  const factorRef = useRef(1);
+  // The display factor last chosen PER FACING (user finding 2026-08-19):
+  // whoever films at 0.5x, switches to the front briefly and comes back wants
+  // to see their 0.5x again, not 1x. Written and read only on a camera switch
+  // (applyFacing), in between factorRef leads.
+  const factorPerFacing = useRef<{ back: number; front: number }>({ back: 1, front: 1 });
+  // Running number of the camera switches: every native answer carries the
+  // number of its trigger, and only the YOUNGEST may reconcile or pull along.
+  // Without it, the late answer of an overtaken switch rolled into a state
+  // that had long belonged to the next one (re-review 2026-08-19, minor 2).
+  const switchSeq = useRef(0);
+  // The same values as `capturing` and `inPreview`, likewise only readable
+  // synchronously: the blur cleanup of the MultiCam lifecycle (see below) has
+  // to know their state at the moment of the blur, but must not HANG on them:
+  // as dependencies, every single capture stopped and restarted the session.
+  const capturingRef = useRef(false);
+  const inPreviewRef = useRef(false);
+  // What held when the two fingers landed. Everything further is relative to
+  // it, which is why it is cleared again on release.
   const pinchStart = useRef<{
-    abstand: number;
-    faktor: number;
-    grenzen: { min: number; max: number };
+    distance: number;
+    factor: number;
+    limits: { min: number; max: number };
   } | null>(null);
-  // Was beim Start der Aufnahme galt: der Zug-Zoom rechnet relativ dazu,
-  // wie der Pinch relativ zu seinem Aufsetzen.
-  const zugStart = useRef<{ faktor: number; grenzen: { min: number; max: number } } | null>(null);
-  // Wo der Finger aufgesetzt hat, und wann zuletzt getippt wurde: daraus
-  // entsteht der Doppeltipp (siehe zoomGeste unten).
-  const tippStart = useRef<{ pageX: number; pageY: number } | null>(null);
-  const letzterTipp = useRef<{ zeit: number; pageX: number; pageY: number } | null>(null);
-  // Der ROHE Tipp während der gehaltenen Aufnahme (siehe onTouchStart der
-  // Zoomfläche): Kennung und Aufsetzpunkt des zweiten Fingers.
-  const rohTipp = useRef<{ id: number | string; pageX: number; pageY: number } | null>(null);
+  // What held at the start of the capture: the drag zoom computes relative to
+  // it, as the pinch does relative to its landing.
+  const dragStart = useRef<{ factor: number; limits: { min: number; max: number } } | null>(null);
+  // Where the finger landed, and when the last tap was: the double tap comes
+  // out of those two (see zoomGesture below).
+  const tapStart = useRef<{ pageX: number; pageY: number } | null>(null);
+  const lastTap = useRef<{ time: number; pageX: number; pageY: number } | null>(null);
+  // The RAW tap during a held capture (see onTouchStart of the zoom surface):
+  // identifier and landing point of the second finger.
+  const rawTap = useRef<{ id: number | string; pageX: number; pageY: number } | null>(null);
 
-  // Vor den frühen Returns berechnet (Rules of Hooks: der Effekt weiter unten
-  // braucht `reise?.id` als Abhängigkeit, und Hooks dürfen nicht hinter einem
-  // bedingten Return stehen). `trips` kann hier noch `null` sein (noch nicht
-  // geladen), dann bleibt `aktiveReisen` leer und `reise` `null`, was der
-  // Effekt unten und die späteren Returns bereits abfangen.
-  const aktiveReisen = (trips ?? []).filter((t) => t.status === 'active');
-  // `wahlOffen` schlägt alles: wer den Reisenamen antippt, will die Auswahl
-  // sehen, auch wenn nur eine Reise läuft und die Automatik sie sonst sofort
-  // wieder einsetzen würde.
-  const reise = wahlOffen
+  // Computed before the early returns (rules of hooks: the effect below needs
+  // `trip?.id` as a dependency, and hooks must not sit behind a conditional
+  // return). `trips` can still be `null` here (not loaded yet), then
+  // `activeTrips` stays empty and `trip` `null`, which the effect below and
+  // the later returns already catch.
+  const activeTrips = (trips ?? []).filter((t) => t.status === 'active');
+  // `pickerOpen` beats everything: whoever taps the trip name wants to see the
+  // picker, even if only one trip is running and the automatic would otherwise
+  // put it right back in.
+  const trip = pickerOpen
     ? null
-    : aktiveReisen.length === 1
-      ? aktiveReisen[0]
-      : (aktiveReisen.find((t) => t.id === ausgewaehlteReiseId) ?? null);
+    : activeTrips.length === 1
+      ? activeTrips[0]
+      : (activeTrips.find((t) => t.id === selectedTripId) ?? null);
 
-  // Der Kern des Offline-Versprechens dieser Phase (Final-Review, Critical 1):
-  // «Aufnehmen funktioniert vollständig offline», aber der Sucher erscheint
-  // erst, wenn eine laufende Reise bekannt ist. Ohne lokalen Bestand lieferte
-  // fetchTrips() im Flugmodus `{ data: [], error: OFFLINE_HINT }`, und statt
-  // Sucher und Auslöser stand hier eine Fehlerseite: Queue, Kompression,
-  // Worker und Versiegelung alle korrekt, und alle unerreichbar.
+  // The core of this phase's offline promise (final review, critical 1):
+  // "capturing works fully offline", but the viewfinder only appears once a
+  // running trip is known. Without a local stock, fetchTrips() returned
+  // `{ data: [], error: OFFLINE_HINT }` in airplane mode, and instead of
+  // viewfinder and shutter an error page stood here: queue, compression,
+  // worker and sealing all correct, and all unreachable.
   //
-  // Deshalb: jeder erfolgreiche Abruf schreibt den Bestand fort, ein
-  // gescheiterter greift darauf zurück. Die Fehlerseite bleibt nur für den
-  // Fall, dass es auch nichts Vorgehaltenes gibt (`null`, also noch nie
-  // erfolgreich geladen). Ein vorgehaltener LEERER Bestand ist dagegen eine
-  // Aussage, «du hattest zuletzt keine Reise», und führt bewusst auf
-  // KeineReiseScreen statt auf die Fehlerseite.
-  // Setzt für jede Reise den zuletzt bekannten Zähler ein. Die Quelle dafür ist
-  // der vorgehaltene Bestand selbst, er trägt den Zähler ohnehin mit sich, und
-  // anders als der separate Zählerspeicher (den nur eigenerZaehler pflegt, also
-  // nur für die GEWÄHLTE Reise) deckt er auch den Auswahl-Schritt ab, bei dem
-  // noch gar keine Reise gewählt ist. Wo es keinen gemerkten Stand gibt, bleibt
-  // es beim gelieferten Wert, eine 0, die dann wirklich nur «noch nichts
-  // eingesendet» heissen kann.
-  const mitGemerktenZaehlern = useCallback(
-    async (reisen: CachedTrip[]): Promise<CachedTrip[]> => {
-      const gemerkt = await tripsCache.rememberedTrips(userId);
-      if (gemerkt === null) return reisen;
-      const stand = new Map(gemerkt.map((r) => [r.id, r.my_post_count]));
-      return reisen.map((r) => ({ ...r, my_post_count: stand.get(r.id) ?? r.my_post_count }));
+  // Hence: every successful fetch writes the stock forward, a failed one falls
+  // back on it. The error page remains only for the case that there is nothing
+  // cached either (`null`, i.e. never loaded successfully). A cached EMPTY
+  // stock is a statement instead, "you last had no trip", and deliberately
+  // leads to NoTripScreen rather than to the error page.
+  //
+  // Puts the last known counter in for every trip. The source for that is the
+  // cached stock itself, it carries the counter anyway, and unlike the
+  // separate counter store (which only ownMomentCount maintains, i.e. only for
+  // the CHOSEN trip) it also covers the picking step, where no trip is chosen
+  // yet. Where there is no remembered state, the delivered value stays: a 0
+  // that can then really only mean "nothing submitted yet".
+  const withRememberedCounts = useCallback(
+    async (list: CachedTrip[]): Promise<CachedTrip[]> => {
+      const remembered = await tripsCache.rememberedTrips(userId);
+      if (remembered === null) return list;
+      const state = new Map(remembered.map((t) => [t.id, t.my_post_count]));
+      return list.map((t) => ({ ...t, my_post_count: state.get(t.id) ?? t.my_post_count }));
     },
     [userId]
   );
 
-  const laden = useCallback(async () => {
-    const { data, error, countsError } = await fetchTrips();
-    if (!error) {
-      // Re-Review, Minor 2: gelingen die Reisen und scheitert nur die
-      // Zähler-rpc, trägt jede Reise `my_post_count: 0`. Die Kopf-Pille fängt
-      // das über eigenerZaehler ab, der Auswahl-Screen bei mehreren
-      // laufenden Reisen aber nicht, und in den vorgehaltenen Bestand
-      // wanderten die Nullen ebenfalls. Also: ein ausgefallener Zähler-Abruf
-      // greift auf den zuletzt bekannten Stand zurück, genau wie in
-      // zaehler.ts. Dieselbe Klasse wie Important 6, eine Ebene weiter.
-      const reisen = countsError ? await mitGemerktenZaehlern(data) : data;
-      // Fortschreiben passiert vor dem aktiv-Guard: der Bestand soll auch
-      // dann aktuell werden, wenn der Screen inzwischen verlassen wurde.
-      await tripsCache.rememberTrips(userId, reisen);
-      if (!aktiv.current) return;
-      setTrips(reisen);
-      setFehler(null);
+  const load = useCallback(async () => {
+    const { data, error: fetchError, countsError } = await fetchTrips();
+    if (!fetchError) {
+      // Re-review, minor 2: if the trips succeed and only the counter rpc
+      // fails, every trip carries `my_post_count: 0`. The header pill catches
+      // that via ownMomentCount, but the picker screen with several running
+      // trips does not, and the zeros went into the cached stock as well. So:
+      // a failed counter fetch falls back on the last known state, exactly as
+      // in counter.ts. The same class as important 6, one level further.
+      const list = countsError ? await withRememberedCounts(data) : data;
+      // The cache is written before the active guard: the stock should be
+      // brought up to date even if the screen has been left in the meantime.
+      await tripsCache.rememberTrips(userId, list);
+      if (!active.current) return;
+      setTrips(list);
+      setError(null);
       return;
     }
-    const gemerkt = await tripsCache.rememberedTrips(userId);
-    if (!aktiv.current) return;
-    if (gemerkt !== null) {
-      setTrips(gemerkt);
-      setFehler(null);
+    const remembered = await tripsCache.rememberedTrips(userId);
+    if (!active.current) return;
+    if (remembered !== null) {
+      setTrips(remembered);
+      setError(null);
       return;
     }
     setTrips([]);
-    setFehler(error);
-  }, [userId, mitGemerktenZaehlern]);
+    setError(fetchError);
+  }, [userId, withRememberedCounts]);
 
   useFocusEffect(
     useCallback(() => {
-      aktiv.current = true;
-      setFokussiert(true);
-      // Der Aufnahme-Fluss ist vorbei (zurück aus der Vorschau) — oder war
-      // nie einer (normaler Fokus).
-      setInVorschau(false);
-      // Rückkehr aus der Vorschau: der Sucher war fürs Foto oder den
-      // Video-Stopp eingefroren (pausePreview) und läuft jetzt weiter. Beim
-      // allerersten Fokus ist die Kamera noch nicht gemountet, das optionale
-      // Chaining macht den Aufruf dann zum No-op. (Der Regelfall ist
-      // inzwischen, dass der Blur-Cleanup unten ihn schon unter der Vorschau
-      // hat anlaufen lassen — dann ist auch dies ein No-op.)
+      active.current = true;
+      setFocused(true);
+      // The capture flow is over (back from the preview), or there never was
+      // one (a normal focus).
+      setInPreview(false);
+      // Return from the preview: the viewfinder was frozen for the photo or
+      // the video stop (pausePreview) and now runs on. On the very first focus
+      // the camera is not mounted yet, so optional chaining makes the call a
+      // no-op then. (These days the normal case is that the blur cleanup below
+      // has already started it under the preview, and then this is a no-op
+      // too.)
       void cameraRef.current?.resumePreview();
-      // Zählt jedes Fokussieren hoch. Der Zähler-Effekt weiter unten hängt
-      // daran (Important 3): bis zur Fix-Welle wirkte er nur deshalb richtig,
-      // weil preview.tsx per replace bei JEDER Aufnahme einen neuen
-      // Kamera-Screen erzeugte, sein Effekt lief also zwangsläufig neu.
-      // Nimmt man diesen Stapel-Fehler weg, ohne den Abruf ans Fokussieren zu
-      // hängen, friert der Zähler für die ganze Sitzung ein: genau die
-      // Regression, für die es Task 10 gab. Beides gehört zusammen.
-      setFokusStand((n) => n + 1);
-      void laden();
+      // Counts every focus up. The counter effect below hangs off this
+      // (important 3): until the fix wave it only worked correctly because
+      // preview.tsx created a new camera screen on EVERY capture via replace,
+      // so its effect necessarily ran anew. Take that stack bug away without
+      // hanging the fetch on focusing, and the counter freezes for the whole
+      // session: exactly the regression task 10 existed for. The two belong
+      // together.
+      setFocusState((n) => n + 1);
+      void load();
       return () => {
-        aktiv.current = false;
-        setFokussiert(false);
-        // Sicherheitsnetz: verlässt der Screen die Bühne, während die Sperre
-        // steht (Deep Link, Unmount — per Tab geht es ja nicht mehr), darf
-        // die Tab-Bar nicht app-weit tot bleiben. Die regulären Ausgänge
-        // lösen selbst (handleFoto/handleVideoStop); hier fängt der Rest.
+        active.current = false;
+        setFocused(false);
+        // Safety net: if the screen leaves the stage while the lock is set
+        // (deep link, unmount, since by tab it is no longer possible), the tab
+        // bar must not stay dead app-wide. The regular exits release it
+        // themselves (handlePhoto/handleVideoStop); this catches the rest.
         captureLock.lock(false);
       };
-    }, [laden])
+    }, [load])
   );
 
-  // Medien-Screens stellen die StatusBar lokal um (DESIGN-LANGUAGE v2 §1).
-  // Ein gemountetes <StatusBar style="light" /> würde nicht reichen, weil
-  // Tab-Screens gemountet bleiben, daher fokus-abhängig umschalten und beim
-  // Verlassen wieder auf 'dark' zurücksetzen (globaler Default in _layout.tsx).
+  // Media screens switch the StatusBar locally (DESIGN-LANGUAGE v2 §1). A
+  // mounted <StatusBar style="light" /> would not be enough, because tab
+  // screens stay mounted; hence switch depending on focus and reset to 'dark'
+  // on leaving (the global default in _layout.tsx).
   //
-  // Seit nur noch der Sucher dunkel ist, hängt der Stil am Zustand statt am
-  // Tab: helle Icons auf weissem Grund wären schlicht unsichtbar. `zeigtSucher`
-  // steht bewusst hier oben bei den Hooks, die Bedingung bildet exakt die Kette
-  // der frühen Returns weiter unten ab — kein Zustand davor erreicht die Kamera.
-  const zeigtSucher =
+  // Since only the viewfinder is dark, the style hangs off the state instead
+  // of the tab: light icons on a white ground would simply be invisible.
+  // `showsViewfinder` deliberately sits up here with the hooks, and its
+  // condition mirrors exactly the chain of early returns below: no state
+  // before it reaches the camera.
+  const showsViewfinder =
     trips !== null &&
-    !fehler &&
-    reise !== null &&
+    !error &&
+    trip !== null &&
     cameraPermission?.granted === true &&
     micPermission?.granted === true;
   useFocusEffect(
     useCallback(() => {
-      setStatusBarStyle(zeigtSucher ? 'light' : 'dark');
-      // Dieselbe Bedingung meldet die Kino-Bühne an den Tab-Navigator: über
-      // dem Sucher liegt die Leiste durchscheinend AUF dem Bild, damit Sucher
-      // und Vorschau dieselbe Fläche zeigen (cinemaStage.ts, Gerätefund
-      // 2026-08-18 «mehr gecropt als bevor ich auslöse»).
-      cinemaStage.set(zeigtSucher);
-      // Beim Blur bleibt das Zeichen bewusst STEHEN: der Blur feuert auch,
-      // wenn nur die Vorschau den Tab überdeckt — nähme man es hier zurück,
-      // fiele die Leiste unsichtbar in die helle Form und spränge beim
-      // Instant-Rückweg im ersten Frame sichtbar um (Nutzer-Befund
-      // 2026-08-18). Auf ANDEREN Tabs gilt ohnehin die normale Leiste, das
-      // entscheidet _layout.tsx an der Tab-Wahl (route.name), nicht am
-      // Zeichen.
+      setStatusBarStyle(showsViewfinder ? 'light' : 'dark');
+      // The same condition reports the cinema stage to the tab navigator: over
+      // the viewfinder the bar lies translucently ON the image, so that
+      // viewfinder and preview show the same surface (cinemaStage.ts, device
+      // finding 2026-08-18 "more cropped than before I shoot").
+      cinemaStage.set(showsViewfinder);
+      // On blur the flag deliberately STAYS: blur also fires when only the
+      // preview covers the tab, and taking it back here would drop the bar
+      // invisibly into its light shape and make it jump visibly in the first
+      // frame of the instant way back (user finding 2026-08-18). On OTHER tabs
+      // the normal bar applies anyway; _layout.tsx decides that from the tab
+      // choice (route.name), not from the flag.
       return () => setStatusBarStyle('dark');
-    }, [zeigtSucher])
+    }, [showsViewfinder])
   );
 
-  // Sicherheitsnetz: verlässt der Screen die Bühne ganz (Unmount, Deep
-  // Link), darf das Sucher-Zeichen nicht stehen bleiben.
+  // Safety net: if the screen leaves the stage entirely (unmount, deep link),
+  // the viewfinder flag must not stay set.
   useEffect(() => () => cinemaStage.set(false), []);
 
-  // Überdeckt die Vorschau den Tab, den fürs Foto eingefrorenen Sucher
-  // schon JETZT wieder anlaufen lassen (unsichtbar, er liegt darunter): der
-  // Instant-Rückweg zeigt dann sofort ein lebendes Bild statt des
-  // Standbilds vom Auslöse-Moment (Nutzer-Befund 2026-08-18). Ein eigener
-  // Effekt mit inVorschau als Abhängigkeit: das Cleanup sieht so beim Blur
-  // den AKTUELLEN Wert — im grossen Fokus-Effekt oben (Abhängigkeit nur
-  // laden) wäre er eine veraltete Schliessung.
+  // If the preview covers the tab, let the viewfinder frozen for the photo
+  // start running again right NOW (invisibly, it lies underneath): the instant
+  // way back then shows a live image immediately instead of the still from the
+  // moment of release (user finding 2026-08-18). An effect of its own with
+  // inPreview as its dependency: that way the cleanup sees the CURRENT value
+  // on blur; in the big focus effect above (dependency only load) it would be
+  // a stale closure.
   useFocusEffect(
     useCallback(() => {
       return () => {
-        if (inVorschau) void cameraRef.current?.resumePreview();
+        if (inPreview) void cameraRef.current?.resumePreview();
       };
-    }, [inVorschau])
+    }, [inPreview])
   );
 
-  // Hält die beiden Spiegel-Refs nach (siehe dort). Ein eigener Effekt statt
-  // einer Zuweisung beim Rendern: Refs beim Rendern zu beschreiben ist im
-  // konkurrierenden Rendern nicht verlässlich.
+  // Keeps the two mirror refs up to date (see there). An effect of its own
+  // instead of an assignment during render: writing refs during render is not
+  // reliable under concurrent rendering.
   useEffect(() => {
-    nimmtAufRef.current = nimmtAuf;
-    inVorschauRef.current = inVorschau;
-  }, [nimmtAuf, inVorschau]);
+    capturingRef.current = capturing;
+    inPreviewRef.current = inPreview;
+  }, [capturing, inPreview]);
 
-  // Der Lebenszyklus der MultiCam-Session (Spec §8/§9). Zwei Dinge hängen
-  // daran:
+  // The lifecycle of the MultiCam session (spec §8/§9). Two things hang off
+  // it:
   //
-  // Beim Fokus baut die Session auf. Meldet sie `false` (kein Modul, alter
-  // Build, Simulator, oder zweimal in Folge gescheiterter Aufbau), fällt der
-  // Screen für den REST der Sitzung auf expo-camera zurück: `multiCam` bleibt
-  // dann false, dieser Effekt läuft ins Leere und die CameraView übernimmt.
-  // Der aktiv-Ref schirmt die Antwort ab, die erst nach dem Verlassen des
-  // Screens eintrifft (gleiches Muster wie beim Laden oben).
+  // On focus the session is built up. If it reports `false` (no module, old
+  // build, simulator, or a setup that failed twice in a row), the screen falls
+  // back to expo-camera for the REST of the session: `multiCam` then stays
+  // false, this effect runs into nothing and the CameraView takes over. The
+  // active ref shields the answer that only arrives after leaving the screen
+  // (same pattern as in load above).
   //
-  // Beim Blur wird NUR gestoppt, wenn nichts mehr auf der Session liegt,
-  // nach genau den Bedingungen des mute-Props im anderen Zweig: unter der
-  // AUFNAHME-VORSCHAU läuft sie weiter (ein Neuaufbau wäre ausgerechnet auf
-  // dem Instant-Rückweg der teuerste Moment), und in eine laufende Aufnahme
-  // greift ohnehin niemand hinein.
+  // On blur it is stopped ONLY if nothing rests on the session any more,
+  // following exactly the conditions of the mute prop in the other branch:
+  // under the CAPTURE PREVIEW it keeps running (a rebuild would be the most
+  // expensive moment of all on the instant way back), and nobody reaches into
+  // a running capture anyway.
   useFocusEffect(
     useCallback(() => {
       if (!multiCam) return;
       void multiCamera.start().then((ok) => {
-        if (!ok && aktiv.current) setMultiCam(false);
+        if (!ok && active.current) setMultiCam(false);
       });
       return () => {
-        if (!nimmtAufRef.current && !inVorschauRef.current) multiCamera.stop();
+        if (!capturingRef.current && !inPreviewRef.current) multiCamera.stop();
       };
     }, [multiCam])
   );
 
-  // Das Dauerlicht im MultiCam-Zweig. Im anderen Zweig macht das ein Prop
-  // (`enableTorch={blitz === 'on' && nimmtAuf}` an der CameraView); die eigene
-  // Session kennt keine Props, sie bekommt denselben Schalter als Aufruf.
+  // The torch in the MultiCam branch. In the other branch a prop does this
+  // (`enableTorch={flash === 'on' && capturing}` on the CameraView); our own
+  // session knows no props, it gets the same switch as a call.
   //
-  // `richtung` hängt in den Abhängigkeiten, obwohl der Ausdruck sie nicht
-  // liest: die LED sitzt an der Rückseite, ein Wechsel auf die Front während
-  // der Aufnahme muss sie also löschen (und der Rückweg sie wieder anzünden).
-  // Das Aufräumen schaltet aus, weil ein Unmount oder ein Rückfall auf
-  // expo-camera sonst eine brennende Lampe zurückliesse, aber nur wenn sie
-  // überhaupt brannte, sonst wäre jede Änderung ein kurzes Flackern.
+  // `facing` hangs in the dependencies although the expression does not read
+  // it: the LED sits on the back, so a switch to the front during a capture
+  // has to extinguish it (and the way back light it again). The cleanup
+  // switches off, because an unmount or a fallback to expo-camera would
+  // otherwise leave a burning lamp behind, but only if it was burning at all,
+  // otherwise every change would be a short flicker.
   useEffect(() => {
     if (!multiCam) return;
-    const an = blitz === 'on' && nimmtAuf;
-    multiCamera.setFlash(an);
+    const on = flash === 'on' && capturing;
+    multiCamera.setFlash(on);
     return () => {
-      if (an) multiCamera.setFlash(false);
+      if (on) multiCamera.setFlash(false);
     };
-  }, [multiCam, blitz, nimmtAuf, richtung]);
+  }, [multiCam, flash, capturing, facing]);
 
-  // Liegt die Leiste über dem Bild, nimmt sie dem Screen keinen Platz mehr
-  // weg — die unten verankerten Bedienelemente (Auslöser, Zoom-Reihe,
-  // Fehler-Pille) heben sich deshalb um ihre Höhe, sonst lägen sie dahinter.
-  // Dieselbe Formel wie in _layout.tsx (cinemaStage.leisteHoehe), damit die
-  // beiden Seiten nicht auseinanderlaufen können.
-  const leisteHoehe = cinemaStage.barHeight(useSafeAreaInsets().bottom);
+  // Once the bar lies over the image, it no longer takes room away from the
+  // screen, so the bottom-anchored controls (shutter, zoom row, error pill)
+  // lift by its height, otherwise they would sit behind it. The same formula
+  // as in _layout.tsx (cinemaStage.barHeight), so the two sides cannot drift
+  // apart.
+  const barHeight = cinemaStage.barHeight(useSafeAreaInsets().bottom);
 
-  // Steht bei den Hooks, weil die frühen Returns weiter unten dazwischenliegen.
-  // Was oben auf dem Sucher liegt, schont dieselbe Oberkante wie jeder andere
-  // Screen: randlos ist das Kamerabild, nicht die Pille darauf.
-  const sucherOben = useTopInset(spacing.xl);
+  // Sits with the hooks, because the early returns below lie in between. What
+  // lies on top of the viewfinder respects the same top edge as every other
+  // screen: edge-to-edge is the camera image, not the pill on top of it.
+  const viewfinderTopInset = useTopInset(spacing.xl);
 
-  // ——— Zoom (Spec 2026-08-12-kamera-zoom-design.md) ———
+  // --- Zoom (spec 2026-08-12-kamera-zoom-design.md) ---
   //
-  // Die Stufen kommen vom Gerät, nicht aus einer gepflegten Tabelle: eine
-  // virtuelle Mehrfach-Kamera kennt die Faktoren, bei denen iOS die Linse
-  // wechselt, und genau das sind die Stufen der Kamera-App (siehe zoom.ts).
-  // Jede Blickrichtung hat eigene Linsen, und die Frontkamera meist nur eine.
-  // Abgeleitet statt in einem Effekt gespeichert: das Auflisten der Kameras
-  // ist eine Abfrage ohne Nebenwirkung, ein Zustand daneben wäre eine zweite
-  // Wahrheit. Zurückgesetzt wird der Faktor dort, wo die Richtung wechselt
-  // (siehe «Kamera wechseln»), nicht hier.
-  const linsen = useMemo(() => nativeZoom.lenses(richtung), [richtung]);
-  const zoom = useMemo(() => zoomDevice(linsen), [linsen]);
+  // The steps come from the device, not from a hand-maintained table: a
+  // virtual multi-lens camera knows the factors at which iOS switches lenses,
+  // and those are exactly the steps of the camera app (see zoom.ts). Every
+  // facing has its own lenses, and the front camera usually only one. Derived
+  // instead of stored in an effect: listing the cameras is a query without
+  // side effects, and a state beside it would be a second truth. The factor is
+  // reset where the facing changes (see "switch camera"), not here.
+  const lenses = useMemo(() => nativeZoom.lenses(facing), [facing]);
+  const zoom = useMemo(() => zoomDevice(lenses), [lenses]);
 
-  // Ob diese Blickrichtung einen Ultraweitwinkel hat. Daran entscheidet die
-  // MultiCam-Session, ob 0,5× eine eigene Linse ist oder nur ein Beschnitt
-  // (siehe multiCamZiel in zoom.ts). Die Quelle sind dieselben ENUMERIERTEN
-  // Linsen, aus denen auch die Stufen entstehen: aufzählen darf man das
-  // virtuelle Gerät weiterhin, es soll nur nicht in der Session laufen.
-  const hatUltraweit = useMemo(() => hatUltraweitIn(linsen), [linsen]);
+  // Whether this facing has an ultra-wide. The MultiCam session decides on
+  // that whether 0.5x is a lens of its own or only a crop (see multiCamTarget
+  // in zoom.ts). The source is the same ENUMERATED lenses the steps come from:
+  // enumerating the virtual device is still allowed, it just must not run in
+  // the session.
+  const hasUltraWide = useMemo(() => hasUltraWideIn(lenses), [lenses]);
 
-  // Die Basis der aktiven Blickrichtung: 0,5 auf einem Ultraweitwinkel-Gerät,
-  // sonst 1; auch für die einlinsige Front, deren Anzeige und Gerätefaktor
-  // dasselbe sind (sie hat kein virtuelles Mehrfach-Gerät, `zoom` ist null).
-  const zoomBasis = zoom?.base ?? 1;
+  // The base of the active facing: 0.5 on an ultra-wide device, otherwise 1;
+  // also for the single-lens front, whose display and device factor are the
+  // same (it has no virtual multi-lens device, `zoom` is null).
+  const zoomBase = zoom?.base ?? 1;
 
-  const zoomSetzen = useCallback(
-    (neu: number, sanft: boolean) => {
-      // Nur der SETZ-Weg wechselt: Stufen, Grenzen, Pinch und Zug rechnen in
-      // beiden Zweigen dieselbe Anzeige aus. Die MultiCam-Session kennt aber
-      // keine virtuelle Mehrfach-Kamera, sie führt die Linsen einzeln, der
-      // Anzeige-Faktor wird darum in Linse plus deren eigenen Faktor
-      // übersetzt. Ein Stufen-Gerät braucht sie dafür nicht: die einlinsige
-      // Front zoomt digital (Nutzer-Befund 2026-08-19), multiCamZiel klemmt
-      // unter 1× selbst, und das Modul klemmt an den Gerätegrenzen.
+  const applyZoom = useCallback(
+    (next: number, smooth: boolean) => {
+      // Only the SETTING path differs: steps, limits, pinch and drag compute
+      // the same display value in both branches. The MultiCam session,
+      // however, knows no virtual multi-lens camera, it carries the lenses
+      // individually, so the display factor is translated into a lens plus its
+      // own factor. It does not need a step device for that: the single-lens
+      // front zooms digitally (user finding 2026-08-19), multiCamTarget clamps
+      // below 1x itself, and the module clamps at the device limits.
       if (multiCam) {
-        faktorRef.current = neu;
-        setFaktor(neu);
-        multiCamera.setZoom(multiCamTarget(neu, richtung, hatUltraweit), sanft);
+        factorRef.current = next;
+        setFactor(next);
+        multiCamera.setZoom(multiCamTarget(next, facing, hasUltraWide), smooth);
         return;
       }
       if (!zoom) return;
-      faktorRef.current = neu;
-      setFaktor(neu);
-      nativeZoom.setZoom(zoom.name, nativeFactor(neu, zoom.base), sanft);
+      factorRef.current = next;
+      setFactor(next);
+      nativeZoom.setZoom(zoom.name, nativeFactor(next, zoom.base), smooth);
     },
-    [zoom, multiCam, richtung, hatUltraweit]
+    [zoom, multiCam, facing, hasUltraWide]
   );
 
-  // Der Notausgang der MultiCam-Session (Spec §9): zwei Linsen zugleich
-  // heizen, und das Betriebssystem meldet Druck, bevor es selbst eingreift.
-  // Der teure Teil ist der zweite Sensor unter 1×, ab 'ernst' geht der Zoom
-  // deshalb auf 1× zurück, wo eine Linse allein reicht. Bei 'nominal'
-  // passiert nichts: wer zurück auf 0,5× will, tippt selbst.
+  // The emergency exit of the MultiCam session (spec §9): two lenses heating
+  // at once, and the operating system reports pressure before it steps in
+  // itself. The expensive part is the second sensor below 1x, so from 'ernst'
+  // on the zoom goes back to 1x, where one lens alone is enough. At 'nominal'
+  // nothing happens: whoever wants back to 0.5x taps it themselves.
   useFocusEffect(
     useCallback(() => {
       if (!multiCam) return;
-      return multiCamera.onPressureChange((stufe) => {
-        if (stufe === 'nominal') return;
-        if (faktorRef.current < 1) zoomSetzen(1, false);
+      return multiCamera.onPressureChange((level) => {
+        if (level === 'nominal') return;
+        if (factorRef.current < 1) applyZoom(1, false);
       });
-    }, [multiCam, zoomSetzen])
+    }, [multiCam, applyZoom])
   );
 
-  // Beim Betreten des Screens springt ein REINGEZOOMTER Stand (> 1×) auf 1×
-  // zurück (Wunsch 2026-08-17): ein stehen gebliebener Pinch- oder Zug-Zoom
-  // soll nicht unbemerkt in die nächste Aufnahme hineinragen. Der Weitwinkel
-  // (≤ 1×) bleibt stehen (Präzisierung 2026-08-18): wer bewusst auf 0,5×
-  // gestellt hat, will nach dem Verwerfen genau dort weitermachen. Über
-  // zoomSetzen, damit auch das Gerät zurückgeht, nicht nur die Pille.
+  // On entering the screen a ZOOMED-IN state (> 1x) jumps back to 1x (wish
+  // 2026-08-17): a pinch or drag zoom left standing must not reach unnoticed
+  // into the next capture. The wide angle (<= 1x) stays (clarification
+  // 2026-08-18): whoever deliberately set 0.5x wants to carry on right there
+  // after discarding. Through applyZoom, so that the device goes back too, not
+  // just the pill.
   //
-  // zoomSetzen kommt über eine Ref herein statt als Abhängigkeit: seine
-  // Identität wechselt mit der Blickrichtung, und ein daran hängender Effekt
-  // liefe bei JEDEM Kamerawechsel neu und würfe den gerade aus dem
-  // Richtungs-Gedächtnis wiederhergestellten Faktor weg. Mitten in der
-  // gehaltenen Aufnahme sprang so der Zug-Zoom bei jedem Rückwechsel auf 1×
-  // (Re-Review 2026-08-19, Important 1). Das Gedächtnis wird beim Betreten
-  // mitgeklemmt: auch die gerade NICHT sichtbare Richtung soll keinen alten
-  // Rein-Zoom in die nächste Aufnahme tragen.
-  const zoomSetzenRef = useRef(zoomSetzen);
+  // applyZoom comes in through a ref instead of as a dependency: its identity
+  // changes with the facing, and an effect hanging off it would run on EVERY
+  // camera switch and throw away the factor just restored from the per-facing
+  // memory. In the middle of a held capture the drag zoom jumped back to 1x on
+  // every switch back that way (re-review 2026-08-19, important 1). The memory
+  // is clamped along on entry: the facing that is NOT visible right now must
+  // not carry an old zoom-in into the next capture either.
+  const applyZoomRef = useRef(applyZoom);
   useEffect(() => {
-    zoomSetzenRef.current = zoomSetzen;
-  }, [zoomSetzen]);
+    applyZoomRef.current = applyZoom;
+  }, [applyZoom]);
   useFocusEffect(
     useCallback(() => {
-      faktorJeRichtung.current.back = Math.min(faktorJeRichtung.current.back, 1);
-      faktorJeRichtung.current.front = Math.min(faktorJeRichtung.current.front, 1);
-      if (faktorRef.current > 1) zoomSetzenRef.current(1, false);
+      factorPerFacing.current.back = Math.min(factorPerFacing.current.back, 1);
+      factorPerFacing.current.front = Math.min(factorPerFacing.current.front, 1);
+      if (factorRef.current > 1) applyZoomRef.current(1, false);
     }, [])
   );
 
-  // Der Fallstrick dieser Funktion: auf dem virtuellen Gerät IST der native
-  // Faktor 1,0 die weiteste Linse, also 0,5×. Und genau diese 1,0 setzt
-  // expo-camera bei jedem Gerätewechsel selbst (addDevice → updateZoom mit
-  // unserem zoom-Prop 0, CameraSessionManager.swift:354). Ohne Nachsetzen
-  // begänne der Sucher bei 0,5× und spränge nach jedem Kamerawechsel dorthin
-  // zurück.
-  const zoomNachsetzen = useCallback(() => {
-    // Im MultiCam-Zweig gibt es nichts nachzusetzen: dort läuft das virtuelle
-    // Gerät gar nicht in der Session, und niemand setzt seinen Zoom hinter
-    // unserem Rücken auf 1,0 zurück.
+  // The pitfall of this function: on the virtual device the native factor 1.0
+  // IS the widest lens, i.e. 0.5x. And expo-camera sets exactly that 1.0 on
+  // every device switch itself (addDevice -> updateZoom with our zoom prop 0,
+  // CameraSessionManager.swift:354). Without re-applying, the viewfinder would
+  // begin at 0.5x and jump back there after every camera switch.
+  const reapplyZoom = useCallback(() => {
+    // In the MultiCam branch there is nothing to re-apply: the virtual device
+    // does not run in that session at all, and nobody resets its zoom to 1.0
+    // behind our back.
     if (!zoom || multiCam) return;
-    nativeZoom.setZoom(zoom.name, nativeFactor(faktorRef.current, zoom.base), false);
+    nativeZoom.setZoom(zoom.name, nativeFactor(factorRef.current, zoom.base), false);
   }, [zoom, multiCam]);
 
-  // Die Zoom-Grenzen einer Blickrichtung, in der Zählung des Geräts, mit
-  // demselben Fallback, den bisher nur der Pinch kannte: kennt das Modul
-  // keine Grenzen, dient die oberste Stufe als Maximum. Von Pinch UND
-  // Zug-Zoom benutzt. Richtungs-parametrisiert statt an den aktuellen
-  // Zustand gebunden: der Kamerawechsel braucht die Grenzen der NEUEN
-  // Richtung, bevor React die abgeleiteten Werte der alten ersetzt hat.
-  // Genau daran starb der Zug-Zoom nach dem Wechsel mitten in der Aufnahme
-  // (Nutzer-Befund 2026-08-19: Front zu Back verlor den Anker ganz, Back zu
-  // Front behielt die falschen Grenzen).
+  // The zoom limits of a facing, in the device's own counting, with the same
+  // fallback that only the pinch used to know: if the module knows no limits,
+  // the topmost step serves as the maximum. Used by BOTH the pinch and the
+  // drag zoom. Parameterized by facing instead of bound to the current state:
+  // the camera switch needs the limits of the NEW facing before React has
+  // replaced the derived values of the old one. That is exactly what killed
+  // the drag zoom after a switch in the middle of a capture (user finding
+  // 2026-08-19: front to back lost the anchor entirely, back to front kept the
+  // wrong limits).
   //
-  // Eine Richtung ohne virtuelles Mehrfach-Gerät (jede Front) hat im
-  // expo-camera-Zweig keine Grenzen und damit keinen Zoom, dort führt der
-  // Weg nur über das virtuelle Gerät. Die MultiCam-Session zoomt sie
-  // dagegen digital, ihre Grenzen kommen von der Linse selbst: der echten
-  // Weitwinkel-Linse, nicht blind der ersten der Liste (die Reihenfolge der
-  // Discovery ist kein Vertrag). Antwortet das Modul für sie ohne Grenzen,
-  // bleibt ein bescheidener Ersatzbereich statt eines toten Zooms: er formt
-  // nur die Finger-Abbildung, geklemmt wird nativ ohnehin am echten Gerät.
-  const zoomGrenzenFuer = (r: 'back' | 'front') => {
-    const linsenDort = nativeZoom.lenses(r);
-    const geraet = zoomDevice(linsenDort);
-    if (geraet) {
+  // A facing without a virtual multi-lens device (every front) has no limits
+  // in the expo-camera branch and therefore no zoom; there the path leads only
+  // over the virtual device. The MultiCam session zooms it digitally instead,
+  // and its limits come from the lens itself: the real wide lens, not blindly
+  // the first of the list (the discovery order is no contract). If the module
+  // answers without limits for it, a modest substitute range remains instead
+  // of a dead zoom: it only shapes the finger mapping, the clamping happens
+  // natively on the real device anyway.
+  const zoomLimitsFor = (position: 'back' | 'front') => {
+    const facingLenses = nativeZoom.lenses(position);
+    const device = zoomDevice(facingLenses);
+    if (device) {
       return (
-        nativeZoom.zoomLimits(geraet.name) ?? {
+        nativeZoom.zoomLimits(device.name) ?? {
           min: 1,
-          max: nativeFactor(geraet.steps[geraet.steps.length - 1], geraet.base),
+          max: nativeFactor(device.steps[device.steps.length - 1], device.base),
         }
       );
     }
     if (!multiCam) return null;
-    const linse = linsenDort.find((l) => l.type === 'wide') ?? linsenDort[0];
-    if (!linse) return null;
-    return nativeZoom.zoomLimits(linse.name) ?? { min: 1, max: 8 };
+    const lens = facingLenses.find((l) => l.type === 'wide') ?? facingLenses[0];
+    if (!lens) return null;
+    return nativeZoom.zoomLimits(lens.name) ?? { min: 1, max: 8 };
   };
 
-  // Läuft, sobald die Mehrfach-Kamera bekannt ist. Der Wechsel des GERÄTS
-  // meldet sich dagegen von selbst, siehe onAvailableLensesChanged an der
-  // CameraView.
+  // Runs as soon as the multi-lens camera is known. A switch of the DEVICE
+  // reports itself instead, see onAvailableLensesChanged on the CameraView.
   useEffect(() => {
-    zoomNachsetzen();
-  }, [zoomNachsetzen]);
+    reapplyZoom();
+  }, [reapplyZoom]);
 
-  // Ein sauberer Tipp auf den Sucher: Fokus und Belichtung an diesen Punkt
-  // (Kamera-App-Muster, siehe onResponderRelease der Zoomfläche unten). Der
-  // Ring ist die sichtbare Antwort darauf.
-  const fokusAuf = (punkt: { pageX: number; pageY: number }) => {
-    // Zwei Sessions, zwei Wege zum selben Gerät: fokussiert wird immer die
-    // Kamera, die gerade WIRKLICH läuft. Der Ring darüber ist derselbe.
-    if (multiCam) multiCamera.focus(punkt.pageX, punkt.pageY);
-    else nativeZoom.focus(punkt.pageX, punkt.pageY);
-    setFokusPunkt((alt) => ({ x: punkt.pageX, y: punkt.pageY, stand: (alt?.stand ?? 0) + 1 }));
+  // A clean tap on the viewfinder: focus and exposure at this point
+  // (camera-app pattern, see onResponderRelease of the zoom surface below).
+  // The ring is the visible answer to it.
+  const focusAt = (point: { pageX: number; pageY: number }) => {
+    // Two sessions, two ways to the same device: what gets focused is always
+    // the camera that is REALLY running. The ring above it is the same.
+    if (multiCam) multiCamera.focus(point.pageX, point.pageY);
+    else nativeZoom.focus(point.pageX, point.pageY);
+    setFocusPoint((previous) => ({ x: point.pageX, y: point.pageY, state: (previous?.state ?? 0) + 1 }));
   };
-  // Stabil über useCallback: der Ring hängt seinen Animations-Effekt daran,
-  // eine neue Identität bei jedem Rendern würde den Lauf neu starten.
-  const fokusRingFertig = useCallback(() => setFokusPunkt(null), []);
+  // Stable through useCallback: the ring hangs its animation effect off this,
+  // and a new identity on every render would restart the run.
+  const focusRingDone = useCallback(() => setFocusPoint(null), []);
 
-  // Räumt die Meldung nach FEHLER_MS wieder ab. Der Timer hängt am Zustand
-  // selbst, nicht am Auslöser: So setzt ihn ein zweiter Fehlschlag neu auf,
-  // statt dass die erste Uhr die zweite Meldung wegwischt.
+  // Clears the message away after ERROR_MS. The timer hangs off the state
+  // itself, not off the trigger: that way a second failure sets it anew
+  // instead of the first clock wiping the second message away.
   useEffect(() => {
-    if (!aufnahmeFehler) return;
-    const uhr = setTimeout(() => setAufnahmeFehler(null), FEHLER_MS);
-    return () => clearTimeout(uhr);
-  }, [aufnahmeFehler]);
+    if (!captureError) return;
+    const timer = setTimeout(() => setCaptureError(null), ERROR_MS);
+    return () => clearTimeout(timer);
+  }, [captureError]);
 
-  // Sicherheitsnetz der Wechsel-Blende (siehe WECHSEL_BLENDE_FRIST_MS): im
-  // Regelfall räumt onAvailableLensesChanged sie deutlich früher weg.
+  // Safety net of the switch fade (see SWITCH_FADE_DEADLINE_MS): in the normal
+  // case onAvailableLensesChanged clears it away far earlier.
   useEffect(() => {
-    if (!wechselLaeuft) return;
-    const frist = setTimeout(() => setWechselLaeuft(false), WECHSEL_BLENDE_FRIST_MS);
-    return () => clearTimeout(frist);
-  }, [wechselLaeuft]);
+    if (!switching) return;
+    const deadline = setTimeout(() => setSwitching(false), SWITCH_FADE_DEADLINE_MS);
+    return () => clearTimeout(deadline);
+  }, [switching]);
 
 
-  // Berechtigungen proaktiv anfragen, sobald der aktuelle Stand bekannt ist,
-  // kamera-first (Produktkonzept) heisst, der Nutzer soll nicht erst einen
-  // Knopf suchen müssen, um überhaupt gefragt zu werden. Erst wenn eine
-  // Anfrage tatsächlich abgelehnt wurde, zeigt BerechtigungScreen den Weg in
-  // die Systemeinstellungen.
+  // Ask for the permissions proactively as soon as the current state is known:
+  // camera-first (product concept) means the user should not have to hunt for
+  // a button just to be asked at all. Only once a request has actually been
+  // denied does PermissionScreen show the way into the system settings.
   useEffect(() => {
     if (cameraPermission?.status === 'undetermined') void requestCameraPermission();
   }, [cameraPermission, requestCameraPermission]);
@@ -1049,601 +1033,600 @@ export default function AufnehmenScreen() {
     if (micPermission?.status === 'undetermined') void requestMicPermission();
   }, [micPermission, requestMicPermission]);
 
-  // Zieht den Zähler bei jedem Reise-Wechsel UND bei jedem Fokussieren nach
-  // (`fokusStand`, Important 3), ohne `reise` gibt es nichts zu zählen.
-  // Genau hier landet die Rückkehr aus der Vorschau: der Moment steckt dann
-  // frisch in der Warteschlange, die Pille muss ihn mitzählen.
-  // eigenerZaehler kann ablehnen (kaputte lokale Warteschlange, siehe
-  // queueDb.ts), ohne .catch() bliebe das eine unbehandelte Ablehnung; der
-  // Fallback auf reise.my_post_count beim Rendern unten greift dann einfach
-  // weiter (Fix-Runde 1).
+  // Pulls the counter along on every trip switch AND on every focus
+  // (`focusState`, important 3); without `trip` there is nothing to count.
+  // This is exactly where the return from the preview lands: the moment is
+  // then freshly in the queue, and the pill has to count it. ownMomentCount
+  // can reject (broken local queue, see queueDb.ts), and without .catch() that
+  // would stay an unhandled rejection; the fallback to trip.my_post_count in
+  // the render below then simply carries on (fix round 1).
   useEffect(() => {
-    if (!reise) return;
-    void ownMomentCount(reise.id)
+    if (!trip) return;
+    void ownMomentCount(trip.id)
       .then((n) => {
-        if (aktiv.current) setZaehler(n);
+        if (active.current) setCounter(n);
       })
       .catch(() => {});
-  }, [reise?.id, fokusStand]);
+  }, [trip?.id, focusState]);
 
-  if (trips === null) return <LeererScreen />;
-  if (fehler) {
+  if (trips === null) return <EmptyScreen />;
+  if (error) {
     return (
-      <FehlerScreen
-        fehler={fehler}
+      <ErrorScreen
+        error={error}
         onRetry={() => {
           setTrips(null);
-          void laden();
+          void load();
         }}
       />
     );
   }
 
-  if (aktiveReisen.length === 0) {
-    return <KeineReiseScreen onAnlegen={() => router.push('/trip/new')} />;
+  if (activeTrips.length === 0) {
+    return <NoTripScreen onCreate={() => router.push('/trip/new')} />;
   }
 
-  if (!reise) {
+  if (!trip) {
     return (
-      <ReiseWahlScreen
-        reisen={aktiveReisen}
-        onWahl={(id) => {
-          setAusgewaehlteReiseId(id);
-          setWahlOffen(false);
+      <TripPickerScreen
+        trips={activeTrips}
+        onSelect={(id) => {
+          setSelectedTripId(id);
+          setPickerOpen(false);
         }}
       />
     );
   }
 
-  // Videos verlassen diesen Screen als Dateipfad, Fotos über die Übergabe im
-  // Speicher (bewusste Grenze, siehe Auftrag); dazu kommt `tripId`, weil
-  // Task 8 daraus den Speicherschlüssel und den Queue-Job baut; eine Kennung
-  // ist nichts Bibliotheksspezifisches, verletzt die Grenze also nicht.
-  // `/capture/preview` selbst entsteht erst in Task 8 und fehlt darum noch
-  // in der generierten (gitignorten) Routen-Liste `.expo/types/router.d.ts`.
-  // Der Cast über `unknown` (statt `any`, siehe Präzedenz in joinFlow.ts) ist
-  // bewusst temporär: sobald Task 8 die Route anlegt, entfällt er ersatzlos.
-  const zurPreview = (params: { typ: 'photo' | 'video'; dauer: string; tripId: string; uri?: string }) => {
-    // VOR der Navigation gesetzt: der Blur-Effekt und der mute-Prop
-    // behandeln die Vorschau anders als einen Tab-Wechsel (siehe inVorschau
-    // oben).
-    setInVorschau(true);
+  // Videos leave this screen as a file path, photos through the handoff in
+  // memory (a deliberate boundary, see the brief); `tripId` comes along
+  // because the preview builds the storage key and the queue job from it, and
+  // an id is nothing library-specific, so it does not break the boundary.
+  //
+  // The cast through `unknown` (instead of `any`, see the precedent in
+  // joinFlow.ts) is a leftover from the time before the route existed:
+  // `/preview` is in the generated route list today, and tsc accepts the push
+  // without the cast as well (checked 2026-08-19).
+  const goToPreview = (params: { typ: 'photo' | 'video'; dauer: string; tripId: string; uri?: string }) => {
+    // Set BEFORE the navigation: the blur effect and the mute prop treat the
+    // preview differently from a tab switch (see inPreview above).
+    setInPreview(true);
     router.push({ pathname: '/preview', params } as unknown as Href);
   };
 
-  // Während einer GEHALTENEN Aufnahme liegt der Finger auf dem Auslöser.
-  // React Native kennt genau einen Responder: ein zweiter Finger auf der
-  // Reihe entzöge dem Druck die Berührung, das Loslassen käme an, und die
-  // Aufnahme endete mitten im Zoomen. Ist sie dagegen gesperrt, ist die Hand
-  // frei — dann bleibt der Zoom bedienbar, wie in der Kamera-App.
-  const zoomBedienbar = !nimmtAuf || aufnahmeGesperrt;
-  // Zoomen können und Stufen zeigen sind zwei Fragen: die einlinsige Front
-  // hat keine Reihe, zoomt im MultiCam-Zweig aber digital: der Pinch muss
-  // dort greifen, obwohl keine Stufen im Bild stehen.
-  const zoomMoeglich = multiCam || zoom !== null;
-  const zoomSichtbar = zoom !== null && zoomBedienbar;
+  // During a HELD capture the finger lies on the shutter. React Native knows
+  // exactly one responder: a second finger on the row would take the touch
+  // away from the press, the release would arrive, and the capture would end
+  // mid-zoom. If it is locked, though, the hand is free, and then the zoom
+  // stays operable, as in the camera app.
+  const zoomUsable = !capturing || captureLocked;
+  // Being able to zoom and showing steps are two questions: the single-lens
+  // front has no row but zooms digitally in the MultiCam branch, so the pinch
+  // has to work there although no steps stand in the image.
+  const zoomPossible = multiCam || zoom !== null;
+  const zoomVisible = zoom !== null && zoomUsable;
 
-  // Der Pinch, von Hand statt über einen Gesten-Erkenner: gebraucht wird der
-  // Abstand zweier Finger, mehr nicht. `onStartShouldSetResponder: false`
-  // lässt jede einzelne Berührung durch — sie gehört dem Auslöser und der
-  // übrigen Bedienung. Erst die Bewegung mit zwei Fingern übernimmt.
-  // Der Doppeltipp wechselt die Kamera auch WÄHREND der Aufnahme (Wunsch
-  // 2026-08-17, Snapchat-Muster) — aber nur auf dem nativen Weg: expo-camera
-  // tauscht beim Facing-Wechsel nur den Geräte-Input derselben laufenden
-  // Session (CameraSessionManager.addDevice), die eigene Pipeline hängt an
-  // deren Outputs und nimmt einfach weiter auf. Eine laufende recordAsync
-  // (Fallback) bräche der Umbau dagegen ab — dort schweigt der Doppeltipp
-  // weiterhin, gesperrt oder nicht. Als Funktion statt als Wert, weil die
-  // Gesten den nativLaeuft-Ref im Moment des Tipps lesen müssen.
+  // The pinch, by hand instead of through a gesture recognizer: what is needed
+  // is the distance between two fingers, nothing more.
+  // `onStartShouldSetResponder: false` lets every single touch through: it
+  // belongs to the shutter and the rest of the controls. Only the movement
+  // with two fingers takes over.
+  // The double tap switches the camera even DURING a capture (wish
+  // 2026-08-17, Snapchat pattern), but only on the native path: on a facing
+  // switch expo-camera swaps only the device input of the same running session
+  // (CameraSessionManager.addDevice), our own pipeline hangs off its outputs
+  // and simply keeps recording. A running recordAsync (fallback) would be
+  // aborted by that rebuild, so there the double tap stays silent, locked or
+  // not. A function instead of a value, because the gestures have to read the
+  // nativeRunning ref at the moment of the tap.
   //
-  // Der MultiCam-Zweig kennt diese Frage nicht mehr: dort laufen beide
-  // Kameras in DERSELBEN Session, der Wechsel tauscht nur, welche von ihnen
-  // den Sucher speist. Es gibt nichts, was dabei abbrechen könnte, der Gate
-  // bleibt allein dem expo-camera-Weg.
-  const wechselErlaubt = () => multiCam || !nimmtAuf || nativLaeuft.current;
+  // The MultiCam branch does not know this question any more: there both
+  // cameras run in THE SAME session, and the switch only swaps which of them
+  // feeds the viewfinder. Nothing there could abort, so the gate belongs to
+  // the expo-camera path alone.
+  const switchAllowed = () => multiCam || !capturing || nativeRunning.current;
 
-  // Stellt den Screen auf eine Blickrichtung um: merkt sich den Faktor der
-  // alten Richtung, stellt den gemerkten der neuen wieder her und verankert
-  // einen laufenden Zug-Zoom neu: Faktor aus dem Gedächtnis, Grenzen der
-  // neuen Kamera (vorher blieb der Anker auf den alten Grenzen stehen oder
-  // fiel beim Wechsel auf die geräte-lose Front ganz weg, und der Zug war
-  // für den Rest der Aufnahme tot). Im expo-camera-Zweig bleibt es beim
-  // Zurücksetzen auf 1×: expo stellt den Zoom beim Gerätewechsel selbst
-  // zurück, und die abgenommene Fallback-Mechanik (zoomNachsetzen über
-  // onAvailableLensesChanged) rechnet ab genau diesem Stand.
-  const richtungAnwenden = (von: 'back' | 'front', nach: 'back' | 'front') => {
-    faktorJeRichtung.current[von] = faktorRef.current;
-    const wieder = multiCam ? faktorJeRichtung.current[nach] : 1;
-    setRichtung(nach);
-    faktorRef.current = wieder;
-    setFaktor(wieder);
-    if (zugStart.current) {
-      const grenzen = zoomGrenzenFuer(nach);
-      zugStart.current = grenzen ? { faktor: wieder, grenzen } : null;
+  // Switches the screen to a facing: remembers the factor of the old facing,
+  // restores the remembered one of the new facing and re-anchors a running
+  // drag zoom: factor from memory, limits of the new camera (before, the
+  // anchor either stayed on the old limits or fell away entirely when
+  // switching to the device-less front, and the drag was dead for the rest of
+  // the capture). In the expo-camera branch it stays at the reset to 1x: expo
+  // resets the zoom on a device switch itself, and the fallback mechanics
+  // taken from it (reapplyZoom via onAvailableLensesChanged) compute from
+  // exactly that state.
+  const applyFacing = (from: 'back' | 'front', to: 'back' | 'front') => {
+    factorPerFacing.current[from] = factorRef.current;
+    const restored = multiCam ? factorPerFacing.current[to] : 1;
+    setFacing(to);
+    factorRef.current = restored;
+    setFactor(restored);
+    if (dragStart.current) {
+      const limits = zoomLimitsFor(to);
+      dragStart.current = limits ? { factor: restored, limits } : null;
     }
   };
 
-  const kameraWechseln = () => {
-    const alt = richtung;
-    const neu = alt === 'back' ? 'front' : 'back';
+  const switchCamera = () => {
+    const previous = facing;
+    const next = previous === 'back' ? 'front' : 'back';
     if (multiCam) {
-      // Kein Hardware-Umbau, kein Warten, und darum auch keine Blende: die
-      // Session läuft weiter, das Modul legt nur die andere Verbindung auf
-      // den Sucher. Auf die Antwort wartet der Screen nicht, die Richtung
-      // stellt er sofort um, damit Stufen, Grenzen und Zoom-Ziel im selben
-      // Bild zur neuen Kamera passen.
-      richtungAnwenden(alt, neu);
-      // Sobald die Antwort da ist, wird der NATIVE Zoom nachgezogen. Ohne
-      // das liefen Anzeige und Session auseinander: das Modul merkt sich je
-      // Richtung ihre zuletzt gewählte Kamera samt stehendem Zoomfaktor,
-      // der Screen ihren Anzeige-Faktor; erst das Nachziehen bringt beide
-      // auf denselben gemerkten Stand (im expo-camera-Zweig erledigt das
-      // zoomNachsetzen über onAvailableLensesChanged). Antwortet das Modul
-      // mit null (kein Modul, Aufbau-Fenster, Wechsel abgelehnt), hat nativ
-      // NICHTS gewechselt: die optimistische Umstellung rollt zurück, sonst
-      // stünde der Screen dauerhaft verkehrt zur Session, und jeder weitere
-      // Doppeltipp hielte die Vertauschung aufrecht (Final-Review
-      // 2026-08-19, Important 1).
-      const nummer = ++wechselNummer.current;
-      void multiCamera.switchCamera().then((antwort) => {
-        // Überholt: ein jüngerer Wechsel ist längst angewandt, seine Antwort
-        // stimmt den Zustand ab. Diese hier hat nichts mehr zu sagen.
-        if (nummer !== wechselNummer.current) return;
-        const wirklich = antwort ?? alt;
-        if (wirklich !== neu) richtungAnwenden(neu, wirklich);
-        if (!antwort) return;
+      // No hardware rebuild, no waiting, and therefore no fade either: the
+      // session keeps running, the module only puts the other connection onto
+      // the viewfinder. The screen does not wait for the answer, it switches
+      // the facing right away so that steps, limits and zoom target match the
+      // new camera in the same frame.
+      applyFacing(previous, next);
+      // As soon as the answer is in, the NATIVE zoom is pulled along. Without
+      // that, display and session drifted apart: the module remembers per
+      // facing its last chosen camera along with its standing zoom factor, the
+      // screen remembers its display factor; only pulling along brings both to
+      // the same remembered state (in the expo-camera branch reapplyZoom does
+      // that via onAvailableLensesChanged). If the module answers with null
+      // (no module, setup window, switch declined), nothing switched natively:
+      // the optimistic change rolls back, otherwise the screen would stand
+      // permanently the wrong way round to the session and every further
+      // double tap would keep the swap alive (final review 2026-08-19,
+      // important 1).
+      const seq = ++switchSeq.current;
+      void multiCamera.switchCamera().then((response) => {
+        // Overtaken: a younger switch has long been applied and its answer
+        // reconciles the state. This one has nothing left to say.
+        if (seq !== switchSeq.current) return;
+        const actual = response ?? previous;
+        if (actual !== next) applyFacing(next, actual);
+        if (!response) return;
         multiCamera.setZoom(
-          multiCamTarget(faktorRef.current, antwort, hatUltraweitIn(nativeZoom.lenses(antwort))),
+          multiCamTarget(factorRef.current, response, hasUltraWideIn(nativeZoom.lenses(response))),
           false
         );
       });
       return;
     }
-    setWechselLaeuft(true);
-    richtungAnwenden(alt, neu);
+    setSwitching(true);
+    applyFacing(previous, next);
   };
 
-  // Der Zug-Zoom (Spec 2026-08-13 §7): Hochziehen ab Aufnahmestart zoomt
-  // rein, zurück nach unten wieder raus. Hart gesetzt wie der Pinch — der
-  // Zoom folgt dem Finger, nicht hinterher.
-  const zoomZug = (hub: number) => {
-    // Der Anker existiert nur, wo es Grenzen gab (zoomGrenzenFuer); die
-    // Frage «hat diese Richtung überhaupt Zoom?» ist damit schon beantwortet,
-    // auch für die geräte-lose Front im MultiCam-Zweig.
-    const start = zugStart.current;
+  // The drag zoom (spec 2026-08-13 §7): pulling up from the start of the
+  // capture zooms in, back down zooms out again. Set hard like the pinch: the
+  // zoom follows the finger, it does not trail behind.
+  const zoomDrag = (dragAmount: number) => {
+    // The anchor exists only where there were limits (zoomLimitsFor); the
+    // question "does this facing have zoom at all?" is thereby already
+    // answered, including for the device-less front in the MultiCam branch.
+    const start = dragStart.current;
     if (!start) return;
-    zoomSetzen(
-      dragFactor(hub, start.faktor, start.grenzen, zoomBasis, {
-        up: Dimensions.get('window').height * ZUG_WEG_HOCH_ANTEIL,
-        down: ZUG_WEG_RUNTER,
+    applyZoom(
+      dragFactor(dragAmount, start.factor, start.limits, zoomBase, {
+        up: Dimensions.get('window').height * DRAG_DISTANCE_UP_RATIO,
+        down: DRAG_DISTANCE_DOWN,
       }),
       false
     );
   };
 
-  // Zwei saubere Tipps kurz nacheinander am selben Ort. Verwaltet die
-  // Zählung selbst: meldet true genau beim zweiten Tipp und beginnt danach
-  // von vorn. Von BEIDEN Tipp-Pfaden benutzt (Responder-Weg im Ruhezustand
-  // und bei gesperrter Aufnahme, roher Touch-Weg bei gehaltener) — die
-  // Zustände schliessen einander aus, der geteilte Zähler kann nicht
-  // zwischen ihnen verschwimmen.
-  const istDoppeltipp = (ende: { pageX: number; pageY: number }) => {
-    const vorher = letzterTipp.current;
-    const jetzt = Date.now();
-    const doppelt =
-      vorher !== null &&
-      jetzt - vorher.zeit <= DOPPELTIPP_MS &&
-      (fingerDistance([vorher, ende]) ?? 0) <= TIPP_RADIUS;
-    letzterTipp.current = doppelt ? null : { zeit: jetzt, ...ende };
-    return doppelt;
+  // Two clean taps in quick succession at the same spot. Manages the count
+  // itself: reports true exactly on the second tap and starts over afterwards.
+  // Used by BOTH tap paths (the responder path in the idle state and with a
+  // locked capture, the raw touch path with a held one); the states exclude
+  // each other, so the shared counter cannot blur between them.
+  const isDoubleTap = (end: { pageX: number; pageY: number }) => {
+    const previous = lastTap.current;
+    const now = Date.now();
+    const double =
+      previous !== null &&
+      now - previous.time <= DOUBLE_TAP_MS &&
+      (fingerDistance([previous, end]) ?? 0) <= TAP_RADIUS;
+    lastTap.current = double ? null : { time: now, ...end };
+    return double;
   };
 
-  // Berührungen auf dem Kamerabild: zwei Finger zoomen, zwei Tipper wechseln
-  // die Kamera (Snapchat-Muster).
+  // Touches on the camera image: two fingers zoom, two taps switch the camera
+  // (Snapchat pattern).
   //
-  // Das Ereignis ist überall optional angefasst (`e?.`), gleiches Muster wie
-  // im Auslöser: Wer nur wissen will, OB dieses Element Berührungen annimmt,
-  // ruft die Prüffrage ohne Ereignis auf.
-  const zoomGeste = {
-    // Einzelne Berührungen nimmt die Fläche an, wenn aus ihnen ein Tipp
-    // werden darf: im Ruhezustand (Fokus und Doppeltipp-Wechsel) und während
-    // einer GESPERRTEN Aufnahme (nur Fokus, die Hand ist frei). Während einer
-    // GEHALTENEN Aufnahme muss sie sie durchlassen: React Native kennt genau
-    // einen Responder, und der gehört dann dem Auslöser — nähme die Fläche
-    // ihn an sich, endete die Aufnahme.
-    onStartShouldSetResponder: () => !nimmtAuf || aufnahmeGesperrt,
+  // The event is touched optionally everywhere (`e?.`), the same pattern as in
+  // the shutter: whoever only wants to know WHETHER this element accepts
+  // touches calls the predicate without an event.
+  const zoomGesture = {
+    // The surface takes single touches when a tap may come of them: in the
+    // idle state (focus and double-tap switch) and during a LOCKED capture
+    // (focus only, the hand is free). During a HELD capture it has to let them
+    // through: React Native knows exactly one responder, and that one belongs
+    // to the shutter then; if the surface grabbed it, the capture would end.
+    onStartShouldSetResponder: () => !capturing || captureLocked,
     onMoveShouldSetResponder: (e?: GestureResponderEvent) =>
-      zoomMoeglich && zoomBedienbar && (e?.nativeEvent?.touches?.length ?? 0) >= 2,
+      zoomPossible && zoomUsable && (e?.nativeEvent?.touches?.length ?? 0) >= 2,
     onResponderGrant: (e?: GestureResponderEvent) => {
-      tippStart.current = {
+      tapStart.current = {
         pageX: e?.nativeEvent?.pageX ?? 0,
         pageY: e?.nativeEvent?.pageY ?? 0,
       };
-      const abstand = fingerDistance(e?.nativeEvent?.touches ?? []);
-      if (abstand === null) return;
-      // Die Grenzen erst jetzt erfragen: sie hängen am aktiven Kameraformat
-      // und damit daran, ob gerade ein Foto oder ein Video ansteht. Ohne
-      // Grenzen (Front im expo-Zweig) gibt es keinen Anker und keinen Pinch.
-      const grenzen = zoomGrenzenFuer(richtung);
-      if (!grenzen) return;
-      pinchStart.current = { abstand, faktor: faktorRef.current, grenzen };
+      const distance = fingerDistance(e?.nativeEvent?.touches ?? []);
+      if (distance === null) return;
+      // Ask for the limits only now: they hang off the active camera format
+      // and thus off whether a photo or a video is up next. Without limits
+      // (front in the expo branch) there is no anchor and no pinch.
+      const limits = zoomLimitsFor(facing);
+      if (!limits) return;
+      pinchStart.current = { distance, factor: factorRef.current, limits };
     },
     onResponderMove: (e?: GestureResponderEvent) => {
-      const abstand = fingerDistance(e?.nativeEvent?.touches ?? []);
-      if (abstand === null) return;
-      // Am Gerät setzen zwei Finger fast nie im selben Ereignis auf: der
-      // erste ergreift die Fläche allein (onResponderGrant sieht EINE
-      // Berührung, kein Anker), der zweite kommt ein Ereignis später nach.
-      // Der Anker wird darum HIER nachgezogen, sobald erstmals zwei Finger
-      // da sind — vorher rechnete in dem Fall niemand, und der Pinch griff
-      // nur, wenn beide Finger zufällig gleichzeitig landeten (Gerätefund
-      // 2026-08-14, «erkennt den Zoom nur teilweise»).
+      const distance = fingerDistance(e?.nativeEvent?.touches ?? []);
+      if (distance === null) return;
+      // On device two fingers almost never land in the same event: the first
+      // grabs the surface alone (onResponderGrant sees ONE touch, no anchor),
+      // the second follows an event later. The anchor is therefore set HERE as
+      // soon as two fingers are present for the first time; before that nobody
+      // computed in that case, and the pinch only caught when both fingers
+      // happened to land simultaneously (device finding 2026-08-14, "picks up
+      // the zoom only partly").
       if (pinchStart.current === null) {
-        const grenzen = zoomGrenzenFuer(richtung);
-        if (!grenzen) return;
-        pinchStart.current = { abstand, faktor: faktorRef.current, grenzen };
+        const limits = zoomLimitsFor(facing);
+        if (!limits) return;
+        pinchStart.current = { distance, factor: factorRef.current, limits };
         return;
       }
       const start = pinchStart.current;
-      if (start.abstand === 0) return;
-      // Hart gesetzt, nicht sanft: der Zoom soll dem Finger folgen, nicht
-      // hinterherfahren.
-      zoomSetzen(clamp((start.faktor * abstand) / start.abstand, start.grenzen, zoomBasis), false);
+      if (start.distance === 0) return;
+      // Set hard, not smoothly: the zoom should follow the finger, not trail
+      // behind it.
+      applyZoom(clamp((start.factor * distance) / start.distance, start.limits, zoomBase), false);
     },
     onResponderRelease: (e?: GestureResponderEvent) => {
-      const warPinch = pinchStart.current !== null;
-      const start = tippStart.current;
+      const wasPinch = pinchStart.current !== null;
+      const start = tapStart.current;
       pinchStart.current = null;
-      tippStart.current = null;
-      // Wer gezoomt hat, meinte weder Wechsel noch Fokus.
-      if (warPinch || !start) return;
+      tapStart.current = null;
+      // Whoever zoomed meant neither a switch nor a focus.
+      if (wasPinch || !start) return;
 
-      const ende = {
+      const end = {
         pageX: e?.nativeEvent?.pageX ?? 0,
         pageY: e?.nativeEvent?.pageY ?? 0,
       };
-      // Gewandert heisst gewischt, nicht getippt. Ein Wischen setzt die
-      // Zählung zurück, sonst würde es zur ersten Hälfte eines Doppeltipps.
-      if ((fingerDistance([start, ende]) ?? 0) > TIPP_RADIUS) {
-        letzterTipp.current = null;
+      // Travelled means swiped, not tapped. A swipe resets the count,
+      // otherwise it would become the first half of a double tap.
+      if ((fingerDistance([start, end]) ?? 0) > TAP_RADIUS) {
+        lastTap.current = null;
         return;
       }
 
-      // Der Doppeltipp wechselt die Kamera — im Ruhezustand immer, während
-      // der Aufnahme nur auf dem nativen Weg (siehe wechselErlaubt).
-      if (istDoppeltipp(ende) && wechselErlaubt()) {
-        kameraWechseln();
+      // The double tap switches the camera: in the idle state always, during a
+      // capture only on the native path (see switchAllowed).
+      if (isDoubleTap(end) && switchAllowed()) {
+        switchCamera();
         return;
       }
-      // Jeder andere saubere Tipp fokussiert an seinem Punkt — auch der
-      // erste eines Doppeltipps (die Kamera-App tut dasselbe; der Wechsel
-      // danach macht den Fokus einfach hinfällig).
-      fokusAuf(ende);
+      // Every other clean tap focuses at its point, including the first of a
+      // double tap (the camera app does the same; the switch afterwards simply
+      // makes the focus moot).
+      focusAt(end);
     },
     onResponderTerminate: () => {
       pinchStart.current = null;
-      tippStart.current = null;
+      tapStart.current = null;
     },
-    // Der Fokus-Tipp WÄHREND der gehaltenen Aufnahme: der Responder gehört
-    // dann dem Auslöser, Responder-Ereignisse erreichen die Fläche nicht.
-    // Die rohen Touch-Ereignisse kommen aber an — sie folgen dem
-    // Berührungs-ZIEL, nicht dem Responder (Gerätefund 2026-08-14). Tab-Bar
-    // und Auslöser treffen die Fläche nie: deren Tipps zielen auf die
-    // eigenen Views, ein Ring über der Bedienung ist damit ausgeschlossen.
-    // In allen anderen Zuständen bleibt dieser Pfad stumm, dort fokussiert
-    // onResponderRelease oben — sonst feuerte der Tipp doppelt.
+    // The focus tap DURING a held capture: the responder belongs to the
+    // shutter then, so responder events do not reach the surface. The raw
+    // touch events do arrive though: they follow the touch TARGET, not the
+    // responder (device finding 2026-08-14). Tab bar and shutter never hit the
+    // surface: their taps target their own views, so a ring over the controls
+    // is ruled out. In every other state this path stays silent, there
+    // onResponderRelease above focuses, otherwise the tap would fire twice.
     onTouchStart: (e?: GestureResponderEvent) => {
-      if (!nimmtAuf || aufnahmeGesperrt) return;
+      if (!capturing || captureLocked) return;
       const id = e?.nativeEvent?.identifier;
       if (id === undefined) return;
-      rohTipp.current = {
+      rawTap.current = {
         id,
         pageX: e?.nativeEvent?.pageX ?? 0,
         pageY: e?.nativeEvent?.pageY ?? 0,
       };
     },
     onTouchEnd: (e?: GestureResponderEvent) => {
-      const start = rohTipp.current;
+      const start = rawTap.current;
       if (!start || e?.nativeEvent?.identifier !== start.id) return;
-      rohTipp.current = null;
-      if (!nimmtAuf || aufnahmeGesperrt) return;
-      const ende = {
+      rawTap.current = null;
+      if (!capturing || captureLocked) return;
+      const end = {
         pageX: e?.nativeEvent?.pageX ?? 0,
         pageY: e?.nativeEvent?.pageY ?? 0,
       };
-      // Gewandert heisst gewischt — derselbe Massstab wie beim Tipp oben.
-      if ((fingerDistance([start, ende]) ?? 0) > TIPP_RADIUS) {
-        letzterTipp.current = null;
+      // Travelled means swiped, the same yardstick as for the tap above.
+      if ((fingerDistance([start, end]) ?? 0) > TAP_RADIUS) {
+        lastTap.current = null;
         return;
       }
-      // Der Doppeltipp des zweiten Fingers wechselt die Kamera mitten im
-      // Filmen (Snapchat-Muster) — nur auf dem nativen Weg, der Fallback
-      // bräche ab (siehe wechselErlaubt).
-      if (istDoppeltipp(ende) && wechselErlaubt()) {
-        kameraWechseln();
+      // The second finger's double tap switches the camera in the middle of
+      // filming (Snapchat pattern), only on the native path, the fallback
+      // would abort (see switchAllowed).
+      if (isDoubleTap(end) && switchAllowed()) {
+        switchCamera();
         return;
       }
-      fokusAuf(ende);
+      focusAt(end);
     },
   };
 
-  const handleFoto = async () => {
-    // Re-Entry-Schutz: Zwischen `pressOut` und dem Navigations-Commit bleibt
-    // der Auslöser bedienbar, ein zweiter Tipp in diesem Fenster stiesse ohne
-    // diese Sperre einen zweiten Zyklus an (siehe laeuftFoto oben).
-    if (laeuftFoto.current) return;
-    laeuftFoto.current = true;
-    // Solange der Zyklus läuft, wechselt kein Tab (captureLock.ts) — mit
-    // Blitz ist das Fenster 1–2 s breit, und ein Wechsel mitten im Capture
-    // liesse die Übergabe verwaisen und die Vorschau von fremden Tabs starten.
+  const handlePhoto = async () => {
+    // Re-entry guard: between `pressOut` and the navigation commit the shutter
+    // stays operable, and without this lock a second tap in that window would
+    // kick off a second cycle (see photoRunning above).
+    if (photoRunning.current) return;
+    photoRunning.current = true;
+    // While the cycle runs, no tab switches (captureLock.ts): with flash that
+    // window is 1-2 s wide, and a switch in the middle of the capture would
+    // orphan the handoff and start the preview from a foreign tab.
     captureLock.lock(true);
     try {
-      // Der MultiCam-Zweig greift in den laufenden Strom (Spec §6): das Modul
-      // nimmt den nächsten Frame der aktiven Kamera und legt ihn als JPEG ins
-      // tmp: kein takePictureAsync, kein zweiter Foto-Ausgang. Der Blitz
-      // reist als Argument mit, weil erst das Modul weiss, wann nach dem
-      // Zünden gegriffen werden darf. KEIN pausePreview: die eigene Session
-      // kennt keine Vorschau-Pause, der Sucher läuft unter der Vorschau
-      // weiter, und der Rückweg trifft dadurch auf ein laufendes Bild.
+      // The MultiCam branch grabs into the running stream (spec §6): the
+      // module takes the next frame of the active camera and puts it into tmp
+      // as a JPEG, no takePictureAsync, no second photo output. The flash
+      // travels along as an argument, because only the module knows when it
+      // may grab after firing. NO pausePreview: our own session knows no
+      // preview pause, the viewfinder keeps running under the preview, and the
+      // way back therefore meets a live image.
       if (multiCam) {
-        const foto = await multiCamera.takePhoto(blitz === 'on');
-        if (!foto) throw new Error('kein Frame');
-        // Dieselbe Übergabe wie unten, nur mit einer FERTIGEN Datei statt
-        // eines Refs samt Hintergrund-Speichern: der Griff hat das JPEG schon
-        // geschrieben, `datei` ist deshalb sofort eingelöst. Der Holder trägt
-        // fürs Anzeigen einen expo-camera-PictureRef; expo-image nimmt eine
-        // Quelle in der Form `{ uri }` genauso an (die Vorschau reicht sie im
-        // Deep-Link-Fall längst so durch), der Holder-Typ kennt diese zweite
-        // Form nur noch nicht. Die Umdeutung steht darum hier an genau EINER
-        // Stelle, statt den Typ zu ändern und die Vorschau mitzuziehen.
-        // breite/hoehe braucht auf diesem Weg niemand: sie stehen im JPEG.
-        const quelle = { uri: foto.uri } as unknown as PictureRef;
-        handoff.setPhoto({ ref: quelle, file: Promise.resolve({ uri: foto.uri }) });
-        zurPreview({ typ: 'photo', dauer: '0', tripId: reise.id });
+        const photo = await multiCamera.takePhoto(flash === 'on');
+        if (!photo) throw new Error('kein Frame');
+        // The same handoff as below, only with a FINISHED file instead of a
+        // ref plus a background save: the grab has already written the JPEG,
+        // so `file` is resolved immediately. For display the holder carries an
+        // expo-camera PictureRef; expo-image accepts a source of the shape
+        // `{ uri }` just as well (the preview has long been passing it through
+        // that way in the deep-link case), the holder type just does not know
+        // this second shape yet. The reinterpretation therefore sits here in
+        // exactly ONE place, instead of changing the type and dragging the
+        // preview along. Nobody needs breite/hoehe on this path: they are in
+        // the JPEG.
+        const source = { uri: photo.uri } as unknown as PictureRef;
+        handoff.setPhoto({ ref: source, file: Promise.resolve({ uri: photo.uri }) });
+        goToPreview({ typ: 'photo', dauer: '0', tripId: trip.id });
         return;
       }
-      // Erst die Aufnahme anstossen, DANN die Vorschau einfrieren: die
-      // SDK-Doku rät von takePictureAsync bei pausierter Vorschau ab, und
-      // der Reihenfolge sieht man den Unterschied nicht an, beides läuft im
-      // selben Tick. Das eingefrorene Bild ist der gefühlte Shutter.
+      // Kick off the capture first, THEN freeze the preview: the SDK docs
+      // advise against takePictureAsync while the preview is paused, and the
+      // order makes no visible difference, both run in the same tick. The
+      // frozen image is the perceived shutter.
       //
-      // Das gilt nur OHNE Blitz, wo das Bild in wenigen Dutzend ms da ist
-      // (Spec 2026-08-13 §4). MIT Blitz fährt iOS erst die Messsequenz
-      // (Vorblitz, Belichtungs-Konvergenz, Hauptblitz), 1–2 s — ein sofort
-      // eingefrorener Sucher stünde die ganze Zeit als dunkler Freeze da
-      // (Gerätetest 2026-08-13). Er bleibt darum live, man SIEHT den Blitz
-      // zünden (Kamera-App-Muster), und eingefroren wird erst, wenn das Bild
-      // da ist: als ruhiger Stand für den Übergang, wie beim Video-Stopp.
-      // `mirror: true` wirkt NUR auf die Frontkamera (expo-camera prüft die
-      // Blickrichtung selbst, CameraPhotoCapture.swift) und speichert dort,
-      // was der Sucher zeigte — ohne das Flag kippte ein Selfie nach der
-      // Aufnahme spiegelverkehrt (Gerätefund 2026-08-18). Die Video-Pipeline
-      // braucht nichts davon, sie übernimmt die Spiegelung direkt von der
-      // Sucher-Verbindung (verbindungAngleichen).
-      const versprochen = cameraRef.current?.takePictureAsync({
+      // That holds only WITHOUT flash, where the image is there within a few
+      // dozen ms (spec 2026-08-13 §4). WITH flash iOS first runs the metering
+      // sequence (pre-flash, exposure convergence, main flash), 1-2 s: an
+      // immediately frozen viewfinder would stand there as a dark freeze the
+      // whole time (device test 2026-08-13). So it stays live, you SEE the
+      // flash fire (camera-app pattern), and freezing happens only once the
+      // image is there: as a calm still for the transition, as with the video
+      // stop. `mirror: true` affects ONLY the front camera (expo-camera checks
+      // the facing itself, CameraPhotoCapture.swift) and saves there what the
+      // viewfinder showed; without the flag a selfie flipped mirrored after
+      // the capture (device finding 2026-08-18). The video pipeline needs none
+      // of this, it takes the mirroring straight from the viewfinder
+      // connection (verbindungAngleichen).
+      const pending = cameraRef.current?.takePictureAsync({
         pictureRef: true,
         shutterSound: false,
         mirror: true,
       });
-      if (blitz === 'off') void cameraRef.current?.pausePreview();
-      const ref = await versprochen;
+      if (flash === 'off') void cameraRef.current?.pausePreview();
+      const ref = await pending;
       if (!ref) throw new Error('keine Kamera');
-      if (blitz === 'on') void cameraRef.current?.pausePreview();
-      // Der Ref ist in Millisekunden da (kein JPEG, kein Platten-I/O);
-      // gespeichert wird ab jetzt im Hintergrund, «Einsenden» in der
-      // Vorschau wartet auf genau dieses Promise (Spec 2026-08-13 §4).
-      // gespeicherteDatei statt savePictureAsync direkt: die native Rückgabe
-      // heisst auf iOS `url`, auf Android `uri` (siehe handoff.ts).
+      if (flash === 'on') void cameraRef.current?.pausePreview();
+      // The ref is there within milliseconds (no JPEG, no disk I/O); from now
+      // on it is saved in the background, and "submit" in the preview awaits
+      // exactly this promise (spec 2026-08-13 §4). savedFile instead of
+      // savePictureAsync directly: the native return is called `url` on iOS
+      // and `uri` on Android (see handoff.ts).
       handoff.setPhoto({ ref, file: handoff.savedFile(ref) });
-      zurPreview({ typ: 'photo', dauer: '0', tripId: reise.id });
-    } catch (fehler) {
-      console.error('[aufnehmen] Foto kam nicht zustande', fehler);
-      // Ohne das Auftauen bliebe der Sucher eingefroren stehen: pausePreview
-      // ist gelaufen, und niemand navigiert weg. Im MultiCam-Zweig ist der
-      // Aufruf ein Leerlauf (dort gibt es keine CameraView, cameraRef bleibt
-      // null), eingefroren war da ohnehin nichts.
+      goToPreview({ typ: 'photo', dauer: '0', tripId: trip.id });
+    } catch (err) {
+      console.error('[capture] Foto kam nicht zustande', err);
+      // Without the thaw the viewfinder would stay frozen: pausePreview has
+      // run and nobody navigates away. In the MultiCam branch the call is a
+      // no-op (there is no CameraView there, cameraRef stays null), nothing
+      // was frozen anyway.
       void cameraRef.current?.resumePreview();
-      setAufnahmeFehler(FOTO_FEHLER_TEXT);
+      setCaptureError(PHOTO_ERROR_TEXT);
     } finally {
-      // Deckt Erfolg wie Fehler ab; nach Erfolg ist die Navigation dann
-      // committet — ein erneuter Tipp trifft diesen Screen erst nach der
-      // Rückkehr aus der Vorschau wieder.
-      laeuftFoto.current = false;
+      // Covers success as well as failure; after success the navigation is
+      // committed, so another tap only reaches this screen again after the
+      // return from the preview.
+      photoRunning.current = false;
       captureLock.lock(false);
     }
   };
 
   const handleVideoStart = () => {
-    videoStartZeit.current = Date.now();
-    videoGestoppt.current = false;
-    // Eine neue Aufnahme räumt die alte Klage weg, sonst stünde sie noch da,
-    // während schon wieder aufgenommen wird.
-    setAufnahmeFehler(null);
-    setNimmtAuf(true);
-    // Kein Tab-Wechsel, solange aufgenommen wird: das Fokus-Cleanup hinge
-    // sonst mitten in der laufenden Movie-File-Aufnahme (siehe den
-    // mute-Kommentar an der CameraView und captureLock.ts).
+    videoStartTime.current = Date.now();
+    videoStopped.current = false;
+    // A new capture clears the old complaint, otherwise it would still be
+    // standing there while the next one is already running.
+    setCaptureError(null);
+    setCapturing(true);
+    // No tab switch while capturing: the focus cleanup would otherwise hang in
+    // the middle of the running movie-file recording (see the mute comment on
+    // the CameraView and captureLock.ts).
     captureLock.lock(true);
-    // Anker des Zug-Zooms: Faktor und Grenzen beim Aufnahmestart. Grenzen
-    // erst jetzt erfragen, nicht beim Rendern — sie hängen am aktiven Format.
-    // Ohne Grenzen (Front im expo-Zweig) gibt es keinen Zug.
-    const grenzen = zoomGrenzenFuer(richtung);
-    zugStart.current = grenzen ? { faktor: faktorRef.current, grenzen } : null;
-    // Direkt starten statt über einen Effekt am Modus: die Session ist im
-    // dauerhaften Video-Modus längst bereit, es gibt nichts zu committen.
-    // Wiederholt wird trotzdem (siehe VIDEO_START_VERSUCHE oben) — und am
-    // Simulator scheitert weiterhin JEDER Versuch («SimulatorNotSupported»),
-    // am Ende bleibt es beim `undefined` und der Screen sagt es.
-    const starten = async (): Promise<{ uri: string } | undefined> => {
-      let letzterFehler: unknown = null;
-      for (let versuch = 0; versuch < VIDEO_START_VERSUCHE; versuch++) {
-        // Wer den Auslöser schon losgelassen hat, will kein Video mehr. Ohne
-        // diese Abfrage begänne die nächste Runde eine Aufnahme, die niemand
-        // mehr stoppt: `stopRecording()` ist längst gelaufen und war ein
-        // Schlag ins Leere, die Aufnahme liefe bis `maxDuration`.
-        if (videoGestoppt.current) return undefined;
+    // Anchor of the drag zoom: factor and limits at the start of the capture.
+    // Ask for the limits only now, not at render time: they hang off the
+    // active format. Without limits (front in the expo branch) there is no
+    // drag.
+    const limits = zoomLimitsFor(facing);
+    dragStart.current = limits ? { factor: factorRef.current, limits } : null;
+    // Start directly instead of via an effect on the mode: the session has
+    // long been ready in the permanent video mode, there is nothing to commit.
+    // It is retried anyway (see VIDEO_START_ATTEMPTS above), and on the
+    // simulator EVERY attempt keeps failing ("SimulatorNotSupported"); in the
+    // end it stays at `undefined` and the screen says so.
+    const startRecording = async (): Promise<{ uri: string } | undefined> => {
+      let lastError: unknown = null;
+      for (let attempt = 0; attempt < VIDEO_START_ATTEMPTS; attempt++) {
+        // Whoever already released the shutter no longer wants a video.
+        // Without this check the next round would begin a capture nobody stops
+        // any more: `stopRecording()` has long run and hit nothing, and the
+        // capture would run to `maxDuration`.
+        if (videoStopped.current) return undefined;
         try {
-          return await cameraRef.current?.recordAsync({ maxDuration: MAX_VIDEO_SEKUNDEN });
-        } catch (fehler) {
-          letzterFehler = fehler;
-          await new Promise((weiter) => setTimeout(weiter, VIDEO_START_WARTE_MS));
+          return await cameraRef.current?.recordAsync({ maxDuration: MAX_VIDEO_SECONDS });
+        } catch (err) {
+          lastError = err;
+          await new Promise((resolve) => setTimeout(resolve, VIDEO_START_WAIT_MS));
         }
       }
-      // Alle Runden verbraucht. Was zuletzt schiefging, gehört ins Log: sonst
-      // steht auf dem Gerät nur FEHLER_TEXT, und die eigentliche Ursache
-      // (Simulator, kein Speicher, Berechtigung entzogen) ist verschluckt.
-      console.error('[aufnehmen] Videoaufnahme kam nicht zustande', letzterFehler);
+      // All rounds used up. Whatever went wrong last belongs in the log:
+      // otherwise only ERROR_TEXT stands on the device and the actual cause
+      // (simulator, no storage, permission revoked) is swallowed.
+      console.error('[capture] Videoaufnahme kam nicht zustande', lastError);
       return undefined;
     };
-    // Die Weiche: erst die eigene native Pipeline versuchen (Task 2), NUR
-    // wenn sie ablehnt (kein Modul, alter Build, Android) beginnt der
-    // bisherige recordAsync-Weg. `nativStart` hält das Promise, nicht nur das
-    // Ergebnis — handleVideoStop wartet später auf dasselbe Promise, statt
-    // auf einen Boolean, der bei einem Blitz-Stopp noch den alten Stand
-    // zeigen könnte.
+    // The switch: try our own native pipeline first (task 2); only if it
+    // declines (no module, old build, Android) does the previous recordAsync
+    // path begin. `nativeStart` holds the promise, not just the result:
+    // handleVideoStop later awaits that same promise instead of a boolean that
+    // could still show the old state on a lightning-fast stop.
     //
-    // Trägt die eigene MultiCam-Session den Sucher, erzeugt SIE die Aufnahme:
-    // dieselbe native Aufnahme wie sonst, nur gefüllt vom Verteiler ihrer
-    // Session statt vom Abgriff an der expo-camera-Session (Spec §4). Der
-    // Kamerawechsel mitten drin kostet dort keine Lücke, die Zeitachse ist die
-    // gemeinsame Session-Clock.
-    nativStart.current = multiCam
-      ? multiCamera.startCapture(MAX_VIDEO_SEKUNDEN)
-      : nativeCapture.startCapture(MAX_VIDEO_SEKUNDEN);
-    void nativStart.current.then((ok) => {
-      nativLaeuft.current = ok;
-      // Der recordAsync-Weg gehört der CameraView, im MultiCam-Zweig gibt es
-      // keine (cameraRef bleibt null), ein Rückfall liefe also ins Leere.
-      // Scheitert der Start dort, sagt es der Stopp über die Fehlerpille.
-      if (!ok && !multiCam) videoPromise.current = starten();
+    // If our own MultiCam session carries the viewfinder, IT produces the
+    // capture: the same native capture as otherwise, only fed by the
+    // distributor of its session instead of by the tap on the expo-camera
+    // session (spec §4). A camera switch in the middle costs no gap there, the
+    // timeline is the shared session clock.
+    nativeStart.current = multiCam
+      ? multiCamera.startCapture(MAX_VIDEO_SECONDS)
+      : nativeCapture.startCapture(MAX_VIDEO_SECONDS);
+    void nativeStart.current.then((ok) => {
+      nativeRunning.current = ok;
+      // The recordAsync path belongs to the CameraView; in the MultiCam branch
+      // there is none (cameraRef stays null), so a fallback would run into
+      // nothing. If the start fails there, the stop says so via the error
+      // pill.
+      if (!ok && !multiCam) videoPromise.current = startRecording();
     });
   };
 
   const handleVideoStop = async () => {
-    // Vor dem Stoppen gesetzt: Der Startversuch oben liest dieses Zeichen
-    // zwischen zwei Runden und gibt dann auf, statt hinter dem Loslassen noch
-    // eine Aufnahme zu beginnen.
-    videoGestoppt.current = true;
-    // Die Aufnahme endet — ab hier gilt für den Doppeltipp wieder allein
-    // der Ruhezustand (wechselErlaubt).
-    nativLaeuft.current = false;
+    // Set before stopping: the start attempt above reads this flag between two
+    // rounds and gives up then, instead of beginning a capture behind the
+    // release.
+    videoStopped.current = true;
+    // The capture ends: from here the double tap is governed by the idle state
+    // alone (switchAllowed).
+    nativeRunning.current = false;
     cameraRef.current?.stopRecording();
 
-    // Die Weiche: erst abwarten, OB die native Aufnahme überhaupt lief (das
-    // PROMISE aus handleVideoStart, nicht nur ein Boolean-Flag) — ein
-    // Blitz-Stopp direkt nach dem Start bekäme sonst den alten, noch
-    // unentschiedenen Stand zu sehen und liefe in den falschen Zweig. Im
-    // nativen Fall sind `stopRecording()` oben und der Fallback-Ablauf
-    // unten harmlos: es läuft ja gar kein recordAsync.
-    const nativGestartet = nativStart.current ? await nativStart.current : false;
-    nativStart.current = null;
-    if (nativGestartet) {
-      // Gestoppt wird dort, wo gestartet wurde. Alles danach ist für beide
-      // Pipelines dasselbe: die Datei, das Verwerfen und die Sofort-Vorschau
-      // hängen nativ an derselben laufenden Aufnahme, egal welche Session sie
-      // gefüllt hat.
-      const ergebnis = await (multiCam
+    // The switch: first wait for WHETHER the native capture was running at all
+    // (the PROMISE from handleVideoStart, not just a boolean flag). A
+    // lightning-fast stop right after the start would otherwise see the old,
+    // still undecided state and run into the wrong branch. In the native case
+    // the `stopRecording()` above and the fallback path below are harmless: no
+    // recordAsync is running anyway.
+    const nativeStarted = nativeStart.current ? await nativeStart.current : false;
+    nativeStart.current = null;
+    if (nativeStarted) {
+      // It is stopped where it was started. Everything after that is the same
+      // for both pipelines: the file, the discard and the instant preview hang
+      // natively off the same running capture, no matter which session fed
+      // it.
+      const result = await (multiCam
         ? multiCamera.stopCapture()
         : nativeCapture.stopCapture());
-      setNimmtAuf(false);
+      setCapturing(false);
       captureLock.lock(false);
-      if (!ergebnis) {
-        setAufnahmeFehler(FEHLER_TEXT);
+      if (!result) {
+        setCaptureError(ERROR_TEXT);
         return;
       }
       handoff.setVideo({ kind: 'native', fileReady: nativeCapture.fileReady() });
-      zurPreview({
-        uri: ergebnis.uri,
+      goToPreview({
+        uri: result.uri,
         typ: 'video',
-        dauer: String(Math.round(ergebnis.dauerS)),
-        tripId: reise.id,
+        dauer: String(Math.round(result.dauerS)),
+        tripId: trip.id,
       });
       return;
     }
 
-    // Hier endet der MultiCam-Zweig: der Start hat abgelehnt, und einen
-    // zweiten Weg gibt es nicht (recordAsync gehört der CameraView, die in
-    // diesem Zweig gar nicht entsteht). Die Pille sagt es, statt dass der
-    // Ablauf unten stumm ins Leere liefe.
+    // Here the MultiCam branch ends: the start declined, and there is no
+    // second path (recordAsync belongs to the CameraView, which does not even
+    // exist in this branch). The pill says so, instead of the path below
+    // running silently into nothing.
     if (multiCam) {
-      setNimmtAuf(false);
+      setCapturing(false);
       captureLock.lock(false);
-      setAufnahmeFehler(FEHLER_TEXT);
+      setCaptureError(ERROR_TEXT);
       return;
     }
 
-    // Der Sucher läuft während der Datei-Finalisierung (~100 bis 300 ms)
-    // bewusst LIVE weiter (Gerätefund 2026-08-14): das frühere pausePreview
-    // stammte aus der Zeit des harten Schnitts zur Vorschau — als Standbild
-    // war es genau der spürbare Ruckler beim Loslassen. Den Zeitsprung vom
-    // Sucher ins Video deckt inzwischen die Blende ab (vorschau.tsx).
-    const ergebnis = await videoPromise.current;
+    // The viewfinder deliberately stays LIVE during file finalization (~100 to
+    // 300 ms, device finding 2026-08-14): the earlier pausePreview came from
+    // the days of the hard cut to the preview, and as a still frame it was
+    // exactly the perceptible stutter on release. The time jump from
+    // viewfinder to video is covered by the fade these days (preview.tsx).
+    const result = await videoPromise.current;
     videoPromise.current = null;
-    setNimmtAuf(false);
-    // Vor beiden Ausgängen (Fehler-Pille wie Navigation): die Aufnahme ist
-    // vorbei, die Tabs gehören wieder bedient.
+    setCapturing(false);
+    // Before both exits (error pill as well as navigation): the capture is
+    // over, the tabs belong operable again.
     captureLock.lock(false);
-    if (!ergebnis?.uri) {
+    if (!result?.uri) {
       void cameraRef.current?.resumePreview();
-      setAufnahmeFehler(FEHLER_TEXT);
+      setCaptureError(ERROR_TEXT);
       return;
     }
-    const dauer = Math.round((Date.now() - videoStartZeit.current) / 1000);
-    // Vorwärmen (Gerätefund 2026-08-14, Snapchat-Massstab): der Player
-    // entsteht HIER und lädt, während der Sucher live weiterläuft; navigiert
-    // wird erst, wenn er abspielbereit ist — die Blende geht dann in ein
-    // bereits laufendes Video statt in eine dunkle Fläche, in die das erste
-    // Bild hineinpoppt. Über den Holder reist nur die ANZEIGE; die Daten
-    // (uri) gehen weiterhin als Param, die dokumentierte Grenze bleibt.
-    const player = createVideoPlayer(ergebnis.uri);
+    const duration = Math.round((Date.now() - videoStartTime.current) / 1000);
+    // Warm-up (device finding 2026-08-14, Snapchat yardstick): the player is
+    // created HERE and loads while the viewfinder keeps running live;
+    // navigation waits until it is ready to play, so the fade goes into an
+    // already running video instead of into a dark surface the first frame
+    // pops into. Only the DISPLAY travels through the holder; the data (uri)
+    // still goes as a param, the documented boundary stays.
+    const player = createVideoPlayer(result.uri);
     player.loop = true;
     player.muted = true;
-    // Stumm braucht er die Audio-Session nicht — und nur so lässt der
-    // spätere Mikrofon-Umbau dieses Screens ihn in Ruhe (vorschau.tsx).
+    // Muted it needs no audio session, and only that way does this screen's
+    // later microphone rebuild leave it alone (preview.tsx).
     player.audioMixingMode = 'mixWithOthers';
     player.play();
-    // Poster und Player-Vorlauf laufen parallel; das Gate ist der langsamere
-    // von beiden, gedeckelt durch die jeweilige Frist.
-    const [poster] = await Promise.all([posterErzeugen(ergebnis.uri), playerBereit(player)]);
+    // Poster and player warm-up run in parallel; the gate is the slower of the
+    // two, capped by its respective deadline.
+    const [poster] = await Promise.all([createPoster(result.uri), playerReady(player)]);
     if (player.status === 'error') {
-      // Ein kaputter Player zeigt nichts: freigeben, die Vorschau lädt dann
-      // selbst über die uri — der alte Weg als Rückfallebene.
+      // A broken player shows nothing: release it, the preview then loads via
+      // the uri itself, the old path as a fallback.
       player.release();
     } else {
       handoff.setVideo({ kind: 'player', player, poster });
     }
-    zurPreview({ uri: ergebnis.uri, typ: 'video', dauer: String(dauer), tripId: reise.id });
+    goToPreview({ uri: result.uri, typ: 'video', dauer: String(duration), tripId: trip.id });
   };
 
-  // Drei Zustände statt zwei (Fix-Runde 1: die vorherige Fassung behandelte
-  // "noch nicht gefragt"/"gerade am Fragen" fälschlich wie "abgelehnt", weil
-  // `status: 'undetermined'` ebenfalls `granted: false` trägt):
-  //   - null            -> Antwort noch unbekannt, nichts behaupten (warten)
-  //   - 'undetermined'   -> weder gefragt noch beantwortet (die Anfrage läuft
-  //                         evtl. gerade, der Systemdialog kann offen sein) ->
-  //                         ebenfalls warten, NIE den Settings-Screen zeigen
-  //   - 'denied'         -> tatsächlich abgelehnt -> erst hier der Weg in die
-  //                         Systemeinstellungen
-  if (cameraPermission === null || micPermission === null) return <LeererScreen />;
+  // Three states instead of two (fix round 1: the earlier version wrongly
+  // treated "not asked yet"/"currently asking" like "denied", because
+  // `status: 'undetermined'` also carries `granted: false`):
+  //   - null           -> answer still unknown, claim nothing (wait)
+  //   - 'undetermined' -> neither asked nor answered (the request may be
+  //                       running, the system dialog may be open) -> wait as
+  //                       well, NEVER show the settings screen
+  //   - 'denied'       -> actually denied -> only here the way into the
+  //                       system settings
+  if (cameraPermission === null || micPermission === null) return <EmptyScreen />;
   if (cameraPermission.status === 'denied' || micPermission.status === 'denied') {
-    return <BerechtigungScreen />;
+    return <PermissionScreen />;
   }
   if (!cameraPermission.granted || !micPermission.granted) {
-    // 'undetermined': weder gefragt noch beantwortet, die Anfrage kann
-    // gerade laufen, der Systemdialog kann offen sein. Warten, nichts
-    // behaupten, NIE den Settings-Screen zeigen.
-    return <LeererScreen />;
+    // 'undetermined': neither asked nor answered, the request may be running,
+    // the system dialog may be open. Wait, claim nothing, NEVER show the
+    // settings screen.
+    return <EmptyScreen />;
   }
 
   return (
     <View style={styles.screen}>
       {multiCam ? (
-        // Der Sucher der eigenen Session. Er kennt weder `mute` noch `flash`,
-        // `enableTorch`, `selectedLens` oder `onAvailableLensesChanged`: das
-        // Mikrofon hängt an der Session selbst (nicht an einem Prop), die
-        // Linse wählt der Zoom-Weg, und der Blitz kommt in einem eigenen
-        // Schritt. Alles darüber (Zoomfläche, Fokus-Ring, Kopfzeile,
-        // Zoom-Reihe, Auslöser) ist für beide Zweige dasselbe.
+        // The viewfinder of our own session. It knows neither `mute` nor
+        // `flash`, `enableTorch`, `selectedLens` or
+        // `onAvailableLensesChanged`: the microphone hangs off the session
+        // itself (not off a prop), the zoom path picks the lens, and the flash
+        // comes in a step of its own. Everything above it (zoom surface, focus
+        // ring, header, zoom row, shutter) is the same for both branches.
         <multiCamera.MultiCameraViewfinder
           testID="multikamera-sucher"
           style={StyleSheet.absoluteFill}
@@ -1652,187 +1635,186 @@ export default function AufnehmenScreen() {
         <CameraView
           ref={cameraRef}
           style={StyleSheet.absoluteFill}
-          facing={richtung}
+          facing={facing}
           mode="video"
-          // Nicht `!fokussiert` allein: die Tab-Bar bleibt sichtbar, eine
-          // GESPERRTE Aufnahme läuft nach dem Loslassen weiter, und ein Tipp
-          // auf einen anderen Tab feuert das Fokus-Cleanup mitten drin.
-          // `mute` wechselt dort aber keinen reinen Schalter — expo-camera baut
-          // dafür `session.beginConfiguration()` + `removeInput(audio)`, und
-          // eine Session-Rekonfiguration MITTEN in einer laufenden
-          // AVCaptureMovieFileOutput-Aufnahme bricht sie ab. Solange `nimmtAuf`
-          // gilt, bleibt das Mikrofon also an, unabhängig vom Fokus — es nimmt
-          // ja gerade auf. Und solange die AUFNAHME-VORSCHAU den Tab überdeckt
-          // (inVorschau), ebenfalls: das Wiederanhängen beim Instant-Rückweg
-          // war genau der Session-Umbau, der den Sucher im Moment der Rückkehr
-          // einfror (Nutzer-Befund 2026-08-18). Erst ein echter Tab-Wechsel
-          // hängt das Mikrofon ab — der orange Punkt soll nicht app-weit
-          // leuchten.
-          mute={!fokussiert && !nimmtAuf && !inVorschau}
-          // `flash` gilt für Fotos; beim Video braucht es stattdessen das
-          // Dauerlicht, derselbe Schalter, zwei Prop-Namen. Ob der Foto-Blitz
-          // im Video-Preset am Gerät wirklich feuert, prüft die Geräte-
-          // Checkliste (Spec 2026-08-13 §9); Fallback wäre die Torch.
-          flash={blitz}
-          enableTorch={blitz === 'on' && nimmtAuf}
+          // Not `!focused` alone: the tab bar stays visible, a LOCKED capture
+          // keeps running after the release, and a tap on another tab fires
+          // the focus cleanup in the middle of it. `mute` does not flip a
+          // plain switch there: expo-camera builds
+          // `session.beginConfiguration()` + `removeInput(audio)` for it, and
+          // reconfiguring a session IN THE MIDDLE of a running
+          // AVCaptureMovieFileOutput recording aborts it. So while `capturing`
+          // holds, the microphone stays attached regardless of focus: it is
+          // recording right now. And while the CAPTURE PREVIEW covers the tab
+          // (inPreview) as well: re-attaching on the instant way back was
+          // exactly the session rebuild that froze the viewfinder at the
+          // moment of return (user finding 2026-08-18). Only a real tab switch
+          // detaches the microphone: the orange dot must not glow app-wide.
+          mute={!focused && !capturing && !inPreview}
+          // `flash` applies to photos; video needs the torch instead, the
+          // same switch under two prop names. Whether the photo flash really
+          // fires in the video preset on device is on the device checklist
+          // (spec 2026-08-13 §9); the fallback would be the torch.
+          flash={flash}
+          enableTorch={flash === 'on' && capturing}
           videoQuality="1080p"
-          // Die Mehrfach-Kamera als EIN Gerät: darin schaltet iOS zwischen den
-          // Linsen selbst um, nahtlos und ohne die Session neu aufzubauen. Nur
-          // so führt der Zoom über 0,5× hinweg, ohne zu stocken.
+          // The multi-lens camera as ONE device: inside it iOS switches
+          // between the lenses itself, seamlessly and without rebuilding the
+          // session. Only that way does the zoom cross 0.5x without stalling.
           selectedLens={zoom?.name}
-          // Feuert nach jedem Gerätewechsel, und zwar NACH expo-cameras
-          // eigenem updateZoom (addDevice, defer-Block): genau der Moment, in
-          // dem unser Faktor wiederhergestellt gehört.
+          // Fires after every device switch, and specifically AFTER
+          // expo-camera's own updateZoom (addDevice, defer block): exactly the
+          // moment our factor belongs restored.
           onAvailableLensesChanged={() => {
-            // Die neue Kamera liefert: die Wechsel-Blende kann weg.
-            setWechselLaeuft(false);
-            zoomNachsetzen();
+            // The new camera delivers: the switch fade can go.
+            setSwitching(false);
+            reapplyZoom();
           }}
         />
       )}
-      {/* Fängt die Bewegung zweier Finger ab. Liegt über dem Kamerabild, aber
-          unter allem Bedienbaren: was danach kommt, bekommt seine
-          Berührungen zuerst. */}
-      <View testID="sucher-zoomflaeche" style={StyleSheet.absoluteFill} {...zoomGeste} />
-      {fokusPunkt && (
-        <FokusRing
-          key={fokusPunkt.stand}
-          x={fokusPunkt.x}
-          y={fokusPunkt.y}
-          onFertig={fokusRingFertig}
+      {/* Catches the movement of two fingers. Lies above the camera image but
+          below everything operable: whatever comes after it gets its touches
+          first. */}
+      <View testID="sucher-zoomflaeche" style={StyleSheet.absoluteFill} {...zoomGesture} />
+      {focusPoint && (
+        <FocusRing
+          key={focusPoint.state}
+          x={focusPoint.x}
+          y={focusPoint.y}
+          onDone={focusRingDone}
         />
       )}
-      {wechselLaeuft && <WechselBlende />}
-      {/* Läuft ein Video, verschwindet die Kopfzeile (Spec 2026-08-12). Der
-          Grund ist nicht Ästhetik: Im gesperrten Zustand ist die Hand frei,
-          diese Knöpfe wären also erreichbar, und ein Kamera-Wechsel mitten in
-          recordAsync kann die laufende Aufnahme abbrechen. Entfernt statt nur
-          ausgeblendet, damit auch VoiceOver nichts anbietet, was gerade nicht
-          zu bedienen ist. */}
-      {!nimmtAuf && (
-        <View testID="sucher-kopfzeile" style={[styles.kopfZeile, { top: sucherOben }]}>
-          {/* Der Trip-Umschalter (Produktkonzept): der Reisename IST der Knopf,
-              kein zusätzliches Bedienelement auf dem Bild. Das Chevron macht das
-              sichtbar, ohne mehr Platz zu verlangen als ein Icon. */}
+      {switching && <SwitchFade />}
+      {/* While a video runs, the header disappears (spec 2026-08-12). The
+          reason is not aesthetics: in the locked state the hand is free, so
+          these buttons would be reachable, and a camera switch in the middle
+          of recordAsync can abort the running recording. Removed rather than
+          just hidden, so that VoiceOver offers nothing that cannot be operated
+          right now. */}
+      {!capturing && (
+        <View testID="sucher-kopfzeile" style={[styles.headerRow, { top: viewfinderTopInset }]}>
+          {/* The trip switcher (product concept): the trip name IS the button,
+              no extra control on the image. The chevron makes that visible
+              without asking for more room than an icon. */}
           <PressScale
-            style={styles.kopfWahl}
+            style={styles.headerPicker}
             accessibilityRole="button"
-            accessibilityLabel={`Reise wechseln, ${reise.name}`}
-            onPress={() => setWahlOffen(true)}
+            accessibilityLabel={`Reise wechseln, ${trip.name}`}
+            onPress={() => setPickerOpen(true)}
           >
-            <Pill style={styles.kopfPille}>
-              <View style={styles.kopfTexte}>
-                {/* numberOfLines: ein einzelnes langes Wort (Reisenamen sind frei
-                    wählbar) würde die geschrumpfte Pille sonst überlaufen statt
-                    gekürzt zu werden. */}
+            <Pill style={styles.headerPill}>
+              <View style={styles.headerTexts}>
+                {/* numberOfLines: a single long word (trip names are free
+                    text) would otherwise overflow the shrunken pill instead of
+                    being truncated. */}
                 <Text numberOfLines={1} style={[type.bodyMedium, { color: cinema['text-1'] }]}>
-                  {reise.name}
+                  {trip.name}
                 </Text>
                 <Text style={[type.secondary, { color: cinema['text-2'] }]}>
-                  {momenteText(zaehler ?? reise.my_post_count)}
+                  {momentsText(counter ?? trip.my_post_count)}
                 </Text>
               </View>
               <ChevronDown size={18} color={cinema['text-2']} strokeWidth={1.75} />
             </Pill>
           </PressScale>
-          <View style={styles.steuerung}>
-            <PillenKnopf label="Kamera wechseln" onPress={kameraWechseln}>
+          <View style={styles.controls}>
+            <PillButton label="Kamera wechseln" onPress={switchCamera}>
               <SwitchCamera size={22} color={cinema['text-1']} strokeWidth={1.75} />
-            </PillenKnopf>
-            <PillenKnopf
-              label={blitz === 'on' ? 'Blitz ausschalten' : 'Blitz einschalten'}
-              onPress={() => setBlitz((b) => (b === 'on' ? 'off' : 'on'))}
+            </PillButton>
+            <PillButton
+              label={flash === 'on' ? 'Blitz ausschalten' : 'Blitz einschalten'}
+              onPress={() => setFlash((current) => (current === 'on' ? 'off' : 'on'))}
             >
-              {blitz === 'on' ? (
+              {flash === 'on' ? (
                 <Zap size={22} color={cinema['text-1']} strokeWidth={1.75} />
               ) : (
                 <ZapOff size={22} color={cinema['text-2']} strokeWidth={1.75} />
             )}
-          </PillenKnopf>
+          </PillButton>
         </View>
       </View>
       )}
-      {aufnahmeFehler && (
-        <Pill style={[styles.fehlerPille, { bottom: fehlerUnten(zoomSichtbar) + leisteHoehe }]}>
-          <Text style={[type.secondary, styles.fehlerText]}>{aufnahmeFehler}</Text>
+      {captureError && (
+        <Pill style={[styles.errorPill, { bottom: errorBottom(zoomVisible) + barHeight }]}>
+          <Text style={[type.secondary, styles.errorText]}>{captureError}</Text>
         </Pill>
       )}
-      {zoomSichtbar && zoom && (
+      {zoomVisible && zoom && (
         <View
           style={[
             styles.zoomWrap,
-            { bottom: AUSLOESER_UNTEN + AUSLOESER_GROESSE + ZOOM_ABSTAND + leisteHoehe },
+            { bottom: SHUTTER_BOTTOM + SHUTTER_SIZE + ZOOM_DISTANCE + barHeight },
           ]}
         >
           <ZoomSelector
             steps={zoom.steps}
-            factor={faktor}
-            onSelect={(stufe) => zoomSetzen(stufe, true)}
+            factor={factor}
+            onSelect={(step) => applyZoom(step, true)}
           />
         </View>
       )}
       <View
         testID="ausloeser-buehne"
-        style={[styles.ausloeserWrap, { bottom: AUSLOESER_UNTEN + leisteHoehe }]}
+        style={[styles.shutterWrap, { bottom: SHUTTER_BOTTOM + barHeight }]}
       >
         <ShutterButton
-          onPhoto={() => void handleFoto()}
+          onPhoto={() => void handlePhoto()}
           onVideoStart={handleVideoStart}
           onVideoStop={() => void handleVideoStop()}
-          onZoomDrag={zoomZug}
-          maxSeconds={MAX_VIDEO_SEKUNDEN}
-          onLockChange={setAufnahmeGesperrt}
+          onZoomDrag={zoomDrag}
+          maxSeconds={MAX_VIDEO_SECONDS}
+          onLockChange={setCaptureLocked}
         />
       </View>
     </View>
   );
 }
 
-// Die hellen Werte kommen direkt aus `palette` statt über useTheme(): diese
-// Datei führt beide Paletten nebeneinander und bleibt so bei EINEM Muster
-// (StyleSheet mit Token-Werten). Light-only (§1) macht beide Wege ohnehin
-// deckungsgleich — `theme.colors` IST `palette`.
+// The light values come straight from `palette` instead of through useTheme():
+// this file carries both palettes side by side and so stays with ONE pattern
+// (StyleSheet with token values). Light-only (§1) makes both paths identical
+// anyway: `theme.colors` IS `palette`.
 const styles = StyleSheet.create({
-  // Der Kinosaal: nur noch der Sucher selbst.
+  // The cinema hall: only the viewfinder itself.
   screen: { flex: 1, backgroundColor: cinema['bg-0'] },
-  // Alles andere in diesem Tab, siehe LeererScreen.
-  hell: { flex: 1, backgroundColor: palette['bg-0'] },
-  mitte: { justifyContent: 'center', padding: spacing.screen },
-  // Grösser als Camper und Filmrolle (beide quadratisch auf 160): das Ticket
-  // ist 3:2 quer und trägt diesen Screen allein, auf gleicher Fläche wirkte es
-  // neben dem grossen H2 verloren. 288 × 192, beides im 4er-Raster (§3).
+  // Everything else in this tab, see EmptyScreen.
+  light: { flex: 1, backgroundColor: palette['bg-0'] },
+  center: { justifyContent: 'center', padding: spacing.screen },
+  // Bigger than the camper and the film reel (both square at 160): the ticket
+  // is 3:2 landscape and carries this screen on its own; at the same size it
+  // looked lost next to the large H2. 288 x 192, both on the 4-pt grid (§3).
   //
-  // Die Breite ist eine OBERGRENZE, keine feste Zahl: 288 plus die zweimal 24
-  // Screen-Rand sprengen ein iPhone SE (320 breit), das Bild liefe über den
-  // Rand hinaus. `width: '100%'` + `aspectRatio` lässt es auf schmalen Geräten
-  // mitschrumpfen und hält dabei 3:2. Bei 1536 px Quelle bleiben über 5x
-  // Reserve, scharf bis 3x ohne @2x/@3x-Dateien.
-  ticketBuehne: { alignItems: 'center', marginBottom: spacing.l },
-  // Der Hub bewegt nur das Bild (transform ändert kein Layout), der Schatten
-  // bleibt liegen: genau daraus entsteht der Eindruck von Höhe.
-  ticketFlaeche: { width: '100%', maxWidth: TICKET_BREITE },
-  flugticket: { width: '100%', aspectRatio: 3 / 2 },
-  titel: { color: palette['text-1'] },
+  // The width is an UPPER BOUND, not a fixed number: 288 plus the two 24-pt
+  // screen margins bursts an iPhone SE (320 wide), the image would run past
+  // the edge. `width: '100%'` + `aspectRatio` lets it shrink along on narrow
+  // devices while keeping 3:2. At a 1536 px source there is over 5x of
+  // reserve, sharp up to 3x without @2x/@3x files.
+  ticketStage: { alignItems: 'center', marginBottom: spacing.l },
+  // The lift moves only the image (transform changes no layout), the shadow
+  // stays put: that is exactly what creates the impression of height.
+  ticketSurface: { width: '100%', maxWidth: TICKET_WIDTH },
+  flightTicket: { width: '100%', aspectRatio: 3 / 2 },
+  title: { color: palette['text-1'] },
   text: { color: palette['text-2'] },
-  wahlInhalt: { padding: spacing.screen, paddingTop: spacing.xl },
-  wahlZeile: {
+  pickerContent: { padding: spacing.screen, paddingTop: spacing.xl },
+  pickerRow: {
     padding: spacing.base,
     borderRadius: radius.control,
-    // §1: `bg-1` ist die abgesetzte Fläche auf hellem Grund.
+    // §1: `bg-1` is the raised surface on a light ground.
     backgroundColor: palette['bg-1'],
     marginBottom: spacing.m,
     gap: spacing.xs,
   },
-  // Eine Zeile für alles, was oben auf dem Sucher liegt: links die Kopf-Pille,
-  // rechts die Steuerung (Re-Review, Minor 1). Vorher lagen beide einzeln
-  // absolut positioniert übereinander, solange rechts nichts war, fiel nicht
-  // auf, dass die Kopf-Pille unbegrenzt breit wird; mit der Steuerung daneben
-  // läuft ein langer Reisename darunter. Die Zeile begrenzt die Pille
-  // (flexShrink), ohne die Steuerung zu verschieben: sie sitzt weiterhin am
-  // rechten Screen-Rand (§3, Ränder 24).
-  // `top` fehlt hier bewusst: es kommt aus useOberkante und damit vom Gerät,
-  // nicht aus dem Stylesheet (siehe sucherOben).
-  kopfZeile: {
+  // One row for everything that lies on top of the viewfinder: the header pill
+  // on the left, the controls on the right (re-review, minor 1). Before, both
+  // were positioned absolutely on their own; as long as nothing was on the
+  // right it went unnoticed that the header pill grows without bound, with the
+  // controls beside it a long trip name runs underneath. The row bounds the
+  // pill (flexShrink) without moving the controls: they still sit at the right
+  // screen margin (§3, margins 24).
+  // `top` is deliberately missing here: it comes from useTopInset and thus
+  // from the device, not from the stylesheet (see viewfinderTopInset).
+  headerRow: {
     position: 'absolute',
     left: spacing.screen,
     right: spacing.screen,
@@ -1841,14 +1823,14 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: spacing.m,
   },
-  // Das Schrumpfen sitzt am Druckbereich statt an der Pille: seit der Name ein
-  // Knopf ist, liegt zwischen Zeile und Pille noch das Pressable, und ein
-  // flexShrink weiter innen liesse dieses auf voller Breite stehen.
-  kopfWahl: { flexShrink: 1 },
-  // Pille auf der Kamera-Vorschau (DESIGN-LANGUAGE §1/§4): translucent, Radius
-  // 999, Blur über components/Pille.tsx (kein backgroundColor hier, das
-  // übernimmt die Pille-Komponente selbst).
-  kopfPille: {
+  // The shrinking sits on the press area instead of on the pill: since the
+  // name became a button there is a Pressable between row and pill, and a
+  // flexShrink further in would leave that one at full width.
+  headerPicker: { flexShrink: 1 },
+  // Pill on the camera preview (DESIGN-LANGUAGE §1/§4): translucent, radius
+  // 999, blur via components/Pill.tsx (no backgroundColor here, the Pill
+  // component takes care of that itself).
+  headerPill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.s,
@@ -1856,41 +1838,41 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.s,
     borderRadius: radius.pill,
   },
-  // Name und Zähler bleiben untereinander, das Chevron steht daneben. Der
-  // Schrumpf-Anteil gehört den Texten, nicht dem Icon.
-  kopfTexte: { flexShrink: 1 },
-  // Kamera wechseln und Blitz (Spec §4): rechts oben, auf Höhe der Kopf-Pille,
-  // untereinander im 4er-Raster (§3). flexShrink: 0, schrumpfen soll die
-  // Pille, nicht die Bedienelemente.
-  steuerung: {
+  // Name and counter stay stacked, the chevron sits beside them. The shrink
+  // share belongs to the texts, not to the icon.
+  headerTexts: { flexShrink: 1 },
+  // Switch camera and flash (spec §4): top right, level with the header pill,
+  // stacked on the 4-pt grid (§3). flexShrink: 0, the pill should shrink, not
+  // the controls.
+  controls: {
     flexShrink: 0,
     gap: spacing.m,
   },
-  steuerPille: {
+  controlPill: {
     width: 44,
     height: 44,
     borderRadius: radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  // `bottom` fehlt hier wie beim zoomWrap bewusst: seit die Tab-Leiste als
-  // Overlay über dem Bild liegt, kommt zum Bodenabstand die Leistenhöhe des
-  // Geräts dazu (leisteHoehe, siehe JSX), und die kennt erst das Rendern.
-  ausloeserWrap: {
+  // `bottom` is deliberately missing here, as with zoomWrap: since the tab bar
+  // lies as an overlay over the image, the device's bar height is added to the
+  // bottom spacing (barHeight, see JSX), and only the render knows it.
+  shutterWrap: {
     position: 'absolute',
     alignSelf: 'center',
   },
-  // Dicht über dem Auslöser, wie in der Kamera-App: dessen Bodenabstand plus
-  // Durchmesser plus der knappe Abstand dazwischen (Werte im JSX).
+  // Tight above the shutter, as in the camera app: its bottom spacing plus
+  // diameter plus the narrow gap between them (values in the JSX).
   zoomWrap: {
     position: 'absolute',
     alignSelf: 'center',
   },
-  // Über dem Auslöser, nicht darunter (dort liegt die Tab-Bar) und nicht
-  // oben, wo sie beim nächsten Versuch unter der Kopfzeile klemmte. `bottom`
-  // fehlt hier bewusst: es hängt daran, ob die Zoom-Reihe dazwischenliegt,
-  // und kommt darum aus fehlerUnten().
-  fehlerPille: {
+  // Above the shutter, not below it (that is where the tab bar sits) and not
+  // at the top, where the next attempt wedged it under the header. `bottom` is
+  // deliberately missing here: it depends on whether the zoom row lies in
+  // between, and comes from errorBottom().
+  errorPill: {
     position: 'absolute',
     left: spacing.screen,
     right: spacing.screen,
@@ -1899,15 +1881,15 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     alignItems: 'center',
   },
-  // Zentriert, weil ein einzelner kurzer Satz in einer Pille keine Textwüste
-  // ist, die §7 meint, sondern eine Beschriftung.
-  fehlerText: { color: cinema['text-1'], textAlign: 'center' },
-  // Der Fokus-Ring: eine feine helle Linie auf dem Kamerabild, Radius 999
-  // (§4). `left`/`top` fehlen bewusst — sie kommen vom Tipp-Punkt.
-  fokusRing: {
+  // Centered, because a single short sentence in a pill is not the wall of
+  // text §7 is about but a label.
+  errorText: { color: cinema['text-1'], textAlign: 'center' },
+  // The focus ring: a fine light line on the camera image, radius 999 (§4).
+  // `left`/`top` are deliberately missing, they come from the tap point.
+  focusRing: {
     position: 'absolute',
-    width: FOKUS_RING_GROESSE,
-    height: FOKUS_RING_GROESSE,
+    width: FOCUS_RING_SIZE,
+    height: FOCUS_RING_SIZE,
     borderRadius: radius.pill,
     borderWidth: 2,
     borderColor: cinema['text-1'],

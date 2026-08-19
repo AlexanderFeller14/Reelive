@@ -17,57 +17,53 @@ export default function JoinScreen() {
   const { code } = useLocalSearchParams<{ code: string }>();
   const { status } = useAuth();
   const [preview, setPreview] = useState<InvitePreview | null>(null);
-  const [geladen, setGeladen] = useState(false);
-  const [fehler, setFehler] = useState<string | null>(null);
-  const [laedt, setLaedt] = useState(false);
-  // Getrennt von `fehler`: das hier ist ein Ladefehler der Vorschau und darf
-  // wiederholt werden, `fehler` kommt vom Beitritt selbst und ist endgueltig.
-  const [ladefehler, setLadefehler] = useState<string | null>(null);
-  const [versuch, setVersuch] = useState(0);
+  const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
-    let aktiv = true;
-    setGeladen(false);
-    void peekInvite(code).then(({ data, error }) => {
-      if (!aktiv) return;
+    let active = true;
+    setLoaded(false);
+    void peekInvite(code).then(({ data, error: peekError }) => {
+      if (!active) return;
       setPreview(data);
-      setLadefehler(error);
-      setGeladen(true);
+      setLoadError(peekError);
+      setLoaded(true);
     });
     return () => {
-      aktiv = false;
+      active = false;
     };
-  }, [code, versuch]);
+  }, [code, attempt]);
 
-  const beitreten = async () => {
-    // Ohne Session zuerst anmelden, der Code wartet solange und wird vom
-    // Root-Layout eingelöst, sobald Session und Profil stehen.
+  const join = async () => {
     if (status !== 'signedIn') {
       await rememberInvite(code);
       router.replace('/welcome');
       return;
     }
-    setLaedt(true);
-    const ergebnis = await redeemInvite(code);
-    setLaedt(false);
-    const zielPfad = resolveTargetPath(ergebnis);
-    if (zielPfad) {
-      router.replace(zielPfad);
+    setLoading(true);
+    const result = await redeemInvite(code);
+    setLoading(false);
+    const targetPath = resolveTargetPath(result);
+    if (targetPath) {
+      router.replace(targetPath);
       return;
     }
-    setFehler(
-      ergebnis.status === 'not_active'
+    setError(
+      result.status === 'not_active'
         ? 'Diese Reise ist schon abgeschlossen. Frag nach dem Recap-Link.'
         : 'Diesen Einladungslink gibt es nicht mehr.'
     );
   };
 
-  if (!geladen) return <View style={{ flex: 1, backgroundColor: colors['bg-0'] }} />;
+  if (!loaded) return <View style={{ flex: 1, backgroundColor: colors['bg-0'] }} />;
 
-  const offen = preview !== null && preview.status === 'active';
-  const meldung =
-    fehler ??
-    ladefehler ??
+  const open = preview !== null && preview.status === 'active';
+  const message =
+    error ??
+    loadError ??
     (preview === null
       ? 'Diesen Einladungslink gibt es nicht mehr.'
       : preview.status !== 'active'
@@ -91,15 +87,13 @@ export default function JoinScreen() {
         </>
       )}
 
-      {meldung && <Text style={[type.body, { color: colors.danger }]}>{meldung}</Text>}
+      {message && <Text style={[type.body, { color: colors.danger }]}>{message}</Text>}
 
       <View style={{ marginTop: spacing.xl }}>
-        {ladefehler ? (
-          // Ein Ladefehler ist kein Urteil ueber die Einladung, der einzig
-          // sinnvolle naechste Schritt ist, es nochmal zu versuchen.
-          <Button variant="primary" label="Nochmal versuchen" onPress={() => setVersuch((v) => v + 1)} />
-        ) : offen && !fehler ? (
-          <Button variant="primary" label="Reise beitreten" onPress={() => void beitreten()} loading={laedt} />
+        {loadError ? (
+          <Button variant="primary" label="Nochmal versuchen" onPress={() => setAttempt((n) => n + 1)} />
+        ) : open && !error ? (
+          <Button variant="primary" label="Reise beitreten" onPress={() => void join()} loading={loading} />
         ) : (
           <Button variant="secondary" label="Zu meinen Reisen" onPress={() => router.replace('/trip')} />
         )}

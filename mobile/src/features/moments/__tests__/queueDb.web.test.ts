@@ -1,6 +1,6 @@
 // Web version of queueDb: no real database, so no SQLite mock needed. Only
 // tests the contract that uploadWorker.ts, counter.ts, and
-// reise/[id]/index.tsx expect via the namespace import (see queueDb.web.ts).
+// trip/[id]/index.tsx expect via the namespace import (see queueDb.web.ts).
 import {
   initQueue,
   addJob,

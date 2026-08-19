@@ -1,5 +1,5 @@
 // Word-for-word identical to the private copies in `recap/[id]/player.tsx`
-// and `teilen/[token].tsx`. This file is where they're meant to converge;
+// and `share/[token].tsx`. This file is where they're meant to converge;
 // switching the two screens over to it is mechanical follow-up work and
 // doesn't belong in a fix round for the map (both files sit under other
 // open tasks).

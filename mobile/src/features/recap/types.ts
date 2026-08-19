@@ -24,17 +24,17 @@ export type RecapMoment = {
   // Comes from profiles.display_name (join, see recapApi.fetchRecapMoments),
   // so it isn't a field of posts itself.
   authorName: string;
-  // Like autor_name, from the profiles join (recapApi.fetchRecapMoments).
+  // Like authorName, from the profiles join (recapApi.fetchRecapMoments).
   // Null means "no picture", then the circle carries the initial.
   authorAvatarKey: string | null;
 };
 
 // A group of moments of the same trip day (see days.ts).
 export type RecapDay = {
-  nummer: number; // counts from trips.start_date as day 1
-  datum: string; // 'YYYY-MM-DD', canonical from start_date + (nummer - 1) days
-  ort: string | null;
-  momente: RecapMoment[];
+  number: number; // counts from trips.start_date as day 1
+  date: string; // 'YYYY-MM-DD', canonical from start_date + (number - 1) days
+  place: string | null;
+  moments: RecapMoment[];
 };
 
 // Defined here for Task 12 as well, so both tasks use the same types.
@@ -45,5 +45,5 @@ export type Comment = {
   user_id: string;
   text: string;
   created_at: string;
-  autor_name: string;
+  authorName: string;
 };

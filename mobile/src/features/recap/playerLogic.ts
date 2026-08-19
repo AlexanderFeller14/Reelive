@@ -23,10 +23,10 @@ import { groupByDays } from './days';
 // player.tsx, oeffneMelden/schliesseMelden).
 export type PauseReason = 'halten' | 'kommentare' | 'zwischenkarte' | 'neuversuch' | 'melden';
 
-export type PlayerState = { index: number; pausiert: ReadonlySet<PauseReason>; fortschritt: number };
+export type PlayerState = { index: number; paused: ReadonlySet<PauseReason>; progress: number };
 
 // No unnecessary re-render/effect rerun (same bail-out principle as a
-// `setState` given the same value again): a consumer that carries `pausiert`
+// `setState` given the same value again): a consumer that carries `paused`
 // in an effect dependency array needs a new reference to notice the change
 // at all.
 export function withReason(paused: ReadonlySet<PauseReason>, reason: PauseReason): ReadonlySet<PauseReason> {
@@ -105,23 +105,23 @@ export function durationFor(m: RecapMoment): number {
   return Math.max(VIDEO_DURATION_MIN_MS, m.duration_s * 1000);
 }
 
-// Contract for Task 11 (review finding): "pausiert stays untouched" only
+// Contract for Task 11 (review finding): "paused stays untouched" only
 // holds for a GESTURE (the screen calls advance()/goBack() in reaction to a
-// tap, while the state of `pausiert` lives on unchanged). For a
+// tap, while the state of `paused` lives on unchanged). For a
 // PROGRAMMATIC transition, video ended, URL renewal after a 403 (V10), a
-// skipped day interstitial, a lingering `pausiert: true` from a COMPLETELY
+// skipped day interstitial, a lingering `paused: true` from a COMPLETELY
 // DIFFERENT reason (e.g. because the previous moment was paused via hold)
 // means a player that silently stops advancing. For those calls, Task 11
-// itself must set `pausiert: false` in the returned state, advance() does
+// itself must set `paused: false` in the returned state, advance() does
 // not do that automatically.
 export function advance(state: PlayerState, count: number): PlayerState | 'ende' {
   const nextIndex = state.index + 1;
   if (nextIndex >= count) return 'ende';
-  return { ...state, index: nextIndex, fortschritt: 0 };
+  return { ...state, index: nextIndex, progress: 0 };
 }
 
 export function goBack(state: PlayerState): PlayerState {
-  return { ...state, index: Math.max(0, state.index - 1), fortschritt: 0 };
+  return { ...state, index: Math.max(0, state.index - 1), progress: 0 };
 }
 
 // Day numbers for a `moments` list, cached by the array's REFERENCE (not
@@ -156,7 +156,7 @@ function dayNumbersById(moments: RecapMoment[], startDate: string): Map<string, 
   if (!dayNumbers) {
     dayNumbers = new Map<string, number>();
     for (const day of groupByDays(moments, startDate)) {
-      for (const moment of day.momente) dayNumbers.set(moment.id, day.nummer);
+      for (const moment of day.moments) dayNumbers.set(moment.id, day.number);
     }
     byStartDate.set(startDate, dayNumbers);
   }

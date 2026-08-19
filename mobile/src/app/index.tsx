@@ -1,3 +1,3 @@
 export default function Index() {
-  return null; // Splash bleibt sichtbar, bis der Guard im Root-Layout umleitet
+  return null; // Splash stays visible until the guard in the root layout redirects
 }

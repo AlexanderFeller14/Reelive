@@ -68,7 +68,7 @@ export const TILE_ATTRIBUTION =
 const MAX_ZOOM = 19;
 
 // The pin's dimensions, word for word matching the native version
-// (components/KartenNadel.tsx): 44px including the ring like the largest
+// (components/MapPin.tsx): 44px including the ring like the largest
 // avatar (DESIGN-LANGUAGE §4), ring 2px, counter and video pill 20px each.
 const SIZE = 44;
 const RING = 2;

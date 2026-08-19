@@ -1,5 +1,5 @@
 // Content of the "share recap" sheet (Task-6-brief), mounted into
-// recap/[id]/uebersicht.tsx via <Sheet kino>. A separate component instead
+// recap/[id]/overview.tsx via <Sheet kino>. A separate component instead
 // of a local sub-building-block directly in uebersicht.tsx (unlike e.g.
 // TagesAbschnitt there): the state machine here (load, create, revoke,
 // expiry choice, copy, share) is big enough that it stays clearer in its

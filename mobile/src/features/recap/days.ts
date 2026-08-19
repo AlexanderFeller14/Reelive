@@ -63,7 +63,7 @@ function calculateRawDayNumber(moment: RecapMoment, startDate: string): number |
     const diffDays = Math.round((toUtcDay(ly, lm, ld) - toUtcDay(sy, sm, sd)) / MS_PER_DAY);
     // formatToParts() returns 'year'/'month'/'day' not as separate parts but
     // as a single 'literal' part on some Intl partial implementations
-    // (historically Hermes/iOS, see the comment in mobile/src/app/vorschau.tsx,
+    // (historically Hermes/iOS, see the comment in mobile/src/app/preview.tsx,
     // which avoids Intl for exactly this reason).
     if (!Number.isFinite(diffDays)) {
       throw new RangeError('Tagesnummer liess sich nicht berechnen (kein auswertbares Kalenderdatum).');
@@ -101,10 +101,10 @@ export function groupByDays(moments: RecapMoment[], startDate: string): RecapDay
     }
   }
   return [...groups.entries()].map(([dayNumber, momentsOfDay]) => ({
-    nummer: dayNumber,
-    datum: dateForDay(startDate, dayNumber),
-    ort: placeOfTheDay(momentsOfDay),
-    momente: momentsOfDay,
+    number: dayNumber,
+    date: dateForDay(startDate, dayNumber),
+    place: placeOfTheDay(momentsOfDay),
+    moments: momentsOfDay,
   }));
 }
 

@@ -1,20 +1,19 @@
-// W4 (Spec-Versprechen): der Web-Player kann nichts schreiben. Ergänzt
-// modulgraph.test.ts (statisch: welche Module sind überhaupt ERREICHBAR) um
-// die VERHALTENSBASIERTE Gegenprobe: den Screen tatsächlich mounten, jede
-// vorhandene Interaktion durchspielen (Tippen, Halten, Auto-Vorschub bis zum
-// Ende, "Nochmal ansehen", "Nochmal versuchen" nach einem Fehler), und
-// belegen, dass dabei NUR EIN einziger, lesender Aufruf beim echten
-// Supabase-Client ankommt.
+// W4 (spec promise): the web player can write nothing. Complements
+// moduleGraph.test.ts (static: which modules are REACHABLE at all) with the
+// BEHAVIOUR-BASED counter-check: actually mount the screen, play through every
+// interaction there is (tapping, holding, auto advance up to the end,
+// "Nochmal ansehen", "Nochmal versuchen" after an error), and prove that only
+// ONE single, reading call arrives at the real Supabase client.
 //
-// Bewusst eine EIGENE Datei statt ein weiterer Block in token.test.tsx: dort
-// wird `@/features/teilen/shareApi` komplett gemockt (für einfache, schnelle
-// UI-Tests), hier bleibt shareApi UNGEMOCKT (jest.requireActual käme auf
-// dasselbe hinaus, ein zweiter jest.mock-Aufruf für dasselbe Modul in
-// derselben Datei wäre nur verwirrend), stattdessen wird die IO-GRENZE
-// darunter (der Supabase-Client selbst) durch Spione ersetzt. Genau diese
-// Kombination, echte Implementierung, gemockte Aussenkante, ist die
-// Lehre aus Phase 5: ein Mock auf shareApi selbst würde exakt den
-// Mechanismus ersetzen, der hier geprüft werden soll.
+// Deliberately a file of its OWN instead of another block in token.test.tsx:
+// there `@/features/sharing/shareApi` is mocked completely (for simple, fast
+// UI tests), here shareApi stays UNMOCKED (jest.requireActual would come to
+// the same thing, and a second jest.mock call for the same module in the same
+// file would only be confusing); instead the IO BOUNDARY underneath (the
+// Supabase client itself) is replaced by spies. Exactly this combination, real
+// implementation and mocked outer edge, is the lesson from phase 5: a mock on
+// shareApi itself would replace precisely the mechanism that is to be tested
+// here.
 const mockInvoke = jest.fn();
 const mockFrom = jest.fn();
 const mockRpc = jest.fn();
@@ -69,14 +68,14 @@ jest.mock('expo-video', () => ({
 }));
 
 import { render, screen, fireEvent, act } from '@testing-library/react-native';
-import GeteilterRecapScreen from '../[token]';
+import SharedRecapScreen from '../[token]';
 
 beforeEach(() => {
   jest.clearAllMocks();
   for (const key of Object.keys(mockListeners)) delete mockListeners[key];
 });
 
-const gueltigeAntwort = {
+const validResponse = {
   reise: { name: 'Lissabon Städtetrip', start_date: '2026-08-10', end_date: '2026-08-14' },
   medien: [
     {
@@ -93,24 +92,24 @@ const gueltigeAntwort = {
   gueltig_bis: '2099-01-01T00:00:00.000Z',
 };
 
-test('eine vollständige Interaktion (laden, tippen, halten, Auto-Vorschub, Video-Ende, Ende, Nochmal ansehen) ruft NUR EINMAL functions.invoke("share-link", aktion "aufloesen") auf, nie .from()/.rpc()/.auth', async () => {
-  mockInvoke.mockResolvedValueOnce({ data: gueltigeAntwort, error: null });
+test('a whole run through the page (load, tap, hold, auto advance, video end, closing titles, "Nochmal ansehen") calls functions.invoke("share-link", aktion "aufloesen") exactly ONCE and never .from()/.rpc()/.auth', async () => {
+  mockInvoke.mockResolvedValueOnce({ data: validResponse, error: null });
 
-  await render(<GeteilterRecapScreen />);
+  await render(<SharedRecapScreen />);
   await act(async () => {});
   expect(screen.getByTestId('teilen-bereit')).toBeTruthy();
 
-  // Zwischenkarte des ersten Moments abwarten.
+  // Wait out the interstitial of the first moment.
   await act(async () => {
     jest.advanceTimersByTime(1500);
   });
 
-  // Tippen rechts (kurz) → p2 (Video).
+  // A short tap on the right leads to p2 (the video).
   await fireEvent(screen.getByTestId('teilen-rechts'), 'pressIn');
   await fireEvent(screen.getByTestId('teilen-rechts'), 'pressOut');
   expect(screen.getByTestId('teilen-video')).toBeTruthy();
 
-  // Halten → Loslassen (bleibt bei p2, kein Sprung).
+  // Hold, then let go (stays on p2, no jump).
   await fireEvent(screen.getByTestId('teilen-rechts'), 'pressIn');
   await act(async () => {
     jest.advanceTimersByTime(300);
@@ -118,13 +117,13 @@ test('eine vollständige Interaktion (laden, tippen, halten, Auto-Vorschub, Vide
   await fireEvent(screen.getByTestId('teilen-rechts'), 'pressOut');
   expect(screen.getByTestId('teilen-video')).toBeTruthy();
 
-  // Video-Ende-Event → Ende-Phase (letzter Moment).
+  // The video end event leads into the closing titles (last moment).
   await act(async () => {
     for (const cb of mockListeners.playToEnd ?? []) cb();
   });
   expect(screen.getByTestId('teilen-ende')).toBeTruthy();
 
-  // "Nochmal ansehen", rein lokaler State-Reset, KEIN neuer Netzwerkaufruf.
+  // "Nochmal ansehen", a purely local state reset, NO new network call.
   await fireEvent.press(screen.getByText('Nochmal ansehen'));
   expect(screen.getByTestId('teilen-bereit')).toBeTruthy();
 
@@ -136,7 +135,7 @@ test('eine vollständige Interaktion (laden, tippen, halten, Auto-Vorschub, Vide
   expect(mockAuthSignOut).not.toHaveBeenCalled();
 });
 
-test('ein abgelehnter Token: "Nochmal versuchen" ruft erneut NUR functions.invoke auf, nie .from()/.rpc()/.auth', async () => {
+test('after a rejected token, "Nochmal versuchen" reaches for functions.invoke once more and for nothing else, never .from()/.rpc()/.auth', async () => {
   mockInvoke.mockResolvedValueOnce({
     data: null,
     error: Object.assign(new Error('http'), {
@@ -144,14 +143,14 @@ test('ein abgelehnter Token: "Nochmal versuchen" ruft erneut NUR functions.invok
       context: new Response(JSON.stringify({ fehler: 'Unbekannter Token.' }), { status: 404 }),
     }),
   });
-  await render(<GeteilterRecapScreen />);
+  await render(<SharedRecapScreen />);
   await act(async () => {});
   expect(screen.getByTestId('teilen-fehler')).toBeTruthy();
-  // Byte-gleiche Ablehnung (siehe shareApi.test.ts), der Screen zeigt NICHT
-  // den rohen Function-Text "Unbekannter Token.", sondern den festen Satz.
+  // A byte-identical rejection (see shareApi.test.ts), the screen does NOT
+  // show the raw function text "Unbekannter Token." but the fixed sentence.
   expect(screen.getByText('Dieser Link funktioniert nicht mehr.')).toBeTruthy();
 
-  mockInvoke.mockResolvedValueOnce({ data: gueltigeAntwort, error: null });
+  mockInvoke.mockResolvedValueOnce({ data: validResponse, error: null });
   await fireEvent.press(screen.getByText('Nochmal versuchen'));
   await act(async () => {});
   expect(screen.getByTestId('teilen-bereit')).toBeTruthy();

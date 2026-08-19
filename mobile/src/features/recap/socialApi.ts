@@ -124,7 +124,7 @@ export async function removeReaction(postId: string, emoji: string): Promise<{ e
 }
 
 const COMMENT_COLUMNS = 'id, post_id, user_id, text, created_at, profiles(display_name)';
-type CommentRow = Omit<Comment, 'autor_name'> & { profiles: { display_name: string } | null };
+type CommentRow = Omit<Comment, 'authorName'> & { profiles: { display_name: string } | null };
 
 // Comments of ONE moment, deliberately not bundled like fetchReactions: the
 // comment panel always shows only the one currently open moment, preloading
@@ -149,7 +149,7 @@ export async function fetchComments(postId: string): Promise<Loaded<Comment[]>> 
     user_id: row.user_id,
     text: row.text,
     created_at: row.created_at,
-    autor_name: row.profiles?.display_name ?? '',
+    authorName: row.profiles?.display_name ?? '',
   }));
   return { data: comments, error: null };
 }

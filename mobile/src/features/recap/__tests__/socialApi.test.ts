@@ -228,7 +228,7 @@ describe('fetchComments', () => {
     expect(result.data).toEqual([
       {
         id: 'c1', post_id: 'p1', user_id: 'u1', text: 'Schön hier!',
-        created_at: '2026-08-10T09:05:00.000Z', autor_name: 'Lea',
+        created_at: '2026-08-10T09:05:00.000Z', authorName: 'Lea',
       },
     ]);
   });
@@ -239,7 +239,7 @@ describe('fetchComments', () => {
       error: null,
     });
     const result = await fetchComments('p1');
-    expect(result.data[0].autor_name).toBe('');
+    expect(result.data[0].authorName).toBe('');
   });
 
   test('queries exactly the one given moment, in chronological order', async () => {

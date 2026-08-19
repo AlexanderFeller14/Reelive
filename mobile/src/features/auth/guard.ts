@@ -16,7 +16,7 @@ export function resolveRoute(status: AuthStatus): '/welcome' | '/profile-setup' 
 // exception, the guard would immediately redirect a freshly tapped invite
 // link away.
 
-// 'teilen' (Phase 6, web player) likewise: a shared recap link shows itself
+// 'share' (Phase 6, web player) likewise: a shared recap link shows itself
 // via share-link/aufloesen exclusively to outsiders WITHOUT an account (Spec
 // promise W5), secureSessionStorage.web.ts never returns a session on this
 // platform, otherwise the guard would redirect every call to /welcome
@@ -26,8 +26,8 @@ export function isPublicArea(area: string | undefined): boolean {
 }
 
 // Where a signed-in person is allowed to stand without being sent back to
-// /aufnehmen. For a long time that was exactly '(tabs)'; the capture preview
-// (app/vorschau.tsx) is the first area next to it.
+// /capture. For a long time that was exactly '(tabs)'; the capture preview
+// (app/preview.tsx) is the first area next to it.
 //
 // It deliberately sits OUTSIDE the tab navigator: its scene ends at the top
 // edge of the tab bar, so every `bottom` in the screen would measure from
@@ -37,7 +37,7 @@ export function isPublicArea(area: string | undefined): boolean {
 // neighbor of the tab navigator, the preview covers it immediately.
 //
 // The web hard lock stays unaffected by this: isWebLocked() still only lets
-// 'teilen' through, so the preview never even gets mounted on web.
+// 'share' through, so the preview never even gets mounted on web.
 export function isAreaForSignedIn(area: string | undefined): boolean {
   return area === '(tabs)' || area === 'preview';
 }
@@ -73,7 +73,7 @@ export function isAreaForSignedIn(area: string | undefined): boolean {
 // _layout.tsx renders NO <Stack/> AT ALL on `true`, not just a redirect: all
 // other route screens therefore never get mounted on web, their effects
 // never run (this also closes the silent job loss via enqueueJob() reported
-// in Task 4, because vorschau.tsx would have to be mounted for that first).
+// in Task 4, because preview.tsx would have to be mounted for that first).
 export function isWebLocked(platformOS: string, area: string | undefined): boolean {
   return platformOS === 'web' && area !== 'share';
 }

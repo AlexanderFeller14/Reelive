@@ -42,259 +42,256 @@ import type {
   MapPoint,
 } from '@/features/map/types';
 
-// Eine feste leere Map statt `new Map()` bei jedem Zurücksetzen: der Wert geht
-// als Abhängigkeit in die Nadeln, und eine jedes Mal neue Map liesse sie ohne
-// Grund neu rechnen.
-const KEINE_URLS: ReadonlyMap<string, MediaUrl> = new Map();
+// One fixed empty map instead of `new Map()` on every reset: the value feeds
+// the pins as a dependency, and a map that is new every time would make them
+// recompute for no reason.
+const NO_URLS: ReadonlyMap<string, MediaUrl> = new Map();
 
-// DESIGN-LANGUAGE §5: «Listen = Stagger 40 ms», die Zeilen der Gruppenliste
-// erscheinen nacheinander, nicht als Block.
+// DESIGN-LANGUAGE §5: "lists = 40 ms stagger", the rows of the cluster list
+// appear one after another, not as one block.
 const STAGGER_MS = 40;
-// §5: «prefers-reduced-motion: alles wird zu 200-ms-Fades». Derselbe Wert wie
-// in Sheet.tsx (dort modulprivat).
-const REDUZIERTE_DAUER_MS = 200;
+// §5: "prefers-reduced-motion: everything becomes a 200 ms fade". The same
+// value as in Sheet.tsx (module private there).
+const REDUCED_DURATION_MS = 200;
 
-// Wirft eine der beiden Abfragen, statt ihren Fehler als Wert zurückzugeben,
-// gibt es keinen Text vom Server. Dann muss dieser hier einspringen, Ursache
-// und Lösung, ohne Entschuldigung (DESIGN-LANGUAGE §6), nach demselben Muster
-// wie der allgemeine Ladefehler in recapApi.ts («Die Momente konnten nicht
-// geladen werden. Probier es gleich nochmal.»).
-const WURF_TEXT = 'Die Karte konnte nicht geladen werden. Probier es gleich nochmal.';
+// If one of the two queries throws instead of returning its error as a value,
+// there is no text from the server. Then this one has to step in, cause and
+// fix, without an apology (DESIGN-LANGUAGE §6), following the same pattern as
+// the generic load error in recapApi.ts.
+const THROW_TEXT = 'Die Karte konnte nicht geladen werden. Probier es gleich nochmal.';
 
-// Spec §5.9, wörtlich. Kein leerer Kartenausschnitt über dem Atlantik,
-// sondern die Auskunft, warum hier nichts ist.
-const LEER_TITEL = 'Diese Reise hat keine Orte';
-const LEER_ERKLAERUNG =
+// Spec §5.9, verbatim. No empty map viewport over the Atlantic, but the
+// answer why there is nothing here.
+const EMPTY_TITLE = 'Diese Reise hat keine Orte';
+const EMPTY_EXPLANATION =
   'Momente bekommen ihren Ort beim Einsenden, aber nur, wenn die Ortungsdienste erlaubt sind. Für diese Reise war das nie der Fall.';
 
-// Und der andere leere Fall: es gibt überhaupt keine Momente zu zeigen.
-// Wortgleich zu uebersicht.tsx und player.tsx, dieselbe Reise soll auf allen
-// drei Screens dasselbe sagen.
-const LEER_OHNE_MOMENTE = 'Diese Reise ist leer geblieben.';
+// And the other empty case: there are no moments at all. Word for word the
+// same as overview.tsx and player.tsx, the same trip should say the same
+// thing on all three screens.
+const EMPTY_WITHOUT_MOMENTS = 'Diese Reise ist leer geblieben.';
 
-// Die eine Zeile, die die Lücke in den Tagesnummern erklärt. `waehlbareTage`
-// lässt Tage weg, an denen kein Moment einen Ort hat, die Übersicht zeigt
-// sie trotzdem, der Filter springt hier also z.B. von Tag 1 auf Tag 3. Ohne
-// diesen Satz sieht das nach einem Fehler aus statt nach einer Regel.
-const LUECKEN_HINWEIS = 'Tage, an denen kein Moment einen Ort hat, stehen nicht zur Wahl.';
+// The one line that explains the gap in the day numbers. `selectableDays`
+// leaves out days where no moment has a place, the overview shows them
+// anyway, so the filter jumps from day 1 to day 3. Without this sentence that
+// looks like a bug instead of a rule.
+const GAP_HINT = 'Tage, an denen kein Moment einen Ort hat, stehen nicht zur Wahl.';
 
-// Was die Sheets dieses Screens von denen des geteilten Recaps unterscheidet
-// (features/karte/MomentSheet.tsx): die Beschriftung des Knopfs, und sonst
-// nichts. Der leere testID-Präfix ist Absicht, siehe `SheetForm` dort.
+// What separates the sheets of this screen from those of the shared recap
+// (features/map/MomentSheet.tsx): the label of the button, and nothing else.
+// The empty testID prefix is deliberate, see `SheetForm` there.
 const SHEET_FORM: SheetForm = { buttonLabel: 'Im Recap ansehen', prefix: '' };
 
-// Die Leiste unten UND der Titel ihres Sheets (Spec §5.8), eine Quelle für
-// beide. Singular/Plural wie überall im Projekt: die Zahl bleibt auch im
-// Singular stehen.
-function ohneOrtText(anzahl: number): string {
-  return `${anzahl} ${anzahl === 1 ? 'Moment' : 'Momente'} ohne Ort`;
+// The bar at the bottom AND the title of its sheet (Spec §5.8), one source
+// for both. Singular and plural as everywhere in the project: the number
+// stays even in the singular.
+function withoutPlaceText(count: number): string {
+  return `${count} ${count === 1 ? 'Moment' : 'Momente'} ohne Ort`;
 }
 
-// Was diese Karte NICHT zeigt, in Worten. Wortgleich zu uebersicht.tsx (dort
-// modulprivat): dieselbe Reise soll auf beiden Screens dieselben zwei Sätze
-// für dieselben zwei Lagen sagen. Singular/Plural wie überall im Projekt,
-// die Zahl bleibt auch im Singular stehen.
+// What this map does NOT show, in words. Word for word the same as
+// overview.tsx (module private there): the same trip should say the same two
+// sentences for the same two situations on both screens. Singular and plural
+// as everywhere in the project, the number stays even in the singular.
 //
-// Sie sind ausdrücklich NICHT dasselbe wie «N Momente ohne Ort»: dort geht es
-// um Momente, die auf dieser Karte keine Nadel bekommen können, in Übersicht
-// und Recap aber vollständig da sind. Hier geht es um Momente, die diese Reise
-// gerade überhaupt nicht hergibt, die eine Gruppe kommt noch, die andere
-// liess sich nicht laden.
-function unterwegsText(anzahl: number): string {
-  return `${anzahl} ${anzahl === 1 ? 'Moment ist' : 'Momente sind'} noch unterwegs.`;
+// They are explicitly NOT the same as the bar about moments without a place:
+// that one is about moments which cannot get a pin on this map but are fully
+// present in overview and recap. This one is about moments the trip does not
+// give out at all right now, one group is still coming, the other could not
+// be loaded.
+function inTransitText(count: number): string {
+  return `${count} ${count === 1 ? 'Moment ist' : 'Momente sind'} noch unterwegs.`;
 }
 
-function ohneBildText(anzahl: number): string {
-  return `${anzahl} ${anzahl === 1 ? 'Moment liess' : 'Momente liessen'} sich gerade nicht laden. Schau später nochmal rein.`;
+function withoutImageText(count: number): string {
+  return `${count} ${count === 1 ? 'Moment liess' : 'Momente liessen'} sich gerade nicht laden. Schau später nochmal rein.`;
 }
 
-// Ein Moment, den keine Nadel tragen kann, mit seinem Platz in der
-// Spielliste. Genau dieser Wert geht als `start` an den Player, exakt wie
-// `KartenPunkt.index` (typen.ts): nie die Stelle innerhalb dieser Liste hier,
-// nie die in der rohen Momente-Liste.
-type OhneOrt = { moment: RecapMoment; index: number };
+// A moment no pin can carry, with its place in the playlist. Exactly this
+// value goes to the player as `start`, just like `MapPoint.index` (types.ts):
+// never the position within this list here, never the one in the raw moment
+// list.
+type WithoutPlace = { moment: RecapMoment; index: number };
 
-// Wie weit der Ladeweg der Momente gekommen ist.
+// How far the load path of the moments has come.
 //
-// Ohne diese Unterscheidung sähen DREI verschiedene Lagen identisch aus, denn
-// alle drei enden in `punkte = []` und `ausschnitt = null`: «lädt noch»,
-// «konnte nicht laden» (Deep Link auf eine fremde Reise, versiegelte Reise,
-// Netz weg) und «geladen, aber kein einziger Moment hat einen Ort». Bis Task
-// 10 war das dieselbe weisse Fläche mit einer Zurück-Pille.
-//
-type Phase = 'laedt' | 'fehler' | 'fertig';
+// Without this distinction THREE different situations would look identical,
+// because all three end in `points = []` and `viewport = null`: "still
+// loading", "could not load" (deep link into a foreign trip, sealed trip, no
+// network) and "loaded, but not a single moment has a place". Until task 10
+// that was the same white surface with a back pill.
+type Phase = 'loading' | 'error' | 'loaded';
 
-// Das Ergebnis EINES Ladevorgangs, mit der Reise, zu der es gehört.
-// Begründung für den Stempel steht an der State-Deklaration.
-type Ladestand = {
+// The result of ONE load, with the trip it belongs to. The reasoning for the
+// stamp stands at the state declaration.
+type LoadState = {
   tripId: string;
   phase: Phase;
-  punkte: MapPoint[];
-  ohneOrt: OhneOrt[];
-  // Momente, die diese Karte ueberhaupt nicht zeigt, weder als Nadel noch in
-  // der Leiste «N Momente ohne Ort». Sie fallen im Ladeweg unten aus der
-  // Spielliste heraus, und ohne diese beiden Zahlen taeten sie das spurlos:
-  // eine Reise mit 15 Momenten zeigte 11 Nadeln, sagte «3 Momente ohne Ort»,
-  // und der fehlende Rest waere von aussen nicht zu erklaeren.
+  points: MapPoint[];
+  withoutPlace: WithoutPlace[];
+  // Moments this map does not show at all, neither as a pin nor in the bar
+  // about moments without a place. They drop out of the playlist in the load
+  // path below, and without these two numbers they would do so without a
+  // trace: a trip with 15 moments showed 11 pins, named 3 moments without a
+  // place, and the missing rest could not be explained from the outside.
   //
-  // Getrennt gehalten, weil es zwei verschiedene Lagen mit zwei verschiedenen
-  // Aussichten sind, genau wie in uebersicht.tsx: `unterwegs` kommt noch,
-  // `ohneBild` liess sich gerade nicht laden.
-  unterwegs: number;
-  ohneBild: number;
-  fehlerText: string | null;
-  // Ob ein zweiter Versuch etwas ausrichtet. Im Ladestand und nicht daneben:
-  // die Antwort gehört zu genau diesem Fehlertext und wird mit ihm gesetzt,
-  // getrennt gehalten könnten die beiden auseinanderlaufen und der Knopf
-  // verspräche etwas, was der Text bereits ausschliesst.
+  // Kept apart because these are two different situations with two different
+  // outlooks, exactly as in overview.tsx: `inTransit` is still coming,
+  // `withoutImage` could not be loaded right now.
+  inTransit: number;
+  withoutImage: number;
+  errorText: string | null;
+  // Whether a second attempt achieves anything. Inside the load state and not
+  // beside it: the answer belongs to exactly this error text and is set
+  // together with it, kept apart the two could drift and the button would
+  // promise something the text already rules out.
   //
-  // `false` nur bei einer fachlichen Ablehnung des Vorrats (versiegelt, kein
-  // Zugriff, features/recap/urlVorrat.ts). Ohne Fehler ist der Wert
-  // bedeutungslos und steht auf `true`.
-  nochmalHilft: boolean;
+  // `false` only on a factual rejection of the pool (sealed, no access,
+  // features/recap/urlPool.ts). Without an error the value is meaningless and
+  // stands on `true`.
+  canRetry: boolean;
 };
 
-// Feste leere Listen statt `[]` bei jedem Ableiten, gleicher Grund wie bei
-// KEINE_URLS oben: die Werte gehen als Abhängigkeit in `sichtbarePunkte`,
-// `linie` und `gruppen`, und ein bei jedem Rendern neues Array liesse sie
-// ohne Grund neu rechnen.
-const KEINE_PUNKTE: MapPoint[] = [];
-const KEINE_OHNE_ORT: OhneOrt[] = [];
-const KEINE_MOMENTE: RecapMoment[] = [];
+// Fixed empty lists instead of `[]` on every derivation, same reason as
+// NO_URLS above: the values feed `visiblePoints`, `line` and `clusters` as
+// dependencies, and an array that is new on every render would make them
+// recompute for no reason.
+const NO_POINTS: MapPoint[] = [];
+const NONE_WITHOUT_PLACE: WithoutPlace[] = [];
+const NO_MOMENTS: RecapMoment[] = [];
 
-// Der Tagesfilter, und zwar auf den FERTIGEN Kartenpunkten, nie auf den
-// Momenten davor.
+// The day filter, and on the FINISHED map points, never on the moments before
+// them.
 //
-// Das ist die eine Stelle, an der dieser Filter still falsch werden könnte:
-// `punkt.index` zählt in die ungefilterte Spielliste und geht als `start` an
-// den Player (siehe typen.ts und `zumPlayer` unten). Würde erst die
-// Momente-Liste auf einen Tag eingedampft und `zuKartenPunkten` dann auf dem
-// Rest gerufen, zählte der Index plötzlich INNERHALB des Tages statt in die
-// Reise. Die Nadeln sässen weiterhin auf ihren Koordinaten, alles sähe richtig
-// aus, und der Sprung landete beim falschen Moment.
-function punkteAmTag(punkte: MapPoint[], tag: RecapDay | null): MapPoint[] {
-  if (!tag) return punkte;
-  const ids = new Set(tag.momente.map((m) => m.id));
-  return punkte.filter((p) => ids.has(p.moment.id));
+// This is the one place where this filter could go silently wrong:
+// `point.index` counts into the unfiltered playlist and goes to the player as
+// `start` (see types.ts and `toPlayer` below). If the moment list were
+// narrowed down to one day first and `toMapPoints` were called on the rest,
+// the index would suddenly count INSIDE the day instead of into the trip. The
+// pins would still sit on their coordinates, everything would look right, and
+// the jump would land on the wrong moment.
+function pointsOnDay(points: MapPoint[], day: RecapDay | null): MapPoint[] {
+  if (!day) return points;
+  const ids = new Set(day.moments.map((m) => m.id));
+  return points.filter((p) => ids.has(p.moment.id));
 }
 
-// Die Tage, zwischen denen sich auf dieser Karte überhaupt wählen lässt.
+// The days this map can choose between at all.
 //
-// Gruppiert wird über die GANZE Spielliste, nicht nur über die Momente mit
-// Ort: `gruppiereNachTagen` schreibt die höchste bisher vergebene Tagesnummer
-// monoton fort (tage.ts, Important 1), ein weggelassener Moment kann die
-// Nummern dahinter also verschieben. uebersicht.tsx und player.tsx rechnen
-// mit genau dieser Liste, und dieselbe Reise, die an zwei Stellen
-// verschiedene Tagesnummern zeigt, wäre ein Fehler, den von aussen niemand
-// erklären könnte.
+// Grouping runs over the WHOLE playlist, not only over the moments with a
+// place: `groupByDays` carries the highest day number given out so far
+// forward monotonically (days.ts, Important 1), so a moment left out can
+// shift the numbers behind it. overview.tsx and player.tsx work with exactly
+// this list, and the same trip showing different day numbers in two places
+// would be a bug nobody could explain from the outside.
 //
-// Angeboten wird davon nur, was auf der Karte auch etwas bewirkt: ein Tag,
-// dessen Momente alle ohne Ort sind, führte auf eine leere Karte ohne jede
-// Erklärung, eine Sackgasse im Filter, aus der nur der Rückweg auf «Alle
-// Tage» hilft. Was dabei wegfällt, reisst eine Lücke in die Nummern (Tag 1,
-// Tag 3), die erklärt LUECKEN_HINWEIS im Sheet, statt sie stumm zu lassen.
-function waehlbareTage(alle: RecapDay[], punkte: MapPoint[]): RecapDay[] {
-  const mitOrt = new Set(punkte.map((p) => p.moment.id));
-  return alle.filter((tag) => tag.momente.some((m) => mitOrt.has(m.id)));
+// Offered from it is only what actually changes something on the map: a day
+// whose moments are all without a place would lead onto an empty map without
+// any explanation, a dead end in the filter that only the way back to all
+// days gets out of. What falls away tears a gap into the numbers (day 1, day
+// 3), and GAP_HINT explains that gap in the sheet instead of leaving it
+// silent.
+function selectableDays(allDays: RecapDay[], points: MapPoint[]): RecapDay[] {
+  const withPlace = new Set(points.map((p) => p.moment.id));
+  return allDays.filter((day) => day.moments.some((m) => withPlace.has(m.id)));
 }
 
-// Die Momente ohne Ort mit ihrem Platz in der Spielliste.
+// The moments without a place, with their position in the playlist.
 //
-// Die Reihenfolge kommt aus `sortiereMomente`, DERSELBEN Funktion, mit der
-// `zuKartenPunkten` seine Indizes vergibt (kartenPunkte.ts). Sie ist eine
-// totale Ordnung (captured_at, id als zweites Kriterium, tage.ts), zweimal
-// auf dieselbe Liste angewandt kommt also zwangsläufig dieselbe Reihenfolge
-// heraus: die Kachel eines Moments ohne Ort und die Nadel eines Moments mit
-// Ort zählen damit nachweislich in dieselbe Liste.
+// The order comes from `sortMoments`, THE SAME function `toMapPoints` gives
+// out its indices with (mapPoints.ts). It is a total order (captured_at, id
+// as the second criterion, days.ts), so applying it twice to the same list
+// necessarily yields the same order: the tile of a moment without a place and
+// the pin of a moment with one therefore provably count into the same list.
 //
-// Nicht über die Eingangsreihenfolge: `fetchRecapMomente` sortiert heute
-// selbst (recapApi.ts), genau deshalb fiele es nirgends auf, wenn hier die
-// Eingangsliste gezählt würde, bis eines Tages jemand diese Sortierung
-// verschiebt. WER keinen Ort hat, entscheidet weiterhin allein
-// `zuKartenPunkten`; hier wird nur nachgeschlagen, an welcher Stelle er steht.
-function ohneOrtMitIndex(spielliste: RecapMoment[], ohneOrt: RecapMoment[]): OhneOrt[] {
-  const ids = new Set(ohneOrt.map((m) => m.id));
-  return sortMoments(spielliste)
+// Not over the incoming order: `fetchRecapMoments` sorts by itself today
+// (recapApi.ts), which is exactly why it would show nowhere if the incoming
+// list were counted here, until one day somebody moves that sorting. WHO has
+// no place is still decided by `toMapPoints` alone; here it is only looked up
+// at which position they stand.
+function withoutPlaceWithIndex(playlist: RecapMoment[], withoutPlace: RecapMoment[]): WithoutPlace[] {
+  const ids = new Set(withoutPlace.map((m) => m.id));
+  return sortMoments(playlist)
     .map((moment, index) => ({ moment, index }))
-    .filter((eintrag) => ids.has(eintrag.moment.id));
+    .filter((entry) => ids.has(entry.moment.id));
 }
 
-// Eine Zeile der Tagesliste (Task-9-Brief): «Alle Tage» oder ein einzelner
-// Reisetag. Kein Primär-Button, DESIGN-LANGUAGE §4 lässt genau einen pro
-// Screen zu, und den trägt das Moment-Sheet («Im Recap ansehen»).
+// One row of the day list (task 9 brief): all days, or a single trip day. No
+// primary button, DESIGN-LANGUAGE §4 allows exactly one per screen, and the
+// moment sheet carries it.
 //
-// Der Haken markiert den Stand, den die Pille oben zeigt: in einer Liste, die
-// länger ist als das Sheet, ist er die einzige Stelle, an der beim Scrollen
-// noch zu sehen ist, was gerade gilt. `accessibilityState.selected` sagt
-// VoiceOver dasselbe, was der Haken zeigt.
-function TagEintrag({
-  beschriftung, ort, aktiv, stelle, testID, onWaehlen,
+// The check marks the state the pill at the top shows: in a list longer than
+// the sheet it is the only place where scrolling still shows what currently
+// applies. `accessibilityState.selected` tells VoiceOver the same thing the
+// check shows.
+function DayEntry({
+  label, place, active, position, testID, onSelect,
 }: {
-  beschriftung: string;
-  ort?: string | null;
-  aktiv: boolean;
-  stelle: number;
+  label: string;
+  place?: string | null;
+  active: boolean;
+  position: number;
   testID: string;
-  onWaehlen: () => void;
+  onSelect: () => void;
 }) {
   const { colors } = useTheme();
   return (
-    <FadeIn position={stelle}>
+    <FadeIn position={position}>
       <PressScale
         scaleTo={0.98}
         accessibilityRole="button"
-        accessibilityState={{ selected: aktiv }}
+        accessibilityState={{ selected: active }}
         testID={testID}
-        onPress={onWaehlen}
+        onPress={onSelect}
       >
         <View style={rowStyles.row}>
           <View style={rowStyles.text}>
-            <Text style={[type.bodyMedium, { color: colors['text-1'] }]}>{beschriftung}</Text>
-            {/* Der Ort des Tages steht nur da, wenn es einen gibt
-                (tage.ortDesTages liefert sonst null), kein erfundener
-                Platzhalter. Er ist auf einer KARTE die eigentlich nützliche
-                Auskunft: «Tag 3» sagt wenig, «Lissabon» sehr viel. */}
-            {ort ? (
+            <Text style={[type.bodyMedium, { color: colors['text-1'] }]}>{label}</Text>
+            {/* The place of the day only stands there when there is one
+                (days.placeOfTheDay returns null otherwise), no invented
+                placeholder. On a MAP it is the actually useful piece of
+                information: a day number says little, a city name a lot. */}
+            {place ? (
               <Text numberOfLines={1} style={[type.secondary, { color: colors['text-2'] }]}>
-                {ort}
+                {place}
               </Text>
             ) : null}
           </View>
-          {aktiv && <Check size={20} color={colors.accent} strokeWidth={1.75} />}
+          {active && <Check size={20} color={colors.accent} strokeWidth={1.75} />}
         </View>
       </PressScale>
     </FadeIn>
   );
 }
 
-// Eine Kachel der Momente ohne Ort, dieselbe Kachel-Liste wie in der
-// Übersicht (Spec §5.8): quadratisch, Radius 12 (der Thumbnail-Wert aus
-// DESIGN-LANGUAGE §3), drei pro Reihe. Kein Primär-Button an der Kachel und
-// keiner im Sheet darum herum: es gibt genau einen pro Screen (§4), und den
-// trägt das Moment-Sheet.
-function OhneOrtKachel({
-  eintrag, thumbUrl, stelle, onAnsehen,
+// One tile of the moments without a place, the same tile list as in the
+// overview (Spec §5.8): square, radius 12 (the thumbnail value from
+// DESIGN-LANGUAGE §3), three per row. No primary button on the tile and none
+// in the sheet around it: there is exactly one per screen (§4), and the
+// moment sheet carries it.
+function WithoutPlaceTile({
+  entry, thumbUrl, position, onView,
 }: {
-  eintrag: OhneOrt;
+  entry: WithoutPlace;
   thumbUrl: string | null;
-  stelle: number;
-  onAnsehen: (eintrag: OhneOrt) => void;
+  position: number;
+  onView: (entry: WithoutPlace) => void;
 }) {
   const { colors } = useTheme();
-  const { moment } = eintrag;
+  const { moment } = entry;
   return (
-    <FadeIn position={stelle}>
+    <FadeIn position={position}>
       <PressScale
         scaleTo={0.96}
         accessibilityRole="button"
         accessibilityLabel={momentLabel(moment)}
         testID={`ohne-ort-kachel-${moment.id}`}
-        onPress={() => onAnsehen(eintrag)}
+        onPress={() => onView(entry)}
       >
-        <View style={[styles.kachel, { backgroundColor: colors['bg-1'] }]}>
-          {/* Ohne brauchbare URL bleibt die ruhige bg-1-Fläche stehen, kein
-              Puls: es kommt nichts mehr (gleiche Unterscheidung wie im
-              Nadel-Skelett und im Moment-Sheet). */}
+        <View style={[styles.tile, { backgroundColor: colors['bg-1'] }]}>
+          {/* Without a usable URL the calm bg-1 surface stays, no pulse:
+              nothing more is coming (the same distinction as in the pin
+              skeleton and in the moment sheet). */}
           {thumbUrl !== null && (
             <Image
               testID={`ohne-ort-bild-${moment.id}`}
@@ -310,54 +307,50 @@ function OhneOrtKachel({
   );
 }
 
-// DESIGN-LANGUAGE §4: «Skeleton: bg-1-Blöcke, Opacity-Puls 0.6 ↔ 1.0 (kein
-// Gradient-Shimmer)». Auf diesem Screen ist der Block die GANZE Fläche, die
-// Karte füllt sie später ebenso (Spec §5.3), es gibt daneben nichts, was ein
-// kleinerer Block andeuten könnte.
+// DESIGN-LANGUAGE §4: "skeleton: bg-1 blocks, opacity pulse 0.6 to 1.0 (no
+// gradient shimmer)". On this screen the block is the WHOLE surface, the map
+// fills it later just the same (Spec §5.3), there is nothing beside it a
+// smaller block could hint at.
 //
-// MIT Rückweg, anders als SkelettScreen in uebersicht.tsx: die Übersicht ist
-// eine Tab-Wurzel, die Karte ein per `push` erreichter Screen. Weder
-// `urlVorrat.ts` noch `recapApi.ts` kennen Timeout oder AbortController,
-// hängt eine der beiden Abfragen, bliebe hier sonst dauerhaft ein pulsender
-// grauer Block stehen, aus dem nur die Tab-Leiste führt (Fixrunde 1,
-// Important 2).
-function KartenSkelett({ oben, onZurueck }: { oben: number; onZurueck: () => void }) {
+// WITH a way back, unlike the skeleton screen in overview.tsx: the overview
+// is a tab root, the map a screen reached by `push`. Neither `urlPool.ts` nor
+// `recapApi.ts` knows a timeout or an AbortController, so if one of the two
+// queries hangs, a pulsing grey block would otherwise stay here for good,
+// with only the tab bar leading out of it (fix round 1, Important 2).
+function MapSkeleton({ topInset, onBack }: { topInset: number; onBack: () => void }) {
   const { colors } = useTheme();
   const reducedMotion = useReducedMotion();
   const [opacity] = useState(() => new Animated.Value(0.6));
 
   useEffect(() => {
-    // §5: mit Reduced Motion pulst nichts, der Block steht still, aber
-    // sichtbar (gleiche Entscheidung wie SkelettBlock in uebersicht.tsx).
     if (reducedMotion) {
       opacity.setValue(0.8);
       return;
     }
-    const puls = Animated.loop(
+    const pulse = Animated.loop(
       Animated.sequence([
         Animated.timing(opacity, { toValue: 1, duration: motion.duration.gentle, useNativeDriver: true }),
         Animated.timing(opacity, { toValue: 0.6, duration: motion.duration.gentle, useNativeDriver: true }),
       ])
     );
-    puls.start();
-    return () => puls.stop();
+    pulse.start();
+    return () => pulse.stop();
   }, [opacity, reducedMotion]);
 
   return (
-    <View style={[styles.flaeche, { backgroundColor: colors['bg-0'] }]}>
+    <View style={[styles.surface, { backgroundColor: colors['bg-0'] }]}>
       <Animated.View
         testID="karte-skelett"
         style={[StyleSheet.absoluteFill, { backgroundColor: colors['bg-1'], opacity }]}
       />
-      {/* Derselbe Pfeil wie im Fehlerzweig, an derselben Stelle wie die
-          Zurück-Pille der fertigen Karte, und nicht die Pille selbst: unter
-          ihr liegt kein Foto und keine Karte, sondern eine helle bg-1-Fläche
-          (DESIGN-LANGUAGE §1). */}
+      {/* The same arrow as in the error branch, at the same spot as the back
+          pill of the finished map, and not the pill itself: below it lies no
+          photo and no map, but a light bg-1 surface (DESIGN-LANGUAGE §1). */}
       <PressScale
         accessibilityRole="button"
         accessibilityLabel="Zurück"
-        onPress={onZurueck}
-        style={[styles.zurueckHell, { top: oben }]}
+        onPress={onBack}
+        style={[styles.backLight, { top: topInset }]}
       >
         <ChevronLeft size={24} color={colors['text-1']} strokeWidth={1.75} />
       </PressScale>
@@ -365,730 +358,705 @@ function KartenSkelett({ oben, onZurueck }: { oben: number; onZurueck: () => voi
   );
 }
 
-// Die Karte als zweite Lesart desselben Recaps (Spec §5.2): dieselbe Ebene
-// wie uebersicht.tsx und player.tsx, damit `[id]` geteilt bleibt.
+// The map as the second reading of the same recap (Spec §5.2): the same level
+// as overview.tsx and player.tsx, so that `[id]` stays shared.
 //
-// Der Screen ist HELL, nicht Kino (Spec §5.3): er zeigt keine Medien im
-// Vollbild, sondern ist ein Werkzeug zum Finden. Erst der Sprung in den
-// Player wechselt ins Kino. Die Kartenkacheln selbst bringen ihre eigenen
-// Farben mit, sie sind Inhalt wie ein Foto, nicht Interface (Entscheid R2);
-// bindend bleibt, was DARAUF liegt.
-export default function RecapKarte() {
+// The screen is LIGHT, not cinema (Spec §5.3): it shows no media full screen,
+// it is a tool for finding. Only the jump into the player switches into the
+// cinema. The map tiles bring their own colours, they are content like a
+// photo, not interface (decision R2); binding stays what lies ON them.
+export default function RecapMap() {
   const { colors } = useTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  // Screen-Rand 24 (DESIGN-LANGUAGE §3) als Basis, damit die Zurück-Pille
-  // oben denselben Abstand hält wie links, auf Geräten mit Dynamic Island
-  // schiebt useOberkante sie ohnehin darunter.
-  const oben = useTopInset(spacing.screen);
+  // Screen margin 24 (DESIGN-LANGUAGE §3) as the base, so the back pill keeps
+  // the same distance at the top as on the left; on devices with a Dynamic
+  // Island useTopInset pushes it below that anyway.
+  const topInset = useTopInset(spacing.screen);
   const reducedMotion = useReducedMotion();
-  const karte = useRef<MapSurfaceHandle>(null);
-  // Der letzte Zoom-Versuch auf eine Gruppe, die Grundlage dafür, ob ein
-  // weiterer noch etwas ausrichtet (features/karte/gruppenTipp.ts). Ein Ref
-  // und kein State: der Wert ändert nichts am Bild, er beantwortet nur die
-  // nächste Frage.
-  const letzterZoom = useRef<ZoomAttempt | null>(null);
-  // Die Fläche, auf der gruppiert wird. Die Karte liegt als absoluteFill über
-  // dem ganzen Screen, das Fenster ist also ihr Mass. In der Höhe fehlt die
-  // Tab-Bar; das verschiebt die 40-Punkte-Schwelle um wenige Prozent und
-  // entscheidet nur über Nadeln, die ohnehin genau auf der Grenze liegen.
-  // Nachzumessen wäre genauer, brächte aber einen ersten Durchlauf mit 0 × 0
-  // mit sich, und der projizierte JEDEN Moment auf dieselbe Stelle.
-  const { width: breite, height: hoehe } = useWindowDimensions();
+  const map = useRef<MapSurfaceHandle>(null);
+  // The last zoom attempt onto a cluster, the basis for whether another one
+  // still achieves something (features/map/clusterTap.ts). A ref and not
+  // state: the value changes nothing about the picture, it only answers the
+  // next question.
+  const lastZoom = useRef<ZoomAttempt | null>(null);
+  // The surface clustering happens on. The map lies as absoluteFill over the
+  // whole screen, so the window is its measure. The tab bar is missing from
+  // the height; that shifts the 40 point threshold by a few percent and only
+  // decides about pins that sit right on the border anyway. Measuring would
+  // be more precise, but it would bring a first pass with 0 by 0 along, and
+  // that projected EVERY moment onto the same spot.
+  const { width, height } = useWindowDimensions();
 
-  // Alles, was aus EINEM Ladevorgang der Momente stammt, in EINEM State und
-  // mit der Reise, zu der es gehört (Fixrunde 1, Important 1).
+  // Everything that comes from ONE load of the moments, in ONE state and with
+  // the trip it belongs to (fix round 1, Important 1).
   //
-  // Zusammen, weil es zusammen entsteht und zusammen ungültig wird: eine
-  // Phase ohne die zugehörigen Punkte (oder umgekehrt) gibt es nie.
+  // Together, because it comes into being together and becomes invalid
+  // together: a phase without the matching points (or the other way round)
+  // never exists.
   //
-  // Mit Stempel, weil der Screen bei einem Wechsel der Reise-id gemountet
-  // bleibt, und ohne ihn stand der Ladestand von t1 über t2, nicht einen
-  // Frame lang, sondern die volle Ladedauer der neuen Reise: «Diese Reise hat
-  // keine Orte» über einer Reise voller Orte, t1s Fehlertext samt «Nochmal
-  // versuchen» über t2, t1s Leiste mit t1s Momenten. Und t1s Nadeln: ein
-  // Tipp darauf öffnete ein Sheet, das bereits `tripId: t2` trägt, der
-  // Wächter unten greift dann nicht mehr, und «Im Recap ansehen» schickte
-  // den Player mit t1s Index in t2.
-  const [ladestand, setLadestand] = useState<Ladestand>(() => ({
+  // With a stamp, because the screen stays mounted when the trip id changes,
+  // and without it the load state of t1 stood over t2, not for one frame but
+  // for the full load time of the new trip: the placeless explanation over a
+  // trip full of places, t1's error text plus its retry button over t2, t1's
+  // bar with t1's moments. And t1's pins: a tap on one opened a sheet that
+  // already carries `tripId: t2`, the guard below then no longer catches, and
+  // the button into the player sent it into t2 with t1's index.
+  const [loadState, setLoadState] = useState<LoadState>(() => ({
     tripId: id,
-    phase: 'laedt',
-    punkte: KEINE_PUNKTE,
-    ohneOrt: KEINE_OHNE_ORT,
-    unterwegs: 0,
-    ohneBild: 0,
-    fehlerText: null,
-    nochmalHilft: true,
+    phase: 'loading',
+    points: NO_POINTS,
+    withoutPlace: NONE_WITHOUT_PLACE,
+    inTransit: 0,
+    withoutImage: 0,
+    errorText: null,
+    canRetry: true,
   }));
-  // Nur für den Knopf im Fehlerzweig. Ein zweiter Anlauf setzt die Phase
-  // bewusst NICHT auf 'laedt' zurück: der Fehlertext soll stehen bleiben,
-  // solange der neue Versuch läuft, sonst blitzt zwischen zwei Fehlschlägen
-  // ein Skelett auf, und niemand kann mehr lesen, was eigentlich los war.
-  // Gleiches Muster wie `laedt` in uebersicht.tsx.
-  const [nochmalLaeuft, setNochmalLaeuft] = useState(false);
-  const [ausschnitt, setAusschnitt] = useState<Viewport | null>(null);
-  // Die Bild-URLs bleiben liegen, weil jede Nadel ihr eigenes Thumbnail
-  // trägt (Spec §5.4), nicht nur, um damit zu filtern.
-  const [urls, setUrls] = useState<ReadonlyMap<string, MediaUrl>>(KEINE_URLS);
-  // Was das Sheet gerade zeigt, oder `null` für «keines offen». EIN Zustand
-  // für beide Fälle, weil sie dieselbe Frage beantworten («welche Momente
-  // stecken hinter dieser Nadel») und sich gegenseitig ausschliessen: ein Punkt
-  // ist der einzelne Moment (Spec §5.7), mehrere sind die Liste einer Gruppe,
-  // die sich nicht auseinanderzoomen lässt (Task-8-Brief, Schritt 2b).
+  // Only for the button in the error branch. A second attempt deliberately
+  // does NOT reset the phase to 'loading': the error text should stay while
+  // the new attempt runs, otherwise a skeleton flashes between two failures
+  // and nobody can read what was actually going on. Same pattern as `loading`
+  // in overview.tsx.
+  const [retryRunning, setRetryRunning] = useState(false);
+  const [viewport, setViewport] = useState<Viewport | null>(null);
+  // The image URLs stay around, because every pin carries its own thumbnail
+  // (Spec §5.4), not only to filter with.
+  const [urls, setUrls] = useState<ReadonlyMap<string, MediaUrl>>(NO_URLS);
+  // What the sheet currently shows, or `null` for none open. ONE state for
+  // both cases, because they answer the same question (which moments are
+  // behind this pin) and exclude one another: one point is the single moment
+  // (Spec §5.7), several are the list of a cluster that cannot be zoomed
+  // apart (task 8 brief, step 2b).
   //
-  // Mit der Reise, aus der es geöffnet wurde: der Screen bleibt bei einem
-  // Wechsel der id gemountet (derselbe Grund, aus dem der Ladeweg unten seine
-  // Zustände leert), und ein stehen gebliebenes Sheet zeigte danach einen
-  // Moment der VORHERIGEN Reise, sein Knopf schickte den Player mit deren
-  // Index in die neue, wo dieselbe Zahl auf einen ganz anderen Moment zeigt.
+  // With the trip it was opened from: the screen stays mounted when the id
+  // changes (the same reason the load path below clears its states), and a
+  // sheet left standing would afterwards show a moment of the PREVIOUS trip,
+  // its button sent the player into the new trip with the previous trip's
+  // index, where the same number points at a completely different moment.
   //
-  // `useReiseGebunden` haelt den Stempel und wirft den Wert beim Wechsel weg
-  // (features/trips/useReiseGebunden.ts, samt der vollen Begruendung, warum
-  // das beim RENDERN passieren muss und nicht in einem Effekt). Vier Zustaende
-  // dieses Screens brauchen genau das, und viermal derselbe von Hand
-  // geschriebene Vergleich war das Muster, an dem die Phase drei Runden
-  // verloren hat.
-  const [sheetPunkte, setSheetPunkte] = useTripBound<MapPoint[] | null>(id, null);
-  // Die beiden Hälften, aus denen die Tagesnummern entstehen, jede mit der
-  // Reise, aus der sie stammt. Sie kommen aus ZWEI getrennten Abfragen (siehe
-  // die Ladewege unten), und eine Mischung aus zwei Reisen ergäbe Nummern, die
-  // es in keiner der beiden gibt: das Startdatum der einen, die Momente der
-  // anderen.
+  // `useTripBound` holds the stamp and throws the value away on a change
+  // (features/trips/useTripBound.ts, including the full reasoning why that
+  // has to happen while RENDERING and not in an effect). Four states of this
+  // screen need exactly that, and four times the same hand written comparison
+  // was the pattern this phase lost three rounds to.
+  const [sheetPoints, setSheetPoints] = useTripBound<MapPoint[] | null>(id, null);
+  // The two halves the day numbers come out of, each with the trip it stems
+  // from. They come from TWO separate queries (see the load paths below), and
+  // a mixture of two trips would give numbers that exist in neither: the
+  // start date of one, the moments of the other.
   //
-  // Die Spielliste liegt hier zusätzlich zu `punkte`, weil sie die Momente
-  // OHNE Ort mitträgt, `waehlbareTage` braucht sie für die Nummerierung
-  // (Begründung dort).
-  const [spielliste, setSpielliste] = useState<{ tripId: string; momente: RecapMoment[] } | null>(null);
-  const [reiseStart, setReiseStart] = useState<{ tripId: string; startDate: string } | null>(null);
-  // Der gewählte Tag, mit der Reise, in der er gewählt wurde, aus demselben
-  // Grund wie beim Sheet oben: der Screen bleibt bei einem Wechsel der id
-  // gemountet, und ein stehen gebliebener Filterstand öffnete die NÄCHSTE
-  // Reise vorgefiltert auf einen Tag, den niemand gewählt hat.
-  const [tagWahl, setTagWahl] = useTripBound<number | null>(id, null);
-  // Das offene Tages-Sheet trägt seine Reise aus demselben Grund wie `sheet`,
-  // und aus einem eigenen, schärferen: es listet die Tage DER REISE, aus der
-  // es geöffnet wurde. Bliebe es bei einem Wechsel stehen, würde ein Tipp auf
-  // «Tag 3» die neue Reise auf einen Tag filtern, den niemand in ihr gewählt
-  // hat, und `waehleTag` schriebe dabei die NEUE id in die Wahl, der Wächter
-  // unten käme also nie zum Zug.
-  const [tageOffen, setTageOffen] = useTripBound(id, false);
-  // Und das Sheet der Momente ohne Ort, aus genau denselben Gründen: seine
-  // Kacheln tragen Indizes der Reise, aus der es geöffnet wurde.
-  const [ohneOrtOffen, setOhneOrtOffen] = useTripBound(id, false);
+  // The playlist lies here in addition to `points`, because it carries the
+  // moments WITHOUT a place along; `selectableDays` needs it for the
+  // numbering (reasoning there).
+  const [playlist, setPlaylist] = useState<{ tripId: string; moments: RecapMoment[] } | null>(null);
+  const [tripStart, setTripStart] = useState<{ tripId: string; startDate: string } | null>(null);
+  const [dayChoice, setDayChoice] = useTripBound<number | null>(id, null);
+  const [daysOpen, setDaysOpen] = useTripBound(id, false);
+  const [withoutPlaceOpen, setWithoutPlaceOpen] = useTripBound(id, false);
 
 
-  // Der Ladestand wird ABGELEITET statt beim Rendern zurückgesetzt, anders
-  // als die vier Sheets/Filter darüber, und aus einem Grund, der nur für
-  // geladene Daten gilt: bei t1 → t2 → t1 ist t1s Stand wieder der richtige.
-  // Ein Zurücksetzen verwürfe ihn und zeigte für die Dauer eines erneuten
-  // Ladevorgangs ein Skelett über einer Karte, die längst stimmt. Bei einem
-  // Sheet ist es umgekehrt, dort öffnete sich sonst von selbst eines, das
-  // niemand angetippt hat (Begründung oben).
+  // The load state is DERIVED instead of reset while rendering, unlike the
+  // four sheets and filters above, and for a reason that only holds for
+  // loaded data: with t1 to t2 to t1, t1's state is the right one again. A
+  // reset would throw it away and show a skeleton over a map that has long
+  // been correct, for the length of another load. With a sheet it is the
+  // other way round, there one would open by itself that nobody tapped
+  // (reasoning above).
   //
-  // Gehört der Stand zu einer anderen Reise, ist diese hier schlicht noch
-  // nicht geladen: 'laedt'. Genau das, was der Screen beim ersten Öffnen
-  // auch zeigt.
-  // EINE Bedingung für alle vier Werte, nicht vier einzelne. Vier wären zu
-  // dritt nicht prüfbar: schon die Phase allein schickt den Screen ins
-  // Skelett und kehrt vor jedem anderen Zweig zurück, ein zusätzlicher Test
-  // an `punkte` oder `ohneOrt` liesse sich also ersatzlos streichen, ohne
-  // dass eine Zusicherung fiele, genau die Art Bedingung, die später niemand
-  // mehr prüfen kann (gleiche Überlegung wie bei `aufEinemFleck` in
-  // `aufNadel`). So getrennt kann es einen halben Stand aber gar nicht geben:
-  // entweder gilt der ganze Ladestand, oder es gilt der eines Screens, der
-  // noch nichts geladen hat.
-  const sichtbarerStand: Ladestand =
-    ladestand.tripId === id
-      ? ladestand
+  // If the state belongs to another trip, this one is simply not loaded yet:
+  // 'loading'. Exactly what the screen shows when it is opened for the first
+  // time.
+  //
+  // ONE condition for all four values, not four separate ones. Four would not
+  // be checkable as of three: the phase alone already sends the screen into
+  // the skeleton and returns before every other branch, so an additional
+  // check on `points` or `withoutPlace` could be deleted without any
+  // assertion falling, exactly the kind of condition nobody can check later
+  // on. Split like this a half state cannot exist at all: either the whole
+  // load state applies, or the one of a screen that has not loaded anything
+  // yet.
+  const visibleState: LoadState =
+    loadState.tripId === id
+      ? loadState
       : {
           tripId: id,
-          phase: 'laedt',
-          punkte: KEINE_PUNKTE,
-          ohneOrt: KEINE_OHNE_ORT,
-          unterwegs: 0,
-          ohneBild: 0,
-          fehlerText: null,
-          nochmalHilft: true,
+          phase: 'loading',
+          points: NO_POINTS,
+          withoutPlace: NONE_WITHOUT_PLACE,
+          inTransit: 0,
+          withoutImage: 0,
+          errorText: null,
+          canRetry: true,
         };
-  const { phase, punkte, ohneOrt, unterwegs, ohneBild, fehlerText, nochmalHilft } =
-    sichtbarerStand;
-  // Aus demselben Grund abgeleitet wie oben, und hier zusätzlich für den
-  // Unterschied zwischen «kein Moment hat einen Ort» und «es gibt gar keine
-  // Momente» gebraucht (siehe die beiden Leer-Zweige unten).
-  const spiellisteJetzt =
-    spielliste !== null && spielliste.tripId === id ? spielliste.momente : KEINE_MOMENTE;
+  const { phase, points, withoutPlace, inTransit, withoutImage, errorText, canRetry } =
+    visibleState;
+  // Derived for the same reason as above, and needed here additionally for
+  // the difference between no moment having a place and there being no
+  // moments at all (see the two empty branches below).
+  const playlistNow =
+    playlist !== null && playlist.tripId === id ? playlist.moments : NO_MOMENTS;
 
-  // Der Ladeanlauf, dessen Antwort noch zählt.
+  // The load attempt whose answer still counts.
   //
-  // Ein eigenes Objekt je Anlauf und nicht mehr das frühere `aktiv`-Flag:
-  // seit «Nochmal versuchen» lässt sich der Ladeweg auch von Hand starten, es
-  // können also ZWEI Anläufe gleichzeitig offen sein. Ein gemeinsames Flag
-  // könnte nur «alle abbrechen» sagen, nicht «nur der neueste zählt», und
-  // die langsamere der beiden Antworten überschriebe sonst die neuere.
-  const anlauf = useRef({ gilt: true });
+  // An object of its own per attempt and no longer the earlier active flag:
+  // since the retry button the load path can also be started by hand, so TWO
+  // attempts can be open at the same time. A shared flag could only say
+  // cancel all, not only the newest counts, and the slower of the two answers
+  // would otherwise overwrite the newer one.
+  const attempt = useRef({ valid: true });
 
-  // Die drei ungestempelten Nebenzustände eines Ladevorgangs, sie gehören
-  // nach einem Fehlschlag geräumt. `punkte` und `ohneOrt` stehen bewusst
-  // NICHT hier: die trägt der `Ladestand`, und der wird im selben Zug mit dem
-  // Fehler gesetzt.
-  const leereKarte = useCallback(() => {
-    setUrls(KEINE_URLS);
-    setAusschnitt(null);
-    setSpielliste(null);
+  // The three unstamped side states of a load, they belong cleared after a
+  // failure. `points` and `withoutPlace` deliberately do NOT stand here:
+  // those are carried by the `LoadState`, which is set together with the
+  // error in the same move.
+  const clearMap = useCallback(() => {
+    setUrls(NO_URLS);
+    setViewport(null);
+    setPlaylist(null);
   }, []);
 
-  const laden = useCallback(async () => {
-    // Synchron, vor dem ersten Warten: der vorherige Anlauf zählt ab hier
-    // nicht mehr, und der Effekt unten kann den eigenen direkt danach am Ref
-    // abgreifen.
-    anlauf.current.gilt = false;
-    const meiner = { gilt: true };
-    anlauf.current = meiner;
-    // Der gemerkte Zoom-Versuch gehoert zu den Nadeln, die gleich ersetzt
-    // werden. Eine Post-id kommt zwar in keiner zweiten Reise vor, der
-    // Vergleich ginge also ohnehin ins Leere, stehen bleiben soll er
-    // trotzdem nicht.
-    letzterZoom.current = null;
+  const load = useCallback(async () => {
+    // Synchronous, before the first wait: the previous attempt stops counting
+    // from here on, and the effect below can pick up its own one straight
+    // afterwards from the ref.
+    attempt.current.valid = false;
+    const mine = { valid: true };
+    attempt.current = mine;
+    // The remembered zoom attempt belongs to the pins that are about to be
+    // replaced. A post id does not appear in a second trip, so the comparison
+    // would go nowhere anyway, but it should not be left standing either.
+    lastZoom.current = null;
     try {
-      const [momente, vorratErgebnis] = await Promise.all([fetchRecapMoments(id), getPool(id)]);
-      if (!meiner.gilt) return;
+      const [moments, poolResult] = await Promise.all([fetchRecapMoments(id), getPool(id)]);
+      if (!mine.valid) return;
 
-      // Beide Abfragen geben ihren Fehler als WERT zurück, und beide Texte
-      // sind bereits deutsche Copy in Du-Form (recapApi.ts, urlVorrat.ts),
-      // inklusive der beiden fachlichen 403 «Diese Reise ist noch versiegelt.»
-      // und «Kein Zugriff auf diese Reise.», die `holeVorrat` zusätzlich als
-      // `grund` maschinenlesbar macht.
+      // Both queries return their error as a VALUE, and both texts are
+      // already German copy in Du form (recapApi.ts, urlPool.ts), including
+      // the two factual 403s about a sealed trip and about missing access,
+      // which `getPool` additionally makes machine readable as `reason`.
       //
-      // Vorrat vor Momenten, wie in uebersicht.tsx und player.tsx: ohne
-      // Bild-URLs ist die Spielliste ohnehin leer (sie filtert auf
-      // `urls.has`), der Vorrats-Fehler nennt also die Ursache, die weiter
-      // oben liegt.
-      const fehler = vorratErgebnis.error ?? momente.error;
-      if (fehler !== null) {
-        leereKarte();
-        setLadestand({
+      // Pool before moments, as in overview.tsx and player.tsx: without image
+      // URLs the playlist is empty anyway (it filters on `urls.has`), so the
+      // pool error names the cause that lies further up.
+      const error = poolResult.error ?? moments.error;
+      if (error !== null) {
+        clearMap();
+        setLoadState({
           tripId: id,
-          phase: 'fehler',
-          punkte: KEINE_PUNKTE,
-          ohneOrt: KEINE_OHNE_ORT,
-          unterwegs: 0,
-          ohneBild: 0,
-          fehlerText: fehler,
-          // Nur der Vorrat kennt einen `grund`, und er zählt nur, wenn SEIN
-          // Fehler der angezeigte ist (siehe die Reihenfolge oben). Der
-          // Momente-Fehler ist immer eine Momentaufnahme, dort ist ein
-          // zweiter Versuch die richtige Handlung.
-          nochmalHilft:
-            vorratErgebnis.error !== null ? retryHelps(vorratErgebnis.grund) : true,
+          phase: 'error',
+          points: NO_POINTS,
+          withoutPlace: NONE_WITHOUT_PLACE,
+          inTransit: 0,
+          withoutImage: 0,
+          errorText: error,
+          // Only the pool knows a `reason`, and it only counts when ITS error
+          // is the one shown (see the order above). The moment error is
+          // always a snapshot, there a second attempt is the right move.
+          canRetry:
+            poolResult.error !== null ? retryHelps(poolResult.reason) : true,
         });
         return;
       }
 
-      // DIE Stelle, an der ein Fehler still bliebe: die Karte muss dieselbe
-      // Liste zählen wie der Player. `punkt.index` geht später als `start`
-      // an ihn, und `parseStartIndex` zählt dort in genau diese gefilterte
-      // Liste (player.tsx:503-527); uebersicht.tsx:316-317 baut ihr
-      // `indexById` aus derselben Filterung. Gäbe dieser Screen die rohe
-      // Momente-Liste herein, verschöbe jeder noch hochladende Moment alles
-      // dahinter, die Nadeln sässen weiterhin richtig, aber der Sprung
-      // landete beim falschen Moment, und das merkt niemand, ausser er
-      // zählt nach.
+      // THE place where a bug would stay silent: the map has to count the
+      // same list as the player. `point.index` goes to it later as `start`,
+      // and `parseStartIndex` counts there into exactly this filtered list
+      // (player.tsx); overview.tsx builds its `indexById` out of the same
+      // filtering. If this screen handed in the raw moment list, every still
+      // uploading moment would shift everything behind it, the pins would
+      // still sit right, but the jump would land on the wrong moment, and
+      // nobody notices unless they count.
       //
-      // BEIDE Bedingungen sind nötig, keine ist durch die andere gedeckt:
-      // dass `media-urls` serverseitig nur für hochgeladene Momente
-      // signiert (und `urls.has` deshalb heute dasselbe aussortiert), ist
-      // eine Eigenschaft einer ANDEREN Datei, die dieser Screen nicht
-      // kennt und auf die er sich nicht verlassen darf.
-      const vorratUrls = vorratErgebnis.vorrat?.urls ?? KEINE_URLS;
-      const uploaded = momente.data.filter((m) => m.upload_status === 'uploaded');
-      const mitBild = uploaded.filter((m) => vorratUrls.has(m.id));
-      const { points: p, withoutPlace: o } = toMapPoints(mitBild);
-      setUrls(vorratUrls);
-      setAusschnitt(viewportFor(p));
-      setSpielliste({ tripId: id, momente: mitBild });
-      setLadestand({
+      // BOTH conditions are needed, neither is covered by the other: that
+      // `media-urls` signs server side only for uploaded moments (and
+      // `urls.has` therefore sorts out the same thing today) is a property of
+      // ANOTHER file, one this screen does not know and must not rely on.
+      const poolUrls = poolResult.pool?.urls ?? NO_URLS;
+      const uploaded = moments.data.filter((m) => m.upload_status === 'uploaded');
+      const withImage = uploaded.filter((m) => poolUrls.has(m.id));
+      const { points: p, withoutPlace: o } = toMapPoints(withImage);
+      setUrls(poolUrls);
+      setViewport(viewportFor(p));
+      setPlaylist({ tripId: id, moments: withImage });
+      setLoadState({
         tripId: id,
-        phase: 'fertig',
-        punkte: p,
-        ohneOrt: ohneOrtMitIndex(mitBild, o),
-        // Die Filterung darueber bleibt, wie sie ist, `punkt.index` muss zur
-        // Spielliste passen, sonst startet der Player am falschen Moment. Was
-        // fehlte, ist die Auskunft darueber, WAS dabei herausfaellt.
-        unterwegs: momente.data.length - uploaded.length,
-        ohneBild: uploaded.length - mitBild.length,
-        fehlerText: null,
-        nochmalHilft: true,
+        phase: 'loaded',
+        points: p,
+        withoutPlace: withoutPlaceWithIndex(withImage, o),
+        // The filtering above stays as it is, `point.index` has to match the
+        // playlist, otherwise the player starts on the wrong moment. What was
+        // missing is the information about WHAT falls out along the way.
+        inTransit: moments.data.length - uploaded.length,
+        withoutImage: uploaded.length - withImage.length,
+        errorText: null,
+        canRetry: true,
       });
-    } catch (wurf: unknown) {
-      // fetchRecapMomente und holeVorrat geben Fehler als WERT zurück statt
-      // zu werfen, aber "wirft normalerweise nicht" ist keine Zusicherung,
-      // die diese Kette tragen kann. Wirft eine der beiden doch, wäre die
-      // Ablehnung ohne dieses `catch` unbehandelt (Fixrunde 1). Es gibt dann
-      // keinen Text vom Server, also springt WURF_TEXT ein, und der Fehler
-      // geht zusätzlich an den Fehlermelder (ohne DSN ein No-Op, siehe
-      // lib/fehlermelder.ts), weil nur er die technische Ursache kennt.
-      if (!meiner.gilt) return;
-      reportError(wurf, { screen: 'recap/karte', tripId: id, ladeweg: 'momente' });
-      leereKarte();
-      setLadestand({
+    } catch (thrown: unknown) {
+      // fetchRecapMoments and getPool return errors as a VALUE instead of
+      // throwing, but "normally does not throw" is no assurance this chain
+      // can carry. If one of the two does throw, the rejection would be
+      // unhandled without this `catch` (fix round 1). There is no text from
+      // the server then, so THROW_TEXT steps in, and the error additionally
+      // goes to the error reporter (a no-op without a DSN, see
+      // lib/errorReporter.ts), because only it knows the technical cause.
+      if (!mine.valid) return;
+      reportError(thrown, { screen: 'recap/map', tripId: id, loadPath: 'moments' });
+      clearMap();
+      setLoadState({
         tripId: id,
-        phase: 'fehler',
-        punkte: KEINE_PUNKTE,
-        ohneOrt: KEINE_OHNE_ORT,
-        unterwegs: 0,
-        ohneBild: 0,
-        fehlerText: WURF_TEXT,
-        nochmalHilft: true,
+        phase: 'error',
+        points: NO_POINTS,
+        withoutPlace: NONE_WITHOUT_PLACE,
+        inTransit: 0,
+        withoutImage: 0,
+        errorText: THROW_TEXT,
+        canRetry: true,
       });
     }
-  }, [id, leereKarte]);
+  }, [id, clearMap]);
 
   useEffect(() => {
-    // `laden` setzt seinen Zustand erst NACH dem ersten `await` (die Zeilen
-    // davor berühren nur ein Ref), die kaskadierenden Renders, vor denen die
-    // Regel warnt, gibt es hier also nicht. Der Ladeweg muss ein
-    // `useCallback` sein, damit «Nochmal versuchen» ihn wiederverwenden kann,
-    // statt eine zweite Kopie desselben Wegs zu pflegen. Gleiche Stelle und
-    // gleicher Grund in player.tsx und uebersicht.tsx.
+    // `load` sets its state only AFTER the first `await` (the lines before
+    // touch only a ref), so the cascading renders the rule warns about do not
+    // exist here. The load path has to be a `useCallback` so that the retry
+    // button can reuse it instead of maintaining a second copy of the same
+    // path. Same place and same reason in player.tsx and overview.tsx.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    void laden();
-    // Den gerade gestarteten Anlauf HIER festhalten, nicht erst im Cleanup:
-    // `laden` hängt ihn synchron ein, bevor es zum ersten Mal wartet (siehe
-    // dort), der Wert steht in dieser Zeile also fest. Im Cleanup gelesen
-    // wäre `anlauf.current` bei einem Wechsel der Reise-id längst ein
-    // anderer, react-hooks/exhaustive-deps warnt zu Recht genau davor.
-    const meiner = anlauf.current;
-    // Ohne das schriebe eine spät eintreffende Antwort der VORHERIGEN Reise
-    // ihre Nadeln in die neue.
+    void load();
+    // Hold on to the attempt just started HERE, not only in the cleanup:
+    // `load` hooks it in synchronously before it waits for the first time
+    // (see there), so the value is fixed in this line. Read in the cleanup,
+    // `attempt.current` would long be a different one when the trip id
+    // changes, and react-hooks/exhaustive-deps warns about exactly that,
+    // rightly.
+    const mine = attempt.current;
+    // Without this a late answer of the PREVIOUS trip would write its pins
+    // into the new one.
     return () => {
-      meiner.gilt = false;
+      mine.valid = false;
     };
-  }, [laden]);
+  }, [load]);
 
-  const nochmal = useCallback(async () => {
-    setNochmalLaeuft(true);
-    await laden();
-    setNochmalLaeuft(false);
-  }, [laden]);
+  const retry = useCallback(async () => {
+    setRetryRunning(true);
+    await load();
+    setRetryRunning(false);
+  }, [load]);
 
-  // Die Reise wird GETRENNT geladen, nicht im `Promise.all` oben.
+  // The trip is loaded SEPARATELY, not in the `Promise.all` above.
   //
-  // Gebraucht wird von ihr allein `start_date`: die Tagesnummern zählen ab dem
-  // Startdatum DER REISE (tage.ts), nicht ab dem ersten Moment, uebersicht.tsx
-  // und player.tsx lesen es an derselben Stelle. Ohne diese Abfrage müsste
-  // dieser Screen die Tage aus den Momenten heraus raten und zeigte für
-  // dieselbe Reise andere Nummern als die Übersicht.
+  // Needed from it is `start_date` alone: the day numbers count from the
+  // start date OF THE TRIP (days.ts), not from the first moment, overview.tsx
+  // and player.tsx read it in the same place. Without this query this screen
+  // would have to guess the days out of the moments and would show different
+  // numbers for the same trip than the overview.
   //
-  // Aber: der Filter ist Beiwerk, die Nadeln SIND der Screen, und in einem
-  // gemeinsamen `Promise.all` wäre das nur für den Fehlerpfad wahr, nicht für
-  // den Zeitpfad. Bis der Ausschnitt steht, wird die Karte gar nicht erst
-  // gemountet; die Nadeln hingen also an einer Abfrage, die für sie nichts
-  // beiträgt. Und `fetchTrip` ist nicht eine Abfrage, sondern zwei: es wartet
-  // intern auf die rpc `my_post_counts` mit (tripsApi.ts), ein hängender
-  // Momente-Zähler liesse bei sonst intaktem Netz eine leere Fläche stehen,
-  // obwohl Momente und URLs längst da sind.
+  // But: the filter is an extra, the pins ARE the screen, and in a shared
+  // `Promise.all` that would only be true for the error path, not for the
+  // time path. Until the viewport stands, the map is not even mounted; the
+  // pins would hang on a query that contributes nothing to them. And
+  // `fetchTrip` is not one query but two: internally it waits for the rpc
+  // `my_post_counts` as well (tripsApi.ts), so a hanging moment counter would
+  // leave an empty surface standing on an otherwise intact network, although
+  // moments and URLs are long there.
   useEffect(() => {
-    let aktiv = true;
+    let active = true;
     void fetchTrip(id)
-      .then(({ data: reise, error }) => {
-        if (!aktiv) return;
-        // Kein `start_date` (Ladefehler, oder es gibt die Reise nicht mehr):
-        // dann fehlt der Filter, und sonst nichts.
+      .then(({ data: trip, error }) => {
+        if (!active) return;
+        // No `start_date` (load error, or the trip does not exist any more):
+        // then the filter is missing, and nothing else.
         //
-        // Sichtbar wird der Fehler bewusst NICHT. Die Nadeln, die Linie und
-        // der Sprung in den Player stehen vollständig, eine Fehlermeldung
-        // über einer intakten Karte behauptete, hier sei etwas kaputt, und
-        // stritte ausserdem mit der Leiste unten um denselben Platz. Was
-        // fehlt, ist eine Pille, die es sonst nur bei mehr als einem
-        // wählbaren Tag überhaupt gibt.
+        // The error deliberately does NOT become visible. The pins, the line
+        // and the jump into the player stand complete, an error message over
+        // an intact map would claim something here is broken, and it would
+        // additionally fight the bar below for the same spot. What is missing
+        // is a pill that only exists at all with more than one selectable
+        // day.
         //
-        // Spurlos verschwinden darf er trotzdem nicht: bis Task 10 war das
-        // der einzige Ladepfad dieses Screens ohne jede Meldung. Der
-        // Fehlermelder ist die einzige Stelle, an der «der Filter fehlt, weil
-        // die Reise-Abfrage ausgefallen ist» von «diese Reise hat nur einen
-        // Tag mit Nadeln» zu unterscheiden ist, von aussen sehen beide
-        // gleich aus.
+        // It must not vanish without a trace though: until task 10 this was
+        // the only load path of this screen without any report. The error
+        // reporter is the only place where a missing filter caused by a
+        // failed trip query can be told apart from a trip that has only one
+        // day with pins, from the outside both look the same.
         if (error !== null) {
-          reportError(new Error(error), { screen: 'recap/karte', tripId: id, ladeweg: 'reise' });
+          reportError(new Error(error), { screen: 'recap/map', tripId: id, loadPath: 'trip' });
         }
-        setReiseStart(reise ? { tripId: id, startDate: reise.start_date } : null);
+        setTripStart(trip ? { tripId: id, startDate: trip.start_date } : null);
       })
-      // Gleicher Grund wie beim Ladeweg darüber: `fetchTrip` gibt Fehler als
-      // WERT zurück, aber «wirft normalerweise nicht» trägt keine Kette.
-      .catch((fehler: unknown) => {
-        if (!aktiv) return;
-        // Mit `ladeweg` wie der Wert-Pfad darüber: ohne ihn wäre ein
-        // werfendes `fetchTrip` im Fehlermelder nicht von einem werfenden
-        // `fetchRecapMomente` zu unterscheiden.
-        reportError(fehler, { screen: 'recap/karte', tripId: id, ladeweg: 'reise' });
-        setReiseStart(null);
+      // Same reason as for the load path above: `fetchTrip` returns errors as
+      // a VALUE, but "normally does not throw" carries no chain.
+      .catch((error: unknown) => {
+        if (!active) return;
+        // With `loadPath` like the value path above: without it a throwing
+        // `fetchTrip` would not be distinguishable from a throwing
+        // `fetchRecapMoments` in the error reporter.
+        reportError(error, { screen: 'recap/map', tripId: id, loadPath: 'trip' });
+        setTripStart(null);
       });
     return () => {
-      aktiv = false;
+      active = false;
     };
   }, [id]);
 
-  // Der sichtbare Ausschnitt wandert bei jeder Kartenbewegung in den State:
-  // Task 7 gruppiert Nadeln nach ihrem Abstand in BILDSCHIRMpunkten und
-  // braucht dafür den aktuellen Zoom, nicht den anfänglichen.
-  const merkeAusschnitt = useCallback((sichtbar: Viewport) => setAusschnitt(sichtbar), []);
+  // The visible viewport moves into state on every map movement: task 7
+  // clusters pins by their distance in SCREEN points and needs the current
+  // zoom for that, not the initial one.
+  const rememberViewport = useCallback((visible: Viewport) => setViewport(visible), []);
 
-  // Die wählbaren Tage, erst, wenn BEIDE Hälften zur gerade angezeigten Reise
-  // gehören. Die Ladewege laufen unabhängig, es gibt also ein Fenster, in dem
-  // das Startdatum der neuen Reise schon da ist und die Momente noch die der
-  // vorherigen sind; die Nummern daraus gäbe es in keiner der beiden Reisen.
+  // The selectable days, only once BOTH halves belong to the trip currently
+  // shown. The load paths run independently, so there is a window in which
+  // the start date of the new trip is already there and the moments are still
+  // those of the previous one; the numbers out of that would exist in neither
+  // trip.
   //
-  // `useMemo` und nicht ein State im Ladeweg: die Rechnung hängt an genau
-  // diesen drei geladenen Werten, und die ändern sich einmal pro Ladevorgang,
-  // dieser Screen rendert aber bei jeder Kartenbewegung neu.
-  const alleTage = useMemo(() => {
-    if (spiellisteJetzt.length === 0) return [];
-    if (reiseStart === null || reiseStart.tripId !== id) return [];
-    return groupByDays(spiellisteJetzt, reiseStart.startDate);
-  }, [spiellisteJetzt, reiseStart, id]);
+  // `useMemo` and not a state in the load path: the calculation hangs on
+  // exactly these three loaded values, and they change once per load, while
+  // this screen re-renders on every map movement.
+  const allDays = useMemo(() => {
+    if (playlistNow.length === 0) return [];
+    if (tripStart === null || tripStart.tripId !== id) return [];
+    return groupByDays(playlistNow, tripStart.startDate);
+  }, [playlistNow, tripStart, id]);
 
-  const tage = useMemo(() => waehlbareTage(alleTage, punkte), [alleTage, punkte]);
+  const days = useMemo(() => selectableDays(allDays, points), [allDays, points]);
 
-  // Ob die angebotenen Tagesnummern eine Lücke haben, genau dann, wenn
-  // `waehlbareTage` etwas weggelassen hat. Nicht an den Nummern selbst
-  // abgelesen: die Übersicht zeigt dieselben Nummern, und was hier fehlt,
-  // fehlt AUS DIESEM Grund, nicht aus irgendeinem.
-  const tageLuecke = alleTage.length > tage.length;
+  // Whether the offered day numbers have a gap, exactly when `selectableDays`
+  // left something out. Not read off the numbers themselves: the overview
+  // shows the same numbers, and what is missing here is missing FOR THIS
+  // reason, not for just any.
+  const daysGap = allDays.length > days.length;
 
-  // Der gewählte Tag als Objekt statt als blosse Nummer, und aus `tage`
-  // heraus gesucht, nicht aus `tagWahl` heraus geglaubt: nach einem
-  // Neuladen kann der gewählte Tag verschwunden sein (ein Moment ist
-  // dazugekommen und hat die Nummerierung verschoben, oder der letzte Moment
-  // dieses Tages hat seinen Ort verloren). Wird er nicht mehr gefunden, gilt
-  // wieder «Alle Tage», Pille, Nadeln, Linie und Ausschnitt leiten ALLE aus
-  // diesem einen Wert ab und können deshalb gar nicht auseinanderlaufen.
-  const gewaehlterTag = useMemo(
-    () => tage.find((t) => t.nummer === tagWahl) ?? null,
-    [tage, tagWahl]
+  // The selected day as an object instead of a bare number, and looked up out
+  // of `days` instead of believed out of `dayChoice`: after a reload the
+  // selected day can have vanished (a moment was added and shifted the
+  // numbering, or the last moment of that day lost its place). If it is not
+  // found any more, all days apply again; pill, pins, line and viewport ALL
+  // derive from this one value and therefore cannot drift apart.
+  const selectedDay = useMemo(
+    () => days.find((t) => t.number === dayChoice) ?? null,
+    [days, dayChoice]
   );
 
-  // Was die Karte zeigt. Gefiltert wird auf den FERTIGEN Punkten, siehe
-  // `punkteAmTag`: der Index darin zeigt weiterhin in die ganze Reise.
-  const sichtbarePunkte = useMemo(() => punkteAmTag(punkte, gewaehlterTag), [punkte, gewaehlterTag]);
+  // What the map shows. Filtered on the FINISHED points, see `pointsOnDay`:
+  // the index in them still points into the whole trip.
+  const visiblePoints = useMemo(() => pointsOnDay(points, selectedDay), [points, selectedDay]);
 
-  // Die Linie der Reise (Spec K3/§5.6). `punkte` kommt aus zuKartenPunkten
-  // bereits nach `captured_at` sortiert, hier wird bewusst NICHT noch einmal
-  // sortiert: die Linie zeigt, in welcher Reihenfolge aufgenommen wurde, nie,
-  // in welcher hochgeladen wurde.
+  // The line of the trip (Spec K3/§5.6). `points` comes out of toMapPoints
+  // already sorted by `captured_at`, here it is deliberately NOT sorted
+  // again: the line shows in which order things were captured, never in which
+  // they were uploaded.
   //
-  // `useMemo` ist hier nicht Feinschliff: `merkeAusschnitt` lässt den Screen
-  // bei jeder Kartenbewegung neu rendern, und ein bei jedem Rendern neues
-  // Koordinaten-Array schickte die Polyline jedes Mal erneut über die Brücke.
-  // Über `sichtbarePunkte`, nicht über `punkte`: eine Linie, die bei einem
-  // gewählten Tag weiter zum nächsten zeichnete, behauptete eine Bewegung, die
-  // an diesem Tag nicht stattgefunden hat. An der Sortierung ändert das
-  // nichts, `punkteAmTag` filtert nur, es sortiert nicht um.
-  const linie = useMemo(
-    () => sichtbarePunkte.map((p) => ({ latitude: p.lat, longitude: p.lng })),
-    [sichtbarePunkte]
+  // `useMemo` is not polish here: `rememberViewport` makes the screen
+  // re-render on every map movement, and a coordinate array that is new on
+  // every render would send the polyline over the bridge every time. Over
+  // `visiblePoints`, not over `points`: a line that kept drawing on to the
+  // next day while a day is selected would claim a movement that did not
+  // happen on that day. That changes nothing about the sorting, `pointsOnDay`
+  // only filters, it does not reorder.
+  const line = useMemo(
+    () => visiblePoints.map((p) => ({ latitude: p.lat, longitude: p.lng })),
+    [visiblePoints]
   );
 
-  // Nadeln, die einander sonst verdecken, teilen sich eine (Spec §5.5).
-  // Gruppiert wird nach dem Abstand auf DEM GERADE SICHTBAREN Ausschnitt,
-  // darum steht `ausschnitt` in den Abhängigkeiten und nicht bloss der
-  // Anfangswert: beim Hineinzoomen fällt eine Gruppe von selbst auseinander.
+  // Pins that would otherwise cover each other share one (Spec §5.5).
+  // Clustering goes by the distance on THE CURRENTLY VISIBLE viewport, which
+  // is why `viewport` stands in the dependencies and not merely the initial
+  // value: zooming in makes a cluster fall apart by itself.
   //
-  // `useMemo` bindet die Rechnung an genau die vier Werte, die ihr Ergebnis
-  // bestimmen. `gruppiere` vergleicht jeden Punkt mit jeder bisherigen Gruppe,
-  // und der Screen rendert bei jeder Kartenbewegung neu, dazu bei jedem
-  // Zustand, der mit der Karte nichts zu tun hat (die eintreffenden Bild-URLs
-  // heute, das Moment-Sheet in Task 8). Ohne die Bindung liefe sie bei jedem
-  // dieser Renders mit. Gespart wird die RECHNUNG, nicht ein Neuaufbau der
-  // Nadeln: die hängen an ihrem Schlüssel und ihren Props und blieben auch
-  // ohne das Memo stehen.
-  const gruppen = useMemo(
-    () => (ausschnitt ? cluster(sichtbarePunkte, ausschnitt, breite, hoehe) : []),
-    [sichtbarePunkte, ausschnitt, breite, hoehe]
+  // `useMemo` binds the calculation to exactly the four values that determine
+  // its result. `cluster` compares every point with every cluster so far, and
+  // the screen re-renders on every map movement, plus on every state that has
+  // nothing to do with the map (the incoming image URLs today, the moment
+  // sheet in task 8). Without the binding it would run along on every one of
+  // those renders. What is saved is the CALCULATION, not a rebuild of the
+  // pins: those hang on their key and their props and would stay in place
+  // without the memo too.
+  const clusters = useMemo(
+    () => (viewport ? cluster(visiblePoints, viewport, width, height) : []),
+    [visiblePoints, viewport, width, height]
   );
 
-  // Das Bild einer Nadel, als Nachschlagefunktion statt als fertige Liste:
-  // die Fläche fragt für den Anker jeder Gruppe nach, und welche Gruppen es
-  // gibt, weiss sie selbst besser als dieser Screen. `useCallback` bindet sie
-  // an den Vorrat, nicht an jedes Rendern: der Screen rendert bei jeder
-  // Kartenbewegung neu, die URLs ändern sich einmal pro Ladevorgang.
-  const thumbFuer = useCallback((postId: string) => pinImageUrl(urls, postId), [urls]);
+  // The image of a pin, as a lookup function instead of a finished list: the
+  // surface asks for the anchor of every cluster, and which clusters exist it
+  // knows better than this screen. `useCallback` binds it to the pool, not to
+  // every render: the screen re-renders on every map movement, the URLs
+  // change once per load.
+  const thumbFor = useCallback((postId: string) => pinImageUrl(urls, postId), [urls]);
 
-  // Die Kamera bewegt DIE FLÄCHE, nicht dieser Screen: `zeige` ist seit Task
-  // 14 das imperative Handle von `KartenFlaeche` (features/karte/typen.ts).
-  // Dort sitzt auch die Reduced-Motion-Weiche, sie gehört zur Technik der
-  // jeweiligen Karte (animateToRegion/setRegion nativ, flyTo/setView im
-  // Browser), nicht zum Screen. Für diesen Screen bleibt es DIE eine Stelle,
-  // über die jede Kamerabewegung geht (Spec K12): der Gruppen-Zoom und der
-  // Tagesfilter rufen beide hierher.
+  // The camera is moved by THE SURFACE, not by this screen: `show` is since
+  // task 14 the imperative handle of `MapSurface` (features/map/types.ts).
+  // The reduced motion switch sits there too, it belongs to the technique of
+  // the respective map (animateToRegion/setRegion natively, flyTo/setView in
+  // the browser), not to the screen. For this screen it stays THE one place
+  // every camera movement goes through (Spec K12): the cluster zoom and the
+  // day filter both call in here.
   //
-  // Der Erststart geht bewusst NICHT hier durch: die Karte wird überhaupt erst
-  // gemountet, wenn der Ausschnitt feststeht, und öffnet direkt dort. Es gibt
-  // nichts, wovon aus gefahren würde.
-  const zeige = useCallback((ziel: Viewport) => karte.current?.flyTo(ziel), []);
+  // The first start deliberately does NOT go through here: the map is only
+  // mounted once the viewport stands, and it opens right there. There is
+  // nothing to drive away from.
+  const show = useCallback((target: Viewport) => map.current?.flyTo(target), []);
 
-  // Was ein Tipp auf eine Gruppe zusätzlich wissen muss, in einem Ref statt in
-  // den Abhängigkeiten von `aufGruppe`. Hinge die Funktion an `ausschnitt`,
-  // bekäme jede Nadel bei JEDER Kartenbewegung ein neues `onPress` (die Fläche
-  // reicht `aufGruppe` an alle Nadeln durch); das `memo` am Marker
-  // (KartenNadel.tsx) wäre wirkungslos, und jede Nadel schickte ihre Koordinate
-  // erneut über die Brücke, obwohl sich an ihr nichts geändert hat.
+  // What a tap on a cluster additionally has to know, in a ref instead of in
+  // the dependencies of `onCluster`. If the function hung on `viewport`,
+  // every pin would get a new `onPress` on EVERY map movement (the surface
+  // passes `onCluster` down to all pins); the `memo` on the marker
+  // (MapPin.tsx) would have no effect, and every pin would send its
+  // coordinate over the bridge again although nothing about it changed.
   //
-  // `useLayoutEffect`, nicht `useEffect`: ein passiver Effekt läuft erst NACH
-  // dem Commit, und in dem Fenster dazwischen liest ein Tipp noch den alten
-  // Stand. Dieselbe Überlegung steht in KartenFlaeche.tsx an dem Ref, das die
-  // GRUPPEN hält, dort ist sie in karte.test.tsx festgenagelt («ein Tipp
-  // unmittelbar nach dem Zerfall einer Gruppe wird nicht verschluckt»).
-  const stand = useRef<{ ausschnitt: Viewport | null }>({ ausschnitt });
+  // `useLayoutEffect`, not `useEffect`: a passive effect runs only AFTER the
+  // commit, and in the window in between a tap still reads the old state. The
+  // same reasoning stands in MapSurface.tsx on the ref that holds the
+  // CLUSTERS, where map.test.tsx nails it down (a tap right after a cluster
+  // falls apart is not swallowed).
+  const state = useRef<{ viewport: Viewport | null }>({ viewport });
   useLayoutEffect(() => {
-    stand.current = { ausschnitt };
-  }, [ausschnitt]);
+    state.current = { viewport };
+  }, [viewport]);
 
-  // Was der Tipp auf diese Gruppe tun WIRD, für die Beschriftung, die
-  // VoiceOver vorliest. Dieselbe Frage, dieselbe Antwort, dasselbe
-  // `zoomAussichtslos` wie im Tipp darunter, nur ohne die Folgen.
+  // What the tap on this cluster WILL do, for the label VoiceOver reads out.
+  // Same question, same answer, same `zoomExhausted` as in the tap below,
+  // only without the consequences.
   //
-  // Sie steht hier und nicht in der Fläche, obwohl die die Nadeln zeichnet:
-  // sie hängt am Verlauf (welche Gruppe zuletzt vergeblich angefahren wurde),
-  // und der liegt in `letzterZoom`. Die Fläche kannte bis hierher nur die
-  // halbe Regel, bitgleiche Koordinaten, und sagte an einer festgefahrenen
-  // Gruppe weiter «heranzoomen», obwohl der Tipp längst das Sheet öffnete.
+  // It stands here and not in the surface, although the surface draws the
+  // pins: it hangs on the history (which cluster was driven at in vain last),
+  // and that lies in `lastZoom`. Up to here the surface knew only half the
+  // rule, bit identical coordinates, and kept announcing a zoom on a stuck
+  // cluster although the tap had long been opening the sheet.
   //
-  // Der Ausschnitt kommt hier aus dem STATE, nicht aus `stand.current` wie im
-  // Tipp darunter, und das ist kein Versehen: diese Frage wird beim RENDERN
-  // gestellt, und der Layout-Effekt, der das Ref nachzieht, läuft erst danach.
-  // Mit dem Ref trug die erste Nadel jeder Reise das Label für «kein
-  // Ausschnitt bekannt», also immer «heranzoomen», auch auf einem Fleck. Vom
-  // Screen-Test gefunden, nicht hergeleitet. Beim Tipp ist es umgekehrt: er
-  // kommt aus einer Closure, die den Stand von damals sähe, deshalb liest er
-  // das Ref.
-  const oeffnetSheet = useCallback(
-    (gruppe: Cluster) => {
-      // Ohne Ausschnitt gibt es keine Nadeln, die beschriftet werden könnten
-      // (siehe `gruppen` oben). Für den Typ trotzdem nötig.
-      if (!ausschnitt) return false;
-      return zoomExhausted(gruppe, ausschnitt, letzterZoom.current);
+  // The viewport comes from STATE here, not from `state.current` like in the
+  // tap below, and that is not an oversight: this question is asked while
+  // RENDERING, and the layout effect that follows the ref up runs only
+  // afterwards. With the ref the first pin of every trip carried the label
+  // for no viewport known, so always the zoom announcement, even on one spot.
+  // Found by the screen test, not derived. With the tap it is the other way
+  // round: it comes out of a closure that would see the state of back then,
+  // which is why it reads the ref.
+  const opensSheet = useCallback(
+    (cluster: Cluster) => {
+      // Without a viewport there are no pins that could be labelled (see
+      // `clusters` above). Needed for the type anyway.
+      if (!viewport) return false;
+      return zoomExhausted(cluster, viewport, lastZoom.current);
     },
-    [ausschnitt]
+    [viewport]
   );
 
 
-  // Ein Tipp auf eine Gruppe fährt in sie hinein, solange das etwas ausrichtet
-  // (Spec §5.5): wer auf der Karte sucht, will die Karte benutzen. Erst wo
-  // Zoomen nichts mehr bringt, öffnet sich das Sheet, siehe unten.
+  // A tap on a cluster drives into it as long as that achieves something
+  // (Spec §5.5): whoever searches on the map wants to use the map. Only where
+  // zooming brings nothing more does the sheet open, see below.
   //
-  // WELCHE Gruppe getippt wurde, hat die Fläche bereits beantwortet: der Marker
-  // meldet ihr den Anker, sie sucht die Gruppe in ihrem eigenen Stand
-  // (KartenFlaeche.tsx). Hier steht nur noch, was daraus folgt.
-  const aufGruppe = useCallback(
-    (gruppe: Cluster) => {
-      const { ausschnitt: sichtbar } = stand.current;
+  // WHICH cluster was tapped the surface has already answered: the marker
+  // reports the anchor to it, and it looks the cluster up in its own state
+  // (MapSurface.tsx). Here only what follows from that stands.
+  const onCluster = useCallback(
+    (cluster: Cluster) => {
+      const { viewport: visible } = state.current;
 
-      // Unerreichbar, aber für den Typ nötig: `gruppen` wird nur berechnet,
-      // wenn `ausschnitt` steht (siehe useMemo oben). Ohne Ausschnitt gäbe es
-      // also gar keine Nadel, die getippt werden könnte.
-      if (!sichtbar) return;
+      // Unreachable, but needed for the type: `clusters` is only calculated
+      // when `viewport` stands (see useMemo above). Without a viewport there
+      // would be no pin at all that could be tapped.
+      if (!visible) return;
 
-      // Ins Sheet führt EINE Frage: richtet Zoomen hier überhaupt noch etwas
-      // aus? Sie deckt alle Fälle ab, in denen die Antwort nein ist,
+      // ONE question leads into the sheet: does zooming still achieve anything
+      // here? It covers all the cases where the answer is no,
       //
-      // - den häufigen: eine einzelne Nadel. Ein Punkt liegt trivialerweise
-      //   auf einem Fleck, und dort steht der Moment selbst (Spec §5.7). Die
-      //   Karte bewegt sich dabei NICHT: der Moment soll nicht unter dem Sheet
-      //   wegrutschen, während man ihn liest.
-      // - den seltenen: eine Gruppe, deren Momente alle auf derselben
-      //   Koordinate liegen. Sie fällt durch keine Zoomstufe auseinander.
-      // - und den, der bis zur Merge-Fixrunde fehlte: eine Gruppe, die zwar
-      //   verschiedene Koordinaten hat, aber so eng beieinander, dass die
-      //   letzte Zoomstufe der Karte sie nicht mehr trennt. Bei drei bis acht
-      //   Metern GPS-Versatz ist das der Normalfall, nicht der Ausnahmefall.
+      // - the frequent one: a single pin. One point trivially lies on one
+      //   spot, and there the moment itself stands (Spec §5.7). The map does
+      //   NOT move while doing so: the moment should not slide away under the
+      //   sheet while it is being read.
+      // - the rare one: a cluster whose moments all lie on the same
+      //   coordinate. It falls apart at no zoom level.
+      // - and the one that was missing until the merge fix round: a cluster
+      //   that does have different coordinates, but so close together that the
+      //   last zoom level of the map no longer separates them. At three to
+      //   eight metres of GPS offset that is the normal case, not the
+      //   exception.
       //
-      // Beantwortet wird sie in features/karte/gruppenTipp.ts, gemeinsam mit
-      // dem geteilten Recap (teilen/[token].tsx), samt der vollen Begründung.
+      // It is answered in features/map/clusterTap.ts, together with the shared
+      // recap (share/[token].tsx), including the full reasoning.
       //
-      // Bewusst nicht zusätzlich `punkte.length === 1` davorgesetzt: die
-      // Abfrage wäre vom Rest gedeckt und liesse sich ersatzlos streichen,
-      // ohne dass eine Zusicherung fiele, genau die Art Bedingung, die
-      // später niemand mehr prüfen kann.
-      if (zoomExhausted(gruppe, sichtbar, letzterZoom.current)) {
-        // Wie in `oeffneTagesfilter`: es ist immer höchstens EIN Sheet offen
-        // (Begründung dort), und deshalb werden BEIDE anderen geräumt, nicht
-        // nur das der Momente ohne Ort. Bis zur §9-Durchsicht (Task 12) fehlte
-        // `setTageSheet(null)` hier, und die Zusicherung galt nur in eine
-        // Richtung: der Tagesfilter machte das Moment-Sheet zu, der Tipp auf
-        // eine Nadel liess das Tages-Sheet stehen.
+      // Deliberately no additional `points.length === 1` in front: that check
+      // would be covered by the rest and could be deleted without any
+      // assertion falling, exactly the kind of condition nobody can check
+      // later on.
+      if (zoomExhausted(cluster, visible, lastZoom.current)) {
+        // As in `openDayFilter`: at most ONE sheet is open at a time
+        // (reasoning there), and that is why BOTH others are cleared, not
+        // only the one of the moments without a place. Until the §9
+        // walkthrough (task 12) `setDaysOpen(false)` was missing here, and
+        // the assurance held in one direction only: the day filter closed the
+        // moment sheet, the tap on a pin left the day sheet standing.
         //
-        // Zwei offene Sheets sind nicht bloss unordentlich: jedes bringt einen
-        // eigenen Backdrop mit (`backdrop`, tokens.ts, rgba(0,0,0,0.4)), zwei
-        // davon übereinander dunkeln auf rund 0.64 ab. Dieser Wert stammt aus
-        // keinem Token mehr (DESIGN-LANGUAGE §9), und dazu lägen zwei
-        // `shadow-3`-Panels aufeinander, von denen ein Wisch nur das obere
-        // schliesst. Dass der Backdrop des Tages-Sheets diesen Tipp auf dem
-        // Gerät ohnehin abfängt, ist genau das Argument, das
-        // `oeffneTagesfilter` für die Gegenrichtung ausdrücklich NICHT gelten
-        // lässt: der Zustand soll eindeutig sein, statt an der
-        // Trefferreihenfolge zu hängen.
-        setTageOffen(false);
-        setOhneOrtOffen(false);
-        setSheetPunkte(gruppe.points);
+        // Two open sheets are not merely untidy: each brings a backdrop of
+        // its own (`backdrop`, tokens.ts, rgba(0,0,0,0.4)), two of them on
+        // top of each other dim to roughly 0.64. That value comes from no
+        // token any more (DESIGN-LANGUAGE §9), and on top of that two
+        // `shadow-3` panels would lie on each other, of which a swipe closes
+        // only the upper one. That the backdrop of the day sheet catches this
+        // tap on the device anyway is exactly the argument `openDayFilter`
+        // explicitly does NOT let count for the other direction: the state
+        // should be unambiguous instead of hanging on hit order.
+        setDaysOpen(false);
+        setWithoutPlaceOpen(false);
+        setSheetPoints(cluster.points);
         return;
       }
 
-      const ziel = zoomTarget(gruppe, sichtbar);
-      // Unerreichbar (eine Gruppe hat mindestens einen Punkt), aber der Typ
-      // von `ausschnittFuer` verlangt die Behandlung.
-      if (!ziel) return;
+      const target = zoomTarget(cluster, visible);
+      // Unreachable (a cluster has at least one point), but the type of
+      // `viewportFor` demands the handling.
+      if (!target) return;
 
-      // Was diese Fahrt VERSUCHT hat, die Grundlage der Antwort beim nächsten
-      // Tipp auf dieselbe Gruppe. Bleibt der sichtbare Ausschnitt danach
-      // derselbe, hat die Karte ihre letzte Zoomstufe erreicht.
-      letzterZoom.current = { anchorId: gruppe.anchor.moment.id, before: sichtbar };
+      // What this drive ATTEMPTED, the basis of the answer on the next tap
+      // onto the same cluster. If the visible viewport stays the same
+      // afterwards, the map has reached its last zoom level.
+      lastZoom.current = { anchorId: cluster.anchor.moment.id, before: visible };
 
-      // DESIGN-LANGUAGE §5 nennt für «Zoom» selection-Haptik, dieselbe
-      // Meldung wie beim Tab-Wechsel. Sie gehört an den Zoom selbst, nicht in
-      // `zeige`: der Tagesfilter (Task 9) fährt aus einem anderen Anlass und
-      // bringt seine eigene Regel mit. `.catch`, weil ein abgelehntes Promise
-      // aus einem nativen Modul sonst als unbehandelte Ablehnung zählt,
-      // gleiches Muster wie player.tsx.
+      // DESIGN-LANGUAGE §5 names selection haptics for zoom, the same
+      // feedback as on a tab change. It belongs on the zoom itself, not in
+      // `show`: the day filter (task 9) drives for a different reason and
+      // brings its own rule. `.catch`, because a rejected promise out of a
+      // native module would otherwise count as an unhandled rejection, same
+      // pattern as player.tsx.
       void Haptics.selectionAsync().catch(() => {});
 
-      zeige(ziel);
+      show(target);
     },
-    [zeige, id]
+    [show, id]
   );
 
-  // Der Weg in den Player (Spec §5.7), für ALLE drei Sheets dieses Screens
-  // derselbe. Die Union statt eines blossen `{ index: number }`: sonst passte
-  // JEDE Zahl namens `index` hierher, auch eine Stelle innerhalb von
-  // `ohneOrt` oder innerhalb einer Gruppe. Der Typ ist an dieser einen Stelle
-  // der letzte Hinweis zur Übersetzungszeit darauf, woher der Wert stammen
-  // darf. `index` zählt über die SPIELLISTE, die der Ladeweg
-  // oben filtert, dieselbe, die der Player aufbaut, und `parseStartIndex`
-  // zählt dort in genau sie (player.tsx:503-527). Nie der Index innerhalb von
-  // `punkte` (der überspringt die Momente ohne Ort), nie der innerhalb der
-  // Gruppe und nie der innerhalb von `ohneOrt`: alle drei sässen scheinbar
-  // richtig und starteten den Player beim falschen Moment.
+  // The way into the player (Spec §5.7), the same one for ALL three sheets of
+  // this screen. The union instead of a bare `{ index: number }`: otherwise
+  // EVERY number called `index` would fit here, including a position within
+  // `withoutPlace` or within a cluster. At this one place the type is the
+  // last hint at compile time about where the value may come from. `index`
+  // counts over the PLAYLIST the load path above filters, the same one the
+  // player builds, and `parseStartIndex` counts there into exactly it
+  // (player.tsx). Never the index within `points` (that one skips the moments
+  // without a place), never the one within the cluster and never the one
+  // within `withoutPlace`: all three would seem to sit right and would start
+  // the player on the wrong moment.
   //
-  // Das Sheet bleibt dabei bewusst offen: es zu schliessen hiesse, es während
-  // des Übergangs in den Player wegblitzen zu lassen, und wer zurückkommt,
-  // findet die Stelle wieder, an der er war.
-  const zumPlayer = useCallback(
-    (eintrag: MapPoint | OhneOrt) => {
-      router.push({ pathname: '/recap/[id]/player', params: { id, start: String(eintrag.index) } });
+  // The sheet deliberately stays open while doing so: closing it would mean
+  // letting it flash away during the transition into the player, and whoever
+  // comes back finds the place they were at again.
+  const toPlayer = useCallback(
+    (entry: MapPoint | WithoutPlace) => {
+      router.push({ pathname: '/recap/[id]/player', params: { id, start: String(entry.index) } });
     },
     [router, id]
   );
 
-  // Die Sätze über das, was diese Karte gar nicht hergibt. Als Liste, weil
-  // beide Lagen gleichzeitig vorkommen können, und ohne useMemo: zwei Zahlen
-  // zu vergleichen kostet weniger als der Vergleich, der das Ergebnis
-  // aufheben würde.
-  const fehlenGanz: string[] = [];
-  if (unterwegs > 0) fehlenGanz.push(unterwegsText(unterwegs));
-  if (ohneBild > 0) fehlenGanz.push(ohneBildText(ohneBild));
+  // The sentences about what this map does not give at all. As a list,
+  // because both situations can occur at the same time, and without useMemo:
+  // comparing two numbers costs less than the comparison that would cache the
+  // result.
+  const fullyMissing: string[] = [];
+  if (inTransit > 0) fullyMissing.push(inTransitText(inTransit));
+  if (withoutImage > 0) fullyMissing.push(withoutImageText(withoutImage));
 
-  // Was die Pille zeigt und was VoiceOver ansagt, eine Quelle für beides.
-  const filterStand = gewaehlterTag ? `Tag ${gewaehlterTag.nummer}` : 'Alle Tage';
+  // What the pill shows and what VoiceOver announces, one source for both.
+  const filterState = selectedDay ? `Tag ${selectedDay.number}` : 'Alle Tage';
 
-  const oeffneTagesfilter = () => {
-    // KEINE gestapelten Sheets: `Sheet` bringt jeweils einen eigenen Backdrop
-    // über den ganzen Screen mit (Sheet.tsx), zwei übereinander ergäben eine
-    // doppelt abgedunkelte Karte, und ein Wisch nach unten schlösse nur das
-    // obere und liesse ein Panel zurück, das niemand mehr erwartet.
+  const openDayFilter = () => {
+    // NO stacked sheets: `Sheet` brings a backdrop of its own over the whole
+    // screen (Sheet.tsx), two on top of each other would give a doubly dimmed
+    // map, and a swipe down would close only the upper one and leave a panel
+    // behind that nobody expects any more.
     //
-    // (Nicht der Grund: die Zahl der Primär-Buttons. Die Tagesliste hat per
-    // Konstruktion keinen, zwei offene Sheets hätten also weiterhin genau
-    // einen, DESIGN-LANGUAGE §4 ist hier nicht verletzt und trägt diese
-    // Entscheidung nicht.)
+    // (Not the reason: the number of primary buttons. The day list has none
+    // by construction, so two open sheets would still have exactly one,
+    // DESIGN-LANGUAGE §4 is not violated here and does not carry this
+    // decision.)
     //
-    // Auf dem Gerät fängt der Backdrop des offenen Moment-Sheets diesen Tipp
-    // ohnehin ab; dass der Zustand hier trotzdem eindeutig gemacht wird,
-    // kostet nichts und macht die Zusicherung prüfbar, statt sie der
-    // Trefferreihenfolge zu überlassen.
-    setSheetPunkte(null);
-    setOhneOrtOffen(false);
-    setTageOffen(true);
+    // On the device the backdrop of the open moment sheet catches this tap
+    // anyway; that the state is made unambiguous here regardless costs
+    // nothing and makes the assurance checkable instead of leaving it to hit
+    // order.
+    setSheetPoints(null);
+    setWithoutPlaceOpen(false);
+    setDaysOpen(true);
   };
 
-  // Aus demselben Grund und auf demselben Weg.
-  const oeffneOhneOrt = () => {
-    setSheetPunkte(null);
-    setTageOffen(false);
-    setOhneOrtOffen(true);
+  // For the same reason and along the same way.
+  const openWithoutPlace = () => {
+    setSheetPoints(null);
+    setDaysOpen(false);
+    setWithoutPlaceOpen(true);
   };
 
-  const waehleTag = (tag: RecapDay | null) => {
-    setTageOffen(false);
-    setTagWahl(tag?.nummer ?? null);
+  const selectDay = (day: RecapDay | null) => {
+    setDaysOpen(false);
+    setDayChoice(day?.number ?? null);
 
-    // Der gewählte Tag ändert Nadeln UND Linie UND Ausschnitt: ein Tag, dessen
-    // Momente ausserhalb des sichtbaren Ausschnitts liegen, wäre sonst eine
-    // leere Karte, und die Wahl sähe aus wie ein Fehler.
+    // The selected day changes pins AND line AND viewport: a day whose
+    // moments lie outside the visible viewport would otherwise be an empty
+    // map, and the choice would look like a bug.
     //
-    // `punkteAmTag` mit dem NEUEN Tag statt mit `sichtbarePunkte`: der State
-    // steht in dieser Zeile noch auf dem alten Stand, React rendert erst
-    // danach neu.
-    const ziel = viewportFor(punkteAmTag(punkte, tag));
-    // Unerreichbar, solange die Liste stimmt: `waehlbareTage` bietet nur Tage
-    // an, die mindestens eine Nadel haben, und «Alle Tage» gibt es nur, wenn
-    // überhaupt Nadeln da sind. Ohne Ziel bleibt die Kamera stehen, ein
-    // Sprung nach `null` wäre ein Sprung in den Atlantik.
-    if (!ziel) return;
+    // `pointsOnDay` with the NEW day instead of with `visiblePoints`: the
+    // state still stands on the old value in this line, React only re-renders
+    // afterwards.
+    const target = viewportFor(pointsOnDay(points, day));
+    // Unreachable as long as the list is right: `selectableDays` only offers
+    // days that have at least one pin, and all days only exists when there
+    // are pins at all. Without a target the camera stays put, a jump to
+    // `null` would be a jump into the Atlantic.
+    if (!target) return;
 
-    // DESIGN-LANGUAGE §5 nennt selection-Haptik für Tabs und Zoom. Die Wahl
-    // eines Tages ist beides zugleich: eine Auswahl, die die Kamera bewegt.
-    // Sie steht hier und nicht in `zeige`, weil der Gruppen-Zoom seine eigene
-    // Meldung schon mitbringt (siehe `aufNadel`).
+    // DESIGN-LANGUAGE §5 names selection haptics for tabs and zoom. Choosing
+    // a day is both at once: a selection that moves the camera. It stands
+    // here and not in `show`, because the cluster zoom already brings its own
+    // feedback (see `onCluster`).
     void Haptics.selectionAsync().catch(() => {});
 
-    zeige(ziel);
+    show(target);
   };
 
-  const zurueck = () => {
+  const goBack = () => {
     if (router.canGoBack()) router.back();
-    // Ohne Rückweg (Deep Link direkt auf die Karte) führt der Weg auf die
-    // Übersicht DIESER Reise, nicht auf die Recap-Liste: die Karte ist eine
-    // Lesart dieses Recaps, kein eigener Bereich der App (Spec §5.1).
+    // Without a way back (deep link straight onto the map) the way leads to
+    // the overview OF THIS trip, not to the recap list: the map is one
+    // reading of this recap, not an area of its own (Spec §5.1).
     else router.replace({ pathname: '/recap/[id]/overview', params: { id } });
   };
 
   // ---------------------------------------------------------------------
-  // Die drei Zustände ohne Karte. Sie sahen bis Task 10 alle gleich aus,
-  // eine weisse Fläche mit Zurück-Pille, weil alle drei in `punkte = []`
-  // und `ausschnitt = null` enden.
+  // The three states without a map. Until task 10 they all looked the same,
+  // a white surface with a back pill, because all three end in `points = []`
+  // and `viewport = null`.
   // ---------------------------------------------------------------------
 
-  if (phase === 'laedt') return <KartenSkelett oben={oben} onZurueck={zurueck} />;
+  if (phase === 'loading') return <MapSkeleton topInset={topInset} onBack={goBack} />;
 
-  if (phase === 'fehler') {
+  if (phase === 'error') {
     return (
-      <View style={[styles.flaeche, { backgroundColor: colors['bg-0'] }]}>
-        <View style={[styles.textScreen, { paddingTop: oben }]}>
-          {/* Der Rückweg auf einem Screen OHNE Karte. Die translucente Pille
-              taugt dafür nicht: sie ist für eine Fremdfläche gemacht
-              (DESIGN-LANGUAGE §1), ohne Karte läge sie auf reinem Weiss und
-              wäre der einzige Kino-Fleck eines hellen Screens. Also dieselbe
-              Kopfzeile wie in uebersicht.tsx, mit derselben Beschriftung wie
-              die Pille. */}
-          <PressScale accessibilityRole="button" accessibilityLabel="Zurück" onPress={zurueck}>
+      <View style={[styles.surface, { backgroundColor: colors['bg-0'] }]}>
+        <View style={[styles.textScreen, { paddingTop: topInset }]}>
+          {/* The way back on a screen WITHOUT a map. The translucent pill is no
+              good for that: it is made for a foreign surface (DESIGN-LANGUAGE
+              §1), without a map it would lie on pure white and would be the
+              only cinema spot of a light screen. So the same header as in
+              overview.tsx, with the same label as the pill. */}
+          <PressScale accessibilityRole="button" accessibilityLabel="Zurück" onPress={goBack}>
             <ChevronLeft size={24} color={colors['text-1']} strokeWidth={1.75} />
           </PressScale>
-          {/* Der Text kommt vom Ladeweg und nennt bereits Ursache und Lösung
-              in Du-Form (recapApi.ts, urlVorrat.ts), hier wird nichts
-              dazuerfunden. */}
-          <Text style={[type.body, { color: colors.danger }]}>{fehlerText}</Text>
-          {/* Der einzige Primär-Button dieses Zustands (DESIGN-LANGUAGE §4):
-              der Rückweg oben ist ein Icon, kein Knopf. Und er steht nur da,
-              wo ein zweiter Versuch etwas ausrichten kann
-              (features/recap/urlVorrat.ts): unter «Diese Reise ist noch
-              versiegelt.» wäre er ein Versprechen ohne Deckung, und der
-              Zustand hat dann gar keinen Primär-Button, was §4 ausdrücklich
-              zulässt. */}
-          {nochmalHilft && (
+          {/* The text comes from the load path and already names cause and
+              fix in Du form (recapApi.ts, urlPool.ts), nothing is invented. */}
+          <Text style={[type.body, { color: colors.danger }]}>{errorText}</Text>
+          {/* The only primary button of this state (DESIGN-LANGUAGE §4): the
+              way back above is an icon, not a button. And it only stands where
+              a second attempt can achieve something
+              (features/recap/urlPool.ts): under the sealed trip message it
+              would be a promise without cover, and the state then has no
+              primary button at all, which §4 explicitly allows. */}
+          {canRetry && (
             <Button
               variant="primary"
               label="Nochmal versuchen"
-              onPress={() => void nochmal()}
-              loading={nochmalLaeuft}
+              onPress={() => void retry()}
+              loading={retryRunning}
             />
           )}
         </View>
@@ -1096,168 +1064,165 @@ export default function RecapKarte() {
     );
   }
 
-  // «Es gibt gar keine Momente» ist NICHT «kein Moment hat einen Ort»
-  // (Fixrunde 1, Important 3). Eine Reise, in der niemand eingesendet hat,
-  // oder in der alle Uploads noch unterwegs sind, bekäme sonst den Satz
-  // über die Ortungsdienste zu lesen: eine Behauptung über etwas, das nie
-  // stattgefunden hat.
+  // There being no moments at all is NOT the same as no moment having a place
+  // (fix round 1, Important 3). A trip where nobody submitted anything, or
+  // where all uploads are still on their way, would otherwise get the
+  // sentence about location services to read: a claim about something that
+  // never took place.
   //
-  // Wortgleich zu uebersicht.tsx und player.tsx (Phase 'leer'), damit
-  // dieselbe Reise auf allen drei Screens dasselbe sagt. Ohne zweite Zeile:
-  // ob die Momente noch kommen oder nie kamen, weiss dieser Screen nicht, und
-  // eine Vermutung wäre wieder eine Behauptung.
-  if (spiellisteJetzt.length === 0) {
+  // Word for word the same as overview.tsx and player.tsx (the empty phase),
+  // so that the same trip says the same thing on all three screens. Without a
+  // second line: whether the moments are still coming or never came, this
+  // screen does not know, and a guess would be a claim again.
+  if (playlistNow.length === 0) {
     return (
-      <View style={[styles.flaeche, { backgroundColor: colors['bg-0'] }]}>
-        <View style={[styles.textScreen, { paddingTop: oben }]}>
-          <Text style={[type.h1, { color: colors['text-1'] }]}>{LEER_OHNE_MOMENTE}</Text>
-          <Button variant="primary" label="Zurück zur Übersicht" onPress={zurueck} />
+      <View style={[styles.surface, { backgroundColor: colors['bg-0'] }]}>
+        <View style={[styles.textScreen, { paddingTop: topInset }]}>
+          <Text style={[type.h1, { color: colors['text-1'] }]}>{EMPTY_WITHOUT_MOMENTS}</Text>
+          <Button variant="primary" label="Zurück zur Übersicht" onPress={goBack} />
         </View>
       </View>
     );
   }
 
-  // Kein leerer Kartenausschnitt über dem Atlantik (Spec K9): `ausschnittFuer`
-  // liefert `null`, wenn kein einziger Moment einen Ort hat, statt einer
-  // erfundenen Region steht hier die Erklärung aus Spec §5.9.
+  // No empty map viewport over the Atlantic (Spec K9): `viewportFor` returns
+  // `null` when not a single moment has a place, so instead of an invented
+  // region the explanation from Spec §5.9 stands here.
   //
-  // Keine Kopfzeile und kein zweiter Weg hinaus: der eine Knopf IST der
-  // Rückweg, ein Pfeil daneben täte dasselbe noch einmal. Er ruft `zurueck`
-  // und nicht ein eigenes `replace`, beide Zweige davon landen auf der
-  // Übersicht dieser Reise (von woanders kommt man auf die Karte nicht), und
-  // `back()` behält dabei den Stapel, statt ihn zu überschreiben.
+  // No header and no second way out: the one button IS the way back, an arrow
+  // beside it would do the same thing twice. It calls `goBack` and not a
+  // `replace` of its own, both branches of it land on the overview of this
+  // trip (there is no other way onto the map), and `back()` keeps the stack
+  // instead of overwriting it.
   //
-  // Auch keine Leiste «N Momente ohne Ort», obwohl HIER jeder Moment einen
-  // hat: sie ist eine Pille für die Kartenfläche, und was sie sagt, sagt die
-  // Erklärung darüber bereits für die ganze Reise. Erreichbar bleiben die
-  // Momente über die Übersicht, die zeigt sie alle.
-  if (punkte.length === 0) {
+  // Also no bar about moments without a place, although HERE every moment has
+  // one: it is a pill for the map surface, and what it says the explanation
+  // above already says for the whole trip. The moments stay reachable through
+  // the overview, which shows them all.
+  if (points.length === 0) {
     return (
-      <View style={[styles.flaeche, { backgroundColor: colors['bg-0'] }]}>
-        <View style={[styles.textScreen, { paddingTop: oben }]}>
+      <View style={[styles.surface, { backgroundColor: colors['bg-0'] }]}>
+        <View style={[styles.textScreen, { paddingTop: topInset }]}>
           <View style={styles.textBlock}>
-            <Text style={[type.h1, { color: colors['text-1'] }]}>{LEER_TITEL}</Text>
-            <Text style={[type.body, { color: colors['text-2'] }]}>{LEER_ERKLAERUNG}</Text>
+            <Text style={[type.h1, { color: colors['text-1'] }]}>{EMPTY_TITLE}</Text>
+            <Text style={[type.body, { color: colors['text-2'] }]}>{EMPTY_EXPLANATION}</Text>
           </View>
-          <Button variant="primary" label="Zurück zur Übersicht" onPress={zurueck} />
+          <Button variant="primary" label="Zurück zur Übersicht" onPress={goBack} />
         </View>
       </View>
     );
   }
 
   return (
-    <View style={[styles.flaeche, { backgroundColor: colors['bg-0'] }]}>
-      {/* `ausschnitt` steht hier immer, er wird aus denselben `punkte`
-          berechnet, deren Zahl den Leer-Zustand oben abgefangen hat. Die
-          Abfrage bleibt trotzdem stehen, weil der Typ sie verlangt. */}
-      {ausschnitt && (
+    <View style={[styles.surface, { backgroundColor: colors['bg-0'] }]}>
+      {/* `viewport` always stands here, it is calculated from the same `points`
+          whose count caught the empty state above. The check stays anyway,
+          because the type demands it. */}
+      {viewport && (
         <MapSurface
-          ref={karte}
-          initialViewport={ausschnitt}
-          clusters={gruppen}
-          line={linie}
-          thumbFor={thumbFuer}
-          onCluster={aufGruppe}
-          opensSheet={oeffnetSheet}
-          onViewportChange={merkeAusschnitt}
+          ref={map}
+          initialViewport={viewport}
+          clusters={clusters}
+          line={line}
+          thumbFor={thumbFor}
+          onCluster={onCluster}
+          opensSheet={opensSheet}
+          onViewportChange={rememberViewport}
           reducedMotion={reducedMotion}
         />
       )}
 
-      {/* Die Karte hat keinen eigenen Kopf, sie soll gross sein (Spec §5.3)
-         , der einzige Rückweg ist diese translucente Pille über der
-          Kartenfläche (DESIGN-LANGUAGE §1: UI auf einer Fremdfläche liegt
-          ausschliesslich als Pille mit Blur). Sie steht ausserhalb der
-          MapView, damit sie auch im ortlosen Fall erreichbar bleibt. */}
+      {/* The map has no header of its own, it should be big (Spec §5.3), the
+          only way back is this translucent pill over the map surface
+          (DESIGN-LANGUAGE §1: UI on a foreign surface lies exclusively as a
+          pill with blur). It stands outside the MapView so that it stays
+          reachable in the placeless case too. */}
       <PressScale
         accessibilityRole="button"
         accessibilityLabel="Zurück"
-        onPress={zurueck}
-        style={[styles.zurueck, { top: oben }]}
+        onPress={goBack}
+        style={[styles.back, { top: topInset }]}
       >
-        <Pill style={styles.zurueckPille}>
+        <Pill style={styles.backPill}>
           <ChevronLeft size={24} color={cinema['text-1']} strokeWidth={1.75} />
         </Pill>
       </PressScale>
 
-      {/* Der Tagesfilter, gegenüber dem Rückweg (Task-9-Brief: oben rechts).
-          Wie dort eine translucente Pille mit Blur, sie liegt auf der
-          Kartenfläche (DESIGN-LANGUAGE §1).
+      {/* The day filter, opposite the way back (task 9 brief: top right). As
+          there a translucent pill with blur, it lies on the map surface
+          (DESIGN-LANGUAGE §1).
 
-          Erst ab zwei wählbaren Tagen: bei nur einem zeigten «Alle Tage» und
-          «Tag 1» dieselben Nadeln, und eine Pille, die nichts unterscheidet,
-          ist kein Filter, sondern eine Behauptung. Bei null Tagen (keine
-          Nadeln, oder die Reise-Abfrage ist ausgefallen) gibt es ohnehin
-          nichts zu wählen. */}
-      {tage.length > 1 && (
+          Only from two selectable days on: with only one, all days and day 1
+          showed the same pins, and a pill that distinguishes nothing is no
+          filter but a claim. With zero days (no pins, or the trip query failed)
+          there is nothing to choose anyway. */}
+      {days.length > 1 && (
         <PressScale
           testID="karte-tagesfilter"
           accessibilityRole="button"
-          // Sagt beides: was ein Tipp tut und was gerade gilt. Die Pille selbst
-          // zeigt nur den Stand, ohne diese Ergänzung wüsste per VoiceOver
-          // niemand, dass sich dahinter eine Wahl öffnet.
-          accessibilityLabel={`Reisetag wählen, aktuell ${filterStand}`}
-          onPress={oeffneTagesfilter}
-          style={[styles.tagesfilter, { top: oben }]}
+          accessibilityLabel={`Reisetag wählen, aktuell ${filterState}`}
+          onPress={openDayFilter}
+          style={[styles.dayFilter, { top: topInset }]}
         >
-          <Pill style={styles.tagesfilterPille}>
-            <Text style={[type.bodyMedium, { color: cinema['text-1'] }]}>{filterStand}</Text>
+          <Pill style={styles.dayFilterPill}>
+            <Text style={[type.bodyMedium, { color: cinema['text-1'] }]}>{filterState}</Text>
             <ChevronDown size={18} color={cinema['text-1']} strokeWidth={1.75} />
           </Pill>
         </PressScale>
       )}
 
-      {/* Die Momente, die keine Nadel tragen können (Spec §5.8). Jede echte
-          Reise hat sie, ohne Berechtigung, in Innenräumen oder bei
-          Zeitüberschreitung liefert `ortBestimmen` bewusst drei `null`
-          (features/moments/ortUndZeit.ts), und sie dürfen auf der Karte
-          nicht einfach fehlen, ohne dass es jemand merkt.
+      {/* The moments that cannot carry a pin (Spec §5.8). Every real trip has
+          them, without permission, indoors or on a timeout `determinePlace`
+          deliberately returns three `null` (features/moments/placeAndTime.ts),
+          and they must not simply be missing from the map without anyone
+          noticing.
 
-          Kein Primär-Button, sondern eine translucente Pille wie die beiden
-          oben: sie liegt auf der Kartenfläche (DESIGN-LANGUAGE §1), und den
-          einen Primär-Button dieses Screens trägt das Moment-Sheet (§4).
+          No primary button but a translucent pill like the two above: it lies
+          on the map surface (DESIGN-LANGUAGE §1), and the one primary button of
+          this screen is carried by the moment sheet (§4).
 
-          Die Zahl gilt für die GANZE Reise, auch bei gewähltem Tag: ein
-          Moment ohne Ort liegt auf keinem Tag DER KARTE, und ein Tag, dessen
-          Momente alle ohne Ort sind, steht gar nicht erst zur Wahl (siehe
-          `waehlbareTage`). Eine mitgefilterte Leiste liesse genau diese
-          Momente auf keinem Weg mehr erreichbar. */}
-      {(ohneOrt.length > 0 || fehlenGanz.length > 0) && (
-        // Die Zentrierung trägt ein eigener Rahmen, nicht die PressScale
-        // selbst: die zöge sich über die volle Breite und finge damit jeden
-        // Tipp links und rechts der Pille ab, auf einer Karte wäre das ein
-        // 44 Punkte hohes Band, in dem sich nicht mehr schieben liesse.
-        // `box-none` lässt Tipps durch den Rahmen hindurch, nur die Pille
-        // selbst nimmt sie an.
-        <View style={styles.leiste} pointerEvents="box-none">
-          {/* Die Momente, die diese Karte gar nicht hergibt (Fixrunde nach dem
-              Abschluss-Review). Rein informativ und deshalb `pointerEvents:
-              none`: einen Weg zu ihnen gibt es von hier aus nicht, sie stehen
-              in keiner Spielliste, also führt auch kein Index zu ihnen. Ohne
-              diese Zeile stimmte die Rechnung auf dem Screen nicht mehr:
-              Nadeln plus «N Momente ohne Ort» ergäben weniger als die Reise
-              hat, und niemand sähe warum. */}
-          {fehlenGanz.length > 0 && (
-            <Pill testID="karte-fehlen-ganz" style={styles.fehlenPille} pointerEvents="none">
-              {fehlenGanz.map((satz) => (
-                <Text key={satz} style={[type.secondary, { color: cinema['text-1'] }]}>
-                  {satz}
+          The number holds for the WHOLE trip, even with a day selected: a
+          moment without a place lies on no day OF THE MAP, and a day whose
+          moments are all without a place is not offered for selection at all
+          (see `selectableDays`). A bar filtered along would leave exactly these
+          moments reachable on no way at all. */}
+      {(withoutPlace.length > 0 || fullyMissing.length > 0) && (
+        // The centring is carried by a frame of its own, not by the
+        // PressScale itself: that one would stretch over the full width and
+        // would catch every tap left and right of the pill, which on a map
+        // would be a 44 point high band that cannot be panned in any more.
+        // `box-none` lets taps through the frame, only the pill itself takes
+        // them.
+        <View style={styles.bar} pointerEvents="box-none">
+          {/* The moments this map does not give at all (fix round after the
+              final review). Purely informative and therefore `pointerEvents:
+              none`: there is no way to them from here, they stand in no
+              playlist, so no index leads to them either. Without this line
+              the arithmetic on the screen no longer added up: the pins plus
+              the bar would come to less than the trip has, and nobody would
+              see why. */}
+          {fullyMissing.length > 0 && (
+            <Pill testID="karte-fehlen-ganz" style={styles.missingPill} pointerEvents="none">
+              {fullyMissing.map((sentence) => (
+                <Text key={sentence} style={[type.secondary, { color: cinema['text-1'] }]}>
+                  {sentence}
                 </Text>
               ))}
             </Pill>
           )}
-          {ohneOrt.length > 0 && (
+          {withoutPlace.length > 0 && (
             <PressScale
               testID="karte-ohne-ort"
               accessibilityRole="button"
-              // Die Pille zeigt die Zahl, das Label sagt zusätzlich, was ein
-              // Tipp tut, wortgleich zur Nadel einer unteilbaren Gruppe.
-              accessibilityLabel={`${ohneOrtText(ohneOrt.length)} ansehen`}
-              onPress={oeffneOhneOrt}
+              // The pill shows the number, the label additionally says what a
+              // tap does, word for word like the pin of an indivisible
+              // cluster.
+              accessibilityLabel={`${withoutPlaceText(withoutPlace.length)} ansehen`}
+              onPress={openWithoutPlace}
             >
-              <Pill style={styles.ohneOrtPille}>
+              <Pill style={styles.withoutPlacePill}>
                 <Text style={[type.bodyMedium, { color: cinema['text-1'] }]}>
-                  {ohneOrtText(ohneOrt.length)}
+                  {withoutPlaceText(withoutPlace.length)}
                 </Text>
               </Pill>
             </PressScale>
@@ -1265,62 +1230,61 @@ export default function RecapKarte() {
         </View>
       )}
 
-      {/* Wie beim Moment-Sheet erst gemountet, wenn es offen sein soll: `Sheet`
-          bringt seine Eintrittsanimation im Effekt mit. */}
-      {tageOffen && (
-        <Sheet visible title="Reisetage" onClose={() => setTageOffen(false)}>
-          {/* Scrollt und ist gedeckelt, aus demselben Grund wie die
-              Gruppenliste: eine lange Reise hat viele Tage, und `Sheet`
-              schnitte den Überhang hart ab (85 % Fensterhöhe, `overflow:
-              hidden`), die letzten Tage wären dann auf keinem Weg mehr
-              wählbar. */}
+      {/* Mounted only when it should be open, as with the moment sheet: `Sheet`
+          brings its entry animation along in an effect. */}
+      {daysOpen && (
+        <Sheet visible title="Reisetage" onClose={() => setDaysOpen(false)}>
+          {/* Scrolls and is capped, for the same reason as the cluster list: a
+              long trip has many days, and `Sheet` would cut the overhang off
+              hard (85 % window height, `overflow: hidden`), so the last days
+              would be selectable on no way at all. */}
           <SheetScroll testID="tage-liste">
-            <TagEintrag
+            <DayEntry
               testID="tag-eintrag-alle"
-              beschriftung="Alle Tage"
-              aktiv={gewaehlterTag === null}
-              stelle={0}
-              onWaehlen={() => waehleTag(null)}
+              label="Alle Tage"
+              active={selectedDay === null}
+              position={0}
+              onSelect={() => selectDay(null)}
             />
-            {tage.map((tag, stelle) => (
-              <TagEintrag
-                key={tag.nummer}
-                testID={`tag-eintrag-${tag.nummer}`}
-                beschriftung={`Tag ${tag.nummer}`}
-                ort={tag.ort}
-                aktiv={gewaehlterTag?.nummer === tag.nummer}
-                // Um eins versetzt: «Alle Tage» ist die erste Zeile.
-                stelle={stelle + 1}
-                onWaehlen={() => waehleTag(tag)}
+            {days.map((day, position) => (
+              <DayEntry
+                key={day.number}
+                testID={`tag-eintrag-${day.number}`}
+                label={`Tag ${day.number}`}
+                place={day.place}
+                active={selectedDay?.number === day.number}
+                // Offset by one: the all days row comes first.
+                position={position + 1}
+                onSelect={() => selectDay(day)}
               />
             ))}
           </SheetScroll>
-          {/* AUSSERHALB der Scroll-Fläche: der Satz erklärt die Liste, und
-              eine Erklärung, die man erst ganz nach unten scrollen muss, um
-              sie zu finden, erklärt nichts. Nur bei einer echten Lücke, eine
-              lückenlose Liste wirft die Frage gar nicht auf. */}
-          {tageLuecke && (
-            <Text style={[type.secondary, { color: colors['text-2'] }]}>{LUECKEN_HINWEIS}</Text>
+          {/* OUTSIDE the scroll surface: the sentence explains the list, and an
+              explanation you have to scroll all the way down to find explains
+              nothing. Only on a real gap, a gapless list does not raise the
+              question at all. */}
+          {daysGap && (
+            <Text style={[type.secondary, { color: colors['text-2'] }]}>{GAP_HINT}</Text>
           )}
         </Sheet>
       )}
 
-      {ohneOrtOffen && (
-        <Sheet visible title={ohneOrtText(ohneOrt.length)} onClose={() => setOhneOrtOffen(false)}>
-          {/* Scrollt und ist gedeckelt, aus demselben Grund wie Gruppen- und
-              Tagesliste: `Sheet` schnitte den Überhang hart ab (85 %
-              Fensterhöhe, `overflow: hidden`), und die abgeschnittenen
-              Momente wären von der Karte aus auf keinem anderen Weg mehr
-              erreichbar, eine Nadel haben sie ja gerade nicht. */}
+      {withoutPlaceOpen && (
+        <Sheet visible title={withoutPlaceText(withoutPlace.length)} onClose={() => setWithoutPlaceOpen(false)}>
+          {/* Scrolls and is capped, for the same reason as the cluster and day
+              lists: `Sheet` would cut the overhang off hard (85 % window
+              height, `overflow: hidden`), and the cut off moments would be
+              reachable from the map on no other way, a pin is exactly what they
+              do not have. */}
           <SheetScroll testID="ohne-ort-liste">
-            <View style={styles.kachelRaster}>
-              {ohneOrt.map((eintrag, stelle) => (
-                <OhneOrtKachel
-                  key={eintrag.moment.id}
-                  eintrag={eintrag}
-                  thumbUrl={pinImageUrl(urls, eintrag.moment.id)}
-                  stelle={stelle}
-                  onAnsehen={zumPlayer}
+            <View style={styles.tileGrid}>
+              {withoutPlace.map((entry, position) => (
+                <WithoutPlaceTile
+                  key={entry.moment.id}
+                  entry={entry}
+                  thumbUrl={pinImageUrl(urls, entry.moment.id)}
+                  position={position}
+                  onView={toPlayer}
                 />
               ))}
             </View>
@@ -1328,35 +1292,35 @@ export default function RecapKarte() {
         </Sheet>
       )}
 
-      {/* Erst gemountet, wenn es etwas zu zeigen gibt: `Sheet` bringt seine
-          Eintrittsanimation im Effekt mit (spring-ui, DESIGN-LANGUAGE §4), und
-          ein frisch gemountetes Sheet öffnet damit jedes Mal von unten. Die
-          Kinder werden ohnehin vom Elternteil gebaut, ein dauerhaft
-          gemountetes Sheet müsste sie also trotzdem gegen `null` absichern. */}
-      {sheetPunkte !== null && (
+      {/* Mounted only when there is something to show: `Sheet` brings its entry
+          animation along in an effect (spring-ui, DESIGN-LANGUAGE §4), so a
+          freshly mounted sheet opens from the bottom every time. The children
+          are built by the parent anyway, so a permanently mounted sheet would
+          still have to guard them against `null`. */}
+      {sheetPoints !== null && (
         <Sheet
           visible
-          // Die Liste bekommt eine Überschrift, der einzelne Moment nicht:
-          // dort ist das Bild der Kopf (Spec §5.7). Mehr als ein Punkt heisst
-          // hier immer «alle auf derselben Koordinate», «an diesem Ort» ist
-          // also wörtlich wahr, anders als bei einer nach Bildschirmpunkten
-          // gebildeten Gruppe.
-          title={sheetPunkte.length > 1 ? `${sheetPunkte.length} Momente an diesem Ort` : undefined}
-          onClose={() => setSheetPunkte(null)}
+          // The list gets a heading, the single moment does not: there the
+          // image is the head (Spec §5.7). More than one point always means
+          // all on the same coordinate here, so the wording about this one
+          // place is literally true, unlike with a cluster formed by screen
+          // points.
+          title={sheetPoints.length > 1 ? `${sheetPoints.length} Momente an diesem Ort` : undefined}
+          onClose={() => setSheetPoints(null)}
         >
-          {sheetPunkte.length === 1 ? (
+          {sheetPoints.length === 1 ? (
             <MomentSheetContent
-              point={sheetPunkte[0]}
-              imageUrl={sheetImageUrl(urls, sheetPunkte[0].moment.id)}
+              point={sheetPoints[0]}
+              imageUrl={sheetImageUrl(urls, sheetPoints[0].moment.id)}
               form={SHEET_FORM}
-              onView={zumPlayer}
+              onView={toPlayer}
             />
           ) : (
             <ClusterSheetContent
-              points={sheetPunkte}
+              points={sheetPoints}
               urls={urls}
               form={SHEET_FORM}
-              onView={zumPlayer}
+              onView={toPlayer}
             />
           )}
         </Sheet>
@@ -1366,22 +1330,22 @@ export default function RecapKarte() {
 }
 
 const styles = StyleSheet.create({
-  flaeche: { flex: 1 },
-  zurueck: { position: 'absolute', left: spacing.screen },
-  zurueckPille: {
+  surface: { flex: 1 },
+  back: { position: 'absolute', left: spacing.screen },
+  backPill: {
     width: 44,
     height: 44,
     borderRadius: radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  // Der Rückweg auf einer hellen Fläche (Skelett): dieselbe Stelle wie die
-  // Zurück-Pille der fertigen Karte, nur ohne Pille darunter.
-  zurueckHell: { position: 'absolute', left: spacing.screen },
-  tagesfilter: { position: 'absolute', right: spacing.screen },
-  // Dieselbe Höhe wie die Zurück-Pille gegenüber, damit beide auf einer Linie
-  // sitzen. Abstände aus dem 4er-Raster (DESIGN-LANGUAGE §3).
-  tagesfilterPille: {
+  // The way back on a light surface (skeleton): the same spot as the back
+  // pill of the finished map, only without a pill underneath.
+  backLight: { position: 'absolute', left: spacing.screen },
+  dayFilter: { position: 'absolute', right: spacing.screen },
+  // The same height as the back pill opposite, so both sit on one line.
+  // Spacings from the 4 point grid (DESIGN-LANGUAGE §3).
+  dayFilterPill: {
     height: 44,
     flexDirection: 'row',
     alignItems: 'center',
@@ -1389,13 +1353,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.base,
     borderRadius: radius.pill,
   },
-  // Die Leiste der Momente ohne Ort, mittig unten. Waagrecht zentriert statt
-  // an einem Rand: links und rechts oben sitzen bereits Rückweg und
-  // Tagesfilter, und eine dritte Pille in derselben Ecke sähe aus, als
-  // gehörte sie zu einer von beiden. Der Abstand nach unten ist der
-  // Screen-Rand (DESIGN-LANGUAGE §3); die Tab-Leiste darunter gehört nicht zu
-  // dieser Fläche, der Screen endet über ihr.
-  leiste: {
+  // The bar of the moments without a place, centred at the bottom.
+  // Horizontally centred instead of at one edge: top left and top right
+  // already carry the way back and the day filter, and a third pill in the
+  // same corner would look as if it belonged to one of them. The distance to
+  // the bottom is the screen margin (DESIGN-LANGUAGE §3); the tab bar below
+  // does not belong to this surface, the screen ends above it.
+  bar: {
     position: 'absolute',
     left: spacing.screen,
     right: spacing.screen,
@@ -1403,35 +1367,35 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.s,
   },
-  // Mehrzeilig und ohne feste Höhe, anders als die Pillen daneben: hier stehen
-  // ganze Sätze, keine Beschriftung.
-  fehlenPille: {
+  // Multi line and without a fixed height, unlike the pills beside it: whole
+  // sentences stand here, not a label.
+  missingPill: {
     paddingHorizontal: spacing.base,
     paddingVertical: spacing.s,
     borderRadius: radius.control,
     gap: spacing.xs,
   },
-  // Dieselbe Höhe und dasselbe Innenmass wie die Filter-Pille gegenüber.
-  ohneOrtPille: {
+  // The same height and the same inner measure as the filter pill opposite.
+  withoutPlacePill: {
     height: 44,
     justifyContent: 'center',
     paddingHorizontal: spacing.base,
     borderRadius: radius.pill,
   },
-  // Drei Spalten, wortgleich zur Übersicht (Spec §5.8: dieselbe Kachel-Liste),
-  // inklusive der Begründung dort, warum die Lücke aus `columnGap`/`rowGap`
-  // kommt und nicht aus `justifyContent: 'space-between'`.
-  kachelRaster: {
+  // Three columns, word for word like the overview (Spec §5.8: the same tile
+  // list), including the reasoning there why the gap comes from
+  // `columnGap`/`rowGap` and not from `justifyContent: 'space-between'`.
+  tileGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'flex-start',
     columnGap: spacing.xs,
     rowGap: spacing.xs,
   },
-  kachel: { width: '31.5%', aspectRatio: 1, borderRadius: radius.control, overflow: 'hidden' },
-  // Die Zustände ohne Karte (lädt / Fehler / keine Orte): ein heller Screen,
-  // der von oben nach unten gelesen wird. Rand 24 (DESIGN-LANGUAGE §3), oben
-  // von `useOberkante` überschrieben.
+  tile: { width: '31.5%', aspectRatio: 1, borderRadius: radius.control, overflow: 'hidden' },
+  // The states without a map (loading / error / no places): a light screen
+  // read from top to bottom. Margin 24 (DESIGN-LANGUAGE §3), overwritten at
+  // the top by `useTopInset`.
   textScreen: { padding: spacing.screen, gap: spacing.xl },
   textBlock: { gap: spacing.m },
 });

@@ -1,164 +1,160 @@
-// W4 (Spec-Versprechen): der Web-Player kann nichts schreiben. Ein Test, der
-// nur das Fehlen eines Knopfes prüft, ist schwächer als einer, der belegt,
-// dass kein schreibender Aufruf im MODULGRAPH erreichbar ist (Task-Auftrag,
-// wörtlich), dieser Test tut genau das. Er liest, auf Quelltext-Ebene, JEDE
-// lokale Datei, die von teilen/[token].tsx aus (transitiv über `@/`- und
-// relative Importe) erreichbar ist, und belegt:
+// W4 (spec promise): the web player can write nothing. A test that only checks
+// for the absence of a button is weaker than one proving that no writing call
+// is REACHABLE IN THE MODULE GRAPH (task brief, verbatim), and this test does
+// exactly that. On the source level it reads EVERY local file reachable from
+// share/[token].tsx (transitively via `@/` and relative imports) and proves:
 //
-//   1. Keine dieser Dateien greift über `supabase.from(...)` oder
-//      `supabase.rpc(...)` auf eine Tabelle zu (weder lesend noch
-//      schreibend, der Web-Player braucht das nirgends, share-link/
-//      aufloesen läuft komplett über die Edge Function).
-//   2. Keine dieser Dateien ruft `supabase.auth.*` auf (kein Login-Pfad).
-//   3. Der EINZIGE `functions.invoke(...)`-Aufruf im gesamten Graph ist in
-//      shareApi.ts, ruft ausschliesslich 'share-link' auf, und die einzige
-//      dabei verwendete `aktion` ist 'aufloesen'.
+//   1. None of these files reaches a table via `supabase.from(...)` or
+//      `supabase.rpc(...)` (neither reading nor writing, the web player needs
+//      that nowhere, share-link/aufloesen runs entirely through the edge
+//      function).
+//   2. None of these files calls `supabase.auth.*` (no login path).
+//   3. The ONLY `functions.invoke(...)` call in the whole graph sits in
+//      shareApi.ts, calls nothing but 'share-link', and the only `aktion` used
+//      there is 'aufloesen'.
 //
-// Anders als ein gemockter Render-Test bleibt das auch dann wahr, wenn der
-// Screen nie tatsächlich gemountet/interagiert wird, es ist eine
-// Eigenschaft des CODES (welche Module überhaupt erreichbar sind), nicht
-// des im Test konkret ausgeführten Pfads. Ein zweiter, ergänzender Test
-// (token.test.tsx, "W4"-Block) prüft dieselbe Zusicherung zusätzlich
-// verhaltensbasiert (Spione auf dem gesamten Supabase-Client, echte
-// Bildschirm-Interaktion), die Kombination fängt sowohl "ein neuer,
-// ungenutzter Import mit Schreibfähigkeit schleicht sich ein" (dieser Test)
-// als auch "ein tatsächlich ausgeführter Pfad schreibt heimlich" (der
-// andere).
+// Unlike a mocked render test this stays true even when the screen is never
+// actually mounted or interacted with, it is a property of the CODE (which
+// modules are reachable at all), not of the path a test happens to execute. A
+// second, complementary test (w4Behavior.test.tsx) checks the same assurance
+// behaviour-based on top of that (spies on the whole Supabase client, real
+// interaction on screen); the combination catches both "a new, unused import
+// with writing ability sneaks in" (this test) and "a path that really runs
+// writes on the quiet" (the other one).
 import { existsSync, readFileSync } from 'fs';
 import path from 'path';
 
-// mobile/src/app/teilen/__tests__ → drei Ebenen hoch bis mobile/src.
+// mobile/src/app/share/__tests__, three levels up to mobile/src.
 const SRC_ROOT = path.resolve(__dirname, '../../..');
-const EINSTIEG = path.resolve(__dirname, '../[token].tsx');
+const ENTRY = path.resolve(__dirname, '../[token].tsx');
 
 const FROM_IMPORT_RE = /\bfrom\s+['"]([^'"]+)['"]/g;
-const SEITENEFFEKT_IMPORT_RE = /\bimport\s+['"]([^'"]+)['"]/g;
+const SIDE_EFFECT_IMPORT_RE = /\bimport\s+['"]([^'"]+)['"]/g;
 const REQUIRE_RE = /\brequire\(\s*['"]([^'"]+)['"]\s*\)/g;
 
-// Löst einen Import-Specifier zu einer Datei im Repo auf, `@/…` relativ zu
-// mobile/src, `./`/`../` relativ zur importierenden Datei. Ein bare
-// Specifier (node_modules-Paket) liefert `null` und wird NICHT weiter
-// verfolgt: Drittanbieter-Code (@supabase/supabase-js, expo-*, react-native)
-// ist bewusst ausserhalb dieses Tests, wir vertrauen darauf, dass diese
-// Pakete nicht von sich aus schreiben, ohne dass UNSER Code sie dazu
-// aufruft (genau das prüft dieser Test: ob UNSER Code das tut).
+// Resolves an import specifier to a file in the repo, `@/…` relative to
+// mobile/src, `./` and `../` relative to the importing file. A bare specifier
+// (a node_modules package) returns `null` and is NOT followed: third party
+// code (@supabase/supabase-js, expo-*, react-native) is deliberately outside
+// this test, we trust that those packages do not write of their own accord
+// without OUR code telling them to (which is exactly what this test checks:
+// whether OUR code does that).
 //
-// `.web.ts`/`.web.tsx` wird VOR der plattformneutralen Fassung probiert,
-// das ist es, was Metro auf der tatsächlichen Web-Plattform auch auflöst
-// (z.B. secureSessionStorage.web.ts statt secureSessionStorage.ts).
-function resolveDatei(spec: string, ausDatei: string): string | null {
-  let basis: string;
+// `.web.ts`/`.web.tsx` is tried BEFORE the platform-neutral version, which is
+// what Metro resolves on the actual web platform as well (secureSessionStorage
+// .web.ts instead of secureSessionStorage.ts, for instance).
+function resolveFile(spec: string, fromFile: string): string | null {
+  let base: string;
   if (spec.startsWith('@/')) {
-    basis = path.join(SRC_ROOT, spec.slice(2));
+    base = path.join(SRC_ROOT, spec.slice(2));
   } else if (spec.startsWith('.')) {
-    basis = path.resolve(path.dirname(ausDatei), spec);
+    base = path.resolve(path.dirname(fromFile), spec);
   } else {
     return null;
   }
-  const kandidaten = [
-    `${basis}.web.ts`, `${basis}.web.tsx`,
-    basis,
-    `${basis}.ts`, `${basis}.tsx`,
-    path.join(basis, 'index.ts'), path.join(basis, 'index.tsx'),
+  const candidates = [
+    `${base}.web.ts`, `${base}.web.tsx`,
+    base,
+    `${base}.ts`, `${base}.tsx`,
+    path.join(base, 'index.ts'), path.join(base, 'index.tsx'),
   ];
-  for (const kandidat of kandidaten) {
-    if (existsSync(kandidat)) return kandidat;
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) return candidate;
   }
   return null;
 }
 
-function sammleGraph(einstieg: string): Map<string, string> {
-  const gesehen = new Map<string, string>(); // absoluter Pfad -> Quelltext
-  const warteschlange = [einstieg];
-  while (warteschlange.length > 0) {
-    const datei = warteschlange.pop() as string;
-    if (gesehen.has(datei)) continue;
-    const quelltext = readFileSync(datei, 'utf8');
-    gesehen.set(datei, quelltext);
-    for (const re of [FROM_IMPORT_RE, SEITENEFFEKT_IMPORT_RE, REQUIRE_RE]) {
+function collectGraph(entry: string): Map<string, string> {
+  const seen = new Map<string, string>(); // absolute path to source text
+  const queue = [entry];
+  while (queue.length > 0) {
+    const file = queue.pop() as string;
+    if (seen.has(file)) continue;
+    const source = readFileSync(file, 'utf8');
+    seen.set(file, source);
+    for (const re of [FROM_IMPORT_RE, SIDE_EFFECT_IMPORT_RE, REQUIRE_RE]) {
       re.lastIndex = 0;
-      let treffer: RegExpExecArray | null;
-      while ((treffer = re.exec(quelltext))) {
-        const ziel = resolveDatei(treffer[1], datei);
-        if (ziel && !gesehen.has(ziel)) warteschlange.push(ziel);
+      let match: RegExpExecArray | null;
+      while ((match = re.exec(source))) {
+        const target = resolveFile(match[1], file);
+        if (target && !seen.has(target)) queue.push(target);
       }
     }
   }
-  return gesehen;
+  return seen;
 }
 
-const graph = sammleGraph(EINSTIEG);
+const graph = collectGraph(ENTRY);
 
-describe('W4: der Web-Player kann nichts schreiben (Modulgraph-Beweis)', () => {
-  // Gegenprobe für den Testaufbau selbst (Phase-5-Lehre: ein Test, dessen
-  // Mechanismus kaputt ist, ist grün, ohne etwas zu prüfen). Schlägt der
-  // Resolver fehl (z.B. falscher SRC_ROOT, kaputte Regex), wäre der Graph
-  // nur die Einstiegsdatei, alle Tests unten würden dann sinnlos "grün"
-  // sein. Mindestens diese drei WIEDERVERWENDETEN Dateien müssen im Graph
-  // auftauchen, sonst hat die Sammlung nicht funktioniert.
-  test('Testaufbau: der Modulgraph enthält tatsächlich die erwarteten, wiederverwendeten Dateien', () => {
-    const dateien = [...graph.keys()];
-    expect(dateien.some((d) => d.endsWith(path.join('sharing', 'shareApi.ts')))).toBe(true);
-    expect(dateien.some((d) => d.endsWith(path.join('recap', 'playerLogic.ts')))).toBe(true);
-    expect(dateien.some((d) => d.endsWith(path.join('recap', 'days.ts')))).toBe(true);
-    expect(dateien.some((d) => d.endsWith(path.join('components', 'ProgressBar.tsx')))).toBe(true);
-    expect(dateien.length).toBeGreaterThan(6);
+describe('W4: the web player can write nothing (module graph proof)', () => {
+  // A counter-check for the test setup itself (lesson from phase 5: a test
+  // whose mechanism is broken is green without checking anything). If the
+  // resolver fails (a wrong SRC_ROOT, a broken regex), the graph would be the
+  // entry file alone, and all the tests below would be pointlessly "green".
+  // At least these REUSED files have to show up in the graph, otherwise the
+  // collection did not work.
+  test('test setup: the module graph really does contain the reused files it is supposed to', () => {
+    const files = [...graph.keys()];
+    expect(files.some((f) => f.endsWith(path.join('sharing', 'shareApi.ts')))).toBe(true);
+    expect(files.some((f) => f.endsWith(path.join('recap', 'playerLogic.ts')))).toBe(true);
+    expect(files.some((f) => f.endsWith(path.join('recap', 'days.ts')))).toBe(true);
+    expect(files.some((f) => f.endsWith(path.join('components', 'ProgressBar.tsx')))).toBe(true);
+    expect(files.length).toBeGreaterThan(6);
   });
 
-  // Positiv-Gegenprobe zur nächsten Behauptung: der native Player (NICHT im
-  // Graph, weil teilen/[token].tsx ihn nie importiert) enthält sehr wohl
-  // `.insert(`/`.upsert(` (sozialApi.ts), die folgenden Assertions wären
-  // also KEIN Freifahrtschein, der zufällig überall zutrifft, sondern
-  // treffen echte Trennschärfe.
-  test('Testaufbau: recap/sozialApi.ts (schreibt tatsächlich) ist NICHT im Graph, sonst wäre der Test wirkungslos', () => {
-    const dateien = [...graph.keys()];
-    expect(dateien.some((d) => d.endsWith(path.join('recap', 'sozialApi.ts')))).toBe(false);
-    expect(dateien.some((d) => d.endsWith(path.join('recap', 'recapApi.ts')))).toBe(false);
-    expect(dateien.some((d) => d.endsWith(path.join('auth', 'AuthProvider.tsx')))).toBe(false);
+  // A positive counter-check for the claim that follows: the native player
+  // (NOT in the graph, because share/[token].tsx never imports it) does
+  // contain `.insert(`/`.upsert(` (socialApi.ts), so the assertions below are
+  // NOT a free pass that happens to hold everywhere but really do cut.
+  test('test setup: recap/socialApi.ts (which really does write) is NOT in the graph, otherwise this test would prove nothing', () => {
+    const files = [...graph.keys()];
+    expect(files.some((f) => f.endsWith(path.join('recap', 'socialApi.ts')))).toBe(false);
+    expect(files.some((f) => f.endsWith(path.join('recap', 'recapApi.ts')))).toBe(false);
+    expect(files.some((f) => f.endsWith(path.join('auth', 'AuthProvider.tsx')))).toBe(false);
   });
 
-  test('keine Datei im Graph greift über supabase.from()/supabase.rpc() auf eine Tabelle zu', () => {
-    const treffer: string[] = [];
-    for (const [pfad, quelltext] of graph) {
-      if (/\bsupabase\s*\.\s*from\s*\(/.test(quelltext) || /\bsupabase\s*\.\s*rpc\s*\(/.test(quelltext)) {
-        treffer.push(pfad);
+  test('no file in the graph reaches a table via supabase.from() or supabase.rpc()', () => {
+    const hits: string[] = [];
+    for (const [filePath, source] of graph) {
+      if (/\bsupabase\s*\.\s*from\s*\(/.test(source) || /\bsupabase\s*\.\s*rpc\s*\(/.test(source)) {
+        hits.push(filePath);
       }
     }
-    expect(treffer).toEqual([]);
+    expect(hits).toEqual([]);
   });
 
-  test('keine Datei im Graph ruft supabase.auth (Login/Logout/Update) auf', () => {
-    const treffer: string[] = [];
-    for (const [pfad, quelltext] of graph) {
-      if (/\bsupabase\s*\.\s*auth\s*\./.test(quelltext)) treffer.push(pfad);
+  test('no file in the graph calls supabase.auth (login, logout, update)', () => {
+    const hits: string[] = [];
+    for (const [filePath, source] of graph) {
+      if (/\bsupabase\s*\.\s*auth\s*\./.test(source)) hits.push(filePath);
     }
-    expect(treffer).toEqual([]);
+    expect(hits).toEqual([]);
   });
 
-  test('der einzige functions.invoke()-Aufruf im gesamten Graph ist in shareApi.ts, ruft nur "share-link" mit aktion "aufloesen" auf', () => {
-    const AUFRUF_RE = /functions\s*\.\s*invoke\s*\(\s*['"]([^'"]+)['"]/g;
-    const AKTION_RE = /aktion:\s*['"]([^'"]+)['"]/g;
-    const dateienMitAufruf: string[] = [];
-    const funktionsNamen = new Set<string>();
-    const aktionen = new Set<string>();
+  test('the only functions.invoke() call in the whole graph sits in shareApi.ts and calls nothing but "share-link" with aktion "aufloesen"', () => {
+    const INVOKE_RE = /functions\s*\.\s*invoke\s*\(\s*['"]([^'"]+)['"]/g;
+    const ACTION_RE = /aktion:\s*['"]([^'"]+)['"]/g;
+    const filesWithInvoke: string[] = [];
+    const functionNames = new Set<string>();
+    const actions = new Set<string>();
 
-    for (const [pfad, quelltext] of graph) {
-      AUFRUF_RE.lastIndex = 0;
-      let treffer: RegExpExecArray | null;
-      let hatte = false;
-      while ((treffer = AUFRUF_RE.exec(quelltext))) {
-        funktionsNamen.add(treffer[1]);
-        hatte = true;
+    for (const [filePath, source] of graph) {
+      INVOKE_RE.lastIndex = 0;
+      let match: RegExpExecArray | null;
+      let found = false;
+      while ((match = INVOKE_RE.exec(source))) {
+        functionNames.add(match[1]);
+        found = true;
       }
-      if (hatte) dateienMitAufruf.push(pfad);
+      if (found) filesWithInvoke.push(filePath);
 
-      AKTION_RE.lastIndex = 0;
-      while ((treffer = AKTION_RE.exec(quelltext))) aktionen.add(treffer[1]);
+      ACTION_RE.lastIndex = 0;
+      while ((match = ACTION_RE.exec(source))) actions.add(match[1]);
     }
 
-    expect(dateienMitAufruf).toHaveLength(1);
-    expect(dateienMitAufruf[0].endsWith(path.join('sharing', 'shareApi.ts'))).toBe(true);
-    expect([...funktionsNamen]).toEqual(['share-link']);
-    expect([...aktionen]).toEqual(['aufloesen']);
+    expect(filesWithInvoke).toHaveLength(1);
+    expect(filesWithInvoke[0].endsWith(path.join('sharing', 'shareApi.ts'))).toBe(true);
+    expect([...functionNames]).toEqual(['share-link']);
+    expect([...actions]).toEqual(['aufloesen']);
   });
 });

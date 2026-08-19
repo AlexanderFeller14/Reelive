@@ -137,9 +137,9 @@ export type Shadow = {
   y: number;
   rx: number;
   ry: number;
-  deckkraft: number;
+  opacity: number;
   // Gaussian sigma in stage units (the prototype: CSS blur(px)).
-  weichheit: number;
+  softness: number;
 };
 
 // The floor shadow under the seal, keeps up with it lifting off toward the
@@ -155,7 +155,7 @@ export function shadowParameters(p: number): Shadow {
     y: 590 - 70 * sp,
     rx: 215 - 70 * sp,
     ry: 45 - 17 * sp,
-    deckkraft: 0.2 * (1 - 0.55 * sp) * fadeOut,
-    weichheit: 16 + 22 * sp,
+    opacity: 0.2 * (1 - 0.55 * sp) * fadeOut,
+    softness: 16 + 22 * sp,
   };
 }

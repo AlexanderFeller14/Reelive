@@ -9,49 +9,44 @@ import { useTopInset } from '@/theme/useTopInset';
 import { fetchInviteCode } from '@/features/trips/tripsApi';
 import { createInviteUrl } from '@/features/trips/inviteLink';
 
-export default function Einladen() {
+export default function Invite() {
   const { colors } = useTheme();
-  const oben = useTopInset(spacing.xxl);
+  const topInset = useTopInset(spacing.xxl);
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
   const [url, setUrl] = useState<string | null>(null);
-  // Getrennt von `url`: `null` ist zwei verschiedene Zustände, „lädt noch"
-  // (geladen=false) und „kein Code bekommen" (geladen=true, url=null).
-  // Letzteres muss der Screen sichtbar machen statt still eine leere Fläche
-  // zu zeigen (DESIGN-LANGUAGE §6: Ursache + Lösung).
-  const [geladen, setGeladen] = useState(false);
-  const [fehler, setFehler] = useState<string | null>(null);
-  const aktiv = useRef(true);
+  const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const active = useRef(true);
 
-  const laden = useCallback(async () => {
-    const { data, error } = await fetchInviteCode(id);
-    if (!aktiv.current) return;
+  const load = useCallback(async () => {
+    const { data, error: readError } = await fetchInviteCode(id);
+    if (!active.current) return;
     setUrl(data ? createInviteUrl(data) : null);
-    setFehler(error);
-    setGeladen(true);
+    setError(readError);
+    setLoaded(true);
   }, [id]);
 
-  // Beim Fokussieren neu laden statt nur beim Mounten: Ein Rauswurf im
-  // Detailscreen rotiert den invite_code (Migration 20260807090000). Ein offen
-  // liegengebliebener Einladen-Screen würde sonst einen QR-Code zeigen, der
-  // schon nicht mehr gilt.
+  // Reload on focus, not only on mount: removing someone in the detail screen
+  // rotates the invite_code server side (migration 20260807090000), which no
+  // test here can see through the mocked api.
   useFocusEffect(
     useCallback(() => {
-      aktiv.current = true;
-      void laden();
+      active.current = true;
+      void load();
       return () => {
-        aktiv.current = false;
+        active.current = false;
       };
-    }, [laden])
+    }, [load])
   );
 
-  const teilen = async () => {
+  const share = async () => {
     if (!url) return;
     await Share.share({ message: `Komm mit auf die Reise: ${url}` });
   };
 
   return (
-    <View style={[styles.screen, { backgroundColor: colors['bg-0'], paddingTop: oben }]}>
+    <View style={[styles.screen, { backgroundColor: colors['bg-0'], paddingTop: topInset }]}>
       <Text style={[type.h1, { color: colors['text-1'] }]}>Freunde einladen</Text>
       <Text style={[type.body, { color: colors['text-2'] }]}>
         Scannen oder Link schicken. Deine Freunde können jederzeit dazukommen, auch mitten in der Reise.
@@ -62,16 +57,16 @@ export default function Einladen() {
 
       <View style={styles.qr}>
         {url ? (
-          // QRCode nimmt feste Farbwerte statt Style-Props, bewusst die
-          // Token-Werte durchgereicht, keine neuen Hex-Werte.
+          // QRCode takes fixed colour values instead of style props, the token
+          // values are passed through on purpose, no new hex values.
           <QRCode value={url} size={220} color={palette['text-1']} backgroundColor={palette['bg-0']} />
-        ) : geladen ? (
+        ) : loaded ? (
           <Text style={[type.body, { color: colors.danger }]}>
-            {fehler ?? 'Der Einladungslink konnte nicht geladen werden. Probier es gleich nochmal.'}
+            {error ?? 'Der Einladungslink konnte nicht geladen werden. Probier es gleich nochmal.'}
           </Text>
         ) : (
-          // Skeleton (DESIGN-LANGUAGE §4): ruhige bg-1-Fläche statt leerem
-          // Weiss, solange der Code noch lädt.
+          // Skeleton (DESIGN-LANGUAGE §4): a calm bg-1 surface instead of
+          // empty white while the code is still loading.
           <View style={[styles.skeleton, { backgroundColor: colors['bg-1'] }]} />
         )}
       </View>
@@ -79,9 +74,9 @@ export default function Einladen() {
       <Button
         variant="primary"
         label="Link teilen"
-        onPress={() => void teilen()}
-        loading={!geladen}
-        disabled={geladen && !url}
+        onPress={() => void share()}
+        loading={!loaded}
+        disabled={loaded && !url}
       />
       <Button variant="text" label="Später" onPress={() => router.replace(`/trip/${id}`)} />
     </View>
@@ -90,12 +85,11 @@ export default function Einladen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, padding: spacing.screen, paddingTop: spacing.xxl, gap: spacing.l },
-  // Der QR-Code ist das eine Element, das dieser Screen zeigen will, und
-  // bekommt deshalb den Raum zwischen Text und Knöpfen, statt mit festem
-  // Abstand unter dem Text zu kleben. Der Titel bleibt oben, wo die Leseachse
-  // beginnt (DESIGN-LANGUAGE §2: Headlines tragen den Screen), die Knöpfe
-  // rutschen ans untere Ende, in Daumenreichweite. Nur `flex: 1` an dieser
-  // einen Stelle, der Rest des Screens bleibt unverändert.
+  // The QR code is the one element this screen wants to show and therefore
+  // gets the room between text and buttons, instead of sticking under the text
+  // at a fixed distance. The title stays at the top where the reading axis
+  // begins (DESIGN-LANGUAGE §2), the buttons slide to the bottom edge, within
+  // thumb reach.
   qr: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   skeleton: { width: 220, height: 220, borderRadius: radius.card },
 });

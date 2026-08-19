@@ -135,8 +135,8 @@ export function SealPeel({ size, onPeeled, testID }: Props) {
     const s = shadowParameters(progress.value);
     return { x: s.x, y: s.y };
   });
-  const shadowOpacity = useDerivedValue(() => shadowParameters(progress.value).deckkraft);
-  const shadowSoftness = useDerivedValue(() => shadowParameters(progress.value).weichheit);
+  const shadowOpacity = useDerivedValue(() => shadowParameters(progress.value).opacity);
+  const shadowSoftness = useDerivedValue(() => shadowParameters(progress.value).softness);
 
   // Everything is computed in stage units (720) and scaled onto the point
   // size as a whole; the shadow's softness scales along with it (BlurMask

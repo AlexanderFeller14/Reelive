@@ -28,60 +28,37 @@ import { removeMoment, fetchReports, dismissReport, type Report } from '@/featur
 import { isRecapShared } from '@/features/sharing/linkManagementApi';
 import { LINK_REACH_TEXT } from '@/features/sharing/texts';
 
-// DESIGN-LANGUAGE §5: destruktive Dialoge kündigen sich haptisch an (warning).
-// Sparsam eingesetzt, nur die drei Dialoge dieses Screens. Ein fehlender
-// Vibrationsmotor (Simulator, Web) darf den Dialog nie aufhalten, deshalb wird
-// das Versprechen bewusst verworfen statt abgewartet.
-function warnhaptik() {
+// Fire and forget: a device without a working vibration motor (simulator,
+// web) must never hold the dialog back, so the promise is dropped on
+// purpose instead of awaited.
+function warningHaptics() {
   void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
 }
 
-// Task 10: die dezente Zeile unter dem Zähler, nur sichtbar, solange die
-// Warteschlange für diese Reise nicht leer ist (siehe Render-Guard unten).
-function wartendText(anzahl: number): string {
-  return `${anzahl} ${anzahl === 1 ? 'Moment ist' : 'Momente sind'} noch unterwegs.`;
+function pendingText(count: number): string {
+  return `${count} ${count === 1 ? 'Moment ist' : 'Momente sind'} noch unterwegs.`;
 }
 
-// Final-Review, Important 9: Spec §8 verspricht, ein nach dem Reveal
-// aufgenommener Moment werde «mit Erklärung verworfen». Bis zur Fix-Welle
-// löschte der Worker den Job und schrieb eine Konsolenzeile, die betroffene
-// Person erfuhr nie, dass ihre Aufnahme weg ist. Hier ist die Erklärung: neben
-// dem Zähler und der Warten-Zeile, also dort, wo der Upload-Zustand dieser
-// Reise ohnehin steht (Spec §7). Sie bleibt stehen, bis sie quittiert wird,
-// eine Meldung, die von selbst verschwindet, ist keine Erklärung.
-// Feste Referenz statt eines jedes Mal neuen Literals: `laden()` läuft bei
-// jedem Fokussieren, und ein neues Array würde setVerworfen() jedes Mal einen
-// Rerender auslösen, obwohl sich nichts geändert hat.
-const KEINE_VERWORFENEN: DiscardedMoment[] = [];
+// One fixed reference instead of a fresh literal every time: load() runs on
+// every focus, and a new array would make setDiscarded() trigger a rerender
+// each time although nothing changed.
+const NO_DISCARDED: DiscardedMoment[] = [];
 
-function verworfenTitel(anzahl: number): string {
-  return anzahl === 1 ? 'Ein Moment konnte nicht mehr eingesendet werden' : `${anzahl} Momente konnten nicht mehr eingesendet werden`;
+function discardedTitle(count: number): string {
+  return count === 1 ? 'Ein Moment konnte nicht mehr eingesendet werden' : `${count} Momente konnten nicht mehr eingesendet werden`;
 }
 
-// Review Important 1: die Zahl bleibt im Singular NICHT stehen, anders als bei
-// wartendText oben («1 Moment ist …») folgt diese Zeile der Konvention von
-// verworfenTitel(1) («Ein Moment …») weiter oben in dieser Datei: «Dein 1
-// wartender Moment» ist grammatisch schief, «Dein wartender Moment» nicht.
-// «Reveal» ersetzt durch «Aufdeckung» (DESIGN-LANGUAGE §6: Deutsch; dieselbe
-// Formulierung steht schon in postsApi.ts/uploadWorker.ts/VERWORFEN_GRUND).
-function wartendeMomenteBeruhigung(anzahl: number): string {
-  return anzahl === 1
+function pendingMomentsReassurance(count: number): string {
+  return count === 1
     ? 'Dein wartender Moment kommt noch durch, er ist vor der Aufdeckung entstanden.'
-    : `Deine ${anzahl} wartenden Momente kommen noch durch, sie sind vor der Aufdeckung entstanden.`;
+    : `Deine ${count} wartenden Momente kommen noch durch, sie sind vor der Aufdeckung entstanden.`;
 }
 
-// Task 8, Phase 6: Moderation. Gleiche Singular/Plural-Konvention wie oben
-// («Ein Moment …», nicht «1 Moment …»).
-function meldungenText(anzahl: number): string {
-  return anzahl === 1 ? 'Ein gemeldeter Moment' : `${anzahl} gemeldete Momente`;
+function reportsText(count: number): string {
+  return count === 1 ? 'Ein gemeldeter Moment' : `${count} gemeldete Momente`;
 }
 
-// Zeitpunkt DER MELDUNG (reports.created_at), in Gerätezeit, anders als
-// player.tsx/zeitInZone geht es hier nicht um den Moment selbst (dessen
-// captured_tz), sondern darum, WANN die Owner-Person meldete. Ein
-// unparsbarer Wert zeigt lieber nichts als abzustürzen (gleiches
-// Verteidigungsprinzip wie player.tsx/zeitInZone).
-function formatMeldezeit(iso: string): string {
+function formatReportTime(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '';
   try {
@@ -89,56 +66,53 @@ function formatMeldezeit(iso: string): string {
       day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
     }).format(d);
   } catch {
+    // A JS engine shipped without the de-DE locale data throws here. Jest
+    // runs on a full-ICU Node and never sees that path, only a device can.
     return '';
   }
 }
 
-// Eine Zeile der Moderationsliste: Vorschaubild, Grund, Zeitpunkt (Brief,
-// wörtlich), dazu die zwei Aktionen. `laeuft` deckt BEIDE Aktionen ab (eine
-// laufende Anfrage für diese Meldung, gleich welche), ersetzt die
-// Aktionsreihe durch einen einzigen Ladeindikator, statt zu raten, welcher
-// der beiden Knöpfe ihn zeigen sollte.
-function MeldungZeile({
-  meldung, vorschauUrl, laeuft, fehler, onEntfernen, onVerwerfen,
+function ReportRow({
+  report, previewUrl, running, error, onRemove, onDismiss,
 }: {
-  meldung: Report;
-  vorschauUrl: string | null;
-  laeuft: boolean;
-  fehler: string | undefined;
-  onEntfernen: () => void;
-  onVerwerfen: () => void;
+  report: Report;
+  previewUrl: string | null;
+  running: boolean;
+  error: string | undefined;
+  onRemove: () => void;
+  onDismiss: () => void;
 }) {
   const { colors } = useTheme();
   return (
-    <View testID={`meldung-${meldung.id}`} style={[styles.meldungZeile, { borderBottomColor: colors.line }]}>
-      <View style={styles.meldungKopf}>
-        {vorschauUrl ? (
+    <View testID={`meldung-${report.id}`} style={[styles.reportRow, { borderBottomColor: colors.line }]}>
+      <View style={styles.reportHead}>
+        {previewUrl ? (
           <Image
-            testID={`meldung-vorschau-${meldung.id}`}
-            source={{ uri: vorschauUrl }}
-            style={[styles.meldungBild, { backgroundColor: colors['bg-1'] }]}
+            testID={`meldung-vorschau-${report.id}`}
+            source={{ uri: previewUrl }}
+            style={[styles.reportImage, { backgroundColor: colors['bg-1'] }]}
             contentFit="cover"
           />
         ) : (
-          <View style={[styles.meldungBild, { backgroundColor: colors['bg-1'] }]} />
+          <View style={[styles.reportImage, { backgroundColor: colors['bg-1'] }]} />
         )}
-        <View style={styles.meldungText}>
-          <Text style={[type.body, { color: colors['text-1'] }]}>{meldung.reason}</Text>
-          <Text style={[type.secondary, { color: colors['text-2'] }]}>{formatMeldezeit(meldung.created_at)}</Text>
+        <View style={styles.reportText}>
+          <Text style={[type.body, { color: colors['text-1'] }]}>{report.reason}</Text>
+          <Text style={[type.secondary, { color: colors['text-2'] }]}>{formatReportTime(report.created_at)}</Text>
         </View>
       </View>
-      {fehler && <Text style={[type.secondary, { color: colors.danger }]}>{fehler}</Text>}
-      {laeuft ? (
-        <ActivityIndicator testID={`meldung-laedt-${meldung.id}`} color={colors['text-1']} />
+      {error && <Text style={[type.secondary, { color: colors.danger }]}>{error}</Text>}
+      {running ? (
+        <ActivityIndicator testID={`meldung-laedt-${report.id}`} color={colors['text-1']} />
       ) : (
-        <View style={styles.meldungAktionen}>
-          <PressScale accessibilityRole="button" onPress={onVerwerfen}>
-            <Text style={[type.bodyMedium, styles.meldungAktionText, { color: colors['text-1'] }]}>
+        <View style={styles.reportActions}>
+          <PressScale accessibilityRole="button" onPress={onDismiss}>
+            <Text style={[type.bodyMedium, styles.reportActionText, { color: colors['text-1'] }]}>
               Meldung verwerfen
             </Text>
           </PressScale>
-          <PressScale accessibilityRole="button" onPress={onEntfernen}>
-            <Text style={[type.bodyMedium, styles.meldungAktionText, { color: colors.danger }]}>
+          <PressScale accessibilityRole="button" onPress={onRemove}>
+            <Text style={[type.bodyMedium, styles.reportActionText, { color: colors.danger }]}>
               Moment entfernen
             </Text>
           </PressScale>
@@ -148,359 +122,238 @@ function MeldungZeile({
   );
 }
 
-// Kein Kasten und keine Warnfarbe: das ist kein Alarm, sondern eine fehlende
-// Auskunft. Sie nennt Ursache und Weg, ohne sich zu entschuldigen
+// No box and no warning colour: this is not an alarm, it is a missing piece
+// of information. It names cause and way out without apologising
 // (DESIGN-LANGUAGE §6).
-const GETEILT_UNBEKANNT =
+const SHARED_UNKNOWN =
   'Ob dieser Recap geteilt ist, liess sich gerade nicht prüfen. Schau gleich nochmal rein.';
 
-// Die Facepile zeigt nur Kreise, ein Screenreader hat daran nichts zu lesen.
-// Das Label nennt deshalb beides: wozu sie da ist und wie viele es sind.
-function mitreisendeLabel(anzahl: number): string {
-  return `Wer dabei ist, ${anzahl} ${anzahl === 1 ? 'Person' : 'Personen'}`;
+function travellersLabel(count: number): string {
+  return `Wer dabei ist, ${count} ${count === 1 ? 'Person' : 'Personen'}`;
 }
 
-export default function ReiseDetail() {
+export default function TripDetail() {
   const { colors } = useTheme();
   const router = useRouter();
-  // Kein Header ueber diesem Screen: der Scroll-Inhalt begann bei den
-  // gestalteten 24 und lag damit hinter Statusleiste und Insel.
-  const oberkante = useTopInset(spacing.screen);
-  // Deckelt die Mitreisenden-Liste im Sheet. Ohne Grenze wüchse sie bis an den
-  // 85-%-Deckel des Panels und verlöre ihre letzten Zeilen ersatzlos, bei
-  // einer grossen Reise ausgerechnet die zuletzt Beigetretenen (siehe
-  // SHEET_SCROLL_ANTEIL in Sheet.tsx).
-  const { height: fensterHoehe } = useWindowDimensions();
-  // `cover` ist kein Datenparameter, sondern der Platz, den die angetippte
-  // Karte in ihrer Liste hatte: Er sorgt dafür, dass hier dasselbe
-  // Platzhalter-Bild steht wie auf der Karte (platzhalterCover.ts). Wer ohne
-  // ihn hier landet — Deep Link, gerade angelegte Reise —, bekommt das erste
-  // Bild. `Number(undefined)` ist NaN, deshalb der Rückfall auf 0.
+  // No header above this screen: the scroll content started at the designed
+  // 24 and therefore sat behind the status bar and the island.
+  const topInset = useTopInset(spacing.screen);
+  // Caps the traveller list inside the sheet. Without a limit it would grow
+  // up to the panel's 85 % ceiling and lose its last rows without a trace,
+  // on a big trip exactly the people who joined last (see
+  // SHEET_SCROLL_RATIO in Sheet.tsx).
+  const { height: windowHeight } = useWindowDimensions();
   const { id, cover } = useLocalSearchParams<{ id: string; cover?: string }>();
-  const coverPlatz = Number(cover) || 0;
+  const coverPosition = Number(cover) || 0;
   const { userId } = useAuth();
   const [trip, setTrip] = useState<Trip | null>(null);
-  const [mitglieder, setMitglieder] = useState<TripMember[]>([]);
-  // Gleiche Dreiteilung wie in der Liste, [id]/einladen.tsx und join/[code].tsx:
-  // `geladen` trennt «lädt noch» von «fertig», `fehler` trennt «nicht geladen»
-  // von «gibt es nicht mehr». Ohne diese Trennung blieb bei einem Lesefehler
-  // ein leerer weisser Screen ohne Erklärung und ohne Rückweg stehen, der
-  // Stack hat keinen Header.
-  const [geladen, setGeladen] = useState(false);
-  const [fehler, setFehler] = useState<string | null>(null);
-  const [mitgliederFehler, setMitgliederFehler] = useState<string | null>(null);
-  const [laedt, setLaedt] = useState(false);
-  // Task 10: der grosse Zähler zählt künftig den Serverstand PLUS wartende
-  // Momente derselben Reise (eigenerZaehler statt trip.my_post_count), sonst
-  // bliebe er nach einer Offline-Aufnahme stehen. `wartend` zählt separat nur
-  // die Warteschlange dieser Reise, für die dezente Zeile darunter.
-  const [zaehler, setZaehler] = useState(0);
-  const [wartend, setWartend] = useState(0);
-  const [verworfen, setVerworfen] = useState<DiscardedMoment[]>([]);
-  // Task 8, Phase 6: Melden und Moderation. `meldungenAnzahl` ist ein weicher
-  // Beiwert wie `zaehler`/`wartend` oben (RLS filtert für Nicht-Owner-Personen
-  // ohnehin auf null Zeilen, ein Fehler hier degradiert still auf 0 statt den
-  // ganzen Screen zu blockieren, siehe laden()). Die eigentliche Liste
-  // (`meldungen`) lädt ERST beim Öffnen des Sheets, mit eigenem Fehlerzustand,
-  // gleiches Prinzip wie TeilenSheetInhalt.
-  const [meldungenAnzahl, setMeldungenAnzahl] = useState(0);
-  // Die Mitreisenden-Verwaltung hinter der Facepile. Anders als beim
-  // Moderations-Sheet gibt es hier nichts nachzuladen: `mitglieder` steht seit
-  // laden() bereit, das Sheet zeigt nur, was der Screen ohnehin schon hat.
-  const [mitgliederSichtbar, setMitgliederSichtbar] = useState(false);
-  const [moderationSichtbar, setModerationSichtbar] = useState(false);
-  const [moderationPhase, setModerationPhase] = useState<'laedt' | 'bereit' | 'fehler'>('laedt');
-  const [moderationFehler, setModerationFehler] = useState<string | null>(null);
-  const [meldungen, setMeldungen] = useState<Report[]>([]);
-  // post_id -> Vorschau-URL (Thumbnail aus demselben Vorrat wie der Player,
-  // holeVorrat/media-urls). `null` heisst "kein Thumbnail vorhanden", nicht
-  // "noch nicht geladen", die Sheet-Phase trägt das Ladestadium bereits.
-  const [vorschauUrls, setVorschauUrls] = useState<Map<string, string | null>>(new Map());
-  // Die report_id der Meldung, für die GERADE eine Aktion läuft (verwerfen
-  // ODER entfernen, gleich welche), deckt beide Knöpfe der Zeile ab, siehe
-  // MeldungZeile oben.
-  const [aktionLaeuftFuer, setAktionLaeuftFuer] = useState<string | null>(null);
-  const [aktionFehler, setAktionFehler] = useState<Record<string, string>>({});
-  // Task 8: Bestätigungs-Sheet für «Reise abschliessen». revealFehler bleibt
-  // eigens vom Lade-`fehler` oben getrennt, ein gescheiterter Reveal darf den
-  // Screen nicht so behandeln, als wäre die Reise nicht mehr ladbar.
-  const [bestaetigenSichtbar, setBestaetigenSichtbar] = useState(false);
-  const [revealLaedt, setRevealLaedt] = useState(false);
-  const [revealFehler, setRevealFehler] = useState<string | null>(null);
-  // Task 9, Reveal-Entdeckung (Versprechen V6: der Recap muss ohne Push
-  // erreichbar sein). `laden()` prüft bei jedem Fokussieren selbst, ob die
-  // Reise nicht mehr aktiv ist und die Inszenierung für sie schon gezeigt
-  // wurde (gesehen.ts, persistiert). `inszenierungSichtbar` steuert nur die
-  // Optik; `revealBereit` schaltet den Primär-Button «Recap starten» frei,
-  // getrennt, weil eine schon gesehene Reise `revealBereit` sofort bekommt,
-  // eine frische erst NACH der Inszenierung (siehe inszenierungFertig unten).
-  const [inszenierungSichtbar, setInszenierungSichtbar] = useState(false);
-  const [revealBereit, setRevealBereit] = useState(false);
-  // Zwei getrennte Wächter statt einem (Review Important 3 am ursprünglichen
-  // einzelnen Ref): `revealPruefungLaeuftRef` schützt nur den Moment WÄHREND
-  // `revealGesehen()` noch aussteht, er verhindert, dass zwei überlappende
-  // `laden()`-Aufrufe (z. B. ein zweiter durch `entfernen()`, während der
-  // erste noch auf AsyncStorage wartet) den Speicher beide gleichzeitig
-  // befragen. `revealEntschiedenRef` wird ERST gesetzt, NACHDEM eine
-  // Entscheidung tatsächlich angewendet wurde (`setRevealBereit`/
-  // `setInszenierungSichtbar`), genau DAS, nicht der In-Flight-Zustand, ist
-  // was künftige `laden()`-Aufrufe von einem erneuten Check abhalten soll.
+  const [members, setMembers] = useState<TripMember[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [membersError, setMembersError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [counter, setCounter] = useState(0);
+  const [pending, setPending] = useState(0);
+  const [discarded, setDiscarded] = useState<DiscardedMoment[]>([]);
+  const [reportCount, setReportCount] = useState(0);
+  const [membersVisible, setMembersVisible] = useState(false);
+  const [moderationVisible, setModerationVisible] = useState(false);
+  const [moderationPhase, setModerationPhase] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [moderationError, setModerationError] = useState<string | null>(null);
+  const [reports, setReports] = useState<Report[]>([]);
+  const [previewUrls, setPreviewUrls] = useState<Map<string, string | null>>(new Map());
+  const [actionRunningFor, setActionRunningFor] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<Record<string, string>>({});
+  const [confirmVisible, setConfirmVisible] = useState(false);
+  const [revealLoading, setRevealLoading] = useState(false);
+  const [revealError, setRevealError] = useState<string | null>(null);
+  const [sequenceVisible, setSequenceVisible] = useState(false);
+  const [revealReady, setRevealReady] = useState(false);
+  // Two separate guards instead of one. `revealCheckRunningRef` only covers
+  // the window while `hasSeenReveal()` is still outstanding;
+  // `revealDecidedRef` is set only AFTER a decision was actually applied.
   //
-  // Der ursprüngliche einzelne Ref wurde VOR dem `await revealGesehen(id)`
-  // gesetzt (richtig gegen Nebenläufigkeit) und im Abbruchpfad
-  // (`if (!aktiv.current) return`) NIE zurückgenommen: verlor der Screen
-  // während des AsyncStorage-Lesens den Fokus (Tab-Wechsel, ein `push` auf
-  // `/trip/[id]/invite`, der Screen bleibt dabei gemountet), blieb er
-  // für den Rest dieses Mounts auf "true" hängen, ohne dass je `revealBereit`
-  // oder `inszenierungSichtbar` gesetzt worden wäre, eine aufgedeckte Reise
-  // hätte dann WEDER die Inszenierung NOCH «Recap starten» gezeigt. Mit der
-  // Aufteilung bleibt nur `revealPruefungLaeuftRef` (unten wieder auf
-  // `false` gesetzt, sobald `revealGesehen()` zurückkommt, VOR dem
-  // `aktiv`-Check) über den Abbruch hinaus gesetzt; `revealEntschiedenRef`
-  // bleibt `false`, ein späterer `laden()`-Aufruf (echtes Refokussieren)
-  // versucht es also erneut.
-  const revealPruefungLaeuftRef = useRef(false);
-  const revealEntschiedenRef = useRef(false);
-  // Schirmt setState nach Blur/Unmount ab, gleiches Muster wie in der
-  // Listen-Schwesterdatei (reise/index.tsx): jeder Fokus-Zyklus bekommt seinen
-  // eigenen Wächter, der beim Verlassen des Screens auf false gesetzt wird, damit
-  // eine spät auflösende Ladeoperation keinen State mehr auf einen weggeklickten
-  // Screen schreibt.
-  const aktiv = useRef(true);
+  // The split exists because of a navigation finding: the original single
+  // ref was set BEFORE the await and never taken back in the abort path
+  // (`if (!active.current) return`). Lost the screen its focus during the
+  // AsyncStorage read (tab switch, a push to `/trip/[id]/invite`, the screen
+  // stays mounted), it hung at true for the rest of that mount and a
+  // revealed trip showed NEITHER the sequence NOR «Recap starten». Jest
+  // cannot take focus away mid-await, so no test guards this ordering.
+  const revealCheckRunningRef = useRef(false);
+  const revealDecidedRef = useRef(false);
+  // Shields setState after blur/unmount, same pattern as in the sibling
+  // list screen: every focus cycle gets its own guard, set to false when the
+  // screen is left, so a late-resolving load writes no state onto a screen
+  // that is gone.
+  const active = useRef(true);
 
-  // Ob der Recap gerade geteilt ist, fuer ALLE Mitreisenden sichtbar.
-  //
-  // Drei Werte, nicht zwei: `null` heisst «wir wissen es gerade nicht» und ist
-  // ausdruecklich NICHT dasselbe wie `false`. Ein Netzfehler darf sich nicht
-  // als Entwarnung ausgeben, das ist die eine Richtung, in die diese Auskunft
-  // nie irren darf.
-  const [geteilt, setGeteilt] = useState<boolean | null>(false);
+  const [shared, setShared] = useState<boolean | null>(false);
 
-  const laden = useCallback(async () => {
-    const [t, m, z, jobs, abgelehnt, meldungenErgebnis] = await Promise.all([
+  const load = useCallback(async () => {
+    const [t, m, c, jobs, discardedEntries, reportsResult] = await Promise.all([
       fetchTrip(id),
       fetchMembers(id),
-      // Anders als fetchTrip/fetchMembers sind eigenerZaehler und
-      // queueDb.alleJobs nicht garantiert werfensicher, sie lesen aus der
-      // lokalen SQLite-Warteschlange, die bei einer beschädigten Datenbank
-      // ablehnen kann (siehe queueDb.ts). Ohne dieses .catch() liesse eine
-      // solche Ablehnung das ganze Promise.all scheitern, `geladen` würde
-      // nie `true`, und der Screen bliebe dauerhaft leer, obwohl Reise und
-      // Mitglieder längst da wären (Fix-Runde 1). Fällt einer der beiden
-      // aus, zeigt der Screen eben den reinen Serverstand ohne Warten-Zeile
-      // statt gar nichts.
       ownMomentCount(id).catch(() => null),
       queueDb.allJobs().catch((): QueueJob[] => []),
-      // Gleicher Grund für das .catch() wie oben: eine beschädigte lokale
-      // Datenbank darf den Screen nicht leer stehen lassen. Ohne userId gibt
-      // es nichts abzufragen, verworfene Momente gehören immer einer Person.
       userId
-        ? queueDb.discardedMoments(id, userId).catch(() => KEINE_VERWORFENEN)
-        : Promise.resolve(KEINE_VERWORFENEN),
-      // Task 8: ungefiltert nach Owner-Rolle aufgerufen, reports_select_owner
-      // (RLS) liefert einer Nicht-Owner-Person ohnehin still null Zeilen,
-      // kein Fehler. Der Einstiegspunkt unten rendert nur bei istOwner UND
-      // meldungenAnzahl > 0, ein falsch positiver Treffer ist also
-      // ausgeschlossen. fetchMeldungen wirft nie (gleicher Vertrag wie
-      // fetchTrip/fetchMembers), kein .catch() nötig.
+        ? queueDb.discardedMoments(id, userId).catch(() => NO_DISCARDED)
+        : Promise.resolve(NO_DISCARDED),
+      // Called without checking the owner role: reports_select_owner (RLS)
+      // silently returns zero rows to anyone else, no error.
       fetchReports(id),
     ]);
-    if (!aktiv.current) return;
+    if (!active.current) return;
     setTrip(t.data);
-    setFehler(t.error);
-    setMitglieder(m.data);
-    setMitgliederFehler(m.error);
-    setZaehler(z ?? t.data?.my_post_count ?? 0);
-    setWartend(pendingCount(jobs.filter((job) => job.trip_id === id)));
-    setVerworfen(abgelehnt);
-    // Ein Ladefehler degradiert still auf 0 (Beiwert-Prinzip, siehe
-    // Kommentar am State oben), das offene Moderation-Sheet (falls gerade
-    // sichtbar) hat seinen EIGENEN, prominenten Fehlerzustand.
-    setMeldungenAnzahl(meldungenErgebnis.error ? 0 : meldungenErgebnis.data.length);
-    setGeladen(true);
+    setError(t.error);
+    setMembers(m.data);
+    setMembersError(m.error);
+    setCounter(c ?? t.data?.my_post_count ?? 0);
+    setPending(pendingCount(jobs.filter((job) => job.trip_id === id)));
+    setDiscarded(discardedEntries);
+    setReportCount(reportsResult.error ? 0 : reportsResult.data.length);
+    setLoaded(true);
 
-    // Erst NACH dem Laden der Reise, und nur wenn sie ueberhaupt aufgedeckt
-    // ist: vor dem Reveal entsteht gar kein Link (share-link/verwaltung.ts
-    // lehnt ab), die Abfrage koennte also nur `false` liefern. Sie steht
-    // deshalb bewusst nicht im Promise.all darueber, das fuer jede laufende
-    // Reise eine Abfrage mehr bedeutete, die nie etwas sagt.
     if (t.data && t.data.status !== 'active') {
-      const geteiltErgebnis = await isRecapShared(id);
-      if (!aktiv.current) return;
-      setGeteilt(geteiltErgebnis.data);
+      const sharedResult = await isRecapShared(id);
+      if (!active.current) return;
+      setShared(sharedResult.data);
     } else {
-      setGeteilt(false);
+      setShared(false);
     }
 
-    // Reveal-Entdeckung (V6): keine Benachrichtigung, kein Deep-Link, nur
-    // die Tatsache, dass diese Reise beim (Wieder-)Öffnen nicht mehr 'active'
-    // ist. Das trifft die Owner-Person direkt nach einem erfolgreichen
-    // abschliessen() (derselbe laden()-Aufruf, siehe dort) genauso wie jedes
-    // andere Mitglied, das die Reise irgendwann später wieder aufmacht, mit
-    // oder ohne Push.
     if (
       t.data &&
       t.data.status !== 'active' &&
-      !revealEntschiedenRef.current &&
-      !revealPruefungLaeuftRef.current
+      !revealDecidedRef.current &&
+      !revealCheckRunningRef.current
     ) {
-      revealPruefungLaeuftRef.current = true;
-      const gesehen = await hasSeenReveal(id);
-      // VOR dem aktiv-Check zurückgesetzt: der In-Flight-Zustand endet hier
-      // so oder so, ob der Screen inzwischen den Fokus verloren hat oder
-      // nicht, sonst bliebe er bei einem Abbruch hängen und würde jeden
-      // späteren laden()-Aufruf blockieren (siehe Kommentar bei den Refs).
-      revealPruefungLaeuftRef.current = false;
-      if (!aktiv.current) return;
-      // Ab hier gilt die Entscheidung als getroffen, erst JETZT, nicht
-      // schon vor dem await, damit ein Abbruch oben sie erneut versuchen
-      // lässt statt sie für den Rest dieses Mounts zu verhindern.
-      revealEntschiedenRef.current = true;
-      if (gesehen) {
-        setRevealBereit(true);
+      revealCheckRunningRef.current = true;
+      const seen = await hasSeenReveal(id);
+      revealCheckRunningRef.current = false;
+      if (!active.current) return;
+      revealDecidedRef.current = true;
+      if (seen) {
+        setRevealReady(true);
       } else {
-        setInszenierungSichtbar(true);
+        setSequenceVisible(true);
       }
     }
   }, [id, userId]);
 
-  // Läuft, sobald die Inszenierung ihre volle Dauer gespielt hat (siehe
-  // RevealInszenierung, success-Haptik und Timing sind dort schon
-  // abgesichert). `id` statt `trip?.id`: stabile Referenz, unabhängig davon,
-  // ob `trip` zwischen Start und Ende der Animation neu geladen wurde.
-  const inszenierungFertig = useCallback(() => {
-    setInszenierungSichtbar(false);
-    setRevealBereit(true);
+  const sequenceFinished = useCallback(() => {
+    setSequenceVisible(false);
+    setRevealReady(true);
     void markRevealSeen(id);
   }, [id]);
 
-  const zumRecap = () => {
-    // Phase-5-Final-Review, Punkt 7: der Cast war eine Übergangslösung, so
-    // lange `/recap/[id]/overview` in der generierten (gitignorten)
-    // Routen-Liste fehlte, Task 11 hat die Route angelegt, `tsc` ist ohne
-    // Cast sauber (siehe dasselbe Muster in recap/[id]/uebersicht.tsx:
-    // `zumPlayer`, das exakt diese Begründung schon für `/recap/[id]/player`
-    // dokumentiert).
+  const toRecap = () => {
     router.push({ pathname: '/recap/[id]/overview', params: { id } });
   };
 
-  // Erst wenn die Erklärung tatsächlich gesehen und bestätigt wurde. Der
-  // lokale Zustand geht sofort mit, damit die Meldung nicht bis zum nächsten
-  // Laden stehen bleibt.
-  const verworfeneQuittieren = useCallback(() => {
+  const acknowledgeDiscarded = useCallback(() => {
     if (!userId) return;
-    setVerworfen(KEINE_VERWORFENEN);
+    setDiscarded(NO_DISCARDED);
     void queueDb.acknowledgeDiscarded(id, userId).catch(() => {});
   }, [id, userId]);
 
-  // `laedt` hängt am Knopf, nicht am Fokus-Lauf: sichtbares Warten gehört nur
-  // dorthin, wo jemand getippt hat. Zurückgesetzt wird es IMMER, auch wenn der
-  // Screen zwischendurch den Fokus verliert, sonst käme der Knopf mit einem
-  // toten Spinner und deaktiviert zurück. Ein `aktiv`-Guard ist dafür anders als
-  // in `laden` nicht nötig: setState nach Unmount ist seit React 18 folgenlos.
-  const nochmal = useCallback(async () => {
-    setLaedt(true);
-    await laden();
-    setLaedt(false);
-  }, [laden]);
+  // `loading` hangs on the button, not on the focus run: visible waiting
+  // belongs only where somebody tapped. It is ALWAYS reset, even if the
+  // screen loses focus in between, otherwise the button would come back
+  // with a dead spinner and disabled. An `active` guard is not needed here,
+  // unlike in `load`: setState after unmount is a no-op since React 18.
+  const retry = useCallback(async () => {
+    setLoading(true);
+    await load();
+    setLoading(false);
+  }, [load]);
 
   useFocusEffect(
     useCallback(() => {
-      aktiv.current = true;
-      void laden();
+      active.current = true;
+      void load();
       return () => {
-        aktiv.current = false;
+        active.current = false;
       };
-    }, [laden])
+    }, [load])
   );
 
-  // Task-8-Brief §Der Reveal ist unumkehrbar: die Function ist idempotent, ein
-  // zweiter Versuch nach einem Fehlschlag ist immer erlaubt, nichts wird
-  // gesperrt, das Sheet bleibt bedienbar.
-  const abschliessenOeffnen = () => {
-    setRevealFehler(null);
-    warnhaptik();
-    setBestaetigenSichtbar(true);
+  const openFinishSheet = () => {
+    setRevealError(null);
+    warningHaptics();
+    setConfirmVisible(true);
   };
 
-  const abschliessenSchliessen = () => {
-    setBestaetigenSichtbar(false);
+  const closeFinishSheet = () => {
+    setConfirmVisible(false);
   };
 
-  const abschliessen = async () => {
-    setRevealLaedt(true);
-    setRevealFehler(null);
-    const { error } = await revealTrip(id);
-    if (error) {
-      setRevealFehler(error);
-      setRevealLaedt(false);
+  const finishTrip = async () => {
+    setRevealLoading(true);
+    setRevealError(null);
+    const { error: revealFailed } = await revealTrip(id);
+    if (revealFailed) {
+      setRevealError(revealFailed);
+      setRevealLoading(false);
       return;
     }
-    setRevealLaedt(false);
-    setBestaetigenSichtbar(false);
-    // Reise neu laden: `trip.status` wechselt danach auf 'revealed', genau die
-    // Vorbedingung, die Task 9 (Reveal-Entdeckung) an dieser Stelle prüft, um
-    // seine Inszenierung auszulösen. Diese Datei kennt Task 9 noch nicht (er
-    // läuft nach diesem Task), der Reload ist der Teil davon, der hier hingehört.
-    void laden();
+    setRevealLoading(false);
+    setConfirmVisible(false);
+    void load();
   };
 
-  if (!geladen) return <View style={{ flex: 1, backgroundColor: colors['bg-0'] }} />;
+  if (!loaded) return <View style={{ flex: 1, backgroundColor: colors['bg-0'] }} />;
 
   if (!trip) {
     return (
-      <View style={[styles.leer, { backgroundColor: colors['bg-0'] }]}>
+      <View style={[styles.empty, { backgroundColor: colors['bg-0'] }]}>
         <Text style={[type.body, { color: colors.danger }]}>
-          {fehler ?? 'Diese Reise gibt es nicht mehr.'}
+          {error ?? 'Diese Reise gibt es nicht mehr.'}
         </Text>
-        {fehler && (
-          <Button variant="secondary" label="Nochmal versuchen" onPress={() => void nochmal()} loading={laedt} />
+        {error && (
+          <Button variant="secondary" label="Nochmal versuchen" onPress={() => void retry()} loading={loading} />
         )}
         <Button variant="text" label="Zu meinen Reisen" onPress={() => router.replace('/trip')} />
       </View>
     );
   }
 
-  const istOwner = trip.owner_id === userId;
-  const laeuft = trip.status === 'active';
-  const heute = todaysCalendarDay();
-  const tag = tripDay(trip.start_date, heute);
-  const laenge = tripLength(trip.start_date, trip.end_date);
-  // Task-8-Brief §Wo der Knopf sitzt: ab dem Enddatum (inklusive) rückt
-  // «Reise abschliessen» nach oben. Beide Enden sind reine 'YYYY-MM-DD'-Daten,
-  // ein Stringvergleich reicht (gleiches Prinzip wie in tripDay.ts).
-  const reiseZuEnde = heute >= trip.end_date;
-  const zeigtAbschliessen = istOwner && laeuft;
+  const isOwner = trip.owner_id === userId;
+  const isActive = trip.status === 'active';
+  const today = todaysCalendarDay();
+  const day = tripDay(trip.start_date, today);
+  const length = tripLength(trip.start_date, trip.end_date);
+  const tripEnded = today >= trip.end_date;
+  const showsFinish = isOwner && isActive;
 
-  // Zwei Wege führen hierher: der Knopf am Screen-Ende und der im
-  // Mitreisenden-Sheet. Das Schliessen davor gilt für beide, es kostet den
-  // Screen-Weg nichts (dort ist ohnehin nichts offen) und verhindert, dass
-  // beim Zurückkommen vom Einladen-Screen ein Sheet über der Reise liegt,
-  // das niemand mehr aufgemacht hat.
-  const einladen = () => {
-    setMitgliederSichtbar(false);
+  // Two ways lead here: the button at the end of the screen and the one in
+  // the traveller sheet. Closing it first applies to both, it costs the
+  // screen route nothing (nothing is open there anyway) and prevents a
+  // sheet from lying over the trip when coming back from the invite screen.
+  const invite = () => {
+    setMembersVisible(false);
     router.push(`/trip/${id}/invite`);
   };
 
-  const entfernen = (m: TripMember) => {
-    warnhaptik();
+  const removeTraveller = (m: TripMember) => {
+    warningHaptics();
     Alert.alert(`${m.display_name} entfernen?`, 'Bereits eingesendete Momente bleiben in der Reise.', [
       { text: 'Abbrechen', style: 'cancel' },
       {
         text: 'Entfernen',
         style: 'destructive',
         onPress: () => {
-          void removeMember(id, m.user_id).then(({ error }) => {
-            if (error) return Alert.alert('Nicht entfernt', error);
-            void laden();
+          void removeMember(id, m.user_id).then(({ error: removeFailed }) => {
+            if (removeFailed) return Alert.alert('Nicht entfernt', removeFailed);
+            void load();
           });
         },
       },
     ]);
   };
 
-  const verlassen = () => {
-    warnhaptik();
+  const leaveTrip = () => {
+    warningHaptics();
     Alert.alert('Reise verlassen?', 'Deine bereits eingesendeten Momente bleiben in der Reise.', [
       { text: 'Abbrechen', style: 'cancel' },
       {
@@ -508,8 +361,8 @@ export default function ReiseDetail() {
         style: 'destructive',
         onPress: () => {
           if (!userId) return;
-          void removeMember(id, userId).then(({ error }) => {
-            if (error) return Alert.alert('Nicht verlassen', error);
+          void removeMember(id, userId).then(({ error: leaveFailed }) => {
+            if (leaveFailed) return Alert.alert('Nicht verlassen', leaveFailed);
             router.replace('/trip');
           });
         },
@@ -517,16 +370,16 @@ export default function ReiseDetail() {
     ]);
   };
 
-  const loeschen = () => {
-    warnhaptik();
+  const deleteThisTrip = () => {
+    warningHaptics();
     Alert.alert('Reise löschen?', 'Die Reise und alle Momente darin verschwinden für alle.', [
       { text: 'Abbrechen', style: 'cancel' },
       {
         text: 'Löschen',
         style: 'destructive',
         onPress: () => {
-          void deleteTrip(id).then(({ error }) => {
-            if (error) return Alert.alert('Nicht gelöscht', error);
+          void deleteTrip(id).then(({ error: deleteFailed }) => {
+            if (deleteFailed) return Alert.alert('Nicht gelöscht', deleteFailed);
             router.replace('/trip');
           });
         },
@@ -534,62 +387,51 @@ export default function ReiseDetail() {
     ]);
   };
 
-  // Task 8, Phase 6: öffnet das Moderations-Sheet und lädt die Liste FRISCH
-  // (nicht den bereits vorhandenen Zähler aus laden(), der könnte veraltet
-  // sein, z.B. nachdem eine andere Sitzung längst etwas erledigt hat).
-  // holeVorrat liefert die Vorschaubilder über denselben Vorrat wie der
-  // Player (media-urls), ein Fehlschlag dort ist Beiwerk (leere/graue
-  // Vorschau statt eines blockierenden Fehlers): die eigentliche Liste
-  // (Grund, Zeitpunkt, Aktionen) bleibt davon unberührt.
-  const moderationOeffnen = () => {
-    setModerationSichtbar(true);
-    setModerationPhase('laedt');
-    setModerationFehler(null);
-    setAktionFehler({});
-    void Promise.all([fetchReports(id), getPool(id)]).then(([{ data: liste, error }, { vorrat }]) => {
-      if (!aktiv.current) return;
-      if (error) {
-        setModerationFehler(error);
-        setModerationPhase('fehler');
+  const openModeration = () => {
+    setModerationVisible(true);
+    setModerationPhase('loading');
+    setModerationError(null);
+    setActionError({});
+    void Promise.all([fetchReports(id), getPool(id)]).then(([{ data: list, error: listError }, { pool }]) => {
+      if (!active.current) return;
+      if (listError) {
+        setModerationError(listError);
+        setModerationPhase('error');
         return;
       }
-      setMeldungen(liste);
-      setMeldungenAnzahl(liste.length);
+      setReports(list);
+      setReportCount(list.length);
       const urls = new Map<string, string | null>();
-      for (const m of liste) urls.set(m.post_id, vorrat?.urls.get(m.post_id)?.thumb_url ?? null);
-      setVorschauUrls(urls);
-      setModerationPhase('bereit');
+      for (const r of list) urls.set(r.post_id, pool?.urls.get(r.post_id)?.thumb_url ?? null);
+      setPreviewUrls(urls);
+      setModerationPhase('ready');
     });
   };
 
-  const moderationSchliessen = () => setModerationSichtbar(false);
+  const closeModeration = () => setModerationVisible(false);
 
-  const meldungVerwerfen = (meldung: Report) => {
-    setAktionLaeuftFuer(meldung.id);
-    setAktionFehler((f) => {
-      if (!(meldung.id in f)) return f;
-      const naechste = { ...f };
-      delete naechste[meldung.id];
-      return naechste;
+  const dismissThisReport = (report: Report) => {
+    setActionRunningFor(report.id);
+    setActionError((current) => {
+      if (!(report.id in current)) return current;
+      const next = { ...current };
+      delete next[report.id];
+      return next;
     });
-    void dismissReport(meldung.id).then(({ error }) => {
-      if (!aktiv.current) return;
-      setAktionLaeuftFuer(null);
-      if (error) {
-        setAktionFehler((f) => ({ ...f, [meldung.id]: error }));
+    void dismissReport(report.id).then(({ error: dismissFailed }) => {
+      if (!active.current) return;
+      setActionRunningFor(null);
+      if (dismissFailed) {
+        setActionError((current) => ({ ...current, [report.id]: dismissFailed }));
         return;
       }
-      setMeldungen((liste) => liste.filter((m) => m.id !== meldung.id));
-      setMeldungenAnzahl((n) => Math.max(0, n - 1));
+      setReports((list) => list.filter((r) => r.id !== report.id));
+      setReportCount((n) => Math.max(0, n - 1));
     });
   };
 
-  // Destruktiv (Alert.alert mit warnhaptik, gleiches Muster wie entfernen/
-  // verlassen/loeschen oben), anders als «Meldung verwerfen» lässt sich
-  // dies nicht rückgängig machen: der Moment verschwindet für ALLE
-  // Mitreisenden, nicht nur aus der Moderationsliste.
-  const momentEntfernen = (meldung: Report) => {
-    warnhaptik();
+  const removeReportedMoment = (report: Report) => {
+    warningHaptics();
     Alert.alert(
       'Moment entfernen?',
       'Der Moment verschwindet für alle Mitreisenden. Das lässt sich nicht rückgängig machen.',
@@ -599,19 +441,19 @@ export default function ReiseDetail() {
           text: 'Entfernen',
           style: 'destructive',
           onPress: () => {
-            setAktionLaeuftFuer(meldung.id);
-            void removeMoment(meldung.post_id).then(({ error }) => {
-              if (!aktiv.current) return;
-              setAktionLaeuftFuer(null);
-              if (error) {
-                setAktionFehler((f) => ({ ...f, [meldung.id]: error }));
+            setActionRunningFor(report.id);
+            void removeMoment(report.post_id).then(({ error: removeFailed }) => {
+              if (!active.current) return;
+              setActionRunningFor(null);
+              if (removeFailed) {
+                setActionError((current) => ({ ...current, [report.id]: removeFailed }));
                 return;
               }
-              // reports.post_id -> posts ist ON DELETE CASCADE (siehe
-              // meldenApi.ts), die Meldung ist serverseitig bereits mit
-              // verschwunden. Die Liste hier zieht clientseitig sofort nach.
-              setMeldungen((liste) => liste.filter((m) => m.id !== meldung.id));
-              setMeldungenAnzahl((n) => Math.max(0, n - 1));
+              // reports.post_id -> posts is ON DELETE CASCADE (see
+              // reportApi.ts), the report is already gone server-side. The
+              // list here follows immediately on the client.
+              setReports((list) => list.filter((r) => r.id !== report.id));
+              setReportCount((n) => Math.max(0, n - 1));
             });
           },
         },
@@ -620,236 +462,170 @@ export default function ReiseDetail() {
   };
 
   return (
-    // Fragment statt eines einzelnen Wurzelelements: das Sheet muss als
-    // GESCHWISTER der ScrollView stehen, nicht als deren Kind, innerhalb der
-    // ScrollView würde sein StyleSheet.absoluteFill sich auf die (potenziell
-    // scrollbare, höhere) Inhaltsfläche beziehen statt auf den festen Screen.
+    // Fragment instead of a single root element: the sheets and the reveal
+    // overlay must be SIBLINGS of the ScrollView, not its children. Inside
+    // the ScrollView their StyleSheet.absoluteFill would cover the
+    // (potentially scrollable, taller) content area instead of the fixed
+    // screen.
     <>
     <ScrollView
       style={{ backgroundColor: colors['bg-0'] }}
-      contentContainerStyle={[styles.inhalt, { paddingTop: oberkante }]}
+      contentContainerStyle={[styles.content, { paddingTop: topInset }]}
     >
-      <TripCover position={coverPlatz} sealed={laeuft} />
+      <TripCover position={coverPosition} sealed={isActive} />
 
       <View style={{ gap: spacing.xs }}>
         <Text style={[type.h1, { color: colors['text-1'] }]}>{trip.name}</Text>
         <Text style={[type.secondary, { color: colors['text-2'] }]}>
           {formatRange(trip.start_date, trip.end_date)}
         </Text>
-        {laeuft && tag > 0 && (
-          <Text style={[type.secondary, { color: colors['text-2'] }]}>{`Tag ${tag} von ${laenge}`}</Text>
+        {isActive && day > 0 && (
+          <Text style={[type.secondary, { color: colors['text-2'] }]}>{`Tag ${day} von ${length}`}</Text>
         )}
 
-        {/* Wer mitfährt, direkt unter dem Zeitraum: drei Gesichter, der Rest
-            wird gezählt (AvatarGroup). Ein Tipp öffnet die Liste, für die
-            Owner-Person mitsamt Verwaltung.
-            Der Ladefehler tritt an DIESE Stelle, nicht an eine andere: ohne
-            ihn stünde hier stumm nichts, und der Screen behauptete, die Reise
-            habe keine Mitreisenden. */}
-        {mitgliederFehler ? (
-          <Text style={[type.body, { color: colors.danger, marginTop: spacing.m }]}>{mitgliederFehler}</Text>
-        ) : mitglieder.length > 0 ? (
+        {membersError ? (
+          <Text style={[type.body, { color: colors.danger, marginTop: spacing.m }]}>{membersError}</Text>
+        ) : members.length > 0 ? (
           <PressScale
             testID="mitreisende-oeffnen"
             accessibilityRole="button"
-            accessibilityLabel={mitreisendeLabel(mitglieder.length)}
-            onPress={() => setMitgliederSichtbar(true)}
+            accessibilityLabel={travellersLabel(members.length)}
+            onPress={() => setMembersVisible(true)}
           >
             <View style={{ marginTop: spacing.m, alignSelf: 'flex-start' }}>
               <AvatarGroup
-                faces={mitglieder.map((m) => ({ name: m.display_name, avatarKey: m.avatar_key }))}
+                faces={members.map((m) => ({ name: m.display_name, avatarKey: m.avatar_key }))}
               />
             </View>
           </PressScale>
         ) : null}
       </View>
 
-      {/* Task-8-Brief §Wo der Knopf sitzt: ab dem Enddatum rückt der Auslöser
-          hierher nach oben, mit einer ankündigenden Zeile davor. Vor dem
-          Enddatum steht er stattdessen unten bei den anderen Aktionen. */}
-      {zeigtAbschliessen && reiseZuEnde && (
+      {showsFinish && tripEnded && (
         <View style={{ gap: spacing.m }}>
           <Text style={[type.body, { color: colors['text-2'] }]}>
             Eure Reise ist zu Ende. Zeit für den Recap.
           </Text>
-          {/* Review-Nachtrag zu Task 8 (Important 3/M4 dieser Runde): solange
-              das Sheet offen ist, trägt SEIN «Abschliessen» die Akzentfarbe,
-              dieser Knopf hier tritt zurück, sonst stünden zwei Akzentflächen
-              gleichzeitig im Baum (§7). */}
           <Button
-            variant={bestaetigenSichtbar || mitgliederSichtbar ? 'secondary' : 'primary'}
+            variant={confirmVisible || membersVisible ? 'secondary' : 'primary'}
             label="Reise abschliessen"
-            onPress={abschliessenOeffnen}
+            onPress={openFinishSheet}
           />
         </View>
       )}
 
       <View style={{ gap: spacing.xs }}>
-        <Text style={[type.display, { color: colors['text-1'] }]}>{String(zaehler)}</Text>
+        <Text style={[type.display, { color: colors['text-1'] }]}>{String(counter)}</Text>
         <Text style={[type.body, { color: colors['text-2'] }]}>
           Momente eingefangen, bis zum Recap versiegelt.
         </Text>
-        {wartend > 0 && (
-          <Text style={[type.secondary, { color: colors['text-2'] }]}>{wartendText(wartend)}</Text>
+        {pending > 0 && (
+          <Text style={[type.secondary, { color: colors['text-2'] }]}>{pendingText(pending)}</Text>
         )}
       </View>
 
-      {/* Was jede mitreisende Person wissen sollte: der Recap steht gerade
-          hinter einer oeffentlichen URL, und die zeigt seit Phase 7 auch die
-          Orte, an denen die Momente entstanden sind. Bis hierher wusste das
-          nur die Owner-Person, die den Link erstellt hat.
-          Fuer ALLE sichtbar, nicht nur fuer Mitreisende: auch die
-          Owner-Person soll die Lage im Screen ihrer Reise sehen und nicht
-          erst im Teilen-Sheet nachschauen muessen. */}
-      {geteilt === true && (
-        <View testID="geteilt-hinweis" style={[styles.geteiltBox, { backgroundColor: colors['bg-1'] }]}>
+      {shared === true && (
+        <View testID="geteilt-hinweis" style={[styles.sharedBox, { backgroundColor: colors['bg-1'] }]}>
           <Share2 size={20} color={colors['text-1']} strokeWidth={1.75} />
-          <View style={styles.geteiltText}>
+          <View style={styles.sharedText}>
             <Text style={[type.bodyMedium, { color: colors['text-1'] }]}>Dieser Recap ist geteilt</Text>
             <Text style={[type.secondary, { color: colors['text-2'] }]}>{LINK_REACH_TEXT}</Text>
           </View>
         </View>
       )}
 
-      {/* Und der Fall, in dem die Auskunft ausbleibt. Er bekommt eine eigene,
-          zurueckhaltende Zeile statt gar nichts: «nicht geteilt» und «wir
-          wissen es gerade nicht» sind zwei verschiedene Dinge, und das
-          zweite als das erste auszugeben waere die eine Richtung, in die
-          diese Zeile nie irren darf. */}
-      {geteilt === null && (
+      {shared === null && (
         <Text testID="geteilt-unbekannt" style={[type.secondary, { color: colors['text-2'] }]}>
-          {GETEILT_UNBEKANNT}
+          {SHARED_UNKNOWN}
         </Text>
       )}
 
-      {verworfen.length > 0 && (
-        <View style={[styles.verworfenBox, { backgroundColor: colors['bg-1'] }]}>
+      {discarded.length > 0 && (
+        <View style={[styles.discardedBox, { backgroundColor: colors['bg-1'] }]}>
           <Text style={[type.bodyMedium, { color: colors['text-1'] }]}>
-            {verworfenTitel(verworfen.length)}
+            {discardedTitle(discarded.length)}
           </Text>
-          {/* Der Grund kommt aus der Policy-Ablehnung (postsApi) und ist schon
-              deutscher Klartext nach DESIGN-LANGUAGE §6, Ursache statt Code. */}
-          {verworfen.map((v) => (
-            <Text key={v.id} style={[type.secondary, { color: colors['text-2'] }]}>
-              {v.grund}
+          {discarded.map((d) => (
+            <Text key={d.id} style={[type.secondary, { color: colors['text-2'] }]}>
+              {d.grund}
             </Text>
           ))}
-          <Button variant="secondary" label="Verstanden" onPress={verworfeneQuittieren} />
+          <Button variant="secondary" label="Verstanden" onPress={acknowledgeDiscarded} />
         </View>
       )}
 
-      {/* Task 8, Phase 6: nur für die Owner-Person, nur solange es etwas zu
-          bearbeiten gibt, dieselbe Sichtbarkeitsregel wie verworfenBox
-          oben (kein leerer Hinweis über nichts). */}
-      {istOwner && meldungenAnzahl > 0 && (
+      {isOwner && reportCount > 0 && (
         <PressScale
           testID="moderation-oeffnen"
           accessibilityRole="button"
-          accessibilityLabel={meldungenText(meldungenAnzahl)}
-          onPress={moderationOeffnen}
+          accessibilityLabel={reportsText(reportCount)}
+          onPress={openModeration}
         >
-          <View style={[styles.meldungenBox, { backgroundColor: colors['bg-1'] }]}>
+          <View style={[styles.reportsBox, { backgroundColor: colors['bg-1'] }]}>
             <Flag size={20} color={colors['text-1']} strokeWidth={1.75} />
-            <Text style={[type.bodyMedium, { color: colors['text-1'] }]}>{meldungenText(meldungenAnzahl)}</Text>
+            <Text style={[type.bodyMedium, { color: colors['text-1'] }]}>{reportsText(reportCount)}</Text>
           </View>
         </PressScale>
       )}
 
-      {/* Die Aktionen sind EIN Block, nicht vier. Der Screen-Gap (spacing.xl)
-          trennt Blöcke voneinander: Cover, Titel, Zähler, Hinweise. Zwischen
-          Knöpfen, die zusammengehören, ist er zu viel, sie lasen sich dadurch
-          als vier unabhängige Abschnitte. Innen deshalb spacing.m, aussen
-          bleibt der grosse Abstand, der die Gruppe vom Zähler darüber und vom
-          destruktiven Link darunter absetzt (§3: Flächentrennung über
-          Weissraum, und der ist gestuft, nicht überall gleich). */}
-      <View style={styles.aktionen}>
-      {/* Review-Entscheidung zu §7 (genau EIN Primär-Button, nicht zwingend
-          GENAU einer): vor dem Enddatum bleibt «Freunde einladen» primär,
-          das ist die Aktion, die eine LAUFENDE Reise wirklich braucht, und
-          «Reise abschliessen» steht als Outline unten, ohne zu drängen. Ab
-          dem Enddatum (oben) dreht sich das um: «Reise abschliessen» wird
-          primär, «Freunde einladen» tritt zurück. So trägt in jedem Zustand
-          genau eine Fläche die Akzentfarbe, und die Betonung folgt dem, was
-          gerade dran ist. */}
-      {zeigtAbschliessen && !reiseZuEnde && (
-        <Button variant="secondary" label="Reise abschliessen" onPress={abschliessenOeffnen} />
+      {/* The actions are ONE block, not four. The screen gap (spacing.xl)
+          separates blocks from each other: cover, title, counter, notices.
+          Between buttons that belong together it is too much, they read as
+          four independent sections. Hence spacing.m inside, while the big
+          gap outside keeps the group apart from the counter above and the
+          destructive link below (§3: separate surfaces through white space,
+          and that is graded, not the same everywhere). */}
+      <View style={styles.actions}>
+      {showsFinish && !tripEnded && (
+        <Button variant="secondary" label="Reise abschliessen" onPress={openFinishSheet} />
       )}
-      {istOwner && laeuft && (
+      {isOwner && isActive && (
         <Button
-          variant={reiseZuEnde || bestaetigenSichtbar || mitgliederSichtbar ? 'secondary' : 'primary'}
+          variant={tripEnded || confirmVisible || membersVisible ? 'secondary' : 'primary'}
           label="Freunde einladen"
-          onPress={einladen}
+          onPress={invite}
         />
       )}
-      {/* Task 9, der Screen hatte nach dem Reveal bislang KEINEN
-          Primär-Button. `revealBereit` und `laeuft` schliessen sich
-          gegenseitig aus (Ersteres setzt status !== 'active' voraus,
-          Letzteres status === 'active'), «Recap starten» ersetzt
-          «Freunde einladen» als einzige Akzent-Fläche, statt eine zweite
-          hinzuzufügen (§7). Für ALLE Mitglieder sichtbar, nicht nur für die
-          Owner-Person, der Recap gehört der ganzen Gruppe.
-          Review-Nachtrag: ein neuer, schmaler Pfad macht `bestaetigenSichtbar`
-          und `revealBereit` gleichzeitig wahr, ein unabhängiger laden()-Lauf
-          entdeckt einen Reveal (z. B. von einem zweiten Gerät ausgelöst),
-          während DIESES Sheet noch offen steht und niemand es geschlossen
-          hat. Auch hier tritt der Screen-Knopf zugunsten des Sheets zurück. */}
-      {/* Bewusst OHNE `mitgliederSichtbar`, anders als die beiden Knöpfe
-          darüber: das Mitreisenden-Sheet trägt seinen Einladen-Knopf nur bei
-          laufender Reise, und `revealBereit` schliesst genau die aus. Die
-          beiden können also gar nicht gleichzeitig eine Akzentfläche wollen,
-          und ein Rücktritt hier liesse den Screen mit GAR keiner dastehen. */}
-      {revealBereit && (
+      {revealReady && (
         <Button
-          variant={bestaetigenSichtbar ? 'secondary' : 'primary'}
+          variant={confirmVisible ? 'secondary' : 'primary'}
           label="Recap starten"
-          onPress={zumRecap}
+          onPress={toRecap}
         />
       )}
-      {istOwner && (
+      {isOwner && (
         <Button variant="secondary" label="Reise bearbeiten" onPress={() => router.push(`/trip/${id}/edit`)} />
       )}
       </View>
 
-      {/* Bleibt ausserhalb der Gruppe: «Reise löschen»/«Reise verlassen» ist
-          destruktiv und soll sich nicht versehentlich mit dem Knopf darüber
-          verwechseln lassen. Der grosse Screen-Gap ist hier genau richtig. */}
+      {/* Stays outside the group: «Reise löschen»/«Reise verlassen» is
+          destructive and must not be mistaken for the button above it. The
+          big screen gap is exactly right here. */}
       <Button
         variant="text"
-        label={istOwner ? 'Reise löschen' : 'Reise verlassen'}
-        onPress={istOwner ? loeschen : verlassen}
+        label={isOwner ? 'Reise löschen' : 'Reise verlassen'}
+        onPress={isOwner ? deleteThisTrip : leaveTrip}
       />
     </ScrollView>
 
-    <Sheet visible={bestaetigenSichtbar} title="Reise abschliessen?" onClose={abschliessenSchliessen}>
-      {/* Review Important 1: «niemand mehr Momente einsenden» war sachlich
-          falsch, posts_insert_member (20260803090300_sealing_rls.sql) lässt
-          Nachzügler mit captured_at <= revealed_at ausdrücklich weiter zu, für
-          ALLE Mitglieder, nicht nur den lokalen Warteschlangenstand dieser
-          Person. Die Zeile sagt jetzt beides ehrlich: keine NEUEN Momente,
-          aber schon aufgenommene kommen, von allen, noch durch. */}
+    <Sheet visible={confirmVisible} title="Reise abschliessen?" onClose={closeFinishSheet}>
       <Text style={[type.body, { color: colors['text-2'] }]}>
         Danach kann niemand mehr neue Momente aufnehmen. Bereits aufgenommene Momente von allen
         kommen noch durch, und alle sehen den Recap. Das lässt sich nicht rückgängig machen.
       </Text>
-      {wartend > 0 && (
-        <Text style={[type.secondary, { color: colors['text-2'] }]}>{wartendeMomenteBeruhigung(wartend)}</Text>
+      {pending > 0 && (
+        <Text style={[type.secondary, { color: colors['text-2'] }]}>{pendingMomentsReassurance(pending)}</Text>
       )}
-      {revealFehler && <Text style={[type.body, { color: colors.danger }]}>{revealFehler}</Text>}
-      <Button variant="primary" label="Abschliessen" onPress={() => void abschliessen()} loading={revealLaedt} />
-      <Button variant="secondary" label="Abbrechen" onPress={abschliessenSchliessen} disabled={revealLaedt} />
+      {revealError && <Text style={[type.body, { color: colors.danger }]}>{revealError}</Text>}
+      <Button variant="primary" label="Abschliessen" onPress={() => void finishTrip()} loading={revealLoading} />
+      <Button variant="secondary" label="Abbrechen" onPress={closeFinishSheet} disabled={revealLoading} />
     </Sheet>
 
-    {/* Wer dabei ist, hinter der Facepile oben. Gleiches GESCHWISTER-Prinzip
-        wie die Sheets darum herum.
-        Die Verwaltung hängt an `laeuft`, nicht nur an `istOwner`: nach dem
-        Reveal ist das hier eine reine Auskunft. Einladen lehnt der Server für
-        nicht-aktive Reisen ohnehin ab, und wer im Recap zu sehen ist, gehört
-        zur Reise. */}
-    <Sheet visible={mitgliederSichtbar} title="Wer dabei ist" onClose={() => setMitgliederSichtbar(false)}>
-      <ScrollView style={{ maxHeight: fensterHoehe * SHEET_SCROLL_RATIO }}>
+    <Sheet visible={membersVisible} title="Wer dabei ist" onClose={() => setMembersVisible(false)}>
+      <ScrollView style={{ maxHeight: windowHeight * SHEET_SCROLL_RATIO }}>
         <View style={{ gap: spacing.base }}>
-          {mitglieder.map((m) => (
-            <View key={m.user_id} style={styles.zeile}>
+          {members.map((m) => (
+            <View key={m.user_id} style={styles.row}>
               <Avatar name={m.display_name} avatarKey={m.avatar_key} />
               <View style={{ flex: 1 }}>
                 <Text style={[type.bodyMedium, { color: colors['text-1'] }]}>{m.display_name}</Text>
@@ -857,11 +633,11 @@ export default function ReiseDetail() {
                   {m.role === 'owner' ? 'Hat die Reise angelegt' : `@${m.username}`}
                 </Text>
               </View>
-              {istOwner && laeuft && m.user_id !== userId && (
+              {isOwner && isActive && m.user_id !== userId && (
                 <PressScale
                   accessibilityRole="button"
                   accessibilityLabel={`${m.display_name} entfernen`}
-                  onPress={() => entfernen(m)}
+                  onPress={() => removeTraveller(m)}
                 >
                   <X size={20} color={colors['text-2']} strokeWidth={1.75} />
                 </PressScale>
@@ -870,83 +646,77 @@ export default function ReiseDetail() {
           ))}
         </View>
       </ScrollView>
-      {istOwner && laeuft && <Button variant="primary" label="Freunde einladen" onPress={einladen} />}
+      {isOwner && isActive && <Button variant="primary" label="Freunde einladen" onPress={invite} />}
     </Sheet>
 
-    {/* Task 8, Phase 6: gleiches GESCHWISTER-Prinzip wie das Sheet oben. */}
-    <Sheet visible={moderationSichtbar} title="Gemeldete Momente" onClose={moderationSchliessen}>
-      {moderationPhase === 'laedt' ? (
+    <Sheet visible={moderationVisible} title="Gemeldete Momente" onClose={closeModeration}>
+      {moderationPhase === 'loading' ? (
         <ActivityIndicator testID="moderation-laedt" color={colors['text-1']} />
-      ) : moderationPhase === 'fehler' ? (
+      ) : moderationPhase === 'error' ? (
         <View style={{ gap: spacing.base }}>
-          <Text style={[type.body, { color: colors.danger }]}>{moderationFehler}</Text>
-          <Button variant="secondary" label="Nochmal versuchen" onPress={moderationOeffnen} />
+          <Text style={[type.body, { color: colors.danger }]}>{moderationError}</Text>
+          <Button variant="secondary" label="Nochmal versuchen" onPress={openModeration} />
         </View>
-      ) : meldungen.length === 0 ? (
+      ) : reports.length === 0 ? (
         <Text style={[type.secondary, { color: colors['text-2'] }]}>Keine offenen Meldungen mehr.</Text>
       ) : (
-        <ScrollView testID="moderation-liste" style={styles.moderationListe}>
-          {meldungen.map((m) => (
-            <MeldungZeile
-              key={m.id}
-              meldung={m}
-              vorschauUrl={vorschauUrls.get(m.post_id) ?? null}
-              laeuft={aktionLaeuftFuer === m.id}
-              fehler={aktionFehler[m.id]}
-              onVerwerfen={() => meldungVerwerfen(m)}
-              onEntfernen={() => momentEntfernen(m)}
+        <ScrollView testID="moderation-liste" style={styles.moderationList}>
+          {reports.map((r) => (
+            <ReportRow
+              key={r.id}
+              report={r}
+              previewUrl={previewUrls.get(r.post_id) ?? null}
+              running={actionRunningFor === r.id}
+              error={actionError[r.id]}
+              onDismiss={() => dismissThisReport(r)}
+              onRemove={() => removeReportedMoment(r)}
             />
           ))}
         </ScrollView>
       )}
     </Sheet>
 
-    {/* Wie das Sheet: GESCHWISTER der ScrollView, nicht ihr Kind, ihr
-        StyleSheet.absoluteFill soll den ganzen Bildschirm decken, nicht nur
-        die (potenziell höhere, scrollbare) Inhaltsfläche. */}
-    <RevealSequence visible={inszenierungSichtbar} onFinished={inszenierungFertig} />
+    <RevealSequence visible={sequenceVisible} onFinished={sequenceFinished} />
     </>
   );
 }
 
 const styles = StyleSheet.create({
-  inhalt: { padding: spacing.screen, paddingBottom: spacing.xxl, gap: spacing.xl },
-  leer: { flex: 1, justifyContent: 'center', padding: spacing.screen, gap: spacing.l },
-  zeile: { flexDirection: 'row', alignItems: 'center', gap: spacing.m },
-  // Siehe Kommentar am Aktionsblock im JSX: Knöpfe, die zusammengehören,
-  // stehen enger als die Blöcke des Screens.
-  aktionen: { gap: spacing.m },
-  // Abgesetzte Fläche statt Schatten (DESIGN-LANGUAGE §3: ein Schatten heisst
-  // «schwebt»). Radius 12 wie jede andere Fläche dieser Grösse.
-  verworfenBox: { borderRadius: radius.control, padding: spacing.base, gap: spacing.m },
-  // Dieselbe Form wie meldungenBox darunter: Symbol links, Text rechts. Sie
-  // ist KEIN Knopf, anders als jene, hier gibt es nichts anzutippen, die
-  // Zeile ist eine Auskunft. Deshalb auch kein PressScale darum herum.
-  geteiltBox: {
+  content: { padding: spacing.screen, paddingBottom: spacing.xxl, gap: spacing.xl },
+  empty: { flex: 1, justifyContent: 'center', padding: spacing.screen, gap: spacing.l },
+  row: { flexDirection: 'row', alignItems: 'center', gap: spacing.m },
+  actions: { gap: spacing.m },
+  // A set-off surface instead of a shadow (DESIGN-LANGUAGE §3: a shadow
+  // means "floats"). Radius 12 like every other surface of this size.
+  discardedBox: { borderRadius: radius.control, padding: spacing.base, gap: spacing.m },
+  // Same shape as reportsBox below: icon left, text right. It is NOT a
+  // button, unlike that one, there is nothing to tap here, the row is an
+  // announcement. Hence no PressScale around it either.
+  sharedBox: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: spacing.m,
     borderRadius: radius.control,
     padding: spacing.base,
   },
-  geteiltText: { flex: 1, gap: spacing.xs },
-  // Task 8, Phase 6: Moderation.
-  meldungenBox: {
+  sharedText: { flex: 1, gap: spacing.xs },
+  reportsBox: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.m,
     borderRadius: radius.control,
     padding: spacing.base,
   },
-  moderationListe: { maxHeight: 420 },
-  // borderBottomColor kommt inline aus useTheme() (siehe MeldungZeile), ein
-  // Hairline-Ton ist ein Farbwert und gehört wie jeder andere Farbwert dieser
-  // Codebase nicht fest in ein statisches StyleSheet (DESIGN-LANGUAGE §9:
-  // „Nirgends feste Hex-Werte im Code, alles über Tokens").
-  meldungZeile: { gap: spacing.s, paddingVertical: spacing.base, borderBottomWidth: 1 },
-  meldungKopf: { flexDirection: 'row', gap: spacing.m },
-  meldungBild: { width: 56, height: 56, borderRadius: radius.control },
-  meldungText: { flex: 1, gap: spacing.xs },
-  meldungAktionen: { flexDirection: 'row', gap: spacing.l },
-  meldungAktionText: { textDecorationLine: 'underline' },
+  moderationList: { maxHeight: 420 },
+  // borderBottomColor comes inline from useTheme() (see ReportRow): a
+  // hairline tone is a colour value and, like every other colour value in
+  // this codebase, does not belong in a static StyleSheet
+  // (DESIGN-LANGUAGE §9: no fixed hex values in the code, everything
+  // through tokens).
+  reportRow: { gap: spacing.s, paddingVertical: spacing.base, borderBottomWidth: 1 },
+  reportHead: { flexDirection: 'row', gap: spacing.m },
+  reportImage: { width: 56, height: 56, borderRadius: radius.control },
+  reportText: { flex: 1, gap: spacing.xs },
+  reportActions: { flexDirection: 'row', gap: spacing.l },
+  reportActionText: { textDecorationLine: 'underline' },
 });

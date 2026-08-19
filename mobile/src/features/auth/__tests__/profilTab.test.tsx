@@ -57,7 +57,7 @@ jest.mock('expo-image-picker', () => ({
 }));
 
 // expo-image ist ein natives View, im Test reicht ein Platzhalter, der alle
-// Props durchreicht (gleiches Muster wie recap/__tests__/liste.test.tsx). Ohne
+// Props durchreicht (gleiches Muster wie recap/__tests__/list.test.tsx). Ohne
 // Mock scheitert schon der Import, expo-image/src/observe.ts erwartet eine
 // native Umgebung.
 jest.mock('expo-image', () => {
@@ -72,7 +72,7 @@ jest.mock('expo-image', () => {
 // Feature-Module vollständig gemockt. `zahlenText` bekommt hier eine simple,
 // vorhersagbare Fassung statt der echten Wortwahl, die echte Formulierung
 // (Singular/Plural, "3 Reisen mit insgesamt 128 Momenten…") ist bereits in
-// features/konto/__tests__/kontoApi.test.ts vollständig abgedeckt; hier
+// features/account/__tests__/accountApi.test.ts vollständig abgedeckt; hier
 // zählt nur, DASS profil.tsx das Ergebnis von zahlenText tatsächlich anzeigt.
 const mockFetchDeletionCounts = jest.fn();
 const mockDeleteAccount = jest.fn();
@@ -83,7 +83,7 @@ jest.mock('@/features/account/accountApi', () => ({
 }));
 
 // Task 10: der WLAN-Schalter liest/schreibt über das Einstellungen-Modul.
-// Default "aus", passend zum dokumentierten Standard in einstellungen.ts.
+// Default "aus", passend zum dokumentierten Standard in settings.ts.
 const mockNurUeberWlan = jest.fn(async () => false);
 const mockSetzeNurUeberWlan = jest.fn(async (_wert: boolean) => {});
 jest.mock('@/features/moments/settings', () => ({
@@ -92,7 +92,7 @@ jest.mock('@/features/moments/settings', () => ({
 }));
 
 // Der Benachrichtigungs-Schalter: Einstellung (Default AN, siehe
-// push/einstellungen.ts) und pushApi. Letztere als Factory-Mock aus demselben
+// push/settings.ts) und pushApi. Letztere als Factory-Mock aus demselben
 // Grund wie kontoApi unten: das echte Modul zieht @/lib/supabase,
 // expo-notifications und expo-device mit.
 const mockNotificationsActive = jest.fn(async () => true);

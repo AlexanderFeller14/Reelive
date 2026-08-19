@@ -111,31 +111,31 @@ describe('durationFor', () => {
 });
 
 describe('advance', () => {
-  // Phase-5 final review, point 1: `pausiert` is now a
+  // Phase-5 final review, point 1: `paused` is now a
   // `ReadonlySet<PauseReason>` instead of a boolean (see playerLogic.ts),
   // same fixtures as before, just with the new representation.
   const state = (overrides: Partial<PlayerState> = {}): PlayerState => ({
     index: 0,
-    pausiert: new Set(),
-    fortschritt: 0,
+    paused: new Set(),
+    progress: 0,
     ...overrides,
   });
   const HELD = new Set<PauseReason>(['halten']);
 
   test('increments the index by one and resets progress', () => {
-    const result = advance(state({ index: 1, fortschritt: 3400 }), 5);
-    expect(result).toEqual({ index: 2, pausiert: new Set(), fortschritt: 0 });
+    const result = advance(state({ index: 1, progress: 3400 }), 5);
+    expect(result).toEqual({ index: 2, paused: new Set(), progress: 0 });
   });
 
-  // "pausiert stays untouched" concretely means here: the same Set
+  // "paused stays untouched" concretely means here: the same Set
   // REFERENCE passes through unchanged, advance() neither reads nor writes
   // it.
-  test('leaves "pausiert" unchanged (the same reference), advance/goBack don\'t decide about pausing', () => {
-    const result = advance(state({ index: 0, pausiert: HELD }), 5);
+  test('leaves "paused" unchanged (the same reference), advance/goBack don\'t decide about pausing', () => {
+    const result = advance(state({ index: 0, paused: HELD }), 5);
     expect(result).not.toBe('ende');
     if (result === 'ende') throw new Error('unreachable');
-    expect(result.pausiert).toBe(HELD);
-    expect(result).toEqual({ index: 1, pausiert: HELD, fortschritt: 0 });
+    expect(result.paused).toBe(HELD);
+    expect(result).toEqual({ index: 1, paused: HELD, progress: 0 });
   });
 
   // Brief: at the last moment, advance returns 'ende', NOT index `count`, an
@@ -157,35 +157,35 @@ describe('advance', () => {
 describe('goBack', () => {
   const state = (overrides: Partial<PlayerState> = {}): PlayerState => ({
     index: 0,
-    pausiert: new Set(),
-    fortschritt: 0,
+    paused: new Set(),
+    progress: 0,
     ...overrides,
   });
   const HELD = new Set<PauseReason>(['halten']);
 
   test('decrements the index by one and resets progress', () => {
-    const result = goBack(state({ index: 2, fortschritt: 1200 }));
-    expect(result).toEqual({ index: 1, pausiert: new Set(), fortschritt: 0 });
+    const result = goBack(state({ index: 2, progress: 1200 }));
+    expect(result).toEqual({ index: 1, paused: new Set(), progress: 0 });
   });
 
   // Brief: goBack at the first moment stays at index 0 and resets progress,
   // it does NOT jump out of the day/roll of film (no negative index).
   test('at the first moment, the index stays at 0 instead of going negative', () => {
-    const result = goBack(state({ index: 0, fortschritt: 800 }));
-    expect(result).toEqual({ index: 0, pausiert: new Set(), fortschritt: 0 });
+    const result = goBack(state({ index: 0, progress: 800 }));
+    expect(result).toEqual({ index: 0, paused: new Set(), progress: 0 });
   });
 
-  // Brief: goBack ALWAYS resets fortschritt to 0, even mid-video,
+  // Brief: goBack ALWAYS resets progress to 0, even mid-video,
   // regardless of whether the index changes at all.
   test('always resets progress to 0, even when the index stays the same (index 0)', () => {
-    const result = goBack(state({ index: 0, fortschritt: 3999 }));
-    expect(result.fortschritt).toBe(0);
+    const result = goBack(state({ index: 0, progress: 3999 }));
+    expect(result.progress).toBe(0);
   });
 
-  test('leaves "pausiert" unchanged (the same reference)', () => {
-    const result = goBack(state({ index: 3, pausiert: HELD }));
-    expect(result.pausiert).toBe(HELD);
-    expect(result).toEqual({ index: 2, pausiert: HELD, fortschritt: 0 });
+  test('leaves "paused" unchanged (the same reference)', () => {
+    const result = goBack(state({ index: 3, paused: HELD }));
+    expect(result.paused).toBe(HELD);
+    expect(result).toEqual({ index: 2, paused: HELD, progress: 0 });
   });
 });
 
@@ -269,7 +269,7 @@ describe('dayChanges', () => {
   // of position in groupByDays' possibly shortened result) wasn't covered
   // by any return value at all. A mutant that instead indexes positionally
   // into a flattened output (`groupByDays(...).flatMap(t =>
-  // t.momente.map(() => t.nummer))`, then `flat[index] !==
+  // t.moments.map(() => t.number))`, then `flat[index] !==
   // flat[index - 1]`) stayed green and unnoticed under plain not.toThrow().
   //
   // Case A: the dropped moment sits INSIDE a day (a, broken, b are all
@@ -384,7 +384,7 @@ describe('PauseReason: withReason/withoutReason/blocksAutoAdvance', () => {
   // This is the module's actual point (final review point 1): a call with a
   // NOT-present reason, e.g. an orphaned timer whose own reason has long
   // been taken back elsewhere, is a safe no-op, even if a FOREIGN reason
-  // has MEANWHILE been set. A naive `pausiert = false` replacement (the old
+  // has MEANWHILE been set. A naive `paused = false` replacement (the old
   // representation) would drag that foreign reason down with it, this test
   // explicitly requires it to remain.
   test('withoutReason for a not-present reason is a no-op, a FOREIGN, meanwhile-set reason stays untouched', () => {

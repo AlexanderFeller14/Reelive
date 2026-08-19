@@ -31,28 +31,27 @@ import { initErrorReporter } from '@/lib/errorReporter';
 
 void SplashScreen.preventAutoHideAsync();
 
-// Task 10, Phase 6: so früh wie möglich, auf Modulebene wie
-// preventAutoHideAsync() oben, nicht in einem Effect, der erst nach dem
-// ersten Render liefe. Blockiert den Start nicht: initFehlermelder() ist
-// synchron und ohne DSN (Alltag, siehe fehlermelder.ts) ein reiner
-// No-Op-Return, kein I/O.
+// As early as possible, at module level like preventAutoHideAsync() above,
+// not in an effect that would only run after the first render. It does not
+// block the start: initErrorReporter() is synchronous and without a DSN
+// (the everyday case, see errorReporter.ts) a plain no-op return, no I/O.
 initErrorReporter();
 
-// Web-Hartsperre (siehe istWebGesperrt in guard.ts für die volle Begründung):
-// «Reelive gibt es als App», freundlich, mit dem Wortzug-Platzhalter
-// (gleiches Muster wie (auth)/welcome.tsx, echtes SVG-Asset existiert noch
-// nicht), OHNE jede Login-Möglichkeit. Bewusst hier lokal statt in einer
-// eigenen Datei unter components/: einziger Aufrufer, eng an das Layout
-// gekoppelt (dieselbe Begründung wie KinoButton/TextLink in player.tsx).
-function WebNurAppSeite() {
+// The web hard lock (see isWebLocked in guard.ts for the full reasoning):
+// "Reelive gibt es als App", friendly, with the wordmark placeholder (same
+// pattern as (auth)/welcome.tsx, the real SVG asset does not exist yet), and
+// WITHOUT any way to sign in. Deliberately local here instead of in its own
+// file under components/: single caller, tightly coupled to this layout
+// (same reasoning as CinemaButton/TextLink in player.tsx).
+function WebAppOnlyPage() {
   const { colors } = useTheme();
   return (
-    <View testID="web-nur-app-seite" style={[styles.webSperreScreen, { backgroundColor: colors['bg-0'] }]}>
+    <View testID="web-nur-app-seite" style={[styles.webLockScreen, { backgroundColor: colors['bg-0'] }]}>
       <Text style={[type.h3, { color: colors['text-1'] }]}>Reelive</Text>
-      <Text style={[type.h1, styles.webSperreText, { color: colors['text-1'] }]}>
+      <Text style={[type.h1, styles.webLockText, { color: colors['text-1'] }]}>
         Reelive gibt es als App.
       </Text>
-      <Text style={[type.body, styles.webSperreText, { color: colors['text-2'] }]}>
+      <Text style={[type.body, styles.webLockText, { color: colors['text-2'] }]}>
         Diese Seite lässt sich nur in der Reelive-App öffnen. Hast du einen geteilten
         Recap-Link bekommen, öffne genau den. Der funktioniert auch hier im Browser.
       </Text>
@@ -62,103 +61,78 @@ function WebNurAppSeite() {
 
 function Guarded() {
   const { status, userId } = useAuth();
-  // Cast: mit experiments.typedRoutes engt useSegments() den Rückgabetyp auf die
-  // aktuell existierenden Routen ein, segments[1] wäre sonst ein
-  // Tuple-Out-of-Bounds-Fehler. Laufzeitverhalten unverändert.
+  // Cast: with experiments.typedRoutes, useSegments() narrows its return type
+  // to the routes that exist today, so segments[1] would be a tuple
+  // out-of-bounds error. Runtime behaviour unchanged.
   const segments = useSegments() as string[];
   const router = useRouter();
   const { colors } = useTheme();
-  const area = segments[0]; // '(auth)' | '(tabs)' | 'vorschau' | 'join' | 'teilen' | undefined
-  const webGesperrt = isWebLocked(Platform.OS, area);
+  const area = segments[0]; // '(auth)' | '(tabs)' | 'preview' | 'join' | 'share' | undefined
+  const webLocked = isWebLocked(Platform.OS, area);
 
   useEffect(() => {
-    // Auf Web ausserhalb von 'teilen': kein <Stack/> (siehe Return unten),
-    // also auch keine Redirect-Entscheidung nötig, der Ziel-Screen wäre
-    // seinerseits ebenfalls gesperrt.
-    if (webGesperrt) return;
+    if (webLocked) return;
     const target = resolveRoute(status);
     if (!target) return;
     void SplashScreen.hideAsync();
-    // Der Beitritts-Screen bleibt in jedem Status stehen.
+    // The join screen stays put in every status.
     if (isPublicArea(area)) return;
     if (status === 'signedIn' && !isAreaForSignedIn(area)) router.replace(target);
     if (status !== 'signedIn' && area !== '(auth)') router.replace(target);
     if (status === 'needsProfile' && segments[1] !== 'profile-setup') router.replace(target);
-  }, [status, segments, router, webGesperrt, area]);
+  }, [status, segments, router, webLocked, area]);
 
-  // Ein vor dem Login angetippter Einladungslink wird eingelöst, sobald Session
-  // UND Profil stehen, vorher gäbe es keine profiles-Zeile für trip_members.
-  // Die eigentliche Logik steckt in redeemPendingInvite() (joinFlow.ts): dort
-  // getestet, hier nur noch mit den echten IO-Abhängigkeiten aufgerufen.
-  // `webGesperrt` zusätzlich in JEDEM der drei folgenden Effekte (nicht nur
-  // im Redirect-Effekt oben): solange die Web-Hartsperre steht, soll dieser
-  // Baum NICHTS tun ausser die Sperr-Seite zu zeigen, auch nicht scheinbar
-  // Harmloses wie den (auf Web ohnehin leeren) Upload-Worker starten. Das ist
-  // in der Praxis heute nicht erreichbar (secureSessionStorage.web.ts liefert
-  // nie eine Session, `status` wird auf Web also realistisch nie 'signedIn'),
-  // aber die Garantie soll nicht an dieser fremden Datei hängen, sie gilt
-  // hier, unabhängig davon, WARUM `status` gerade ist, was er ist.
+  // An invite link tapped before signing in is redeemed as soon as session
+  // AND profile stand: before that there is no profiles row for trip_members
+  // to point at. The actual logic lives in redeemPendingInvite()
+  // (joinFlow.ts): tested there, here it is only wired to the real IO
+  // dependencies.
+  //
+  // `webLocked` is checked in EACH of the three effects below (not only in
+  // the redirect effect above): as long as the web hard lock stands, this
+  // tree must do NOTHING but show the lock page, not even seemingly harmless
+  // things like starting the (on web anyway empty) upload worker. In
+  // practice that is unreachable today (secureSessionStorage.web.ts never
+  // yields a session, so `status` realistically never becomes 'signedIn' on
+  // web), but the guarantee should not hang on that foreign file, it holds
+  // here regardless of WHY `status` is what it is.
   useEffect(() => {
-    if (webGesperrt || status !== 'signedIn') return;
-    let aktiv = true;
+    if (webLocked || status !== 'signedIn') return;
+    let active = true;
     void redeemPendingInvite({
       peekRememberedInvite,
       redeemInvite,
       discardRememberedInvite,
-      isActive: () => aktiv,
-    }).then((zielPfad) => {
-      if (zielPfad) router.replace(zielPfad);
+      isActive: () => active,
+    }).then((targetPath) => {
+      if (targetPath) router.replace(targetPath);
     });
     return () => {
-      aktiv = false;
+      active = false;
     };
-  }, [status, router, webGesperrt]);
+  }, [status, router, webLocked]);
 
-  // Der Worker legt posts-Zeilen an, dafür braucht er Sitzung UND Profil,
-  // also dieselbe Bedingung wie beim Einlösen der Einladung oben: vor
-  // signedIn gibt es nichts zu tun. Verlässt der Status signedIn (Abmelden,
-  // Sitzungsverlust), MUSS er sofort stehen, ein weiterlaufender Worker
-  // würde sonst versuchen, mit fremder oder fehlender Sitzung Zeilen
-  // anzulegen. starte()/stoppe() sind idempotent (siehe uploadWorker.test.ts),
-  // ein Effect mit [status] als einziger Abhängigkeit reicht deshalb aus,
-  // ganz ohne eigene Zähler, die Cleanup-Funktion übernimmt sowohl den
-  // Wechsel weg von signedIn als auch das Unmounten (App-Beenden).
   useEffect(() => {
-    if (webGesperrt || status !== 'signedIn') return;
+    if (webLocked || status !== 'signedIn') return;
     uploadWorker.start();
     return () => uploadWorker.stop();
-  }, [status, webGesperrt]);
+  }, [status, webLocked]);
 
-  // Push-Registrierung: einmal pro signedIn-Wechsel anstossen, ohne auf das
-  // Ergebnis zu warten und ohne das Rendern zu blockieren (Vorbild: der
-  // Upload-Worker-Start oben). Anders als der Worker braucht es kein
-  // Cleanup, registrierePushToken() wirft nie (Task-4-Brief) und schreibt
-  // höchstens eine Zeile per upsert auf token; ein doppelter Aufruf bei
-  // erneutem signedIn (z.B. nach kurzem Session-Verlust) ist harmlos.
-  //
-  // Seit dem Schalter im Profil-Tab hinter der gespeicherten Einstellung:
-  // wer Benachrichtigungen ausgeschaltet hat, dessen Gerät darf sich beim
-  // nächsten Start nicht klammheimlich wieder registrieren. Das AUSSCHALTEN
-  // selbst löscht den Token sofort (profil.tsx), hier wird nur noch das
-  // Wieder-Anlegen verhindert.
+  // Unlike the worker this needs no cleanup: registerPushToken() never
+  // throws and writes at most one row via upsert on token, so a second call
+  // on a repeated signedIn (after a brief session loss, say) is harmless.
   useEffect(() => {
-    if (webGesperrt || status !== 'signedIn' || !userId) return;
-    void notificationsActive().then((aktiv) => {
-      if (aktiv) void registerPushToken(userId);
+    if (webLocked || status !== 'signedIn' || !userId) return;
+    void notificationsActive().then((active) => {
+      if (active) void registerPushToken(userId);
     });
-  }, [status, userId, webGesperrt]);
+  }, [status, userId, webLocked]);
 
-  // Web-Hartsperre: KEIN <Stack/>, nicht nur ein Redirect. Ohne <Stack/>
-  // mountet keiner der eigentlichen Routen-Screens überhaupt (inkl. aller
-  // (auth)- und (tabs)-Screens sowie 'join'), ihre Effekte laufen also nie
-  // an. Ein Redirect allein hätte den Zielscreen für einen Frame lang
-  // trotzdem gemountet (und potenziell dessen Effekte ausgelöst), genau die
-  // Lücke aus dem Task-4-Fund.
-  if (webGesperrt) {
+  if (webLocked) {
     return (
       <>
         <StatusBar style="dark" />
-        <WebNurAppSeite />
+        <WebAppOnlyPage />
       </>
     );
   }
@@ -172,40 +146,34 @@ function Guarded() {
 }
 
 const styles = StyleSheet.create({
-  webSperreScreen: {
+  webLockScreen: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'flex-start',
     padding: spacing.screen,
     gap: spacing.s,
   },
-  webSperreText: { marginTop: spacing.s },
+  webLockText: { marginTop: spacing.s },
 });
 
 export default function RootLayout() {
-  // Der zweite Rueckgabewert ist nicht optional: ohne ihn bleibt die App bei
-  // einem Ladefehler FUER IMMER im Splash stehen, weil sie null rendert und
-  // damit weder AuthProvider noch hideAsync() je erreicht. Die SDK-57-Doku
-  // nennt genau dieses Muster («continue with the app if the font fails to
-  // load»). Figtree ist verbindlich (DESIGN-LANGUAGE §2), aber eine Reise, die
-  // sich nicht oeffnen laesst, ist teurer als eine Systemschrift.
-  const [fontsLoaded, fontFehler] = useFonts({
+  const [fontsLoaded, fontError] = useFonts({
     Figtree_300Light,
     Figtree_400Regular,
     Figtree_500Medium,
     Figtree_600SemiBold,
     Figtree_700Bold,
   });
-  if (fontFehler) {
-    console.warn('[start] Schriften nicht geladen, weiter mit Systemschrift:', fontFehler);
+  if (fontError) {
+    console.warn('[start] Schriften nicht geladen, weiter mit Systemschrift:', fontError);
   }
-  if (!fontsLoaded && !fontFehler) return null;
+  if (!fontsLoaded && !fontError) return null;
   return (
-    // SafeAreaProvider, weil keiner der drei Stacks einen Navigations-Header
-    // zeigt: jeder Screen beginnt bei y = 0 und muss selbst wissen, was das
-    // Geraet oben belegt (useOberkante). `initialWindowMetrics` liefert die
-    // Werte schon beim ersten Frame, ohne das springt der Inhalt beim Start
-    // sichtbar nach unten, sobald die echten Insets eintreffen.
+    // SafeAreaProvider, because none of the three stacks shows a navigation
+    // header: every screen starts at y = 0 and has to know for itself what
+    // the device occupies at the top (useTopInset). `initialWindowMetrics`
+    // delivers the values on the very first frame; without it the content
+    // visibly jumps down at startup once the real insets arrive.
     <SafeAreaProvider initialMetrics={initialWindowMetrics}>
       <ThemeProvider>
         <AuthProvider>

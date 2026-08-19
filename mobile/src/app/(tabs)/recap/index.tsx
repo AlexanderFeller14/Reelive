@@ -11,82 +11,72 @@ import { fetchTrips } from '@/features/trips/tripsApi';
 import { groupTrips } from '@/features/trips/tripDay';
 import type { Trip } from '@/features/trips/types';
 
-export default function RecapListe() {
+export default function RecapList() {
   const { colors } = useTheme();
-  const oben = useTopInset(spacing.xl);
+  const topInset = useTopInset(spacing.xl);
   const router = useRouter();
   const [trips, setTrips] = useState<Trip[]>([]);
-  // Gleiche Dreiteilung wie reise/index.tsx: `geladen` trennt «lädt noch» von
-  // «fertig», `fehler` trennt «fertig, aber nichts bekommen» von «fertig und
-  // wirklich leer», sonst behauptete ein Ladefehler «Noch kein Recap», eine
-  // falsche Aussage über die Daten der Person (DESIGN-LANGUAGE §6).
-  const [geladen, setGeladen] = useState(false);
-  const [fehler, setFehler] = useState<string | null>(null);
-  const [laedt, setLaedt] = useState(false);
-  // Schirmt setState nach Blur/Unmount ab; jeder Fokus-Zyklus setzt ihn neu
-  // (gleiches Muster wie reise/index.tsx).
-  const aktiv = useRef(true);
+  const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  // Shields setState after blur/unmount; every focus cycle sets it anew
+  // (same pattern as trip/index.tsx).
+  const active = useRef(true);
 
-  const laden = useCallback(async () => {
-    const { data, error } = await fetchTrips();
-    if (!aktiv.current) return;
+  const load = useCallback(async () => {
+    const { data, error: loadError } = await fetchTrips();
+    if (!active.current) return;
     setTrips(data);
-    setFehler(error);
-    setGeladen(true);
+    setError(loadError);
+    setLoaded(true);
   }, []);
 
-  const nochmal = useCallback(async () => {
-    setLaedt(true);
-    await laden();
-    setLaedt(false);
-  }, [laden]);
+  const retry = useCallback(async () => {
+    setLoading(true);
+    await load();
+    setLoading(false);
+  }, [load]);
 
-  // Beim Zurückkehren neu laden: eine gerade abgeschlossene Reise soll ohne
-  // App-Neustart als Recap-Karte dastehen.
+  // Reload when coming back: a trip that has just been closed should stand
+  // there as a recap card without restarting the app.
   useFocusEffect(
     useCallback(() => {
-      aktiv.current = true;
-      void laden();
+      active.current = true;
+      void load();
       return () => {
-        aktiv.current = false;
+        active.current = false;
       };
-    }, [laden])
+    }, [load])
   );
 
-  // Dieselbe Filterung wie in reise/index.tsx, dort schon als groupTrips
-  // gebaut, keine zweite, gleichlautende Funktion für dasselbe Kriterium
-  // (Review Task 10, Kleinigkeit).
   const { recaps } = groupTrips(trips);
-  const leer = geladen && !fehler && recaps.length === 0;
+  const empty = loaded && !error && recaps.length === 0;
 
   return (
     <View style={{ flex: 1, backgroundColor: colors['bg-0'] }}>
-      <ScrollView contentContainerStyle={[styles.inhalt, { paddingTop: oben }]}>
+      <ScrollView contentContainerStyle={[styles.content, { paddingTop: topInset }]}>
         <Text style={[type.h1, { color: colors['text-1'] }]}>Deine Recaps</Text>
 
-        {fehler && (
+        {error && (
           <View style={{ gap: spacing.l, marginTop: spacing.xl }}>
-            <Text style={[type.body, { color: colors.danger }]}>{fehler}</Text>
-            <Button variant="secondary" label="Nochmal versuchen" onPress={() => void nochmal()} loading={laedt} />
+            <Text style={[type.body, { color: colors.danger }]}>{error}</Text>
+            <Button variant="secondary" label="Nochmal versuchen" onPress={() => void retry()} loading={loading} />
           </View>
         )}
 
-        {leer && (
+        {empty && (
           <View style={{ marginTop: spacing.xl }}>
-            {/* Die Filmrolle steht NUR hier, wo sonst nichts steht. Als
-                wiederkehrendes Motiv über der ganzen App wäre sie das
-                Retro-Kostüm, vor dem die Leitidee der DESIGN-LANGUAGE warnt;
-                auf dem einen leeren Screen ist sie das Versprechen, worauf
-                man wartet. Deshalb auch ohne Rahmen, Radius und Schatten:
-                das PNG ist freigestellt und steht frei auf `bg-0`. */}
+            {/* The film reel stands ONLY here, where nothing else does. As a
+                recurring motif across the whole app it would be the retro
+                costume the DESIGN-LANGUAGE warns about; on the one empty
+                screen it is the promise of what is being waited for. Hence
+                also without frame, radius and shadow: the PNG is cut out and
+                stands free on `bg-0`. */}
             <Image
               testID="leerzustand-filmrolle"
               source={require('@/assets/images/filmrolle-freigestellt.png')}
-              style={styles.filmrolle}
+              style={styles.filmReel}
               contentFit="contain"
-              // Das Bild sagt nichts, was der Text darunter nicht schon sagt.
-              // Im Accessibility-Baum kündigte es «Noch kein Recap» mit einem
-              // nutzlosen «Bild» an.
               accessible={false}
             />
             <View style={{ gap: spacing.s, marginTop: spacing.l }}>
@@ -116,26 +106,23 @@ export default function RecapListe() {
   );
 }
 
-// Die Filmrolle nimmt die volle Breite zwischen den Screen-Rändern ein (§3:
-// Screen-Ränder 24), statt der bisherigen 160. Auf dem einen Screen, auf dem
-// sonst nichts steht, darf das Versprechen gross sein; die Grösse ist hier
-// selbst die Aussage, und ein Bild, das die Fläche füllt, braucht keinen
-// zweiten Blickfang daneben.
+// The film reel takes the full width between the screen margins (§3: screen
+// margins 24), instead of the previous 160. On the one screen where nothing
+// else stands, the promise may be big; the size is the statement here, and an
+// image filling the surface needs no second eye-catcher beside it.
 //
-// `maxWidth` ist keine Gestaltungsentscheidung, sondern die Schärfegrenze der
-// Quelle: 1254 px geteilt durch die dreifache Auflösung ergibt 418, auf den
-// 4er-Raster abgerundet 416. Darüber müsste das PNG hochskalieren und würde
-// weich. Auf jedem iPhone bleibt die Breite darunter (17 Pro Max: 440 minus
-// die beiden 24er-Ränder sind 392), die Grenze greift erst auf breiten
-// Flächen wie dem iPad.
+// `maxWidth` is not a design decision but the sharpness limit of the source:
+// 1254 px divided by the threefold resolution gives 418, rounded down onto
+// the 4-grid 416. Above that the PNG would have to scale up and go soft. On
+// every iPhone the width stays below it (17 Pro Max: 440 minus the two 24
+// margins is 392), the limit only bites on wide surfaces like the iPad.
 //
-// `aspectRatio` statt einer festen Höhe, weil die Breite jetzt vom Gerät
-// kommt: die Quelle ist quadratisch (1254 x 1254), das Bild soll es bleiben.
-// Zentriert, während der Text darunter linksbündig bleibt (§7: Text ist
-// linksbündig, nur inszenierte Momente zentrieren).
-const FILMROLLE_MAX = 416;
+// `aspectRatio` instead of a fixed height, because the width now comes from
+// the device: the source is square (1254 x 1254) and the image should stay
+// that way. Centred, while the text below it stays left aligned (§7).
+const FILM_REEL_MAX = 416;
 
 const styles = StyleSheet.create({
-  inhalt: { padding: spacing.screen, paddingTop: spacing.xl, paddingBottom: spacing.xxl, gap: spacing.xl },
-  filmrolle: { width: '100%', aspectRatio: 1, maxWidth: FILMROLLE_MAX, alignSelf: 'center' },
+  content: { padding: spacing.screen, paddingTop: spacing.xl, paddingBottom: spacing.xxl, gap: spacing.xl },
+  filmReel: { width: '100%', aspectRatio: 1, maxWidth: FILM_REEL_MAX, alignSelf: 'center' },
 });

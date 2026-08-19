@@ -17,94 +17,66 @@ import type { Viewport } from '@/features/map/types';
 const mockPush = jest.fn();
 const mockReplace = jest.fn();
 const mockBack = jest.fn();
-// Steuerbar wie in uebersicht.test.tsx: nur so lässt sich der replace-Zweig
-// von zurueck() überhaupt erreichen, mit einem hart auf `true` verdrahteten
-// canGoBack bliebe er toter Code aus Test-Sicht.
-let mockKannZurueck = true;
-// Ebenfalls steuerbar: der Screen bleibt bei einem Wechsel der Reise gemountet
-// (dieselbe Route, andere id), und was von der vorherigen Reise stehen bleibt,
-// lässt sich nur mit einer wechselnden id prüfen.
+let mockCanGoBack = true;
 let mockId = 't1';
 jest.mock('expo-router', () => ({
-  useRouter: () => ({ push: mockPush, replace: mockReplace, back: mockBack, canGoBack: () => mockKannZurueck }),
+  useRouter: () => ({ push: mockPush, replace: mockReplace, back: mockBack, canGoBack: () => mockCanGoBack }),
   useLocalSearchParams: () => ({ id: mockId }),
 }));
 jest.mock('@/features/recap/recapApi', () => ({ fetchRecapMoments: jest.fn() }));
-// Nur die IO-Funktion wird gemockt. `wiederholenHilft` bleibt echt: sie ist
-// die Regel, ob «Nochmal versuchen» ueberhaupt etwas ausrichten kann, und ein
-// Mock davon liesse den Test genau die Zusicherung nicht mehr pruefen, um die
-// es hier geht. `jest.requireActual` zieht dabei @/lib/supabase mit, deshalb
-// steht dessen Mock daneben (gleiches Muster wie in player.test.tsx).
+// `jest.requireActual` below pulls @/lib/supabase in with it, so its mock has
+// to sit right here (same pattern as player.test.tsx). `retryHelps` stays
+// real: it is the rule deciding whether a second try can achieve anything.
 jest.mock('@/lib/supabase', () => ({ supabase: { functions: { invoke: jest.fn() } } }));
 jest.mock('@/features/recap/urlPool', () => ({
   ...jest.requireActual('@/features/recap/urlPool'),
   getPool: jest.fn(),
 }));
-// Ab Task 10 im Spiel: der Ladeweg der Reise gibt seinen Fehler als WERT
-// zurück und hat ihn bisher fallen lassen. Sichtbar wird er auf diesem Screen
-// nicht (der Filter ist Beiwerk, siehe karte.tsx), dass er den Fehlermelder
-// erreicht, ist deshalb die einzige prüfbare Spur. Ohne DSN ist `reportError`
-// ein No-Op (lib/errorReporter.ts), ein Spion muss also her.
 jest.mock('@/lib/errorReporter', () => ({ reportError: jest.fn() }));
-// Ab Task 9 im Spiel: der Tagesfilter braucht `trips.start_date`, weil die
-// Tagesnummern ab DEM zählen (tage.ts), dieselbe Quelle wie in uebersicht.tsx
-// und player.tsx. Ohne den Mock ginge die Abfrage an den echten Supabase-Client.
 jest.mock('@/features/trips/tripsApi', () => ({ fetchTrip: jest.fn() }));
-// expo-image ist ein natives View, im Test reicht ein Platzhalter, der alle
-// Props (`source`, `testID`, `onLoad`) durchreicht. Gleiches Muster wie in
-// uebersicht.test.tsx; ohne den Mock scheitert schon das Laden des Moduls
-// (expo-image/src/observe.ts erwartet eine native Umgebung), seit die Nadel
-// ein Bild trägt.
+// expo-image is a native view, a placeholder forwarding all props is enough
+// here. Without the mock the module does not even load
+// (expo-image/src/observe.ts expects a native environment).
 jest.mock('expo-image', () => {
   const ReactActual = require('react');
   const { View } = require('react-native');
   return { Image: (props: object) => ReactActual.createElement(View, props) };
 });
-// Spion MIT echter Implementierung: die Nadeln unten sollen weiterhin aus der
-// echten Rechnung entstehen, aber die Liste, die der Screen hineingibt, muss
-// sich prüfen lassen. Sie ist der eine Punkt dieses Screens, an dem ein
-// Fehler still bliebe, `punkt.index` geht später als `start` an den Player,
-// und der zählt in die gefilterte Spielliste (player.tsx:503-527). Gäbe der
-// Screen die rohe Momente-Liste herein, sässen zwar dieselben Nadeln an
-// denselben Koordinaten, aber jeder Sprung landete beim falschen Moment.
-// Bis Task 8 den Sprung baut, ist DIESE Zusicherung der einzige Ort, an dem
-// der Fehler auffiele.
+// Spy WITH the real implementation: the pins below still come out of the real
+// computation, but the list the screen feeds in has to be assertable. It is
+// the one place on this screen where a mistake would stay silent, because
+// `point.index` later travels to the player as `start` and counts into the
+// filtered playlist. Fed the raw moment list, the pins would sit at the same
+// coordinates and every jump would land on the wrong moment.
 jest.mock('@/features/map/mapPoints', () => {
-  const echt = jest.requireActual('@/features/map/mapPoints');
-  return { toMapPoints: jest.fn(echt.toMapPoints) };
+  const actual = jest.requireActual('@/features/map/mapPoints');
+  return { toMapPoints: jest.fn(actual.toMapPoints) };
 });
-// Steuerbar wie mockKannZurueck: ohne das liesse sich der Sprung-Zweig von
-// `zeige` gar nicht erreichen, AccessibilityInfo meldet im Testlauf immer
-// «keine Reduktion», und die Weiche wäre aus Test-Sicht toter Code.
-let mockReduziert = false;
-jest.mock('@/theme/useReducedMotion', () => ({ useReducedMotion: () => mockReduziert }));
-// DESIGN-LANGUAGE §5: «Haptik: selection (Tabs, Zoom)». Muster wie in
-// player.test.tsx, das native Modul gibt es im Testlauf nicht.
-const mockHaptik = jest.fn(() => Promise.resolve());
-jest.mock('expo-haptics', () => ({ selectionAsync: () => mockHaptik() }));
-// Eigener Maps-Mock statt des globalen aus jest.setup.ts, aus zwei Gründen,
-// die beide am imperativen Handle hängen:
+let mockReducedMotion = false;
+jest.mock('@/theme/useReducedMotion', () => ({ useReducedMotion: () => mockReducedMotion }));
+const mockHaptics = jest.fn(() => Promise.resolve());
+jest.mock('expo-haptics', () => ({ selectionAsync: () => mockHaptics() }));
+// Own maps mock instead of the global one from jest.setup.ts, for two reasons
+// that both hang on the imperative handle:
 //
-// 1. Der globale Mock baut seine `jest.fn()` bei jedem Rendern neu und gibt
-//    sie nicht nach aussen. Wer zusichern will, dass die Karte gefahren (oder
-//    eben gesprungen) ist, kommt an sie nicht heran.
-// 2. `tracksViewChanges` steht nach einer Prop-Änderung nur für EINEN Commit
-//    auf `true`, genau den, der die Nadel neu zeichnen lässt. React spielt
-//    Render und Effekt innerhalb desselben `act()` ab; im Endzustand steht
-//    wieder `false`, und ein Test, der nur den Endzustand liest, könnte
-//    «springt wieder an» nicht von «ist nie angesprungen» unterscheiden.
-//    Derselbe Umweg wie in components/__tests__/KartenNadel.test.tsx.
+// 1. The global mock rebuilds its `jest.fn()` on every render and never hands
+//    them out, so no assertion can reach them.
+// 2. `tracksViewChanges` is `true` for exactly ONE commit after a prop change,
+//    the one that redraws the pin. React plays render and effect inside the
+//    same `act()`, and the end state is `false` again, so a test reading only
+//    the end state could not tell "turned back on" from "never turned on".
+//    Same detour as in components/__tests__/MapPin.test.tsx.
 const mockAnimateToRegion = jest.fn();
 const mockSetRegion = jest.fn();
-const mockTracksVerlauf: { id: unknown; tracks: unknown }[] = [];
-// Der Tipp jeder Nadel, gemerkt beim RENDERN. Der letzte Test dieser Datei
-// braucht ihn, um genau zwischen Commit und passivem Effekt zu tippen, was
-// über `fireEvent` nicht geht, weil dessen `act()` beides zusammen abspielt.
-const mockPressen = new Map<string, () => void>();
+const mockTracksHistory: { id: unknown; tracks: unknown }[] = [];
+// Every pin's onPress, remembered AT RENDER TIME. The last test of this file
+// needs it to tap exactly between commit and passive effect, which `fireEvent`
+// cannot do because its `act()` plays both together.
+const mockPresses = new Map<string, () => void>();
 jest.mock('react-native-maps', () => {
   const ReactActual = require('react');
   const { View } = require('react-native');
-  const Karte = ReactActual.forwardRef((props: Record<string, unknown>, ref: unknown) => {
+  const MapViewMock = ReactActual.forwardRef((props: Record<string, unknown>, ref: unknown) => {
     ReactActual.useImperativeHandle(ref, () => ({
       animateToRegion: mockAnimateToRegion,
       setRegion: mockSetRegion,
@@ -114,11 +86,11 @@ jest.mock('react-native-maps', () => {
   });
   return {
     __esModule: true,
-    default: Karte,
+    default: MapViewMock,
     Marker: (props: Record<string, unknown>) => {
-      mockTracksVerlauf.push({ id: props.testID, tracks: props.tracksViewChanges });
+      mockTracksHistory.push({ id: props.testID, tracks: props.tracksViewChanges });
       if (typeof props.onPress === 'function') {
-        mockPressen.set(String(props.testID), props.onPress as () => void);
+        mockPresses.set(String(props.testID), props.onPress as () => void);
       }
       return ReactActual.createElement(View, props, props.children);
     },
@@ -127,7 +99,7 @@ jest.mock('react-native-maps', () => {
   };
 });
 
-import RecapKarte from '../[id]/map';
+import RecapMap from '../[id]/map';
 import { SHEET_SCROLL_RATIO } from '@/components/Sheet';
 import { fetchRecapMoments } from '@/features/recap/recapApi';
 import { getPool } from '@/features/recap/urlPool';
@@ -139,15 +111,10 @@ import type { Trip } from '@/features/trips/types';
 function moment(overrides: Partial<{
   id: string;
   captured_at: string;
-  // Ab Task 9 im Spiel: die Tagesgrenze richtet sich nach captured_tz DES
-  // MOMENTS (tage.ts), ohne einen eigenen Wert lässt sich eine Reise über die
-  // Datumsgrenze nicht nachstellen.
   captured_tz: string;
   lat: number | null;
   lng: number | null;
   upload_status: 'pending' | 'uploaded';
-  // Ab Task 8 im Spiel: das Moment-Sheet zeigt Autor, Ort und Caption an
-  // (Spec §5.7), und jedes der drei muss sich einzeln setzen lassen.
   authorName: string;
   place_name: string | null;
   caption: string | null;
@@ -161,22 +128,20 @@ function moment(overrides: Partial<{
   };
 }
 
-// Zwei Momente in Lissabon, die eine Nadel bekommen, und drei, die aus je
-// einem anderen Grund keine bekommen dürfen:
+// Two moments in Lisbon that get one pin, and three that must not get one,
+// each for a different reason:
 //
-// - p5 ist 'uploaded', hat aber keine URL im Vorrat (die Function konnte
-//   keine ausstellen). Er liegt in TOKIO und chronologisch VOR allem anderen:
-//   beides mit Absicht. Vorne, damit ein Index, der über die ungefilterte
-//   Liste zählt, alles dahinter verschiebt; in Tokio, damit ein Ausschnitt,
-//   der ihn mitrechnet, sichtbar über den halben Planeten geht.
-// - p4 lädt noch hoch ('pending') und liegt aus demselben Grund in SYDNEY.
-//   Er hat bewusst eine URL im Vorrat (siehe VORRAT_OK): sonst sortierte ihn
-//   schon `urls.has(m.id)` aus, und der `upload_status`-Filter wäre durch
-//   keinen Test gedeckt, man könnte ihn ersatzlos löschen, ohne dass eine
-//   Zusicherung fiele (Fixrunde 1).
-// - p3 ist sichtbar, hat aber keinen Ort (lat/lng null), er gehört in die
-//   Spielliste (und damit in die Index-Zählung), aber nicht auf die Karte.
-const ohneUrlM = moment({ id: 'p5', captured_at: '2026-08-10T07:00:00.000Z', lat: 35.68, lng: 139.69 });
+// - p5 is 'uploaded' but has no url in the pool. It lies in TOKYO and
+//   chronologically BEFORE everything else, both on purpose: up front so an
+//   index counted over the unfiltered list shifts everything behind it, in
+//   Tokyo so a viewport counting it in visibly spans half the planet.
+// - p4 is still uploading ('pending') and lies in SYDNEY for the same reason.
+//   It deliberately has a url in the pool (see POOL_OK), otherwise
+//   `urls.has(m.id)` would sort it out already and the `upload_status` filter
+//   would be covered by no test at all.
+// - p3 is visible but has no place (lat/lng null). It belongs in the playlist
+//   (and therefore in the index count) but not on the map.
+const withoutUrlM = moment({ id: 'p5', captured_at: '2026-08-10T07:00:00.000Z', lat: 35.68, lng: 139.69 });
 const m1 = moment({ id: 'p1', captured_at: '2026-08-10T09:00:00.000Z', lat: 38.71, lng: -9.14 });
 const m2 = moment({ id: 'p2', captured_at: '2026-08-10T18:00:00.000Z', lat: 38.72, lng: -9.13 });
 const pendingM = moment({
@@ -184,455 +149,384 @@ const pendingM = moment({
 });
 const m3 = moment({ id: 'p3', captured_at: '2026-08-11T10:00:00.000Z', lat: null, lng: null });
 
-// Bereits chronologisch sortiert, wie fetchRecapMomente es liefert.
-const VOLLSTAENDIG = [ohneUrlM, m1, m2, pendingM, m3];
+// Already sorted chronologically, the way fetchRecapMoments delivers them.
+const COMPLETE = [withoutUrlM, m1, m2, pendingM, m3];
 
 // ---------------------------------------------------------------------------
-// Task 7: zwei Momente, die sich eine Nadel teilen
+// Two moments that share a pin
 // ---------------------------------------------------------------------------
 //
-// Alle Zahlen unten hängen an der Fenstergrösse des Testlaufs: jest-expo meldet
-// 750 × 1334 Punkte. Ein Grad Länge sind bei einer Spanne von 0.01° also 75'000
-// Punkte, ein Grad Breite 133'400, ein Zehntausendstel Grad demnach 7.5 bzw.
-// 13.3 Punkte. Die beiden Momente liegen damit rund 15 Punkte auseinander und
-// somit unter GRUPPEN_ABSTAND_PT (40).
+// Every number below hangs on the window size of the test run: jest-expo
+// reports 750 x 1334 points. At a span of 0.01 degrees one degree of
+// longitude is 75'000 points and one of latitude 133'400, so a ten thousandth
+// of a degree is 7.5 respectively 13.3 points. The two moments therefore lie
+// about 15 points apart, below CLUSTER_DISTANCE_PT (40).
 //
-// Die id bleibt p2, damit VORRAT_OK unverändert passt, es ist derselbe zweite
-// Moment wie oben, nur eine Strasse weiter statt einen Stadtteil.
-const m2Nah = moment({ id: 'p2', captured_at: '2026-08-10T18:00:00.000Z', lat: 38.7101, lng: -9.1401 });
-const NAH_BEIEINANDER = [m1, m2Nah];
+// The id stays p2 so POOL_OK still fits unchanged: it is the same second
+// moment as above, one street further instead of one district.
+const m2Near = moment({ id: 'p2', captured_at: '2026-08-10T18:00:00.000Z', lat: 38.7101, lng: -9.1401 });
+const CLOSE_TOGETHER = [m1, m2Near];
 
-// Hineingezoomt: bei 0.002° Spanne liegen dieselben zwei Momente rund 76 Punkte
-// auseinander, die Gruppe fällt auseinander.
-const ENG = { latitude: 38.71005, longitude: -9.14005, latitudeDelta: 0.002, longitudeDelta: 0.002 };
-// Und einer dazwischen: rund 31 Punkte Abstand, die Gruppe bleibt bestehen,
-// aber der Ausschnitt ist bereits ENGER als die Mindestspanne von
-// `ausschnittFuer` (0.01°). Genau hier führte ein ungebremstes Ziel hinaus.
-const MITTEL = { ...ENG, latitudeDelta: 0.005, longitudeDelta: 0.005 };
+// Zoomed in: at a span of 0.002 degrees the same two moments lie about 76
+// points apart and the cluster falls apart.
+const NARROW = { latitude: 38.71005, longitude: -9.14005, latitudeDelta: 0.002, longitudeDelta: 0.002 };
+// And one in between: about 31 points apart, the cluster holds, but the
+// viewport is already NARROWER than the minimum span of `viewportFor`
+// (0.01 degrees). This is exactly where an unbounded target led outwards.
+const MEDIUM = { ...NARROW, latitudeDelta: 0.005, longitudeDelta: 0.005 };
 
-// Rückgabetyp explizit als MedienUrl: `thumb_url` ist dort `string | null`,
-// und ohne die Angabe erbte VORRAT_OK ein zu enges `string`, ein Vorrat ohne
-// Thumbnail liesse sich dann gar nicht erst hineingeben (siehe
-// VORRAT_OHNE_THUMB).
-function bild(id: string): MediaUrl {
+// Return type spelled out as MediaUrl: `thumb_url` is `string | null` there,
+// and without it POOL_OK would inherit a too narrow `string`, so a pool
+// without a thumbnail could not be passed in at all (see POOL_WITHOUT_THUMB).
+function image(id: string): MediaUrl {
   return { post_id: id, medium_url: `https://cdn.example/${id}-medium.jpg`, thumb_url: `https://cdn.example/${id}-thumb.jpg` };
 }
 
-// p4 ist absichtlich dabei, obwohl er noch hochlädt: so ist der
-// `upload_status`-Filter der EINZIGE, der ihn noch aussortiert, und jede der
-// beiden Filterbedingungen des Screens hat ihren eigenen Gegenbeweis (p4 für
-// `upload_status`, p5 für `urls.has`). Dass die Edge Function `media-urls`
-// serverseitig ohnehin nur für hochgeladene Momente signiert, ist kein
-// Argument dagegen, der Screen darf sich nicht darauf verlassen, und kein
-// Test dieses Screens wüsste davon.
-const VORRAT_OK = {
-  urls: new Map([['p1', bild('p1')], ['p2', bild('p2')], ['p3', bild('p3')], ['p4', bild('p4')]]),
+// p4 is deliberately in here although it is still uploading: that way the
+// `upload_status` filter is the ONLY one left that sorts it out, and each of
+// the screen's two filter conditions has its own counter example (p4 for
+// `upload_status`, p5 for `urls.has`). That the edge function `media-urls`
+// only signs for uploaded moments anyway is no argument against it: the
+// screen must not rely on that, and no test of this screen would know of it.
+const POOL_OK = {
+  urls: new Map([['p1', image('p1')], ['p2', image('p2')], ['p3', image('p3')], ['p4', image('p4')]]),
   gueltigBis: Date.now() + 999_999,
   ausgelassen: 1,
 };
 
-// Der generische Ladefehler, wortgleich zu urlVorrat.ts und recapApi.ts: eine
-// Momentaufnahme ohne `grund`, bei der ein zweiter Versuch das Richtige ist.
-const LADEFEHLER = 'Die Momente konnten nicht geladen werden. Probier es gleich nochmal.';
+// The generic load error, word for word the same as in urlPool.ts and
+// recapApi.ts: a snapshot without a `reason`, where a second try is right.
+const LOAD_ERROR = 'Die Momente konnten nicht geladen werden. Probier es gleich nochmal.';
 
-// Derselbe Vorrat, aber für p1 ohne Thumbnail: `media-urls` lässt `thumb_url`
-// weg, wenn der Moment keinen `thumb_key` hat (siehe dessen index.ts), für
-// die Karte ist das kein Sonderfall, sondern ein Moment wie jeder andere.
-const VORRAT_OHNE_THUMB = {
-  ...VORRAT_OK,
+const POOL_WITHOUT_THUMB = {
+  ...POOL_OK,
   urls: new Map<string, MediaUrl>([
-    ...VORRAT_OK.urls,
-    ['p1', { post_id: 'p1', medium_url: bild('p1').medium_url, thumb_url: null }],
+    ...POOL_OK.urls,
+    ['p1', { post_id: 'p1', medium_url: image('p1').medium_url, thumb_url: null }],
   ]),
 };
 
-// Ein Vorrat, wie ihn eine ältere Function liefern kann: `medium_url` fehlt
-// ganz. `MedienUrl` verspricht dort einen `string`, urlVorrat.ts übernimmt das
-// Feld aber ungeprüft aus der Antwort (Zeile 141), der Typ lügt also. Genau
-// deshalb steht die Umgehung hier als Cast: sie bildet nach, was zur Laufzeit
-// ankommt, nicht was der Typ behauptet.
-const VORRAT_OHNE_JEDES_BILD = {
-  ...VORRAT_OK,
+// A pool as an older version of the function can deliver it: `medium_url` is
+// missing entirely. `MediaUrl` promises a `string` there, but urlPool.ts
+// copies the field through unchecked, so the type lies. That is why the way
+// around it is a cast: it mirrors what arrives at runtime, not what the type
+// claims.
+const POOL_WITHOUT_ANY_IMAGE = {
+  ...POOL_OK,
   urls: new Map<string, MediaUrl>([
-    ...VORRAT_OK.urls,
+    ...POOL_OK.urls,
     ['p1', { post_id: 'p1', thumb_url: null } as unknown as MediaUrl],
   ]),
 };
 
-const wrap = () => render(<ThemeProvider><RecapKarte /></ThemeProvider>);
+const wrap = () => render(<ThemeProvider><RecapMap /></ThemeProvider>);
 
-// Die Reise, aus der die Tagesnummern gezählt werden. `start_date` ist der
-// einzige Wert, den dieser Screen davon braucht, der Rest steht hier nur,
-// weil `Trip` ihn verlangt.
-const REISE: Trip = {
+// The trip the day numbers are counted from. `start_date` is the only value
+// this screen needs of it, the rest stands here because `Trip` demands it.
+const TRIP: Trip = {
   id: 't1', name: 'Lissabon Städtetrip', start_date: '2026-08-10', end_date: '2026-08-14',
   status: 'revealed', owner_id: 'u1', members: [], member_count: 1, my_post_count: 0,
 };
 
-function ladeErfolg(momente = VOLLSTAENDIG, vorrat = VORRAT_OK, reise: Partial<Trip> = {}) {
-  (fetchTrip as jest.Mock).mockResolvedValue({ data: { ...REISE, ...reise }, error: null });
-  (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: momente, error: null });
-  (getPool as jest.Mock).mockResolvedValue({ vorrat, error: null, grund: null });
+function loadSuccess(moments = COMPLETE, pool = POOL_OK, trip: Partial<Trip> = {}) {
+  (fetchTrip as jest.Mock).mockResolvedValue({ data: { ...TRIP, ...trip }, error: null });
+  (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: moments, error: null });
+  (getPool as jest.Mock).mockResolvedValue({ pool, error: null, reason: null });
 }
 
-// Nimmt die mitgeschriebenen Werte EINER Nadel heraus und leert den Verlauf,
-// so bezieht sich jede Zusicherung auf genau den Abschnitt seit dem letzten
-// Aufruf. Nach id gefiltert, weil beim Auseinanderfallen einer Gruppe eine
-// zweite Nadel dazukommt, die naturgemäss frisch gezeichnet wird.
-function tracksSeitDann(id: string): unknown[] {
-  const eigene = mockTracksVerlauf.filter((e) => e.id === id).map((e) => e.tracks);
-  mockTracksVerlauf.length = 0;
-  return eigene;
+// Takes the recorded values of ONE pin out and empties the history. Filtered
+// by id because a second pin joins when a cluster falls apart, and that one
+// is naturally drawn fresh.
+function tracksSince(id: string): unknown[] {
+  const own = mockTracksHistory.filter((e) => e.id === id).map((e) => e.tracks);
+  mockTracksHistory.length = 0;
+  return own;
 }
 
 beforeEach(() => {
   jest.clearAllMocks();
-  // Ein Grundstand für die Reise-Abfrage, den jeder Test überschreiben kann:
-  // `clearAllMocks` löscht nur die Aufrufe, nicht die zuletzt gesetzte
-  // Implementierung, ohne diese Zeile erbte ein Test, der `ladeErfolg` nicht
-  // ruft (der Wurf-Test unten), die Reise des vorherigen und hinge damit an
-  // der Reihenfolge der Tests.
-  (fetchTrip as jest.Mock).mockResolvedValue({ data: REISE, error: null });
-  mockKannZurueck = true;
+  // A baseline for the trip query that every test can overwrite:
+  // `clearAllMocks` only clears the calls, not the implementation set last.
+  (fetchTrip as jest.Mock).mockResolvedValue({ data: TRIP, error: null });
+  mockCanGoBack = true;
   mockId = 't1';
-  mockReduziert = false;
-  mockTracksVerlauf.length = 0;
-  mockPressen.clear();
-  // Die Fenstergrösse ist modulweiter Zustand, der letzte Test unten ändert
-  // sie. Ohne dieses Zurücksetzen rechneten alle Tests nach ihm mit einem
-  // anderen Bildschirm, und die Abstände in Bildschirmpunkten (auf denen die
-  // ganze Gruppierung beruht) stimmten nicht mehr.
-  Dimensions.set({ window: URSPRUNGS_FENSTER, screen: URSPRUNGS_SCHIRM });
+  mockReducedMotion = false;
+  mockTracksHistory.length = 0;
+  mockPresses.clear();
+  // The window size is module wide state and the last test below changes it.
+  // Without this reset every test after it would compute with a different
+  // screen, and the distances in screen points that all clustering rests on
+  // would no longer hold.
+  Dimensions.set({ window: ORIGINAL_WINDOW, screen: ORIGINAL_SCREEN });
 });
 
-test('setzt eine Nadel je Moment mit Ort', async () => {
-  ladeErfolg();
+test('sets one pin per moment that has a place', async () => {
+  loadSuccess();
   await wrap();
   expect(await screen.findAllByTestId(/^karte-nadel/)).toHaveLength(2);
   expect(screen.getByTestId('karte-nadel-p1')).toBeTruthy();
   expect(screen.getByTestId('karte-nadel-p2')).toBeTruthy();
 });
 
-test('die Nadel sitzt auf genau der Koordinate ihres Moments', async () => {
-  ladeErfolg();
+test('the pin sits on exactly the coordinate of its moment', async () => {
+  loadSuccess();
   await wrap();
-  const nadel = await screen.findByTestId('karte-nadel-p2');
-  expect(nadel.props.coordinate).toEqual({ latitude: 38.72, longitude: -9.13 });
+  const pin = await screen.findByTestId('karte-nadel-p2');
+  expect(pin.props.coordinate).toEqual({ latitude: 38.72, longitude: -9.13 });
 });
 
-test('Momente ohne Ort bekommen keine Nadel', async () => {
-  ladeErfolg();
+test('moments without a place get no pin', async () => {
+  loadSuccess();
   await wrap();
   await screen.findByTestId('karte-nadel-p1');
   expect(screen.queryByTestId('karte-nadel-p3')).toBeNull();
 });
 
-// Kernfall dieses Screens: die Karte zeigt dieselbe Spielliste wie der
-// Player, Momente, die noch hochladen oder für die es keine URL gibt,
-// gehören nicht darauf. Sie hätten sonst nicht nur eine Nadel zu viel,
-// sondern würden auch die Index-Zählung verschieben.
-//
-// Bewusst ZWEI Tests statt eines mit zwei Zusicherungen (Fixrunde 1): der
-// Screen filtert über zwei Bedingungen, und jede braucht einen Test, der
-// allein durch ihr Fehlen rot wird. In einem gemeinsamen Test liesse sich
-// nicht ablesen, welche der beiden gerade fehlt.
-test('ein noch hochladender Moment bekommt keine Nadel, auch mit URL im Vorrat', async () => {
-  ladeErfolg();
+// Deliberately TWO tests instead of one with two assertions: the screen
+// filters on two conditions, and each needs a test that goes red on its own.
+// In a shared test there would be no reading off which of the two is missing.
+test('a moment still uploading gets no pin, even with a url in the pool', async () => {
+  loadSuccess();
   await wrap();
   await screen.findByTestId('karte-nadel-p1');
   expect(screen.queryByTestId('karte-nadel-p4')).toBeNull();
 });
 
-test('ein Moment ohne Bild im Vorrat bekommt keine Nadel', async () => {
-  ladeErfolg();
+test('a moment without an image in the pool gets no pin', async () => {
+  loadSuccess();
   await wrap();
   await screen.findByTestId('karte-nadel-p1');
   expect(screen.queryByTestId('karte-nadel-p5')).toBeNull();
 });
 
-// Task 6: die Nadel trägt das Gesicht ihres eigenen Moments. Ein vertauschter
-// Vorrats-Zugriff (z.B. über den Index statt über die id) sässe geografisch
-// richtig und zeigte trotzdem das falsche Bild.
-test('jede Nadel trägt das Thumbnail ihres eigenen Moments', async () => {
-  ladeErfolg();
+test('every pin carries the thumbnail of its own moment', async () => {
+  loadSuccess();
   await wrap();
-  const nadel = await screen.findByTestId('karte-nadel-p2');
-  expect(within(nadel).getByTestId('nadel-bild').props.source.uri).toBe(bild('p2').thumb_url);
+  const pin = await screen.findByTestId('karte-nadel-p2');
+  expect(within(pin).getByTestId('nadel-bild').props.source.uri).toBe(image('p2').thumb_url);
 });
 
-// Fällt der Screen hier nicht auf `medium_url` zurück, bleibt für jeden Moment
-// ohne Thumbnail für immer der pulsende Skeleton stehen, und mit ihm eine
-// Nadel, die der Marker jeden Frame neu zeichnet (siehe tracksViewChanges
-// unten). uebersicht.tsx nimmt an derselben Stelle denselben Ausweg.
-test('fehlt das Thumbnail, nimmt die Nadel das mittlere Bild', async () => {
-  ladeErfolg(VOLLSTAENDIG, VORRAT_OHNE_THUMB);
+test('with the thumbnail missing the pin takes the medium image', async () => {
+  loadSuccess(COMPLETE, POOL_WITHOUT_THUMB);
   await wrap();
-  const nadel = await screen.findByTestId('karte-nadel-p1');
-  expect(within(nadel).getByTestId('nadel-bild').props.source.uri).toBe(bild('p1').medium_url);
+  const pin = await screen.findByTestId('karte-nadel-p1');
+  expect(within(pin).getByTestId('nadel-bild').props.source.uri).toBe(image('p1').medium_url);
 });
 
-// Fixrunde 1, Punkt 3: fehlt in der Antwort der Function auch `medium_url`,
-// hat die Nadel keine Bildquelle. Sie darf dann nicht als «lädt noch» dastehen
-// und für immer bei jedem Frame neu gezeichnet werden, es kommt nichts mehr.
-test('ohne jede Bildquelle zeigt die Nadel keinen Bildknoten', async () => {
-  ladeErfolg(VOLLSTAENDIG, VORRAT_OHNE_JEDES_BILD);
+test('without any image source the pin shows no image node', async () => {
+  loadSuccess(COMPLETE, POOL_WITHOUT_ANY_IMAGE);
   await wrap();
-  const nadel = await screen.findByTestId('karte-nadel-p1');
-  expect(within(nadel).queryByTestId('nadel-bild')).toBeNull();
-  expect(within(nadel).getByTestId('nadel-skelett')).toBeTruthy();
+  const pin = await screen.findByTestId('karte-nadel-p1');
+  expect(within(pin).queryByTestId('nadel-bild')).toBeNull();
+  expect(within(pin).getByTestId('nadel-skelett')).toBeTruthy();
 });
 
-test('ohne jede Bildquelle hoert die Nadel trotzdem auf, sich zu zeichnen', async () => {
-  ladeErfolg(VOLLSTAENDIG, VORRAT_OHNE_JEDES_BILD);
+test('without any image source the pin still stops drawing itself', async () => {
+  loadSuccess(COMPLETE, POOL_WITHOUT_ANY_IMAGE);
   await wrap();
-  const nadel = await screen.findByTestId('karte-nadel-p1');
-  expect(nadel.props.tracksViewChanges).toBe(false);
+  const pin = await screen.findByTestId('karte-nadel-p1');
+  expect(pin.props.tracksViewChanges).toBe(false);
 });
 
-// Fixrunde 1, Punkt 5: der Marker wird gerastert, was in der Nadel steht, ist
-// für VoiceOver danach nicht mehr erreichbar. Die Beschriftung muss am Marker
-// hängen, den der Screen setzt.
-test('jede Nadel traegt eine Beschriftung fuer VoiceOver', async () => {
-  ladeErfolg();
+// The marker is rasterised, so whatever stands inside the pin is no longer
+// reachable for VoiceOver afterwards. The label has to hang on the marker.
+test('every pin carries a label for VoiceOver', async () => {
+  loadSuccess();
   await wrap();
-  const nadel = await screen.findByTestId('karte-nadel-p1');
-  expect(nadel.props.accessibilityLabel).toBe('Moment von Lea um 10:00 öffnen');
+  const pin = await screen.findByTestId('karte-nadel-p1');
+  expect(pin.props.accessibilityLabel).toBe('Moment von Lea um 10:00 öffnen');
 });
 
-// DER Punkt, an dem dieser Screen technisch kippt (Spec §5.4, Task-6-Brief):
-// `tracksViewChanges` steuert, ob react-native-maps die Nadel weiter
-// nachzeichnet. Dauerhaft `true` heisst: jede Nadel wird bei jedem Frame neu
-// gerendert, und die Karte ruckelt, sobald mehr als eine Handvoll darauf
-// liegt. Dauerhaft `false` heisst: die Nadel friert in dem Zustand ein, den
-// sie beim ersten Zeichnen hatte, und das ist der leere Kreis, denn das Bild
-// kommt erst danach aus dem Netz. Beide Fehler sehen im Test gleich aus, wenn
-// man nur einen der beiden Zeitpunkte prüft; darum stehen hier beide.
-test('die Nadel wird nachgezeichnet, bis ihr Bild steht, und danach nicht mehr', async () => {
-  ladeErfolg();
+// The point where this screen tips over technically: `tracksViewChanges`
+// controls whether react-native-maps keeps redrawing the pin. Permanently
+// `true` means every pin re-renders on every frame and the map stutters as
+// soon as more than a handful lie on it. Permanently `false` means the pin
+// freezes in the state it had when first drawn, and that is the empty circle,
+// because the image only arrives afterwards. Both faults look the same when
+// only one of the two moments is checked, which is why both stand here.
+test('the pin keeps being redrawn until its image is there, and no longer after that', async () => {
+  loadSuccess();
   await wrap();
-  const nadel = await screen.findByTestId('karte-nadel-p1');
-  expect(nadel.props.tracksViewChanges).toBe(true);
+  const pin = await screen.findByTestId('karte-nadel-p1');
+  expect(pin.props.tracksViewChanges).toBe(true);
 
-  await fireEvent(within(nadel).getByTestId('nadel-bild'), 'load');
+  await fireEvent(within(pin).getByTestId('nadel-bild'), 'load');
   expect(screen.getByTestId('karte-nadel-p1').props.tracksViewChanges).toBe(false);
 });
 
-// Die fertige Nadel darf die anderen nicht mit einfrieren: jede hängt an
-// ihrem eigenen Bild.
-test('eine fertige Nadel schaltet nur sich selbst ab', async () => {
-  ladeErfolg();
+test('a finished pin switches off only itself', async () => {
+  loadSuccess();
   await wrap();
-  const nadel = await screen.findByTestId('karte-nadel-p1');
-  await fireEvent(within(nadel).getByTestId('nadel-bild'), 'load');
+  const pin = await screen.findByTestId('karte-nadel-p1');
+  await fireEvent(within(pin).getByTestId('nadel-bild'), 'load');
   expect(screen.getByTestId('karte-nadel-p2').props.tracksViewChanges).toBe(true);
 });
 
 // ---------------------------------------------------------------------------
-// Task 7: Gruppierung, und was ein Tipp auf eine Gruppe auslöst
+// Clustering, and what a tap on a cluster triggers
 // ---------------------------------------------------------------------------
 
-// Spec §5.5: Nadeln, die sich sonst gegenseitig verdecken, teilen sich eine.
-test('dicht beieinander liegende Momente teilen sich eine Nadel', async () => {
-  ladeErfolg(NAH_BEIEINANDER);
+test('moments lying close together share a single pin', async () => {
+  loadSuccess(CLOSE_TOGETHER);
   await wrap();
-  const nadeln = await screen.findAllByTestId(/^karte-nadel/);
-  expect(nadeln).toHaveLength(1);
+  const pins = await screen.findAllByTestId(/^karte-nadel/);
+  expect(pins).toHaveLength(1);
   expect(screen.getByText('2')).toBeTruthy();
 });
 
-// Gruppiert wird nach dem Abstand auf DEM GERADE SICHTBAREN Ausschnitt, nicht
-// auf dem, mit dem die Karte geöffnet wurde. Ohne das bliebe die Gruppe auch
-// dann eine Nadel, wenn ihre Momente längst über den halben Schirm verteilt
-// sind.
-test('beim Hineinzoomen faellt die Gruppe in einzelne Nadeln', async () => {
-  ladeErfolg(NAH_BEIEINANDER);
+test('zooming in breaks the cluster into single pins', async () => {
+  loadSuccess(CLOSE_TOGETHER);
   await wrap();
   expect(await screen.findAllByTestId(/^karte-nadel/)).toHaveLength(1);
 
-  await fireEvent(screen.getByTestId('karte-flaeche'), 'regionChangeComplete', ENG);
+  await fireEvent(screen.getByTestId('karte-flaeche'), 'regionChangeComplete', NARROW);
   expect(screen.getAllByTestId(/^karte-nadel/)).toHaveLength(2);
   expect(screen.queryByText('2')).toBeNull();
 });
 
-// Die Zähler-Pille muss beim Zoomen MITLAUFEN. Das ist nicht dasselbe wie der
-// Test darüber: der liest den React-Baum, und der stimmt auch dann, wenn die
-// Nadel auf der Karte längst eingefroren ist. Sichtbar wäre der Fehler nur auf
-// dem Gerät, eine Gruppe, auf der weiterhin «2» steht, obwohl sie zwei Nadeln
-// geworden ist. Beobachtbar ist er hier nur am mitgeschriebenen Verlauf von
-// `tracksViewChanges` (siehe Mock oben).
-test('faellt die Gruppe auseinander, wird ihre Nadel neu gezeichnet', async () => {
-  ladeErfolg(NAH_BEIEINANDER);
+// The counter pill has to FOLLOW along while zooming. That is not the same as
+// the test above: that one reads the React tree, which is right even when the
+// pin on the map has long since frozen. On the device the fault would show as
+// a cluster still reading "2" although it has become two pins. Here it is
+// observable only through the recorded `tracksViewChanges` history.
+test('when the cluster falls apart its pin is drawn anew', async () => {
+  loadSuccess(CLOSE_TOGETHER);
   await wrap();
-  const nadel = await screen.findByTestId('karte-nadel-p1');
-  await fireEvent(within(nadel).getByTestId('nadel-bild'), 'load');
-  expect(tracksSeitDann('karte-nadel-p1').at(-1)).toBe(false);
+  const pin = await screen.findByTestId('karte-nadel-p1');
+  await fireEvent(within(pin).getByTestId('nadel-bild'), 'load');
+  expect(tracksSince('karte-nadel-p1').at(-1)).toBe(false);
 
-  await fireEvent(screen.getByTestId('karte-flaeche'), 'regionChangeComplete', ENG);
-  const verlauf = tracksSeitDann('karte-nadel-p1');
-  expect(verlauf).toContain(true); // sprang wieder an, die neue Nadel wird gezeichnet
-  expect(verlauf.at(-1)).toBe(false); // und beruhigt sich wieder
+  await fireEvent(screen.getByTestId('karte-flaeche'), 'regionChangeComplete', NARROW);
+  const history = tracksSince('karte-nadel-p1');
+  expect(history).toContain(true);
+  expect(history.at(-1)).toBe(false);
 });
 
-// Mitte der Gruppe, und enger als der Ausschnitt, aus dem heraus getippt wurde
-// (0.01°, die Mindestspanne von ausschnittFuer). Als Funktion, damit BEIDE
-// Zweige von `zeige` wirklich dieselben Zusicherungen tragen: ein Sprung, der
-// nur «irgendwohin» springt, ist kein erfüllter Reduced-Motion-Fall.
-function erwarteZielAufDerGruppe(ziel: Viewport) {
-  expect(ziel.latitude).toBeCloseTo(38.71005, 4);
-  expect(ziel.longitude).toBeCloseTo(-9.14005, 4);
-  expect(ziel.latitudeDelta).toBeLessThan(0.01);
-  expect(ziel.longitudeDelta).toBeLessThan(0.01);
+// Centre of the cluster, and narrower than the viewport it was tapped from
+// (0.01 degrees, the minimum span of `viewportFor`). As a function so BOTH
+// branches of the camera move really carry the same assertions: a jump that
+// only goes "somewhere" is no fulfilled reduced motion case.
+function expectTargetOnTheCluster(target: Viewport) {
+  expect(target.latitude).toBeCloseTo(38.71005, 4);
+  expect(target.longitude).toBeCloseTo(-9.14005, 4);
+  expect(target.latitudeDelta).toBeLessThan(0.01);
+  expect(target.longitudeDelta).toBeLessThan(0.01);
 }
 
-// Spec §5.5: wer auf der Karte sucht, will die Karte benutzen, ein Tipp auf
-// eine Gruppe fährt hinein, statt ein Sheet zu öffnen.
-test('ein Tipp auf eine Gruppe faehrt in sie hinein', async () => {
-  ladeErfolg(NAH_BEIEINANDER);
+test('a tap on a cluster travels into it', async () => {
+  loadSuccess(CLOSE_TOGETHER);
   await wrap();
   await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
 
   expect(mockAnimateToRegion).toHaveBeenCalledTimes(1);
-  const [ziel, dauer] = mockAnimateToRegion.mock.calls[0];
-  erwarteZielAufDerGruppe(ziel);
-  expect(dauer).toBe(motion.duration.base);
+  const [target, duration] = mockAnimateToRegion.mock.calls[0];
+  expectTargetOnTheCluster(target);
+  expect(duration).toBe(motion.duration.base);
 });
 
-// DESIGN-LANGUAGE §5 nennt für «Zoom» ausdrücklich selection-Haptik, dieselbe
-// Meldung, die die Tab-Leiste gibt. Der Gruppen-Zoom ist der eine Zoom, den
-// dieser Screen selbst auslöst.
-test('ein Tipp auf eine Gruppe meldet sich mit selection-Haptik', async () => {
-  ladeErfolg(NAH_BEIEINANDER);
+test('a tap on a cluster answers with selection haptics', async () => {
+  loadSuccess(CLOSE_TOGETHER);
   await wrap();
   await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
-  expect(mockHaptik).toHaveBeenCalledTimes(1);
+  expect(mockHaptics).toHaveBeenCalledTimes(1);
 });
 
-// Und nur dann: eine einzelne Nadel löst keinen Zoom aus, also klopft auch
-// nichts. Das Moment-Sheet (Task 8) bringt seine eigene Regel mit.
-test('ein Tipp auf eine einzelne Nadel klopft nicht', async () => {
-  ladeErfolg();
+test('a tap on a single pin does not knock', async () => {
+  loadSuccess();
   await wrap();
   await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
-  expect(mockHaptik).not.toHaveBeenCalled();
+  expect(mockHaptics).not.toHaveBeenCalled();
 });
 
-// `ausschnittFuer` hat eine Mindestspanne von rund 1,1 km, sie ist für den
-// Erststart gedacht, damit ein einzelner Moment nicht maximal herangezoomt
-// wird. Ungebremst als Ziel genommen, führte ein Tipp auf eine Gruppe aus
-// einem bereits nahen Ausschnitt heraus, die Karte zoomte HINAUS, obwohl der
-// Tipp hineinführen soll.
-test('ein Tipp auf eine Gruppe zoomt nie hinaus', async () => {
-  ladeErfolg(NAH_BEIEINANDER);
+// `viewportFor` has a minimum span of about 1.1 km, meant for the first
+// opening so a single moment is not zoomed in to the maximum. Taken as the
+// target unbounded, a tap on a cluster from an already close viewport led
+// outwards: the map zoomed OUT although the tap is supposed to lead in.
+test('a tap on a cluster never zooms out', async () => {
+  loadSuccess(CLOSE_TOGETHER);
   await wrap();
   await screen.findByTestId('karte-nadel-p1');
-  await fireEvent(screen.getByTestId('karte-flaeche'), 'regionChangeComplete', MITTEL);
+  await fireEvent(screen.getByTestId('karte-flaeche'), 'regionChangeComplete', MEDIUM);
 
   await fireEvent.press(screen.getByTestId('karte-nadel-p1'));
-  const [ziel] = mockAnimateToRegion.mock.calls[0];
-  expect(ziel.latitudeDelta).toBeLessThan(MITTEL.latitudeDelta);
-  expect(ziel.longitudeDelta).toBeLessThan(MITTEL.longitudeDelta);
+  const [target] = mockAnimateToRegion.mock.calls[0];
+  expect(target.latitudeDelta).toBeLessThan(MEDIUM.latitudeDelta);
+  expect(target.longitudeDelta).toBeLessThan(MEDIUM.longitudeDelta);
 });
 
-// Genau ein Punkt ist keine Gruppe: dorthin führt in Task 8 das Moment-Sheet.
-// Die Karte darf dabei nicht fahren, sonst rutschte der Moment unter dem
-// Sheet weg, während man ihn liest.
-test('ein Tipp auf eine einzelne Nadel bewegt die Karte nicht', async () => {
-  ladeErfolg();
+test('a tap on a single pin does not move the map', async () => {
+  loadSuccess();
   await wrap();
   await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
   expect(mockAnimateToRegion).not.toHaveBeenCalled();
   expect(mockSetRegion).not.toHaveBeenCalled();
 });
 
-// DESIGN-LANGUAGE §5 / Spec K12: mit Reduced Motion wird gesprungen statt
-// gefahren. Die Weiche sitzt in `zeige`, der EINEN Stelle, über die jede
-// Kamerabewegung dieses Screens geht.
-test('mit Reduced Motion springt die Karte, statt zu fahren', async () => {
-  mockReduziert = true;
-  ladeErfolg(NAH_BEIEINANDER);
+test('with Reduced Motion the map jumps instead of travelling', async () => {
+  mockReducedMotion = true;
+  loadSuccess(CLOSE_TOGETHER);
   await wrap();
   await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
   expect(mockAnimateToRegion).not.toHaveBeenCalled();
   expect(mockSetRegion).toHaveBeenCalledTimes(1);
 });
 
-// «Springt» allein ist keine Zusicherung: ein Sprung auf 0/0 wäre auch einer.
-// Der Sprung muss dasselbe Ziel treffen wie die Fahrt, sonst landet die Karte
-// ausgerechnet auf dem Pfad im Atlantik, den von Hand am seltensten jemand
-// sieht.
-test('der Sprung trifft dasselbe Ziel wie die Fahrt', async () => {
-  mockReduziert = true;
-  ladeErfolg(NAH_BEIEINANDER);
+test('the jump hits the same target as the travel', async () => {
+  mockReducedMotion = true;
+  loadSuccess(CLOSE_TOGETHER);
   await wrap();
   await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
-  const [ziel] = mockSetRegion.mock.calls[0];
-  erwarteZielAufDerGruppe(ziel);
+  const [target] = mockSetRegion.mock.calls[0];
+  expectTargetOnTheCluster(target);
 });
 
-// Auch der Sprung geht nicht hinaus, die Begrenzung sitzt vor `zeige`, gilt
-// also für beide Zweige. Ohne diesen Test bliebe das eine Behauptung.
-test('auch mit Reduced Motion wird nie hinausgezoomt', async () => {
-  mockReduziert = true;
-  ladeErfolg(NAH_BEIEINANDER);
+test('with Reduced Motion it never zooms out either', async () => {
+  mockReducedMotion = true;
+  loadSuccess(CLOSE_TOGETHER);
   await wrap();
   await screen.findByTestId('karte-nadel-p1');
-  await fireEvent(screen.getByTestId('karte-flaeche'), 'regionChangeComplete', MITTEL);
+  await fireEvent(screen.getByTestId('karte-flaeche'), 'regionChangeComplete', MEDIUM);
 
   await fireEvent.press(screen.getByTestId('karte-nadel-p1'));
-  const [ziel] = mockSetRegion.mock.calls[0];
-  expect(ziel.latitudeDelta).toBeLessThan(MITTEL.latitudeDelta);
-  expect(ziel.longitudeDelta).toBeLessThan(MITTEL.longitudeDelta);
+  const [target] = mockSetRegion.mock.calls[0];
+  expect(target.latitudeDelta).toBeLessThan(MEDIUM.latitudeDelta);
+  expect(target.longitudeDelta).toBeLessThan(MEDIUM.longitudeDelta);
 });
 
-// K3: die Linie zeigt die Reise als Bewegung, in der Reihenfolge der
-// AUFNAHME. `punkte` kommt bereits nach `captured_at` sortiert aus
-// zuKartenPunkten; hier wird festgehalten, dass der Screen diese Reihenfolge
-// unverändert weitergibt und nicht etwa nach Upload-Zeit oder Koordinate
-// umsortiert.
-test('die Linie verbindet die Momente in Aufnahmereihenfolge', async () => {
-  ladeErfolg();
+test('the line connects the moments in capture order', async () => {
+  loadSuccess();
   await wrap();
-  const linie = await screen.findByTestId('karte-linie');
-  expect(linie.props.coordinates).toEqual([
+  const line = await screen.findByTestId('karte-linie');
+  expect(line.props.coordinates).toEqual([
     { latitude: 38.71, longitude: -9.14 },
     { latitude: 38.72, longitude: -9.13 },
   ]);
 });
 
-test('die Linie ist der Akzent in Breite 3', async () => {
-  ladeErfolg();
+test('the line is the accent colour at width 3', async () => {
+  loadSuccess();
   await wrap();
-  const linie = await screen.findByTestId('karte-linie');
-  expect(linie.props.strokeColor).toBe(palette.accent);
-  expect(linie.props.strokeWidth).toBe(3);
+  const line = await screen.findByTestId('karte-linie');
+  expect(line.props.strokeColor).toBe(palette.accent);
+  expect(line.props.strokeWidth).toBe(3);
 });
 
-// Eine Linie braucht zwei Punkte. Mit einem einzigen Moment stünde sonst ein
-// Overlay auf der Karte, das nichts verbindet.
-test('ein einzelner Moment ergibt keine Linie', async () => {
-  ladeErfolg([m1, m3]);
+test('a single moment yields no line', async () => {
+  loadSuccess([m1, m3]);
   await wrap();
   await screen.findByTestId('karte-nadel-p1');
   expect(screen.queryByTestId('karte-linie')).toBeNull();
 });
 
-// Der Test, der den stillen Fehler laut macht (siehe Mock-Kommentar oben):
-// hereingegeben wird GENAU die Spielliste, uploaded ∩ Vorrats-URL, in
-// unveränderter Reihenfolge. p5 (uploaded, ohne URL) und p4 (pending) fehlen
-// darin, p3 (ohne Ort) ist dabei: er zählt für den Index mit, auch wenn er
-// keine Nadel bekommt.
-test('zuKartenPunkten bekommt die Spielliste des Players, nicht die rohe Momente-Liste', async () => {
-  ladeErfolg();
+test('toMapPoints receives the player playlist, not the raw moment list', async () => {
+  loadSuccess();
   await wrap();
   await screen.findByTestId('karte-nadel-p1');
   expect(toMapPoints).toHaveBeenCalledWith([m1, m2, m3]);
 });
 
-// Gegenprobe zum Test darüber, ohne den Umweg über den Spion: rechnete der
-// Ausschnitt Tokio (p5) oder Sydney (p4) mit, ginge er über den halben
-// Planeten, die zwei Nadeln in Lissabon wären Punkte im Nichts.
-test('der Ausschnitt umfasst nur die sichtbaren Nadeln', async () => {
-  ladeErfolg();
+test('the viewport spans only the visible pins', async () => {
+  loadSuccess();
   await wrap();
   const region = (await screen.findByTestId('karte-flaeche')).props.initialRegion;
   expect(region.latitude).toBeCloseTo(38.715, 3);
@@ -641,50 +535,38 @@ test('der Ausschnitt umfasst nur die sichtbaren Nadeln', async () => {
   expect(region.longitudeDelta).toBeLessThan(1);
 });
 
-// Kein leerer Kartenausschnitt über dem Atlantik (Spec K9). Hier zählt nur,
-// dass keine Karte auf einer erfundenen Region steht, was STATTDESSEN dort
-// steht, prüft der Task-10-Abschnitt unten.
-//
-// Gewartet wird auf die Überschrift des Leer-Zustands und nicht mehr auf die
-// Zurück-Pille: die gibt es hier seit Task 10 nicht mehr. Sie ist eine
-// translucente Pille für die Kartenfläche (DESIGN-LANGUAGE §1), ohne Karte
-// liegt sie auf nichts, und der eine Knopf des Leer-Zustands (Spec §5.9)
-// führt ohnehin denselben Weg.
-test('hat kein einziger Moment einen Ort, steht gar keine Karte da', async () => {
-  ladeErfolg([m3]);
+// Waiting on the heading of the empty state and no longer on the back pill:
+// that one does not exist here any more. It is a translucent pill for the map
+// surface, without a map it lies on nothing, and the one button of the empty
+// state leads the same way anyway.
+test('when not a single moment has a place there is no map at all', async () => {
+  loadSuccess([m3]);
   await wrap();
   await screen.findByText('Diese Reise hat keine Orte');
   expect(screen.queryByTestId('karte-flaeche')).toBeNull();
   expect(screen.queryByTestId(/^karte-nadel/)).toBeNull();
 });
 
-// Fixrunde 1: `fetchRecapMomente`/`holeVorrat` geben Fehler als Wert zurück,
-// wirft doch eine von beiden, darf das keine unbehandelte Ablehnung werden
-// und den Screen nicht unbedienbar zurücklassen. Der Rückweg muss bleiben.
-test('wirft der Ladeweg, bleibt der Screen bedienbar statt haengen zu bleiben', async () => {
+test('when the load path throws the screen stays operable instead of hanging', async () => {
   (fetchRecapMoments as jest.Mock).mockRejectedValue(new Error('kaputt'));
-  (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+  (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
   await wrap();
   await fireEvent.press(await screen.findByLabelText('Zurück'));
   expect(mockBack).toHaveBeenCalled();
   expect(screen.queryByTestId('karte-flaeche')).toBeNull();
 });
 
-test('der Zurück-Pfeil verlässt den Screen per back(), wenn ein Rückweg existiert', async () => {
-  ladeErfolg();
+test('the back arrow leaves the screen via back() when a way back exists', async () => {
+  loadSuccess();
   await wrap();
   await fireEvent.press(await screen.findByLabelText('Zurück'));
   expect(mockBack).toHaveBeenCalled();
   expect(mockReplace).not.toHaveBeenCalled();
 });
 
-// Ohne Rückweg im Stapel (z.B. per Deep Link direkt auf die Karte) gibt es
-// nichts vom Stapel zu nehmen, dann führt der Weg auf die Übersicht
-// DIESER Reise, nicht auf die Recap-Liste: die Karte ist eine Lesart dieses
-// Recaps, kein eigener Bereich (Spec §5.1).
-test('ohne Rückweg im Stapel führt der Zurück-Pfeil auf die Übersicht dieser Reise', async () => {
-  mockKannZurueck = false;
-  ladeErfolg();
+test('without a way back on the stack the back arrow leads to the overview of this trip', async () => {
+  mockCanGoBack = false;
+  loadSuccess();
   await wrap();
   await fireEvent.press(await screen.findByLabelText('Zurück'));
   expect(mockReplace).toHaveBeenCalledWith({ pathname: '/recap/[id]/overview', params: { id: 't1' } });
@@ -692,14 +574,14 @@ test('ohne Rückweg im Stapel führt der Zurück-Pfeil auf die Übersicht dieser
 });
 
 // ---------------------------------------------------------------------------
-// Task 8: das Moment-Sheet und der Sprung in den Player
+// The moment sheet and the jump into the player
 // ---------------------------------------------------------------------------
 
-// Ein Moment mit allem, was das Sheet zeigt (Spec §5.7). 13:32 UTC sind in
-// Europe/Lisbon 14:32, die Uhrzeit muss also aus `captured_tz` kommen und
-// nicht aus der Zeitzone des Testrechners (die ergäbe 15:32 in Zürich, 13:32
-// in UTC). Dieselbe Formatierung wie Player und Nadel: features/recap/uhrzeit.
-const mitAllem = moment({
+// A moment with everything the sheet shows. 13:32 UTC is 14:32 in
+// Europe/Lisbon, so the time has to come from `captured_tz` and not from the
+// timezone of the test machine (which would give 15:32 in Zurich, 13:32 in
+// UTC). Same formatting as player and pin: features/recap/timeOfDay.
+const withEverything = moment({
   id: 'p1',
   authorName: 'Mira',
   captured_at: '2026-08-10T13:32:00.000Z',
@@ -707,58 +589,51 @@ const mitAllem = moment({
   caption: 'Angekommen, 28 Grad im Mai',
 });
 
-// Ein Moment OHNE Ort, chronologisch VOR den beiden mit Ort, und das ist der
-// ganze Zweck dieser Zeile. Ohne ihn zählten die Spielliste (in die `start`
-// zeigt) und `punkte` (die Nadeln) zufällig gleich, und kein Test könnte
-// sehen, in welche der beiden Listen der Index gebildet wurde. Mit ihm sind
-// sie um genau eins verschoben: p1 steht in der Spielliste an Stelle 1 und in
-// `punkte` an Stelle 0, p2 an Stelle 2 bzw. 1.
+// A moment WITHOUT a place, chronologically BEFORE the two with one, and that
+// is the whole purpose of this line. Without it the playlist (which `start`
+// points into) and the points (the pins) would count alike by accident, and
+// no test could see which of the two lists the index was built from. With it
+// they are shifted by exactly one: p1 is at playlist position 1 and at point
+// position 0, p2 at 2 respectively 1.
 //
-// p5 (uploaded, ohne URL) und p4 (pending) bleiben in der Liste, damit der
-// Index auch gegen die ROHE Momente-Liste abgegrenzt ist: dort stünde p2 an
-// Stelle 3.
-const ohneOrtFrueh = moment({ id: 'p3', captured_at: '2026-08-10T08:00:00.000Z', lat: null, lng: null });
-const MIT_SHEET_DATEN = [ohneUrlM, ohneOrtFrueh, mitAllem, m2, pendingM];
+// p5 (uploaded, no url) and p4 (pending) stay in the list so the index is set
+// apart from the RAW moment list too, where p2 would be at position 3.
+const withoutPlaceEarly = moment({ id: 'p3', captured_at: '2026-08-10T08:00:00.000Z', lat: null, lng: null });
+const WITH_SHEET_DATA = [withoutUrlM, withoutPlaceEarly, withEverything, m2, pendingM];
 
-// Zwei Momente auf EXAKT derselben Koordinate (Task-8-Brief, Schritt 2b). Sie
-// fallen durch keine Zoomstufe auseinander: der Abstand auf dem Bildschirm ist
-// ihre Ausdehnung geteilt durch die sichtbare Spanne, und null bleibt null.
-// Ohne einen Ausweg tippt man hier ins Leere.
-const m2Aufeinander = moment({ id: 'p2', captured_at: '2026-08-10T18:00:00.000Z', lat: 38.71, lng: -9.14 });
-const AUF_EINEM_FLECK = [ohneUrlM, ohneOrtFrueh, mitAllem, m2Aufeinander, pendingM];
+// Two moments on EXACTLY the same coordinate. No zoom level separates them:
+// their distance on screen is their extent divided by the visible span, and
+// zero stays zero. Without a way out one taps into nothing here.
+const m2SameSpot = moment({ id: 'p2', captured_at: '2026-08-10T18:00:00.000Z', lat: 38.71, lng: -9.14 });
+const ON_ONE_SPOT = [withoutUrlM, withoutPlaceEarly, withEverything, m2SameSpot, pendingM];
 
-test('ein Tipp auf eine einzelne Nadel zeigt den Moment', async () => {
-  ladeErfolg(MIT_SHEET_DATEN);
+test('a tap on a single pin shows the moment', async () => {
+  loadSuccess(WITH_SHEET_DATA);
   await wrap();
   await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
 
   expect(screen.getByText('Angekommen, 28 Grad im Mai')).toBeTruthy();
   expect(screen.getByText('Miradouro da Senhora do Monte')).toBeTruthy();
-  // Zugleich der Beweis für die Uhrzeit: 14:32 gibt es nur in `captured_tz`.
+  // At the same time the proof for the time: 14:32 exists only in `captured_tz`.
   expect(screen.getByText('Mira · 14:32')).toBeTruthy();
 });
 
-// Das Sheet zeigt das Bild gross (3:2, Spec §5.7), dort gehört das mittlere
-// Bild hin, nicht das 44 Punkte breite Nadel-Thumbnail. Nur an der URL ist zu
-// sehen, welches von beiden genommen wurde.
-test('das Sheet zeigt das mittlere Bild, nicht das Nadel-Thumbnail', async () => {
-  ladeErfolg(MIT_SHEET_DATEN);
+test('the sheet shows the medium image, not the pin thumbnail', async () => {
+  loadSuccess(WITH_SHEET_DATA);
   await wrap();
   await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
-  expect(screen.getByTestId('sheet-bild').props.source.uri).toBe(bild('p1').medium_url);
+  expect(screen.getByTestId('sheet-bild').props.source.uri).toBe(image('p1').medium_url);
 });
 
-// DER wichtigste Test dieses Plans: `start` ist ein INDEX in die sortierte
-// SPIELLISTE des Players (uploaded ∩ Vorrats-URL, player.tsx:503-527), nicht
-// in die Nadeln und nicht in die rohe Momente-Liste. Zeigt er auf den falschen
-// Wert, startet der Player beim falschen Moment, und niemand merkt es, ausser
-// er zählt nach.
+// `start` is an INDEX into the sorted PLAYLIST of the player (uploaded
+// intersected with pool url), not into the pins and not into the raw moment
+// list. Pointing at the wrong value starts the player at the wrong moment,
+// and nobody notices unless they count.
 //
-// p2 steht in der Spielliste an Stelle 2, in `punkte` an Stelle 1, in der
-// rohen Liste an Stelle 3. Die 2 ist damit die einzige Zahl, die aus der
-// richtigen Zählung fallen kann.
-test('«Im Recap ansehen» startet den Player bei genau diesem Moment', async () => {
-  ladeErfolg(MIT_SHEET_DATEN);
+// p2 is at playlist position 2, at point position 1, at raw list position 3.
+// The 2 is therefore the only number that can fall out of the right count.
+test('the watch in recap button starts the player at exactly this moment', async () => {
+  loadSuccess(WITH_SHEET_DATA);
   await wrap();
   await fireEvent.press(await screen.findByTestId('karte-nadel-p2'));
   await fireEvent.press(screen.getByText('Im Recap ansehen'));
@@ -769,22 +644,19 @@ test('«Im Recap ansehen» startet den Player bei genau diesem Moment', async ()
   });
 });
 
-test('das Sheet schliesst, ohne den Screen zu verlassen', async () => {
-  ladeErfolg(MIT_SHEET_DATEN);
+test('the sheet closes without leaving the screen', async () => {
+  loadSuccess(WITH_SHEET_DATA);
   await wrap();
   await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
   await fireEvent.press(screen.getByLabelText('Schliessen'));
 
   expect(screen.queryByText('Im Recap ansehen')).toBeNull();
   expect(mockPush).not.toHaveBeenCalled();
-  // Die Karte steht noch da, mit ihren Nadeln, geschlossen wird das Sheet,
-  // nicht der Screen.
   expect(screen.getByTestId('karte-nadel-p1')).toBeTruthy();
 });
 
-// Schritt 2b: der Ausweg für Gruppen, die sich nicht auflösen lassen.
-test('eine Gruppe, die sich nicht aufzoomen laesst, oeffnet doch ein Sheet', async () => {
-  ladeErfolg(AUF_EINEM_FLECK);
+test('a cluster that cannot be zoomed apart opens a sheet after all', async () => {
+  loadSuccess(ON_ONE_SPOT);
   await wrap();
   await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
 
@@ -792,24 +664,20 @@ test('eine Gruppe, die sich nicht aufzoomen laesst, oeffnet doch ein Sheet', asy
   expect(screen.getAllByTestId(/^gruppe-eintrag/)).toHaveLength(2);
 });
 
-// Die Regel bleibt «erst zoomen»: eine Kamerafahrt, die nichts ausrichtet, ist
-// keine Zutat zum Sheet, sondern ein Ruckler ins Leere, und die
-// selection-Haptik gehört zum Zoom, nicht zum Sheet.
-test('eine Gruppe auf einem Fleck faehrt nicht ins Leere, bevor das Sheet kommt', async () => {
-  ladeErfolg(AUF_EINEM_FLECK);
+test('a cluster on one spot does not travel into nothing before the sheet arrives', async () => {
+  loadSuccess(ON_ONE_SPOT);
   await wrap();
   await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
 
   expect(mockAnimateToRegion).not.toHaveBeenCalled();
   expect(mockSetRegion).not.toHaveBeenCalled();
-  expect(mockHaptik).not.toHaveBeenCalled();
+  expect(mockHaptics).not.toHaveBeenCalled();
 });
 
-// Jeder Eintrag führt über DENSELBEN Index-Weg in den Player wie ein einzelner
-// Moment (Task-8-Brief, Schritt 2b). Der Index innerhalb der Gruppe wäre hier
-// 1, der in `punkte` ebenfalls 1, nur die Spielliste ergibt 2.
-test('jeder Eintrag der Gruppe fuehrt an seinen eigenen Platz in der Spielliste', async () => {
-  ladeErfolg(AUF_EINEM_FLECK);
+// The index inside the cluster would be 1 here, the one in the points 1 as
+// well, only the playlist yields 2.
+test('every row of the cluster leads to its own place in the playlist', async () => {
+  loadSuccess(ON_ONE_SPOT);
   await wrap();
   await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
   await fireEvent.press(screen.getByTestId('gruppe-eintrag-p2'));
@@ -820,46 +688,34 @@ test('jeder Eintrag der Gruppe fuehrt an seinen eigenen Platz in der Spielliste'
   });
 });
 
-// Ein offenes Sheet gehört zu der Reise, aus der es geöffnet wurde. Bliebe es
-// beim Wechsel stehen, zeigte es einen Moment der vorherigen, und sein Knopf
-// schickte den Player mit DEREN Index in die neue Reise, wo dieselbe Zahl auf
-// einen ganz anderen Moment zeigt. Genau die Art Fehler, die nur auffällt, wenn
-// jemand nachzählt.
-test('ein Wechsel der Reise laesst kein Sheet der vorherigen stehen', async () => {
-  ladeErfolg(MIT_SHEET_DATEN);
+test('a change of trip leaves no sheet of the previous one standing', async () => {
+  loadSuccess(WITH_SHEET_DATA);
   const { rerender } = await wrap();
   await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
   expect(screen.getByText('Im Recap ansehen')).toBeTruthy();
 
   mockId = 't2';
-  ladeErfolg([m1]);
-  await rerender(<ThemeProvider><RecapKarte /></ThemeProvider>);
+  loadSuccess([m1]);
+  await rerender(<ThemeProvider><RecapMap /></ThemeProvider>);
 
   expect(screen.queryByText('Im Recap ansehen')).toBeNull();
   expect(screen.queryByText('Angekommen, 28 Grad im Mai')).toBeNull();
 });
 
-// Die Beschriftung der Nadel muss dieselbe Weiche kennen wie der Tipp selbst.
-// Wie sie formuliert ist, prüft components/__tests__/KartenNadel.test.tsx,
-// hier hängt sie am richtigen Wert: sonst verspricht die Karte per VoiceOver
-// einen Zoom, den sie nicht einlösen kann, und zwar ausgerechnet denen, die
-// nur das Label haben.
-test('die Nadel einer Gruppe auf einem Fleck kuendigt das Sheet an', async () => {
-  ladeErfolg(AUF_EINEM_FLECK);
+test('the pin of a cluster on one spot announces the sheet', async () => {
+  loadSuccess(ON_ONE_SPOT);
   await wrap();
   expect(await screen.findByLabelText('2 Momente an diesem Ort ansehen')).toBeTruthy();
 });
 
-test('die Nadel einer aufzoombaren Gruppe kuendigt den Zoom an', async () => {
-  ladeErfolg(NAH_BEIEINANDER);
+test('the pin of a zoomable cluster announces the zoom', async () => {
+  loadSuccess(CLOSE_TOGETHER);
   await wrap();
   expect(await screen.findByLabelText('Auf 2 Momente heranzoomen')).toBeTruthy();
 });
 
-// Und die Gegenprobe, die den Zoom-Weg am Leben hält: wo Zoomen etwas
-// ausrichtet, gibt es kein Sheet, weder die Liste noch den einzelnen Moment.
-test('eine Gruppe, die sich aufzoomen laesst, oeffnet KEIN Sheet', async () => {
-  ladeErfolg(NAH_BEIEINANDER);
+test('a cluster that can be zoomed apart opens NO sheet', async () => {
+  loadSuccess(CLOSE_TOGETHER);
   await wrap();
   await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
 
@@ -868,84 +724,69 @@ test('eine Gruppe, die sich aufzoomen laesst, oeffnet KEIN Sheet', async () => {
 });
 
 // ---------------------------------------------------------------------------
-// Abschluss-Review, Finding 1: die Karte hat eine letzte Zoomstufe
+// The map has a last zoom level
 // ---------------------------------------------------------------------------
 //
-// `aufEinemFleck` (bitgleiche Koordinaten) deckte nur den seltenen Fall ab.
-// Der häufige: zwei Aufnahmen am selben Ort liegen durch GPS-Versatz drei bis
-// acht Meter auseinander, bei Leaflets Zoomstufe 19 sind das weniger als die
-// 40 Bildschirmpunkte, ab denen zwei Nadeln getrennt gezeichnet werden. Die
-// Gruppe fiel durch keine Zoomstufe auseinander, und der Tipp lief beliebig
-// oft ins Leere. Die Antwort kennt keine Zahl, sondern beobachtet: hat sich
-// der Ausschnitt bewegt?
+// Identical coordinates only cover the rare case. The common one: two
+// captures at the same place lie three to eight metres apart through GPS
+// drift, and at zoom level 19 that is less than the 40 screen points from
+// which two pins are drawn separately. The cluster fell apart at no zoom
+// level and the tap ran into nothing however often it was repeated. The
+// answer knows no number, it observes: has the viewport moved?
 //
-// Im Testlauf meldet die gemockte Karte von sich aus nie einen neuen
-// Ausschnitt, sie steht damit genau so still wie am Anschlag.
-test('bewegt ein Gruppen-Tipp die Kamera nicht, oeffnet der naechste das Sheet', async () => {
-  ladeErfolg(NAH_BEIEINANDER);
+// In the test run the mocked map never reports a new viewport by itself, so
+// it stands exactly as still as it would at the last zoom level.
+test('when a cluster tap does not move the camera the next one opens the sheet', async () => {
+  loadSuccess(CLOSE_TOGETHER);
   await wrap();
   await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
-  expect(screen.queryByText(/an diesem Ort/)).toBeNull(); // erst fahren
+  expect(screen.queryByText(/an diesem Ort/)).toBeNull();
 
   await fireEvent.press(screen.getByTestId('karte-nadel-p1'));
   expect(screen.getByText('2 Momente an diesem Ort')).toBeTruthy();
   expect(screen.getAllByTestId(/^gruppe-eintrag/)).toHaveLength(2);
 });
 
-// Die Gegenprobe, die den Zoom-Weg am Leben hält: hat sich der Ausschnitt
-// zwischen den beiden Tipps geändert, kann die Kamera noch etwas ausrichten,
-// dann gibt es weiterhin kein Sheet, sondern eine zweite Fahrt.
-test('hat sich der Ausschnitt bewegt, zoomt auch der zweite Tipp weiter', async () => {
-  ladeErfolg(NAH_BEIEINANDER);
+test('when the viewport has moved the second tap keeps zooming', async () => {
+  loadSuccess(CLOSE_TOGETHER);
   await wrap();
   await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
-  await fireEvent(screen.getByTestId('karte-flaeche'), 'regionChangeComplete', MITTEL);
+  await fireEvent(screen.getByTestId('karte-flaeche'), 'regionChangeComplete', MEDIUM);
 
   await fireEvent.press(screen.getByTestId('karte-nadel-p1'));
   expect(screen.queryByText(/an diesem Ort/)).toBeNull();
   expect(mockAnimateToRegion).toHaveBeenCalledTimes(2);
 });
 
-// Und was die Nadel dazu SAGT. Bis zur Zusammenführung rechnete die
-// Kartenfläche die Weiche selbst, mit `aufEinemFleck`, und kannte damit nur
-// den seltenen Grund. Hier liegen die Momente auf verschiedenen Koordinaten,
-// `aufEinemFleck` sagt also nein, der Tipp öffnet trotzdem das Sheet, und die
-// Nadel versprach weiter einen Zoom, den kein Tipp mehr einlöst. Zu hören
-// bekommt das ausgerechnet der, der nur das Label hat.
-//
-// Das zweite `regionChangeComplete` ist die Karte, die ihre Fahrt beendet
-// meldet, ohne sich bewegt zu haben, genau das tut sie am Anschlag. Erst
-// dadurch rendert der Screen neu und die Beschriftung wird neu gebildet.
-test('an einer festgefahrenen Gruppe sagt die Nadel das Sheet an, nicht den Zoom', async () => {
-  ladeErfolg(NAH_BEIEINANDER);
+// The second `regionChangeComplete` is the map reporting its finished travel
+// without having moved, which is exactly what it does at the last zoom level.
+// Only that makes the screen re-render and the label be rebuilt.
+test('at a stuck cluster the pin announces the sheet, not the zoom', async () => {
+  loadSuccess(CLOSE_TOGETHER);
   await wrap();
-  await fireEvent(screen.getByTestId('karte-flaeche'), 'regionChangeComplete', MITTEL);
+  await fireEvent(screen.getByTestId('karte-flaeche'), 'regionChangeComplete', MEDIUM);
   expect(await screen.findByLabelText('Auf 2 Momente heranzoomen')).toBeTruthy();
 
   await fireEvent.press(screen.getByTestId('karte-nadel-p1'));
-  await fireEvent(screen.getByTestId('karte-flaeche'), 'regionChangeComplete', { ...MITTEL });
+  await fireEvent(screen.getByTestId('karte-flaeche'), 'regionChangeComplete', { ...MEDIUM });
 
   expect(screen.getByLabelText('2 Momente an diesem Ort ansehen')).toBeTruthy();
   expect(screen.queryByLabelText('Auf 2 Momente heranzoomen')).toBeNull();
 });
 
-// Eine andere Gruppe liegt woanders: dorthin kann die Kamera fahren, auch wenn
-// die Zoomstufe am Anschlag ist, die MITTE bewegt sich. Ein stehen
-// gebliebener Versuch darf sie nicht mit ins Sheet reissen.
-test('ein festgefahrener Versuch blockiert eine ANDERE Gruppe nicht', async () => {
-  // Zwei Gruppen: p1/p2 dicht beieinander in Lissabon, p6/p7 dicht beieinander
-  // rund einen Kilometer weiter.
+test('a stuck attempt does not block a DIFFERENT cluster', async () => {
+  // Two clusters: p1/p2 close together in Lisbon, p6/p7 close together about a
+  // kilometre further on.
   const m6 = moment({ id: 'p6', captured_at: '2026-08-10T19:00:00.000Z', lat: 38.7201, lng: -9.1301 });
   const m7 = moment({ id: 'p7', captured_at: '2026-08-10T19:30:00.000Z', lat: 38.72012, lng: -9.1301 });
-  ladeErfolg([m1, m2Nah, m6, m7], {
-    ...VORRAT_OK,
-    urls: new Map([['p1', bild('p1')], ['p2', bild('p2')], ['p6', bild('p6')], ['p7', bild('p7')]]),
+  loadSuccess([m1, m2Near, m6, m7], {
+    ...POOL_OK,
+    urls: new Map([['p1', image('p1')], ['p2', image('p2')], ['p6', image('p6')], ['p7', image('p7')]]),
     ausgelassen: 0,
   });
   await wrap();
   await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
-  // Die Karte steht (kein regionChangeComplete), der Versuch auf p1 ist
-  // festgefahren. Der Tipp auf die andere Gruppe muss trotzdem fahren.
+  // The map stands still (no regionChangeComplete), the attempt on p1 is stuck.
   await fireEvent.press(screen.getByTestId('karte-nadel-p6'));
 
   expect(screen.queryByText(/an diesem Ort/)).toBeNull();
@@ -953,59 +794,54 @@ test('ein festgefahrener Versuch blockiert eine ANDERE Gruppe nicht', async () =
 });
 
 // ---------------------------------------------------------------------------
-// Task 7, offen gebliebener Punkt: der Tipp direkt nach einer Kamerafahrt
+// The tap right after a camera move
 // ---------------------------------------------------------------------------
 //
-// Der Screen merkt sich den Gruppen-Stand für den nächsten Tipp in einem Ref
-// (`stand`, karte.tsx). Geschrieben wird es in einem LAYOUT-Effekt, nicht in
-// einem passiven: ein passiver läuft erst nach dem Commit, und in dem Fenster
-// dazwischen liest ein Tipp noch den alten Stand. Genau das passiert nach
-// einer Kamerafahrt, die Gruppe ist zerfallen, die neue Nadel steht schon da,
-// und wer sie sofort antippt, wird im alten Stand nicht gefunden: das Sheet
-// bliebe aus, ohne dass irgendwo ein Fehler entstünde.
+// The screen remembers the cluster state for the next tap in a ref. It is
+// written in a LAYOUT effect, not a passive one: a passive one runs only
+// after the commit, and in the window in between a tap still reads the old
+// state. That is exactly what happens after a camera move: the cluster has
+// fallen apart, the new pin is already there, and whoever taps it right away
+// is not found in the old state, so the sheet would stay away without any
+// error arising anywhere.
 //
-// Task 7 konnte das nicht prüfen, weil `fireEvent` sein `act()` mitbringt und
-// dieses am Ende ALLE Effekte abspielt, das Fenster existiert dort nicht.
-// Es existiert aber in der Reihenfolge der Layout-Effekte: React spielt sie in
-// Baumreihenfolge ab, Geschwister von links nach rechts, und ALLE vor dem
-// ersten passiven Effekt. Ein Nachbar, der NACH dem Screen steht und selbst in
-// einem Layout-Effekt tippt, trifft damit exakt den Augenblick, in dem der
-// Screen committet hat und sein passiver Effekt noch aussteht.
+// `fireEvent` brings its own `act()` along and that plays ALL effects at the
+// end, so the window does not exist there. It does exist in the order of the
+// layout effects: React plays them in tree order, siblings left to right, and
+// ALL of them before the first passive effect. A neighbour standing AFTER the
+// screen and tapping inside a layout effect therefore hits exactly the moment
+// in which the screen has committed and its passive effect is still pending.
 //
-// Ausgelöst wird beides vom selben Ereignis: eine Änderung der Fenstergrösse.
-// Sie geht über `useWindowDimensions` an beide, wird zu einem Render
-// zusammengefasst, und lässt die Gruppe auseinanderfallen, weil in einem
-// grösseren Fenster mehr Bildschirmpunkte auf dasselbe Grad kommen.
-const GROSSES_FENSTER = { width: 3000, height: 5000, scale: 2, fontScale: 1 };
-const URSPRUNGS_FENSTER = Dimensions.get('window');
-const URSPRUNGS_SCHIRM = Dimensions.get('screen');
+// Both are triggered by the same event: a change of the window size. It
+// reaches both through `useWindowDimensions`, is batched into one render, and
+// lets the cluster fall apart because a larger window puts more screen points
+// on the same degree.
+const LARGE_WINDOW = { width: 3000, height: 5000, scale: 2, fontScale: 1 };
+const ORIGINAL_WINDOW = Dimensions.get('window');
+const ORIGINAL_SCREEN = Dimensions.get('screen');
 
-function Stichler({ nadel }: { nadel: string }) {
+function PinTapper({ pin }: { pin: string }) {
   const { width } = useWindowDimensions();
   useLayoutEffect(() => {
-    // Erst nach dem Wachsen tippen, beim ersten Rendern gibt es die Nadel
-    // noch gar nicht.
-    if (width !== GROSSES_FENSTER.width) return;
-    mockPressen.get(nadel)?.();
-  }, [width, nadel]);
+    if (width !== LARGE_WINDOW.width) return;
+    mockPresses.get(pin)?.();
+  }, [width, pin]);
   return null;
 }
 
-test('ein Tipp unmittelbar nach dem Zerfall einer Gruppe wird nicht verschluckt', async () => {
-  ladeErfolg(NAH_BEIEINANDER);
+test('a tap right after a cluster falls apart is not swallowed', async () => {
+  loadSuccess(CLOSE_TOGETHER);
   await render(
     <ThemeProvider>
-      <RecapKarte />
-      <Stichler nadel="karte-nadel-p2" />
+      <RecapMap />
+      <PinTapper pin="karte-nadel-p2" />
     </ThemeProvider>
   );
-  // Vorbedingung: p2 ist noch Mitglied der Gruppe um p1, hat also keine eigene
-  // Nadel, der Tipp unten gilt einer, die es beim Rendern davor nicht gab.
   await screen.findByTestId('karte-nadel-p1');
   expect(screen.queryByTestId('karte-nadel-p2')).toBeNull();
 
   await act(async () => {
-    Dimensions.set({ window: GROSSES_FENSTER, screen: GROSSES_FENSTER });
+    Dimensions.set({ window: LARGE_WINDOW, screen: LARGE_WINDOW });
   });
 
   expect(screen.getByTestId('karte-nadel-p2')).toBeTruthy();
@@ -1013,22 +849,22 @@ test('ein Tipp unmittelbar nach dem Zerfall einer Gruppe wird nicht verschluckt'
 });
 
 // ---------------------------------------------------------------------------
-// Fixrunde 1: die Sackgasse im Ausweg, und der Wächter, der nur versteckte
+// The dead end inside the way out
 // ---------------------------------------------------------------------------
 
-// Zwölf Momente auf EXAKT derselben Koordinate. Das ist kein konstruierter
-// Randfall: `ortBestimmen` fragt ohne Optionen nach der Position
-// (features/moments/ortUndZeit.ts), und zwei Aufnahmen kurz nacheinander
-// bekommen dort regelmässig denselben Fix bitgleich zurück, deshalb gibt es
-// dieses Sheet überhaupt.
+// Twelve moments on EXACTLY the same coordinate. Not a contrived edge case:
+// the place lookup asks for the position without options
+// (features/moments/placeAndTime.ts), and two captures shortly after one
+// another regularly get the same fix back bit for bit, which is why this
+// sheet exists at all.
 //
-// Die Liste ist 87 + 72·N Punkte hoch; ohne Scroll-Bereich schneidet `Sheet`
-// (85 % Fensterhöhe, `overflow: 'hidden'`) ab dem siebten Eintrag ab. Die
-// abgeschnittenen Momente wären auf KEINEM Weg mehr erreichbar, denn Zoomen
-// hilft auf einem Fleck per Definition nicht.
-const VIELE_AUF_EINEM_FLECK = [
-  ohneUrlM,
-  ohneOrtFrueh,
+// The list is 87 + 72 per row points high, without a scroll area `Sheet`
+// (85 % window height, `overflow: 'hidden'`) clips from the seventh row on.
+// The clipped moments would be reachable on NO path, because zooming does not
+// help on one spot by definition.
+const MANY_ON_ONE_SPOT = [
+  withoutUrlM,
+  withoutPlaceEarly,
   ...Array.from({ length: 12 }, (_, i) =>
     moment({
       id: `f${i}`,
@@ -1038,36 +874,31 @@ const VIELE_AUF_EINEM_FLECK = [
     })
   ),
 ];
-const VORRAT_VIELE = {
-  ...VORRAT_OK,
+const POOL_MANY = {
+  ...POOL_OK,
   urls: new Map<string, MediaUrl>([
-    ...VORRAT_OK.urls,
-    ...Array.from({ length: 12 }, (_, i) => [`f${i}`, bild(`f${i}`)] as const),
+    ...POOL_OK.urls,
+    ...Array.from({ length: 12 }, (_, i) => [`f${i}`, image(`f${i}`)] as const),
   ]),
 };
 
-test('die Gruppenliste scrollt, statt ihre letzten Momente abzuschneiden', async () => {
-  ladeErfolg(VIELE_AUF_EINEM_FLECK, VORRAT_VIELE);
+test('the cluster list scrolls instead of clipping its last moments', async () => {
+  loadSuccess(MANY_ON_ONE_SPOT, POOL_MANY);
   await wrap();
   await fireEvent.press(await screen.findByTestId('karte-nadel-f0'));
 
-  const liste = screen.getByTestId('gruppe-liste');
-  // Ein blosses View mit derselben testID wäre keine Rettung, nur eine
-  // Scroll-Fläche macht Einträge unterhalb der Kante erreichbar.
-  expect(liste.type).toBe('RCTScrollView');
-  // Und sie braucht eine Obergrenze: ohne die wüchse sie mit ihrem Inhalt,
-  // und `Sheet` schnitte den Überhang genauso ab wie vorher.
-  expect(StyleSheet.flatten(liste.props.style).maxHeight).toBe(
+  const list = screen.getByTestId('gruppe-liste');
+  expect(list.type).toBe('RCTScrollView');
+  expect(StyleSheet.flatten(list.props.style).maxHeight).toBe(
     Dimensions.get('window').height * SHEET_SCROLL_RATIO
   );
-  expect(within(liste).getAllByTestId(/^gruppe-eintrag/)).toHaveLength(12);
+  expect(within(list).getAllByTestId(/^gruppe-eintrag/)).toHaveLength(12);
 });
 
-// Und der letzte führt an seinen eigenen Platz, er ist nicht bloss da,
-// sondern vollständig bedienbar. f11 steht in der Spielliste an Stelle 12
-// (p3 ohne Ort davor, p5 ohne URL fällt heraus).
-test('auch der letzte Eintrag einer langen Liste fuehrt in den Player', async () => {
-  ladeErfolg(VIELE_AUF_EINEM_FLECK, VORRAT_VIELE);
+// f11 is at playlist position 12 (p3 without a place in front of it, p5
+// without a url drops out).
+test('even the last row of a long list leads into the player', async () => {
+  loadSuccess(MANY_ON_ONE_SPOT, POOL_MANY);
   await wrap();
   await fireEvent.press(await screen.findByTestId('karte-nadel-f0'));
   await fireEvent.press(within(screen.getByTestId('gruppe-liste')).getByTestId('gruppe-eintrag-f11'));
@@ -1078,123 +909,103 @@ test('auch der letzte Eintrag einer langen Liste fuehrt in den Player', async ()
   });
 });
 
-// Derselbe Mechanismus trifft das Einzel-Sheet: Bild (3:2), Ort und Caption
-// werden bei grosser Systemschrift zusammen höher als das Sheet. Der
-// Primär-Button muss deshalb AUSSERHALB des scrollenden Teils stehen,
-// scrollte er mit, wäre er als Erstes weg.
-test('im Moment-Sheet scrollt der Inhalt, der Knopf bleibt stehen', async () => {
-  ladeErfolg(MIT_SHEET_DATEN);
+// The same mechanism hits the single sheet: image (3:2), place and caption
+// together grow taller than the sheet at a large system font. The primary
+// button therefore has to sit OUTSIDE the scrolling part, scrolling along it
+// would be the first thing gone.
+test('in the moment sheet the content scrolls while the button stays put', async () => {
+  loadSuccess(WITH_SHEET_DATA);
   await wrap();
   await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
 
-  const inhalt = screen.getByTestId('moment-inhalt');
-  expect(inhalt.type).toBe('RCTScrollView');
-  expect(within(inhalt).getByTestId('sheet-bild')).toBeTruthy();
-  expect(within(inhalt).getByText('Angekommen, 28 Grad im Mai')).toBeTruthy();
-  expect(within(inhalt).queryByLabelText('Im Recap ansehen')).toBeNull();
+  const content = screen.getByTestId('moment-inhalt');
+  expect(content.type).toBe('RCTScrollView');
+  expect(within(content).getByTestId('sheet-bild')).toBeTruthy();
+  expect(within(content).getByText('Angekommen, 28 Grad im Mai')).toBeTruthy();
+  expect(within(content).queryByLabelText('Im Recap ansehen')).toBeNull();
   expect(screen.getByLabelText('Im Recap ansehen')).toBeTruthy();
 });
 
-// Der Wächter aus Task 8 versteckte das Sheet nur, statt es zu löschen. Beim
-// Rücksprung t1 → t2 → t1 auf DERSELBEN gemounteten Instanz passte die
-// Reise-id wieder, und ein Sheet öffnete sich samt Eintrittsanimation, das
-// niemand angetippt hat. Sein Index stammte aus dem früheren Ladevorgang und
-// konnte inzwischen auf einen anderen Moment zeigen.
-test('nach t1 → t2 → t1 oeffnet sich kein Sheet von selbst', async () => {
-  ladeErfolg(MIT_SHEET_DATEN);
+test('after t1 to t2 to t1 no sheet opens by itself', async () => {
+  loadSuccess(WITH_SHEET_DATA);
   const { rerender } = await wrap();
   await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
   expect(screen.getByText('Im Recap ansehen')).toBeTruthy();
 
   mockId = 't2';
-  ladeErfolg([m1]);
-  await rerender(<ThemeProvider><RecapKarte /></ThemeProvider>);
+  loadSuccess([m1]);
+  await rerender(<ThemeProvider><RecapMap /></ThemeProvider>);
   expect(screen.queryByText('Im Recap ansehen')).toBeNull();
 
   mockId = 't1';
-  ladeErfolg(MIT_SHEET_DATEN);
-  await rerender(<ThemeProvider><RecapKarte /></ThemeProvider>);
+  loadSuccess(WITH_SHEET_DATA);
+  await rerender(<ThemeProvider><RecapMap /></ThemeProvider>);
   expect(screen.queryByText('Im Recap ansehen')).toBeNull();
   expect(screen.queryByText('Angekommen, 28 Grad im Mai')).toBeNull();
 });
 
-// DESIGN-LANGUAGE §5: «Listen = Stagger 40 ms». Ablesbar nur an den
-// Verzögerungen, mit denen die Zeilen starten, `Animated` flacht die Opazität
-// im Testlauf auf eine Zahl ab und rührt sie unter `useNativeDriver` nie
-// wieder an (gleiche Einschränkung wie in KartenNadel.test.tsx).
-// Nur die Zeilen-Einblendungen: `Sheet` animiert selbst mit, setzt dabei aber
-// kein `delay`, daran lassen sich die Listenzeilen von allem anderen trennen.
-function zeilenAnimationen(): { delay?: number; duration?: number }[] {
+// Readable only from the delays the rows start with: `Animated` flattens the
+// opacity to a number in the test run and never touches it again under
+// `useNativeDriver` (same limitation as in MapPin.test.tsx).
+// Only the row fade ins: `Sheet` animates along but sets no `delay`, which is
+// what separates the list rows from everything else.
+function rowAnimations(): { delay?: number; duration?: number }[] {
   return (Animated.timing as unknown as jest.Mock).mock.calls
-    .map(([, konfig]) => konfig as { delay?: number; duration?: number })
-    .filter((konfig) => konfig.delay !== undefined);
+    .map(([, config]) => config as { delay?: number; duration?: number })
+    .filter((config) => config.delay !== undefined);
 }
 
-function staggerVerzoegerungen(): unknown[] {
-  return zeilenAnimationen().map((konfig) => konfig.delay);
+function staggerDelays(): unknown[] {
+  return rowAnimations().map((config) => config.delay);
 }
 
-// DESIGN-LANGUAGE §5: «prefers-reduced-motion: alles wird zu 200-ms-Fades».
-// Bewusst die nackte Zahl statt der (modulprivaten) Konstante aus karte.tsx:
-// gegen sich selbst geprüft, wäre jeder Wert richtig, 200 steht in der
-// Design-Sprache, und nur das ist die Zusicherung.
-function staggerDauern(): unknown[] {
-  return zeilenAnimationen().map((konfig) => konfig.duration);
+// Deliberately the bare number instead of the (module private) constant from
+// map.tsx: checked against itself every value would be right, 200 is what the
+// design language says, and only that is the assurance.
+function staggerDurations(): unknown[] {
+  return rowAnimations().map((config) => config.duration);
 }
 
-test('die Zeilen der Gruppenliste erscheinen gestaffelt', async () => {
-  const spion = jest.spyOn(Animated, 'timing');
-  ladeErfolg(AUF_EINEM_FLECK);
+test('the rows of the cluster list appear staggered', async () => {
+  const spy = jest.spyOn(Animated, 'timing');
+  loadSuccess(ON_ONE_SPOT);
   await wrap();
   await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
 
-  expect(staggerVerzoegerungen()).toEqual([0, 40]);
-  expect(staggerDauern()).toEqual([motion.duration.base, motion.duration.base]);
-  spion.mockRestore();
+  expect(staggerDelays()).toEqual([0, 40]);
+  expect(staggerDurations()).toEqual([motion.duration.base, motion.duration.base]);
+  spy.mockRestore();
 });
 
-// §5: «prefers-reduced-motion: alles wird zu 200-ms-Fades», dann erscheinen
-// die Zeilen gemeinsam, ohne Staffelung, und der Fade dauert 200 ms. Ohne die
-// zweite Zusicherung wäre «wird zu einem 200-ms-Fade» eine Behauptung: die
-// Verzögerung allein sagt nichts über die Dauer.
-test('mit Reduced Motion erscheinen die Zeilen ohne Staffelung, in 200 ms', async () => {
-  const spion = jest.spyOn(Animated, 'timing');
-  mockReduziert = true;
-  ladeErfolg(AUF_EINEM_FLECK);
+test('with Reduced Motion the rows appear without stagger, in 200 ms', async () => {
+  const spy = jest.spyOn(Animated, 'timing');
+  mockReducedMotion = true;
+  loadSuccess(ON_ONE_SPOT);
   await wrap();
   await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
 
-  expect(staggerVerzoegerungen()).toEqual([0, 0]);
-  expect(staggerDauern()).toEqual([200, 200]);
-  spion.mockRestore();
+  expect(staggerDelays()).toEqual([0, 0]);
+  expect(staggerDurations()).toEqual([200, 200]);
+  spy.mockRestore();
 });
 
-// Fixrunde 1, Punkt 3: zwei Zweige, die bisher keine Zusicherung hielt.
-//
-// `media-urls` lässt je nach Moment die eine oder die andere URL weg (siehe
-// dessen index.ts). Fehlt das mittlere Bild, nimmt das Sheet das Thumbnail,
-// ohne diesen Ausweg bliebe die Fläche für solche Momente leer, obwohl ein
-// Bild vorliegt.
-const VORRAT_OHNE_MEDIUM = {
-  ...VORRAT_OK,
+const POOL_WITHOUT_MEDIUM = {
+  ...POOL_OK,
   urls: new Map<string, MediaUrl>([
-    ...VORRAT_OK.urls,
-    ['p1', { post_id: 'p1', thumb_url: bild('p1').thumb_url } as unknown as MediaUrl],
+    ...POOL_OK.urls,
+    ['p1', { post_id: 'p1', thumb_url: image('p1').thumb_url } as unknown as MediaUrl],
   ]),
 };
 
-test('fehlt das mittlere Bild, zeigt das Sheet das Thumbnail', async () => {
-  ladeErfolg(MIT_SHEET_DATEN, VORRAT_OHNE_MEDIUM);
+test('with the medium image missing the sheet shows the thumbnail', async () => {
+  loadSuccess(WITH_SHEET_DATA, POOL_WITHOUT_MEDIUM);
   await wrap();
   await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
-  expect(screen.getByTestId('sheet-bild').props.source.uri).toBe(bild('p1').thumb_url);
+  expect(screen.getByTestId('sheet-bild').props.source.uri).toBe(image('p1').thumb_url);
 });
 
-// Und ohne jede Bildquelle steht dort gar kein Bildknoten, sondern die ruhige
-// bg-1-Fläche: eine `Image` mit `uri: null` wäre auf dem Gerät ein leerer
-// Kasten, der auf etwas wartet, das nicht mehr kommt.
-test('ohne jede Bildquelle zeigt das Sheet keinen Bildknoten', async () => {
-  ladeErfolg(MIT_SHEET_DATEN, VORRAT_OHNE_JEDES_BILD);
+test('without any image source the sheet shows no image node', async () => {
+  loadSuccess(WITH_SHEET_DATA, POOL_WITHOUT_ANY_IMAGE);
   await wrap();
   await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
   expect(screen.queryByTestId('sheet-bild')).toBeNull();
@@ -1202,69 +1013,64 @@ test('ohne jede Bildquelle zeigt das Sheet keinen Bildknoten', async () => {
 });
 
 // ---------------------------------------------------------------------------
-// Task 9: der Tagesfilter
+// The day filter
 // ---------------------------------------------------------------------------
 
-// Ein Moment am ZWEITEN Reisetag, weit genug entfernt, dass er keine Gruppe
-// mit p1/p2 bildet. Damit hat die Reise zwei Tage mit Nadeln, die
-// Voraussetzung dafür, dass ein Filter überhaupt etwas zu unterscheiden hat.
-const tag2M = moment({ id: 'p6', captured_at: '2026-08-11T10:00:00.000Z', lat: 38.75, lng: -9.1 });
+// A moment on the SECOND trip day, far enough away that it forms no cluster
+// with p1/p2.
+const day2M = moment({ id: 'p6', captured_at: '2026-08-11T10:00:00.000Z', lat: 38.75, lng: -9.1 });
 
-// Spielliste (uploaded ∩ Vorrats-URL), chronologisch: p3 (ohne Ort, Stelle 0),
-// p1 (Stelle 1), p2 (Stelle 2), p6 (Stelle 3). p5 fällt ohne URL heraus, p4
-// lädt noch. Auf der Karte liegen also drei Nadeln: p1 und p2 an Tag 1, p6 an
-// Tag 2.
+// Playlist (uploaded intersected with pool url), chronologically: p3 (no
+// place, position 0), p1 (position 1), p2 (position 2), p6 (position 3). p5
+// drops out without a url, p4 is still uploading. Three pins lie on the map:
+// p1 and p2 on day 1, p6 on day 2.
 //
-// Wie VOLLSTAENDIG bereits chronologisch sortiert, so liefert
-// `fetchRecapMomente` sie. p4 (10.08., 20:00) steht deshalb VOR p6 (11.08.),
-// obwohl er ohnehin herausfällt: eine Fixture, die etwas Falsches über die
-// API behauptet, ist ein Test, der eines Tages aus dem falschen Grund grün
-// bleibt.
-const MIT_TAGEN = [ohneUrlM, ohneOrtFrueh, mitAllem, m2, pendingM, tag2M];
-const VORRAT_TAGE = {
-  ...VORRAT_OK,
-  urls: new Map<string, MediaUrl>([...VORRAT_OK.urls, ['p6', bild('p6')]]),
+// Like COMPLETE already sorted chronologically, the way `fetchRecapMoments`
+// delivers them. p4 (10.08., 20:00) therefore stands BEFORE p6 (11.08.) even
+// though it drops out anyway: a fixture claiming something false about the
+// API is a test that one day stays green for the wrong reason.
+const WITH_DAYS = [withoutUrlM, withoutPlaceEarly, withEverything, m2, pendingM, day2M];
+const POOL_DAYS = {
+  ...POOL_OK,
+  urls: new Map<string, MediaUrl>([...POOL_OK.urls, ['p6', image('p6')]]),
 };
 
-async function oeffneTagesfilter() {
+async function openDayFilter() {
   await fireEvent.press(screen.getByTestId('karte-tagesfilter'));
 }
 
-// Der Filter zeigt beim Öffnen der Karte die ganze Reise (Task-9-Brief).
-test('der Filter zeigt zunaechst alle Tage', async () => {
-  ladeErfolg(MIT_TAGEN, VORRAT_TAGE);
+test('the filter shows all days to begin with', async () => {
+  loadSuccess(WITH_DAYS, POOL_DAYS);
   await wrap();
   expect(await screen.findByText('Alle Tage')).toBeTruthy();
 });
 
-test('ein gewaehlter Tag duennt die Nadeln aus', async () => {
-  ladeErfolg(MIT_TAGEN, VORRAT_TAGE);
+test('a chosen day thins out the pins', async () => {
+  loadSuccess(WITH_DAYS, POOL_DAYS);
   await wrap();
   expect(await screen.findAllByTestId(/^karte-nadel/)).toHaveLength(3);
 
-  await oeffneTagesfilter();
+  await openDayFilter();
   await fireEvent.press(screen.getByTestId('tag-eintrag-2'));
 
   expect(screen.getAllByTestId(/^karte-nadel/)).toHaveLength(1);
   expect(screen.getByTestId('karte-nadel-p6')).toBeTruthy();
-  // Die Pille zeigt den aktuellen Stand, nicht mehr «Alle Tage».
   expect(screen.getByText('Tag 2')).toBeTruthy();
 });
 
-// DER Test dieses Tasks. `punkt.index` zählt in die UNGEFILTERTE Spielliste
-// und geht als `start` an den Player, der Tagesfilter darf ihn nicht
-// anfassen. Wer erst die Momente filtert und dann `zuKartenPunkten` auf dem
-// Rest ruft, bekommt einen Index INNERHALB des Tages: p6 stünde dort auf 0,
-// innerhalb der gefilterten Nadeln ebenfalls auf 0, innerhalb aller Nadeln auf
-// 2 und in der rohen Momente-Liste auf 4. Nur die 3 kann aus der richtigen
-// Zählung fallen, und die Nadel sitzt in JEDEM dieser Fälle richtig, der
-// Fehler wäre also nur durch Nachzählen im Player zu sehen.
-test('ein gewaehlter Tag aendert den Index in die Spielliste nicht', async () => {
-  ladeErfolg(MIT_TAGEN, VORRAT_TAGE);
+// `point.index` counts into the UNFILTERED playlist and travels to the player
+// as `start`, so the day filter must not touch it. Whoever filters the
+// moments first and calls `toMapPoints` on the rest gets an index INSIDE the
+// day: p6 would be at 0 there, at 0 among the filtered pins as well, at 2
+// among all pins and at 4 in the raw moment list. Only the 3 can fall out of
+// the right count, and the pin sits right in EVERY one of these cases, so the
+// fault would only show by counting in the player.
+test('a chosen day does not change the index into the playlist', async () => {
+  loadSuccess(WITH_DAYS, POOL_DAYS);
   await wrap();
   await screen.findByTestId('karte-nadel-p6');
 
-  await oeffneTagesfilter();
+  await openDayFilter();
   await fireEvent.press(screen.getByTestId('tag-eintrag-2'));
   await fireEvent.press(screen.getByTestId('karte-nadel-p6'));
   await fireEvent.press(screen.getByText('Im Recap ansehen'));
@@ -1275,30 +1081,24 @@ test('ein gewaehlter Tag aendert den Index in die Spielliste nicht', async () =>
   });
 });
 
-// Die Gegenprobe ohne den Umweg über den Player: `zuKartenPunkten` sieht die
-// GANZE Spielliste, und zwar genau einmal. Gefiltert wird danach, auf den
-// fertigen Punkten.
-test('gefiltert wird nach zuKartenPunkten, nicht davor', async () => {
-  ladeErfolg(MIT_TAGEN, VORRAT_TAGE);
+test('filtering happens after toMapPoints, not before', async () => {
+  loadSuccess(WITH_DAYS, POOL_DAYS);
   await wrap();
   await screen.findByTestId('karte-nadel-p6');
 
-  await oeffneTagesfilter();
+  await openDayFilter();
   await fireEvent.press(screen.getByTestId('tag-eintrag-2'));
 
   expect(toMapPoints).toHaveBeenCalledTimes(1);
-  expect(toMapPoints).toHaveBeenCalledWith([ohneOrtFrueh, mitAllem, m2, tag2M]);
+  expect(toMapPoints).toHaveBeenCalledWith([withoutPlaceEarly, withEverything, m2, day2M]);
 });
 
-// Der gewählte Tag ändert Nadeln UND Linie: eine Linie, die weiterhin zum
-// nächsten Tag weiterzeichnet, behauptete eine Bewegung, die an diesem Tag
-// nicht stattgefunden hat.
-test('ein gewaehlter Tag kuerzt auch die Linie', async () => {
-  ladeErfolg(MIT_TAGEN, VORRAT_TAGE);
+test('a chosen day shortens the line as well', async () => {
+  loadSuccess(WITH_DAYS, POOL_DAYS);
   await wrap();
   expect((await screen.findByTestId('karte-linie')).props.coordinates).toHaveLength(3);
 
-  await oeffneTagesfilter();
+  await openDayFilter();
   await fireEvent.press(screen.getByTestId('tag-eintrag-1'));
 
   expect(screen.getByTestId('karte-linie').props.coordinates).toEqual([
@@ -1307,163 +1107,142 @@ test('ein gewaehlter Tag kuerzt auch die Linie', async () => {
   ]);
 });
 
-// Und der Ausschnitt zieht mit, über dieselbe Funktion, über die auch der
-// Gruppen-Zoom fährt (`zeige`). Ein Tag, dessen Momente ausserhalb des
-// sichtbaren Ausschnitts liegen, wäre sonst eine leere Karte.
-test('ein gewaehlter Tag rueckt den Ausschnitt auf seine Momente', async () => {
-  ladeErfolg(MIT_TAGEN, VORRAT_TAGE);
+test('a chosen day moves the viewport onto its moments', async () => {
+  loadSuccess(WITH_DAYS, POOL_DAYS);
   await wrap();
   await screen.findByTestId('karte-nadel-p6');
 
-  await oeffneTagesfilter();
+  await openDayFilter();
   await fireEvent.press(screen.getByTestId('tag-eintrag-2'));
 
   expect(mockAnimateToRegion).toHaveBeenCalledTimes(1);
-  const [ziel, dauer] = mockAnimateToRegion.mock.calls[0];
-  expect(ziel.latitude).toBeCloseTo(38.75, 4);
-  expect(ziel.longitude).toBeCloseTo(-9.1, 4);
-  expect(dauer).toBe(motion.duration.base);
+  const [target, duration] = mockAnimateToRegion.mock.calls[0];
+  expect(target.latitude).toBeCloseTo(38.75, 4);
+  expect(target.longitude).toBeCloseTo(-9.1, 4);
+  expect(duration).toBe(motion.duration.base);
 });
 
-// DESIGN-LANGUAGE §5: mit Reduced Motion wird gesprungen statt gefahren. Der
-// Beweis, dass der Filter wirklich durch `zeige` geht und nicht an ihm vorbei,
-// eine zweite Kamerabewegung neben `zeige` hätte diese Weiche nicht.
-test('mit Reduced Motion springt der Ausschnitt auf den gewaehlten Tag', async () => {
-  mockReduziert = true;
-  ladeErfolg(MIT_TAGEN, VORRAT_TAGE);
+test('with Reduced Motion the viewport jumps to the chosen day', async () => {
+  mockReducedMotion = true;
+  loadSuccess(WITH_DAYS, POOL_DAYS);
   await wrap();
   await screen.findByTestId('karte-nadel-p6');
 
-  await oeffneTagesfilter();
+  await openDayFilter();
   await fireEvent.press(screen.getByTestId('tag-eintrag-2'));
 
   expect(mockAnimateToRegion).not.toHaveBeenCalled();
   expect(mockSetRegion).toHaveBeenCalledTimes(1);
-  const [ziel] = mockSetRegion.mock.calls[0];
-  expect(ziel.latitude).toBeCloseTo(38.75, 4);
-  expect(ziel.longitude).toBeCloseTo(-9.1, 4);
+  const [target] = mockSetRegion.mock.calls[0];
+  expect(target.latitude).toBeCloseTo(38.75, 4);
+  expect(target.longitude).toBeCloseTo(-9.1, 4);
 });
 
-// DESIGN-LANGUAGE §5 nennt selection-Haptik für Tabs und Zoom, die Wahl
-// eines Tages ist beides zugleich: eine Auswahl, die die Kamera bewegt.
-test('die Wahl eines Tages meldet sich mit selection-Haptik', async () => {
-  ladeErfolg(MIT_TAGEN, VORRAT_TAGE);
+test('choosing a day answers with selection haptics', async () => {
+  loadSuccess(WITH_DAYS, POOL_DAYS);
   await wrap();
   await screen.findByTestId('karte-nadel-p6');
 
-  await oeffneTagesfilter();
+  await openDayFilter();
   await fireEvent.press(screen.getByTestId('tag-eintrag-2'));
 
-  expect(mockHaptik).toHaveBeenCalledTimes(1);
+  expect(mockHaptics).toHaveBeenCalledTimes(1);
 });
 
-// Der Weg zurück muss genauso vollständig sein wie der Weg hinein: Nadeln,
-// Linie und Ausschnitt.
-test('«Alle Tage» bringt die ganze Reise zurueck', async () => {
-  ladeErfolg(MIT_TAGEN, VORRAT_TAGE);
+test('the all days entry brings the whole trip back', async () => {
+  loadSuccess(WITH_DAYS, POOL_DAYS);
   await wrap();
   await screen.findByTestId('karte-nadel-p6');
 
-  await oeffneTagesfilter();
+  await openDayFilter();
   await fireEvent.press(screen.getByTestId('tag-eintrag-2'));
-  await oeffneTagesfilter();
+  await openDayFilter();
   await fireEvent.press(screen.getByTestId('tag-eintrag-alle'));
 
   expect(screen.getAllByTestId(/^karte-nadel/)).toHaveLength(3);
   expect(screen.getByText('Alle Tage')).toBeTruthy();
-  // Zwei Fahrten: hinein in Tag 2, wieder heraus auf die ganze Reise.
   expect(mockAnimateToRegion).toHaveBeenCalledTimes(2);
-  const [ziel] = mockAnimateToRegion.mock.calls[1];
-  expect(ziel.latitude).toBeCloseTo(38.73, 4);
-  expect(ziel.longitude).toBeCloseTo(-9.12, 4);
+  const [target] = mockAnimateToRegion.mock.calls[1];
+  expect(target.latitude).toBeCloseTo(38.73, 4);
+  expect(target.longitude).toBeCloseTo(-9.12, 4);
 });
 
-// Die Tagesnummern kommen aus `trips.start_date`, genau wie in uebersicht.tsx
-// und player.tsx. Wer sie stattdessen ab dem ersten Moment zählte, zeigte
-// dieselbe Reise an zwei Stellen mit verschiedenen Tagen.
-test('die Tagesnummern zaehlen ab dem Startdatum der Reise', async () => {
-  ladeErfolg(MIT_TAGEN, VORRAT_TAGE, { start_date: '2026-08-08' });
+test('the day numbers count from the start date of the trip', async () => {
+  loadSuccess(WITH_DAYS, POOL_DAYS, { start_date: '2026-08-08' });
   await wrap();
   await screen.findByTestId('karte-nadel-p6');
 
-  await oeffneTagesfilter();
+  await openDayFilter();
   expect(screen.getByTestId('tag-eintrag-3')).toBeTruthy();
   expect(screen.getByTestId('tag-eintrag-4')).toBeTruthy();
   expect(screen.queryByTestId('tag-eintrag-1')).toBeNull();
 });
 
-// Ostwärts über die Datumsgrenze: `gruppiereNachTagen` schreibt die höchste
-// bisher vergebene Tagesnummer monoton fort (tage.ts, Important 1). Ein
-// weggelassener Moment kann die Nummern DAHINTER also verschieben, wer nur
-// die Momente MIT Ort hineingäbe, bekäme für ost1 die Nummer 2 statt 3, und
-// die Karte zeigte andere Tage als die Übersicht.
+// Eastward across the date line: `groupByDays` carries the highest day number
+// handed out so far forward monotonically. A left out moment can therefore
+// shift the numbers BEHIND it: feeding in only the moments WITH a place would
+// give east1 the number 2 instead of 3, and the map would show different days
+// than the overview.
 //
-// ost0 (Lissabon, 10.08.) ist Tag 1. ostOhneOrt liegt lokal am 12.08.
-// (Asia/Tokyo) und zieht die laufende Nummer auf 3, obwohl er keine Nadel
-// bekommt. ost1 ist chronologisch später, lokal aber erst der 11.08.
-// (America/Los_Angeles), er landet dadurch in Tag 3, nicht in Tag 2.
-const ost0 = moment({ id: 'o0', captured_at: '2026-08-10T09:00:00.000Z', lat: 38.71, lng: -9.14 });
-const ostOhneOrt = moment({
+// east0 (Lisbon, 10.08.) is day 1. eastWithoutPlace lies locally on 12.08.
+// (Asia/Tokyo) and pulls the running number to 3 although it gets no pin.
+// east1 is later chronologically but locally only 11.08.
+// (America/Los_Angeles), which lands it in day 3, not in day 2.
+const east0 = moment({ id: 'o0', captured_at: '2026-08-10T09:00:00.000Z', lat: 38.71, lng: -9.14 });
+const eastWithoutPlace = moment({
   id: 'o1', captured_at: '2026-08-11T23:30:00.000Z', captured_tz: 'Asia/Tokyo', lat: null, lng: null,
 });
-const ost1 = moment({
+const east1 = moment({
   id: 'o2', captured_at: '2026-08-12T01:00:00.000Z', captured_tz: 'America/Los_Angeles',
   lat: 38.75, lng: -9.1,
 });
-const OSTWAERTS = [ost0, ostOhneOrt, ost1];
-const VORRAT_OSTWAERTS = {
-  ...VORRAT_OK,
-  urls: new Map<string, MediaUrl>([['o0', bild('o0')], ['o1', bild('o1')], ['o2', bild('o2')]]),
+const EASTWARD = [east0, eastWithoutPlace, east1];
+const POOL_EASTWARD = {
+  ...POOL_OK,
+  urls: new Map<string, MediaUrl>([['o0', image('o0')], ['o1', image('o1')], ['o2', image('o2')]]),
 };
 
-test('die Tagesnummern zaehlen ueber die ganze Spielliste, nicht nur ueber die Momente mit Ort', async () => {
-  ladeErfolg(OSTWAERTS, VORRAT_OSTWAERTS);
+test('the day numbers count over the whole playlist, not only over the moments with a place', async () => {
+  loadSuccess(EASTWARD, POOL_EASTWARD);
   await wrap();
   await screen.findByTestId('karte-nadel-o2');
 
-  await oeffneTagesfilter();
+  await openDayFilter();
   expect(screen.getByTestId('tag-eintrag-3')).toBeTruthy();
   expect(screen.queryByTestId('tag-eintrag-2')).toBeNull();
 });
 
-// Ein Tag, dessen Momente alle ohne Ort sind, führte auf eine leere Karte
-// ohne Erklärung, eine Sackgasse im Filter. p3 (11.08., ohne Ort) ist genau
-// so ein Tag.
-const OHNE_ORT_DAZWISCHEN = [
+const WITHOUT_PLACE_IN_BETWEEN = [
   moment({ id: 'q1', captured_at: '2026-08-10T09:00:00.000Z', lat: 38.71, lng: -9.14 }),
   moment({ id: 'q2', captured_at: '2026-08-11T09:00:00.000Z', lat: null, lng: null }),
   moment({ id: 'q3', captured_at: '2026-08-12T09:00:00.000Z', lat: 38.75, lng: -9.1 }),
 ];
-const VORRAT_OHNE_ORT_DAZWISCHEN = {
-  ...VORRAT_OK,
-  urls: new Map<string, MediaUrl>([['q1', bild('q1')], ['q2', bild('q2')], ['q3', bild('q3')]]),
+const POOL_WITHOUT_PLACE_IN_BETWEEN = {
+  ...POOL_OK,
+  urls: new Map<string, MediaUrl>([['q1', image('q1')], ['q2', image('q2')], ['q3', image('q3')]]),
 };
 
-test('ein Tag ohne Momente auf der Karte steht nicht zur Wahl', async () => {
-  ladeErfolg(OHNE_ORT_DAZWISCHEN, VORRAT_OHNE_ORT_DAZWISCHEN);
+test('a day without moments on the map is not offered for choice', async () => {
+  loadSuccess(WITHOUT_PLACE_IN_BETWEEN, POOL_WITHOUT_PLACE_IN_BETWEEN);
   await wrap();
   await screen.findByTestId('karte-nadel-q3');
 
-  await oeffneTagesfilter();
+  await openDayFilter();
   expect(screen.getByTestId('tag-eintrag-1')).toBeTruthy();
   expect(screen.getByTestId('tag-eintrag-3')).toBeTruthy();
   expect(screen.queryByTestId('tag-eintrag-2')).toBeNull();
 });
 
-// Ein Filter mit genau einer Wahl ist keiner: «Alle Tage» und «Tag 1» zeigten
-// dasselbe. VOLLSTAENDIG hat Nadeln nur an Tag 1 (p3 am zweiten Tag hat
-// keinen Ort).
-test('eine Reise mit Nadeln an einem einzigen Tag zeigt keinen Tagesfilter', async () => {
-  ladeErfolg();
+// COMPLETE has pins on day 1 only (p3 on the second day has no place).
+test('a trip with pins on a single day shows no day filter', async () => {
+  loadSuccess();
   await wrap();
   await screen.findByTestId('karte-nadel-p1');
   expect(screen.queryByTestId('karte-tagesfilter')).toBeNull();
 });
 
-// Der Tagesfilter ist Beiwerk, die Karte selbst hängt nicht an der
-// Reise-Abfrage. Fällt nur sie aus, fehlt der Filter, nicht die Reise.
-test('ohne Reise-Daten bleibt die Karte stehen, nur ohne Tagesfilter', async () => {
-  ladeErfolg(MIT_TAGEN, VORRAT_TAGE);
+test('without trip data the map stays, only without the day filter', async () => {
+  loadSuccess(WITH_DAYS, POOL_DAYS);
   (fetchTrip as jest.Mock).mockResolvedValue({ data: null, error: 'Diese Reise konnte nicht geladen werden.' });
   await wrap();
 
@@ -1471,46 +1250,38 @@ test('ohne Reise-Daten bleibt die Karte stehen, nur ohne Tagesfilter', async () 
   expect(screen.queryByTestId('karte-tagesfilter')).toBeNull();
 });
 
-// DESIGN-LANGUAGE §4: genau EIN Primär-Button pro Screen. Den trägt das
-// Moment-Sheet («Im Recap ansehen»), der Tagesfilter macht es deshalb zu,
-// statt sich darüberzulegen. (Auf dem Gerät fängt der Backdrop des offenen
-// Sheets den Tipp ohnehin ab; hier steht, dass der Zustand danach eindeutig
-// ist.)
-test('der Tagesfilter schliesst ein offenes Moment-Sheet', async () => {
-  ladeErfolg(MIT_TAGEN, VORRAT_TAGE);
+// On the device the backdrop of the open sheet catches the tap anyway, what
+// stands here is that the state afterwards is unambiguous.
+test('the day filter closes an open moment sheet', async () => {
+  loadSuccess(WITH_DAYS, POOL_DAYS);
   await wrap();
   await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
   expect(screen.getByText('Im Recap ansehen')).toBeTruthy();
 
-  await oeffneTagesfilter();
+  await openDayFilter();
   expect(screen.queryByText('Im Recap ansehen')).toBeNull();
   expect(screen.getByTestId('tag-eintrag-alle')).toBeTruthy();
 });
 
-// Ein Filterstand gehört zu der Reise, in der er gewählt wurde. Bliebe er
-// stehen, öffnete die NÄCHSTE Reise vorgefiltert auf einen Tag, den niemand
-// gewählt hat, und weil die Tagesnummer dort zufällig existiert, sähe das
-// aus wie eine Reise mit nur einem Moment.
-test('ein Wechsel der Reise setzt den Tagesfilter zurueck', async () => {
-  ladeErfolg(MIT_TAGEN, VORRAT_TAGE);
+test('a change of trip resets the day filter', async () => {
+  loadSuccess(WITH_DAYS, POOL_DAYS);
   const { rerender } = await wrap();
-  await oeffneTagesfilter();
+  await openDayFilter();
   await fireEvent.press(screen.getByTestId('tag-eintrag-2'));
   expect(screen.getAllByTestId(/^karte-nadel/)).toHaveLength(1);
 
   mockId = 't2';
-  ladeErfolg(MIT_TAGEN, VORRAT_TAGE);
-  await rerender(<ThemeProvider><RecapKarte /></ThemeProvider>);
+  loadSuccess(WITH_DAYS, POOL_DAYS);
+  await rerender(<ThemeProvider><RecapMap /></ThemeProvider>);
 
   expect(screen.getByText('Alle Tage')).toBeTruthy();
   expect(screen.getAllByTestId(/^karte-nadel/)).toHaveLength(3);
 });
 
-// Eine lange Reise hat viele Tage, dieselbe Sackgasse wie bei der
-// Gruppenliste: `Sheet` deckelt auf 85 % Fensterhöhe und schneidet den
-// Überhang hart ab (`overflow: 'hidden'`). Die letzten Tage wären dann auf
-// keinem Weg mehr wählbar.
-const VIELE_TAGE = Array.from({ length: 12 }, (_, i) =>
+// A long trip has many days, the same dead end as with the cluster list:
+// `Sheet` caps at 85 % window height and clips the overhang hard
+// (`overflow: 'hidden'`).
+const MANY_DAYS = Array.from({ length: 12 }, (_, i) =>
   moment({
     id: `v${i}`,
     captured_at: `2026-08-${String(10 + i).padStart(2, '0')}T09:00:00.000Z`,
@@ -1518,153 +1289,129 @@ const VIELE_TAGE = Array.from({ length: 12 }, (_, i) =>
     lng: -9.14 + i * 0.01,
   })
 );
-const VORRAT_VIELE_TAGE = {
-  ...VORRAT_OK,
+const POOL_MANY_DAYS = {
+  ...POOL_OK,
   urls: new Map<string, MediaUrl>(
-    Array.from({ length: 12 }, (_, i) => [`v${i}`, bild(`v${i}`)] as const)
+    Array.from({ length: 12 }, (_, i) => [`v${i}`, image(`v${i}`)] as const)
   ),
 };
 
-test('die Tagesliste scrollt, statt ihre letzten Tage abzuschneiden', async () => {
-  ladeErfolg(VIELE_TAGE, VORRAT_VIELE_TAGE);
+test('the day list scrolls instead of clipping its last days', async () => {
+  loadSuccess(MANY_DAYS, POOL_MANY_DAYS);
   await wrap();
   await screen.findByTestId('karte-nadel-v0');
 
-  await oeffneTagesfilter();
-  const liste = screen.getByTestId('tage-liste');
-  expect(liste.type).toBe('RCTScrollView');
-  expect(StyleSheet.flatten(liste.props.style).maxHeight).toBe(
+  await openDayFilter();
+  const list = screen.getByTestId('tage-liste');
+  expect(list.type).toBe('RCTScrollView');
+  expect(StyleSheet.flatten(list.props.style).maxHeight).toBe(
     Dimensions.get('window').height * SHEET_SCROLL_RATIO
   );
-  // Zwölf Tage plus «Alle Tage».
-  expect(within(liste).getAllByTestId(/^tag-eintrag/)).toHaveLength(13);
-  expect(within(liste).getByTestId('tag-eintrag-12')).toBeTruthy();
+  // Twelve days plus the all days entry.
+  expect(within(list).getAllByTestId(/^tag-eintrag/)).toHaveLength(13);
+  expect(within(list).getByTestId('tag-eintrag-12')).toBeTruthy();
 });
 
-// DESIGN-LANGUAGE §5: «Listen = Stagger 40 ms», dieselbe Regel wie für die
-// Gruppenliste, also dieselbe Mechanik.
-test('die Zeilen der Tagesliste erscheinen gestaffelt', async () => {
-  const spion = jest.spyOn(Animated, 'timing');
-  ladeErfolg(MIT_TAGEN, VORRAT_TAGE);
+test('the rows of the day list appear staggered', async () => {
+  const spy = jest.spyOn(Animated, 'timing');
+  loadSuccess(WITH_DAYS, POOL_DAYS);
   await wrap();
   await screen.findByTestId('karte-nadel-p6');
 
-  await oeffneTagesfilter();
-  // «Alle Tage», Tag 1, Tag 2.
-  expect(staggerVerzoegerungen()).toEqual([0, 40, 80]);
-  expect(staggerDauern()).toEqual([
+  await openDayFilter();
+  // The all days entry, day 1, day 2.
+  expect(staggerDelays()).toEqual([0, 40, 80]);
+  expect(staggerDurations()).toEqual([
     motion.duration.base, motion.duration.base, motion.duration.base,
   ]);
-  spion.mockRestore();
+  spy.mockRestore();
 });
 
-test('mit Reduced Motion erscheinen die Zeilen der Tagesliste ohne Staffelung, in 200 ms', async () => {
-  const spion = jest.spyOn(Animated, 'timing');
-  mockReduziert = true;
-  ladeErfolg(MIT_TAGEN, VORRAT_TAGE);
+test('with Reduced Motion the rows of the day list appear without stagger, in 200 ms', async () => {
+  const spy = jest.spyOn(Animated, 'timing');
+  mockReducedMotion = true;
+  loadSuccess(WITH_DAYS, POOL_DAYS);
   await wrap();
   await screen.findByTestId('karte-nadel-p6');
 
-  await oeffneTagesfilter();
-  expect(staggerVerzoegerungen()).toEqual([0, 0, 0]);
-  expect(staggerDauern()).toEqual([200, 200, 200]);
-  spion.mockRestore();
+  await openDayFilter();
+  expect(staggerDelays()).toEqual([0, 0, 0]);
+  expect(staggerDurations()).toEqual([200, 200, 200]);
+  spy.mockRestore();
 });
 
-// Fixrunde 1, Punkt 1: der Filter ist Beiwerk, die Nadeln SIND der Screen,
-// und das muss auch für die ZEIT gelten, nicht nur für den Fehlerfall. Lägen
-// alle drei Abfragen in einem `Promise.all`, hinge die Karte an einer, die für
-// ihren Inhalt nichts beiträgt: bis der Ausschnitt steht, wird die `MapView`
-// gar nicht erst gemountet. `fetchTrip` ist dabei nicht eine Abfrage, sondern
-// zwei, es wartet intern auf die rpc `my_post_counts` mit (tripsApi.ts).
-test('die Nadeln stehen, bevor die Reise-Abfrage zurueck ist', async () => {
-  ladeErfolg(MIT_TAGEN, VORRAT_TAGE);
-  let reiseAufloesen: (wert: { data: Trip | null; error: string | null }) => void = () => {};
+// Were all three queries in one `Promise.all`, the map would hang on one that
+// contributes nothing to its content: until the viewport stands the `MapView`
+// is not even mounted. And `fetchTrip` is not one query but two, it waits
+// internally on the rpc `my_post_counts` as well (tripsApi.ts).
+test('the pins are up before the trip query is back', async () => {
+  loadSuccess(WITH_DAYS, POOL_DAYS);
+  let resolveTrip: (value: { data: Trip | null; error: string | null }) => void = () => {};
   (fetchTrip as jest.Mock).mockReturnValue(
-    new Promise<{ data: Trip | null; error: string | null }>((aufloesen) => {
-      reiseAufloesen = aufloesen;
+    new Promise<{ data: Trip | null; error: string | null }>((resolve) => {
+      resolveTrip = resolve;
     })
   );
   await wrap();
 
-  // Karte, Nadeln und Linie stehen, obwohl die Reise-Abfrage noch offen ist.
   expect(await screen.findAllByTestId(/^karte-nadel/)).toHaveLength(3);
   expect(screen.getByTestId('karte-linie')).toBeTruthy();
-  // Nur der Filter fehlt noch, ohne Startdatum gibt es keine Tagesnummern.
   expect(screen.queryByTestId('karte-tagesfilter')).toBeNull();
 
-  // Und er kommt nach, sobald die Reise da ist.
   await act(async () => {
-    reiseAufloesen({ data: REISE, error: null });
+    resolveTrip({ data: TRIP, error: null });
   });
   expect(screen.getByTestId('karte-tagesfilter')).toBeTruthy();
   expect(screen.getByText('Alle Tage')).toBeTruthy();
 });
 
-// Fixrunde 1, Punkt 2: dasselbe Wächter-Muster wie bei `sheet` und `tagWahl`,
-// und hier mit einer eigenen Schärfe, das offene Sheet listet die Tage DER
-// REISE, aus der es geöffnet wurde. Bliebe es stehen, filterte ein Tipp auf
-// «Tag 2» die NEUE Reise auf einen Tag, den in ihr niemand gewählt hat; die
-// Wahl schriebe dabei die neue id mit, der Wächter für `tagWahl` käme also nie
-// zum Zug. Und `zeige` führe auf den Ausschnitt eines fremden Tages.
-test('ein Wechsel der Reise laesst kein offenes Tages-Sheet der vorherigen stehen', async () => {
-  ladeErfolg(MIT_TAGEN, VORRAT_TAGE);
+test('a change of trip leaves no open day sheet of the previous one standing', async () => {
+  loadSuccess(WITH_DAYS, POOL_DAYS);
   const { rerender } = await wrap();
-  await oeffneTagesfilter();
+  await openDayFilter();
   expect(screen.getByTestId('tag-eintrag-2')).toBeTruthy();
 
   mockId = 't2';
-  ladeErfolg(MIT_TAGEN, VORRAT_TAGE);
-  await rerender(<ThemeProvider><RecapKarte /></ThemeProvider>);
+  loadSuccess(WITH_DAYS, POOL_DAYS);
+  await rerender(<ThemeProvider><RecapMap /></ThemeProvider>);
 
-  // Kein Eintrag mehr, den man drücken könnte, und damit keine Filterung, die
-  // von der vorherigen Reise herüberreicht.
   expect(screen.queryByTestId('tag-eintrag-2')).toBeNull();
   expect(screen.getAllByTestId(/^karte-nadel/)).toHaveLength(3);
   expect(mockAnimateToRegion).not.toHaveBeenCalled();
 });
 
-// Die Kehrseite der getrennten Ladewege (Punkt 1): sie kommen unabhängig
-// zurück, und beim Wechsel der Reise gibt es ein Fenster, in dem das
-// Startdatum schon zur NEUEN Reise gehört und die Momente noch zur alten. Die
-// Tagesnummern daraus gäbe es in keiner der beiden.
-//
-// Fixrunde 1: bis dahin blieben in diesem Fenster die NADELN von t1 stehen,
-// und nur der Filter fiel weg. Das war dieselbe Lücke wie beim Sheet, ein
-// Tipp auf eine solche Nadel öffnete ein Sheet, das bereits `tripId: t2`
-// trägt, der Wächter griff also nicht mehr, und «Im Recap ansehen» schickte
-// den Player mit t1s Index in t2. Der Ladestand ist jetzt gestempelt: gehört
-// er zu einer anderen Reise, ist DIESE hier schlicht noch nicht geladen.
-test('ein halber Reisewechsel zeigt weder Nadeln noch Tagesnummern der vorherigen Reise', async () => {
-  ladeErfolg(MIT_TAGEN, VORRAT_TAGE);
+// The load paths come back independently, and when the trip changes there is
+// a window in which the start date already belongs to the NEW trip and the
+// moments still to the old one. The day numbers out of that would exist in
+// neither of the two.
+test('a half finished trip change shows neither pins nor day numbers of the previous trip', async () => {
+  loadSuccess(WITH_DAYS, POOL_DAYS);
   const { rerender } = await wrap();
   await screen.findByTestId('karte-tagesfilter');
 
   mockId = 't2';
-  // Die Reise antwortet sofort und mit einem ANDEREN Startdatum, die Momente
-  // von t2 bleiben zunächst aus.
-  let momenteAufloesen: (wert: { data: RecapMoment[]; error: string | null }) => void = () => {};
+  // The trip answers at once and with a DIFFERENT start date, the moments of t2
+  // stay away for now.
+  let resolveMoments: (value: { data: RecapMoment[]; error: string | null }) => void = () => {};
   (fetchTrip as jest.Mock).mockResolvedValue({
-    data: { ...REISE, id: 't2', start_date: '2026-08-08' }, error: null,
+    data: { ...TRIP, id: 't2', start_date: '2026-08-08' }, error: null,
   });
   (fetchRecapMoments as jest.Mock).mockReturnValue(
-    new Promise<{ data: RecapMoment[]; error: string | null }>((aufloesen) => {
-      momenteAufloesen = aufloesen;
+    new Promise<{ data: RecapMoment[]; error: string | null }>((resolve) => {
+      resolveMoments = resolve;
     })
   );
-  (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_TAGE, error: null, grund: null });
-  await rerender(<ThemeProvider><RecapKarte /></ThemeProvider>);
+  (getPool as jest.Mock).mockResolvedValue({ pool: POOL_DAYS, error: null, reason: null });
+  await rerender(<ThemeProvider><RecapMap /></ThemeProvider>);
 
-  // Nichts von t1 ist mehr zu sehen, kein Filter, der nur aus einer Mischung
-  // entstehen könnte, und keine Nadel, die in den Player von t2 führte.
   expect(screen.queryAllByTestId(/^karte-nadel/)).toHaveLength(0);
   expect(screen.queryByTestId('karte-tagesfilter')).toBeNull();
   expect(screen.getByTestId('karte-skelett')).toBeTruthy();
 
-  // Und sobald t2s Momente da sind, zählen die Tage ab DESSEN Startdatum
-  // (08.08.): dieselben Momente ergeben Tag 3 und Tag 4, nicht Tag 1 und 2.
+  // And as soon as t2's moments are there the days count from ITS start date
+  // (08.08.): the same moments yield day 3 and day 4, not day 1 and 2.
   await act(async () => {
-    momenteAufloesen({ data: MIT_TAGEN, error: null });
+    resolveMoments({ data: WITH_DAYS, error: null });
   });
   await fireEvent.press(screen.getByTestId('karte-tagesfilter'));
   expect(screen.getByTestId('tag-eintrag-3')).toBeTruthy();
@@ -1672,128 +1419,120 @@ test('ein halber Reisewechsel zeigt weder Nadeln noch Tagesnummern der vorherige
   expect(screen.queryByTestId('tag-eintrag-1')).toBeNull();
 });
 
-// Die Pille ist auf der Karte der einzige Hinweis auf den Filterstand, für
-// VoiceOver muss sie sagen, was sie zeigt UND was ein Tipp tut.
-test('der Tagesfilter sagt per VoiceOver, welcher Tag gerade gilt', async () => {
-  ladeErfolg(MIT_TAGEN, VORRAT_TAGE);
+test('the day filter says via VoiceOver which day is currently in force', async () => {
+  loadSuccess(WITH_DAYS, POOL_DAYS);
   await wrap();
   expect(await screen.findByLabelText('Reisetag wählen, aktuell Alle Tage')).toBeTruthy();
 
-  await oeffneTagesfilter();
+  await openDayFilter();
   await fireEvent.press(screen.getByTestId('tag-eintrag-2'));
   expect(screen.getByLabelText('Reisetag wählen, aktuell Tag 2')).toBeTruthy();
 });
 
 // ---------------------------------------------------------------------------
-// Task 10: die Momente ohne Ort, und die drei Zustände, die bisher gleich
-// aussahen
+// The moments without a place
 // ---------------------------------------------------------------------------
 
-function ohneOrtMoment(id: string, stunde: number) {
+function withoutPlaceMoment(id: string, hour: number) {
   return moment({
     id,
-    captured_at: `2026-08-10T${String(stunde).padStart(2, '0')}:00:00.000Z`,
+    captured_at: `2026-08-10T${String(hour).padStart(2, '0')}:00:00.000Z`,
     lat: null,
     lng: null,
   });
 }
 
-// Eine Reise, in der KEINE zwei Zählungen zusammenfallen. k5 steht
+// A trip in which NO two counts coincide. k5 stands
 //
-//   - in der Spielliste an Stelle 5   ← die einzig richtige Zahl
-//   - unter den Momenten ohne Ort an Stelle 2
-//   - in der rohen Momente-Liste an Stelle 7
-//   - unter den Nadeln gar nicht
+//   - at playlist position 5, the only right number
+//   - at position 2 among the moments without a place
+//   - at position 7 in the raw moment list
+//   - nowhere among the pins
 //
-// Nur die 5 kann also aus der richtigen Zählung fallen, jede andere Zahl
-// verrät sofort, aus welcher Liste heraus gezählt wurde.
-const k0 = ohneOrtMoment('k0', 9);
+// So only the 5 can fall out of the right count, every other number gives
+// away at once which list was counted.
+const k0 = withoutPlaceMoment('k0', 9);
 const k1 = moment({ id: 'k1', captured_at: '2026-08-10T10:00:00.000Z', lat: 38.71, lng: -9.14 });
-const k2 = ohneOrtMoment('k2', 11);
+const k2 = withoutPlaceMoment('k2', 11);
 const k3 = moment({ id: 'k3', captured_at: '2026-08-10T12:00:00.000Z', lat: 38.72, lng: -9.13 });
 const k4 = moment({ id: 'k4', captured_at: '2026-08-10T13:00:00.000Z', lat: 38.75, lng: -9.1 });
-const k5 = ohneOrtMoment('k5', 14);
-// Vorne dran, damit die rohe Liste um zwei verschoben ist: ohneUrlM (07:00,
-// hochgeladen, aber ohne URL im Vorrat) und k9 (08:00, lädt noch, MIT URL,
-// damit ihn wirklich nur `upload_status` aussortiert).
+const k5 = withoutPlaceMoment('k5', 14);
+// Up front so the raw list is shifted by two: withoutUrlM (07:00, uploaded
+// but without a url in the pool) and k9 (08:00, still uploading, WITH a url,
+// so that only `upload_status` sorts it out).
 const k9 = moment({
   id: 'k9', captured_at: '2026-08-10T08:00:00.000Z', lat: 38.7, lng: -9.15, upload_status: 'pending',
 });
-const DREI_OHNE_ORT = [ohneUrlM, k9, k0, k1, k2, k3, k4, k5];
-const VORRAT_DREI = {
-  ...VORRAT_OK,
+const THREE_WITHOUT_PLACE = [withoutUrlM, k9, k0, k1, k2, k3, k4, k5];
+const POOL_THREE = {
+  ...POOL_OK,
   urls: new Map<string, MediaUrl>(
-    ['k0', 'k1', 'k2', 'k3', 'k4', 'k5', 'k9'].map((id) => [id, bild(id)] as const)
+    ['k0', 'k1', 'k2', 'k3', 'k4', 'k5', 'k9'].map((id) => [id, image(id)] as const)
   ),
 };
 
-// Dieselbe Reise, wie sie eine Abfrage OHNE Sortiergarantie liefern könnte.
-// `fetchRecapMomente` sortiert heute selbst (recapApi.ts), genau deshalb
-// fiele es nirgends auf, wenn der Index eines Moments ohne Ort aus der
-// Eingangsreihenfolge käme statt aus der sortierten Spielliste.
-const DREI_OHNE_ORT_UNSORTIERT = [k5, k2, ohneUrlM, k3, k0, k9, k4, k1];
+// The same trip as a query WITHOUT an order guarantee could deliver it.
+// `fetchRecapMoments` sorts by itself today, which is exactly why it would
+// show nowhere if the index of a moment without a place came from the
+// incoming order instead of from the sorted playlist.
+const THREE_WITHOUT_PLACE_UNSORTED = [k5, k2, withoutUrlM, k3, k0, k9, k4, k1];
 
-async function oeffneOhneOrt() {
+async function openWithoutPlace() {
   await fireEvent.press(screen.getByText('3 Momente ohne Ort'));
 }
 
-test('die Leiste nennt die Momente ohne Ort', async () => {
-  ladeErfolg(DREI_OHNE_ORT, VORRAT_DREI);
+test('the bar names the moments without a place', async () => {
+  loadSuccess(THREE_WITHOUT_PLACE, POOL_THREE);
   await wrap();
   expect(await screen.findByText('3 Momente ohne Ort')).toBeTruthy();
 });
 
-// VOLLSTAENDIG hat genau einen Moment ohne Ort (p3).
-test('ein einzelner Moment ohne Ort steht im Singular', async () => {
-  ladeErfolg();
+// COMPLETE has exactly one moment without a place (p3).
+test('a single moment without a place reads in the singular', async () => {
+  loadSuccess();
   await wrap();
   expect(await screen.findByText('1 Moment ohne Ort')).toBeTruthy();
 });
 
-test('ohne solche Momente gibt es keine Leiste', async () => {
-  ladeErfolg(NAH_BEIEINANDER);
+test('without such moments there is no bar', async () => {
+  loadSuccess(CLOSE_TOGETHER);
   await wrap();
   await screen.findByTestId('karte-nadel-p1');
   expect(screen.queryByText(/ohne Ort/)).toBeNull();
 });
 
 // ---------------------------------------------------------------------------
-// Abschluss-Review, Finding 2: Momente, die diese Karte GAR NICHT hergibt
+// Moments this map does not carry at all
 // ---------------------------------------------------------------------------
 //
-// Der Ladeweg filtert auf `uploaded && urls.has`, und das bleibt so, denn
-// `punkt.index` muss zur Spielliste passen. Wer dabei herausfällt, bekam aber
-// weder eine Nadel noch einen Platz in «N Momente ohne Ort»: die Rechnung auf
-// dem Screen ging nicht auf, und niemand konnte sehen, warum.
-//
-// VOLLSTAENDIG enthält genau einen von jeder Sorte: p4 lädt noch hoch, p5 hat
-// eine Koordinate, aber keine URL im Vorrat.
-test('Momente, die noch hochladen, werden benannt statt still zu fehlen', async () => {
-  ladeErfolg();
+// The load path filters on `uploaded && urls.has` and that stays, because
+// `point.index` has to match the playlist. COMPLETE contains exactly one of
+// each kind: p4 is still uploading, p5 has a coordinate but no url in the
+// pool.
+test('moments still uploading are named instead of silently missing', async () => {
+  loadSuccess();
   await wrap();
   expect(await screen.findByText('1 Moment ist noch unterwegs.')).toBeTruthy();
 });
 
-test('Momente ohne Bild-URL werden benannt statt still zu fehlen', async () => {
-  ladeErfolg();
+test('moments without an image url are named instead of silently missing', async () => {
+  loadSuccess();
   await wrap();
   expect(
     await screen.findByText('1 Moment liess sich gerade nicht laden. Schau später nochmal rein.')
   ).toBeTruthy();
 });
 
-// Die Auskunft ist KEIN Knopf: zu diesen Momenten führt von der Karte aus kein
-// Weg, sie stehen in keiner Spielliste, also zeigt auch kein Index auf sie.
-test('die Auskunft über fehlende Momente faengt keinen Tipp ab', async () => {
-  ladeErfolg();
+test('the notice about missing moments catches no tap', async () => {
+  loadSuccess();
   await wrap();
   expect(
     (await screen.findByTestId('karte-fehlen-ganz')).props.pointerEvents
   ).toBe('none');
 });
 
-test('eine vollstaendige Reise behauptet nichts dergleichen', async () => {
-  ladeErfolg(NAH_BEIEINANDER, { ...VORRAT_OK, ausgelassen: 0 });
+test('a complete trip claims nothing of the sort', async () => {
+  loadSuccess(CLOSE_TOGETHER, { ...POOL_OK, ausgelassen: 0 });
   await wrap();
   await screen.findByTestId('karte-nadel-p1');
   expect(screen.queryByTestId('karte-fehlen-ganz')).toBeNull();
@@ -1801,11 +1540,11 @@ test('eine vollstaendige Reise behauptet nichts dergleichen', async () => {
   expect(screen.queryByText(/nicht laden/)).toBeNull();
 });
 
-test('die Leiste oeffnet ein Sheet mit einer Kachel je Moment ohne Ort', async () => {
-  ladeErfolg(DREI_OHNE_ORT, VORRAT_DREI);
+test('the bar opens a sheet with one tile per moment without a place', async () => {
+  loadSuccess(THREE_WITHOUT_PLACE, POOL_THREE);
   await wrap();
   await screen.findByText('3 Momente ohne Ort');
-  await oeffneOhneOrt();
+  await openWithoutPlace();
 
   expect(screen.getAllByTestId(/^ohne-ort-kachel/)).toHaveLength(3);
   expect(screen.getByTestId('ohne-ort-kachel-k0')).toBeTruthy();
@@ -1813,27 +1552,24 @@ test('die Leiste oeffnet ein Sheet mit einer Kachel je Moment ohne Ort', async (
   expect(screen.getByTestId('ohne-ort-kachel-k5')).toBeTruthy();
 });
 
-// Dieselbe Kachel-Liste wie in der Übersicht (Spec §5.8) heisst auch:
-// dasselbe Bild. Ein über den Index statt über die id gegriffener Vorrat
-// zeigte hier das Bild eines fremden Moments.
-test('jede Kachel traegt das Thumbnail ihres eigenen Moments', async () => {
-  ladeErfolg(DREI_OHNE_ORT, VORRAT_DREI);
+test('every tile carries the thumbnail of its own moment', async () => {
+  loadSuccess(THREE_WITHOUT_PLACE, POOL_THREE);
   await wrap();
   await screen.findByText('3 Momente ohne Ort');
-  await oeffneOhneOrt();
+  await openWithoutPlace();
 
-  const kachel = screen.getByTestId('ohne-ort-kachel-k2');
-  expect(within(kachel).getByTestId('ohne-ort-bild-k2').props.source.uri).toBe(bild('k2').thumb_url);
+  const tile = screen.getByTestId('ohne-ort-kachel-k2');
+  expect(within(tile).getByTestId('ohne-ort-bild-k2').props.source.uri).toBe(image('k2').thumb_url);
 });
 
-// DER Test dieses Tasks. `start` zählt in die SPIELLISTE (player.tsx:503-527),
-// nie in `ohneOrt`, nie in die rohe Momente-Liste. k5 trennt alle drei
-// Zahlen voneinander (siehe Fixture oben).
-test('aus dem Sheet fuehrt der Weg in den Player', async () => {
-  ladeErfolg(DREI_OHNE_ORT, VORRAT_DREI);
+// `start` counts into the PLAYLIST, never into the moments without a place
+// and never into the raw moment list. k5 keeps all three numbers apart (see
+// the fixture above).
+test('from the sheet the way leads into the player', async () => {
+  loadSuccess(THREE_WITHOUT_PLACE, POOL_THREE);
   await wrap();
   await screen.findByText('3 Momente ohne Ort');
-  await oeffneOhneOrt();
+  await openWithoutPlace();
   await fireEvent.press(screen.getByTestId('ohne-ort-kachel-k5'));
 
   expect(mockPush).toHaveBeenCalledWith({
@@ -1842,15 +1578,13 @@ test('aus dem Sheet fuehrt der Weg in den Player', async () => {
   });
 });
 
-// Und der Index kommt aus der SORTIERTEN Spielliste, nicht aus der
-// Reihenfolge, in der die Momente hereinkamen, dieselbe Reihenfolge, in der
-// `zuKartenPunkten` die Indizes der Nadeln vergibt. Käme er aus der
-// Eingangsliste, stünde k5 hier auf 0 (die Nadeln sässen trotzdem richtig).
-test('der Index eines Moments ohne Ort haengt nicht an der Eingangsreihenfolge', async () => {
-  ladeErfolg(DREI_OHNE_ORT_UNSORTIERT, VORRAT_DREI);
+// Coming from the incoming list, k5 would stand at 0 here (the pins would sit
+// right all the same).
+test('the index of a moment without a place does not hang on the incoming order', async () => {
+  loadSuccess(THREE_WITHOUT_PLACE_UNSORTED, POOL_THREE);
   await wrap();
   await screen.findByText('3 Momente ohne Ort');
-  await oeffneOhneOrt();
+  await openWithoutPlace();
   await fireEvent.press(screen.getByTestId('ohne-ort-kachel-k5'));
 
   expect(mockPush).toHaveBeenCalledWith({
@@ -1859,53 +1593,47 @@ test('der Index eines Moments ohne Ort haengt nicht an der Eingangsreihenfolge',
   });
 });
 
-// Die Leiste zählt die ganze Reise, nicht den gewählten Tag. Ein Moment ohne
-// Ort liegt auf KEINEM Tag der Karte, und ein Tag, dessen Momente alle ohne
-// Ort sind, steht gar nicht erst zur Wahl (siehe `waehlbareTage`). Würde die
-// Leiste mitfiltern, wären genau diese Momente auf keinem Weg mehr
-// erreichbar.
-test('der Tagesfilter duennt die Momente ohne Ort nicht aus', async () => {
-  ladeErfolg(MIT_TAGEN, VORRAT_TAGE);
+test('the day filter does not thin out the moments without a place', async () => {
+  loadSuccess(WITH_DAYS, POOL_DAYS);
   await wrap();
   expect(await screen.findByText('1 Moment ohne Ort')).toBeTruthy();
 
-  await oeffneTagesfilter();
+  await openDayFilter();
   await fireEvent.press(screen.getByTestId('tag-eintrag-2'));
 
-  // p3 (ohne Ort) liegt an Tag 1, die Leiste nennt ihn trotzdem.
+  // p3 (without a place) lies on day 1, the bar names it all the same.
   expect(screen.getByText('1 Moment ohne Ort')).toBeTruthy();
 });
 
-// Dieselbe Sackgasse wie bei Gruppen- und Tagesliste: `Sheet` deckelt auf
-// 85 % Fensterhöhe und schneidet den Überhang hart ab (`overflow: 'hidden'`).
-const VIELE_OHNE_ORT = [
+// The same dead end as with the cluster and day lists: `Sheet` caps at 85 %
+// window height and clips the overhang hard.
+const MANY_WITHOUT_PLACE = [
   moment({ id: 'w0', captured_at: '2026-08-10T08:00:00.000Z', lat: 38.71, lng: -9.14 }),
-  ...Array.from({ length: 12 }, (_, i) => ohneOrtMoment(`w${i + 1}`, 9 + i)),
+  ...Array.from({ length: 12 }, (_, i) => withoutPlaceMoment(`w${i + 1}`, 9 + i)),
 ];
-const VORRAT_VIELE_OHNE_ORT = {
-  ...VORRAT_OK,
+const POOL_MANY_WITHOUT_PLACE = {
+  ...POOL_OK,
   urls: new Map<string, MediaUrl>(
-    Array.from({ length: 13 }, (_, i) => [`w${i}`, bild(`w${i}`)] as const)
+    Array.from({ length: 13 }, (_, i) => [`w${i}`, image(`w${i}`)] as const)
   ),
 };
 
-test('die Kachel-Liste scrollt, statt ihre letzten Momente abzuschneiden', async () => {
-  ladeErfolg(VIELE_OHNE_ORT, VORRAT_VIELE_OHNE_ORT);
+test('the tile list scrolls instead of clipping its last moments', async () => {
+  loadSuccess(MANY_WITHOUT_PLACE, POOL_MANY_WITHOUT_PLACE);
   await wrap();
   await fireEvent.press(await screen.findByText('12 Momente ohne Ort'));
 
-  const liste = screen.getByTestId('ohne-ort-liste');
-  expect(liste.type).toBe('RCTScrollView');
-  expect(StyleSheet.flatten(liste.props.style).maxHeight).toBe(
+  const list = screen.getByTestId('ohne-ort-liste');
+  expect(list.type).toBe('RCTScrollView');
+  expect(StyleSheet.flatten(list.props.style).maxHeight).toBe(
     Dimensions.get('window').height * SHEET_SCROLL_RATIO
   );
-  expect(within(liste).getAllByTestId(/^ohne-ort-kachel/)).toHaveLength(12);
+  expect(within(list).getAllByTestId(/^ohne-ort-kachel/)).toHaveLength(12);
 });
 
-// Und der letzte ist nicht bloss da, sondern führt an seinen eigenen Platz:
-// w12 steht in der Spielliste an Stelle 12.
-test('auch die letzte Kachel fuehrt in den Player', async () => {
-  ladeErfolg(VIELE_OHNE_ORT, VORRAT_VIELE_OHNE_ORT);
+// w12 is at playlist position 12.
+test('even the last tile leads into the player', async () => {
+  loadSuccess(MANY_WITHOUT_PLACE, POOL_MANY_WITHOUT_PLACE);
   await wrap();
   await fireEvent.press(await screen.findByText('12 Momente ohne Ort'));
   await fireEvent.press(within(screen.getByTestId('ohne-ort-liste')).getByTestId('ohne-ort-kachel-w12'));
@@ -1916,73 +1644,63 @@ test('auch die letzte Kachel fuehrt in den Player', async () => {
   });
 });
 
-// DESIGN-LANGUAGE §5: «Listen = Stagger 40 ms», dieselbe Regel wie für
-// Gruppen- und Tagesliste, also dieselbe Mechanik.
-test('die Kacheln der Momente ohne Ort erscheinen gestaffelt', async () => {
-  const spion = jest.spyOn(Animated, 'timing');
-  ladeErfolg(DREI_OHNE_ORT, VORRAT_DREI);
+test('the tiles of the moments without a place appear staggered', async () => {
+  const spy = jest.spyOn(Animated, 'timing');
+  loadSuccess(THREE_WITHOUT_PLACE, POOL_THREE);
   await wrap();
   await screen.findByText('3 Momente ohne Ort');
-  await oeffneOhneOrt();
+  await openWithoutPlace();
 
-  expect(staggerVerzoegerungen()).toEqual([0, 40, 80]);
-  expect(staggerDauern()).toEqual([
+  expect(staggerDelays()).toEqual([0, 40, 80]);
+  expect(staggerDurations()).toEqual([
     motion.duration.base, motion.duration.base, motion.duration.base,
   ]);
-  spion.mockRestore();
+  spy.mockRestore();
 });
 
-test('mit Reduced Motion erscheinen die Kacheln ohne Staffelung, in 200 ms', async () => {
-  const spion = jest.spyOn(Animated, 'timing');
-  mockReduziert = true;
-  ladeErfolg(DREI_OHNE_ORT, VORRAT_DREI);
+test('with Reduced Motion the tiles appear without stagger, in 200 ms', async () => {
+  const spy = jest.spyOn(Animated, 'timing');
+  mockReducedMotion = true;
+  loadSuccess(THREE_WITHOUT_PLACE, POOL_THREE);
   await wrap();
   await screen.findByText('3 Momente ohne Ort');
-  await oeffneOhneOrt();
+  await openWithoutPlace();
 
-  expect(staggerVerzoegerungen()).toEqual([0, 0, 0]);
-  expect(staggerDauern()).toEqual([200, 200, 200]);
-  spion.mockRestore();
+  expect(staggerDelays()).toEqual([0, 0, 0]);
+  expect(staggerDurations()).toEqual([200, 200, 200]);
+  spy.mockRestore();
 });
 
-// Gleiche Schärfe wie beim Moment-Sheet: ein Sheet der VORHERIGEN Reise
-// schickte den Player mit deren Index in die neue, wo dieselbe Zahl auf einen
-// ganz anderen Moment zeigt.
-test('ein Wechsel der Reise laesst kein offenes Sheet der Momente ohne Ort stehen', async () => {
-  ladeErfolg(DREI_OHNE_ORT, VORRAT_DREI);
+test('a change of trip leaves no open sheet of the moments without a place standing', async () => {
+  loadSuccess(THREE_WITHOUT_PLACE, POOL_THREE);
   const { rerender } = await wrap();
   await screen.findByText('3 Momente ohne Ort');
-  await oeffneOhneOrt();
+  await openWithoutPlace();
   expect(screen.getByTestId('ohne-ort-kachel-k5')).toBeTruthy();
 
   mockId = 't2';
-  ladeErfolg(DREI_OHNE_ORT, VORRAT_DREI);
-  await rerender(<ThemeProvider><RecapKarte /></ThemeProvider>);
+  loadSuccess(THREE_WITHOUT_PLACE, POOL_THREE);
+  await rerender(<ThemeProvider><RecapMap /></ThemeProvider>);
 
   expect(screen.queryByTestId('ohne-ort-kachel-k5')).toBeNull();
 });
 
-// DESIGN-LANGUAGE §4: höchstens ein Sheet, und damit höchstens ein
-// Primär-Button gleichzeitig sichtbar (siehe `oeffneTagesfilter`).
-test('die Leiste schliesst ein offenes Moment-Sheet', async () => {
-  ladeErfolg(DREI_OHNE_ORT, VORRAT_DREI);
+test('the bar closes an open moment sheet', async () => {
+  loadSuccess(THREE_WITHOUT_PLACE, POOL_THREE);
   await wrap();
   await fireEvent.press(await screen.findByTestId('karte-nadel-k1'));
   expect(screen.getByText('Im Recap ansehen')).toBeTruthy();
 
-  await oeffneOhneOrt();
+  await openWithoutPlace();
   expect(screen.queryByText('Im Recap ansehen')).toBeNull();
   expect(screen.getByTestId('ohne-ort-kachel-k5')).toBeTruthy();
 });
 
 // ---------------------------------------------------------------------------
-// Task 10: «lädt noch» ≠ «konnte nicht laden» ≠ «keine Orte»
+// Still loading, could not load and no places are three different things
 // ---------------------------------------------------------------------------
 
-// Bis Task 10 sahen alle drei gleich aus: eine weisse Fläche mit Zurück-Pille.
-// Ein Deep Link auf eine fremde Reise war von einer Reise ohne Orte nicht zu
-// unterscheiden.
-test('vor der ersten Antwort steht ein Skelett, nicht die Erklaerung', async () => {
+test('before the first answer a skeleton stands there, not the explanation', async () => {
   (fetchRecapMoments as jest.Mock).mockReturnValue(new Promise(() => {}));
   (getPool as jest.Mock).mockReturnValue(new Promise(() => {}));
   await wrap();
@@ -1992,11 +1710,11 @@ test('vor der ersten Antwort steht ein Skelett, nicht die Erklaerung', async () 
   expect(screen.queryByTestId('karte-flaeche')).toBeNull();
 });
 
-// Fixrunde 1, Important 2: weder `urlVorrat.ts` noch `recapApi.ts` kennen
-// Timeout oder AbortController. Hängt eine der beiden, ist das Skelett ohne
-// Rückweg eine Sackgasse, die Karte ist, anders als die Übersicht, keine
-// Tab-Wurzel, sondern per `push` erreicht.
-test('auch im Ladezustand fuehrt ein Weg zurueck', async () => {
+// Neither `urlPool.ts` nor `recapApi.ts` knows a timeout or an
+// AbortController. If one of them hangs, the skeleton without a way back is a
+// dead end: the map, unlike the overview, is no tab root but reached by
+// `push`.
+test('even in the loading state a way leads back', async () => {
   (fetchRecapMoments as jest.Mock).mockReturnValue(new Promise(() => {}));
   (getPool as jest.Mock).mockReturnValue(new Promise(() => {}));
   await wrap();
@@ -2005,26 +1723,23 @@ test('auch im Ladezustand fuehrt ein Weg zurueck', async () => {
   expect(mockBack).toHaveBeenCalled();
 });
 
-test('ein Ladefehler nennt seinen Grund, statt wie eine Reise ohne Orte auszusehen', async () => {
+test('a load error names its reason instead of looking like a trip without places', async () => {
   (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [], error: null });
   (getPool as jest.Mock).mockResolvedValue({
-    vorrat: null, error: LADEFEHLER, grund: null,
+    pool: null, error: LOAD_ERROR, reason: null,
   });
   await wrap();
 
-  expect(await screen.findByText(LADEFEHLER)).toBeTruthy();
+  expect(await screen.findByText(LOAD_ERROR)).toBeTruthy();
   expect(screen.queryByText('Diese Reise hat keine Orte')).toBeNull();
   expect(screen.getByText('Nochmal versuchen')).toBeTruthy();
 });
 
-// Der zweite Fehlerwert desselben Ladewegs, eigener Test, weil ihn allein
-// sein Fehlen rot machen muss (dieselbe Regel wie bei den beiden Filtern der
-// Spielliste).
-test('auch ein Fehler der Momente-Abfrage bleibt nicht stumm', async () => {
+test('an error of the moments query does not stay mute either', async () => {
   (fetchRecapMoments as jest.Mock).mockResolvedValue({
     data: [], error: 'Die Momente konnten nicht geladen werden. Probier es gleich nochmal.',
   });
-  (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+  (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
   await wrap();
 
   expect(
@@ -2033,11 +1748,9 @@ test('auch ein Fehler der Momente-Abfrage bleibt nicht stumm', async () => {
   expect(screen.queryByText('Diese Reise hat keine Orte')).toBeNull();
 });
 
-// Wirft eine der beiden Abfragen (statt den Fehler zurückzugeben), gibt es
-// keinen Text vom Server, der Screen muss trotzdem sagen, was los ist.
-test('wirft der Ladeweg, erklaert der Screen das trotzdem', async () => {
+test('when the load path throws the screen explains it all the same', async () => {
   (fetchRecapMoments as jest.Mock).mockRejectedValue(new Error('kaputt'));
-  (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+  (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
   await wrap();
 
   expect(
@@ -2046,22 +1759,21 @@ test('wirft der Ladeweg, erklaert der Screen das trotzdem', async () => {
   expect(screen.queryByText('Diese Reise hat keine Orte')).toBeNull();
 });
 
-test('«Nochmal versuchen» holt die Karte zurueck', async () => {
+test('the try again button brings the map back', async () => {
   (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [], error: 'Gerade keine Verbindung.' });
-  (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+  (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
   await wrap();
   await screen.findByText('Gerade keine Verbindung.');
 
-  ladeErfolg();
+  loadSuccess();
   await fireEvent.press(screen.getByText('Nochmal versuchen'));
 
   expect(await screen.findByTestId('karte-nadel-p1')).toBeTruthy();
   expect(screen.queryByText('Gerade keine Verbindung.')).toBeNull();
 });
 
-// Spec §5.9, wörtlich: Überschrift, Erklärung, genau ein Knopf.
-test('hat kein Moment einen Ort, erklaert der Screen das', async () => {
-  ladeErfolg([m3]);
+test('when no moment has a place the screen explains it', async () => {
+  loadSuccess([m3]);
   await wrap();
 
   expect(await screen.findByText('Diese Reise hat keine Orte')).toBeTruthy();
@@ -2073,12 +1785,8 @@ test('hat kein Moment einen Ort, erklaert der Screen das', async () => {
   expect(screen.queryByTestId(/^karte-nadel/)).toBeNull();
 });
 
-// Fixrunde 1, Important 3: «kein Moment hat einen Ort» und «es gibt gar keine
-// Momente» sind nicht dasselbe. Eine Reise, in der niemand eingesendet hat,
-// bekäme sonst den Satz über die Ortungsdienste zu lesen, eine Behauptung
-// über etwas, das nie stattgefunden hat.
-test('eine Reise ohne jeden Moment redet nicht von Ortungsdiensten', async () => {
-  ladeErfolg([]);
+test('a trip without a single moment does not talk about location services', async () => {
+  loadSuccess([]);
   await wrap();
 
   expect(await screen.findByText('Diese Reise ist leer geblieben.')).toBeTruthy();
@@ -2087,115 +1795,101 @@ test('eine Reise ohne jeden Moment redet nicht von Ortungsdiensten', async () =>
   expect(screen.queryByTestId('karte-flaeche')).toBeNull();
 });
 
-// Die Gegenprobe: sobald es Momente gibt, die nur keinen Ort haben, gilt
-// wieder Spec §5.9.
-test('eine Reise mit Momenten ohne Ort redet nicht von einer leeren Reise', async () => {
-  ladeErfolg([m3]);
+test('a trip with moments that lack a place does not talk about an empty trip', async () => {
+  loadSuccess([m3]);
   await wrap();
 
   expect(await screen.findByText('Diese Reise hat keine Orte')).toBeTruthy();
   expect(screen.queryByText('Diese Reise ist leer geblieben.')).toBeNull();
 });
 
-// Ein Moment, der noch hochlädt, ist für die Karte kein Moment: er steht
-// nicht in der Spielliste. Der Screen darf ihn also nicht als «hat keine
-// Orte» ausgeben, obwohl er sogar Koordinaten trägt.
-test('eine Reise, deren Momente alle noch unterwegs sind, gilt als leer', async () => {
-  ladeErfolg([pendingM]);
+test('a trip whose moments are all still on their way counts as empty', async () => {
+  loadSuccess([pendingM]);
   await wrap();
 
   expect(await screen.findByText('Diese Reise ist leer geblieben.')).toBeTruthy();
   expect(screen.queryByText('Diese Reise hat keine Orte')).toBeNull();
 });
 
-// DESIGN-LANGUAGE §4: genau EIN Primär-Button pro Screen, und §7: nie mehr
-// als einer. Im Leer-Zustand ist er der einzige Bedienelement überhaupt, das
-// lässt sich hier vollständig nachzählen statt bloss behaupten.
-test('der Leer-Zustand traegt genau einen Knopf', async () => {
-  ladeErfolg([m3]);
+test('the empty state carries exactly one button', async () => {
+  loadSuccess([m3]);
   await wrap();
   await screen.findByText('Diese Reise hat keine Orte');
 
-  expect(screen.getAllByRole('button').map((k) => k.props.accessibilityLabel)).toEqual([
+  expect(screen.getAllByRole('button').map((b) => b.props.accessibilityLabel)).toEqual([
     'Zurück zur Übersicht',
   ]);
 });
 
-test('der eine Knopf des Leer-Zustands fuehrt zurueck', async () => {
-  ladeErfolg([m3]);
+test('the one button of the empty state leads back', async () => {
+  loadSuccess([m3]);
   await wrap();
   await fireEvent.press(await screen.findByText('Zurück zur Übersicht'));
   expect(mockBack).toHaveBeenCalled();
 });
 
 // ---------------------------------------------------------------------------
-// Fixrunde 1: der Ladestand gehört zu EINER Reise
+// The load state belongs to ONE trip
 // ---------------------------------------------------------------------------
 //
-// `phase`, `punkte` und `ohneOrt` waren die einzigen States dieser Datei ohne
-// Reise-Stempel. Der Screen bleibt beim Wechsel der id gemountet, und die
-// neuen Momente brauchen ihre Zeit, in genau diesem Fenster stand der
-// Ladestand von t1 über t2. Nicht einen Frame lang, sondern die volle
-// Ladedauer.
+// The screen stays mounted when the id changes and the new moments take their
+// time. In exactly that window the load state of t1 stood over t2, not for
+// one frame but for the full load duration.
 
-// Startet t1, wechselt auf t2 und lässt dessen Momente offen. Zurück kommt
-// der Zustand GENAU in diesem Fenster.
-async function wechsleAufHaengendesT2(rerender: (baum: React.ReactElement) => Promise<void>) {
+// Starts t1, switches to t2 and leaves its moments open. What comes back is
+// the state in exactly that window.
+async function switchToHangingT2(rerender: (tree: React.ReactElement) => Promise<void>) {
   mockId = 't2';
-  (fetchTrip as jest.Mock).mockResolvedValue({ data: { ...REISE, id: 't2' }, error: null });
+  (fetchTrip as jest.Mock).mockResolvedValue({ data: { ...TRIP, id: 't2' }, error: null });
   (fetchRecapMoments as jest.Mock).mockReturnValue(new Promise(() => {}));
   (getPool as jest.Mock).mockReturnValue(new Promise(() => {}));
-  await rerender(<ThemeProvider><RecapKarte /></ThemeProvider>);
+  await rerender(<ThemeProvider><RecapMap /></ThemeProvider>);
 }
 
-test('der Leer-Zustand von t1 steht nicht ueber t2', async () => {
-  ladeErfolg([m3]);
+test('the empty state of t1 does not stand over t2', async () => {
+  loadSuccess([m3]);
   const { rerender } = await wrap();
   await screen.findByText('Diese Reise hat keine Orte');
 
-  await wechsleAufHaengendesT2(rerender);
+  await switchToHangingT2(rerender);
 
   expect(screen.queryByText('Diese Reise hat keine Orte')).toBeNull();
   expect(screen.getByTestId('karte-skelett')).toBeTruthy();
 });
 
-test('der Fehler von t1 steht nicht ueber t2', async () => {
+test('the error of t1 does not stand over t2', async () => {
   (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [], error: 'Kein Zugriff auf diese Reise.' });
-  (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+  (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
   const { rerender } = await wrap();
   await screen.findByText('Kein Zugriff auf diese Reise.');
 
-  await wechsleAufHaengendesT2(rerender);
+  await switchToHangingT2(rerender);
 
   expect(screen.queryByText('Kein Zugriff auf diese Reise.')).toBeNull();
   expect(screen.queryByText('Nochmal versuchen')).toBeNull();
   expect(screen.getByTestId('karte-skelett')).toBeTruthy();
 });
 
-// Der gefährlichste der drei: die Leiste von t1 über t2 ist nicht nur falsch
-// beschriftet. Ein jetzt geöffnetes Sheet trägt bereits `tripId: t2`, der
-// Wächter greift also nicht, und eine Kachel schickte den Player mit t1s
-// Index in t2.
-test('die Leiste von t1 steht nicht ueber t2', async () => {
-  ladeErfolg();
+// The most dangerous of the three: a sheet opened now already carries
+// `tripId: t2`, so the guard does not bite, and a tile would send the player
+// into t2 with t1's index.
+test('the bar of t1 does not stand over t2', async () => {
+  loadSuccess();
   const { rerender } = await wrap();
   await screen.findByText('1 Moment ohne Ort');
 
-  await wechsleAufHaengendesT2(rerender);
+  await switchToHangingT2(rerender);
 
   expect(screen.queryByText(/ohne Ort/)).toBeNull();
   expect(screen.getByTestId('karte-skelett')).toBeTruthy();
 });
 
 // ---------------------------------------------------------------------------
-// Task 10: die beiden stillen Ladepfade
+// The two silent load paths
 // ---------------------------------------------------------------------------
 
-// Der Fehler der Reise-Abfrage wurde bisher vollständig verworfen. Sichtbar
-// wird er weiterhin nicht (der Filter ist Beiwerk, die Nadeln SIND der
-// Screen), aber er darf nicht spurlos verschwinden.
-test('faellt die Reise-Abfrage aus, hinterlaesst sie wenigstens eine Spur', async () => {
-  ladeErfolg(MIT_TAGEN, VORRAT_TAGE);
+test('when the trip query fails it at least leaves a trace', async () => {
+  loadSuccess(WITH_DAYS, POOL_DAYS);
   (fetchTrip as jest.Mock).mockResolvedValue({
     data: null, error: 'Diese Reise konnte nicht geladen werden.',
   });
@@ -2204,282 +1898,260 @@ test('faellt die Reise-Abfrage aus, hinterlaesst sie wenigstens eine Spur', asyn
 
   expect(reportError).toHaveBeenCalledWith(
     expect.objectContaining({ message: 'Diese Reise konnte nicht geladen werden.' }),
-    { screen: 'recap/karte', tripId: 't1', ladeweg: 'reise' }
+    { screen: 'recap/map', tripId: 't1', loadPath: 'trip' }
   );
 });
 
-test('eine geglueckte Reise-Abfrage meldet nichts', async () => {
-  ladeErfolg(MIT_TAGEN, VORRAT_TAGE);
+test('a successful trip query reports nothing', async () => {
+  loadSuccess(WITH_DAYS, POOL_DAYS);
   await wrap();
   await screen.findByTestId('karte-tagesfilter');
   expect(reportError).not.toHaveBeenCalled();
 });
 
-// Die Nummernlücke: OHNE_ORT_DAZWISCHEN hat an Tag 2 nur Momente ohne Ort.
-// Die Übersicht zeigt diesen Tag, der Kartenfilter springt von 1 auf 3, ohne
-// eine Zeile dazu sieht das nach einem Fehler aus.
-test('die Luecke in den Tagesnummern wird erklaert', async () => {
-  ladeErfolg(OHNE_ORT_DAZWISCHEN, VORRAT_OHNE_ORT_DAZWISCHEN);
+// The number gap: WITHOUT_PLACE_IN_BETWEEN has only moments without a place
+// on day 2. The overview shows that day, the map filter jumps from 1 to 3,
+// and without a line about it that looks like a fault.
+test('the gap in the day numbers is explained', async () => {
+  loadSuccess(WITHOUT_PLACE_IN_BETWEEN, POOL_WITHOUT_PLACE_IN_BETWEEN);
   await wrap();
   await screen.findByTestId('karte-nadel-q3');
 
-  await oeffneTagesfilter();
+  await openDayFilter();
   expect(screen.queryByTestId('tag-eintrag-2')).toBeNull();
   expect(
     screen.getByText('Tage, an denen kein Moment einen Ort hat, stehen nicht zur Wahl.')
   ).toBeTruthy();
 });
 
-// Und nur dann: eine lückenlose Liste erklärt nichts, was niemand gefragt hat.
-test('ohne Luecke steht die Zeile nicht da', async () => {
-  ladeErfolg(MIT_TAGEN, VORRAT_TAGE);
+test('without a gap the line is not there', async () => {
+  loadSuccess(WITH_DAYS, POOL_DAYS);
   await wrap();
   await screen.findByTestId('karte-nadel-p6');
 
-  await oeffneTagesfilter();
+  await openDayFilter();
   expect(screen.getByTestId('tag-eintrag-1')).toBeTruthy();
   expect(screen.getByTestId('tag-eintrag-2')).toBeTruthy();
   expect(screen.queryByText(/stehen nicht zur Wahl/)).toBeNull();
 });
 
 // ---------------------------------------------------------------------------
-// Task 12: die Review-Checkliste aus DESIGN-LANGUAGE §9
+// The review checklist from DESIGN-LANGUAGE §9
 // ---------------------------------------------------------------------------
 
-// §9, Punkt 6: «Genau ein Primär-Button pro Screen», §7 verbietet ausdrücklich
-// mehr als einen. Das lässt sich am Quelltext nicht abzählen: dieser Screen hat
-// NEUN sichtbare Zustände, und jeder rendert einen anderen Baum, lädt, Fehler,
-// die beiden Leer-Fälle, die Karte selbst und die Karte noch einmal mit jedem
-// der vier Sheets. Ein Blick in die JSX zeigt nur, wo `Button` steht, nicht,
-// welche davon gleichzeitig auf dem Schirm sind.
+// §9, point 6: exactly one primary button per screen. That cannot be counted
+// from the source: this screen has NINE visible states and each renders a
+// different tree, loading, error, the two empty cases, the map itself and the
+// map again with each of the four sheets. A glance at the JSX shows only
+// where `Button` stands, not which of them are on screen at the same time.
 //
-// Erkannt wird der Primär-Button an seiner Signatur aus components/Button.tsx:
-// eine randlose Fläche in Höhe 52 in einer der drei Farben, die ein
-// Primär-Button annehmen kann. Nicht an der Beschriftung, die liesse sich
-// ändern, ohne dass hier etwas auffiele. Nicht an der Farbe allein: die
-// Zähler-Pille der Nadel trägt `accent` ebenfalls (KartenNadel.tsx), aber Höhe
-// 20. Und nicht an der Höhe allein: der Sekundär-Button ist ebenfalls 52 hoch.
+// The primary button is recognised by its signature from components/Button.tsx:
+// a borderless surface of height 52 in one of the three colours a primary
+// button can take. Not by its label, which could change without anything
+// showing up here. Not by colour alone: the counter pill of the pin carries
+// `accent` as well, but height 20. And not by height alone: the secondary
+// button is 52 high too.
 //
-// Die DREI Farben, nicht nur `accent` (Task-12-Nachtrag): `Button.tsx` färbt
-// die Fläche bei `pressed` in `accent-pressed` und bei `blocked` (disabled
-// ODER loading) in `bg-1`. Ein LADENDER Primär-Button, «Nochmal versuchen»
-// während des zweiten Anlaufs, wurde damit gar nicht erkannt, und die
-// Zusicherung «genau einer pro Screen» trug für den Zustand nicht, in dem sie
-// am ehesten kippt. Der Rand grenzt gegen den Sekundär-Button ab: der trägt
-// `bg-0`/`bg-1` und IMMER `borderWidth: 1`, der Primär-Button nie einen.
-const PRIMAER_FLAECHEN: readonly (string | undefined)[] = [
+// THREE colours, not just `accent`: `Button.tsx` paints the surface
+// `accent-pressed` while `pressed` and `bg-1` while `blocked` (disabled OR
+// loading). A LOADING primary button was therefore not recognised at all, and
+// the assurance did not hold for the state in which it tips over most easily.
+// The border sets it apart from the secondary button: that one carries
+// `bg-0`/`bg-1` and ALWAYS `borderWidth: 1`, the primary button never one.
+const PRIMARY_SURFACES: readonly (string | undefined)[] = [
   palette.accent,
   palette['accent-pressed'],
   palette['bg-1'],
 ];
 
-type Knoten = ReturnType<typeof screen.queryAllByRole>[number];
+type TestNode = ReturnType<typeof screen.queryAllByRole>[number];
 
-function traegtAkzentflaeche(knoten: Knoten): boolean {
+function carriesAccentSurface(node: TestNode): boolean {
   return (
-    knoten.queryAll((kind) => {
-      const stil = StyleSheet.flatten(kind.props.style as StyleProp<ViewStyle>) as
+    node.queryAll((child) => {
+      const style = StyleSheet.flatten(child.props.style as StyleProp<ViewStyle>) as
         | ViewStyle
         | undefined;
-      if (stil?.height !== 52) return false;
-      if (stil.borderWidth) return false;
-      return PRIMAER_FLAECHEN.includes(stil.backgroundColor as string | undefined);
+      if (style?.height !== 52) return false;
+      if (style.borderWidth) return false;
+      return PRIMARY_SURFACES.includes(style.backgroundColor as string | undefined);
     }).length > 0
   );
 }
 
-function primaerKnoepfe(): unknown[] {
+function primaryButtons(): unknown[] {
   return screen
     .queryAllByRole('button')
-    .filter(traegtAkzentflaeche)
-    .map((knopf) => knopf.props.accessibilityLabel);
+    .filter(carriesAccentSurface)
+    .map((button) => button.props.accessibilityLabel);
 }
 
-function haengenderLadeweg() {
+function hangingLoadPath() {
   (fetchRecapMoments as jest.Mock).mockReturnValue(new Promise(() => {}));
   (getPool as jest.Mock).mockReturnValue(new Promise(() => {}));
 }
 
-test('§9: der Ladezustand traegt keinen Primaer-Button', async () => {
-  haengenderLadeweg();
+test('§9: the loading state carries no primary button', async () => {
+  hangingLoadPath();
   await wrap();
   expect(screen.getByTestId('karte-skelett')).toBeTruthy();
-  expect(primaerKnoepfe()).toEqual([]);
+  expect(primaryButtons()).toEqual([]);
 });
 
-// Ein Fehler, bei dem ein zweiter Versuch etwas ausrichten kann: kein `grund`,
-// also eine Momentaufnahme (Netz weg, 502 beim Signieren). Nur dort steht der
-// Knopf, siehe den Test darunter.
-test('§9: der Fehler-Zustand traegt genau einen Primaer-Button', async () => {
+// An error where a second try can achieve something: no `reason`, so a
+// snapshot (network gone, 502 while signing). Only there does the button
+// stand, see the test below.
+test('§9: the error state carries exactly one primary button', async () => {
   (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [], error: null });
   (getPool as jest.Mock).mockResolvedValue({
-    vorrat: null, error: LADEFEHLER, grund: null,
+    pool: null, error: LOAD_ERROR, reason: null,
   });
   await wrap();
-  await screen.findByText(LADEFEHLER);
-  expect(primaerKnoepfe()).toEqual(['Nochmal versuchen']);
+  await screen.findByText(LOAD_ERROR);
+  expect(primaryButtons()).toEqual(['Nochmal versuchen']);
 });
 
-// Und der Fall, in dem er verschwindet. «Diese Reise ist noch versiegelt.» und
-// «Kein Zugriff auf diese Reise.» sind ENTSCHEIDUNGEN des Servers, kein
-// Ausfall: sie bleiben so, bis sich etwas ausserhalb dieser App ändert. Der
-// Knopf stand bis hierher trotzdem da, und drücken konnte man ihn beliebig
-// oft. Ein Zustand ganz ohne Primär-Button ist nach §4 zulässig, der Rückweg
-// oben links bleibt in jedem Fall erreichbar.
+// The two sealed and no access texts are DECISIONS of the server, not an
+// outage: they stay that way until something outside this app changes. The
+// button stood there all the same up to here, and it could be pressed as
+// often as one liked. A state with no primary button at all is allowed by §4,
+// the way back at the top left stays reachable in any case.
 test.each([
   ['Diese Reise ist noch versiegelt.', 'versiegelt'],
   ['Kein Zugriff auf diese Reise.', 'kein_zugriff'],
-])('§9: unter «%s» steht kein Knopf, den niemand einloesen kann', async (text, grund) => {
+])('§9: under «%s» there is no button that nobody could ever redeem', async (text, reason) => {
   (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [], error: null });
-  (getPool as jest.Mock).mockResolvedValue({ vorrat: null, error: text, grund });
+  (getPool as jest.Mock).mockResolvedValue({ pool: null, error: text, reason });
   await wrap();
   await screen.findByText(text);
-  expect(primaerKnoepfe()).toEqual([]);
+  expect(primaryButtons()).toEqual([]);
   expect(screen.queryByLabelText('Nochmal versuchen')).toBeNull();
-  // Der Rückweg bleibt: er ist dann die einzige Handlung, die es gibt.
   expect(screen.getByLabelText('Zurück')).toBeTruthy();
 });
 
-// Die Gegenprobe zur Zuordnung: der `grund` gehört zum VORRAT. Scheitern die
-// MOMENTE, ist die Lage eine andere, dort hilft ein zweiter Versuch sehr wohl.
-test('§9: ein Momente-Fehler behaelt seinen Knopf, auch neben einem gelungenen Vorrat', async () => {
-  (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [], error: LADEFEHLER });
-  (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+// The `reason` belongs to the POOL. If the MOMENTS fail the situation is a
+// different one, and there a second try does help.
+test('§9: a moments error keeps its button, even next to a pool that succeeded', async () => {
+  (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [], error: LOAD_ERROR });
+  (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
   await wrap();
-  await screen.findByText(LADEFEHLER);
-  expect(primaerKnoepfe()).toEqual(['Nochmal versuchen']);
+  await screen.findByText(LOAD_ERROR);
+  expect(primaryButtons()).toEqual(['Nochmal versuchen']);
 });
 
-// Und derselbe Knopf, WÄHREND er lädt. `Button.tsx` färbt die Fläche bei
-// `blocked` (disabled oder loading) auf `bg-1`, bis zu diesem Nachtrag erkannte
-// der Detektor oben ihn dann nicht mehr, und die Zusicherung «genau einer pro
-// Screen» galt ausgerechnet für den Zustand nicht, in dem ein zweiter Knopf
-// dazukäme, ohne dass es auffiele.
-test('§9: auch ein ladender Primaer-Button zaehlt als Primaer-Button', async () => {
+// `Button.tsx` paints the surface `bg-1` while `blocked` (disabled or
+// loading), so until this addendum the detector above no longer recognised
+// it, and the assurance held for exactly the state in which a second button
+// would join without anybody noticing.
+test('§9: a loading primary button counts as a primary button too', async () => {
   (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [], error: null });
   (getPool as jest.Mock).mockResolvedValue({
-    vorrat: null, error: LADEFEHLER, grund: null,
+    pool: null, error: LOAD_ERROR, reason: null,
   });
   await wrap();
-  await screen.findByText(LADEFEHLER);
+  await screen.findByText(LOAD_ERROR);
 
-  // Der zweite Anlauf hängt: der Knopf bleibt im Ladezustand stehen.
-  haengenderLadeweg();
+  // The second attempt hangs: the button stays in its loading state.
+  hangingLoadPath();
   await fireEvent.press(screen.getByLabelText('Nochmal versuchen'));
 
   expect(screen.getByTestId('button-loading')).toBeTruthy();
-  expect(primaerKnoepfe()).toEqual(['Nochmal versuchen']);
+  expect(primaryButtons()).toEqual(['Nochmal versuchen']);
 });
 
-test('§9: die leere Reise traegt genau einen Primaer-Button', async () => {
-  ladeErfolg([]);
+test('§9: the empty trip carries exactly one primary button', async () => {
+  loadSuccess([]);
   await wrap();
   await screen.findByText('Diese Reise ist leer geblieben.');
-  expect(primaerKnoepfe()).toEqual(['Zurück zur Übersicht']);
+  expect(primaryButtons()).toEqual(['Zurück zur Übersicht']);
 });
 
-test('§9: die Reise ohne Orte traegt genau einen Primaer-Button', async () => {
-  ladeErfolg([m3]);
+test('§9: the trip without places carries exactly one primary button', async () => {
+  loadSuccess([m3]);
   await wrap();
   await screen.findByText('Diese Reise hat keine Orte');
-  expect(primaerKnoepfe()).toEqual(['Zurück zur Übersicht']);
+  expect(primaryButtons()).toEqual(['Zurück zur Übersicht']);
 });
 
-// Die Karte selbst hat KEINEN: sie ist ein Werkzeug zum Finden, keine
-// Entscheidung. Rückweg, Tagesfilter und die Leiste der Momente ohne Ort sind
-// translucente Pillen (§1), kein Knopf darunter trägt eine accent-Fläche.
-test('§9: die Karte selbst traegt keinen Primaer-Button', async () => {
-  ladeErfolg(MIT_TAGEN, VORRAT_TAGE);
+test('§9: the map itself carries no primary button', async () => {
+  loadSuccess(WITH_DAYS, POOL_DAYS);
   await wrap();
   await screen.findByTestId('karte-nadel-p1');
-  expect(primaerKnoepfe()).toEqual([]);
+  expect(primaryButtons()).toEqual([]);
 });
 
-test('§9: mit offenem Moment-Sheet ist es genau einer', async () => {
-  ladeErfolg(MIT_TAGEN, VORRAT_TAGE);
+test('§9: with an open moment sheet it is exactly one', async () => {
+  loadSuccess(WITH_DAYS, POOL_DAYS);
   await wrap();
   await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
-  expect(primaerKnoepfe()).toEqual(['Im Recap ansehen']);
+  expect(primaryButtons()).toEqual(['Im Recap ansehen']);
 });
 
-// Die drei übrigen Sheets bringen bewusst keinen mit, sonst stünden zwei
-// gleichzeitig da, sobald eines davon über der Karte liegt.
-test('§9: das Gruppen-Sheet bringt keinen zweiten dazu', async () => {
-  ladeErfolg(AUF_EINEM_FLECK);
+test('§9: the cluster sheet adds no second one', async () => {
+  loadSuccess(ON_ONE_SPOT);
   await wrap();
   await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
   expect(screen.getByTestId('gruppe-liste')).toBeTruthy();
-  expect(primaerKnoepfe()).toEqual([]);
+  expect(primaryButtons()).toEqual([]);
 });
 
-test('§9: das Tages-Sheet bringt keinen zweiten dazu', async () => {
-  ladeErfolg(MIT_TAGEN, VORRAT_TAGE);
+test('§9: the day sheet adds no second one', async () => {
+  loadSuccess(WITH_DAYS, POOL_DAYS);
   await wrap();
   await screen.findByTestId('karte-tagesfilter');
-  await oeffneTagesfilter();
+  await openDayFilter();
   expect(screen.getByTestId('tag-eintrag-alle')).toBeTruthy();
-  expect(primaerKnoepfe()).toEqual([]);
+  expect(primaryButtons()).toEqual([]);
 });
 
-test('§9: das Sheet der Momente ohne Ort bringt keinen zweiten dazu', async () => {
-  ladeErfolg(DREI_OHNE_ORT, VORRAT_DREI);
+test('§9: the sheet of the moments without a place adds no second one', async () => {
+  loadSuccess(THREE_WITHOUT_PLACE, POOL_THREE);
   await wrap();
   await screen.findByText('3 Momente ohne Ort');
-  await oeffneOhneOrt();
+  await openWithoutPlace();
   expect(screen.getAllByTestId(/^ohne-ort-kachel/)).toHaveLength(3);
-  expect(primaerKnoepfe()).toEqual([]);
+  expect(primaryButtons()).toEqual([]);
 });
 
-// Der eine Verstoss, den die §9-Durchsicht gefunden hat, die Gegenrichtung zu
-// «der Tagesfilter schliesst ein offenes Moment-Sheet».
-//
-// `oeffneTagesfilter` räumt das Moment-Sheet weg und begründet das ausdrücklich
-// damit, dass der Zustand eindeutig sein soll, STATT an der Trefferreihenfolge
-// der Backdrops zu hängen. `aufNadel` räumte dagegen nur das Sheet der Momente
-// ohne Ort und liess das Tages-Sheet stehen: zwei Sheets gleichzeitig, also
-// zwei Backdrops (`backdrop`, tokens.ts, rgba(0,0,0,0.4)) übereinander, die
-// zusammen auf rund 0.64 abdunkeln. Diesen Wert gibt kein Token her (§9,
-// Punkt 3), und dazu lägen zwei `shadow-3`-Panels aufeinander, von denen ein
-// Wisch nur das obere schliesst (§9, Punkt 5).
-test('§9: ein Tipp auf eine Nadel schliesst ein offenes Tages-Sheet', async () => {
-  ladeErfolg(MIT_TAGEN, VORRAT_TAGE);
+// Two sheets at once means two backdrops (`backdrop`, tokens.ts,
+// rgba(0,0,0,0.4)) on top of each other, darkening to about 0.64 together. No
+// token yields that value (§9, point 3), and on top of it two `shadow-3`
+// panels would lie on each other, of which a swipe closes only the upper one
+// (§9, point 5).
+test('§9: a tap on a pin closes an open day sheet', async () => {
+  loadSuccess(WITH_DAYS, POOL_DAYS);
   await wrap();
   await screen.findByTestId('karte-nadel-p1');
-  await oeffneTagesfilter();
+  await openDayFilter();
   expect(screen.getByTestId('tag-eintrag-alle')).toBeTruthy();
 
   await fireEvent.press(screen.getByTestId('karte-nadel-p1'));
 
   expect(screen.getByText('Im Recap ansehen')).toBeTruthy();
   expect(screen.queryByTestId('tag-eintrag-alle')).toBeNull();
-  // Die eigentliche Zusicherung: EIN Panel, nicht zwei.
   expect(screen.getAllByTestId('sheet-panel')).toHaveLength(1);
 });
 
-// §9, Punkt 8: «prefers-reduced-motion respektiert», und zwar überall, nicht
-// nur bei der Kamera. Der Skelett-Puls ist die einzige Bewegung dieses Screens,
-// die ohne jedes Zutun läuft, und bis Task 12 hielt sie keine Zusicherung.
-//
-// Ablesbar ist sie nur daran, OB eine Schleife startet: `Animated` flacht die
-// Opazität unter `useNativeDriver` in Jest auf eine Zahl ab und rührt sie nie
-// wieder an (gleiche Begründung wie in components/__tests__/KartenNadel.test.tsx).
-test('§9: das Skelett pulst, solange die Karte laedt', async () => {
-  const spion = jest.spyOn(Animated, 'loop');
-  haengenderLadeweg();
+// §9, point 8: reduced motion is respected everywhere, not only for the
+// camera. The skeleton pulse is the only movement on this screen that runs
+// without any input. Readable only from WHETHER a loop starts: `Animated`
+// flattens the opacity under `useNativeDriver` in Jest to a number and never
+// touches it again (same reason as in components/__tests__/MapPin.test.tsx).
+test('§9: the skeleton pulses while the map is loading', async () => {
+  const spy = jest.spyOn(Animated, 'loop');
+  hangingLoadPath();
   await wrap();
   expect(screen.getByTestId('karte-skelett')).toBeTruthy();
-  expect(spion).toHaveBeenCalled();
-  spion.mockRestore();
+  expect(spy).toHaveBeenCalled();
+  spy.mockRestore();
 });
 
-test('§9: mit Reduced Motion steht das Skelett still, statt zu pulsen', async () => {
-  const spion = jest.spyOn(Animated, 'loop');
-  mockReduziert = true;
-  haengenderLadeweg();
+test('§9: with Reduced Motion the skeleton stands still instead of pulsing', async () => {
+  const spy = jest.spyOn(Animated, 'loop');
+  mockReducedMotion = true;
+  hangingLoadPath();
   await wrap();
-  // Sichtbar bleibt es trotzdem, «keine Bewegung» heisst nicht «keine
-  // Auskunft, dass hier etwas lädt».
   expect(screen.getByTestId('karte-skelett')).toBeTruthy();
-  expect(spion).not.toHaveBeenCalled();
-  spion.mockRestore();
+  expect(spy).not.toHaveBeenCalled();
+  spy.mockRestore();
 });

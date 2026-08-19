@@ -98,9 +98,9 @@ describe('groupByDays', () => {
     const day1 = moment({ id: 'a', captured_at: '2026-08-01T09:00:00.000Z', captured_tz: 'Europe/Zurich' });
     const day2 = moment({ id: 'b', captured_at: '2026-08-02T09:00:00.000Z', captured_tz: 'Europe/Zurich' });
     const days = groupByDays([day1, day2], startDate);
-    expect(days.map((t) => ({ nummer: t.nummer, datum: t.datum }))).toEqual([
-      { nummer: 1, datum: '2026-08-01' },
-      { nummer: 2, datum: '2026-08-02' },
+    expect(days.map((t) => ({ number: t.number, date: t.date }))).toEqual([
+      { number: 1, date: '2026-08-01' },
+      { number: 2, date: '2026-08-02' },
     ]);
   });
 
@@ -111,9 +111,9 @@ describe('groupByDays', () => {
     const beforeMonthChange = moment({ id: 'a', captured_at: '2026-07-30T09:00:00.000Z', captured_tz: 'Europe/Zurich' });
     const afterMonthChange = moment({ id: 'b', captured_at: '2026-08-02T09:00:00.000Z', captured_tz: 'Europe/Zurich' });
     const days = groupByDays([beforeMonthChange, afterMonthChange], '2026-07-30');
-    expect(days.map((t) => ({ nummer: t.nummer, datum: t.datum }))).toEqual([
-      { nummer: 1, datum: '2026-07-30' },
-      { nummer: 4, datum: '2026-08-02' },
+    expect(days.map((t) => ({ number: t.number, date: t.date }))).toEqual([
+      { number: 1, date: '2026-07-30' },
+      { number: 4, date: '2026-08-02' },
     ]);
   });
 
@@ -125,9 +125,9 @@ describe('groupByDays', () => {
     });
     const days = groupByDays([beforeDeparture], startDate);
     expect(days).toHaveLength(1);
-    expect(days[0].nummer).toBe(1);
-    expect(days[0].datum).toBe('2026-08-01');
-    expect(days[0].momente.map((m) => m.id)).toEqual(['a']);
+    expect(days[0].number).toBe(1);
+    expect(days[0].date).toBe('2026-08-01');
+    expect(days[0].moments.map((m) => m.id)).toEqual(['a']);
   });
 
   // The day boundary follows captured_tz of the moment, not the UTC date of
@@ -142,7 +142,7 @@ describe('groupByDays', () => {
     });
     const days = groupByDays([lateEveningLocal], startDate);
     expect(days).toHaveLength(1);
-    expect(days[0].nummer).toBe(1);
+    expect(days[0].number).toBe(1);
   });
 
   // Reverse case: locally already the next day, even though captured_at's
@@ -155,7 +155,7 @@ describe('groupByDays', () => {
     });
     const days = groupByDays([shortlyBeforeMidnightUtc], startDate);
     expect(days).toHaveLength(1);
-    expect(days[0].nummer).toBe(2);
+    expect(days[0].number).toBe(2);
   });
 
   // The group crosses a timezone boundary (e.g. Eurotunnel Paris→London),
@@ -175,9 +175,9 @@ describe('groupByDays', () => {
     });
     const days = groupByDays([london, paris], startDate);
     expect(days).toHaveLength(1);
-    expect(days[0].nummer).toBe(1);
+    expect(days[0].number).toBe(1);
     // stays sorted by captured_at: Paris (09:00 UTC) before London (21:30 UTC).
-    expect(days[0].momente.map((m) => m.id)).toEqual(['a', 'b']);
+    expect(days[0].moments.map((m) => m.id)).toEqual(['a', 'b']);
   });
 
   // A real, locally felt day change (overnight flight) remains a day
@@ -195,7 +195,7 @@ describe('groupByDays', () => {
       captured_tz: 'Asia/Tokyo',
     });
     const days = groupByDays([departureOslo, arrivalTokyo], startDate);
-    expect(days.map((t) => t.nummer)).toEqual([1, 2]);
+    expect(days.map((t) => t.number)).toEqual([1, 2]);
   });
 
   // A genuine gap westward is harmless: no moment falls in it, so no day
@@ -215,14 +215,14 @@ describe('groupByDays', () => {
       captured_tz: 'Asia/Tokyo',
     });
     const days = groupByDays([losAngelesEvening, tokyoTwoDaysLater], startDate);
-    expect(days.map((t) => t.nummer)).toEqual([1, 3]);
+    expect(days.map((t) => t.number)).toEqual([1, 3]);
   });
 
   test('the date of a day is independent of which captured_tz its moments carry', () => {
     const paris = moment({ id: 'a', captured_at: '2026-08-01T09:00:00.000Z', captured_tz: 'Europe/Paris' });
     const london = moment({ id: 'b', captured_at: '2026-08-01T21:30:00.000Z', captured_tz: 'Europe/London' });
     const days = groupByDays([london, paris], startDate);
-    expect(days[0].datum).toBe('2026-08-01');
+    expect(days[0].date).toBe('2026-08-01');
   });
 
   test('sets the place via placeOfTheDay per day', () => {
@@ -230,7 +230,7 @@ describe('groupByDays', () => {
     const b = moment({ id: 'b', captured_at: '2026-08-01T10:00:00.000Z', place_name: 'Oslo' });
     const c = moment({ id: 'c', captured_at: '2026-08-01T11:00:00.000Z', place_name: 'Bergen' });
     const days = groupByDays([a, b, c], startDate);
-    expect(days[0].ort).toBe('Oslo');
+    expect(days[0].place).toBe('Oslo');
   });
 
   test('days come out sorted ascending, regardless of input order', () => {
@@ -238,7 +238,7 @@ describe('groupByDays', () => {
     const day1 = moment({ id: 'a', captured_at: '2026-08-01T09:00:00.000Z' });
     const day2 = moment({ id: 'b', captured_at: '2026-08-02T09:00:00.000Z' });
     const days = groupByDays([day3, day1, day2], startDate);
-    expect(days.map((t) => t.nummer)).toEqual([1, 2, 3]);
+    expect(days.map((t) => t.number)).toEqual([1, 2, 3]);
   });
 
   // Review finding, Important 1: an eastward time jump (Tokyo → Los Angeles)
@@ -261,8 +261,8 @@ describe('groupByDays', () => {
     // Both moments land in the same, higher day, the arrival does NOT slip
     // back before the departure.
     expect(days).toHaveLength(1);
-    expect(days[0].nummer).toBe(2);
-    expect(days[0].momente.map((m) => m.id)).toEqual(['a', 'b']);
+    expect(days[0].number).toBe(2);
+    expect(days[0].moments.map((m) => m.id)).toEqual(['a', 'b']);
   });
 
   // Re-review finding: with only TWO moments, the mutation
@@ -292,16 +292,16 @@ describe('groupByDays', () => {
     });
     const days = groupByDays([departureTokyo, arrivalLosAngeles, laterLosAngeles], startDate);
     expect(days).toHaveLength(1);
-    expect(days[0].nummer).toBe(2);
-    expect(days[0].momente.map((m) => m.id)).toEqual(['a', 'b', 'c']);
+    expect(days[0].number).toBe(2);
+    expect(days[0].moments.map((m) => m.id)).toEqual(['a', 'b', 'c']);
   });
 
   // The side effect of the monotonic assignment isn't just a skipped
-  // number, it can also make RecapDay.datum diverge from a single moment's
+  // number, it can also make RecapDay.date diverge from a single moment's
   // OWN local date, once that moment's calendar day is swallowed by a
   // preceding, still-"running" day. Accepted deliberately (see file header),
   // recorded here as a contract so Task 10/11 don't rely on the opposite.
-  test('a swallowed local day can make RecapDay.datum diverge from a moment\'s own local date', () => {
+  test('a swallowed local day can make RecapDay.date diverge from a moment\'s own local date', () => {
     const departureTokyo = moment({
       id: 'a',
       captured_at: '2026-08-01T23:30:00.000Z', // local: Aug 2nd (Asia/Tokyo)
@@ -316,8 +316,8 @@ describe('groupByDays', () => {
     expect(days).toHaveLength(1);
     // b's own local date would be 2026-08-01, but the group carries a's
     // (higher, running) day's date.
-    expect(days[0].datum).toBe('2026-08-02');
-    expect(days[0].momente.map((m) => m.id)).toEqual(['a', 'b']);
+    expect(days[0].date).toBe('2026-08-02');
+    expect(days[0].moments.map((m) => m.id)).toEqual(['a', 'b']);
   });
 
   // Review finding: a single moment whose raw day value turns into NaN must
@@ -329,15 +329,15 @@ describe('groupByDays', () => {
     const broken = moment({ id: 'b', captured_at: 'kein-datum' });
     const validAfter = moment({ id: 'c', captured_at: '2026-08-02T08:00:00.000Z' });
     const days = groupByDays([validBefore, broken, validAfter], startDate);
-    expect(days.map((t) => ({ nummer: t.nummer, momente: t.momente.map((m) => m.id) }))).toEqual([
-      { nummer: 1, momente: ['a'] },
-      { nummer: 2, momente: ['c'] },
+    expect(days.map((t) => ({ number: t.number, moments: t.moments.map((m) => m.id) }))).toEqual([
+      { number: 1, moments: ['a'] },
+      { number: 2, moments: ['c'] },
     ]);
   });
 
   // Review finding: formatToParts() returns 'year'/'month'/'day' not as
   // separate parts on some Intl partial implementations (historically
-  // Hermes/iOS, see the comment in mobile/src/app/vorschau.tsx, which
+  // Hermes/iOS, see the comment in mobile/src/app/preview.tsx, which
   // avoids Intl for exactly this reason), but as a single 'literal' part.
   // Reproduced via a spy on Intl.DateTimeFormat.prototype.formatToParts.
   test('an Intl partial implementation without year/month/day parts does not throw, costs only the affected moment', () => {
@@ -351,7 +351,7 @@ describe('groupByDays', () => {
     const days = groupByDays([broken, valid], startDate);
     spy.mockRestore();
     expect(days).toHaveLength(1);
-    expect(days[0].momente.map((m) => m.id)).toEqual(['a']);
+    expect(days[0].moments.map((m) => m.id)).toEqual(['a']);
   });
 
   // Second, independent NaN source: a broken/empty startDate itself (not a
@@ -375,7 +375,7 @@ describe('groupByDays', () => {
     expect(() => groupByDays([valid, broken], startDate)).not.toThrow();
     const days = groupByDays([valid, broken], startDate);
     expect(days).toHaveLength(1);
-    expect(days[0].momente.map((m) => m.id)).toEqual(['a']);
+    expect(days[0].moments.map((m) => m.id)).toEqual(['a']);
   });
 
   // Same underlying cause as above, different trigger: an unparsable
@@ -387,7 +387,7 @@ describe('groupByDays', () => {
     expect(() => groupByDays([valid, broken], startDate)).not.toThrow();
     const days = groupByDays([valid, broken], startDate);
     expect(days).toHaveLength(1);
-    expect(days[0].momente.map((m) => m.id)).toEqual(['a']);
+    expect(days[0].moments.map((m) => m.id)).toEqual(['a']);
   });
 });
 

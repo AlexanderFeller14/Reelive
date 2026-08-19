@@ -29,21 +29,21 @@ beforeEach(() => {
   (peekInvite as jest.Mock).mockResolvedValue({ data: preview, error: null });
 });
 
-test('zeigt die Vorschau samt einladender Person', async () => {
+test('the invite preview names the trip and the person taking you along', async () => {
   await wrap();
   expect(await screen.findByText('Norwegen mit dem Camper')).toBeTruthy();
   expect(screen.getByText('Lea nimmt dich mit')).toBeTruthy();
   expect(screen.getByText('1.–14. Aug 2026')).toBeTruthy();
 });
 
-test('unbekannter Code erklärt die Lage', async () => {
+test('an unknown code says so plainly instead of offering a way in', async () => {
   (peekInvite as jest.Mock).mockResolvedValue({ data: null, error: null });
   await wrap();
   expect(await screen.findByText('Diesen Einladungslink gibt es nicht mehr.')).toBeTruthy();
   expect(screen.queryByText('Reise beitreten')).toBeNull();
 });
 
-test('abgeschlossene Reise verweist auf den Recap-Link', async () => {
+test('a finished trip sends the guest to the recap link instead of the join button', async () => {
   (peekInvite as jest.Mock).mockResolvedValue({ data: { ...preview, status: 'revealed' }, error: null });
   await wrap();
   expect(
@@ -52,21 +52,21 @@ test('abgeschlossene Reise verweist auf den Recap-Link', async () => {
   expect(screen.queryByText('Reise beitreten')).toBeNull();
 });
 
-test('eingeloggt: Beitritt führt in die Reise', async () => {
+test('signed in, joining leads straight into the trip', async () => {
   (redeemInvite as jest.Mock).mockResolvedValue({ status: 'joined', trip_id: 't1' });
   await wrap();
   await fireEvent.press(await screen.findByText('Reise beitreten'));
   await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/trip/t1'));
 });
 
-test('bereits Mitglied führt ebenfalls in die Reise', async () => {
+test('someone who is already a member lands in the trip just the same', async () => {
   (redeemInvite as jest.Mock).mockResolvedValue({ status: 'already_member', trip_id: 't1' });
   await wrap();
   await fireEvent.press(await screen.findByText('Reise beitreten'));
   await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/trip/t1'));
 });
 
-test('ohne Session wird der Code gemerkt und zum Login geschickt', async () => {
+test('without a session the code is kept and the guest is sent to sign in first', async () => {
   mockAuth.status = 'signedOut';
   await wrap();
   await fireEvent.press(await screen.findByText('Reise beitreten'));
@@ -75,10 +75,10 @@ test('ohne Session wird der Code gemerkt und zum Login geschickt', async () => {
   expect(redeemInvite).not.toHaveBeenCalled();
 });
 
-// Der Unterschied zwischen «gibt es nicht» und «konnte nicht nachsehen»: nur
-// der zweite Fall darf wiederholbar sein. Vorher sah der Gast im Funkloch den
-// Satz, der die Einladung fuer erloschen erklaert, endgueltig und falsch.
-test('Lesefehler zeigt den Fehler und laesst es nochmal versuchen', async () => {
+// The difference between "does not exist" and "could not look": only the
+// second may be retried. Before this, a guest in a dead spot was shown the
+// sentence that declares the invite gone, final and wrong.
+test('a read error shows the reason and lets the guest try again', async () => {
   (peekInvite as jest.Mock).mockResolvedValue({ data: null, error: 'Du bist gerade offline.' });
   await wrap();
   expect(await screen.findByText('Du bist gerade offline.')).toBeTruthy();

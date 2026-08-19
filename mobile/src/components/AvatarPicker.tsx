@@ -31,7 +31,7 @@ import { radius, spacing, type } from '@/theme/tokens';
 // padding); in onboarding a short band in the middle of the form.
 //
 // Every other sheet in this app is a sibling of its screen's ScrollView
-// (reise/[id]/index.tsx, recap/[id]/karte|player|uebersicht.tsx), and
+// (trip/[id]/index.tsx, recap/[id]/map|player|overview.tsx), and
 // profil.tsx even writes the rule above its own delete sheet.
 //
 // No test had caught this, and none could: Jest runs no Yoga layout, RNTL
@@ -43,8 +43,8 @@ import { radius, spacing, type } from '@/theme/tokens';
 //
 // Why the entries don't simply live in both screens: then the whole
 // selection flow (permission, crop, cancel, error message) would be
-// duplicated. Same pattern as `TeilenSheetInhalt`
-// (features/teilen/TeilenSheetInhalt.tsx): the content is its own component,
+// duplicated. Same pattern as `ShareSheetContent`
+// (features/sharing/ShareSheetContent.tsx): the content is its own component,
 // the `Sheet` sits wherever it belongs.
 
 // DESIGN-LANGUAGE §4 caps avatars at 32-44 px. 44 is the upper bound and at

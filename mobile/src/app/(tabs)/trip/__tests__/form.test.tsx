@@ -8,7 +8,7 @@ jest.mock('expo-router', () => ({
 }));
 jest.mock('@/features/auth/AuthProvider', () => ({ useAuth: () => ({ userId: 'u1' }) }));
 jest.mock('@/features/trips/tripsApi', () => ({
-  createTrip: jest.fn(async () => ({ id: 'neu-1', error: null })),
+  createTrip: jest.fn(async () => ({ id: 'new-1', error: null })),
   updateTrip: jest.fn(async () => ({ error: null })),
   fetchTrip: jest.fn(async () => ({
     data: {
@@ -20,72 +20,67 @@ jest.mock('@/features/trips/tripsApi', () => ({
   })),
 }));
 
-// Der Kalender spannt seinen Bereich um den heutigen Tag auf. Ohne festen Tag
-// hinge jeder Test hier am Systemdatum und bräche, sobald der August 2026 aus
-// dem Bereich läuft. Gezielt diese eine Funktion statt jest.useFakeTimers:
-// Fake Timers griffen in Animated ein, und Sheet wie PressScale animieren.
+// The calendar spans its range around today. Without a fixed day every test
+// here would hang on the system date and break as soon as August 2026 runs out
+// of the range. Deliberately just this one function instead of
+// jest.useFakeTimers: fake timers reach into Animated, and both Sheet and
+// PressScale animate.
 jest.mock('@/features/trips/tripDay', () => ({
   ...jest.requireActual('@/features/trips/tripDay'),
   todaysCalendarDay: () => '2026-08-12',
 }));
 
-import NeueReise from '../new';
-import ReiseBearbeiten from '../[id]/edit';
+import NewTrip from '../new';
+import EditTrip from '../[id]/edit';
 import { createTrip, updateTrip, fetchTrip } from '@/features/trips/tripsApi';
 
 const wrap = (ui: React.ReactElement) => render(<ThemeProvider>{ui}</ThemeProvider>);
 
-// Scoped auf die Zeile eines Felds (Label + Input + eigener Fehlertext), damit
-// Tests prüfen können, an welchem Feld ein Fehler tatsächlich landet, nicht
-// nur, dass sein Text irgendwo auf dem Screen steht.
-const feldZeile = (labelText: string) => {
-  const feld = screen.getByLabelText(labelText);
-  return within(feld.parent!.parent!);
+const fieldRow = (labelText: string) => {
+  const field = screen.getByLabelText(labelText);
+  return within(field.parent!.parent!);
 };
 
 beforeEach(() => jest.clearAllMocks());
 
-// Wählt einen Zeitraum über das Sheet: zwei Tipps plus «Übernehmen», genau wie
-// ein Nutzer es täte. Seit der Umstellung auf den Kalender gibt es keinen
-// Textpfad mehr, den ein Test abkürzen könnte.
-const zeitraumWaehlen = async (vonLabel: string, bisLabel: string) => {
+const selectDateRange = async (fromLabel: string, toLabel: string) => {
   await fireEvent.press(screen.getByLabelText('Zeitraum, noch nichts gewählt'));
-  await fireEvent.press(screen.getByLabelText(vonLabel));
-  await fireEvent.press(screen.getByLabelText(bisLabel));
+  await fireEvent.press(screen.getByLabelText(fromLabel));
+  await fireEvent.press(screen.getByLabelText(toLabel));
   await fireEvent.press(screen.getByLabelText('Übernehmen'));
 };
 
-test('leerer Name wird abgefangen', async () => {
-  await wrap(<NeueReise />);
-  await zeitraumWaehlen('1. August 2026', '14. August 2026');
+test('an empty name is caught before anything is created', async () => {
+  await wrap(<NewTrip />);
+  await selectDateRange('1. August 2026', '14. August 2026');
   await fireEvent.press(screen.getByText('Reise anlegen'));
   expect(await screen.findByText('Gib deiner Reise einen Namen.')).toBeTruthy();
   expect(createTrip).not.toHaveBeenCalled();
 });
 
-test('fehlender Zeitraum wird am Zeitraum-Feld gemeldet', async () => {
-  await wrap(<NeueReise />);
+test('a missing date range is reported at the date range field', async () => {
+  await wrap(<NewTrip />);
   await fireEvent.changeText(screen.getByLabelText('Name der Reise'), 'Norwegen');
   await fireEvent.press(screen.getByText('Reise anlegen'));
   expect(await screen.findByText('Trag den Zeitraum ein.')).toBeTruthy();
   expect(createTrip).not.toHaveBeenCalled();
 });
 
-test('gültige Eingabe legt an und führt zum Einladen', async () => {
-  await wrap(<NeueReise />);
+test('valid input creates the trip and moves straight on to inviting', async () => {
+  await wrap(<NewTrip />);
   await fireEvent.changeText(screen.getByLabelText('Name der Reise'), 'Norwegen');
-  await zeitraumWaehlen('1. August 2026', '14. August 2026');
+  await selectDateRange('1. August 2026', '14. August 2026');
   await fireEvent.press(screen.getByText('Reise anlegen'));
   await waitFor(() =>
     expect(createTrip).toHaveBeenCalledWith({
       name: 'Norwegen', startDate: '2026-08-01', endDate: '2026-08-14', ownerId: 'u1',
     })
   );
-  expect(mockReplace).toHaveBeenCalledWith('/trip/neu-1/invite');
+  expect(mockReplace).toHaveBeenCalledWith('/trip/new-1/invite');
 });
 
-test('Bearbeiten kommt mit vorbelegten Werten und speichert', async () => {
-  await wrap(<ReiseBearbeiten />);
+test('editing arrives with the stored values filled in and saves them', async () => {
+  await wrap(<EditTrip />);
   expect(await screen.findByDisplayValue('Norwegen')).toBeTruthy();
   expect(await screen.findByText('1.–14. Aug 2026')).toBeTruthy();
   await fireEvent.changeText(screen.getByLabelText('Name der Reise'), 'Norwegen 2026');
@@ -97,32 +92,30 @@ test('Bearbeiten kommt mit vorbelegten Werten und speichert', async () => {
   );
 });
 
-// === Bearbeiten: Lesefehler und Speicherfehler sind zweierlei ===
+// === Editing: a read error and a save error are two different things ===
 
-test('bearbeiten: Lesefehler zeigt den Fehler statt eines leeren Formulars', async () => {
+test('editing: a read error shows the cause instead of an empty form', async () => {
   (fetchTrip as jest.Mock).mockResolvedValueOnce({ data: null, error: 'Du bist gerade offline.' });
-  await wrap(<ReiseBearbeiten />);
+  await wrap(<EditTrip />);
   expect(await screen.findByText('Du bist gerade offline.')).toBeTruthy();
-  // Vorher stand hier ein leeres Formular, es sah aus wie eine Reise ohne
-  // Namen, nicht wie ein Fehler beim Lesen.
   expect(screen.queryByLabelText('Name der Reise')).toBeNull();
   expect(screen.getByText('Nochmal versuchen')).toBeTruthy();
 });
 
-test('bearbeiten: nach «Nochmal versuchen» steht das Formular', async () => {
+test('editing: after tapping retry the form stands there filled in', async () => {
   (fetchTrip as jest.Mock).mockResolvedValueOnce({ data: null, error: 'Du bist gerade offline.' });
-  await wrap(<ReiseBearbeiten />);
+  await wrap(<EditTrip />);
   await fireEvent.press(await screen.findByText('Nochmal versuchen'));
   await waitFor(() => expect(screen.getByLabelText('Name der Reise').props.value).toBe('Norwegen'));
 });
 
-test('bearbeiten: ein Speicherfehler landet nicht im Namensfeld', async () => {
+test('editing: a save error does not land in the name field, it says nothing about the name', async () => {
   (updateTrip as jest.Mock).mockResolvedValueOnce({
     error: 'Die Reise konnte nicht gespeichert werden. Probier es gleich nochmal.',
   });
-  await wrap(<ReiseBearbeiten />);
+  await wrap(<EditTrip />);
   await waitFor(() => expect(screen.getByLabelText('Name der Reise').props.value).toBe('Norwegen'));
   await fireEvent.press(screen.getByText('Speichern'));
   expect(await screen.findByText(/nicht gespeichert werden/)).toBeTruthy();
-  expect(feldZeile('Name der Reise').queryByText(/nicht gespeichert werden/)).toBeNull();
+  expect(fieldRow('Name der Reise').queryByText(/nicht gespeichert werden/)).toBeNull();
 });

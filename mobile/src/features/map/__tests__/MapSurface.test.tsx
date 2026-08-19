@@ -18,7 +18,7 @@ import type {
 // technology and has its own test file (MapSurface.web.test.tsx).
 
 // Own react-native-maps mock instead of the global one from jest.setup.ts,
-// for the same two reasons as in recap/__tests__/karte.test.tsx: the
+// for the same two reasons as in recap/__tests__/map.test.tsx: the
 // global one rebuilds its imperative handle on every render and doesn't
 // expose it, and every pin's tap has to be REMEMBERED, the last test below
 // taps between commit and passive effect, which isn't possible via
@@ -51,7 +51,7 @@ jest.mock('react-native-maps', () => {
   };
 });
 // expo-image is a native view, in the test a placeholder that passes
-// through all props is enough. Same pattern as in karte.test.tsx; without
+// through all props is enough. Same pattern as in map.test.tsx; without
 // the mock, loading the module already fails, since the pin carries an
 // image.
 jest.mock('expo-image', () => {
@@ -387,7 +387,7 @@ test('a tap immediately after a cluster falls apart is not swallowed', async () 
 
 // And the flip side of the same ref: because the cluster state is NOT in
 // the tap handler's dependencies, no pin gets a new `onPress` on a map
-// movement. Otherwise the `memo` on the marker (KartenNadel.tsx) would be
+// movement. Otherwise the `memo` on the marker (MapPin.tsx) would be
 // pointless and every pin would send its coordinate across the bridge
 // again, even though nothing about it changed.
 test('new clusters do not give the pins a new onPress', async () => {

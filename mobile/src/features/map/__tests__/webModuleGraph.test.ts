@@ -10,7 +10,7 @@
 // in it would be harmless for tsc, but a module in the graph for Metro.
 // That's exactly why this test walks the WHOLE graph.
 //
-// Model and mechanism: app/teilen/__tests__/modulgraph.test.ts (Phase 6),
+// Model and mechanism: app/share/__tests__/moduleGraph.test.ts (Phase 6),
 // which proves the same way that the web player can't write anything. As
 // there, `.web.ts`/`.web.tsx` is resolved FIRST, that's what Metro also
 // does on the web platform.
@@ -122,7 +122,7 @@ describe('the browser version of the map surface does not pull in react-native-m
     // And neither is the pin component: it imports `Marker`, and that's
     // exactly why `pinAppearance`/`pinLabel` live platform-free in
     // features/map/pin.ts instead of in it.
-    expect(files.some((d) => d.endsWith(path.join('components', 'KartenNadel.tsx')))).toBe(false);
+    expect(files.some((d) => d.endsWith(path.join('components', 'MapPin.tsx')))).toBe(false);
   });
 
   // The actual assertion. It holds for EVERY file in the graph, not just

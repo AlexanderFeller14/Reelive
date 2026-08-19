@@ -29,78 +29,56 @@ import {
 } from '@/features/recap/urlPool';
 import { ShareSheetContent } from '@/features/sharing/ShareSheetContent';
 
-// Nur der Tag selbst, nicht der Wochentag, den will hier niemand wissen.
-const MONATE_LANG = [
+const MONTHS_LONG = [
   'Januar', 'Februar', 'März', 'April', 'Mai', 'Juni',
   'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember',
 ];
 
-function formatTagesdatum(iso: string): string {
+function formatDayDate(iso: string): string {
   const [, m, d] = iso.split('-').map(Number);
-  return `${d}. ${MONATE_LANG[m - 1]}`;
+  return `${d}. ${MONTHS_LONG[m - 1]}`;
 }
 
-// «Tag 3 · Lissabon · 12. August» (Brief/Spec §8.3). Der Ort entfällt, wenn
-// keiner der Momente einen `place_name` trägt (tage.ortDesTages liefert dann
-// `null`), kein erfundener Platzhaltertext.
-//
-// Bewusst NUR `tag.datum` und `tag.nummer` gelesen, nie `captured_at`/
-// `captured_tz` eines einzelnen Moments dieses Tages: bei einer Reise
-// ostwärts über die Datumsgrenze kann `tag.datum` vom eigenen Ortsdatum
-// EINZELNER Momente abweichen, die die monotone Tagesvergabe in diesen Tag
-// gezogen hat (siehe Kommentarkopf von tage.ts). `tag.datum` ist trotzdem
-// die einzig ehrliche Angabe für DEN TAG als Ganzes, eine Überschrift, die
-// stattdessen das Datum irgendeines seiner Momente anzeigt, würde für genau
-// diese Momente lügen.
-function tagesueberschrift(tag: RecapDay): string {
-  const teile = [`Tag ${tag.nummer}`];
-  if (tag.ort) teile.push(tag.ort);
-  teile.push(formatTagesdatum(tag.datum));
-  return teile.join(' · ');
+// Deliberately reads ONLY `day.date` and `day.number`, never the
+// `captured_at`/`captured_tz` of a single moment of that day: on a trip
+// heading east across the date line, `day.date` can differ from the local
+// date of INDIVIDUAL moments that the monotone day assignment pulled into
+// this day (see the comment header of days.ts). `day.date` is still the only
+// honest statement about THE DAY as a whole; a heading showing the date of
+// any one of its moments instead would lie about exactly those moments.
+function dayHeading(day: RecapDay): string {
+  const parts = [`Tag ${day.number}`];
+  if (day.place) parts.push(day.place);
+  parts.push(formatDayDate(day.date));
+  return parts.join(' · ');
 }
 
-// Gleiche Formulierung wie `wartendText` im Schwester-Screen
-// (reise/[id]/index.tsx) für denselben Zustand, «hochladen» steht in
-// DESIGN-LANGUAGE §6 auf der Nie-Liste des Vokabulars («einsenden», nie
-// «hochladen»); der Brief hatte den Satz nur als Beispiel vorgegeben, nicht
-// als Zitat (Review Task 10, Kleinigkeit). Singular/Plural wie überall sonst
-// im Projekt: die Zahl bleibt auch im Singular stehen.
-function unterwegsText(anzahl: number): string {
-  return `${anzahl} ${anzahl === 1 ? 'Moment ist' : 'Momente sind'} noch unterwegs.`;
+function inTransitText(count: number): string {
+  return `${count} ${count === 1 ? 'Moment ist' : 'Momente sind'} noch unterwegs.`;
 }
 
-// Task-10-Brief, zweiter Hinweis: `ausgelassen` ist etwas ANDERES als
-// «wartet noch auf Upload», die Function hat für diese Momente eine URL
-// versucht und keine bekommen (kaputtes/fehlendes Objekt, Signierfehler).
-// Eine ehrliche Zeile statt einer Fehlernummer: sie sagt, was die Person tun
-// kann (später nochmal reinschauen), ohne eine Ursache zu erfinden, die
-// niemand von hier aus kennt.
-function ausgelassenText(anzahl: number): string {
-  return `${anzahl} ${anzahl === 1 ? 'Moment liess' : 'Momente liessen'} sich gerade nicht laden. Schau später nochmal rein.`;
+function skippedText(count: number): string {
+  return `${count} ${count === 1 ? 'Moment liess' : 'Momente liessen'} sich gerade nicht laden. Schau später nochmal rein.`;
 }
 
-// Task 7, ehrliche Bilanz (Brief, wörtlich: "Nicht «fertig», wenn drei
-// Dateien fehlen"): nennt IMMER die tatsächlichen Zahlen, nie ein
-// pauschales "fertig", auch bei einem Abbruch oder bei Fehlschlägen.
-function bilanzText(ausgang: Extract<AllResult, { status: 'fertig' }>): string {
-  if (ausgang.abgebrochen) {
-    const teile = [`Abgebrochen bei ${ausgang.gesichert} von ${ausgang.gesamt} Momenten.`];
-    if (ausgang.fehlgeschlagen > 0) {
-      teile.push(`${ausgang.fehlgeschlagen} ${ausgang.fehlgeschlagen === 1 ? 'ist' : 'sind'} dabei fehlgeschlagen.`);
+function summaryText(outcome: Extract<AllResult, { status: 'fertig' }>): string {
+  if (outcome.abgebrochen) {
+    const parts = [`Abgebrochen bei ${outcome.gesichert} von ${outcome.gesamt} Momenten.`];
+    if (outcome.fehlgeschlagen > 0) {
+      parts.push(`${outcome.fehlgeschlagen} ${outcome.fehlgeschlagen === 1 ? 'ist' : 'sind'} dabei fehlgeschlagen.`);
     }
-    return teile.join(' ');
+    return parts.join(' ');
   }
-  if (ausgang.fehlgeschlagen === 0) {
-    return `${ausgang.gesichert} von ${ausgang.gesamt} Momenten gesichert.`;
+  if (outcome.fehlgeschlagen === 0) {
+    return `${outcome.gesichert} von ${outcome.gesamt} Momenten gesichert.`;
   }
-  return `${ausgang.gesichert} von ${ausgang.gesamt} Momenten gesichert. ${ausgang.fehlgeschlagen} ${ausgang.fehlgeschlagen === 1 ? 'ist' : 'sind'} fehlgeschlagen.`;
+  return `${outcome.gesichert} von ${outcome.gesamt} Momenten gesichert. ${outcome.fehlgeschlagen} ${outcome.fehlgeschlagen === 1 ? 'ist' : 'sind'} fehlgeschlagen.`;
 }
 
-// Ruhige bg-1-Fläche mit Opacity-Puls (DESIGN-LANGUAGE §4: "Skeleton:
-// bg-1-Blöcke, Opacity-Puls 0.6 ↔ 1.0, kein Gradient-Shimmer"). Reine
-// Presentation, deshalb lokal statt als eigene Komponentendatei, nichts
-// davon wird ausserhalb dieses Screens gebraucht.
-function SkelettBlock({ style }: { style: object }) {
+// Quiet bg-1 surface with an opacity pulse (DESIGN-LANGUAGE §4: "Skeleton:
+// bg-1-Blöcke, Opacity-Puls 0.6 ↔ 1.0, kein Gradient-Shimmer"). Pure
+// presentation, hence local instead of its own component file.
+function SkeletonBlock({ style }: { style: object }) {
   const { colors } = useTheme();
   const reducedMotion = useReducedMotion();
   const [opacity] = useState(() => new Animated.Value(0.6));
@@ -110,29 +88,29 @@ function SkelettBlock({ style }: { style: object }) {
       opacity.setValue(0.8);
       return;
     }
-    const puls = Animated.loop(
+    const pulse = Animated.loop(
       Animated.sequence([
         Animated.timing(opacity, { toValue: 1, duration: motion.duration.gentle, useNativeDriver: true }),
         Animated.timing(opacity, { toValue: 0.6, duration: motion.duration.gentle, useNativeDriver: true }),
       ])
     );
-    puls.start();
-    return () => puls.stop();
+    pulse.start();
+    return () => pulse.stop();
   }, [reducedMotion, opacity]);
 
   return <Animated.View style={[style, { backgroundColor: colors['bg-1'], opacity }]} />;
 }
 
-function SkelettScreen() {
+function SkeletonScreen() {
   const { colors } = useTheme();
-  const oben = useTopInset(spacing.xl);
+  const topInset = useTopInset(spacing.xl);
   return (
     <View testID="recap-skeleton" style={{ flex: 1, backgroundColor: colors['bg-0'] }}>
-      <View style={[styles.inhalt, { paddingTop: oben }]}>
-        <SkelettBlock style={{ width: 160, height: 30, borderRadius: radius.control }} />
-        <View style={[styles.kachelRaster, { marginTop: spacing.xl }]}>
+      <View style={[styles.content, { paddingTop: topInset }]}>
+        <SkeletonBlock style={{ width: 160, height: 30, borderRadius: radius.control }} />
+        <View style={[styles.tileGrid, { marginTop: spacing.xl }]}>
           {Array.from({ length: 9 }).map((_, i) => (
-            <SkelettBlock key={i} style={styles.kachel} />
+            <SkeletonBlock key={i} style={styles.tile} />
           ))}
         </View>
       </View>
@@ -140,26 +118,25 @@ function SkelettScreen() {
   );
 }
 
-function TagesAbschnitt({
-  tag, urls, indexById, onTip,
+function DaySection({
+  day, urls, indexById, onTap,
 }: {
-  tag: RecapDay;
+  day: RecapDay;
   urls: Map<string, MediaUrl>;
   indexById: Map<string, number>;
-  onTip: (index: number) => void;
+  onTap: (index: number) => void;
 }) {
   const { colors } = useTheme();
   return (
     <View style={{ gap: spacing.m }}>
-      <Text style={[type.h2, { color: colors['text-1'] }]}>{tagesueberschrift(tag)}</Text>
-      <View style={styles.kachelRaster}>
-        {tag.momente.map((m) => {
+      <Text style={[type.h2, { color: colors['text-1'] }]}>{dayHeading(day)}</Text>
+      <View style={styles.tileGrid}>
+        {day.moments.map((m) => {
           const url = urls.get(m.id);
           const index = indexById.get(m.id);
-          // Beide sind für jeden Moment in `tag.momente` garantiert gesetzt:
-          // `tag` kommt aus gruppiereNachTagen(mitBild, …), `indexById` ist
-          // aus genau demselben `mitBild` gebaut (siehe unten), ein Moment
-          // ohne Bild taucht in `tag.momente` gar nicht erst auf.
+          // Unreachable by construction, and therefore invisible to any
+          // test: `day` comes from groupByDays(withImage, …), `indexById`
+          // is built from that same `withImage`.
           if (!url || index === undefined) return null;
           return (
             <PressScale
@@ -168,9 +145,9 @@ function TagesAbschnitt({
               accessibilityRole="button"
               accessibilityLabel={`Moment ${index + 1} öffnen`}
               testID={`recap-kachel-${m.id}`}
-              onPress={() => onTip(index)}
+              onPress={() => onTap(index)}
             >
-              <View style={[styles.kachel, { backgroundColor: colors['bg-1'] }]}>
+              <View style={[styles.tile, { backgroundColor: colors['bg-1'] }]}>
                 <Image
                   testID={`recap-bild-${m.id}`}
                   source={{ uri: url.thumb_url ?? url.medium_url }}
@@ -187,41 +164,38 @@ function TagesAbschnitt({
   );
 }
 
-// Inhalt des «Alle sichern»-Fortschritts-Sheets (Task 7), helle Variante
-// (uebersicht.tsx ist, anders als der Recap-Player, ein Licht-Screen, siehe
-// DESIGN-LANGUAGE §1: nur Kamera/Preview/Versiegeln/Player sind Kino), lokal
-// statt einer eigenen Datei (Brief nennt für Task 7 nur exportApi.ts als
-// neue Datei).
-function ExportSheetInhalt({
-  stand, ausgang, onAbbrechen, onFertig,
+// Light variant, not cinema: overview.tsx is a light screen (DESIGN-LANGUAGE
+// §1, only camera/preview/sealing/player are cinema).
+function ExportSheetContent({
+  state, outcome, onCancel, onDone,
 }: {
-  stand: AllProgress;
-  ausgang: AllResult | null;
-  onAbbrechen: () => void;
-  onFertig: () => void;
+  state: AllProgress;
+  outcome: AllResult | null;
+  onCancel: () => void;
+  onDone: () => void;
 }) {
   const { colors } = useTheme();
 
-  if (ausgang === null) {
+  if (outcome === null) {
     return (
       <View style={{ gap: spacing.base }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.s }}>
           <ActivityIndicator testID="export-laedt" color={colors['text-1']} />
           <Text style={[type.body, { color: colors['text-1'] }]}>
-            {stand.erledigt} von {stand.gesamt} gesichert
+            {state.erledigt} von {state.gesamt} gesichert
           </Text>
         </View>
-        <Button variant="secondary" label="Abbrechen" onPress={onAbbrechen} />
+        <Button variant="secondary" label="Abbrechen" onPress={onCancel} />
       </View>
     );
   }
 
-  if (ausgang.status === 'keine_berechtigung') {
+  if (outcome.status === 'keine_berechtigung') {
     return (
       <View style={{ gap: spacing.base }}>
-        <Text style={[type.body, { color: colors['text-1'] }]}>{ausgang.text}</Text>
+        <Text style={[type.body, { color: colors['text-1'] }]}>{outcome.text}</Text>
         <Button variant="primary" label="Einstellungen öffnen" onPress={() => void Linking.openSettings()} />
-        <Button variant="text" label="Schliessen" onPress={onFertig} />
+        <Button variant="text" label="Schliessen" onPress={onDone} />
       </View>
     );
   }
@@ -229,234 +203,172 @@ function ExportSheetInhalt({
   return (
     <View style={{ gap: spacing.base }}>
       <Text testID="export-bilanz" style={[type.body, { color: colors['text-1'] }]}>
-        {bilanzText(ausgang)}
+        {summaryText(outcome)}
       </Text>
-      <Button variant="primary" label="Fertig" onPress={onFertig} />
+      <Button variant="primary" label="Fertig" onPress={onDone} />
     </View>
   );
 }
 
-export default function RecapUebersicht() {
+export default function RecapOverview() {
   const { colors } = useTheme();
-  const oben = useTopInset(spacing.xl);
+  const topInset = useTopInset(spacing.xl);
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { userId } = useAuth();
   const [trip, setTrip] = useState<Trip | null>(null);
-  const [momente, setMomente] = useState<RecapMoment[]>([]);
-  const [vorrat, setVorrat] = useState<Pool | null>(null);
-  // Task-6-Brief: «Recap teilen» erscheint nur für die Owner-Person und nur
-  // bei status==='revealed', die UI blendet nur aus, share-link/index.ts
-  // (Aktion 'erstellen') prüft beides server-seitig noch einmal
-  // (CLAUDE.md-Eckpfeiler: die Versiegelung wird serverseitig erzwungen).
-  const [teilenOffen, setTeilenOffen] = useState(false);
-  // Task 7: «Alle sichern». `exportAusgang===null` heisst "läuft noch"
-  // (inkl. des allerersten Augenblicks nach dem Öffnen), erst ein
-  // tatsächliches AlleErgebnis beendet die laufende Ansicht, siehe Sheet-
-  // Inhalt unten.
-  const [exportOffen, setExportOffen] = useState(false);
-  const [exportStand, setExportStand] = useState<AllProgress>({ erledigt: 0, gesamt: 0 });
-  const [exportAusgang, setExportAusgang] = useState<AllResult | null>(null);
+  const [moments, setMoments] = useState<RecapMoment[]>([]);
+  const [pool, setPool] = useState<Pool | null>(null);
+  // The UI only hides the entry point; share-link/index.ts (action
+  // 'erstellen') checks owner and status server-side again (CLAUDE.md
+  // cornerstone: sealing is enforced on the server).
+  const [shareOpen, setShareOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportState, setExportState] = useState<AllProgress>({ erledigt: 0, gesamt: 0 });
+  const [exportOutcome, setExportOutcome] = useState<AllResult | null>(null);
   const exportAbortRef = useRef<AbortController | null>(null);
-  // Gleiche Dreiteilung wie überall sonst im Projekt: `geladen` trennt «lädt
-  // noch» von «fertig», `fehler` bündelt den ersten Fehlschlag der drei
-  // parallelen Abrufe (Reise, Momente, Vorrat), Priorität Reise vor Vorrat
-  // vor Momenten, weil eine kaputte Reise-Abfrage die anderen beiden
-  // ohnehin bedeutungslos macht.
-  const [geladen, setGeladen] = useState(false);
-  const [fehler, setFehler] = useState<string | null>(null);
-  // Ob ein zweiter Versuch etwas ausrichtet. Nur `false` bei einer fachlichen
-  // Ablehnung des Vorrats (versiegelt, kein Zugriff, siehe
-  // features/recap/urlVorrat.ts); dort war «Nochmal versuchen» bis hierher ein
-  // Knopf, den man beliebig oft drücken konnte, ohne dass sich je etwas
-  // geändert hätte.
-  const [nochmalHilft, setNochmalHilft] = useState(true);
-  const [laedt, setLaedt] = useState(false);
-  const aktiv = useRef(true);
-  // Das Siegel auf dem Recap: solange die Person es auf diesem Gerät noch nie
-  // abgezogen hat, steht statt Segment-Zeile, Popcorn und Tagesraster das
-  // Wachssiegel in der Mitte (SiegelAbziehen), ein Tipp zieht es ab, danach
-  // blendet der Inhalt ein. Das Siegel steht bei JEDEM Öffnen des Recaps neu
-  // (bewusste Entscheidung: das Aufbrechen ist der Moment, nicht ein
-  // einmaliges Freischalten), es gibt darum keinen dauerhaften Merker mehr.
-  // `entsiegeltRef` hält das Abziehen nur für die Lebenszeit DIESES Screens
-  // fest, damit die Rückkehr aus dem Player (der Screen bleibt gemountet,
-  // useFocusEffect lädt aber neu) nicht schon wieder ein Siegel zeigt; erst
-  // ein echtes Verlassen und neu Öffnen bringt es zurück.
-  const [entsiegelt, setEntsiegelt] = useState(false);
-  const entsiegeltRef = useRef(false);
-  // Frisch abgezogen: der Inhalt kommt nicht schlagartig, er blendet ein
-  // (§5: nur Opacity, duration-gentle, ease-smooth). Startwert 1, damit der
-  // Inhalt nach dem Abziehen und bei einem Reload aus dem Player (entsiegelt
-  // ist dann schon true) ohne erneuten Fade dasteht.
-  const [einblendung] = useState(() => new Animated.Value(1));
+  const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [retryHelpful, setRetryHelpful] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const active = useRef(true);
+  // Session-only, no persistent marker: the seal stands again on EVERY fresh
+  // open of the recap (breaking it open is the moment, not a one-time
+  // unlock). `unsealedRef` holds the peel for the lifetime of THIS screen, so
+  // coming back from the player (the screen stays mounted, but useFocusEffect
+  // reloads) does not put a seal up again; only really leaving and reopening
+  // brings it back.
+  const [unsealed, setUnsealed] = useState(false);
+  const unsealedRef = useRef(false);
+  // Initial value 1 so the content stands there without a fade after a reload
+  // out of the player (`unsealed` is already true then).
+  const [fadeIn] = useState(() => new Animated.Value(1));
   const reducedMotion = useReducedMotion();
-  const { width: fensterBreite } = useWindowDimensions();
+  const { width: windowWidth } = useWindowDimensions();
 
-  const laden = useCallback(async () => {
+  const load = useCallback(async () => {
     const [
-      { data: t, error: tFehler },
-      { data: m, error: mFehler },
-      { vorrat: v, error: vFehler, grund: vGrund },
+      { data: t, error: tError },
+      { data: m, error: mError },
+      { pool: p, error: pError, reason: pReason },
     ] = await Promise.all([fetchTrip(id), fetchRecapMoments(id), getPool(id)]);
-    if (!aktiv.current) return;
+    if (!active.current) return;
     setTrip(t);
-    setMomente(m);
-    setVorrat(v);
-    // Nur die laufende Sitzung entscheidet: beim ersten Laden false (Siegel
-    // steht), nach dem Abziehen true (bleibt bei einem Reload offen).
-    setEntsiegelt(entsiegeltRef.current);
-    setFehler(tFehler ?? vFehler ?? mFehler ?? null);
-    // `grund` gehört zum VORRAT und zählt deshalb nur, wenn dessen Fehler auch
-    // der angezeigte ist (Priorität Reise vor Vorrat vor Momenten, siehe oben).
-    setNochmalHilft(tFehler === null && vFehler !== null ? retryHelps(vGrund) : true);
-    setGeladen(true);
+    setMoments(m);
+    setPool(p);
+    setUnsealed(unsealedRef.current);
+    setError(tError ?? pError ?? mError ?? null);
+    setRetryHelpful(tError === null && pError !== null ? retryHelps(pReason) : true);
+    setLoaded(true);
   }, [id]);
 
-  const nochmal = useCallback(async () => {
-    setLaedt(true);
-    await laden();
-    setLaedt(false);
-  }, [laden]);
+  const retry = useCallback(async () => {
+    setLoading(true);
+    await load();
+    setLoading(false);
+  }, [load]);
 
   useFocusEffect(
     useCallback(() => {
-      aktiv.current = true;
-      void laden();
+      active.current = true;
+      void load();
       return () => {
-        aktiv.current = false;
+        active.current = false;
       };
-    }, [laden])
+    }, [load])
   );
 
-  const zurueck = () => {
+  const goBack = () => {
     if (router.canGoBack()) router.back();
     else router.replace('/recap');
   };
 
-  const zurKarte = () => {
+  const toMap = () => {
     router.push({ pathname: '/recap/[id]/map', params: { id } });
   };
 
-  const zumPlayer = (index: number) => {
-    // Task 11 hat die Route angelegt und die Typen wurden neu erzeugt, der
-    // frühere Cast auf `Href` (Übergangslösung, solange die Route fehlte) ist
-    // damit hinfällig und entfernt, die Navigation ist wieder typgeprüft.
+  const toPlayer = (index: number) => {
     router.push({ pathname: '/recap/[id]/player', params: { id, start: String(index) } });
   };
 
-  // Das Siegel ist ab (SiegelAbziehen meldet sich, sobald seine Bühne leer
-  // ist): Inhalt einblenden. Reihenfolge bewusst: erst die Deckkraft auf 0,
-  // DANN `entsiegelt`, sonst stünde der Inhalt für einen Frame voll da, bevor
-  // der Fade beginnt. Nur Sitzungs-State, kein dauerhafter Merker: beim
-  // nächsten Öffnen des Recaps steht das Siegel wieder.
-  const entsiegeln = () => {
-    entsiegeltRef.current = true;
-    einblendung.setValue(0);
-    setEntsiegelt(true);
-    Animated.timing(einblendung, {
+  // Order matters: opacity to 0 FIRST, `unsealed` second, otherwise the
+  // content would stand there fully visible for one frame before the fade
+  // begins.
+  const unseal = () => {
+    unsealedRef.current = true;
+    fadeIn.setValue(0);
+    setUnsealed(true);
+    Animated.timing(fadeIn, {
       toValue: 1,
       duration: reducedMotion ? motion.duration.base : motion.duration.gentle,
-      // Ausdrücklich, nicht der RN-Default (inOut): siehe MemorySubmission-
-      // Animation, der Default lässt einen Fade zäh auslaufen.
+      // Spelled out, not the RN default (inOut): see the MemorySubmission
+      // animation, the default makes a fade run out sluggishly.
       easing: Easing.bezier(...motion.easeSmooth),
       useNativeDriver: true,
     }).start();
   };
 
-  if (!geladen) return <SkelettScreen />;
+  if (!loaded) return <SkeletonScreen />;
 
-  // Vorgezogen aus dem ursprünglichen Anschluss an den `!trip`-Check: `kopf`
-  // (unten) braucht `mitBild.length`, um den «Alle sichern»-Knopf auszu-
-  // blenden, wenn es nichts zu sichern gibt, UND `kopf` wird selbst noch
-  // VOR dem `!trip`-Check gebraucht (Wiederverwendung im "Reise gibt es
-  // nicht mehr"-Zweig). Die Berechnung selbst braucht `trip` nicht wirklich
-  // (nur `tage` weiter unten tut das, wegen `trip.start_date`), sie bleibt
-  // deshalb sicher berechenbar, auch während `trip` noch null sein könnte.
-  const urls = vorrat?.urls ?? new Map<string, MediaUrl>();
-  const uploaded = momente.filter((m) => m.upload_status === 'uploaded');
-  const mitBild = uploaded.filter((m) => urls.has(m.id));
-  const indexById = new Map(mitBild.map((m, i) => [m.id, i] as const));
+  const urls = pool?.urls ?? new Map<string, MediaUrl>();
+  const uploaded = moments.filter((m) => m.upload_status === 'uploaded');
+  const withImage = uploaded.filter((m) => urls.has(m.id));
+  const indexById = new Map(withImage.map((m, i) => [m.id, i] as const));
 
-  // Startet «Alle sichern»: öffnet das Fortschritts-Sheet SOFORT (bevor die
-  // erste Berechtigungsprüfung überhaupt zurück ist), ein Tipp muss immer
-  // sichtbar reagieren, nie ein still hängender Knopf sein.
-  const alleSichern = () => {
-    const eintraege = mitBild.map((m) => ({ moment: m, url: urls.get(m.id)! }));
+  const saveAll = () => {
+    const entries = withImage.map((m) => ({ moment: m, url: urls.get(m.id)! }));
     const controller = new AbortController();
     exportAbortRef.current = controller;
-    setExportAusgang(null);
-    setExportStand({ erledigt: 0, gesamt: eintraege.length });
-    setExportOffen(true);
-    void saveAllToGallery(eintraege, (stand) => setExportStand(stand), controller.signal).then((ausgang) => {
-      if (!aktiv.current) return;
-      setExportAusgang(ausgang);
+    setExportOutcome(null);
+    setExportState({ erledigt: 0, gesamt: entries.length });
+    setExportOpen(true);
+    void saveAllToGallery(entries, (state) => setExportState(state), controller.signal).then((outcome) => {
+      if (!active.current) return;
+      setExportOutcome(outcome);
     });
   };
 
-  const exportAbbrechen = () => {
+  const cancelExport = () => {
     exportAbortRef.current?.abort();
   };
 
-  // Ein Schliessen WÄHREND der Export noch läuft (Wisch/Tipp auf den
-  // Hintergrund, siehe Sheet.tsx) ist implizit ein Abbrechen, ein
-  // laufender Export, den niemand mehr sieht, wäre kein stiller Fehlschlag,
-  // aber ein stiller WEITERLAUF, den die Person nicht mehr steuern könnte.
-  const exportSchliessen = () => {
-    if (exportAusgang === null) exportAbortRef.current?.abort();
-    setExportOffen(false);
+  const closeExport = () => {
+    if (exportOutcome === null) exportAbortRef.current?.abort();
+    setExportOpen(false);
   };
 
-  // `trip` ist an dieser Stelle noch nicht auf null geprüft (kopf wird auch
-  // im "Reise gibt es nicht mehr"-Zweig unten wiederverwendet), `trip &&`
-  // lässt beide Knöpfe dort automatisch weg, ohne einen zweiten `kopf`
-  // pflegen zu müssen.
-  const kannTeilen = !!trip && trip.owner_id === userId && trip.status === 'revealed';
-  // «Alle sichern» steht jedem Mitglied offen (kein Owner-Vorbehalt wie beim
-  // Teilen, Brief), nur ausgeblendet, wenn es buchstäblich nichts zu
-  // sichern gibt.
-  const kannExportieren = !!trip && mitBild.length > 0;
-  // Spec K10/R3: für eine noch versiegelte Reise gibt es die Segment-Zeile
-  // nicht. Eine Karte der laufenden Reise würde verraten, wo die anderen
-  // gerade waren, und genau das ist die Versiegelung. Serverseitig ist es
-  // ohnehin erzwungen (`posts_select_revealed_members` lässt Mitglieder erst
-  // bei status in ('revealed','archived') lesen), der Client darf den Weg
-  // trotzdem gar nicht erst anbieten.
-  //
-  // Als Positivliste geschrieben, nicht als `!== 'active'` (so stand es im
-  // Task-Brief, siehe Bericht): beides ist heute dasselbe, weil `TripStatus`
-  // genau diese drei Werte kennt. Käme je ein vierter dazu, entschiede die
-  // Schreibweise darüber, was er beim Übersehen erbt, bei `!==` die Karte,
-  // hier ihr Fehlen. Für die Versiegelung ist «im Zweifel zu» die einzige
-  // vertretbare Voreinstellung, und diese Zeile spiegelt damit wörtlich die
-  // Bedingung der Server-Policy.
-  //
-  // Kein Owner-Vorbehalt wie beim Teilen: jedes Mitglied liest denselben
-  // Recap, die Karte ist bloss eine zweite Lesart davon.
-  const kannKarte = !!trip && (trip.status === 'revealed' || trip.status === 'archived');
+  const canShare = !!trip && trip.owner_id === userId && trip.status === 'revealed';
+  const canExport = !!trip && withImage.length > 0;
+  // Written as a positive list, not as `!== 'active'`: both are the same
+  // today, because `TripStatus` knows exactly these three values. Should a
+  // fourth ever arrive, the spelling decides what it inherits when it is
+  // overlooked, with `!==` the map, here its absence. For sealing, "closed
+  // when in doubt" is the only defensible default, and this line mirrors the
+  // condition of the server policy verbatim.
+  const canMap = !!trip && (trip.status === 'revealed' || trip.status === 'archived');
 
-  const kopf = (
-    <View style={styles.kopfzeile}>
-      <PressScale accessibilityRole="button" accessibilityLabel="Zurück" onPress={zurueck}>
+  const header = (
+    <View style={styles.header}>
+      <PressScale accessibilityRole="button" accessibilityLabel="Zurück" onPress={goBack}>
         <ChevronLeft size={24} color={colors['text-1']} strokeWidth={1.75} />
       </PressScale>
-      <View style={styles.kopfAktionen}>
-        {kannExportieren && (
+      <View style={styles.headerActions}>
+        {canExport && (
           <PressScale
             testID="uebersicht-alle-sichern-oeffnen"
             accessibilityRole="button"
             accessibilityLabel="Alle sichern"
-            onPress={alleSichern}
+            onPress={saveAll}
           >
             <Download size={22} color={colors['text-1']} strokeWidth={1.75} />
           </PressScale>
         )}
-        {kannTeilen && (
+        {canShare && (
           <PressScale
             testID="uebersicht-teilen-oeffnen"
             accessibilityRole="button"
             accessibilityLabel="Recap teilen"
-            onPress={() => setTeilenOffen(true)}
+            onPress={() => setShareOpen(true)}
           >
             <Share2 size={22} color={colors['text-1']} strokeWidth={1.75} />
           </PressScale>
@@ -468,15 +380,15 @@ export default function RecapUebersicht() {
   if (!trip) {
     return (
       <View style={{ flex: 1, backgroundColor: colors['bg-0'] }}>
-        <View style={[styles.inhalt, { paddingTop: oben }]}>
-          {kopf}
-          <Text style={[type.body, { color: colors.danger }]}>{fehler ?? 'Diese Reise gibt es nicht mehr.'}</Text>
-          {fehler && nochmalHilft && (
+        <View style={[styles.content, { paddingTop: topInset }]}>
+          {header}
+          <Text style={[type.body, { color: colors.danger }]}>{error ?? 'Diese Reise gibt es nicht mehr.'}</Text>
+          {error && retryHelpful && (
             <Button
               variant="secondary"
               label="Nochmal versuchen"
-              onPress={() => void nochmal()}
-              loading={laedt}
+              onPress={() => void retry()}
+              loading={loading}
             />
           )}
         </View>
@@ -484,75 +396,55 @@ export default function RecapUebersicht() {
     );
   }
 
-  // Nachzügler (upload_status='pending') fehlen im Raster, für sie gibt es
-  // kein Objekt im Speicher, eine Kachel wäre eine schwarze Fläche
-  // (Task-10-Brief). Dasselbe gilt für uploadete Momente, für die der Vorrat
-  // trotzdem keine URL ausstellen konnte (`urls.has` false), die Zahl dafür
-  // ist `vorrat.ausgelassen`, eine EIGENE, vom Server gezählte Grösse, keine
-  // hier selbst nachgerechnete Differenz (Task-10-Brief, zweiter Hinweis).
-  const tage = groupByDays(mitBild, trip.start_date);
-  const pendingAnzahl = momente.length - uploaded.length;
-  const ausgelassenAnzahl = vorrat?.ausgelassen ?? 0;
-  const komplettLeer = tage.length === 0 && pendingAnzahl === 0 && ausgelassenAnzahl === 0;
-  // Das Siegel steht nur vor etwas, das sich aufdecken lässt: mindestens ein
-  // Tag mit Bild. Vor einer Reise, die nur Nachzügler oder Ausgelassene hat,
-  // gäbe es hinter dem Siegel nichts zu sehen, das Abziehen liefe ins Leere;
-  // kommen die Momente später an, steht das Siegel dann, wenn es sich lohnt.
-  const versiegelt = tage.length > 0 && !entsiegelt;
-  // Bühne des Siegels: volle Inhaltsbreite, gedeckelt wie die Filmrolle der
-  // Recap-Liste (Schärfegrenze des PNGs, siehe SIEGEL_BUEHNE_MAX).
-  const buehne = Math.min(fensterBreite - 2 * spacing.screen, SIEGEL_BUEHNE_MAX);
+  const days = groupByDays(withImage, trip.start_date);
+  const pendingCount = moments.length - uploaded.length;
+  const skippedCount = pool?.ausgelassen ?? 0;
+  const completelyEmpty = days.length === 0 && pendingCount === 0 && skippedCount === 0;
+  const sealed = days.length > 0 && !unsealed;
+  const stage = Math.min(windowWidth - 2 * spacing.screen, SEAL_STAGE_MAX);
 
   return (
     <View style={{ flex: 1, backgroundColor: colors['bg-0'] }}>
-      {/* `flexGrow: 1` nur solange das Siegel steht: dann füllt der Inhalt
-          die Höhe, und die Bühne kann sich im Rest unter dem Titel
-          zentrieren. Danach normal, ein kurzer Recap darf kurz sein. */}
-      <ScrollView contentContainerStyle={[styles.inhalt, { paddingTop: oben }, versiegelt && styles.inhaltGestreckt]}>
-        {kopf}
+      {/* `flexGrow: 1` only while the seal stands: then the content fills the
+          height and the stage can centre itself in what is left below the
+          title. Normal afterwards, a short recap may be short. */}
+      <ScrollView contentContainerStyle={[styles.content, { paddingTop: topInset }, sealed && styles.contentStretched]}>
+        {header}
         <Text style={[type.h1, { color: colors['text-1'] }]}>{trip.name}</Text>
 
-        {/* Die beiden Lesarten dieses Recaps (Spec §5.1), als Segment-Zeile
-            aus zwei Pillen (Radius 999), ausdrücklich NICHT als zweite
-            Tab-Bar: die untere bleibt bei vier Einträgen (DESIGN-LANGUAGE §4),
-            und die Karte ist eine Sicht auf DIESEN Recap, kein eigener Bereich
-            der App.
+        {/* The two readings of this recap (Spec §5.1) as a segment row of two
+            pills (radius 999), explicitly NOT as a second tab bar: the bottom
+            one stays at four entries (DESIGN-LANGUAGE §4), and the map is a
+            view onto THIS recap, not an area of its own.
 
-            Sie steht unter dem H1, nicht zwischen Kopfzeile und H1: die Zeile
-            schaltet um, was DARUNTER steht, und getrennt vom Titel läse sie
-            sich als Teil der Kopf-Chrome statt als Wahl über den Inhalt. Der
-            Abstand kommt aus dem `gap` von `styles.inhalt` (12), 4er-Raster,
-            ohne zweiten Wert daneben.
+            It sits below the H1, not between header row and H1: the row
+            switches what stands BELOW it, and separated from the title it
+            would read as part of the header chrome instead of as a choice
+            about the content. The spacing comes from the `gap` of
+            `styles.content` (12), 4-grid, without a second value beside it.
 
-            Hell, nicht translucent: die `Pille`-Komponente ist für eine
-            Fremdfläche gemacht (DESIGN-LANGUAGE §1, «auf Fotos»), hier liegt
-            reines Weiss darunter. */}
-        {kannKarte && !versiegelt && (
-          <View style={styles.segmentZeile}>
-            {/* Die aktive Hälfte ist bewusst KEIN Knopf: sie zeigt, wo man
-                gerade ist, und ein Tipp darauf täte nichts. Ein Press-Feedback
-                (PressScale) wäre dann eine Zusage, die niemand einlöst, die
-                Regel «Scale statt Opacity» (§5) gilt für Dinge, die auf einen
-                Tipp auch reagieren. `accessible` bündelt Pille und Text zu
-                einem Element, damit VoiceOver den Stand als eine Auskunft
-                vorliest statt als losen Text neben einem Knopf. */}
+            Light, not translucent: the `Pill` component is made for a foreign
+            surface (DESIGN-LANGUAGE §1, "auf Fotos"), here plain white lies
+            underneath. */}
+        {canMap && !sealed && (
+          <View style={styles.segmentRow}>
             <View
               accessible
               accessibilityRole="text"
               accessibilityLabel="Nach Tagen, aktuelle Ansicht"
               testID="uebersicht-segment-tage"
-              style={[styles.segmentPille, { backgroundColor: colors['bg-1'] }]}
+              style={[styles.segmentPill, { backgroundColor: colors['bg-1'] }]}
             >
               <Text style={[type.bodyMedium, { color: colors['text-1'] }]}>Nach Tagen</Text>
             </View>
             <PressScale
               accessibilityRole="button"
               testID="uebersicht-segment-karte"
-              onPress={zurKarte}
+              onPress={toMap}
             >
               <View
                 style={[
-                  styles.segmentPille,
+                  styles.segmentPill,
                   { backgroundColor: colors['bg-0'], borderWidth: StyleSheet.hairlineWidth, borderColor: colors.line },
                 ]}
               >
@@ -562,93 +454,79 @@ export default function RecapUebersicht() {
           </View>
         )}
 
-        {fehler ? (
+        {error ? (
           <View style={{ gap: spacing.l, marginTop: spacing.xl }}>
-            <Text style={[type.body, { color: colors.danger }]}>{fehler}</Text>
-            {/* Nur wo ein zweiter Versuch etwas ausrichten kann, siehe
-                `nochmalHilft` oben. */}
-            {nochmalHilft && (
+            <Text style={[type.body, { color: colors.danger }]}>{error}</Text>
+            {retryHelpful && (
               <Button
                 variant="secondary"
                 label="Nochmal versuchen"
-                onPress={() => void nochmal()}
-                loading={laedt}
+                onPress={() => void retry()}
+                loading={loading}
               />
             )}
           </View>
-        ) : komplettLeer ? (
+        ) : completelyEmpty ? (
           <Text style={[type.h2, { color: colors['text-1'], marginTop: spacing.xl }]}>
             Diese Reise ist leer geblieben.
           </Text>
-        ) : versiegelt ? (
-          // Der inszenierte Moment vor dem Recap (§7: nur inszenierte Momente
-          // zentrieren): das Siegel in der Mitte, darunter eine Zeile, die
-          // sagt, was zu tun ist. Kein Rahmen, kein Schatten von uns, das
-          // Siegel bringt seinen eigenen mit.
-          <View style={styles.siegelBuehne}>
-            <SealPeel testID="recap-siegel" size={buehne} onPeeled={entsiegeln} />
+        ) : sealed ? (
+          // The staged moment before the recap (§7: only staged moments are
+          // centred): the seal in the middle, a line below it saying what to
+          // do. No frame, no shadow from us, the seal brings its own.
+          <View style={styles.sealStage}>
+            <SealPeel testID="recap-siegel" size={stage} onPeeled={unseal} />
             <Text style={[type.body, { color: colors['text-2'], textAlign: 'center' }]}>
               Dein Recap ist versiegelt. Tipp aufs Siegel, um ihn zu öffnen.
             </Text>
           </View>
         ) : (
-          <Animated.View style={{ gap: spacing.xl, marginTop: spacing.xl, opacity: einblendung }}>
-            {/* Der Vorhang-Moment vor dem Recap. Er steht bewusst in DIESEM
-                Zweig und nicht über der ganzen Seite: über einem Ladefehler
-                oder einer leer gebliebenen Reise wäre «Dein Recap wartet» ein
-                Versprechen auf etwas, das dieser Screen gerade nicht zeigt.
-                Freigestellt auf `bg-0`, deshalb ohne Rahmen und Schatten. */}
+          <Animated.View style={{ gap: spacing.xl, marginTop: spacing.xl, opacity: fadeIn }}>
+            {/* Cut out on `bg-0`, hence without frame and shadow. */}
             <View>
               <Image
                 testID="recap-popcorn"
                 source={require('@/assets/images/popcornbecher.png')}
                 style={styles.popcorn}
                 contentFit="contain"
-                // Das Bild wiederholt nur, was der Satz darunter sagt.
                 accessible={false}
               />
               <Text style={[type.bodyMedium, { color: colors['text-1'], marginTop: spacing.m }]}>
                 {"Dein Recap wartet. Popcorn holen, Licht aus, los geht's."}
               </Text>
             </View>
-            {tage.map((tag) => (
-              <TagesAbschnitt key={tag.nummer} tag={tag} urls={urls} indexById={indexById} onTip={zumPlayer} />
+            {days.map((day) => (
+              <DaySection key={day.number} day={day} urls={urls} indexById={indexById} onTap={toPlayer} />
             ))}
           </Animated.View>
         )}
 
-        {/* Unter dem Siegel auch diese Zeilen nicht: sie gehören zum Inhalt,
-            der noch zu ist. */}
-        {!fehler && !versiegelt && (pendingAnzahl > 0 || ausgelassenAnzahl > 0) && (
+        {!error && !sealed && (pendingCount > 0 || skippedCount > 0) && (
           <View style={{ gap: spacing.xs, marginTop: spacing.xl }}>
-            {pendingAnzahl > 0 && (
-              <Text style={[type.secondary, { color: colors['text-2'] }]}>{unterwegsText(pendingAnzahl)}</Text>
+            {pendingCount > 0 && (
+              <Text style={[type.secondary, { color: colors['text-2'] }]}>{inTransitText(pendingCount)}</Text>
             )}
-            {ausgelassenAnzahl > 0 && (
-              <Text style={[type.secondary, { color: colors['text-2'] }]}>{ausgelassenText(ausgelassenAnzahl)}</Text>
+            {skippedCount > 0 && (
+              <Text style={[type.secondary, { color: colors['text-2'] }]}>{skippedText(skippedCount)}</Text>
             )}
           </View>
         )}
       </ScrollView>
 
-      {/* Geschwister des ScrollView, nicht sein Kind (gleiches Muster wie das
-          Kommentar-Sheet in player.tsx), muss über allem liegen. Nur
-          gemountet, wenn `kannTeilen` je true war (die Sheet-Komponente
-          selbst rendert bei `sichtbar=false` ohnehin `null`, siehe Sheet.tsx)
-         , für eine Person ohne Teilen-Recht existiert damit erst gar kein
-          Weg, sie zu öffnen. */}
-      {kannTeilen && (
-        <Sheet visible={teilenOffen} title="Recap teilen" onClose={() => setTeilenOffen(false)} cinemaMode>
+      {/* Sibling of the ScrollView, not its child (same pattern as the
+          comment sheet in player.tsx), it has to lie above everything. */}
+      {canShare && (
+        <Sheet visible={shareOpen} title="Recap teilen" onClose={() => setShareOpen(false)} cinemaMode>
           <ShareSheetContent tripId={id} />
         </Sheet>
       )}
-      {kannExportieren && (
-        <Sheet visible={exportOffen} title="Momente sichern" onClose={exportSchliessen}>
-          <ExportSheetInhalt
-            stand={exportStand}
-            ausgang={exportAusgang}
-            onAbbrechen={exportAbbrechen}
-            onFertig={() => setExportOffen(false)}
+      {canExport && (
+        <Sheet visible={exportOpen} title="Momente sichern" onClose={closeExport}>
+          <ExportSheetContent
+            state={exportState}
+            outcome={exportOutcome}
+            onCancel={cancelExport}
+            onDone={() => setExportOpen(false)}
           />
         </Sheet>
       )}
@@ -656,46 +534,42 @@ export default function RecapUebersicht() {
   );
 }
 
-// Obergrenze der Siegel-Bühne, dieselbe Schärfegrenze wie FILMROLLE_MAX in
-// recap/index.tsx: das Siegel nimmt 500/720 der Bühne ein, bei 416 sind das
-// 289 pt, mal drei 867 px, unter den 1254 px der Quelle. Auf jedem iPhone
-// bleibt die Breite ohnehin darunter, die Grenze greift erst auf dem iPad.
-const SIEGEL_BUEHNE_MAX = 416;
+// Upper bound of the seal stage, the same sharpness limit as FILM_REEL_MAX in
+// recap/index.tsx: the seal takes up 500/720 of the stage, at 416 that is
+// 289 pt, times three 867 px, below the 1254 px of the source. On every
+// iPhone the width stays below this anyway, the limit only bites on an iPad.
+const SEAL_STAGE_MAX = 416;
 
 const styles = StyleSheet.create({
-  inhalt: { padding: spacing.screen, paddingTop: spacing.xl, paddingBottom: spacing.xxl, gap: spacing.m },
-  inhaltGestreckt: { flexGrow: 1 },
-  // Füllt die Höhe unter dem Titel und zentriert das Siegel darin, mit dem
-  // Hinweis darunter (Abstand aus dem 4er-Raster).
-  siegelBuehne: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: spacing.l },
-  kopfzeile: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  kopfAktionen: { flexDirection: 'row', alignItems: 'center', gap: spacing.base },
-  // Zwei Pillen nebeneinander, linksbündig (DESIGN-LANGUAGE §7: Text ist
-  // linksbündig), keine über die volle Breite gestreckte Leiste: gestreckt
-  // sähe sie aus wie eine zweite Tab-Bar, und genau das soll sie nicht sein
-  // (Spec §5.1). Abstand aus dem 4er-Raster.
-  segmentZeile: { flexDirection: 'row', alignItems: 'center', gap: spacing.s },
-  // Radius 999 (DESIGN-LANGUAGE §3, der Pillen-Wert). Höhe 44 wie die Pillen
-  // auf der Karte selbst, der Wert ist eine Grösse, kein Abstand, das
-  // 4er-Raster gilt für Abstände (§3), sonst hätten weder Button 52 noch
-  // Input 56 Bestand.
-  segmentPille: {
+  content: { padding: spacing.screen, paddingTop: spacing.xl, paddingBottom: spacing.xxl, gap: spacing.m },
+  contentStretched: { flexGrow: 1 },
+  // Fills the height below the title and centres the seal in it, with the
+  // hint underneath (spacing from the 4-grid).
+  sealStage: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: spacing.l },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.base },
+  // Two pills side by side, left aligned (DESIGN-LANGUAGE §7), not a bar
+  // stretched over the full width: stretched it would look like a second tab
+  // bar, and that is exactly what it must not be (Spec §5.1).
+  segmentRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.s },
+  // Radius 999 (DESIGN-LANGUAGE §3, the pill value). Height 44 like the pills
+  // on the map itself; that value is a size, not a spacing, and the 4-grid
+  // applies to spacings (§3), otherwise neither Button 52 nor Input 56 would
+  // hold.
+  segmentPill: {
     height: 44,
     justifyContent: 'center',
     paddingHorizontal: spacing.base,
     borderRadius: radius.pill,
   },
-  // Drei Spalten. Lücke explizit `spacing.xs` über `columnGap`/`rowGap`,
-  // NICHT über `justifyContent: 'space-between'` (Review Task 10, Minor):
-  // das liess die Lücke aus dem verbleibenden Rest-Raum entstehen, je nach
-  // Gerätebreite unterschiedlich gross und nie exakt aus dem 4er-Raster.
-  // `columnGap`/`rowGap` sind seit RN 0.71 vollwertig, auch kombiniert mit
-  // `flexWrap`, die Lücke ist damit immer exakt `spacing.xs`, unabhängig
-  // von der Gerätebreite.
-  kachelRaster: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-start', columnGap: spacing.xs, rowGap: spacing.xs },
-  kachel: { width: '31.5%', aspectRatio: 1, borderRadius: radius.control, overflow: 'hidden' },
-  // Kleiner als die Bilder der Leerzustände (160): dort trägt das Bild einen
-  // Screen, auf dem sonst nichts steht, hier begleitet es einen Recap, der
-  // gleich darunter selbst anfängt.
+  // Three columns. The gap explicitly via `columnGap`/`rowGap`, NOT via
+  // `justifyContent: 'space-between'` (review Task 10, minor): that let the
+  // gap emerge from the remaining space, differently sized per device width
+  // and never exactly from the 4-grid.
+  tileGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-start', columnGap: spacing.xs, rowGap: spacing.xs },
+  tile: { width: '31.5%', aspectRatio: 1, borderRadius: radius.control, overflow: 'hidden' },
+  // Smaller than the images of the empty states (160): there the image
+  // carries a screen with nothing else on it, here it accompanies a recap
+  // that starts right below it.
   popcorn: { width: 120, height: 120, alignSelf: 'center' },
 });

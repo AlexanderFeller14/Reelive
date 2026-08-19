@@ -15,7 +15,7 @@ import {
 } from '../MomentSheet';
 
 // expo-image is a native view, in the test a placeholder that passes
-// through all props is enough (same pattern as in recap/__tests__/karte.test.tsx).
+// through all props is enough (same pattern as in recap/__tests__/map.test.tsx).
 jest.mock('expo-image', () => {
   const ReactActual = require('react');
   const { View } = require('react-native');

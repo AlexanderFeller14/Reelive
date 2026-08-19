@@ -2,7 +2,7 @@ import { render, screen, fireEvent } from '@testing-library/react-native';
 import { ThemeProvider } from '@/theme/ThemeProvider';
 
 // expo-image is a native view, in the test a placeholder that passes all
-// props through is enough (same pattern as recap/__tests__/liste.test.tsx).
+// props through is enough (same pattern as recap/__tests__/list.test.tsx).
 // Needed since the cover carries an image: without the mock, even the
 // import fails, expo-image/src/observe.ts expects a native environment.
 jest.mock('expo-image', () => {

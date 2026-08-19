@@ -9,112 +9,95 @@ import { cinema, type } from '@/theme/tokens';
 import * as captureLock from '@/features/camera/captureLock';
 import * as cinemaStage from '@/features/camera/cinemaStage';
 
-// Höhe und Luft der Leiste wohnen in cinemaStage.ts (LEISTE_INHALT,
-// LEISTE_LUFT_OBEN, leisteHoehe): der Kamera-Screen hebt seine unteren
-// Bedienelemente um genau diese Höhe, sobald die Leiste als Overlay über dem
-// Sucher liegt — eine geteilte Formel statt zweier Zahlen, die
-// auseinanderlaufen können. Die Begründung der Werte (UIKit-Konstante 49,
-// ein Rasterschritt Luft über den Icons) steht dort.
-const LUFT_OBEN = cinemaStage.BAR_TOP_PADDING;
+// Height and padding of the bar live in cinemaStage.ts (BAR_CONTENT_HEIGHT,
+// BAR_TOP_PADDING, barHeight): the camera screen lifts its lower controls by
+// exactly this height as soon as the bar lies over the viewfinder as an
+// overlay, one shared formula instead of two numbers that can drift apart.
+// The reasoning behind the values (UIKit constant 49, one grid step of air
+// above the icons) is documented there.
+const TOP_PADDING = cinemaStage.BAR_TOP_PADDING;
 
-// DESIGN-LANGUAGE v2 §4: Tab-Bar volle Breite, bg-0, 1 px Hairline oben,
-// keine Rundung (die schwebende v1-Pille entfällt). Aktiv accent, inaktiv text-2.
+// DESIGN-LANGUAGE v2 §4: tab bar at full width, bg-0, 1 px hairline on top,
+// no rounding (the floating v1 pill is gone). Active accent, inactive text-2.
 export default function TabsLayout() {
   const { colors } = useTheme();
-  // Phase-5-Final-Review, Punkt 5: der Recap-Player (recap/[id]/player) ist
-  // laut Spec §8.2 "Vollbild, Kino-Palette", keine helle bg-0-Leiste mit
-  // accent/text-2-Labels unter dem Kinosaal, und `sozialBereich` (die
-  // Emoji-Leiste im Player) liegt bei `bottom: spacing.xl`, exakt dort, wo
-  // die Tab-Bar sonst gerendert würde. `tabBarStyle` lässt sich nur AUF der
-  // Tabs-Navigator-Ebene abschalten, nicht aus dem verschachtelten Stack in
-  // recap/_layout.tsx heraus, `useSegments()` liefert dafür die
-  // UNNORMALISIERTEN Datei-Pfad-Segmente (Cast wie in app/_layout.tsx: mit
-  // `experiments.typedRoutes` engt der Rückgabetyp sich sonst auf ein festes
-  // Tupel ein, Laufzeitverhalten unverändert), für die Player-Route exakt
-  // `['(tabs)', 'recap', '[id]', 'player']`.
+  // `tabBarStyle` can only be switched off ON the tabs navigator level, not
+  // from inside the nested stack in recap/_layout.tsx, and `useSegments()`
+  // supplies the UNNORMALISED file path segments for that (cast as in
+  // app/_layout.tsx: with `experiments.typedRoutes` the return type would
+  // otherwise narrow to a fixed tuple, runtime behaviour unchanged), for the
+  // player route exactly `['(tabs)', 'recap', '[id]', 'player']`.
   const segments = useSegments() as string[];
-  const aufPlayerRoute = segments[1] === 'recap' && segments[2] === '[id]' && segments[3] === 'player';
-  // Die Aufnahme-Vorschau braucht hier KEINE Ausnahme, obwohl sie ebenfalls
-  // ein Vollbild-Medienscreen ist: Sie liegt gar nicht mehr im Tab-Navigator,
-  // sondern daneben (app/vorschau.tsx, Begründung dort und in guard.ts). Eine
-  // Ausnahme an dieser Stelle wirkt erst, wenn der Navigator nach dem
-  // Routenwechsel neu rendert, die Leiste blieb dadurch nach dem Auslösen noch
-  // einen Wimpernschlag stehen.
-  // Die Höhe muss mitwachsen: der Renderer setzt sie fest (49 + Inset), ein
-  // blosses `paddingTop` stauchte Icon und Label darin, statt die Leiste
-  // aufzumachen. Ein `height` im `tabBarStyle` ist zugleich das, was der
-  // Renderer für `useBottomTabBarHeight()` liest, Screens rechnen also weiter
-  // mit dem richtigen Wert.
+  const onPlayerRoute = segments[1] === 'recap' && segments[2] === '[id]' && segments[3] === 'player';
+  // The capture preview deliberately needs NO exception here, even though it
+  // is a full-screen media screen too: it no longer lives inside the tab
+  // navigator but next to it (app/preview.tsx, reasoning there and in
+  // guard.ts). An exception at this spot only takes effect once the
+  // navigator rerenders after the route change, and the bar therefore stayed
+  // visible for a blink after the shutter.
+  //
+  // The height has to grow with it: the renderer pins it (49 + inset), and a
+  // bare `paddingTop` squeezed icon and label inside instead of opening the
+  // bar up. A `height` in `tabBarStyle` is at the same time what the
+  // renderer reads for `useBottomTabBarHeight()`, so screens keep computing
+  // with the right value.
   const { bottom } = useSafeAreaInsets();
-  // Zeigt der Kamera-Screen den Sucher, legt sich die Leiste durchscheinend
-  // ÜBER das Bild statt ihm Platz wegzunehmen (Gerätefund 2026-08-18): Sucher
-  // und Aufnahme-Vorschau zeichnen beide mit `cover`, aber vorher in
-  // verschieden hohe Flächen — die Vorschau zeigte dadurch ~10 % weniger
-  // Bildbreite als der Sucher («mehr gecropt als bevor ich auslöse»). Mit der
-  // Leiste als Overlay sind beide Flächen gleich, was man sieht, ist was man
-  // bekommt. Der Screen meldet über cinemaStage nur, OB der Sucher steht (die
-  // hellen Zustände des Tabs behalten die normale Leiste); an WELCHEM Tab die
-  // Kino-Form gilt, entscheidet unten die Route der screenOptions-Funktion.
-  // Der Fokus taugt dafür nämlich nicht: die Aufnahme-Vorschau überdeckt den
-  // Tab (Blur), die Leiste fiele unsichtbar in die helle Form zurück und
-  // spränge beim Instant-Rückweg im ersten Frame sichtbar um — genau der
-  // unsaubere Übergang aus dem Gerätefund. Solange aufnehmen der GEWÄHLTE
-  // Tab ist, bleibt die Kino-Leiste deshalb stehen, Vorschau hin oder her.
-  const sucherSichtbar = useSyncExternalStore(cinemaStage.subscribe, cinemaStage.get);
+  // While the camera screen shows the viewfinder, the bar lies translucent
+  // OVER the image instead of taking space away from it (device finding
+  // 2026-08-18): viewfinder and capture preview both draw with `cover`, but
+  // into surfaces of different heights, so the preview showed about 10 % less
+  // image width than the viewfinder ("more cropped than before I hit the
+  // shutter"). With the bar as an overlay both surfaces are equal: what you
+  // see is what you get. The screen only reports through cinemaStage WHETHER
+  // the viewfinder stands (the bright states of the tab keep the normal
+  // bar); WHICH tab the cinema shape applies to is decided below by the
+  // route of the screenOptions function. Focus is no good for that: the
+  // capture preview covers the tab (blur), the bar would fall invisibly back
+  // into the bright shape and would visibly jump on the first frame of the
+  // instant way back, exactly the rough transition from the device finding.
+  const viewfinderVisible = useSyncExternalStore(cinemaStage.subscribe, cinemaStage.get);
   return (
     <Tabs
-      // Während einer laufenden Aufnahme (Foto-Zyklus oder Video) läuft ein
-      // Tab-Tipp ins Leere: ein Wechsel feuerte das Fokus-Cleanup mitten in
-      // die laufende Kamera-Session und navigierte von einer Aufnahme weg,
-      // die gleich in die Vorschau will (siehe captureLock.ts). Die Leiste
-      // bleibt dabei stehen — display:'none' nähme der Szene mitten in der
-      // Aufnahme die Höhe, und der Sucher spränge sichtbar. Der Listener
-      // liest die Sperre synchron zum Ereignis, ein Re-Render ist nicht
-      // nötig; damit blockiert er auch VoiceOver-Tab-Wechsel, die durch
-      // dasselbe Navigations-Ereignis laufen.
+      // The bar stays put during a running capture: display:'none' would take
+      // the height away from the scene mid-capture and the viewfinder would
+      // jump. The listener reads the lock synchronously with the event, no
+      // rerender needed; that way it also blocks VoiceOver tab switches,
+      // which travel through the same navigation event.
       screenListeners={{
         tabPress: (e) => {
           if (captureLock.isLocked()) e.preventDefault();
         },
       }}
       screenOptions={({ route }) => {
-        // Kino-Form nur, wenn aufnehmen der GEWÄHLTE Tab ist UND der Sucher
-        // steht. Der Renderer nimmt die Options des fokussierten Tabs — die
-        // Route hier IST die Tab-Wahl, und die ändert sich nicht, wenn die
-        // Vorschau den Navigator nur überdeckt.
-        const kino = route.name === 'capture' && sucherSichtbar;
+        const cinemaMode = route.name === 'capture' && viewfinderVisible;
         return {
           headerShown: false,
           sceneStyle: { backgroundColor: colors['bg-0'] },
           tabBarActiveTintColor: colors.accent,
-          // Über dem Kamerabild braucht Inaktives die Kino-Textfarbe, das
-          // helle Grau von text-2 stünde sonst auf dunklem Blur.
-          tabBarInactiveTintColor: kino ? cinema['text-2'] : colors['text-2'],
-          tabBarStyle: aufPlayerRoute
+          // Over the camera image, inactive needs the cinema text colour: the
+          // light grey of text-2 would otherwise sit on a dark blur.
+          tabBarInactiveTintColor: cinemaMode ? cinema['text-2'] : colors['text-2'],
+          tabBarStyle: onPlayerRoute
             ? { display: 'none' as const }
-            : kino
+            : cinemaMode
               ? {
-                  // Overlay statt Fläche: `absolute` nimmt die Leiste aus dem
-                  // Layout, der Sucher darunter bekommt den ganzen Bildschirm.
-                  // Hintergrund übernimmt tabBarBackground (Pille-Rezept),
-                  // keine Hairline auf dem Bild.
                   position: 'absolute' as const,
                   backgroundColor: 'transparent',
                   borderTopWidth: 0,
-                  paddingTop: LUFT_OBEN,
+                  paddingTop: TOP_PADDING,
                   height: cinemaStage.barHeight(bottom),
                 }
               : {
                   backgroundColor: colors['bg-0'],
                   borderTopWidth: StyleSheet.hairlineWidth,
                   borderTopColor: colors.line,
-                  paddingTop: LUFT_OBEN,
+                  paddingTop: TOP_PADDING,
                   height: cinemaStage.barHeight(bottom),
                 },
-          // DESIGN-LANGUAGE §1: UI auf dem Bild nur translucent
-          // (rgba(19,17,16,0.55) + Blur 10) — exakt das Pille-Rezept, nur
-          // ohne Rundung (§4: Tab-Bar keine Rundung).
-          tabBarBackground: kino
+          // DESIGN-LANGUAGE §1: UI on top of the image only translucent
+          // (rgba(19,17,16,0.55) + blur 10), exactly the pill recipe, only
+          // without rounding (§4: tab bar has no rounding).
+          tabBarBackground: cinemaMode
             ? () => <Pill style={StyleSheet.absoluteFill} pointerEvents="none" />
             : undefined,
           tabBarLabelStyle: type.tab,

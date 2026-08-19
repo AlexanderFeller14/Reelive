@@ -2,10 +2,10 @@ import type { RecapMoment } from '@/features/recap/types';
 import { timeInZone } from '@/features/recap/timeOfDay';
 
 // What a pin SAYS and what its appearance DEPENDS ON, the two rules shared
-// by the native pin (components/KartenNadel.tsx) and the browser pin
+// by the native pin (components/MapPin.tsx) and the browser pin
 // (MapSurface.web.tsx).
 //
-// They lived module-private in KartenNadel.tsx until Task 14. They can't
+// They lived module-private in MapPin.tsx until Task 14. They can't
 // stay there: that file imports `Marker` from react-native-maps, and the
 // library has no web version (`main` points at TypeScript source with
 // native modules). An import from there into the `.web.tsx` would pull it
@@ -18,7 +18,7 @@ import { timeInZone } from '@/features/recap/timeOfDay';
 
 // Everything that determines a pin's appearance, as ONE value.
 //
-// Natively both components in KartenNadel.tsx build it the same way: the
+// Natively both components in MapPin.tsx build it the same way: the
 // pin, to know when it has to report its finished state again, and the
 // marker, to know whether the reported state is still current
 // (`tracksViewChanges`). In the browser, the same value decides whether

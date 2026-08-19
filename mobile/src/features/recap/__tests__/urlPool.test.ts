@@ -113,15 +113,15 @@ describe('getPool', () => {
       error: null,
     });
 
-    const { vorrat, error, grund } = await getPool('t1');
+    const { pool, error, reason } = await getPool('t1');
 
     expect(error).toBeNull();
-    expect(grund).toBeNull();
+    expect(reason).toBeNull();
     expect(mockInvoke).toHaveBeenCalledWith('media-urls', { body: { aktion: 'lesen', trip_id: 't1' } });
-    expect(vorrat?.gueltigBis).toBe(Date.parse('2026-08-08T13:00:00.000Z'));
-    expect(vorrat?.ausgelassen).toBe(1);
-    expect(vorrat?.urls.size).toBe(2);
-    expect(vorrat?.urls.get('p1')).toEqual({
+    expect(pool?.gueltigBis).toBe(Date.parse('2026-08-08T13:00:00.000Z'));
+    expect(pool?.ausgelassen).toBe(1);
+    expect(pool?.urls.size).toBe(2);
+    expect(pool?.urls.get('p1')).toEqual({
       post_id: 'p1',
       medium_url: 'https://s3/p1',
       thumb_url: 'https://s3/p1-thumb',
@@ -130,8 +130,8 @@ describe('getPool', () => {
     // undefined, MediaUrl.thumb_url is string | null, not an optional field
     // (a mutant writing ?? undefined instead of ?? null fails here: toEqual
     // distinguishes the missing from the null property).
-    expect(vorrat?.urls.get('p2')).toEqual({ post_id: 'p2', medium_url: 'https://s3/p2', thumb_url: null });
-    expect(Object.prototype.hasOwnProperty.call(vorrat!.urls.get('p2'), 'thumb_url')).toBe(true);
+    expect(pool?.urls.get('p2')).toEqual({ post_id: 'p2', medium_url: 'https://s3/p2', thumb_url: null });
+    expect(Object.prototype.hasOwnProperty.call(pool!.urls.get('p2'), 'thumb_url')).toBe(true);
   });
 
   test('an empty roll of film returns a pool with an empty mapping, no error', async () => {
@@ -139,10 +139,10 @@ describe('getPool', () => {
       data: { medien: [], gueltig_bis: '2026-08-08T13:00:00.000Z', ausgelassen: 0 },
       error: null,
     });
-    const { vorrat, error } = await getPool('t1');
+    const { pool, error } = await getPool('t1');
     expect(error).toBeNull();
-    expect(vorrat?.urls.size).toBe(0);
-    expect(vorrat?.ausgelassen).toBe(0);
+    expect(pool?.urls.size).toBe(0);
+    expect(pool?.ausgelassen).toBe(0);
   });
 
   // isSoonExpiring has its own, independent NaN safety net (see above), this
@@ -154,8 +154,8 @@ describe('getPool', () => {
       data: { medien: [], gueltig_bis: 'nicht-iso', ausgelassen: 0 },
       error: null,
     });
-    const { vorrat, error } = await getPool('t1');
-    expect(vorrat).toBeNull();
+    const { pool, error } = await getPool('t1');
+    expect(pool).toBeNull();
     expect(error).toBe('Die Momente konnten nicht geladen werden. Probier es gleich nochmal.');
   });
 
@@ -168,9 +168,9 @@ describe('getPool', () => {
       error: null,
     });
     await expect(getPool('t1')).resolves.toEqual({
-      vorrat: null,
+      pool: null,
       error: 'Die Momente konnten nicht geladen werden. Probier es gleich nochmal.',
-      grund: null,
+      reason: null,
     });
   });
 
@@ -183,9 +183,9 @@ describe('getPool', () => {
       data: { medien: [], gueltig_bis: '2026-08-08T13:00:00.000Z' },
       error: null,
     });
-    const { vorrat, error } = await getPool('t1');
+    const { pool, error } = await getPool('t1');
     expect(error).toBeNull();
-    expect(vorrat?.ausgelassen).toBe(0);
+    expect(pool?.ausgelassen).toBe(0);
   });
 
   // Counter-check to the test above: an ACTUALLY transmitted value (even 0)
@@ -199,41 +199,41 @@ describe('getPool', () => {
       data: { medien: [], gueltig_bis: '2026-08-08T13:00:00.000Z', ausgelassen: 4 },
       error: null,
     });
-    const { vorrat, error } = await getPool('t1');
+    const { pool, error } = await getPool('t1');
     expect(error).toBeNull();
-    expect(vorrat?.ausgelassen).toBe(4);
+    expect(pool?.ausgelassen).toBe(4);
   });
 
   // The two 403 cases mean different things (trip still sealed vs.
   // membership revoked mid-recap) and must stay distinguishable BY MACHINE
   // (review finding, Important 2), not just via the displayed text.
-  test('403 "Diese Reise ist noch versiegelt." passes through and is recognised as grund "versiegelt"', async () => {
+  test('403 "Diese Reise ist noch versiegelt." passes through and is recognised as reason "versiegelt"', async () => {
     mockInvoke.mockResolvedValueOnce(httpError(403, { fehler: 'Diese Reise ist noch versiegelt.' }));
-    const { vorrat, error, grund } = await getPool('t1');
-    expect(vorrat).toBeNull();
+    const { pool, error, reason } = await getPool('t1');
+    expect(pool).toBeNull();
     expect(error).toBe('Diese Reise ist noch versiegelt.');
-    expect(grund).toBe('versiegelt');
+    expect(reason).toBe('versiegelt');
   });
 
-  test('403 "Kein Zugriff auf diese Reise." passes through and is recognised as grund "kein_zugriff", distinct from "versiegelt"', async () => {
+  test('403 "Kein Zugriff auf diese Reise." passes through and is recognised as reason "kein_zugriff", distinct from "versiegelt"', async () => {
     mockInvoke.mockResolvedValueOnce(httpError(403, { fehler: 'Kein Zugriff auf diese Reise.' }));
-    const { vorrat, error, grund } = await getPool('t1');
-    expect(vorrat).toBeNull();
+    const { pool, error, reason } = await getPool('t1');
+    expect(pool).toBeNull();
     expect(error).toBe('Kein Zugriff auf diese Reise.');
-    expect(grund).toBe('kein_zugriff');
-    expect(grund).not.toBe('versiegelt');
+    expect(reason).toBe('kein_zugriff');
+    expect(reason).not.toBe('versiegelt');
   });
 
   // reasonFrom checks status AND text, not just the text (review finding,
   // Important 2: the same wording could in theory also arrive under a
   // different status code). A test that only plays back the function's two
   // genuine 403 responses would NOT notice a removed status check, this one
-  // does: the same text at status 500 must not produce a grund.
-  test('the same text at a status other than 403 produces no grund', async () => {
+  // does: the same text at status 500 must not produce a reason.
+  test('the same text at a status other than 403 produces no reason', async () => {
     mockInvoke.mockResolvedValueOnce(httpError(500, { fehler: 'Diese Reise ist noch versiegelt.' }));
-    const { vorrat, error, grund } = await getPool('t1');
-    expect(vorrat).toBeNull();
-    expect(grund).toBeNull();
+    const { pool, error, reason } = await getPool('t1');
+    expect(pool).toBeNull();
+    expect(reason).toBeNull();
     expect(error).toBe('Die Momente konnten nicht geladen werden. Probier es gleich nochmal.');
   });
 
@@ -249,9 +249,9 @@ describe('getPool', () => {
         context: new Response(JSON.stringify({ fehler: 'Diese Reise ist noch versiegelt.' }), { status: 403 }),
       }),
     });
-    const { vorrat, error, grund } = await getPool('t1');
-    expect(vorrat).toBeNull();
-    expect(grund).toBeNull();
+    const { pool, error, reason } = await getPool('t1');
+    expect(pool).toBeNull();
+    expect(reason).toBeNull();
     expect(error).toBe('Die Momente konnten nicht geladen werden. Probier es gleich nochmal.');
   });
 
@@ -266,16 +266,16 @@ describe('getPool', () => {
         context: new Response('kein json', { status: 500 }),
       }),
     });
-    const { vorrat, error, grund } = await getPool('t1');
-    expect(vorrat).toBeNull();
-    expect(grund).toBeNull();
+    const { pool, error, reason } = await getPool('t1');
+    expect(pool).toBeNull();
+    expect(reason).toBeNull();
     expect(error).toBe('Die Momente konnten nicht geladen werden. Probier es gleich nochmal.');
   });
 
   test('a 401/400/500/502 plain text from the function is NOT passed through, replaced by the generic message', async () => {
     mockInvoke.mockResolvedValueOnce(httpError(401, { fehler: 'Nicht angemeldet.' }));
-    const { error, grund } = await getPool('t1');
-    expect(grund).toBeNull();
+    const { error, reason } = await getPool('t1');
+    expect(reason).toBeNull();
     expect(error).toBe('Die Momente konnten nicht geladen werden. Probier es gleich nochmal.');
   });
 
@@ -288,8 +288,8 @@ describe('getPool', () => {
         context: { message: 'Network request failed' },
       },
     });
-    const { vorrat, error } = await getPool('t1');
-    expect(vorrat).toBeNull();
+    const { pool, error } = await getPool('t1');
+    expect(pool).toBeNull();
     expect(error).toBe('Du bist offline. Verbinde dich und probier es nochmal.');
   });
 
@@ -302,23 +302,23 @@ describe('getPool', () => {
       data: null,
       error: { message: 'Network request failed' },
     });
-    const { vorrat, error } = await getPool('t1');
-    expect(vorrat).toBeNull();
+    const { pool, error } = await getPool('t1');
+    expect(pool).toBeNull();
     expect(error).toBe('Du bist offline. Verbinde dich und probier es nochmal.');
   });
 
   test('an empty/broken response without an error is treated as a failure, not as an empty pool', async () => {
     mockInvoke.mockResolvedValueOnce({ data: null, error: null });
-    const { vorrat, error, grund } = await getPool('t1');
-    expect(vorrat).toBeNull();
-    expect(grund).toBeNull();
+    const { pool, error, reason } = await getPool('t1');
+    expect(pool).toBeNull();
+    expect(reason).toBeNull();
     expect(error).toBe('Die Momente konnten nicht geladen werden. Probier es gleich nochmal.');
   });
 
   test('a response without gueltig_bis is treated as a failure', async () => {
     mockInvoke.mockResolvedValueOnce({ data: { medien: [], ausgelassen: 0 }, error: null });
-    const { vorrat, error } = await getPool('t1');
-    expect(vorrat).toBeNull();
+    const { pool, error } = await getPool('t1');
+    expect(pool).toBeNull();
     expect(error).toBe('Die Momente konnten nicht geladen werden. Probier es gleich nochmal.');
   });
 });

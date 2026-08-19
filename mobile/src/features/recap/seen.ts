@@ -3,7 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 // Remembers, per trip, whether the reveal staging (DESIGN-LANGUAGE §5, the
 // second of the two permitted exceptions) has already been shown. Its actual
 // purpose is promise V6 ("the recap works even if a push never arrives"):
-// the trip detail screen reloads on focus anyway (reise/[id]/index.tsx) and
+// the trip detail screen reloads on focus anyway (trip/[id]/index.tsx) and
 // detects a freshly revealed trip itself from `status !== 'active'`, it
 // needs neither push nor deep link for that. This store only makes sure the
 // one-time staging really only runs once, no matter how often the screen is
@@ -31,7 +31,7 @@ export async function hasSeenReveal(tripId: string): Promise<boolean> {
 // itself: the staging simply runs again the next time this trip is focused.
 // A repeated animation is at most annoying, it never blocks the way to the
 // recap itself, "Start recap" is there afterwards in every case, whether the
-// staging ran or not (see reise/[id]/index.tsx).
+// staging ran or not (see trip/[id]/index.tsx).
 export async function markRevealSeen(tripId: string): Promise<void> {
   try {
     await AsyncStorage.setItem(KEY_PREFIX + tripId, '1');

@@ -1,9 +1,9 @@
 import { StyleSheet } from 'react-native';
 import { render, screen, fireEvent, act } from '@testing-library/react-native';
 
-// Fake Timers global (wie player.test.tsx): Date.now() läuft synchron mit den
-// Timern mit, das braucht dieser Screen für dieselbe Halten-vs-Tipp-
-// Unterscheidung wie der native Player.
+// Fake timers globally (as in player.test.tsx): Date.now() runs in step with
+// the timers, which this screen needs for the same hold-versus-tap
+// distinction as the native player.
 jest.useFakeTimers();
 
 let mockToken = 'tok123';
@@ -14,9 +14,9 @@ jest.mock('expo-router', () => ({
 const mockSetStatusBarStyle = jest.fn();
 jest.mock('expo-status-bar', () => ({ setStatusBarStyle: (...a: unknown[]) => mockSetStatusBarStyle(...a) }));
 
-// expo-image: einfacher View-Platzhalter, der alle Props (inkl. `source`,
-// `testID`) durchreicht (gleiches Muster wie player.test.tsx), dazu ein
-// eigener `prefetch`-Spy.
+// expo-image: a simple View placeholder that passes every prop through
+// (including `source` and `testID`, the same pattern as player.test.tsx),
+// plus a `prefetch` spy of its own.
 const mockPrefetch = jest.fn();
 jest.mock('expo-image', () => {
   const ReactActual = require('react');
@@ -26,8 +26,8 @@ jest.mock('expo-image', () => {
   return { Image };
 });
 
-// expo-video: ein einziges Fake-Player-Objekt mit steuerbaren Listenern
-// (gleiches Muster wie player.test.tsx).
+// expo-video: one single fake player object with controllable listeners (the
+// same pattern as player.test.tsx).
 const mockListeners: Record<string, Array<(payload?: unknown) => void>> = {};
 let mockLastSource: unknown;
 const mockVideoPlayer = {
@@ -62,38 +62,38 @@ jest.mock('@/features/sharing/shareApi', () => ({
   DEAD_LINK_TEXT: 'Dieser Link funktioniert nicht mehr.',
 }));
 
-// DESIGN-LANGUAGE §5: «Haptik: selection (Tabs, Zoom)», der Gruppen-Zoom der
-// Karte meldet sie. Muster wie in player.test.tsx/karte.test.tsx: das native
-// Modul gibt es im Testlauf nicht.
-const mockHaptik = jest.fn(() => Promise.resolve());
-jest.mock('expo-haptics', () => ({ selectionAsync: () => mockHaptik() }));
-// Steuerbar wie in karte.test.tsx: ohne das liesse sich der Sprung-Zweig der
-// Kamera gar nicht erreichen, AccessibilityInfo meldet im Testlauf immer
-// «keine Reduktion».
-let mockReduziert = false;
-jest.mock('@/theme/useReducedMotion', () => ({ useReducedMotion: () => mockReduziert }));
+// DESIGN-LANGUAGE §5: "haptics: selection (tabs, zoom)", the map's cluster
+// zoom reports it. Pattern as in player.test.tsx/map.test.tsx: the native
+// module does not exist in the test run.
+const mockHaptics = jest.fn(() => Promise.resolve());
+jest.mock('expo-haptics', () => ({ selectionAsync: () => mockHaptics() }));
+// Controllable as in map.test.tsx: without it the camera's jump branch could
+// not be reached at all, AccessibilityInfo always reports "no reduction" in
+// the test run.
+let mockReducedMotion = false;
+jest.mock('@/theme/useReducedMotion', () => ({ useReducedMotion: () => mockReducedMotion }));
 
-import GeteilterRecapScreen from '../[token]';
+import SharedRecapScreen from '../[token]';
 import { resolveToken } from '@/features/sharing/shareApi';
 import type { SharedRecap } from '@/features/sharing/shareApi';
 
-const mockLoeseTokenAuf = resolveToken as jest.MockedFunction<typeof resolveToken>;
+const mockResolveToken = resolveToken as jest.MockedFunction<typeof resolveToken>;
 
 beforeEach(() => {
   jest.clearAllMocks();
   mockToken = 'tok123';
-  mockReduziert = false;
+  mockReducedMotion = false;
   for (const key of Object.keys(mockListeners)) delete mockListeners[key];
   mockLastSource = undefined;
 });
 
-function reise(overrides: Partial<SharedRecap['reise']> = {}) {
+function trip(overrides: Partial<SharedRecap['reise']> = {}) {
   return { name: 'Lissabon Städtetrip', start_date: '2026-08-10', end_date: '2026-08-14', ...overrides };
 }
 
-// Ohne Koordinaten als Vorgabe: die Momente der bestehenden Blöcke prüfen den
-// Player, und ein Recap ohne einen einzigen Ort hat keinen Karten-Einstieg
-// (Spec K9), sie bleiben damit genau die Story, die sie vorher waren.
+// Without coordinates by default: the moments of the existing blocks test the
+// player, and a recap without a single place has no way into the map (spec
+// K9), so they stay exactly the story they were before.
 function moment(overrides: Partial<SharedRecap['medien'][number]> = {}): SharedRecap['medien'][number] {
   return {
     post_id: 'p0', authorName: 'Lea', authorAvatarKey: null, type: 'photo', duration_s: null, caption: null,
@@ -104,8 +104,8 @@ function moment(overrides: Partial<SharedRecap['medien'][number]> = {}): SharedR
   };
 }
 
-// Tag 1 (10.8.): p1 (Foto, 09:00), p2 (Video, 10:00, duration_s=3). Tag 2
-// (11.8., kein place_name): p3 (Foto, 09:00, letzter Moment).
+// Day 1 (10.8.): p1 (photo, 09:00), p2 (video, 10:00, duration_s=3). Day 2
+// (11.8., no place_name): p3 (photo, 09:00, last moment).
 const p1 = moment({ post_id: 'p1', captured_at: '2026-08-10T09:00:00.000Z' });
 const p2 = moment({
   post_id: 'p2', type: 'video', duration_s: 3, caption: 'Schön hier',
@@ -115,119 +115,151 @@ const p3 = moment({
   post_id: 'p3', captured_at: '2026-08-11T09:00:00.000Z', place_name: null,
 });
 
-function erfolg(
-  medien: SharedRecap['medien'],
-  reiseOverrides: Partial<SharedRecap['reise']> = {},
-  ausgelassen = 0
+function success(
+  media: SharedRecap['medien'],
+  tripOverrides: Partial<SharedRecap['reise']> = {},
+  skipped = 0
 ) {
   return {
-    data: { reise: reise(reiseOverrides), medien, validUntil: Date.now() + 3600_000, ausgelassen },
+    data: { reise: trip(tripOverrides), medien: media, validUntil: Date.now() + 3600_000, ausgelassen: skipped },
     error: null,
   };
 }
 
-// Gleiches Muster wie player.test.tsx (dortiges `wrap()`): render() ist unter
-// RNTL v14 selbst schon vollständig async, der zusätzliche leere act()-Flush
-// lässt das await loeseTokenAuf(...) in laden() plus den daraus folgenden
-// setState-Schwung sicher committen, BEVOR der Test die erste Assertion
-// macht, ohne diesen zweiten Flush bliebe der Screen in manchen Läufen noch
-// auf 'laedt' hängen.
-async function bereit() {
-  const utils = await render(<GeteilterRecapScreen />);
+// Same pattern as player.test.tsx (its `wrap()`): render() is already fully
+// async under RNTL v14, the extra empty act() flush makes the await
+// resolveToken(...) in load() plus the wave of setState that follows commit
+// for certain BEFORE the test makes its first assertion; without that second
+// flush the screen would stay stuck on the loading phase in some runs.
+async function ready() {
+  const utils = await render(<SharedRecapScreen />);
   await act(async () => {});
   return utils;
 }
 
-describe('Laden', () => {
-  test('zeigt zuerst einen Ladeindikator und ruft loeseTokenAuf mit dem Token aus der URL auf', async () => {
+describe('Loading', () => {
+  test('shows a loading indicator first and calls resolveToken with the token from the URL', async () => {
     mockToken = 'abc';
-    mockLoeseTokenAuf.mockReturnValue(new Promise(() => {})); // hängt bewusst
-    await render(<GeteilterRecapScreen />);
+    mockResolveToken.mockReturnValue(new Promise(() => {})); // hangs on purpose
+    await render(<SharedRecapScreen />);
     expect(screen.getByTestId('teilen-laedt')).toBeTruthy();
-    expect(mockLoeseTokenAuf).toHaveBeenCalledWith('abc');
+    expect(mockResolveToken).toHaveBeenCalledWith('abc');
   });
 
-  test('ein abgelehnter/toter Link zeigt exakt den Fehlertext, "Nochmal versuchen" lädt erneut', async () => {
-    mockLoeseTokenAuf.mockResolvedValueOnce({ data: null, error: 'Dieser Link funktioniert nicht mehr.' });
-    await bereit();
+  test('a rejected or dead link shows exactly the error text, and "Nochmal versuchen" loads again', async () => {
+    mockResolveToken.mockResolvedValueOnce({ data: null, error: 'Dieser Link funktioniert nicht mehr.' });
+    await ready();
     expect(screen.getByTestId('teilen-fehler')).toBeTruthy();
     expect(screen.getByText('Dieser Link funktioniert nicht mehr.')).toBeTruthy();
 
-    mockLoeseTokenAuf.mockResolvedValueOnce(erfolg([p1]));
+    mockResolveToken.mockResolvedValueOnce(success([p1]));
     await fireEvent.press(screen.getByText('Nochmal versuchen'));
     await act(async () => {});
-    expect(mockLoeseTokenAuf).toHaveBeenCalledTimes(2);
+    expect(mockResolveToken).toHaveBeenCalledTimes(2);
     expect(screen.getByTestId('teilen-bereit')).toBeTruthy();
   });
 
-  test('eine aufgelöste, aber leere Filmrolle zeigt die Leer-Meldung mit Reisename', async () => {
-    mockLoeseTokenAuf.mockResolvedValueOnce(erfolg([], { name: 'Herbstwanderung' }));
-    await bereit();
+  test('a resolved but empty reel shows the empty message with the trip name', async () => {
+    mockResolveToken.mockResolvedValueOnce(success([], { name: 'Herbstwanderung' }));
+    await ready();
     expect(screen.getByTestId('teilen-leer')).toBeTruthy();
     expect(screen.getByText('Herbstwanderung ist leer geblieben.')).toBeTruthy();
   });
+
+  // The screen stays mounted when the token changes (same route, different
+  // parameter), so everything of the previous resolution has to go: without
+  // that, the map of the trip before would still be standing there, and a
+  // sheet on it would carry a moment that the new playlist counts differently.
+  test('a new token starts over in the player instead of staying in the view of the trip before', async () => {
+    const withPlace = moment({ post_id: 'm1', lat: 38.7139, lng: -9.1301 });
+    mockResolveToken.mockResolvedValueOnce(success([withPlace]));
+    const { rerender } = await ready();
+    await fireEvent.press(await screen.findByText('Auf der Karte'));
+    expect(screen.getByTestId('teilen-karte')).toBeTruthy();
+
+    mockToken = 'tok999';
+    mockResolveToken.mockResolvedValueOnce(success([withPlace], { name: 'Herbstwanderung' }));
+    await rerender(<SharedRecapScreen />);
+    await act(async () => {});
+    expect(mockResolveToken).toHaveBeenLastCalledWith('tok999');
+    expect(screen.getByTestId('teilen-bereit')).toBeTruthy();
+    expect(screen.queryByTestId('teilen-karte')).toBeNull();
+  });
 });
 
-describe('Story-Anzeige', () => {
-  test('zeigt Fortschrittsbalken, Autor, Ort/Zeit-Pille und Caption des aktiven Moments', async () => {
-    mockLoeseTokenAuf.mockResolvedValueOnce(erfolg([p1, p2]));
-    await bereit();
+describe('The story on screen', () => {
+  test('shows the progress bar, the author, the place and time pill and the caption of the active moment', async () => {
+    mockResolveToken.mockResolvedValueOnce(success([p1, p2]));
+    await ready();
     expect(screen.getByTestId('teilen-bereit')).toBeTruthy();
     expect(screen.getByTestId('fortschrittsbalken')).toBeTruthy();
     expect(screen.getAllByTestId(/fortschritt-segment-/)).toHaveLength(2);
     expect(screen.getByText('Lea')).toBeTruthy();
     expect(screen.getByText(/Lissabon · \d{2}:\d{2}/)).toBeTruthy();
-    expect(screen.queryByTestId('teilen-caption')).toBeNull(); // p1 hat keine Caption
+    expect(screen.queryByTestId('teilen-caption')).toBeNull(); // p1 has no caption
   });
 
-  test('ein Video zeigt die Caption des Videos', async () => {
-    mockLoeseTokenAuf.mockResolvedValueOnce(erfolg([p2]));
-    await bereit();
+  test('a video moment shows the caption of the video', async () => {
+    mockResolveToken.mockResolvedValueOnce(success([p2]));
+    await ready();
     expect(screen.getByTestId('teilen-video')).toBeTruthy();
     expect(screen.getByText('Schön hier')).toBeTruthy();
   });
 
-  // Task 10: der Screen benutzt jetzt den gemeinsamen Avatar (components/
-  // Avatar.tsx) statt einer eigenen AvatarInitiale-Kopie. Ein Moment mit
-  // autor_avatar_key muss also wirklich ein <Image> zeigen (gleiches Muster
-  // wie player.test.tsx, "der Player zeigt das Profilbild der Autorin"),
-  // nicht bloss das gemappte Feld tragen.
-  test('zeigt das Profilbild der Autorin, wenn der Moment einen Bild-Schlüssel trägt', async () => {
-    mockLoeseTokenAuf.mockResolvedValueOnce(
-      erfolg([moment({ post_id: 'p1', authorAvatarKey: 'profiles/u1/a.jpg' })])
+  // Task 10: the screen now uses the shared Avatar (components/Avatar.tsx)
+  // instead of a local AvatarInitiale copy. A moment with an avatar key must
+  // therefore really show an <Image> (same pattern as player.test.tsx, "the
+  // player shows the author's profile picture"), not merely carry the mapped
+  // field.
+  test('shows the profile picture of the author when the moment carries an image key', async () => {
+    mockResolveToken.mockResolvedValueOnce(
+      success([moment({ post_id: 'p1', authorAvatarKey: 'profiles/u1/a.jpg' })])
     );
-    await bereit();
+    await ready();
     expect(await screen.findByTestId('avatar-bild')).toBeTruthy();
   });
 
-  // Gegenprobe: ohne Bild-Schlüssel bleibt die Initiale, kein <Image> im
-  // Baum, sonst wäre der Test oben kein Beweis, sondern zeigte ein <Image>,
-  // das immer da ist.
-  test('ohne Bild-Schlüssel steht nur die Initiale, kein Profilbild', async () => {
-    mockLoeseTokenAuf.mockResolvedValueOnce(erfolg([moment({ post_id: 'p1', authorAvatarKey: null })]));
-    await bereit();
+  // Counter-check: without an image key the initial stays and there is no
+  // <Image> in the tree, otherwise the test above would be no proof but would
+  // show an <Image> that is always there.
+  test('without an image key only the initial stands there, and no profile picture', async () => {
+    mockResolveToken.mockResolvedValueOnce(success([moment({ post_id: 'p1', authorAvatarKey: null })]));
+    await ready();
     expect(screen.getByText('L')).toBeTruthy();
     expect(screen.queryByTestId('avatar-bild')).toBeNull();
   });
 
-  test('die Fussleiste (Reelive-Wortzug + "Hol dir die App") ist sichtbar und nicht interaktiv', async () => {
-    mockLoeseTokenAuf.mockResolvedValueOnce(erfolg([p1]));
-    await bereit();
-    const fussleiste = screen.getByTestId('teilen-fussleiste');
+  test('the footer shows the Reelive wordmark and the app hint, and stays untouchable', async () => {
+    mockResolveToken.mockResolvedValueOnce(success([p1]));
+    await ready();
+    const footer = screen.getByTestId('teilen-fussleiste');
     expect(screen.getByText('Reelive')).toBeTruthy();
     expect(screen.getByText('Hol dir die App')).toBeTruthy();
-    // Nicht interaktiv: eine Berührung an dieser Stelle muss der Tipp-Zone
-    // darunter gelten, nicht der Fusszeile (die hat ohnehin keinen
-    // Knopf/onPress, es gibt noch keinen Store-Link, siehe Kommentar im
-    // Screen).
-    expect(fussleiste.props.pointerEvents).toBe('none');
+    // Not interactive: a touch in this spot has to belong to the tap zone
+    // underneath, not to the footer (which has no button/onPress anyway,
+    // there is no store link yet, see the comment in the screen).
+    expect(footer.props.pointerEvents).toBe('none');
+  });
+
+  // The spy on Image.prefetch sits in the expo-image mock above. Videos are
+  // deliberately left out, expo-video buffers on its own once it is mounted.
+  test('preloads the photos that are coming up and leaves the videos to expo-video', async () => {
+    const r1 = moment({ post_id: 'r1', captured_at: '2026-08-10T09:00:00.000Z', medium_url: 'https://s3/r1' });
+    const r2 = moment({
+      post_id: 'r2', type: 'video', duration_s: 3,
+      captured_at: '2026-08-10T10:00:00.000Z', medium_url: 'https://s3/r2',
+    });
+    const r3 = moment({ post_id: 'r3', captured_at: '2026-08-10T11:00:00.000Z', medium_url: 'https://s3/r3' });
+    mockResolveToken.mockResolvedValueOnce(success([r1, r2, r3]));
+    await ready();
+    expect(mockPrefetch).toHaveBeenCalledWith(['https://s3/r3']);
   });
 });
 
-describe('Navigation: Tipp, Halten, Auto-Vorschub, Ende', () => {
-  test('ein kurzer Tipp rechts schaltet zum nächsten Moment, ein Tipp links zurück', async () => {
-    mockLoeseTokenAuf.mockResolvedValueOnce(erfolg([p1, p2]));
-    await bereit();
+describe('Navigation: tap, hold, auto advance, end', () => {
+  test('a short tap on the right moves to the next moment, a tap on the left goes back', async () => {
+    mockResolveToken.mockResolvedValueOnce(success([p1, p2]));
+    await ready();
     expect(screen.getByText('Lea')).toBeTruthy();
 
     await fireEvent(screen.getByTestId('teilen-rechts'), 'pressIn');
@@ -239,21 +271,22 @@ describe('Navigation: Tipp, Halten, Auto-Vorschub, Ende', () => {
     expect(screen.getByTestId('teilen-foto')).toBeTruthy();
   });
 
-  test('ein Tipp links am allerersten Moment bleibt beim ersten Moment stehen', async () => {
-    mockLoeseTokenAuf.mockResolvedValueOnce(erfolg([p1, p2]));
-    await bereit();
+  test('a tap on the left at the very first moment stays on the first moment', async () => {
+    mockResolveToken.mockResolvedValueOnce(success([p1, p2]));
+    await ready();
     await fireEvent(screen.getByTestId('teilen-links'), 'pressIn');
     await fireEvent(screen.getByTestId('teilen-links'), 'pressOut');
-    expect(screen.getByTestId('teilen-foto')).toBeTruthy(); // immer noch p1
+    expect(screen.getByTestId('teilen-foto')).toBeTruthy(); // still p1
   });
 
-  test('Halten (>=250ms) pausiert den Auto-Vorschub, Loslassen setzt beim selben Moment fort statt zu navigieren', async () => {
-    mockLoeseTokenAuf.mockResolvedValueOnce(erfolg([p1, p2]));
-    await bereit();
-    // Der allererste Moment zeigt IMMER die Tages-Zwischenkarte (tagWechselt
-    // liefert für index 0 unbedingt true), erst dismissed lässt sich der
-    // Auto-Vorschub von p1 selbst isoliert prüfen, sonst wäre unklar, OB ein
-    // ausbleibender Vorschub am Halten liegt oder noch an der Karte.
+  test('holding for 250ms or more pauses the auto advance, and letting go resumes the same moment instead of navigating', async () => {
+    mockResolveToken.mockResolvedValueOnce(success([p1, p2]));
+    await ready();
+    // The very first moment ALWAYS shows the day interstitial (dayChanges
+    // returns true unconditionally for index 0), only once it is dismissed can
+    // the auto advance of p1 itself be tested in isolation, otherwise it would
+    // be unclear WHETHER a missing advance is due to the holding or still to
+    // the interstitial.
     await act(async () => {
       jest.advanceTimersByTime(1500);
     });
@@ -261,52 +294,51 @@ describe('Navigation: Tipp, Halten, Auto-Vorschub, Ende', () => {
 
     await fireEvent(screen.getByTestId('teilen-rechts'), 'pressIn');
     await act(async () => {
-      jest.advanceTimersByTime(300); // > TAP_SCHWELLE_MS: gilt als Halten, nicht als Tipp
+      jest.advanceTimersByTime(300); // > TAP_THRESHOLD_MS: counts as holding, not as a tap
     });
-    // Selbst nach Ablauf der vollen Fotodauer bleibt der Moment stehen,
-    // solange gehalten wird (gleiches Muster wie player.test.tsx).
+    // Even after the full photo duration has run out the moment stays put as
+    // long as the finger is down (same pattern as player.test.tsx).
     await act(async () => {
       jest.advanceTimersByTime(5000);
     });
-    expect(screen.getByTestId('teilen-foto')).toBeTruthy(); // immer noch p1
+    expect(screen.getByTestId('teilen-foto')).toBeTruthy(); // still p1
 
     await fireEvent(screen.getByTestId('teilen-rechts'), 'pressOut');
-    // Losgelassen nach Halten: derselbe Moment (p1), kein Sprung zu p2.
+    // Let go after holding: the same moment (p1), no jump to p2.
     expect(screen.getByTestId('teilen-foto')).toBeTruthy();
     expect(screen.getByText('Lea')).toBeTruthy();
   });
 
-  test('nach Ablauf der Foto-Dauer schaltet der Player automatisch weiter', async () => {
-    mockLoeseTokenAuf.mockResolvedValueOnce(erfolg([p1, p2]));
-    await bereit();
+  test('once the photo duration has run out the player moves on by itself', async () => {
+    mockResolveToken.mockResolvedValueOnce(success([p1, p2]));
+    await ready();
     expect(screen.getByTestId('teilen-foto')).toBeTruthy();
 
-    // Zwei GETRENNTE advanceTimersByTime-Aufrufe (nicht einer über 6500ms):
-    // der zweite Timer (Auto-Vorschub) wird erst DURCH den State-Wechsel des
-    // ersten (Zwischenkarte weg) überhaupt geplant, cascading Timer
-    // brauchen einen eigenen act()-Zyklus, um sicher zu feuern (gleiches
-    // Muster wie player.test.tsx, "erscheint vor dem allerersten Moment...").
+    // Two SEPARATE advanceTimersByTime calls (not one over 6500ms): the second
+    // timer (auto advance) is only scheduled BY the state change of the first
+    // one (interstitial gone), and cascading timers need an act() cycle of
+    // their own to fire reliably (same pattern as player.test.tsx, "appears
+    // before the very first moment...").
     await act(async () => {
-      jest.advanceTimersByTime(1500); // Zwischenkarte weg (p1 ist index 0)
+      jest.advanceTimersByTime(1500); // interstitial gone (p1 is index 0)
     });
     await act(async () => {
-      jest.advanceTimersByTime(5000); // FOTO_DAUER_MS
+      jest.advanceTimersByTime(5000); // PHOTO_DURATION_MS
     });
     expect(screen.getByTestId('teilen-video')).toBeTruthy();
   });
 
-  test('ein Video-Ende-Event (playToEnd) schaltet weiter, ohne auf die Foto-Dauer zu warten', async () => {
-    // Bewusst NUR p2 (ein einzelner Video-Moment): sortiereMomente sortiert
-    // IMMER nach captured_at (CLAUDE.md-Eckpfeiler), [p2, p1] als
-    // Eingabereihenfolge würde also ohnehin zu [p1, p2] umsortiert, ein
-    // zweiter Moment ist für diesen Test nicht nötig. Der Beweis liegt
-    // darin, dass die Phase auf 'ende' wechselt, OHNE dass FOTO_DAUER_MS
-    // (5000ms) je verstrichen wäre.
-    mockLoeseTokenAuf.mockResolvedValueOnce(erfolg([p2]));
-    await bereit();
+  test('a playToEnd event moves on without waiting for the photo duration', async () => {
+    // Deliberately ONLY p2 (a single video moment): sortMoments ALWAYS sorts
+    // by captured_at (CLAUDE.md cornerstone), so [p2, p1] as input order would
+    // be re-sorted to [p1, p2] anyway, and a second moment is not needed for
+    // this test. The proof lies in the phase switching to the end, WITHOUT
+    // PHOTO_DURATION_MS (5000ms) ever having elapsed.
+    mockResolveToken.mockResolvedValueOnce(success([p2]));
+    await ready();
     expect(screen.getByTestId('teilen-video')).toBeTruthy();
-    // Zwischenkarte des allerersten Moments zuerst abwarten,
-    // blockiertAutomatischenVorschub blockt playToEnd, solange sie steht.
+    // Wait out the interstitial of the very first moment, blocksAutoAdvance
+    // blocks playToEnd as long as it stands.
     await act(async () => {
       jest.advanceTimersByTime(1500);
     });
@@ -317,9 +349,9 @@ describe('Navigation: Tipp, Halten, Auto-Vorschub, Ende', () => {
     expect(screen.getByTestId('teilen-ende')).toBeTruthy();
   });
 
-  test('am letzten Moment schaltet Tippen rechts auf die Ende-Phase, "Nochmal ansehen" beginnt neu', async () => {
-    mockLoeseTokenAuf.mockResolvedValueOnce(erfolg([p1], { name: 'Herbstwanderung' }));
-    await bereit();
+  test('at the last moment a tap on the right ends the story, and "Nochmal ansehen" starts it over', async () => {
+    mockResolveToken.mockResolvedValueOnce(success([p1], { name: 'Herbstwanderung' }));
+    await ready();
     await fireEvent(screen.getByTestId('teilen-rechts'), 'pressIn');
     await fireEvent(screen.getByTestId('teilen-rechts'), 'pressOut');
     expect(screen.getByTestId('teilen-ende')).toBeTruthy();
@@ -328,17 +360,17 @@ describe('Navigation: Tipp, Halten, Auto-Vorschub, Ende', () => {
     await fireEvent.press(screen.getByText('Nochmal ansehen'));
     expect(screen.getByTestId('teilen-bereit')).toBeTruthy();
     expect(screen.getByTestId('teilen-foto')).toBeTruthy();
-    // Kein zweiter Netzwerkaufruf für den Neustart, nur der ursprüngliche.
-    expect(mockLoeseTokenAuf).toHaveBeenCalledTimes(1);
+    // No second network call for the restart, only the original one.
+    expect(mockResolveToken).toHaveBeenCalledTimes(1);
   });
 });
 
-describe('Tages-Zwischenkarte', () => {
-  test('erscheint beim Wechsel zu einem neuen Tag, verschwindet nach 1,5s von selbst', async () => {
-    mockLoeseTokenAuf.mockResolvedValueOnce(erfolg([p1, p3]));
-    await bereit();
-    // Der allererste Moment zeigt IMMER die Tages-Zwischenkarte
-    // (tagWechselt liefert für index 0 unbedingt true).
+describe('The day interstitial', () => {
+  test('appears when a new day begins and disappears again after 1.5 seconds on its own', async () => {
+    mockResolveToken.mockResolvedValueOnce(success([p1, p3]));
+    await ready();
+    // The very first moment ALWAYS shows the day interstitial (dayChanges
+    // returns true unconditionally for index 0).
     expect(screen.getByTestId('teilen-zwischenkarte')).toBeTruthy();
     expect(screen.getByText(/Tag 1 · Lissabon · 10\. August/)).toBeTruthy();
 
@@ -347,51 +379,51 @@ describe('Tages-Zwischenkarte', () => {
     });
     expect(screen.queryByTestId('teilen-zwischenkarte')).toBeNull();
 
-    // Weiter zu p3 (Tag 2, anderes Datum), die Karte erscheint erneut.
+    // On to p3 (day 2, another date), the interstitial appears again.
     await fireEvent(screen.getByTestId('teilen-rechts'), 'pressIn');
     await fireEvent(screen.getByTestId('teilen-rechts'), 'pressOut');
     expect(screen.getByTestId('teilen-zwischenkarte')).toBeTruthy();
     expect(screen.getByText(/Tag 2 · 11\. August/)).toBeTruthy();
   });
 
-  test('ein Tipp auf die Zwischenkarte überspringt sie SOFORT, navigiert aber NICHT gleichzeitig weiter', async () => {
-    mockLoeseTokenAuf.mockResolvedValueOnce(erfolg([p1, p3]));
-    await bereit();
+  test('a tap on the interstitial skips it IMMEDIATELY without navigating on at the same time', async () => {
+    mockResolveToken.mockResolvedValueOnce(success([p1, p3]));
+    await ready();
     expect(screen.getByTestId('teilen-zwischenkarte')).toBeTruthy();
 
     await fireEvent.press(screen.getByTestId('teilen-zwischenkarte'));
     expect(screen.queryByTestId('teilen-zwischenkarte')).toBeNull();
-    expect(screen.getByText('Lea')).toBeTruthy(); // immer noch p1, kein Sprung zu p3
+    expect(screen.getByText('Lea')).toBeTruthy(); // still p1, no jump to p3
   });
 
-  // Gleiches Prinzip wie player.test.tsx: kein echtes Hit-Testing in RNTL,
-  // die Stapel-Reihenfolge wird über StyleSheet.flatten(zIndex) belegt.
-  test('die Zwischenkarte liegt per zIndex über den Tipp-Zonen', async () => {
-    mockLoeseTokenAuf.mockResolvedValueOnce(erfolg([p1]));
-    await bereit();
-    const links = StyleSheet.flatten(screen.getByTestId('teilen-links').props.style);
-    const rechts = StyleSheet.flatten(screen.getByTestId('teilen-rechts').props.style);
-    const karte = StyleSheet.flatten(screen.getByTestId('teilen-zwischenkarte').props.style);
-    expect(links.zIndex).toBe(1);
-    expect(rechts.zIndex).toBe(1);
-    expect(karte.zIndex).toBeGreaterThan(links.zIndex as number);
+  // Same principle as player.test.tsx: there is no real hit testing in RNTL,
+  // the stacking order is proven via StyleSheet.flatten(zIndex).
+  test('the interstitial lies above the tap zones by zIndex', async () => {
+    mockResolveToken.mockResolvedValueOnce(success([p1]));
+    await ready();
+    const left = StyleSheet.flatten(screen.getByTestId('teilen-links').props.style);
+    const right = StyleSheet.flatten(screen.getByTestId('teilen-rechts').props.style);
+    const interstitial = StyleSheet.flatten(screen.getByTestId('teilen-zwischenkarte').props.style);
+    expect(left.zIndex).toBe(1);
+    expect(right.zIndex).toBe(1);
+    expect(interstitial.zIndex).toBeGreaterThan(left.zIndex as number);
   });
 });
 
-describe('Die Karte im geteilten Recap (Spec §5.10)', () => {
-  // Wie lange die Tages-Zwischenkarte steht (ZWISCHENKARTE_DAUER_MS im
-  // Screen), dieselbe Zahl wie in den Blöcken darüber, hier benannt, weil
-  // zwei Tests unten sie brauchen.
-  const ZWISCHENKARTE_MS = 1500;
+describe('The map in the shared recap (spec §5.10)', () => {
+  // How long the day interstitial stands (INTERSTITIAL_DURATION_MS in the
+  // screen), the same number as in the blocks above, named here because two
+  // tests below need it.
+  const INTERSTITIAL_MS = 1500;
 
-  // Drei Momente an EINEM Reisetag, damit keine Tages-Zwischenkarte über dem
-  // Sprungziel steht: q1 mit Ort (Index 0), q2 OHNE Ort (Index 1), q3 mit Ort
-  // (Index 2).
+  // Three moments on ONE trip day, so that no day interstitial stands over the
+  // jump target: q1 with a place (index 0), q2 WITHOUT a place (index 1), q3
+  // with a place (index 2).
   //
-  // Der Moment ohne Ort in der Mitte ist die Pointe dieser Aufstellung: er
-  // bekommt keine Nadel, zählt in der Spielliste aber mit. Wer den Player mit
-  // der Stelle innerhalb der NADELN startet, landet bei q3 also auf Index 1,
-  // und damit auf q2. Genau diesen Fehler nagelt der Sprung-Test unten fest.
+  // The moment without a place in the middle is the point of this setup: it
+  // gets no pin, but it counts in the playlist. Whoever starts the player with
+  // the position within the PINS lands on index 1 for q3, and therefore on q2.
+  // Exactly that mistake is nailed down by the jump test below.
   const q1 = moment({
     post_id: 'q1', authorName: 'Lea', captured_at: '2026-08-10T09:00:00.000Z',
     place_name: 'Alfama', lat: 38.7139, lng: -9.1301, thumb_url: 'https://s3/q1-thumb',
@@ -405,113 +437,111 @@ describe('Die Karte im geteilten Recap (Spec §5.10)', () => {
     place_name: 'Bairro Alto', caption: 'Fado im Hinterhof', lat: 38.75, lng: -9.16,
   });
 
-  async function aufDerKarte(medien = [q1, q2, q3]) {
-    mockLoeseTokenAuf.mockResolvedValueOnce(erfolg(medien));
-    await bereit();
+  async function onTheMap(media = [q1, q2, q3]) {
+    mockResolveToken.mockResolvedValueOnce(success(media));
+    await ready();
     await fireEvent.press(await screen.findByText('Auf der Karte'));
   }
 
-  test('der geteilte Recap bietet die Karte an', async () => {
-    mockLoeseTokenAuf.mockResolvedValueOnce(erfolg([q1, q2, q3]));
-    await bereit();
+  test('the shared recap offers the map, with both labels standing there', async () => {
+    mockResolveToken.mockResolvedValueOnce(success([q1, q2, q3]));
+    await ready();
     expect(await screen.findByText('Auf der Karte')).toBeTruthy();
-    // Beide Beschriftungen stehen immer da, die aktive Hälfte sagt nur, wo
-    // man gerade ist.
+    // Both labels are always there, the active half only says where you are.
     expect(screen.getByText('Ansehen')).toBeTruthy();
     expect(screen.getByTestId('teilen-bereit')).toBeTruthy();
   });
 
-  test('ohne einen einzigen Ort gibt es keinen Karten-Einstieg', async () => {
-    mockLoeseTokenAuf.mockResolvedValueOnce(erfolg([p1, p2, p3]));
-    await bereit();
+  test('without a single place there is no way into the map', async () => {
+    mockResolveToken.mockResolvedValueOnce(success([p1, p2, p3]));
+    await ready();
     expect(screen.queryByText('Auf der Karte')).toBeNull();
     expect(screen.queryByText('Ansehen')).toBeNull();
   });
 
-  test('die Karte ersetzt den Player im selben Screen, «Ansehen» holt ihn zurück', async () => {
-    await aufDerKarte();
+  test('the map replaces the player on the same screen, and «Ansehen» brings it back', async () => {
+    await onTheMap();
     expect(screen.getByTestId('teilen-karte')).toBeTruthy();
-    // Der Player ist WEG, nicht bloss verdeckt: eine zweite Route gibt es
-    // nicht (der expo-router-Mock oben bietet gar keinen `router` an, ein
-    // `router.push` in diesem Screen liesse den Test hier abstürzen).
+    // The player is GONE, not merely covered: there is no second route (the
+    // expo-router mock above offers no `router` at all, a `router.push` in
+    // this screen would crash the test right here).
     expect(screen.queryByTestId('teilen-bereit')).toBeNull();
 
     await fireEvent.press(screen.getByText('Ansehen'));
     expect(screen.getByTestId('teilen-bereit')).toBeTruthy();
-    // Und die Fläche ist abgebaut, nicht versteckt (siehe Begründung im
-    // Screen: eine unsichtbare Leaflet-Karte baut sich auf 0 × 0 auf).
+    // And the surface is torn down, not hidden (see the reasoning in the
+    // screen: an invisible Leaflet map builds itself on 0 × 0).
     expect(screen.queryByTestId('karte-flaeche')).toBeNull();
   });
 
-  test('die Karte zeigt die Momente mit Ort, und nur die', async () => {
-    await aufDerKarte();
+  test('the map shows the moments with a place, and only those', async () => {
+    await onTheMap();
     expect(await screen.findAllByTestId(/^karte-nadel/)).toHaveLength(2);
     expect(screen.getByTestId('karte-nadel-q1')).toBeTruthy();
     expect(screen.getByTestId('karte-nadel-q3')).toBeTruthy();
     expect(screen.queryByTestId('karte-nadel-q2')).toBeNull();
   });
 
-  test('sie öffnet mit einem Ausschnitt, in dem beide Momente liegen (K2)', async () => {
-    await aufDerKarte();
+  test('it opens with a viewport that holds both moments (K2)', async () => {
+    await onTheMap();
     const region = screen.getByTestId('karte-flaeche').props.initialRegion;
-    const nord = region.latitude + region.latitudeDelta / 2;
-    const sued = region.latitude - region.latitudeDelta / 2;
-    const ost = region.longitude + region.longitudeDelta / 2;
+    const north = region.latitude + region.latitudeDelta / 2;
+    const south = region.latitude - region.latitudeDelta / 2;
+    const east = region.longitude + region.longitudeDelta / 2;
     const west = region.longitude - region.longitudeDelta / 2;
     for (const m of [q1, q3]) {
-      expect(m.lat!).toBeGreaterThan(sued);
-      expect(m.lat!).toBeLessThan(nord);
+      expect(m.lat!).toBeGreaterThan(south);
+      expect(m.lat!).toBeLessThan(north);
       expect(m.lng!).toBeGreaterThan(west);
-      expect(m.lng!).toBeLessThan(ost);
+      expect(m.lng!).toBeLessThan(east);
     }
   });
 
-  test('die Linie verbindet die Momente in Aufnahmereihenfolge (K3)', async () => {
-    await aufDerKarte();
+  test('the line connects the moments in the order they were captured (K3)', async () => {
+    await onTheMap();
     expect(screen.getByTestId('karte-linie').props.coordinates).toEqual([
       { latitude: q1.lat, longitude: q1.lng },
       { latitude: q3.lat, longitude: q3.lng },
     ]);
   });
 
-  test('auf der Karte gibt es keinen Tagesfilter (Spec §5.10)', async () => {
-    await aufDerKarte();
+  test('the shared map carries no day filter (spec §5.10)', async () => {
+    await onTheMap();
     expect(screen.queryByText('Alle Tage')).toBeNull();
     expect(screen.queryByText('Tag 1')).toBeNull();
   });
 
-  test('die Momente ohne Ort werden benannt, statt still zu fehlen (K6)', async () => {
-    await aufDerKarte();
+  test('the moments without a place are named instead of silently missing (K6)', async () => {
+    await onTheMap();
     expect(screen.getByText('1 Moment ohne Ort. Er läuft im Recap mit.')).toBeTruthy();
   });
 
-  // Der Kern des Tasks: der Sprung führt auf GENAU den angetippten Moment,
-  // gezählt in die Liste, die der geteilte Player spielt.
-  test('«Ab hier ansehen» springt im geteilten Player an genau diese Stelle', async () => {
-    await aufDerKarte();
+  // The core of the task: the jump leads to EXACTLY the moment that was
+  // tapped, counted into the list the shared player plays.
+  test('«Ab hier ansehen» jumps to exactly that spot in the shared player', async () => {
+    await onTheMap();
     await fireEvent.press(screen.getByTestId('karte-nadel-q3'));
-    expect(screen.getByText('Bairro Alto')).toBeTruthy(); // das Sheet steht offen
+    expect(screen.getByText('Bairro Alto')).toBeTruthy(); // the sheet is open
 
     await fireEvent.press(screen.getByText('Ab hier ansehen'));
 
     expect(screen.getByTestId('teilen-bereit')).toBeTruthy();
     expect(screen.getByText('Fado im Hinterhof')).toBeTruthy();
     expect(screen.getByText('Mira')).toBeTruthy();
-    // Und der Index nachgezählt, nicht bloss «irgendetwas ist passiert»: der
-    // Fortschrittsbalken füllt genau die Segmente VOR dem aktiven ganz aus,
-    // zwei volle heissen also Index 2. Zählte der Sprung in die Nadel-Liste
-    // (q1, q3), stünde hier eine 1, und der Player liefe bei q2 los.
+    // And the index counted, not merely "something happened": the progress bar
+    // fills exactly the segments BEFORE the active one, so two full ones mean
+    // index 2. If the jump counted into the pin list (q1, q3), a 1 would stand
+    // here, and the player would start off at q2.
     expect(screen.getAllByTestId(/^fortschritt-voll-/)).toHaveLength(2);
   });
 
-  // Nicht im Test darüber mitgeprüft, und zwar aus einem Grund, der beim
-  // ersten Versuch durchgerutscht ist: nach dem Sprung ist die Kartenansicht
-  // ohnehin nicht mehr im Baum, ein `queryByText('Ab hier ansehen')` wäre
-  // dort auch dann null, wenn das Sheet gar nie geschlossen würde. Sichtbar
-  // wird ein offen gebliebenes Sheet erst beim ZURÜCKKOMMEN, dann läge es
-  // über der Karte, ohne dass jemand eine Nadel angetippt hat.
-  test('die Karte öffnet ohne das Sheet von vorhin', async () => {
-    await aufDerKarte();
+  // Not covered by the test above, for a reason that slipped through on the
+  // first attempt: after the jump the map view is no longer in the tree
+  // anyway, a `queryByText('Ab hier ansehen')` would be null there even if the
+  // sheet were never closed. An open sheet only becomes visible on COMING
+  // BACK, where it would lie over the map without anyone having tapped a pin.
+  test('the map opens without the sheet from before', async () => {
+    await onTheMap();
     await fireEvent.press(screen.getByTestId('karte-nadel-q3'));
     await fireEvent.press(screen.getByText('Ab hier ansehen'));
     expect(screen.getByTestId('teilen-bereit')).toBeTruthy();
@@ -522,31 +552,31 @@ describe('Die Karte im geteilten Recap (Spec §5.10)', () => {
     expect(screen.queryByTestId('sheet-root')).toBeNull();
   });
 
-  test('der Sprung startet neu und nicht mitten im Abspann', async () => {
-    mockLoeseTokenAuf.mockResolvedValueOnce(erfolg([q1, q2, q3]));
-    await bereit();
-    // Bis ans Ende durchtippen: drei Momente, also dreimal rechts, der
-    // dritte Tipp führt vom letzten Moment auf den Abspann.
+  test('the jump starts the story again instead of leaving it in the closing titles', async () => {
+    mockResolveToken.mockResolvedValueOnce(success([q1, q2, q3]));
+    await ready();
+    // Tap all the way to the end: three moments, so three taps on the right,
+    // the third one leads from the last moment into the closing titles.
     for (let i = 0; i < 3; i++) {
       await fireEvent(screen.getByTestId('teilen-rechts'), 'pressIn');
       await fireEvent(screen.getByTestId('teilen-rechts'), 'pressOut');
     }
     expect(screen.getByTestId('teilen-ende')).toBeTruthy();
 
-    // Die Karte bleibt aus dem Abspann heraus erreichbar.
+    // The map stays reachable from the closing titles.
     await fireEvent.press(screen.getByText('Auf der Karte'));
     await fireEvent.press(screen.getByTestId('karte-nadel-q1'));
     await fireEvent.press(screen.getByText('Ab hier ansehen'));
     expect(screen.getByTestId('teilen-bereit')).toBeTruthy();
     expect(screen.getByText('Lea')).toBeTruthy();
     expect(screen.getByText(/Alfama · \d{2}:\d{2}/)).toBeTruthy();
-    // Index 0: vor dem aktiven Segment ist keines voll.
+    // Index 0: no segment before the active one is full.
     expect(screen.queryAllByTestId(/^fortschritt-voll-/)).toHaveLength(0);
   });
 
-  test('Momente auf derselben Koordinate öffnen die Liste, jeder Eintrag führt an seine eigene Stelle', async () => {
-    // s1 und s2 liegen bitgleich aufeinander, keine Zoomstufe trennt sie
-    // (features/karte/gruppierung.ts), sie teilen sich eine Nadel.
+  test('moments on the same coordinate open the list, and every entry leads to its own spot', async () => {
+    // s1 and s2 lie bit-identically on top of each other, no zoom level
+    // separates them (features/map/clustering.ts), they share one pin.
     const s1 = moment({
       post_id: 's1', authorName: 'Lea', captured_at: '2026-08-10T09:00:00.000Z',
       place_name: 'Alfama', lat: 38.7139, lng: -9.1301,
@@ -558,13 +588,13 @@ describe('Die Karte im geteilten Recap (Spec §5.10)', () => {
     const s3 = moment({
       post_id: 's3', authorName: 'Mira', captured_at: '2026-08-10T11:00:00.000Z', place_name: null,
     });
-    await aufDerKarte([s1, s2, s3]);
+    await onTheMap([s1, s2, s3]);
 
     expect(await screen.findAllByTestId(/^karte-nadel/)).toHaveLength(1);
     await fireEvent.press(screen.getByTestId('karte-nadel-s1'));
     expect(screen.getByText('2 Momente an diesem Ort')).toBeTruthy();
-    // Kein Primär-Button in dieser Liste (DESIGN-LANGUAGE §4): den trägt das
-    // Sheet des einzelnen Moments.
+    // No primary button in this list (DESIGN-LANGUAGE §4): that one belongs to
+    // the sheet of the single moment.
     expect(screen.queryByText('Ab hier ansehen')).toBeNull();
 
     await fireEvent.press(screen.getByTestId('teilen-gruppe-eintrag-s2'));
@@ -573,25 +603,24 @@ describe('Die Karte im geteilten Recap (Spec §5.10)', () => {
     expect(screen.getAllByTestId(/^fortschritt-voll-/)).toHaveLength(1);
   });
 
-  // Der Player bleibt beim Umschalten als ZUSTAND bestehen, nur seine
-  // Ansicht ist weg. Ohne eine Bremse liefe seine Uhr hinter der Karte
-  // weiter, und wer eine halbe Minute auf der Karte sucht, käme an einer
-  // ganz anderen Stelle wieder heraus.
-  test('die Story läuft nicht hinter der offenen Karte weiter', async () => {
-    mockLoeseTokenAuf.mockResolvedValueOnce(erfolg([q1, q2, q3]));
-    await bereit();
-    // Die Zwischenkarte des allerersten Moments ZUERST wegwarten: solange sie
-    // steht, ist der Player ohnehin pausiert, und ein ausbleibender Vorschub
-    // liesse sich nicht der Karte zuschreiben (genau daran ist die erste
-    // Fassung dieses Tests vorbeigelaufen, die Mutation überlebte).
+  // The player survives the switch as STATE, only its view is gone. Without a
+  // brake its clock would keep running behind the map, and whoever searches
+  // the map for half a minute would come out at a completely different spot.
+  test('the story does not keep running behind the open map', async () => {
+    mockResolveToken.mockResolvedValueOnce(success([q1, q2, q3]));
+    await ready();
+    // Wait out the interstitial of the very first moment FIRST: as long as it
+    // stands the player is paused anyway, and a missing advance could not be
+    // attributed to the map (exactly what the first version of this test ran
+    // past, the mutation survived).
     await act(async () => {
-      jest.advanceTimersByTime(ZWISCHENKARTE_MS);
+      jest.advanceTimersByTime(INTERSTITIAL_MS);
     });
     expect(screen.queryByTestId('teilen-zwischenkarte')).toBeNull();
 
     await fireEvent.press(screen.getByText('Auf der Karte'));
-    // Weit mehr als die Foto-Dauer (5000 ms), und mehr, als alle drei
-    // Momente zusammen bräuchten.
+    // Far more than the photo duration (5000 ms), and more than all three
+    // moments together would need.
     await act(async () => {
       jest.advanceTimersByTime(30_000);
     });
@@ -599,47 +628,47 @@ describe('Die Karte im geteilten Recap (Spec §5.10)', () => {
 
     await fireEvent.press(screen.getByText('Ansehen'));
     expect(screen.getByTestId('teilen-bereit')).toBeTruthy();
-    // Noch immer beim ersten Moment, nicht im Abspann.
+    // Still on the first moment, not in the closing titles.
     expect(screen.queryAllByTestId(/^fortschritt-voll-/)).toHaveLength(0);
     expect(screen.getByText('Lea')).toBeTruthy();
   });
 
-  // Und dasselbe für die Tages-Zwischenkarte, auf einem anderen Weg: sie
-  // WARTET nicht hinter der Karte, sie wird verworfen und beim Zurückkommen
-  // neu aufgesetzt (`ansicht` steht in den Abhängigkeiten ihres Effekts).
-  // Sichtbar ist dasselbe, der Tag ist beim Zurückkommen nicht schon
-  // angesagt, ohne dass ihn jemand gelesen hat.
-  test('die Tages-Zwischenkarte beginnt nach der Karte von vorn', async () => {
-    mockLoeseTokenAuf.mockResolvedValueOnce(erfolg([q1, q2, q3]));
-    await bereit();
+  // And the same for the day interstitial, along a different path: it does not
+  // WAIT behind the map, it is discarded and set up anew on coming back
+  // (`view` sits in the dependencies of its effect). What you see is the same,
+  // the day is not already announced on coming back without anyone having read
+  // it.
+  test('the day interstitial begins from the start again after the map', async () => {
+    mockResolveToken.mockResolvedValueOnce(success([q1, q2, q3]));
+    await ready();
     expect(screen.getByTestId('teilen-zwischenkarte')).toBeTruthy();
 
     await fireEvent.press(screen.getByText('Auf der Karte'));
     await act(async () => {
-      jest.advanceTimersByTime(ZWISCHENKARTE_MS * 4);
+      jest.advanceTimersByTime(INTERSTITIAL_MS * 4);
     });
     await fireEvent.press(screen.getByText('Ansehen'));
     expect(screen.getByTestId('teilen-zwischenkarte')).toBeTruthy();
   });
 
-  // DESIGN-LANGUAGE §1: Kino nur auf den Medien-Screens. Unter der
-  // Statusleiste liegen auf der Karte helle Kacheln.
-  test('die Statusleiste wird auf der Karte dunkel und im Player wieder hell', async () => {
-    await aufDerKarte();
+  // DESIGN-LANGUAGE §1: cinema only on the media screens. On the map, bright
+  // tiles lie under the status bar.
+  test('the status bar turns dark on the map and bright again in the player', async () => {
+    await onTheMap();
     expect(mockSetStatusBarStyle).toHaveBeenLastCalledWith('dark');
 
     await fireEvent.press(screen.getByText('Ansehen'));
     expect(mockSetStatusBarStyle).toHaveBeenLastCalledWith('light');
   });
 
-  // Finding 3 des Abschluss-Reviews: die Segment-Zeile liegt per zIndex ÜBER
-  // dem Sheet und ist damit auch bei offenem Sheet antippbar (gewollt, der
-  // Weg zurück darf von nichts verdeckt werden). Räumt «Ansehen» das Sheet
-  // nicht mit ab, öffnet die Karte beim nächsten Mal mit einem Sheet, das
-  // niemand angetippt hat. Über «Ab hier ansehen» war dieser Weg zu, über die
-  // Segment-Zeile stand er offen.
-  test('«Ansehen» räumt ein offenes Moment-Sheet mit ab', async () => {
-    await aufDerKarte();
+  // Finding 3 of the closing review: the segment row lies above the sheet by
+  // zIndex and is therefore tappable even while a sheet is open (intended, the
+  // way back must not be covered by anything). If «Ansehen» does not clear the
+  // sheet away too, the map opens the next time with a sheet nobody tapped
+  // open. Via «Ab hier ansehen» this path was closed, via the segment row it
+  // stood open.
+  test('«Ansehen» clears an open moment sheet away with it', async () => {
+    await onTheMap();
     await fireEvent.press(screen.getByTestId('karte-nadel-q3'));
     expect(screen.getByText('Ab hier ansehen')).toBeTruthy();
 
@@ -652,12 +681,12 @@ describe('Die Karte im geteilten Recap (Spec §5.10)', () => {
     expect(screen.queryByTestId('sheet-root')).toBeNull();
   });
 
-  // Finding 1: die Karte hat eine letzte Zoomstufe. Bleibt der sichtbare
-  // Ausschnitt nach einem Gruppen-Tipp derselbe, richtet ein weiterer nichts
-  // aus, dann gehört der Gruppe das Sheet, obwohl ihre Koordinaten
-  // verschieden sind. Im Testlauf meldet die Karte von sich aus nie einen
-  // neuen Ausschnitt; sie steht also genau so still wie am Anschlag.
-  test('bewegt ein Gruppen-Tipp die Kamera nicht, öffnet der nächste das Sheet', async () => {
+  // Finding 1: the map has a last zoom level. If the visible viewport stays
+  // the same after a cluster tap, another one achieves nothing, and then the
+  // sheet belongs to the cluster even though its coordinates differ. In the
+  // test run the map never reports a new viewport by itself; it stands exactly
+  // as still as it would at the limit.
+  test('when a cluster tap moves the camera nowhere, the next one opens the sheet', async () => {
     const g1 = moment({
       post_id: 'g1', authorName: 'Lea', captured_at: '2026-08-10T09:00:00.000Z',
       place_name: 'Alfama', lat: 38.7139, lng: -9.1301,
@@ -670,20 +699,20 @@ describe('Die Karte im geteilten Recap (Spec §5.10)', () => {
       post_id: 'g3', captured_at: '2026-08-10T11:00:00.000Z', place_name: 'Belém',
       lat: 38.7, lng: -9.2,
     });
-    await aufDerKarte([g1, g2, g3]);
+    await onTheMap([g1, g2, g3]);
 
     await fireEvent.press(screen.getByTestId('karte-nadel-g1'));
-    expect(screen.queryByTestId('teilen-gruppe-liste')).toBeNull(); // erst fahren
+    expect(screen.queryByTestId('teilen-gruppe-liste')).toBeNull(); // fly first
 
     await fireEvent.press(screen.getByTestId('karte-nadel-g1'));
     expect(screen.getByText('2 Momente an diesem Ort')).toBeTruthy();
     expect(screen.getByTestId('teilen-gruppe-eintrag-g2')).toBeTruthy();
   });
 
-  // Und die Gegenprobe, die den Zoom-Weg am Leben hält: hat sich der
-  // Ausschnitt zwischen den beiden Tipps geändert, kann die Kamera noch etwas
-  // ausrichten, dann gibt es weiterhin kein Sheet.
-  test('hat sich der Ausschnitt bewegt, zoomt auch der zweite Tipp weiter', async () => {
+  // And the counter-check that keeps the zoom path alive: if the viewport has
+  // changed between the two taps, the camera can still achieve something, and
+  // then there is still no sheet.
+  test('when the viewport has moved, the second tap zooms on as well', async () => {
     const g1 = moment({
       post_id: 'g1', captured_at: '2026-08-10T09:00:00.000Z',
       place_name: 'Alfama', lat: 38.7139, lng: -9.1301,
@@ -696,10 +725,10 @@ describe('Die Karte im geteilten Recap (Spec §5.10)', () => {
       post_id: 'g3', captured_at: '2026-08-10T11:00:00.000Z', place_name: 'Belém',
       lat: 38.7, lng: -9.2,
     });
-    await aufDerKarte([g1, g2, g3]);
+    await onTheMap([g1, g2, g3]);
 
     await fireEvent.press(screen.getByTestId('karte-nadel-g1'));
-    // Die Karte meldet einen deutlich engeren Ausschnitt, sie IST gefahren.
+    // The map reports a distinctly tighter viewport, it HAS flown.
     await fireEvent(screen.getByTestId('karte-flaeche'), 'regionChangeComplete', {
       latitude: 38.71399,
       longitude: -9.1301,
@@ -712,42 +741,42 @@ describe('Die Karte im geteilten Recap (Spec §5.10)', () => {
     expect(screen.queryByText(/an diesem Ort/)).toBeNull();
   });
 
-  // Finding 2: was die Function gar nicht herausgeben konnte, fehlt im Player
-  // UND auf der Karte. Ohne diesen Satz behauptete die Seite, sie zeige die
-  // ganze Reise.
-  const AUSGELASSEN_SATZ = '2 Momente liessen sich gerade nicht laden. Schau später nochmal rein.';
+  // Finding 2: what the function could not hand out at all is missing from the
+  // player AND from the map. Without this sentence the page would claim to
+  // show the whole trip.
+  const SKIPPED_SENTENCE = '2 Momente liessen sich gerade nicht laden. Schau später nochmal rein.';
 
-  test('ausgelassene Momente werden auf der Karte benannt', async () => {
-    mockLoeseTokenAuf.mockResolvedValueOnce(erfolg([q1, q2, q3], {}, 2));
-    await bereit();
+  test('skipped moments are named on the map', async () => {
+    mockResolveToken.mockResolvedValueOnce(success([q1, q2, q3], {}, 2));
+    await ready();
     await fireEvent.press(await screen.findByText('Auf der Karte'));
     expect(screen.getByTestId('teilen-ausgelassen')).toBeTruthy();
-    expect(screen.getByText(AUSGELASSEN_SATZ)).toBeTruthy();
+    expect(screen.getByText(SKIPPED_SENTENCE)).toBeTruthy();
   });
 
-  // «Das war der Recap» ist die zweite Stelle, an der eine unvollständige
-  // Filmrolle es sagen muss: dort behauptet die Seite, alles gezeigt zu haben.
-  test('ausgelassene Momente stehen auch im Abspann', async () => {
-    mockLoeseTokenAuf.mockResolvedValueOnce(erfolg([q1, q2, q3], {}, 2));
-    await bereit();
+  // "Das war der Recap" is the second place where an incomplete reel has to
+  // say so: there the page claims to have shown everything.
+  test('skipped moments stand in the closing titles too', async () => {
+    mockResolveToken.mockResolvedValueOnce(success([q1, q2, q3], {}, 2));
+    await ready();
     for (let i = 0; i < 3; i++) {
       await fireEvent(screen.getByTestId('teilen-rechts'), 'pressIn');
       await fireEvent(screen.getByTestId('teilen-rechts'), 'pressOut');
     }
     expect(screen.getByTestId('teilen-ende')).toBeTruthy();
-    expect(screen.getByText(AUSGELASSEN_SATZ)).toBeTruthy();
+    expect(screen.getByText(SKIPPED_SENTENCE)).toBeTruthy();
   });
 
-  test('ohne ausgelassene Momente behauptet nichts das Gegenteil', async () => {
-    await aufDerKarte();
+  test('with nothing skipped, nothing claims the opposite', async () => {
+    await onTheMap();
     expect(screen.queryByTestId('teilen-ausgelassen')).toBeNull();
     expect(screen.queryByText(/liessen sich gerade nicht laden/)).toBeNull();
   });
 
-  test('ein Tipp auf eine Gruppe, die sich trennen lässt, fährt hinein statt ein Sheet zu öffnen', async () => {
-    // Zwei Momente, die auf DIESEM Ausschnitt zusammenfallen (rund 20 Meter
-    // auseinander, die Karte zeigt gut 4 Kilometer), aber nicht auf
-    // derselben Koordinate liegen.
+  test('a tap on a cluster that can still be split flies into it instead of opening a sheet', async () => {
+    // Two moments that fall together on THIS viewport (about 20 metres apart,
+    // the map shows a good 4 kilometres), but do not lie on the same
+    // coordinate.
     const g1 = moment({
       post_id: 'g1', captured_at: '2026-08-10T09:00:00.000Z', place_name: 'Alfama',
       lat: 38.7139, lng: -9.1301,
@@ -760,29 +789,29 @@ describe('Die Karte im geteilten Recap (Spec §5.10)', () => {
       post_id: 'g3', captured_at: '2026-08-10T11:00:00.000Z', place_name: 'Belém',
       lat: 38.7, lng: -9.2,
     });
-    await aufDerKarte([g1, g2, g3]);
+    await onTheMap([g1, g2, g3]);
     expect(await screen.findAllByTestId(/^karte-nadel/)).toHaveLength(2);
 
     await fireEvent.press(screen.getByTestId('karte-nadel-g1'));
-    // Kein Sheet, die Karte fährt hinein (Spec §5.5), und meldet das per
-    // selection-Haptik (DESIGN-LANGUAGE §5).
+    // No sheet, the map flies into it (spec §5.5), and reports that with
+    // selection haptics (DESIGN-LANGUAGE §5).
     expect(screen.queryByText('Ab hier ansehen')).toBeNull();
     expect(screen.queryByTestId('teilen-gruppe-liste')).toBeNull();
-    expect(mockHaptik).toHaveBeenCalledTimes(1);
+    expect(mockHaptics).toHaveBeenCalledTimes(1);
   });
 });
 
-describe('Ladefehler eines einzelnen Moments (bewusst OHNE stillen Neuversuch, anders als der native Player)', () => {
-  test('ein Foto, das nicht lädt, zeigt SOFORT nach dem ERSTEN Fehler die Hinweis-Pille', async () => {
-    mockLoeseTokenAuf.mockResolvedValueOnce(erfolg([p1]));
-    await bereit();
+describe('A single moment that fails to load (deliberately WITHOUT the silent retry of the native player)', () => {
+  test('a photo that does not load shows the hint pill IMMEDIATELY after the FIRST error', async () => {
+    mockResolveToken.mockResolvedValueOnce(success([p1]));
+    await ready();
     await fireEvent(screen.getByTestId('teilen-foto'), 'error');
     expect(screen.getByText('Dieses Foto lässt sich gerade nicht laden.')).toBeTruthy();
   });
 
-  test('ein Video, das nicht lädt, zeigt SOFORT nach dem ERSTEN Fehler die Hinweis-Pille', async () => {
-    mockLoeseTokenAuf.mockResolvedValueOnce(erfolg([p2]));
-    await bereit();
+  test('a video that does not load shows the hint pill IMMEDIATELY after the FIRST error', async () => {
+    mockResolveToken.mockResolvedValueOnce(success([p2]));
+    await ready();
     await act(async () => {
       for (const cb of mockListeners.statusChange ?? []) cb({ status: 'error' });
     });

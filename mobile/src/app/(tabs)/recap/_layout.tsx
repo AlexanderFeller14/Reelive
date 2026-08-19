@@ -2,42 +2,35 @@ import { Stack } from 'expo-router';
 import { useTheme } from '@/theme/ThemeProvider';
 import { cinema } from '@/theme/tokens';
 
-// Stack innerhalb des Tabs, gleiches Rezept wie reise/_layout.tsx: die
-// Tab-Bar bleibt beim Navigieren sichtbar, Header aus, jeder Screen bringt
-// seinen eigenen H1 mit (Design-Language §2). Das Verzeichnis heisst wie
-// vorher die Platzhalter-Datei `recap.tsx`, Expo Router löst `(tabs)/recap`
-// darum unverändert auf denselben Tab auf, `(tabs)/_layout.tsx` bleibt unberührt.
+// Stack inside the tab, same recipe as trip/_layout.tsx: the tab bar stays
+// visible while navigating, headers off, every screen brings its own H1
+// (DESIGN-LANGUAGE §2). The directory carries the name of the former
+// placeholder file `recap.tsx`, so Expo Router still resolves `(tabs)/recap`
+// onto the same tab and `(tabs)/_layout.tsx` stays untouched.
 //
-// Liste und Übersicht sind helle Screens, der Player ist ein Medien-Screen.
-// DESIGN-LANGUAGE §5 verlangt für genau diesen Wechsel den «Fade durch Dunkel»
-// («das Licht geht aus») statt des Parallax-Slides, den ein Stack sonst nimmt.
-// Der Player blendet innen zusätzlich einen dunklen Overlay aus; ohne die
-// Routen-Ebene hier bliebe darunter aber der weisse Stack-Grund stehen und der
-// Wechsel begänne hell.
+// List and overview are light screens, the player is a media screen.
+// DESIGN-LANGUAGE §5 asks for exactly this switch to use the "fade through
+// black" ("the lights go out") instead of the parallax slide a stack would
+// take otherwise. The player additionally fades out a dark overlay on the
+// inside; without the route level here the white stack ground would stay
+// underneath and the switch would begin light.
 //
-// Phase-5-Final-Review, Punkt 5: der Player ist Vollbild, die Tab-Bar
-// bleibt bewusst NICHT sichtbar, wenn diese Route aktiv ist. `tabBarStyle`
-// gehört dem Tabs-Navigator, nicht diesem verschachtelten Stack, die
-// Abschaltung sitzt darum in `(tabs)/_layout.tsx` (dort per `useSegments()`),
-// nicht hier.
+// Phase 5 final review, point 5: the player is full screen, the tab bar
+// deliberately stays hidden while this route is active. `tabBarStyle` belongs
+// to the tabs navigator, not to this nested stack, so the switch off sits in
+// `(tabs)/_layout.tsx` (there via `useSegments()`), not here.
 export default function RecapStackLayout() {
   const { colors } = useTheme();
   return (
     <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors['bg-0'] } }}>
-      {/* `index` MUSS hier stehen, obwohl die Route keine eigenen Optionen
-          braucht. Sobald ein Stack überhaupt <Stack.Screen>-Kinder hat, legt
-          deren Reihenfolge fest, welche Route der Stack zuerst registriert,
-          und die erste ist seine Startroute. Ohne diese Zeile war das
-          `[id]/player`: ein Tippen auf den Recap-Tab öffnete den Player statt
-          der Liste, ohne `id` im Pfad (`/recap/player`), `useLocalSearchParams`
-          lieferte `undefined`, und fetchTrip fragte die Datenbank nach der
-          UUID «undefined», also Postgres 22P02 und ein Ladefehler statt eines
-          leeren Screens. Am Gerät gefunden, nicht hergeleitet: die anderen
-          beiden Tab-Stacks stehen als selbstschliessendes <Stack />, dort
-          gewinnt `index` automatisch.
-          Die übrigen Routen (`[id]/uebersicht`, `[id]/karte`) bleiben
-          absichtlich undeklariert, sie brauchen keine Optionen und erben den
-          Rest aus `screenOptions`. */}
+      {/* `index` MUST stand here, even though the route needs no options of its
+          own. As soon as a stack has <Stack.Screen> children at all, their
+          order decides which route the stack registers first, and the first one
+          is its initial route. Found on the device (2026-08-11), not derived:
+          the two other tab stacks stand as a self closing <Stack />, where
+          `index` wins automatically. The remaining routes (`[id]/overview`,
+          `[id]/map`) stay deliberately undeclared, they need no options and
+          inherit the rest from `screenOptions`. */}
       <Stack.Screen name="index" />
       <Stack.Screen
         name="[id]/player"

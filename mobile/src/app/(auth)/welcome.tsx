@@ -13,8 +13,8 @@ export default function WelcomeScreen() {
   const router = useRouter();
   return (
     <View style={[styles.screen, { backgroundColor: colors['bg-0'] }]}>
-      {/* Platzhalter: Der Reelive-Wortzug wird ein SVG-Asset (DESIGN-LANGUAGE §2).
-          Bis es existiert: schlichter Figtree-Schriftzug. */}
+      {/* Placeholder: the Reelive wordmark will become an SVG asset
+          (DESIGN-LANGUAGE §2). Until it exists: a plain Figtree line. */}
       <Text style={[type.h3, { color: colors['text-1'] }]}>Reelive</Text>
       <Text style={[type.h1, { color: colors['text-1'] }]}>
         Eure Reise. Alle Perspektiven. Ein Recap.

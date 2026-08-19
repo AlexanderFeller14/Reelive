@@ -56,84 +56,79 @@ import type {
   MapPoint,
 } from '@/features/map/types';
 
-// Öffentlicher, schreibgeschützter Web-Player (Task-5-Brief, Spec §5.2):
-// zeigt dieselbe Story wie mobile/src/app/(tabs)/recap/[id]/player.tsx,
-// Kino-Palette, Fortschrittsbalken, Tages-Trenner, Autor, Zeit, Ort,
-// Caption. OHNE Emoji-Leiste, OHNE Kommentare, OHNE Melden, OHNE Login. Wird
-// als EIGENER, kleinerer Screen gebaut statt den 1532-Zeilen-Player zu
-// kopieren oder mit einem `nurAnschauen`-Schalter zu verbiegen, siehe
-// Bericht für die Begründung. Wiederverwendet werden die fertigen,
-// gereviewten Bausteine: Fortschrittsbalken, playerLogic (dauerFuer, weiter,
-// zurueck, tagWechselt, PauseGrund/mitGrund/ohneGrund/
-// blockiertAutomatischenVorschub) und tage.ts (gruppiereNachTagen,
-// sortiereMomente), UNVERÄNDERT, kein Import aus recapApi.ts/sozialApi.ts/
-// AuthProvider (W4: nichts davon soll im Modulgraph dieses Screens
-// überhaupt AUFTAUCHEN, nicht nur ungenutzt bleiben, siehe
-// teilen/__tests__/modulgraph.test.ts).
+// Public, read-only web player (Task-5 brief, spec §5.2): shows the same
+// story as mobile/src/app/(tabs)/recap/[id]/player.tsx, cinema palette,
+// progress bar, day separators, author, time, place, caption. WITHOUT the
+// emoji bar, WITHOUT comments, WITHOUT reporting, WITHOUT login. Built as
+// its OWN, smaller screen instead of copying the 1532 line player or bending
+// it with a `viewOnly` switch, see the report for the reasoning. Reused are
+// the finished, reviewed building blocks: ProgressBar, playerLogic
+// (durationFor, advance, goBack, dayChanges, PauseReason/withReason/
+// withoutReason/blocksAutoAdvance) and days.ts (groupByDays, sortMoments),
+// UNCHANGED, no import from recapApi.ts/socialApi.ts/AuthProvider (W4:
+// none of that may even APPEAR in this screen's module graph, not merely
+// stay unused, see share/__tests__/moduleGraph.test.ts).
 //
-// Bewusste Vereinfachungen gegenüber dem nativen Player (jeweils begründet
-// im Bericht):
-// - Kein Schliessen-Knopf, kein Wisch-nach-unten: es gibt keine "vorherige"
-//   Route, zu der man zurückkehren könnte, die Seite IST die ganze
-//   Web-Erfahrung (istWebGesperrt in guard.ts sperrt alles andere).
-// - Kein Kino-Fade-Übergang beim Betreten: der bildet "das Licht geht aus"
-//   beim Wechsel von einem HELLEN Screen ab, hier gibt es keinen
-//   vorangehenden hellen Screen innerhalb dieser Sitzung, der Browser-Tab
-//   lädt direkt in den Kinosaal.
-// - Ein fehlgeschlagenes Foto/Video zeigt SOFORT die Hinweis-Pille (kein
-//   unsichtbarer Neuversuch/V10-URL-Erneuerung wie im nativen Player): der
-//   Vorrat kommt hier aus EINEM Aufruf ohne Session, ein zweiter,
-//   still-nachsignierender Hintergrundaufruf wäre zusätzliche Komplexität
-//   für einen Anwendungsfall (eine typischerweise binnen Minuten
-//   durchgespielte Story), den der Task-Auftrag nicht verlangt.
+// Deliberate simplifications compared to the native player (each justified
+// in the report):
+// - No close button, no swipe down: there is no "previous" route to return
+//   to, the page IS the whole web experience (isWebLocked in guard.ts locks
+//   out everything else).
+// - No cinema fade when entering: that one pictures "the lights go out" on
+//   the way from a BRIGHT screen, and there is no preceding bright screen
+//   within this session, the browser tab loads straight into the cinema.
+// - A failed photo/video shows the hint pill IMMEDIATELY (no invisible
+//   retry, no V10 URL renewal like in the native player): the pool here
+//   comes from ONE call without a session, and a second, silently
+//   re-signing background call would be extra complexity for a use case (a
+//   story usually played through within minutes) the task brief does not
+//   ask for.
 //
-// Seit Task 15 trägt derselbe Screen die ZWEITE Lesart des Recaps: die Karte
-// (Spec §5.10). Sie ersetzt den Player, statt eine eigene Route zu bekommen,
-// ein geteilter Link ist EINE URL, und eine zweite Route wäre eine, die
-// niemand teilen kann und die ohne Vorgeschichte aufgerufen würde. Die
-// Kartenfläche selbst ist dieselbe wie in der App (features/karte/
-// KartenFlaeche.tsx nativ, .web.tsx im Browser); dieser Screen liefert ihr
-// Nadeln, Linie und Kamera und entscheidet, was ein Tipp auslöst.
-const VORLADEN_ANZAHL = 3;
-const ZWISCHENKARTE_DAUER_MS = 1500;
-const TAP_SCHWELLE_MS = 250;
+// Since Task 15 the same screen carries the SECOND reading of the recap: the
+// map (spec §5.10). It replaces the player instead of getting a route of its
+// own, a shared link is ONE URL, and a second route would be one nobody can
+// share and that would be opened without any history. The map surface itself
+// is the one the app uses (features/map/MapSurface.tsx natively, .web.tsx in
+// the browser); this screen hands it pins, line and camera and decides what
+// a tap sets off.
+const PRELOAD_COUNT = 3;
+const INTERSTITIAL_DURATION_MS = 1500;
+const TAP_THRESHOLD_MS = 250;
 
-// Die beiden Lesarten (Spec §5.10, wortgleiche Segment-Zeile wie in der
-// Übersicht der App, dort «Nach Tagen · Auf der Karte»). Beide
-// Beschriftungen stehen immer da; nur welche Hälfte der Knopf ist, wechselt.
-const ANSEHEN_LABEL = 'Ansehen';
-const KARTE_LABEL = 'Auf der Karte';
-// Was die Sheets dieser Seite von denen der App-Karte unterscheidet
-// (features/karte/MomentSheet.tsx), und sonst nichts: der Knopf heisst hier
-// anders, weil es keinen Recap-Player gibt, in den gesprungen würde, sondern
-// den geteilten Player auf DIESEM Screen (Spec §5.10).
+// The two readings (spec §5.10), the segment row word for word as in the
+// app's overview, where it reads «Nach Tagen · Auf der Karte».
+const VIEW_LABEL = 'Ansehen';
+const MAP_LABEL = 'Auf der Karte';
+// What sets this page's sheets apart from those of the app map
+// (features/map/MomentSheet.tsx), and nothing else: the button is named
+// differently here, because there is no recap player to jump into, only the
+// shared player on THIS screen (spec §5.10).
 const SHEET_FORM: SheetForm = { buttonLabel: 'Ab hier ansehen', prefix: 'teilen-' };
-// Höhe der Segment-Zeile (36 + 2 × 4 Polster), dieselben 44 Punkte wie jede
-// andere Pille dieses Projekts. Als Konstante, weil der Kopfbereich des
-// Players darunter rutscht, sobald es die Zeile gibt.
-const SEGMENT_HOEHE = 44;
+// Height of the segment row (36 + 2 × 4 padding), the same 44 points as
+// every other pill in this project. A constant, because the player's header
+// slides underneath as soon as the row exists.
+const SEGMENT_HEIGHT = 44;
 
-type LadePhase = 'laedt' | 'fehler' | 'leer' | 'bereit' | 'ende';
-type MedienLink = { medium_url: string; thumb_url: string | null };
+type LoadPhase = 'loading' | 'error' | 'empty' | 'ready' | 'end';
+type MediaLink = { medium_url: string; thumb_url: string | null };
 
-// Bildet die shareApi-Antwort auf die RecapMoment-Form ab, damit
-// dauerFuer/gruppiereNachTagen/tagWechselt/sortiereMomente/zuKartenPunkten
-// UNVERÄNDERT wiederverwendbar bleiben (sie sind auf RecapMoment[]
-// typisiert). Die hier aufgefüllten Felder (trip_id, author_id,
-// upload_status) liest KEINE der wiederverwendeten Funktionen jemals, id
-// dient als stabiler Schlüssel (aus post_id), die übrigen sind reine
-// Platzhalter, um die Form zu erfüllen.
+// Maps the shareApi response onto the RecapMoment shape so that
+// durationFor/groupByDays/dayChanges/sortMoments/toMapPoints stay reusable
+// UNCHANGED (they are typed on RecapMoment[]). The fields filled in here
+// (trip_id, author_id, upload_status) are read by NONE of the reused
+// functions, id serves as the stable key (from post_id), the rest are pure
+// placeholders to satisfy the shape.
 //
-// lat/lng werden seit Task 15 DURCHGEREICHT statt auf null gesetzt: sie sind
-// die Grundlage der Karte auf dieser Seite (Spec §5.10). shareApi.ts prüft
-// sie beim Lesen auf eine endliche Zahl, hier kommt also entweder eine
-// brauchbare Koordinate an oder `null`.
+// lat/lng are PASSED THROUGH since Task 15 instead of being set to null:
+// they are the basis of the map on this page (spec §5.10). shareApi.ts
+// checks them for a finite number while reading, so what arrives here is
+// either a usable coordinate or `null`.
 //
-// autor_avatar_key wird seit Task 10 ebenso DURCHGEREICHT (vorher fest
-// null, GeteiltesMoment trug damals noch keinen Bildschlüssel): der
-// SCHLÜSSEL, nie eine fertige URL, `<Avatar>` baut die URL selbst über
-// avatarUrl() (features/auth/avatar.ts).
-function zuRecapMoment(m: SharedMoment): RecapMoment {
+// The avatar key is likewise PASSED THROUGH since Task 10 (fixed null
+// before, SharedMoment carried no image key back then): the KEY, never a
+// finished URL, `<Avatar>` builds the URL itself via avatarUrl()
+// (features/auth/avatar.ts).
+function toRecapMoment(m: SharedMoment): RecapMoment {
   return {
     id: m.post_id,
     trip_id: '',
@@ -152,64 +147,62 @@ function zuRecapMoment(m: SharedMoment): RecapMoment {
   };
 }
 
-// Das Tagesdatum der Zwischenkarte, gleiche Formatierung wie im nativen
-// Player (player.tsx), als eigene, kleine Kopie: player.tsx exportiert die
-// Hilfsfunktion nicht, und dieser Screen baut sie nicht dort um.
+// The day's date on the interstitial, formatted like in the native player
+// (player.tsx), as a small copy of its own: player.tsx does not export the
+// helper, and this screen does not go and rebuild it over there.
 //
-// Die Uhrzeit lag bis Task 15 ebenso als Kopie hier. Sie kommt jetzt aus
-// features/recap/uhrzeit.ts, das ist die Stelle, an die dieser Kommentar
-// dort verweist («die beiden Screens umzustellen ist eine mechanische
-// Nachfolgearbeit»), und die Datei liegt seit der Karte ohnehin im Modulgraph
-// dieses Screens (features/karte/nadel.ts baut ihre Beschriftung daraus).
-const MONATE_LANG = [
+// The time of day sat here as a copy too until Task 15. It now comes from
+// features/recap/timeOfDay.ts, which is the place the comment over there
+// points at ("switching the two screens over is mechanical follow-up work"),
+// and that file has been in this screen's module graph since the map anyway
+// (features/map/pin.ts builds its label from it).
+const MONTHS_LONG = [
   'Januar', 'Februar', 'März', 'April', 'Mai', 'Juni',
   'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember',
 ];
-function formatTagesdatum(iso: string): string {
+function formatDayDate(iso: string): string {
   const [, m, d] = iso.split('-').map(Number);
-  return `${d}. ${MONATE_LANG[m - 1]}`;
+  return `${d}. ${MONTHS_LONG[m - 1]}`;
 }
-function tagesueberschrift(tag: RecapDay): string {
-  const teile = [`Tag ${tag.nummer}`];
-  if (tag.ort) teile.push(tag.ort);
-  teile.push(formatTagesdatum(tag.datum));
-  return teile.join(' · ');
+function dayHeading(day: RecapDay): string {
+  const parts = [`Tag ${day.number}`];
+  if (day.place) parts.push(day.place);
+  parts.push(formatDayDate(day.date));
+  return parts.join(' · ');
 }
 
-function KinoButton({ label, onPress }: { label: string; onPress: () => void }) {
+function CinemaButton({ label, onPress }: { label: string; onPress: () => void }) {
   return (
     <PressScale accessibilityRole="button" onPress={onPress}>
-      <View style={styles.kinoButton}>
+      <View style={styles.cinemaButton}>
         <Text style={[type.bodyMedium, { color: cinema['bg-0'] }]}>{label}</Text>
       </View>
     </PressScale>
   );
 }
 
-function LadeHinweisPille({ text }: { text: string }) {
+function LoadingHintPill({ text }: { text: string }) {
   return (
-    <Pill style={styles.ladeHinweisPille}>
+    <Pill style={styles.loadingHintPill}>
       <Text style={[type.secondary, { color: cinema['text-1'] }]}>{text}</Text>
     </Pill>
   );
 }
 
-// Dezenter Fussbereich (Brief: "unten dezent der Reelive-Wortzug und «Hol
-// dir die App»", Konzept §5.9), rein informativ, KEIN Knopf: es gibt noch
-// keine Store-Verlinkung (Task 11 dieser Phase folgt erst), ein Link ins
-// Nichts wäre schlechter als gar keiner. `pointerEvents="none"`: die Zeile
-// liegt optisch über dem Foto/Video, darf aber nie eine Berührung abfangen,
-// die eigentlich der Tipp-Zone darunter gilt.
-function Fussleiste() {
+// Discreet footer (brief: "the Reelive wordmark and «Hol dir die App»
+// discreetly at the bottom", concept §5.9), purely informative, NO button:
+// there is no store link yet (Task 11 of this phase only follows later), and
+// a link into nothing would be worse than none at all.
+function FooterBar() {
   return (
-    <View testID="teilen-fussleiste" style={styles.fussleiste} pointerEvents="none">
+    <View testID="teilen-fussleiste" style={styles.footerBar} pointerEvents="none">
       <Text style={[type.label, { color: cinema['text-1'] }]}>Reelive</Text>
       <Text style={[type.secondary, { color: cinema['text-2'] }]}>Hol dir die App</Text>
     </View>
   );
 }
 
-function FotoMoment({ url, onFehler }: { url: string; onFehler: () => void }) {
+function PhotoMoment({ url, onError }: { url: string; onError: () => void }) {
   return (
     <Image
       testID="teilen-foto"
@@ -217,18 +210,18 @@ function FotoMoment({ url, onFehler }: { url: string; onFehler: () => void }) {
       style={StyleSheet.absoluteFill}
       contentFit="cover"
       transition={150}
-      onError={onFehler}
+      onError={onError}
     />
   );
 }
 
 function VideoMoment({
-  url, pausiert, onEnde, onFehler,
+  url, paused, onEnd, onError,
 }: {
   url: string;
-  pausiert: boolean;
-  onEnde: () => void;
-  onFehler: () => void;
+  paused: boolean;
+  onEnd: () => void;
+  onError: () => void;
 }) {
   const player = useVideoPlayer(url, (p) => {
     p.loop = false;
@@ -236,21 +229,21 @@ function VideoMoment({
   });
 
   useEffect(() => {
-    const endeSub = player.addListener('playToEnd', onEnde);
+    const endSub = player.addListener('playToEnd', onEnd);
     const statusSub = player.addListener('statusChange', (payload: { status: string }) => {
-      if (payload.status === 'error') onFehler();
+      if (payload.status === 'error') onError();
     });
     return () => {
-      endeSub.remove();
+      endSub.remove();
       statusSub.remove();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [player]);
 
   useEffect(() => {
-    if (pausiert) player.pause();
+    if (paused) player.pause();
     else player.play();
-  }, [pausiert, player]);
+  }, [paused, player]);
 
   return (
     <VideoView
@@ -264,24 +257,21 @@ function VideoMoment({
   );
 }
 
-// Anders als der native Player (V10, ein stiller Neuversuch vor der
-// Hinweis-Pille): hier zeigt der ERSTE Ladefehler direkt die Pille, siehe
-// Begründung im Kopf-Kommentar der Datei.
-function MomentAnzeige({
-  moment, url, fehlgeschlagen, pausiert, onVideoEnde, onFehler,
+function MomentView({
+  moment, url, failed, paused, onVideoEnd, onError,
 }: {
   moment: RecapMoment;
-  url: MedienLink | undefined;
-  fehlgeschlagen: boolean;
-  pausiert: boolean;
-  onVideoEnde: () => void;
-  onFehler: () => void;
+  url: MediaLink | undefined;
+  failed: boolean;
+  paused: boolean;
+  onVideoEnd: () => void;
+  onError: () => void;
 }) {
-  if (!fehlgeschlagen && url) {
+  if (!failed && url) {
     return moment.type === 'video' ? (
-      <VideoMoment url={url.medium_url} pausiert={pausiert} onEnde={onVideoEnde} onFehler={onFehler} />
+      <VideoMoment url={url.medium_url} paused={paused} onEnd={onVideoEnd} onError={onError} />
     ) : (
-      <FotoMoment url={url.medium_url} onFehler={onFehler} />
+      <PhotoMoment url={url.medium_url} onError={onError} />
     );
   }
   return (
@@ -289,8 +279,8 @@ function MomentAnzeige({
       {url?.thumb_url && (
         <Image source={{ uri: url.thumb_url }} style={StyleSheet.absoluteFill} contentFit="cover" />
       )}
-      <View style={styles.ladeHinweisWrap}>
-        <LadeHinweisPille
+      <View style={styles.loadingHintWrap}>
+        <LoadingHintPill
           text={
             moment.type === 'video'
               ? 'Dieses Video lässt sich gerade nicht laden.'
@@ -303,62 +293,56 @@ function MomentAnzeige({
 }
 
 // ---------------------------------------------------------------------------
-// Die Karte (Spec §5.10)
+// The map (spec §5.10)
 // ---------------------------------------------------------------------------
 
-// Momente, die diese Seite gar nicht bekommen hat: die Function konnte für
-// sie keine URL herausgeben (`ausgelassen`, share-link/aufloesung.ts). Sie
-// fehlen im Player UND auf der Karte, ohne diesen Satz fehlten sie spurlos,
-// und die Seite behauptete, sie zeige die ganze Reise.
-//
-// Wortgleich zu uebersicht.tsx und recap/[id]/karte.tsx: dieselbe Lage sagt
-// überall dasselbe.
-function ausgelassenText(anzahl: number): string {
-  return `${anzahl} ${anzahl === 1 ? 'Moment liess' : 'Momente liessen'} sich gerade nicht laden. Schau später nochmal rein.`;
+// Moments this page never received at all: the function could hand out no URL
+// for them (`ausgelassen`, share-link/aufloesung.ts). Worded exactly as in
+// overview.tsx and recap/[id]/map.tsx: the same situation says the same thing
+// everywhere.
+function skippedText(count: number): string {
+  return `${count} ${count === 1 ? 'Moment liess' : 'Momente liessen'} sich gerade nicht laden. Schau später nochmal rein.`;
 }
 
-// Singular/Plural wie überall im Projekt: die Zahl bleibt auch im Singular
-// stehen. Der Nachsatz ist ein eigener Satz und beginnt darum gross, die
-// UI-Sprache kennt keine Gedankenstriche (DESIGN-LANGUAGE §6).
-function ohneOrtText(anzahl: number): string {
-  const wort = anzahl === 1 ? 'Moment' : 'Momente';
-  const nachsatz = anzahl === 1 ? 'Er läuft' : 'Sie laufen';
-  return `${anzahl} ${wort} ohne Ort. ${nachsatz} im Recap mit.`;
+function withoutPlaceText(count: number): string {
+  const word = count === 1 ? 'Moment' : 'Momente';
+  const secondSentence = count === 1 ? 'Er läuft' : 'Sie laufen';
+  return `${count} ${word} ohne Ort. ${secondSentence} im Recap mit.`;
 }
 
-// Eine Hälfte der Segment-Zeile.
+// One half of the segment row.
 //
-// Die AKTIVE Hälfte ist bewusst KEIN Knopf: sie zeigt, wo man gerade ist, und
-// ein Tipp darauf täte nichts, ein Press-Feedback wäre eine Zusage, die
-// niemand einlöst (gleiche Entscheidung wie in uebersicht.tsx). `accessible`
-// bündelt Fläche und Text zu einem Element, damit VoiceOver den Stand als
-// eine Auskunft vorliest statt als losen Text neben einem Knopf.
+// The ACTIVE half is deliberately NOT a button: it shows where you are, a tap
+// on it would do nothing, and press feedback would be a promise nobody keeps
+// (the same decision as in overview.tsx). `accessible` bundles surface and
+// text into one element so VoiceOver reads the state as one piece of
+// information instead of loose text next to a button.
 //
-// Farben anders als in der Übersicht der App, aus einem Grund, der nicht
-// Geschmack ist: dort liegt die Zeile auf Weiss, hier auf einer FREMDFLÄCHE
-// (Foto oder Kartenkacheln). DESIGN-LANGUAGE §1 lässt darauf ausschliesslich
-// die translucente Pille zu, die trägt deshalb die Spur, und die aktive
-// Hälfte darin ist die helle Fläche des KinoButtons. Der passive Text steht
-// in `cinema.text-1` und nicht in `text-2` (§4, Tab-Bar): §4 beschreibt die
-// Tab-Leiste auf `bg-0`; hier ist der Untergrund halbdurchsichtig über einer
-// hellen Karte, und der schwächere Ton wäre dort nicht mehr sicher lesbar.
-// Den Unterschied trägt die Füllung, nicht die Textfarbe.
-function SegmentHaelfte({
-  label, aktiv, testID, onPress,
+// Colours differ from the app's overview, for a reason that is not taste:
+// there the row lies on white, here on a FOREIGN SURFACE (photo or map
+// tiles). DESIGN-LANGUAGE §1 allows only the translucent pill on top of
+// that, so the pill carries the track, and the active half inside it is the
+// bright surface of the CinemaButton. The passive text uses `cinema.text-1`
+// and not `text-2` (§4, tab bar): §4 describes the tab bar on `bg-0`; here
+// the ground is semi-transparent over a bright map, and the weaker tone
+// would no longer be reliably readable there. The difference is carried by
+// the fill, not by the text colour.
+function SegmentHalf({
+  label, active, testID, onPress,
 }: {
   label: string;
-  aktiv: boolean;
+  active: boolean;
   testID: string;
   onPress: () => void;
 }) {
-  if (aktiv) {
+  if (active) {
     return (
       <View
         accessible
         accessibilityRole="text"
         accessibilityLabel={`${label}, aktuelle Ansicht`}
         testID={testID}
-        style={styles.segmentAktiv}
+        style={styles.segmentActive}
       >
         <Text style={[type.bodyMedium, { color: cinema['bg-0'] }]}>{label}</Text>
       </View>
@@ -366,500 +350,420 @@ function SegmentHaelfte({
   }
   return (
     <PressScale accessibilityRole="button" testID={testID} onPress={onPress}>
-      <View style={styles.segmentPassiv}>
+      <View style={styles.segmentPassive}>
         <Text style={[type.bodyMedium, { color: cinema['text-1'] }]}>{label}</Text>
       </View>
     </PressScale>
   );
 }
 
-// Der Einstieg in die Karte und der Weg zurück, EIN Element für beides, an
-// EINER Stelle, in beiden Ansichten. Es steht bewusst ganz oben und nicht im
-// Kopfbereich des Players: der Kopf gehört dem Player (Fortschritt, Autor,
-// Ort/Zeit), diese Zeile gehört dem Screen. Und sie darf beim Umschalten
-// nicht springen, sonst müsste man den Weg zurück suchen, statt ihn dort zu
-// finden, wo man ihn gerade angetippt hat.
-// `onWechsel` ohne Argument, obwohl es zwei Hälften gibt: die AKTIVE ist kein
-// Knopf (siehe oben), es kann also immer nur die andere gedrückt werden, der
-// Wechsel hat kein Ziel zu wählen. Ein `onWechsel(true|false)` läge nur
-// scheinbar näher und wäre an beiden Aufrufstellen ein ignoriertes Argument.
-function SegmentZeile({
-  aufKarte, onWechsel, oben,
+// The way into the map and the way back, ONE element for both, in ONE place,
+// in both views. It sits at the very top on purpose and not in the player's
+// header: the header belongs to the player (progress, author, place/time),
+// this row belongs to the screen. And it must not jump while switching, or
+// the way back would have to be searched for instead of found where it was
+// just tapped.
+// `onSwitch` takes no argument although there are two halves: the ACTIVE one
+// is not a button (see above), so only the other one can ever be pressed, the
+// switch has no target to choose. An `onSwitch(true|false)` would only look
+// like the closer fit and would be an ignored argument at both call sites.
+function SegmentRow({
+  onMap, onSwitch, top,
 }: {
-  aufKarte: boolean;
-  onWechsel: () => void;
-  /** Abstand zur Oberkante, aus `useOberkante`, siehe dort. */
-  oben: number;
+  onMap: boolean;
+  onSwitch: () => void;
+  /** Distance to the top edge, from `useTopInset`, see there. */
+  top: number;
 }) {
   return (
-    // `box-none`: der Rahmen zieht sich über die volle Breite und dürfte
-    // links und rechts der Pille keinen Tipp abfangen, im Player liegt
-    // darunter die Tipp-Zone, auf der Karte die Karte selbst.
-    <View style={[styles.segmentZeile, { top: oben }]} pointerEvents="box-none">
-      <Pill style={styles.segmentSpur}>
-        <SegmentHaelfte
-          label={ANSEHEN_LABEL}
-          aktiv={!aufKarte}
+    // `box-none`: the frame spans the full width and must not swallow a tap
+    // left or right of the pill, in the player the tap zone lies underneath,
+    // on the map the map itself.
+    <View style={[styles.segmentRow, { top }]} pointerEvents="box-none">
+      <Pill style={styles.segmentTrack}>
+        <SegmentHalf
+          label={VIEW_LABEL}
+          active={!onMap}
           testID="teilen-segment-ansehen"
-          onPress={onWechsel}
+          onPress={onSwitch}
         />
-        <SegmentHaelfte
-          label={KARTE_LABEL}
-          aktiv={aufKarte}
+        <SegmentHalf
+          label={MAP_LABEL}
+          active={onMap}
           testID="teilen-segment-karte"
-          onPress={onWechsel}
+          onPress={onSwitch}
         />
       </Pill>
     </View>
   );
 }
 
-export default function GeteilterRecapScreen() {
+export default function SharedRecapScreen() {
   const { token } = useLocalSearchParams<{ token: string }>();
 
-  const [phase, setPhase] = useState<LadePhase>('laedt');
-  const [fehlerText, setFehlerText] = useState<string | null>(null);
-  const [reiseName, setReiseName] = useState('');
+  const [phase, setPhase] = useState<LoadPhase>('loading');
+  const [errorText, setErrorText] = useState<string | null>(null);
+  const [tripName, setTripName] = useState('');
   const [startDate, setStartDate] = useState('');
-  // Wie viele Momente die Function gar nicht herausgeben konnte, siehe
-  // `ausgelassenText`.
-  const [ausgelassen, setAusgelassen] = useState(0);
-  // Referenzstabil ab dem Moment, in dem laden() sie einmal setzt, tagWechselt
-  // memoisiert über die ARRAY-REFERENZ, nicht über Inhalt/Länge (gleicher
-  // Vertrag wie im nativen Player, playerLogic.ts).
-  const [spielliste, setSpielliste] = useState<RecapMoment[]>([]);
-  const [urls, setUrls] = useState<Map<string, MedienLink>>(new Map());
-  const [stand, setStand] = useState<PlayerState>({ index: 0, pausiert: new Set(), fortschritt: 0 });
-  const [fehlgeschlagen, setFehlgeschlagen] = useState<Set<string>>(new Set());
-  // Welche der beiden Lesarten gerade zu sehen ist (Spec §5.10). Kein
-  // `router.push`: der geteilte Recap ist EINE URL und bekommt keine zweite
-  // Route.
-  const [ansicht, setAnsicht] = useState<'player' | 'karte'>('player');
-  // Der zuletzt GEMELDETE Kartenausschnitt, oder `null` für «die Karte hat
-  // noch nichts gemeldet». Er ist die Grundlage der Gruppierung (sie rechnet
-  // in Bildschirmpunkten und braucht den aktuellen Zoom), und zugleich der
-  // Ausschnitt, mit dem die Karte beim nächsten Mal öffnet, siehe unten.
-  const [ausschnitt, setAusschnitt] = useState<Viewport | null>(null);
-  // Was das Moment-Sheet gerade zeigt, oder `null` für «keines offen». EIN
-  // Zustand für beide Fälle, weil sie dieselbe Frage beantworten («welche
-  // Momente stecken hinter dieser Nadel») und sich gegenseitig ausschliessen:
-  // ein Punkt ist der einzelne Moment (Spec §5.7), mehrere sind die Liste
-  // einer Gruppe, die sich nicht auseinanderzoomen lässt.
+  const [skipped, setSkipped] = useState(0);
+  // Reference-stable from the moment load() sets it once, dayChanges memoises
+  // over the ARRAY REFERENCE, not over content or length (the same contract
+  // as in the native player, playerLogic.ts).
+  const [playlist, setPlaylist] = useState<RecapMoment[]>([]);
+  const [urls, setUrls] = useState<Map<string, MediaLink>>(new Map());
+  const [state, setState] = useState<PlayerState>({ index: 0, paused: new Set(), progress: 0 });
+  const [failed, setFailed] = useState<Set<string>>(new Set());
+  const [view, setView] = useState<'player' | 'map'>('player');
+  // The last REPORTED map viewport, or `null` for "the map has not reported
+  // anything yet". It is the basis of the clustering (which counts in screen
+  // points and needs the current zoom), and at the same time the viewport the
+  // map opens with the next time, see below.
+  const [viewport, setViewport] = useState<Viewport | null>(null);
+  // What the moment sheet currently shows, or `null` for "none open". ONE
+  // state for both cases, because they answer the same question ("which
+  // moments sit behind this pin") and rule each other out: one point is the
+  // single moment (spec §5.7), several are the list of a cluster that cannot
+  // be zoomed apart.
   const [sheet, setSheet] = useState<MapPoint[] | null>(null);
 
-  const aktiv = useRef(true);
+  const active = useRef(true);
   const segmentStartRef = useRef(0);
-  const beruehrungStartRef = useRef(0);
-  const aktivIdRef = useRef<string | undefined>(undefined);
-  const pausiertRef = useRef<ReadonlySet<PauseReason>>(new Set());
-  // Die Segment-Zeile ist das oberste Element dieses Screens und trifft damit
-  // als erstes die Dynamic Island. `spacing.xl` war der bisherige feste
-  // Abstand des Player-Kopfs; `useOberkante` lässt ihn stehen, wo er reicht,
-  // und weicht nur dort aus, wo das Gerät mehr wegnimmt.
-  const oben = useTopInset(spacing.xl);
-  const karte = useRef<MapSurfaceHandle>(null);
-  // Der letzte Zoom-Versuch auf eine Gruppe, die Grundlage dafür, ob ein
-  // weiterer noch etwas ausrichtet (features/karte/gruppenTipp.ts). Ein Ref
-  // und kein State: der Wert ändert nichts am Bild, er beantwortet nur die
-  // nächste Frage.
-  const letzterZoom = useRef<ZoomAttempt | null>(null);
+  const touchStartRef = useRef(0);
+  const activeIdRef = useRef<string | undefined>(undefined);
+  const pausedRef = useRef<ReadonlySet<PauseReason>>(new Set());
+  // The segment row is the topmost element of this screen and therefore the
+  // first to meet the Dynamic Island. `spacing.xl` was the player header's
+  // previous fixed distance; `useTopInset` leaves it standing where it is
+  // enough and only gives way where the device takes more.
+  const top = useTopInset(spacing.xl);
+  const map = useRef<MapSurfaceHandle>(null);
+  // The last zoom attempt on a cluster, the basis for whether another one
+  // still achieves anything (features/map/clusterTap.ts). A ref and not
+  // state: the value changes nothing on screen, it only answers the next
+  // question.
+  const lastZoom = useRef<ZoomAttempt | null>(null);
 
   const reducedMotion = useReducedMotion();
-  // Die Fläche, auf der gruppiert wird: die Karte liegt als absoluteFill über
-  // dem ganzen Screen, das Fenster ist also ihr Mass (gleiche Überlegung wie
-  // in recap/[id]/karte.tsx).
-  const { width: breite, height: hoehe } = useWindowDimensions();
+  // The surface the clustering happens on: the map lies as an absoluteFill
+  // over the whole screen, so the window is its measure (the same reasoning
+  // as in recap/[id]/map.tsx).
+  const { width, height } = useWindowDimensions();
 
-  const laden = useCallback(async () => {
-    setPhase('laedt');
-    setFehlerText(null);
-    // Alles, was zur VORHERIGEN Auflösung gehört, geht hier weg. Der Screen
-    // bleibt bei einem Wechsel des Tokens gemountet (dieselbe Route, anderer
-    // Parameter), und ein stehen gebliebenes Sheet trüge danach einen Moment
-    // der vorherigen Reise, sein Knopf setzte den Player auf einen Index,
-    // der in der neuen Reise auf einen ganz anderen Moment zeigt. Sichtbar
-    // wäre das ohnehin nicht (die Phase steht ab dieser Zeile auf 'laedt',
-    // und die zeigt nur den Ladeindikator), der Zustand soll trotzdem
-    // eindeutig sein, statt an der Reihenfolge der Zweige unten zu hängen.
-    setAnsicht('player');
+  const load = useCallback(async () => {
+    setPhase('loading');
+    setErrorText(null);
+    // Everything belonging to the PREVIOUS resolution goes away here. The
+    // screen stays mounted when the token changes (same route, different
+    // parameter), and a sheet left standing would afterwards carry a moment
+    // of the previous trip, its button setting the player to an index that
+    // points at a completely different moment in the new trip.
+    setView('player');
     setSheet(null);
-    setAusschnitt(null);
-    setAusgelassen(0);
-    letzterZoom.current = null;
+    setViewport(null);
+    setSkipped(0);
+    lastZoom.current = null;
     const { data, error } = await resolveToken(token);
-    if (!aktiv.current) return;
+    if (!active.current) return;
 
     if (error || !data) {
-      setFehlerText(error ?? DEAD_LINK_TEXT);
-      setPhase('fehler');
+      setErrorText(error ?? DEAD_LINK_TEXT);
+      setPhase('error');
       return;
     }
 
-    const liste = sortMoments(data.medien.map(zuRecapMoment));
-    const urlMap = new Map<string, MedienLink>(
+    const list = sortMoments(data.medien.map(toRecapMoment));
+    const urlMap = new Map<string, MediaLink>(
       data.medien.map((m) => [m.post_id, { medium_url: m.medium_url, thumb_url: m.thumb_url }])
     );
-    setReiseName(data.reise.name);
+    setTripName(data.reise.name);
     setStartDate(data.reise.start_date);
-    setAusgelassen(data.ausgelassen);
+    setSkipped(data.ausgelassen);
     setUrls(urlMap);
-    setSpielliste(liste);
-    setFehlgeschlagen(new Set());
+    setPlaylist(list);
+    setFailed(new Set());
 
-    if (liste.length === 0) {
-      setPhase('leer');
+    if (list.length === 0) {
+      setPhase('empty');
       return;
     }
-    setStand({ index: 0, pausiert: new Set(), fortschritt: 0 });
-    setPhase('bereit');
+    setState({ index: 0, paused: new Set(), progress: 0 });
+    setPhase('ready');
   }, [token]);
 
   useEffect(() => {
-    aktiv.current = true;
-    void laden();
+    active.current = true;
+    void load();
     return () => {
-      aktiv.current = false;
+      active.current = false;
     };
-  }, [laden]);
+  }, [load]);
 
-  // Die Statusleiste folgt der Ansicht, nicht dem Screen.
-  //
-  // Der Player ist ein Medien-Screen und damit Kino (DESIGN-LANGUAGE v2 §1),
-  // helle Schrift. Die Karte ist es nicht: unter der Statusleiste liegen dann
-  // Kartenkacheln, und die sind hell (Spec §5.3). Eine hell gelassene Uhrzeit
-  // wäre dort schlicht nicht mehr zu lesen. Kein useFocusEffect nötig, es
-  // gibt keine Geschwister-Route, zu der man zurückkehren könnte (siehe
-  // Kopf-Kommentar).
+  // No useFocusEffect needed: there is no sibling route this screen could be
+  // returned to (see the file header).
   useEffect(() => {
-    setStatusBarStyle(ansicht === 'karte' ? 'dark' : 'light');
-  }, [ansicht]);
+    setStatusBarStyle(view === 'map' ? 'dark' : 'light');
+  }, [view]);
 
-  const aktivMoment = spielliste[stand.index];
-  aktivIdRef.current = aktivMoment?.id;
-  const zwischenkarte = stand.pausiert.has('zwischenkarte');
-  const gestoppt = stand.pausiert.size > 0;
-  pausiertRef.current = stand.pausiert;
+  const activeMoment = playlist[state.index];
+  activeIdRef.current = activeMoment?.id;
+  const interstitial = state.paused.has('zwischenkarte');
+  const paused = state.paused.size > 0;
+  pausedRef.current = state.paused;
 
-  const tage = useMemo(() => groupByDays(spielliste, startDate), [spielliste, startDate]);
-  const aktuellerTag = useMemo(() => {
-    if (!aktivMoment) return null;
-    return tage.find((t) => t.momente.some((m) => m.id === aktivMoment.id)) ?? null;
-  }, [tage, aktivMoment]);
+  const days = useMemo(() => groupByDays(playlist, startDate), [playlist, startDate]);
+  const currentDay = useMemo(() => {
+    if (!activeMoment) return null;
+    return days.find((d) => d.moments.some((m) => m.id === activeMoment.id)) ?? null;
+  }, [days, activeMoment]);
 
   // -------------------------------------------------------------------------
-  // Die Karte (Spec §5.10)
+  // The map (spec §5.10)
   // -------------------------------------------------------------------------
 
-  // Nadeln und Nicht-Nadeln, aus GENAU DER LISTE, die der Player spielt.
-  //
-  // Das ist die eine Stelle, an der ein Fehler still bliebe: `punkt.index`
-  // zählt in die Liste, die `zuKartenPunkten` hereinbekommt (typen.ts), und
-  // genau dieser Wert setzt unten den Index des geteilten Players. `spielliste`
-  // ist diese Liste, sie IST der Player (`spielliste[stand.index]` oben).
-  // Eine andere Liste hereinzugeben (etwa `data.medien` in Antwortreihenfolge)
-  // liesse die Nadeln weiterhin auf ihren Koordinaten sitzen, und der Sprung
-  // landete beim falschen Moment; auffallen würde das nur beim Nachzählen.
-  //
-  // `zuKartenPunkten` sortiert selbst noch einmal über `sortiereMomente`,
-  // dieselbe totale Ordnung, mit der `laden()` die Spielliste gebaut hat
-  // (captured_at, id als zweites Kriterium). Zweimal angewandt kommt
-  // zwangsläufig dieselbe Reihenfolge heraus, die Indizes zeigen also
-  // nachweislich in die Spielliste.
-  const { points, withoutPlace } = useMemo(() => toMapPoints(spielliste), [spielliste]);
+  const { points, withoutPlace } = useMemo(() => toMapPoints(playlist), [playlist]);
 
-  // Der Ausschnitt, in dem ALLE Momente mit Ort zu sehen sind (Spec K2),
-  // `null`, wenn keiner einen hat. Genau daran hängt, ob es die Karte
-  // überhaupt gibt.
-  const startAusschnitt = useMemo(() => viewportFor(points), [points]);
+  const startViewport = useMemo(() => viewportFor(points), [points]);
 
-  // Womit die Karte öffnet UND worauf gruppiert wird.
+  // What the map opens with AND what the clustering runs on.
   //
-  // Die Fläche wird beim Umschalten auf den Player ABGEBAUT und beim
-  // Zurückschalten neu gemountet, nicht bloss versteckt. Zwei Gründe:
+  // The surface is TORN DOWN when switching to the player and mounted anew
+  // when switching back, not merely hidden. Two reasons:
   //
-  // - `initialerAusschnitt` wirkt nur beim Mounten (typen.ts). Eine dauerhaft
-  //   gemountete Fläche müsste ihre Kamera über `zeige` nachgeführt bekommen;
-  //   so fallen «wann die Karte sichtbar wird» und «wann der Ausschnitt gilt»
-  //   von selbst zusammen, und es gibt keinen zweiten Weg, auf dem die Kamera
-  //   gesetzt wird.
-  // - Im Browser baut Leaflet die Karte in einen DOM-Knoten und rechnet den
-  //   Zoom aus dessen GRÖSSE (`fitBounds` → `getBoundsZoom`,
-  //   KartenFlaeche.web.tsx). Eine versteckte Fläche hat die Grösse 0 × 0, und
-  //   die Fassung ruft nirgends `invalidateSize()`, «gemountet, aber
-  //   unsichtbar» ist dort also gar keine Möglichkeit, sondern eine Karte, die
-  //   auf einer sinnlosen Zoomstufe aufgeht.
+  // - `initialViewport` only takes effect on mount (types.ts). A permanently
+  //   mounted surface would have to have its camera dragged along via
+  //   `flyTo`; this way "when the map becomes visible" and "when the viewport
+  //   applies" fall together by themselves, and there is no second path along
+  //   which the camera gets set.
+  // - In the browser Leaflet builds the map into a DOM node and derives the
+  //   zoom from its SIZE (`fitBounds` to `getBoundsZoom`, MapSurface.web.tsx).
+  //   A hidden surface has the size 0 × 0, and the wrapper calls
+  //   `invalidateSize()` nowhere, so "mounted but invisible" is not even a
+  //   possibility over there but a map that opens on a meaningless zoom level.
   //
-  // Damit die Karte beim Zurückschalten trotzdem nicht in die Ausgangslage
-  // zurückspringt, öffnet sie mit dem zuletzt gemeldeten Ausschnitt. Beim
-  // ersten Mal gibt es keinen, dann zeigt sie alles.
-  const sichtbarerAusschnitt = ausschnitt ?? startAusschnitt;
+  // So that the map still does not jump back to its starting position when
+  // switching back, it opens with the last reported viewport. The first time
+  // there is none, then it shows everything.
+  const visibleViewport = viewport ?? startViewport;
 
-  // Die Reise als Linie (Spec K3/§5.6). `punkte` kommt aus `zuKartenPunkten`
-  // bereits nach `captured_at` sortiert, hier wird bewusst NICHT noch einmal
-  // sortiert: die Linie zeigt, in welcher Reihenfolge aufgenommen wurde, nie,
-  // in welcher hochgeladen wurde.
-  const linie = useMemo(
+  const line = useMemo(
     () => points.map((p) => ({ latitude: p.lat, longitude: p.lng })),
     [points]
   );
 
-  // Nadeln, die einander sonst verdecken, teilen sich eine (Spec §5.5).
-  // Gruppiert wird nach dem Abstand auf DEM GERADE SICHTBAREN Ausschnitt,
-  // beim Hineinzoomen fällt eine Gruppe damit von selbst auseinander.
-  const gruppen = useMemo(
-    () => (sichtbarerAusschnitt ? cluster(points, sichtbarerAusschnitt, breite, hoehe) : []),
-    [points, sichtbarerAusschnitt, breite, hoehe]
+  const clusters = useMemo(
+    () => (visibleViewport ? cluster(points, visibleViewport, width, height) : []),
+    [points, visibleViewport, width, height]
   );
 
-  // Das Bild einer Nadel, als Nachschlagefunktion statt als fertige Liste:
-  // die Fläche fragt für den Anker jeder Gruppe nach, und welche Gruppen es
-  // gibt, weiss sie selbst besser als dieser Screen.
-  const thumbFuer = useCallback((postId: string) => pinImageUrl(urls, postId), [urls]);
+  // A pin's image, as a lookup function instead of a finished list: the
+  // surface asks for the anchor of each cluster, and which clusters there are
+  // it knows better than this screen does.
+  const thumbFor = useCallback((postId: string) => pinImageUrl(urls, postId), [urls]);
 
-  const merkeAusschnitt = useCallback((sichtbar: Viewport) => setAusschnitt(sichtbar), []);
+  const rememberViewport = useCallback((visible: Viewport) => setViewport(visible), []);
 
-  // Die Kamera bewegt DIE FLÄCHE, nicht dieser Screen. Dort sitzt auch die
-  // Reduced-Motion-Weiche, sie gehört zur Technik der jeweiligen Karte
-  // (animateToRegion/setRegion nativ, flyTo/setView im Browser).
-  const zeige = useCallback((ziel: Viewport) => karte.current?.flyTo(ziel), []);
+  // The camera is moved by THE SURFACE, not by this screen. The reduced
+  // motion switch sits there too, it belongs to the technique of the
+  // respective map (animateToRegion/setRegion natively, flyTo/setView in the
+  // browser).
+  const show = useCallback((target: Viewport) => map.current?.flyTo(target), []);
 
-  // Was ein Tipp auf eine Gruppe zusätzlich wissen muss, in einem Ref statt
-  // in den Abhängigkeiten von `aufGruppe`. Hinge die Funktion am Ausschnitt,
-  // bekäme jede Nadel bei JEDER Kartenbewegung ein neues `onPress`, und das
-  // `memo` am Marker (KartenNadel.tsx) wäre wirkungslos.
+  // What a tap on a cluster additionally needs to know, in a ref instead of
+  // in the dependencies of `onCluster`. If the function hung on the viewport,
+  // every pin would get a new `onPress` on EVERY map movement, and the `memo`
+  // on the marker (components/MapPin.tsx) would have no effect.
   //
-  // `useLayoutEffect`, nicht `useEffect`: ein passiver Effekt läuft erst NACH
-  // dem Commit, und in dem Fenster dazwischen läse ein Tipp noch den alten
-  // Stand, die Karte kommt aus einer Fahrt, und der Tipp auf die eben
-  // erschienene Nadel rechnete mit dem Zoom von davor.
-  const kartenStand = useRef<Viewport | null>(sichtbarerAusschnitt);
+  // `useLayoutEffect`, not `useEffect`: a passive effect only runs AFTER the
+  // commit, and in that window a tap would still read the old state, the map
+  // coming out of a flight and the tap on the pin that just appeared counting
+  // with the zoom from before.
+  const mapState = useRef<Viewport | null>(visibleViewport);
   useLayoutEffect(() => {
-    kartenStand.current = sichtbarerAusschnitt;
-  }, [sichtbarerAusschnitt]);
+    mapState.current = visibleViewport;
+  }, [visibleViewport]);
 
-  // Ein Tipp auf eine Gruppe fährt in sie hinein, solange das etwas ausrichtet
-  // (Spec §5.5): wer auf der Karte sucht, will die Karte benutzen. Erst wo
-  // Zoomen nichts mehr bringt, eine einzelne Nadel, oder mehrere Momente auf
-  // exakt derselben Koordinate, öffnet sich das Sheet. Wortgleich zu
-  // recap/[id]/karte.tsx, samt der Begründung dort.
-  const aufGruppe = useCallback(
-    (gruppe: Cluster) => {
-      const sichtbar = kartenStand.current;
+  const onCluster = useCallback(
+    (tappedCluster: Cluster) => {
+      const visible = mapState.current;
 
-      // Unerreichbar, aber für den Typ nötig: `gruppen` wird nur berechnet,
-      // wenn der Ausschnitt steht, ohne ihn gäbe es gar keine Nadel.
-      if (!sichtbar) return;
+      // Unreachable, but needed for the type: `clusters` is only calculated
+      // when the viewport stands, without it there would be no pin at all.
+      if (!visible) return;
 
-      // Die Entscheidung «zoomen oder Sheet» liegt in
-      // features/karte/gruppenTipp.ts, gemeinsam mit dem Kartenscreen der App,
-      // samt der Begründung, warum bitgleiche Koordinaten dafür nicht
-      // reichen: die Karte hat eine letzte Zoomstufe, und drei bis acht Meter
-      // GPS-Versatz trennt sie dort nicht mehr.
-      if (zoomExhausted(gruppe, sichtbar, letzterZoom.current)) {
-        setSheet(gruppe.points);
+      // The decision "zoom or sheet" lives in features/map/clusterTap.ts,
+      // shared with the app's map screen, together with the reasoning there
+      // for why bit-identical coordinates are not enough for it: the map has
+      // a last zoom level, and three to eight metres of GPS offset no longer
+      // separate them there.
+      if (zoomExhausted(tappedCluster, visible, lastZoom.current)) {
+        setSheet(tappedCluster.points);
         return;
       }
 
-      const ziel = zoomTarget(gruppe, sichtbar);
-      // Unerreichbar (eine Gruppe hat mindestens einen Punkt), aber der Typ
-      // von `ausschnittFuer` verlangt die Behandlung.
-      if (!ziel) return;
+      const target = zoomTarget(tappedCluster, visible);
+      // Unreachable (a cluster has at least one point), but the type of
+      // `zoomTarget` (it passes `viewportFor`'s `null` through) demands the
+      // handling.
+      if (!target) return;
 
-      // Was diese Fahrt VERSUCHT hat, die Grundlage der Antwort beim nächsten
-      // Tipp auf dieselbe Gruppe.
-      letzterZoom.current = { anchorId: gruppe.anchor.moment.id, before: sichtbar };
+      lastZoom.current = { anchorId: tappedCluster.anchor.moment.id, before: visible };
 
-      // DESIGN-LANGUAGE §5 nennt für «Zoom» selection-Haptik. `.catch`, weil
-      // ein abgelehntes Promise aus einem nativen Modul sonst als unbehandelte
-      // Ablehnung zählt, im Browser gibt es keine Haptik, dort ist der Aufruf
-      // ein No-Op.
+      // DESIGN-LANGUAGE §5 names selection haptics for "zoom". `.catch`,
+      // because a rejected promise from a native module would otherwise count
+      // as an unhandled rejection; in the browser there is no haptics, the
+      // call is a no-op there.
       void Haptics.selectionAsync().catch(() => {});
 
-      zeige(ziel);
+      show(target);
     },
-    [zeige]
+    [show]
   );
 
-  // Was der Tipp auf diese Gruppe tun WIRD, für die Beschriftung, die
-  // VoiceOver vorliest. Dieselbe Frage und dieselbe Antwort wie oben, nur ohne
-  // die Folgen; wortgleich zu recap/[id]/karte.tsx, samt der Begründung dort,
-  // warum die Fläche das nicht selbst rechnen kann und warum der Ausschnitt
-  // hier NICHT aus `kartenStand` kommt: diese Frage wird beim Rendern
-  // gestellt, das Ref zieht erst im Layout-Effekt danach nach.
-  const oeffnetSheet = useCallback(
-    (gruppe: Cluster) => {
-      if (!sichtbarerAusschnitt) return false;
-      return zoomExhausted(gruppe, sichtbarerAusschnitt, letzterZoom.current);
+  // What a tap on this cluster WILL do, for the label VoiceOver reads out.
+  // The same question and the same answer as above, only without the
+  // consequences; worded exactly as in recap/[id]/map.tsx, together with the
+  // reasoning there for why the surface cannot calculate this itself and why
+  // the viewport here does NOT come from `mapState`: this question is asked
+  // while rendering, the ref only catches up in the layout effect afterwards.
+  const opensSheet = useCallback(
+    (tappedCluster: Cluster) => {
+      if (!visibleViewport) return false;
+      return zoomExhausted(tappedCluster, visibleViewport, lastZoom.current);
     },
-    [sichtbarerAusschnitt]
+    [visibleViewport]
   );
 
-  // «Ab hier ansehen» (Spec §5.10). KEIN `router.push`: der geteilte Recap ist
-  // EINE URL, der Player steht auf demselben Screen, der Sprung setzt also
-  // seinen Index und schaltet die Ansicht um.
-  //
-  // Das Sheet geht dabei zu, anders als in der App: dort schiebt sich der
-  // Player als eigene Route darüber und das offene Sheet bleibt für den
-  // Rückweg stehen. Hier läge es über dem Player, den es gerade gestartet hat.
-  //
-  // `eintrag.index` zählt über die SPIELLISTE (siehe `punkte` oben), nie die
-  // Stelle innerhalb von `punkte` (die überspringt jeden Moment ohne Ort) und
-  // nie die innerhalb der Gruppe: beide sässen scheinbar richtig und starteten
-  // den Player beim falschen Moment.
-  const abHier = useCallback((eintrag: MapPoint) => {
-    setStand({ index: eintrag.index, pausiert: new Set(), fortschritt: 0 });
-    // Auch aus der Ende-Phase heraus: die Karte ist von dort erreichbar, und
-    // «Ab hier ansehen» soll dann wieder abspielen, nicht auf dem Abspann
-    // stehen bleiben.
-    setPhase('bereit');
+  // "Ab hier ansehen" (spec §5.10). The sheet closes on the way, unlike in
+  // the app: there the player pushes itself over it as its own route and the
+  // open sheet stays for the way back. Here it would lie on top of the player
+  // it has just started.
+  const viewFromHere = useCallback((entry: MapPoint) => {
+    setState({ index: entry.index, paused: new Set(), progress: 0 });
+    setPhase('ready');
     setSheet(null);
-    setAnsicht('player');
+    setView('player');
   }, []);
 
-  // Der Wechsel zwischen den beiden Lesarten, beide Richtungen über EINE
-  // Stelle, und zwar wegen des Sheets.
-  //
-  // Die Segment-Zeile liegt per zIndex ÜBER dem Sheet und ist damit auch dann
-  // antippbar, wenn ein Moment-Sheet offen steht (das ist gewollt: der Weg
-  // zurück in den Player darf von nichts verdeckt werden). Räumte «Ansehen»
-  // das Sheet nicht mit ab, öffnete die Karte beim nächsten Mal mit einem
-  // Sheet, das niemand angetippt hat, mit `abHier` gab es diesen Weg schon,
-  // über die Segment-Zeile blieb er offen.
-  const wechsleAnsicht = useCallback((ziel: 'player' | 'karte') => {
+  const switchView = useCallback((target: 'player' | 'map') => {
     setSheet(null);
-    setAnsicht(ziel);
+    setView(target);
   }, []);
 
-  // Ob es die Karte auf dieser Seite überhaupt gibt (Spec K9): ohne einen
-  // einzigen Ort führte der Einstieg auf eine leere Fläche über dem Atlantik.
-  // Anders als in der App braucht es dafür keinen erklärenden Leer-Screen,
-  // der Einstieg entsteht schlicht nicht, und der Player steht ungestört da.
-  const kannKarte = sichtbarerAusschnitt !== null;
+  // Whether this page has a map at all (spec K9). Unlike in the app it needs
+  // no explanatory empty screen for that, the entrance simply does not come
+  // into being, and the player stands there undisturbed.
+  const hasMap = visibleViewport !== null;
 
-  const weiterAutomatisch = useCallback(() => {
-    const ergebnis = advance(stand, spielliste.length);
-    if (ergebnis === 'ende') {
-      setPhase('ende');
+  const advanceAutomatically = useCallback(() => {
+    const result = advance(state, playlist.length);
+    if (result === 'ende') {
+      setPhase('end');
       return;
     }
-    // Ein echter Indexwechsel: 'halten' gehört zum VERLASSENEN Moment und
-    // darf den neuen nicht blockieren (gleicher Vertrag wie im nativen
-    // Player). 'zwischenkarte' bleibt unangetastet, der eigene Effekt
-    // unten (Deps u.a. stand.index) verwaltet sie selbst.
-    setStand({ ...ergebnis, pausiert: withoutReason(ergebnis.pausiert, 'halten') });
-  }, [stand, spielliste.length]);
-  const weiterAutomatischRef = useRef(weiterAutomatisch);
-  weiterAutomatischRef.current = weiterAutomatisch;
+    // A real index change: 'halten' belongs to the moment being LEFT and must
+    // not block the new one (the same contract as in the native player).
+    // 'zwischenkarte' stays untouched, the effect below (deps include
+    // state.index) manages it itself.
+    setState({ ...result, paused: withoutReason(result.paused, 'halten') });
+  }, [state, playlist.length]);
+  const advanceAutomaticallyRef = useRef(advanceAutomatically);
+  advanceAutomaticallyRef.current = advanceAutomatically;
 
-  const videoZuEnde = useCallback((postId: string) => {
-    if (aktivIdRef.current !== postId) return;
-    if (blocksAutoAdvance(pausiertRef.current)) return;
-    weiterAutomatischRef.current();
+  const onVideoEnded = useCallback((postId: string) => {
+    if (activeIdRef.current !== postId) return;
+    if (blocksAutoAdvance(pausedRef.current)) return;
+    advanceAutomaticallyRef.current();
   }, []);
 
-  // Auto-Vorschub: EIN Timer für Fotos UND Videos (dauerFuer liefert für
-  // beide eine sinnvolle Dauer), für ein Video zugleich der Rückfall, falls
-  // es nie lädt.
-  //
-  // `ansicht` steht in der Bedingung, seit der Screen die Karte trägt: der
-  // Player bleibt beim Umschalten als ZUSTAND bestehen (nur seine Ansicht ist
-  // weg), und ohne diese Zeile liefe die Story hinter der offenen Karte
-  // weiter. Wer eine halbe Minute auf der Karte sucht, käme auf «Ansehen»
-  // sechs Momente später wieder heraus, oder im Abspann.
+  // ONE timer for photos AND videos (durationFor delivers a sensible duration
+  // for both), for a video at the same time the fallback in case it never
+  // loads.
   useEffect(() => {
-    if (phase !== 'bereit' || ansicht !== 'player' || stand.pausiert.size > 0) return;
-    const moment = spielliste[stand.index];
+    if (phase !== 'ready' || view !== 'player' || state.paused.size > 0) return;
+    const moment = playlist[state.index];
     if (!moment) return;
-    const dauer = durationFor(moment);
-    const rest = Math.max(0, dauer - stand.fortschritt);
-    segmentStartRef.current = Date.now() - stand.fortschritt;
-    const timer = setTimeout(() => weiterAutomatischRef.current(), rest);
+    const duration = durationFor(moment);
+    const rest = Math.max(0, duration - state.progress);
+    segmentStartRef.current = Date.now() - state.progress;
+    const timer = setTimeout(() => advanceAutomaticallyRef.current(), rest);
     return () => clearTimeout(timer);
-  }, [phase, ansicht, stand.pausiert, stand.index, stand.fortschritt, spielliste]);
+  }, [phase, view, state.paused, state.index, state.progress, playlist]);
 
-  // Tages-Zwischenkarte: erscheint VOR dem ersten Moment eines neuen Tages
-  // und steht 1,5 s, bevor sie selbst weiterschaltet.
+  // `view` sits in the dependencies although the effect reads it nowhere, and
+  // that is not sloppiness but the assurance itself: the day announcement is
+  // an announcement of the PLAYER. So the effect runs anew on every change of
+  // view and begins the one and a half seconds from the start.
   //
-  // `ansicht` steht in den Abhängigkeiten, obwohl der Effekt sie nirgends
-  // liest, und das ist keine Nachlässigkeit, sondern die Zusicherung selbst:
-  // die Ansage ist eine Ansage des PLAYERS. Läuft ihre Frist ab, während die
-  // Karte offen ist, wäre der Tag beim Zurückkommen bereits angesagt, ohne
-  // dass ihn jemand gelesen hat. So läuft der Effekt bei jedem Wechsel der
-  // Ansicht neu und beginnt die anderthalb Sekunden von vorn.
-  //
-  // Ein zusätzliches `ansicht !== 'player'` im Rumpf stand hier kurz und ist
-  // wieder rausgeflogen: es war nachweislich nicht zu beobachten (der Effekt
-  // baut den Stand beim Zurückkommen ohnehin neu auf), genau die Art
-  // Bedingung, die später niemand mehr prüfen kann.
+  // An additional `view !== 'player'` in the body stood here briefly and flew
+  // out again: it was demonstrably not observable (the effect rebuilds the
+  // state on the way back anyway), exactly the kind of condition nobody can
+  // check later.
   useEffect(() => {
-    if (phase !== 'bereit') return;
-    if (!dayChanges(spielliste, startDate, stand.index)) {
-      setStand((s) => (s.pausiert.has('zwischenkarte') ? { ...s, pausiert: withoutReason(s.pausiert, 'zwischenkarte') } : s));
+    if (phase !== 'ready') return;
+    if (!dayChanges(playlist, startDate, state.index)) {
+      setState((s) => (s.paused.has('zwischenkarte') ? { ...s, paused: withoutReason(s.paused, 'zwischenkarte') } : s));
       return;
     }
-    setStand((s) => ({ ...s, pausiert: withReason(s.pausiert, 'zwischenkarte') }));
+    setState((s) => ({ ...s, paused: withReason(s.paused, 'zwischenkarte') }));
     const timer = setTimeout(() => {
-      setStand((s) => ({ ...s, pausiert: withoutReason(s.pausiert, 'zwischenkarte') }));
-    }, ZWISCHENKARTE_DAUER_MS);
+      setState((s) => ({ ...s, paused: withoutReason(s.paused, 'zwischenkarte') }));
+    }, INTERSTITIAL_DURATION_MS);
     return () => clearTimeout(timer);
-  }, [phase, ansicht, spielliste, startDate, stand.index]);
+  }, [phase, view, playlist, startDate, state.index]);
 
-  // Vorladen der nächsten drei Fotos (Videos werden nicht vorgeladen, wie im
-  // nativen Player, expo-video puffert selbst beim Mounten).
   useEffect(() => {
-    if (phase !== 'bereit') return;
-    const kommendeUrls = spielliste
-      .slice(stand.index + 1, stand.index + 1 + VORLADEN_ANZAHL)
+    if (phase !== 'ready') return;
+    const upcomingUrls = playlist
+      .slice(state.index + 1, state.index + 1 + PRELOAD_COUNT)
       .filter((m) => m.type === 'photo')
       .map((m) => urls.get(m.id)?.medium_url)
       .filter((u): u is string => !!u);
-    if (kommendeUrls.length > 0) void Image.prefetch(kommendeUrls);
-  }, [phase, stand.index, spielliste, urls]);
+    if (upcomingUrls.length > 0) void Image.prefetch(upcomingUrls);
+  }, [phase, state.index, playlist, urls]);
 
-  const ueberspringen = () => {
-    setStand((s) => ({ ...s, pausiert: withoutReason(s.pausiert, 'zwischenkarte') }));
+  const skipInterstitial = () => {
+    setState((s) => ({ ...s, paused: withoutReason(s.paused, 'zwischenkarte') }));
   };
 
-  const beiLadefehler = useCallback((postId: string) => {
-    if (aktivIdRef.current !== postId) return;
-    setFehlgeschlagen((s) => new Set(s).add(postId));
+  const onLoadError = useCallback((postId: string) => {
+    if (activeIdRef.current !== postId) return;
+    setFailed((s) => new Set(s).add(postId));
   }, []);
 
   const onPressIn = () => {
-    beruehrungStartRef.current = Date.now();
-    const moment = spielliste[stand.index];
+    touchStartRef.current = Date.now();
+    const moment = playlist[state.index];
     if (!moment) return;
-    const dauer = durationFor(moment);
-    const vergangen = Math.min(dauer, Math.max(0, Date.now() - segmentStartRef.current));
-    setStand((s) => ({ ...s, pausiert: withReason(s.pausiert, 'halten'), fortschritt: vergangen }));
+    const duration = durationFor(moment);
+    const elapsed = Math.min(duration, Math.max(0, Date.now() - segmentStartRef.current));
+    setState((s) => ({ ...s, paused: withReason(s.paused, 'halten'), progress: elapsed }));
   };
 
-  const beendeBeruehrung = (seite: 'links' | 'rechts') => {
-    const gehalten = Date.now() - beruehrungStartRef.current;
-    if (gehalten < TAP_SCHWELLE_MS) {
-      if (seite === 'rechts') {
-        const ergebnis = advance(stand, spielliste.length);
-        if (ergebnis === 'ende') {
-          setPhase('ende');
+  const endTouch = (side: 'left' | 'right') => {
+    const held = Date.now() - touchStartRef.current;
+    if (held < TAP_THRESHOLD_MS) {
+      if (side === 'right') {
+        const result = advance(state, playlist.length);
+        if (result === 'ende') {
+          setPhase('end');
           return;
         }
-        setStand({ ...ergebnis, pausiert: withoutReason(ergebnis.pausiert, 'halten') });
+        setState({ ...result, paused: withoutReason(result.paused, 'halten') });
         return;
       }
-      const ergebnisZurueck = goBack(stand);
-      setStand({ ...ergebnisZurueck, pausiert: withoutReason(ergebnisZurueck.pausiert, 'halten') });
+      const backResult = goBack(state);
+      setState({ ...backResult, paused: withoutReason(backResult.paused, 'halten') });
       return;
     }
-    // Halten, dann losgelassen: fortsetzen, nicht zum nächsten Moment springen.
-    setStand((s) => ({ ...s, pausiert: withoutReason(s.pausiert, 'halten') }));
+    setState((s) => ({ ...s, paused: withoutReason(s.paused, 'halten') }));
   };
 
-  const nochmalAnsehen = () => {
-    setStand({ index: 0, pausiert: new Set(), fortschritt: 0 });
-    setPhase('bereit');
+  const watchAgain = () => {
+    setState({ index: 0, paused: new Set(), progress: 0 });
+    setPhase('ready');
   };
 
-  if (phase === 'laedt') {
+  if (phase === 'loading') {
     return (
       <View testID="teilen-laedt" style={styles.screen}>
         <ActivityIndicator color={cinema['text-1']} />
@@ -867,96 +771,82 @@ export default function GeteilterRecapScreen() {
     );
   }
 
-  if (phase === 'fehler') {
+  if (phase === 'error') {
     return (
-      <View testID="teilen-fehler" style={[styles.screen, styles.mitte]}>
-        <Text style={[type.h2, styles.zentrierterText]}>{fehlerText}</Text>
+      <View testID="teilen-fehler" style={[styles.screen, styles.center]}>
+        <Text style={[type.h2, styles.centeredText]}>{errorText}</Text>
         <View style={{ marginTop: spacing.xl }}>
-          <KinoButton label="Nochmal versuchen" onPress={() => void laden()} />
+          <CinemaButton label="Nochmal versuchen" onPress={() => void load()} />
         </View>
-        <Fussleiste />
+        <FooterBar />
       </View>
     );
   }
 
-  if (phase === 'leer') {
+  if (phase === 'empty') {
     return (
-      <View testID="teilen-leer" style={[styles.screen, styles.mitte]}>
-        <Text style={[type.h2, styles.zentrierterText]}>
-          {reiseName ? `${reiseName} ist leer geblieben.` : 'Dieser Recap ist leer geblieben.'}
+      <View testID="teilen-leer" style={[styles.screen, styles.center]}>
+        <Text style={[type.h2, styles.centeredText]}>
+          {tripName ? `${tripName} ist leer geblieben.` : 'Dieser Recap ist leer geblieben.'}
         </Text>
-        <Fussleiste />
+        <FooterBar />
       </View>
     );
   }
 
-  // Die Karte steht VOR der Ende-Phase: sie ist von dort aus erreichbar (die
-  // Segment-Zeile steht auch über dem Abspann), und wer sie öffnet, will sie
-  // sehen und nicht «Das war der Recap». `sichtbarerAusschnitt` ist die
-  // einzige Bedingung, sie ist zugleich die, die der Typ verlangt, und die,
-  // die den Einstieg überhaupt erst entstehen lässt (`kannKarte`).
-  if (ansicht === 'karte' && sichtbarerAusschnitt) {
+  if (view === 'map' && visibleViewport) {
     return (
-      // KEINE Kino-Fläche darunter: die Karte ist wie in der App ein helles
-      // Werkzeug zum Finden, kein Medien-Vollbild (Spec §5.3). Die Kacheln
-      // bringen ihre eigenen Farben mit, sie sind Inhalt wie ein Foto, nicht
-      // Interface (Entscheid R2); bindend bleibt, was DARAUF liegt.
-      <View testID="teilen-karte" style={styles.flaeche}>
+      // NO cinema surface underneath: the map is a bright tool for finding,
+      // as in the app, not a media full screen (spec §5.3). The tiles bring
+      // their own colours, they are content like a photo, not interface
+      // (decision R2); what lies ON TOP of them stays binding.
+      <View testID="teilen-karte" style={styles.surface}>
         <MapSurface
-          ref={karte}
-          initialViewport={sichtbarerAusschnitt}
-          clusters={gruppen}
-          line={linie}
-          thumbFor={thumbFuer}
-          onCluster={aufGruppe}
-          opensSheet={oeffnetSheet}
-          onViewportChange={merkeAusschnitt}
+          ref={map}
+          initialViewport={visibleViewport}
+          clusters={clusters}
+          line={line}
+          thumbFor={thumbFor}
+          onCluster={onCluster}
+          opensSheet={opensSheet}
+          onViewportChange={rememberViewport}
           reducedMotion={reducedMotion}
         />
 
-        {/* Die Momente, die keine Nadel tragen können (Spec K6). Eine Karte,
-            auf der drei Momente einfach fehlen, ohne dass es jemand erfährt,
-            lügt über die Reise.
-            Anders als in der App eine reine AUSKUNFT ohne Sheet: dort ist die
-            Karte ein eigener Screen, und ohne die Kachel-Liste wären diese
-            Momente von dort aus gar nicht zu erreichen. Hier liegt der Weg zu
-            ihnen eine Pillenbreite daneben, «Ansehen» spielt die ganze
-            Reise, diese Momente eingeschlossen. Deshalb `pointerEvents:
-            none`: die Zeile sagt etwas, sie verspricht nichts. */}
-        {(withoutPlace.length > 0 || ausgelassen > 0) && (
-          <View style={styles.leiste} pointerEvents="none">
-            {/* Zwei verschiedene Lagen, deshalb zwei Sätze: «ohne Ort» sind
-                Momente, die im Recap laufen, aber keine Nadel tragen können;
-                «ausgelassen» sind Momente, die diese Seite gar nicht bekommen
-                hat. Ohne den zweiten Satz ergäben Nadeln plus erste Zeile
-                weniger als die Reise hat, und niemand sähe warum. */}
-            {ausgelassen > 0 && (
-              <Pill testID="teilen-ausgelassen" style={styles.leistePille}>
+        {/* The moments that cannot carry a pin (spec K6). Unlike in the app a
+            pure PIECE OF INFORMATION without a sheet: there the map is a
+            screen of its own, and without the tile list those moments could
+            not be reached from it at all. Here the way to them lies one pill
+            width away, "Ansehen" plays the whole trip, those moments
+            included. Hence `pointerEvents: none`: the row says something, it
+            promises nothing. */}
+        {(withoutPlace.length > 0 || skipped > 0) && (
+          <View style={styles.bar} pointerEvents="none">
+            {skipped > 0 && (
+              <Pill testID="teilen-ausgelassen" style={styles.barPill}>
                 <Text style={[type.secondary, { color: cinema['text-1'] }]}>
-                  {ausgelassenText(ausgelassen)}
+                  {skippedText(skipped)}
                 </Text>
               </Pill>
             )}
             {withoutPlace.length > 0 && (
-              <Pill style={styles.leistePille}>
+              <Pill style={styles.barPill}>
                 <Text style={[type.secondary, { color: cinema['text-1'] }]}>
-                  {ohneOrtText(withoutPlace.length)}
+                  {withoutPlaceText(withoutPlace.length)}
                 </Text>
               </Pill>
             )}
           </View>
         )}
 
-        {/* Erst gemountet, wenn es etwas zu zeigen gibt: `Sheet` bringt seine
-            Eintrittsanimation im Effekt mit (spring-ui, DESIGN-LANGUAGE §4),
-            ein frisch gemountetes öffnet damit jedes Mal von unten. */}
+        {/* Only mounted once there is something to show: `Sheet` brings its
+            entry animation along in an effect (spring-ui, DESIGN-LANGUAGE
+            §4), so a freshly mounted one opens from below every time. */}
         {sheet !== null && (
           <Sheet
             visible
-            // Die Liste bekommt eine Überschrift, der einzelne Moment nicht:
-            // dort ist das Bild der Kopf (Spec §5.7). Mehr als ein Punkt
-            // heisst hier immer «alle auf derselben Koordinate», «an diesem
-            // Ort» ist also wörtlich wahr.
+            // The list gets a heading, the single moment does not: there the
+            // image is the header (spec §5.7).
             title={sheet.length > 1 ? `${sheet.length} Momente an diesem Ort` : undefined}
             onClose={() => setSheet(null)}
           >
@@ -965,105 +855,104 @@ export default function GeteilterRecapScreen() {
                 point={sheet[0]}
                 imageUrl={sheetImageUrl(urls, sheet[0].moment.id)}
                 form={SHEET_FORM}
-                onView={abHier}
+                onView={viewFromHere}
               />
             ) : (
               <ClusterSheetContent
                 points={sheet}
                 urls={urls}
                 form={SHEET_FORM}
-                onView={abHier}
+                onView={viewFromHere}
               />
             )}
           </Sheet>
         )}
 
-        {/* Zuletzt im Baum und mit dem höchsten zIndex: der Weg zurück in den
-            Player darf von nichts verdeckt werden. */}
-        <SegmentZeile aufKarte onWechsel={() => wechsleAnsicht('player')} oben={oben} />
+        {/* Last in the tree and with the highest zIndex: the way back into the
+            player must not be covered by anything. */}
+        <SegmentRow onMap onSwitch={() => switchView('player')} top={top} />
       </View>
     );
   }
 
-  if (phase === 'ende') {
+  if (phase === 'end') {
     return (
-      <View testID="teilen-ende" style={[styles.screen, styles.mitte]}>
-        <Text style={[type.h2, styles.zentrierterText]}>
-          {reiseName ? `Das war der Recap von „${reiseName}".` : 'Das war der Recap.'}
+      <View testID="teilen-ende" style={[styles.screen, styles.center]}>
+        <Text style={[type.h2, styles.centeredText]}>
+          {tripName ? `Das war der Recap von „${tripName}".` : 'Das war der Recap.'}
         </Text>
-        {/* «Das war der Recap» ist genau die Stelle, an der eine unvollständige
-            Filmrolle es sagen muss, sonst behauptet der Abspann etwas, was
-            nicht stimmt. */}
-        {ausgelassen > 0 && (
-          <Text style={[type.secondary, styles.zentrierterHinweis]}>{ausgelassenText(ausgelassen)}</Text>
+        {skipped > 0 && (
+          <Text style={[type.secondary, styles.centeredHint]}>{skippedText(skipped)}</Text>
         )}
         <View style={{ marginTop: spacing.xl }}>
-          <KinoButton label="Nochmal ansehen" onPress={nochmalAnsehen} />
+          <CinemaButton label="Nochmal ansehen" onPress={watchAgain} />
         </View>
-        <Fussleiste />
-        {kannKarte && (
-          <SegmentZeile aufKarte={false} onWechsel={() => wechsleAnsicht('karte')} oben={oben} />
+        <FooterBar />
+        {hasMap && (
+          <SegmentRow onMap={false} onSwitch={() => switchView('map')} top={top} />
         )}
       </View>
     );
   }
 
-  // phase === 'bereit', aktivMoment ist damit garantiert gesetzt (die Liste
-  // ist an dieser Stelle nie leer, siehe laden()).
-  if (!aktivMoment) return null;
-  const url = urls.get(aktivMoment.id);
-  const ortZeitText = aktivMoment.place_name
-    ? `${aktivMoment.place_name} · ${timeInZone(aktivMoment.captured_at, aktivMoment.captured_tz)}`
-    : timeInZone(aktivMoment.captured_at, aktivMoment.captured_tz);
+  // phase === 'ready', activeMoment is thus guaranteed to be set (the list is
+  // never empty at this point, see load()).
+  if (!activeMoment) return null;
+  const url = urls.get(activeMoment.id);
+  const placeTimeText = activeMoment.place_name
+    ? `${activeMoment.place_name} · ${timeInZone(activeMoment.captured_at, activeMoment.captured_tz)}`
+    : timeInZone(activeMoment.captured_at, activeMoment.captured_tz);
 
   return (
     <View testID="teilen-bereit" style={styles.screen}>
-      <MomentAnzeige
-        key={aktivMoment.id}
-        moment={aktivMoment}
+      <MomentView
+        key={activeMoment.id}
+        moment={activeMoment}
         url={url}
-        fehlgeschlagen={fehlgeschlagen.has(aktivMoment.id)}
-        pausiert={gestoppt}
-        onVideoEnde={() => videoZuEnde(aktivMoment.id)}
-        onFehler={() => beiLadefehler(aktivMoment.id)}
+        failed={failed.has(activeMoment.id)}
+        paused={paused}
+        onVideoEnd={() => onVideoEnded(activeMoment.id)}
+        onError={() => onLoadError(activeMoment.id)}
       />
 
-      {/* Der Kopf des PLAYERS rutscht unter die Segment-Zeile, sobald es sie
-          gibt: die Zeile gehört dem Screen und steht deshalb oben, der
-          Fortschritt und die Auskunft zum Moment gehören dem Player und
-          stehen darunter. Ohne Karte bleibt alles, wo es war. */}
+      {/* The PLAYER's header slides underneath the segment row as soon as the
+          row exists: the row belongs to the screen and therefore stands at
+          the top, the progress and the information about the moment belong to
+          the player and stand below it. Without a map everything stays where
+          it was. */}
       <View
         style={[
-          styles.kopfBereich,
-          { top: kannKarte ? oben + SEGMENT_HOEHE + spacing.base : oben },
+          styles.headerArea,
+          { top: hasMap ? top + SEGMENT_HEIGHT + spacing.base : top },
         ]}
         pointerEvents="none"
       >
         <ProgressBar
-          count={spielliste.length}
-          activeIndex={stand.index}
-          durationMs={durationFor(aktivMoment)}
-          elapsedMs={stand.fortschritt}
-          paused={gestoppt}
+          count={playlist.length}
+          activeIndex={state.index}
+          durationMs={durationFor(activeMoment)}
+          elapsedMs={state.progress}
+          paused={paused}
         />
-        <View style={styles.kopfReihe}>
-          <Pill style={styles.namePille}>
-            {/* 32 statt Avatars Default 36: unteres Ende der DESIGN-LANGUAGE-§4-
-                Spanne (32–44 px), passend zur kompakten Kopf-Pille — dieselbe
-                Grösse wie im nativen Player (player.tsx), dieselbe Grösse, die
-                die gelöschte lokale AvatarInitiale-Kopie hier trug. */}
-            <Avatar name={aktivMoment.authorName} avatarKey={aktivMoment.authorAvatarKey} cinemaMode size={32} />
-            <Text style={[type.bodyMedium, { color: cinema['text-1'] }]}>{aktivMoment.authorName}</Text>
+        <View style={styles.headerRow}>
+          <Pill style={styles.namePill}>
+            {/* 32 instead of the Avatar default 36: lower end of the
+                DESIGN-LANGUAGE §4 range (32 to 44 px), fitting the compact
+                header pill, the same size as in the native player
+                (player.tsx), the same size the deleted local AvatarInitiale
+                copy carried here. */}
+            <Avatar name={activeMoment.authorName} avatarKey={activeMoment.authorAvatarKey} cinemaMode size={32} />
+            <Text style={[type.bodyMedium, { color: cinema['text-1'] }]}>{activeMoment.authorName}</Text>
           </Pill>
-          <Pill style={styles.infoPille}>
-            <Text style={[type.secondary, { color: cinema['text-1'] }]}>{ortZeitText}</Text>
+          <Pill style={styles.infoPill}>
+            <Text style={[type.secondary, { color: cinema['text-1'] }]}>{placeTimeText}</Text>
           </Pill>
         </View>
       </View>
 
-      {aktivMoment.caption && (
-        <Pill testID="teilen-caption" style={styles.captionPille} pointerEvents="none">
-          <Text style={[type.body, { color: cinema['text-1'] }]}>{aktivMoment.caption}</Text>
+      {activeMoment.caption && (
+        <Pill testID="teilen-caption" style={styles.captionPill} pointerEvents="none">
+          <Text style={[type.body, { color: cinema['text-1'] }]}>{activeMoment.caption}</Text>
         </Pill>
       )}
 
@@ -1071,34 +960,34 @@ export default function GeteilterRecapScreen() {
         testID="teilen-links"
         accessibilityRole="button"
         accessibilityLabel="Zurück zum vorherigen Moment"
-        style={styles.tapZoneLinks}
+        style={styles.tapZoneLeft}
         onPressIn={onPressIn}
-        onPressOut={() => beendeBeruehrung('links')}
+        onPressOut={() => endTouch('left')}
       />
       <Pressable
         testID="teilen-rechts"
         accessibilityRole="button"
         accessibilityLabel="Weiter zum nächsten Moment"
-        style={styles.tapZoneRechts}
+        style={styles.tapZoneRight}
         onPressIn={onPressIn}
-        onPressOut={() => beendeBeruehrung('rechts')}
+        onPressOut={() => endTouch('right')}
       />
 
-      {zwischenkarte && (
-        <Pressable testID="teilen-zwischenkarte" style={styles.zwischenkarte} onPress={ueberspringen}>
-          <Text style={[type.h1, styles.zentrierterText]}>
-            {aktuellerTag ? tagesueberschrift(aktuellerTag) : 'Ein neuer Tag beginnt.'}
+      {interstitial && (
+        <Pressable testID="teilen-zwischenkarte" style={styles.interstitial} onPress={skipInterstitial}>
+          <Text style={[type.h1, styles.centeredText]}>
+            {currentDay ? dayHeading(currentDay) : 'Ein neuer Tag beginnt.'}
           </Text>
         </Pressable>
       )}
 
-      <Fussleiste />
+      <FooterBar />
 
-      {/* Zuletzt im Baum und mit dem höchsten zIndex, auch über der
-          Tages-Zwischenkarte: der Wechsel auf die Karte soll nicht davon
-          abhängen, ob gerade ein Tag anbricht. */}
-      {kannKarte && (
-        <SegmentZeile aufKarte={false} onWechsel={() => wechsleAnsicht('karte')} oben={oben} />
+      {/* Last in the tree and with the highest zIndex, above the day
+          interstitial too: switching to the map must not depend on whether a
+          day happens to be breaking right now. */}
+      {hasMap && (
+        <SegmentRow onMap={false} onSwitch={() => switchView('map')} top={top} />
       )}
     </View>
   );
@@ -1106,14 +995,14 @@ export default function GeteilterRecapScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: cinema['bg-0'] },
-  // Die Kartenansicht, ohne Kino-Hintergrund: darunter liegen die Kacheln,
-  // und in der kurzen Spanne, bis sie da sind, soll kein schwarzer Kinosaal
-  // aufblitzen (Spec §5.3: die Karte ist hell).
-  flaeche: { flex: 1 },
-  mitte: { alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.screen },
-  zentrierterText: { color: cinema['text-1'], textAlign: 'center' },
-  zentrierterHinweis: { color: cinema['text-2'], textAlign: 'center', marginTop: spacing.m },
-  kinoButton: {
+  // The map view, without a cinema background: the tiles lie underneath, and
+  // in the short span until they are there no black cinema hall should flash
+  // up (spec §5.3: the map is bright).
+  surface: { flex: 1 },
+  center: { alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.screen },
+  centeredText: { color: cinema['text-1'], textAlign: 'center' },
+  centeredHint: { color: cinema['text-2'], textAlign: 'center', marginTop: spacing.m },
+  cinemaButton: {
     height: 52,
     borderRadius: radius.control,
     alignItems: 'center',
@@ -1121,16 +1010,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.l,
     backgroundColor: cinema['text-1'],
   },
-  // `top` kommt aus dem JSX: der Kopf des Players rutscht unter die
-  // Segment-Zeile, sobald diese Reise eine Karte hat.
-  kopfBereich: {
+  // `top` comes from the JSX: the player's header slides underneath the
+  // segment row as soon as this trip has a map.
+  headerArea: {
     position: 'absolute',
     left: spacing.screen,
     right: spacing.screen,
     gap: spacing.base,
   },
-  kopfReihe: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.s },
-  namePille: {
+  headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.s },
+  namePill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.s,
@@ -1138,20 +1027,20 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.xs,
     borderRadius: radius.pill,
   },
-  infoPille: {
+  infoPill: {
     paddingHorizontal: spacing.base,
     paddingVertical: spacing.xs,
     borderRadius: radius.pill,
   },
-  captionPille: {
+  captionPill: {
     position: 'absolute',
     left: spacing.screen,
     right: spacing.screen,
-    // xxl statt xl (Task-Review): lässt Raum für die Fussleiste (Reelive-
-    // Wortzug + "Hol dir die App"), die weiter unten fix bei bottom:xs sitzt,
-    // die Pille wächst von ihrem `bottom`-Anker aus NACH OBEN, kollidiert
-    // also mit keiner Fusszeilen-Höhe, solange deren Gesamthöhe unter der
-    // Differenz (xxl − xs) bleibt.
+    // xxl instead of xl (task review): leaves room for the footer (Reelive
+    // wordmark plus "Hol dir die App"), which sits further down fixed at
+    // bottom:xs. The pill grows UPWARDS from its `bottom` anchor and so
+    // collides with no footer height, as long as the footer's total height
+    // stays below the difference (xxl minus xs).
     bottom: spacing.xxl,
     alignSelf: 'flex-start',
     maxWidth: '100%',
@@ -1159,15 +1048,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.base,
     paddingVertical: spacing.s,
   },
-  tapZoneLinks: { position: 'absolute', top: 0, bottom: 0, left: 0, width: '50%', zIndex: 1 },
-  tapZoneRechts: { position: 'absolute', top: 0, bottom: 0, right: 0, width: '50%', zIndex: 1 },
-  ladeHinweisWrap: { flex: 1, alignItems: 'center', justifyContent: 'flex-end', paddingBottom: spacing.xxl },
-  ladeHinweisPille: {
+  tapZoneLeft: { position: 'absolute', top: 0, bottom: 0, left: 0, width: '50%', zIndex: 1 },
+  tapZoneRight: { position: 'absolute', top: 0, bottom: 0, right: 0, width: '50%', zIndex: 1 },
+  loadingHintWrap: { flex: 1, alignItems: 'center', justifyContent: 'flex-end', paddingBottom: spacing.xxl },
+  loadingHintPill: {
     paddingHorizontal: spacing.base,
     paddingVertical: spacing.s,
     borderRadius: radius.pill,
   },
-  zwischenkarte: {
+  interstitial: {
     position: 'absolute',
     top: 0,
     left: 0,
@@ -1179,7 +1068,7 @@ const styles = StyleSheet.create({
     backgroundColor: cinema['bg-0'],
     zIndex: 2,
   },
-  fussleiste: {
+  footerBar: {
     position: 'absolute',
     bottom: spacing.xs,
     left: 0,
@@ -1188,23 +1077,24 @@ const styles = StyleSheet.create({
     gap: 2,
   },
 
-  // --- Die Karte (Spec §5.10) ---------------------------------------------
+  // --- The map (spec §5.10) ------------------------------------------------
 
-  // zIndex 3: über den Tipp-Zonen (1) UND über der Tages-Zwischenkarte (2).
-  // Die Segment-Zeile ist der einzige Weg zwischen den beiden Lesarten, sie
-  // darf von nichts verdeckt werden, was der Player gerade einblendet.
-  // `top` kommt aus dem JSX (useOberkante).
-  segmentZeile: { position: 'absolute', left: 0, right: 0, alignItems: 'center', zIndex: 3 },
-  // Die Spur trägt das Polster, die Hälften darin ihre eigene Höhe: 36 + 2 × 4
-  // ergibt die 44 Punkte, die auch Zurück-, Filter- und Namens-Pille haben.
-  segmentSpur: {
+  // zIndex 3: above the tap zones (1) AND above the day interstitial (2). The
+  // segment row is the only way between the two readings, it must not be
+  // covered by anything the player happens to be showing.
+  // `top` comes from the JSX (useTopInset).
+  segmentRow: { position: 'absolute', left: 0, right: 0, alignItems: 'center', zIndex: 3 },
+  // The track carries the padding, the halves inside carry their own height:
+  // 36 + 2 × 4 makes the 44 points that the back, filter and name pills have
+  // as well.
+  segmentTrack: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.xs,
     padding: spacing.xs,
     borderRadius: radius.pill,
   },
-  segmentAktiv: {
+  segmentActive: {
     height: 36,
     borderRadius: radius.pill,
     paddingHorizontal: spacing.base,
@@ -1212,19 +1102,19 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: cinema['text-1'],
   },
-  segmentPassiv: {
+  segmentPassive: {
     height: 36,
     borderRadius: radius.pill,
     paddingHorizontal: spacing.base,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  // Die Auskunft über die Momente ohne Ort, mittig unten, dieselbe Stelle wie
-  // die Leiste der App-Karte. Der Abstand nach unten ist der Screen-Rand
-  // (DESIGN-LANGUAGE §3); die Namensnennung der Kacheln sitzt im Browser
-  // darunter rechts (K14) und kommt sich mit einer zentrierten Pille nicht in
-  // die Quere.
-  leiste: {
+  // The information about the moments without a place, centred at the bottom,
+  // the same spot as the bar of the app map. The distance to the bottom is
+  // the screen margin (DESIGN-LANGUAGE §3); in the browser the tiles'
+  // attribution sits below it on the right (K14) and does not get in the way
+  // of a centred pill.
+  bar: {
     position: 'absolute',
     left: spacing.screen,
     right: spacing.screen,
@@ -1232,9 +1122,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.s,
   },
-  // Radius 12 statt Pille: hier stehen ganze Sätze, die zweizeilig umbrechen
-  // dürfen, eine 999er-Rundung um zwei Textzeilen sieht aus wie ein Fehler.
-  leistePille: {
+  // Radius 12 instead of a pill: whole sentences stand here that may wrap
+  // onto two lines, and a 999 rounding around two lines of text looks like a
+  // mistake.
+  barPill: {
     justifyContent: 'center',
     paddingHorizontal: spacing.base,
     paddingVertical: spacing.s,

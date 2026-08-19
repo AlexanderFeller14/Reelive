@@ -7,7 +7,7 @@
 // beim Bündeln auf, mit einem Fehler, der nichts mehr mit der Zeile zu tun
 // hat, die ihn verursacht.
 //
-// Gebraucht von KartenFlaeche.web.tsx. Ohne Leaflets eigenes Stylesheet liegen
+// Gebraucht von MapSurface.web.tsx. Ohne Leaflets eigenes Stylesheet liegen
 // die Kacheln als ungeordneter Bilderstapel übereinander, die Datei MUSS mit
 // ins Bundle.
 declare module 'leaflet/dist/leaflet.css';

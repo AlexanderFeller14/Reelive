@@ -12,101 +12,89 @@ import { fetchTrips } from '@/features/trips/tripsApi';
 import { groupTrips } from '@/features/trips/tripDay';
 import type { Trip } from '@/features/trips/types';
 
-export default function ReiseListe() {
+export default function TripList() {
   const { colors } = useTheme();
-  const oben = useTopInset(spacing.xl);
+  const topInset = useTopInset(spacing.xl);
   const router = useRouter();
   const [trips, setTrips] = useState<Trip[]>([]);
-  const [geladen, setGeladen] = useState(false);
-  // Drei Zustände statt zwei, dasselbe Muster wie in [id]/einladen.tsx und
-  // join/[code].tsx: `geladen` trennt «lädt noch» von «fertig», `fehler` trennt
-  // «fertig, aber nichts bekommen» von «fertig und wirklich leer». Ohne diese
-  // Trennung behauptete ein Ladefehler «Noch keine Reise», eine falsche
-  // Aussage über die Daten des Nutzers (DESIGN-LANGUAGE §6).
-  const [fehler, setFehler] = useState<string | null>(null);
-  const [laedt, setLaedt] = useState(false);
-  // Schirmt setState nach Blur/Unmount ab; jeder Fokus-Zyklus setzt ihn neu.
-  const aktiv = useRef(true);
+  const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  // Shields setState after blur/unmount; every focus cycle sets it again.
+  const active = useRef(true);
 
-  const laden = useCallback(async () => {
-    const { data, error } = await fetchTrips();
-    if (!aktiv.current) return;
+  const load = useCallback(async () => {
+    const { data, error: loadError } = await fetchTrips();
+    if (!active.current) return;
     setTrips(data);
-    setFehler(error);
-    setGeladen(true);
+    setError(loadError);
+    setLoaded(true);
   }, []);
 
-  // `laedt` hängt bewusst am Knopf, nicht an `laden`: Der Fokus-Lauf soll die
-  // bereits stehende Liste nicht bei jeder Rückkehr mit einem Ladezustand
-  // überschreiben, sichtbares Warten gehört nur dorthin, wo jemand getippt hat.
-  // Der Ladezustand wird IMMER zurückgesetzt, auch wenn der Screen zwischendurch
-  // den Fokus verliert: sonst bliebe `laedt` true und der Knopf käme mit einem
-  // toten Spinner und deaktiviert zurück. Ein `aktiv`-Guard ist hier anders als
-  // in `laden` nicht nötig, setState nach Unmount ist seit React 18 folgenlos,
-  // und `laden` schützt die Daten-States ohnehin selbst.
-  const nochmal = useCallback(async () => {
-    setLaedt(true);
-    await laden();
-    setLaedt(false);
-  }, [laden]);
+  // `loading` hangs on the button by design, not on `load`: the focus run
+  // must not paint a loading state over the list that already stands, visible
+  // waiting belongs only where someone tapped. It is ALWAYS reset, even if the
+  // screen loses focus in between, otherwise the button would come back
+  // disabled with a dead spinner. Unlike `load`, no `active` guard is needed:
+  // setState after unmount has been harmless since React 18, and `load`
+  // protects the data states itself.
+  const retry = useCallback(async () => {
+    setLoading(true);
+    await load();
+    setLoading(false);
+  }, [load]);
 
-  // Beim Zurückkehren neu laden, eine gerade angelegte Reise soll sofort dastehen.
+  // Reload on return, a trip just created should stand there right away.
   useFocusEffect(
     useCallback(() => {
-      aktiv.current = true;
-      void laden();
+      active.current = true;
+      void load();
       return () => {
-        aktiv.current = false;
+        active.current = false;
       };
-    }, [laden])
+    }, [load])
   );
 
   const { ongoing, recaps } = groupTrips(trips);
-  // Zwei ehrliche Leerzustände statt einem: «noch nie eine Reise» und «alle
-  // Reisen sind abgeschlossen». Abgeschlossene Reisen stehen NUR im Recap-Tab
-  // (dort führt der Tipp in die Übersicht); hier stünden sie doppelt. Ohne den
-  // zweiten Zustand wäre die Seite bei nur-Recaps komplett leer, und «Noch
-  // keine Reise» wäre eine falsche Aussage über die Daten (§6).
-  const fertig = geladen && !fehler;
-  const keineReise = fertig && trips.length === 0;
-  const nurRecaps = fertig && ongoing.length === 0 && recaps.length > 0;
+  const ready = loaded && !error;
+  const noTrips = ready && trips.length === 0;
+  const onlyRecaps = ready && ongoing.length === 0 && recaps.length > 0;
 
   return (
     <View style={{ flex: 1, backgroundColor: colors['bg-0'] }}>
-      <ScrollView contentContainerStyle={[styles.inhalt, { paddingTop: oben }]}>
+      <ScrollView contentContainerStyle={[styles.content, { paddingTop: topInset }]}>
         <Text style={[type.h1, { color: colors['text-1'] }]}>Meine Reisen</Text>
 
-        {fehler && (
+        {error && (
           <View style={{ gap: spacing.l, marginTop: spacing.xl }}>
-            <Text style={[type.body, { color: colors.danger }]}>{fehler}</Text>
+            <Text style={[type.body, { color: colors.danger }]}>{error}</Text>
             <Button
               variant="secondary"
               label="Nochmal versuchen"
-              onPress={() => void nochmal()}
-              loading={laedt}
+              onPress={() => void retry()}
+              loading={loading}
             />
           </View>
         )}
 
-        {(keineReise || nurRecaps) && (
+        {(noTrips || onlyRecaps) && (
           <View style={{ marginTop: spacing.xl }}>
-            {/* Wie die Filmrolle im leeren Recap-Tab (recap/index.tsx): das
-                Bild steht NUR dort, wo sonst nichts steht. Freigestellt auf
-                `bg-0`, deshalb ohne Rahmen, Radius und Schatten. */}
+            {/* Cut out against `bg-0`, therefore without border, radius and
+                shadow, same as the film reel in the empty recap tab
+                (recap/index.tsx). */}
             <Image
               testID="leerzustand-camper"
               source={require('@/assets/images/camper-salbeigruen-transparent.png')}
               style={styles.camper}
               contentFit="contain"
-              // Sagt nichts, was der Text darunter nicht schon sagt.
               accessible={false}
             />
             <View style={{ gap: spacing.s, marginTop: spacing.l }}>
               <Text style={[type.h2, { color: colors['text-1'] }]}>
-                {keineReise ? 'Noch keine Reise' : 'Gerade keine Reise unterwegs'}
+                {noTrips ? 'Noch keine Reise' : 'Gerade keine Reise unterwegs'}
               </Text>
               <Text style={[type.body, { color: colors['text-2'] }]}>
-                {keineReise
+                {noTrips
                   ? 'Leg deine erste Reise an oder tritt einer per Einladungslink bei.'
                   : 'Deine abgeschlossenen Reisen findest du im Recap-Tab.'}
               </Text>
@@ -116,11 +104,6 @@ export default function ReiseListe() {
 
         {ongoing.length > 0 && (
           <View style={{ gap: spacing.l }}>
-            {/* `cover` reicht den Platz der Karte ans Detail weiter, damit es
-                dasselbe Platzhalter-Bild zeigt wie die Karte, auf die getippt
-                wurde (platzhalterCover.ts). Ein reiner Darstellungs-Parameter:
-                wer ohne ihn im Detail landet (Deep Link, frisch angelegte
-                Reise), sieht das erste Bild. */}
             {ongoing.map((t, i) => (
               <TripCard
                 key={t.id}
@@ -137,17 +120,17 @@ export default function ReiseListe() {
   );
 }
 
-// Der FAB schwebt mit spacing.screen Abstand vom unteren Rand und ist 56 hoch
-// (siehe Fab.tsx, Design-Language §4), plus spacing.xl Luft darüber, damit die
-// unterste Reise-Karte nicht dahinter verschwindet.
-const FAB_AUSWEICHRAUM = spacing.screen + 56 + spacing.xl;
+// The FAB floats spacing.screen above the bottom edge and is 56 tall (see
+// Fab.tsx, Design-Language §4), plus spacing.xl of air above it, so that the
+// lowest trip card does not disappear behind it.
+const FAB_CLEARANCE = spacing.screen + 56 + spacing.xl;
 
-// Gleiche Grösse wie die Filmrolle im leeren Recap-Tab: beide Leerzustände
-// sind derselbe Fall und sollen gleich schwer wiegen. Bei 1254 px Quelle
-// reicht das ohne zusätzliche @2x/@3x-Dateien bis zu einem 3x-Display.
-const LEERBILD = 160;
+// Same size as the film reel in the empty recap tab: both empty states are the
+// same case and should carry the same weight. With a 1254 px source that is
+// enough up to a 3x display without extra @2x/@3x files.
+const EMPTY_IMAGE = 160;
 
 const styles = StyleSheet.create({
-  inhalt: { padding: spacing.screen, paddingTop: spacing.xl, paddingBottom: FAB_AUSWEICHRAUM, gap: spacing.xl },
-  camper: { width: LEERBILD, height: LEERBILD, alignSelf: 'center' },
+  content: { padding: spacing.screen, paddingTop: spacing.xl, paddingBottom: FAB_CLEARANCE, gap: spacing.xl },
+  camper: { width: EMPTY_IMAGE, height: EMPTY_IMAGE, alignSelf: 'center' },
 });

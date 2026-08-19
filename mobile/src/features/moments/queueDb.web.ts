@@ -6,7 +6,7 @@ import type { QueueJob, DiscardedMoment } from './types';
 // uploadWorker.start() never runs on web, because there's never a session
 // there (see secureSessionStorage.web.ts) and the worker, per the root
 // layout, only starts on status === 'signedIn'. This file exists anyway
-// because uploadWorker.ts, counter.ts, and reise/[id]/index.tsx pull in
+// because uploadWorker.ts, counter.ts, and trip/[id]/index.tsx pull in
 // queueDb via a namespace import ("import * as queueDb"): Metro
 // automatically resolves this *.web.ts version on web and thereby never
 // pulls expo-sqlite into the bundle graph (the native module can't be

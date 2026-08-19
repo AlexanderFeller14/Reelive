@@ -24,7 +24,7 @@ export async function signOut(): Promise<void> {
   // is no auth.uid() anymore, the deletion attempt would then hit no row at
   // all (RLS hides it, no error, but no effect), the session therefore
   // still has to be valid at delete time.
-  // deregistrierePushToken() itself never throws (see pushApi.ts), but it
+  // deregisterPushToken() itself never throws (see pushApi.ts), but it
   // does delay the sign-out if it hangs: getExpoPushTokenAsync() internally
   // does a fetch() with no discernible timeout. We deliberately accept
   // that; cleaning up in parallel with supabase.auth.signOut() would fail

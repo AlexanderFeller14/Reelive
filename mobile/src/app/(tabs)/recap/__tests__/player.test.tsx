@@ -1,81 +1,65 @@
 import { Alert, Animated, PanResponder, StyleSheet } from 'react-native';
 import { render, screen, fireEvent, act } from '@testing-library/react-native';
 
-// Alert zeigt im Test nur einen Dialog an, ohne dass jemand tippt (gleiches
-// Muster wie reise/__tests__/detail.test.tsx), der Task-7-Block unten löst
-// bei Bedarf gezielt den "Einstellungen öffnen"-Knopf aus.
-type AlertKnopf = { text?: string; style?: string; onPress?: () => void };
-const mockAlertSpion = jest.fn();
-jest.spyOn(Alert, 'alert').mockImplementation((...args: unknown[]) => mockAlertSpion(...args));
+type AlertButton = { text?: string; style?: string; onPress?: () => void };
+const mockAlertSpy = jest.fn();
+jest.spyOn(Alert, 'alert').mockImplementation((...args: unknown[]) => mockAlertSpy(...args));
 
-// Fake Timers global (wie Ausloeser.test.tsx): Date.now() läuft synchron mit
-// den Timern mit (Jest-„modern"-Fake-Timer faken auch Date), genau das
-// braucht player.tsx für seine Halten-vs-Tipp-Unterscheidung.
+// Jest modern fake timers fake Date.now() too, which is exactly what
+// player.tsx needs for its hold-versus-tap decision.
 jest.useFakeTimers();
 
-// M9, korrigiert (Phase-5-Final-Review, Punkt 3): der frühere Mock gab
-// `reducedMotion` SYNCHRON zurück (`jest.fn(() => false)`, dann per
-// `mockReturnValue(true)` umgeschaltet), genau die Eigenschaft entfernt, um
-// die es beim Kino-Fade-Test eigentlich geht. Der ECHTE Hook
-// (useReducedMotion.ts) startet IMMER bei `false` (`useState(false)`) und
-// löst erst ASYNCHRON auf, sobald `AccessibilityInfo.isReduceMotionEnabled()`
-// zurückkommt, mit dem alten Mock war ein Effekt mit `[]`-Deps im Player
-// (der ursprüngliche Bug) nicht von einem korrekt mit `[reducedMotion]`
-// reagierenden Effekt zu unterscheiden: BEIDE liefern beim ersten Render
-// bereits den (synchron gemockten) Endwert. Dieser Mock bildet den echten
-// Hook nach: ein `useState`, das erst durch einen von aussen aufgelösten
-// Promise (`mockReducedMotionAufloesen`) NACH dem Mount wechselt, exakt wie
-// `AccessibilityInfo.isReduceMotionEnabled()` es täte.
+// The real hook (useReducedMotion.ts) always starts at `false` and only
+// flips ASYNCHRONOUSLY once AccessibilityInfo.isReduceMotionEnabled()
+// answers. A synchronously mocked hook cannot tell an effect with `[]` deps
+// (the original bug) from one that correctly depends on `[reducedMotion]`:
+// both already see the final value on the very first render. This mock
+// reproduces the real timing instead.
 //
-// Ein EINZELNER, geteilter Resolver reicht nicht: `useReducedMotion()` wird
-// nicht nur einmal (im Player) aufgerufen, sondern von JEDER `PressScale`-
-// Instanz im Baum ebenfalls (KinoButton, TextLink, jede EmojiPille, …, siehe
-// PressScale.tsx), jede bekommt beim Mounten ihren EIGENEN Promise/Resolver.
-// Ein einzelner `let`-Resolver würde von der zuletzt gemounteten Instanz
-// überschrieben, `mockReducedMotionAufloesen` löste dann NUR noch DEREN
-// Promise auf, nicht den des Players. Alle ausstehenden Resolver landen
-// deshalb in einem Set und werden gemeinsam aufgelöst.
-const mockReducedMotionResolver = new Set<(wert: boolean) => void>();
+// One shared resolver is not enough: every PressScale instance in the tree
+// (buttons, links, every emoji pill, ...) calls the hook as well and gets
+// its own promise on mount. A single `let` resolver would be overwritten by
+// the last instance mounted, so all pending resolvers collect in a Set and
+// are resolved together.
+const mockReducedMotionResolver = new Set<(value: boolean) => void>();
 jest.mock('@/theme/useReducedMotion', () => {
   const ReactActual = require('react');
   return {
     useReducedMotion: () => {
-      const [wert, setWert] = ReactActual.useState(false);
+      const [value, setValue] = ReactActual.useState(false);
       ReactActual.useEffect(() => {
-        let lebt = true;
-        const versprechen = new Promise((resolve: (wert: boolean) => void) => {
+        let alive = true;
+        const promise = new Promise((resolve: (value: boolean) => void) => {
           mockReducedMotionResolver.add(resolve);
         });
-        void versprechen.then((enabled: boolean) => {
-          if (lebt) setWert(enabled);
+        void promise.then((enabled: boolean) => {
+          if (alive) setValue(enabled);
         });
         return () => {
-          lebt = false;
+          alive = false;
         };
       }, []);
-      return wert;
+      return value;
     },
   };
 });
-// Löst ALLE ausstehenden „AccessibilityInfo"-Promises auf (siehe Kommentar
-// oben), muss innerhalb eines `act(...)` aufgerufen werden (die `.then()`-
-// Handler lösen ein echtes `setState` aus).
-function mockReducedMotionAufloesen(wert: boolean) {
-  for (const resolve of mockReducedMotionResolver) resolve(wert);
+// Must be called inside act(): the .then handlers trigger a real setState.
+function resolveMockReducedMotion(value: boolean) {
+  for (const resolve of mockReducedMotionResolver) resolve(value);
   mockReducedMotionResolver.clear();
 }
 
 const mockPush = jest.fn();
 const mockReplace = jest.fn();
 const mockBack = jest.fn();
-let mockKannZurueck = true;
+let mockCanGoBack = true;
 let mockParams: { id: string; start?: string } = { id: 't1' };
-// Echte Effekt-Semantik statt `(cb) => cb()`, diese Falle hat in diesem
-// Projekt laut Auftrag schon dreimal Zeit gekostet.
+// Real effect semantics instead of `(cb) => cb()`: that trap has already
+// cost this project time three times.
 jest.mock('expo-router', () => {
   const ReactActual = require('react');
   return {
-    useRouter: () => ({ push: mockPush, replace: mockReplace, back: mockBack, canGoBack: () => mockKannZurueck }),
+    useRouter: () => ({ push: mockPush, replace: mockReplace, back: mockBack, canGoBack: () => mockCanGoBack }),
     useLocalSearchParams: () => mockParams,
     useFocusEffect: (cb: () => void | (() => void)) => ReactActual.useEffect(cb, [cb]),
   };
@@ -83,9 +67,6 @@ jest.mock('expo-router', () => {
 
 jest.mock('expo-status-bar', () => ({ setStatusBarStyle: jest.fn() }));
 
-// expo-image: einfacher View-Platzhalter, der alle Props (inkl. `source`,
-// `testID`) durchreicht (gleiches Muster wie uebersicht.test.tsx), dazu ein
-// eigener `prefetch`-Spy für V8.
 const mockPrefetch = jest.fn();
 jest.mock('expo-image', () => {
   const ReactActual = require('react');
@@ -95,13 +76,13 @@ jest.mock('expo-image', () => {
   return { Image };
 });
 
-// expo-video: ein einziges Fake-Player-Objekt mit steuerbaren Listenern
-// (gleiches Grundmuster wie preview.test.tsx, hier erweitert um
-// addListener/statusChange/playToEnd, die die Tests direkt auslösen).
-// `mockListeners` wird bei geänderter Quelle zurückgesetzt (simuliert, dass
-// expo-video bei neuer Quelle einen frischen Player samt frischen Listenern
-// erzeugt), nicht bei jedem Aufruf, sonst würde ein blosses Re-Render (ohne
-// URL-Wechsel) heimlich schon registrierte Listener verlieren.
+// `mockListeners` is cleared when the SOURCE changes (expo-video creates a
+// fresh player with fresh listeners then), not on every call, otherwise a
+// plain re-render without a URL change would silently drop listeners that
+// were already registered. `setup` hangs off the same condition: expo-video
+// runs it only when it really creates a player, and it calls `p.play()`
+// (see VideoMoment in player.tsx), so firing it on every render would make
+// `play.mock.calls.length` useless as a signal.
 const mockListeners: Record<string, Array<(payload?: unknown) => void>> = {};
 let mockLastSource: unknown;
 const mockVideoPlayer = {
@@ -114,18 +95,6 @@ const mockVideoPlayer = {
     return { remove: jest.fn() };
   }),
 };
-// Phase-5-Final-Review, Punkt 1 (Review-Fund am Mock selbst): `setup` lief
-// bislang UNBEDINGT bei jedem Aufruf, expo-video ruft ihn in Wirklichkeit
-// aber nur EINMAL, beim tatsächlichen Erzeugen des Players (neue Quelle),
-// nicht bei jedem Re-Render der Komponente, die `useVideoPlayer` aufruft.
-// `setup` ruft hier `p.play()` (siehe VideoMoment in player.tsx), ein
-// Mock, der ihn bei JEDEM Render erneut abfeuert, erzeugt bei jedem
-// beliebigen Re-Render einen zusätzlichen, mit der eigentlichen Pause/Play-
-// Logik NICHTS zu tuenden `play()`-Aufruf und macht `play.mock.calls.length`
-// als Signal unbrauchbar für alles, was genauer als "mindestens N-mal"
-// prüfen will. Jetzt an dieselbe Bedingung gekoppelt wie der
-// Listener-Reset direkt darüber (beides passiert nur bei einer TATSÄCHLICH
-// neuen Quelle).
 const mockUseVideoPlayer = jest.fn((source: unknown, setup?: (p: typeof mockVideoPlayer) => void) => {
   if (source !== mockLastSource) {
     for (const key of Object.keys(mockListeners)) delete mockListeners[key];
@@ -145,19 +114,16 @@ jest.mock('expo-video', () => ({
 
 jest.mock('@/features/trips/tripsApi', () => ({ fetchTrip: jest.fn() }));
 jest.mock('@/features/recap/recapApi', () => ({ fetchRecapMoments: jest.fn() }));
-// requireActual unten zieht urlVorrat.ts real ein (für die echten
-// laeuftBaldAb/BALD_ABLAUF_SCHWELLE_MS), das importiert transitiv
-// @/lib/supabase, das wiederum AsyncStorage lädt, das es in diesem
-// Jest-Setup nicht gibt (gleiches Muster wie urlVorrat.test.ts selbst).
+// The requireActual below pulls urlPool.ts in for real, which transitively
+// loads @/lib/supabase and with it AsyncStorage, absent from this Jest
+// setup (same pattern as urlPool.test.ts itself).
 jest.mock('@/lib/supabase', () => ({ supabase: { functions: { invoke: jest.fn() } } }));
-// laeuftBaldAb/BALD_ABLAUF_SCHWELLE_MS bleiben echt (reine Funktionen), nur
-// die IO-Funktion holeVorrat wird gemockt.
+// isSoonExpiring / SOON_EXPIRING_THRESHOLD_MS stay real (pure functions),
+// only the IO function getPool is mocked.
 jest.mock('@/features/recap/urlPool', () => ({
   ...jest.requireActual('@/features/recap/urlPool'),
   getPool: jest.fn(),
 }));
-// Task 12: sozialApi ist reine IO (supabase.from), komplett gemockt, die
-// realen Datenformen prüft sozialApi.test.ts bereits für sich.
 jest.mock('@/features/recap/socialApi', () => ({
   fetchReactions: jest.fn(),
   setReaction: jest.fn(),
@@ -172,17 +138,12 @@ jest.mock('expo-haptics', () => ({
   impactAsync: (...args: unknown[]) => mockHaptics(...args),
   ImpactFeedbackStyle: { Light: 'light' },
 }));
-// Task 7: exportApi hat ihre eigene, vollständige Testdatei
-// (features/recap/__tests__/exportApi.test.ts), hier nur ein Spion auf
-// `sichereMomentInGalerie`, der Player ruft nichts anderes daraus auf.
 jest.mock('@/features/recap/exportApi', () => ({ saveMomentToGallery: jest.fn() }));
 const mockOpenSettings = jest.fn(() => Promise.resolve());
 jest.mock('expo-linking', () => ({ openSettings: () => mockOpenSettings() }));
 
-// Task 8: meldenApi hat ihre eigene, vollständige Testdatei
-// (features/recap/__tests__/meldenApi.test.ts), hier nur ein Spion auf
-// `meldeMoment`, der Player ruft nichts anderes daraus auf. `MELDEN_MAX_LAENGE`
-// bleibt echt (reine Konstante, exportiert für die Input-`maxLength`-Prop).
+// REPORT_MAX_LENGTH stays real (a plain constant, exported for the input's
+// maxLength prop), only the IO function is mocked.
 jest.mock('@/features/recap/reportApi', () => ({
   ...jest.requireActual('@/features/recap/reportApi'),
   reportMoment: jest.fn(),
@@ -215,9 +176,9 @@ function moment(overrides: Partial<RecapMoment>): RecapMoment {
   };
 }
 
-// Tag 1 (10.8.): p1 (Foto, 09:00), p2 (Video, 10:00, duration_s=3), p3 (Foto,
-// 11:00). Tag 2 (11.8., kein place_name): p4 (Foto, 09:00, letzter ladbarer
-// Moment). p5 ist ein Nachzügler (upload_status='pending').
+// Day 1 (Aug 10): p1 (photo, 09:00), p2 (video, 10:00, duration_s=3), p3
+// (photo, 11:00). Day 2 (Aug 11, no place_name): p4 (photo, 09:00, the last
+// loadable moment). p5 is a straggler (upload_status='pending').
 const p1 = moment({ id: 'p1', captured_at: '2026-08-10T09:00:00.000Z' });
 const p2 = moment({
   id: 'p2', type: 'video', duration_s: 3, caption: 'Schön hier',
@@ -225,21 +186,21 @@ const p2 = moment({
 });
 const p3 = moment({ id: 'p3', captured_at: '2026-08-10T11:00:00.000Z' });
 const p4 = moment({ id: 'p4', captured_at: '2026-08-11T09:00:00.000Z', place_name: null });
-const pendingM = moment({ id: 'p5', captured_at: '2026-08-11T10:00:00.000Z', upload_status: 'pending' });
-const MOMENTE = [p1, p2, p3, p4, pendingM];
+const pendingMoment = moment({ id: 'p5', captured_at: '2026-08-11T10:00:00.000Z', upload_status: 'pending' });
+const MOMENTS = [p1, p2, p3, p4, pendingMoment];
 
-function bild(id: string) {
+function image(id: string) {
   return { post_id: id, medium_url: `https://cdn.example/${id}-medium.jpg`, thumb_url: `https://cdn.example/${id}-thumb.jpg` };
 }
-const VORRAT_OK = {
-  urls: new Map([['p1', bild('p1')], ['p2', bild('p2')], ['p3', bild('p3')], ['p4', bild('p4')]]),
+const POOL_OK = {
+  urls: new Map([['p1', image('p1')], ['p2', image('p2')], ['p3', image('p3')], ['p4', image('p4')]]),
   gueltigBis: Date.now() + 999_999,
   ausgelassen: 0,
 };
 
 async function wrap() {
   const utils = await render(<RecapPlayer />);
-  // Die drei parallelen Ladeaufrufe (Promise.all) auflösen lassen.
+  // Let the three parallel load calls (Promise.all) settle.
   await act(async () => {});
   return utils;
 }
@@ -248,27 +209,24 @@ beforeEach(() => {
   jest.clearAllMocks();
   for (const key of Object.keys(mockListeners)) delete mockListeners[key];
   mockLastSource = undefined;
-  mockKannZurueck = true;
+  mockCanGoBack = true;
   mockParams = { id: 't1' };
   (fetchTrip as jest.Mock).mockResolvedValue({ data: trip, error: null });
-  // Task 12: von den meisten (nicht-sozialen) Tests unbenutzt, aber jeder
-  // Durchlauf, der `phase='bereit'` erreicht, löst den Reaktionen-Ladeeffekt
-  // aus, ein Default hier hält den Rest der Suite unverändert grün.
+  // Defaults for the many tests that do not care: every run that reaches the
+  // ready phase kicks off the reactions and comments load effects, and a
+  // stray long press could reach reportMoment.
   (fetchReactions as jest.Mock).mockResolvedValue({ data: {}, error: null });
   (fetchComments as jest.Mock).mockResolvedValue({ data: [], error: null });
-  // Task 8: Default für Tests ausserhalb des Melden-Blocks, die zufällig ein
-  // langes Tippen auslösen könnten (keiner tut das, aber gleiches
-  // Vorsichtsprinzip wie bei fetchReaktionen/fetchKommentare oben).
   (reportMoment as jest.Mock).mockResolvedValue({ error: null });
 });
 
-describe('Laden & Randfälle', () => {
-  test('eine Reise ganz ohne ladbaren Moment zeigt ihren eigenen Text statt eines leeren Players', async () => {
+describe('loading and edge cases', () => {
+  test('a trip without a single loadable moment shows its own text instead of an empty player', async () => {
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [], error: null });
     (getPool as jest.Mock).mockResolvedValue({
-      vorrat: { urls: new Map(), gueltigBis: Date.now() + 999_999, ausgelassen: 0 },
+      pool: { urls: new Map(), gueltigBis: Date.now() + 999_999, ausgelassen: 0 },
       error: null,
-      grund: null,
+      reason: null,
     });
     await wrap();
     expect(screen.getByText('Diese Reise ist leer geblieben.')).toBeTruthy();
@@ -276,193 +234,172 @@ describe('Laden & Randfälle', () => {
     expect(screen.queryByTestId('player-rechts')).toBeNull();
   });
 
-  // Anders als uebersicht.tsx (das Grid UND separate Status-Zeilen
-  // gleichzeitig anzeigen kann) ist der Player ein sequenzieller
-  // Story-Viewer: gibt es NICHTS Abspielbares, kann er auch mit einem
-  // Nachzügler in der Warteschlange nichts zeigen, Task-11-Brief/Frage 3
-  // verlangt hier ausdrücklich denselben Leer-Text, ohne die Ausnahme aus
-  // uebersicht.tsx zu übernehmen.
-  test('auch mit einem Nachzügler, aber sonst nichts Ladbarem, zeigt der Player den Leer-Text statt eines leeren Players', async () => {
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [pendingM], error: null });
+  test('a straggler alone leaves nothing to play, so the player shows the empty text', async () => {
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [pendingMoment], error: null });
     (getPool as jest.Mock).mockResolvedValue({
-      vorrat: { urls: new Map(), gueltigBis: Date.now() + 999_999, ausgelassen: 0 },
+      pool: { urls: new Map(), gueltigBis: Date.now() + 999_999, ausgelassen: 0 },
       error: null,
-      grund: null,
+      reason: null,
     });
     await wrap();
     expect(screen.getByText('Diese Reise ist leer geblieben.')).toBeTruthy();
     expect(screen.queryByTestId('player-links')).toBeNull();
   });
 
-  test('ein Fehler beim Laden zeigt die Ursache mit Retry, keinen leeren Player', async () => {
+  test('a load error shows the cause with a retry instead of an empty player', async () => {
     (fetchTrip as jest.Mock).mockResolvedValue({ data: null, error: null });
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [], error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: null, error: null, grund: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: null, error: null, reason: null });
     await wrap();
     expect(screen.getByText('Diese Reise gibt es nicht mehr.')).toBeTruthy();
     expect(screen.queryByTestId('player-links')).toBeNull();
   });
 });
 
-describe('Startindex (Vertrag 2)', () => {
-  test('ohne start-Param öffnet der Player beim ersten Moment', async () => {
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+describe('start index (contract 2)', () => {
+  test('without a start param the player opens at the first moment', async () => {
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
-    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: bild('p1').medium_url });
+    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: image('p1').medium_url });
   });
 
-  test('ein gültiger start-Param öffnet direkt den entsprechenden Moment', async () => {
+  test('a valid start param opens the matching moment right away', async () => {
     mockParams = { id: 't1', start: '2' }; // p3
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
-    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: bild('p3').medium_url });
+    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: image('p3').medium_url });
   });
 
-  test.each([['nicht-numerisch', 'abc'], ['negativ', '-1'], ['ausserhalb', '999'], ['nicht ganzzahlig', '2.5']])(
-    'ein %s start-Param (%s) fällt auf den ersten Moment zurück',
+  test.each([['non-numeric', 'abc'], ['negative', '-1'], ['out of range', '999'], ['non-integer', '2.5']])(
+    'a %s start param (%s) falls back to the first moment',
     async (_label, raw) => {
       mockParams = { id: 't1', start: raw };
-      (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-      (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+      (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+      (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
       await wrap();
-      expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: bild('p1').medium_url });
+      expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: image('p1').medium_url });
     }
   );
 
-  test('ein fehlendes start-Param fällt auf den ersten Moment zurück', async () => {
+  test('a missing start param falls back to the first moment', async () => {
     mockParams = { id: 't1' };
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
-    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: bild('p1').medium_url });
+    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: image('p1').medium_url });
   });
 
-  // M1 (Review-Fund): die frühere Testreihe traf nie GENAU die Grenze
-  // n === laenge, '999' liegt weit ausserhalb und lässt einen Mutanten
-  // `n >= laenge` -> `n > laenge` unentdeckt (der akzeptiert dann fälschlich
-  // n === laenge und liefert spielliste[laenge] === undefined, ein leerer
-  // Screen statt eines Rückfalls auf 0). mitBild hat hier genau 4 Einträge
-  // (p1..p4), start='4' ist exakt diese Grenze.
-  test('ein start-Param GENAU an der Länge der Spielliste (n === laenge) fällt auf den ersten Moment zurück', async () => {
+  // The playlist holds exactly four entries here (p1..p4), so start='4'
+  // sits exactly on the boundary.
+  test('a start param exactly at the playlist length falls back to the first moment', async () => {
     mockParams = { id: 't1', start: '4' };
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
-    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: bild('p1').medium_url });
+    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: image('p1').medium_url });
   });
 });
 
-// M7 (Review-Fund): Schritt 3 des Briefs (Avatar+Name, Uhrzeit in
-// captured_tz, Ort, Caption) hatte KEINEN einzigen Test, die gesamte
-// Kopf-Pille und die Caption-Pille liessen sich löschen, ohne dass irgendein
-// Test fiel.
-describe('Kopf- und Caption-Pillen (Schritt 3)', () => {
-  test('zeigt Autorenname, Avatar-Initiale sowie Ort und Uhrzeit in einer Pille', async () => {
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+describe('header and caption pills (step 3)', () => {
+  test('shows the author name, the avatar initial and place plus time in one pill', async () => {
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
-    // p1: captured_at 09:00 UTC, captured_tz Europe/Zurich (CEST, UTC+2 im
-    // August) -> 11:00 Ortszeit, place_name 'Lissabon'.
+    // p1: captured_at 09:00 UTC, captured_tz Europe/Zurich (CEST, UTC+2 in
+    // August) -> 11:00 local time, place_name 'Lissabon'.
     expect(screen.getByText('Lea')).toBeTruthy();
-    expect(screen.getByText('L')).toBeTruthy(); // Avatar-Initiale
+    expect(screen.getByText('L')).toBeTruthy(); // avatar initial
     expect(screen.getByText('Lissabon · 11:00')).toBeTruthy();
   });
 
-  // Task 9: der Player benutzt jetzt den gemeinsamen Avatar (Task 3) statt
-  // seiner lokalen Initiale-Kopie, ein Moment mit autor_avatar_key muss also
-  // wirklich ein <Image> zeigen, nicht bloss das gemappte Feld tragen.
-  test('der Player zeigt das Profilbild der Autorin', async () => {
-    const p1MitBild = moment({ id: 'p1', authorAvatarKey: 'profiles/u1/a.jpg' });
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [p1MitBild], error: null });
+  test('a moment with an avatar key really renders an image, not just the initial', async () => {
+    const p1WithImage = moment({ id: 'p1', authorAvatarKey: 'profiles/u1/a.jpg' });
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [p1WithImage], error: null });
     (getPool as jest.Mock).mockResolvedValue({
-      vorrat: { urls: new Map([['p1', bild('p1')]]), gueltigBis: Date.now() + 999_999, ausgelassen: 0 },
+      pool: { urls: new Map([['p1', image('p1')]]), gueltigBis: Date.now() + 999_999, ausgelassen: 0 },
       error: null,
-      grund: null,
+      reason: null,
     });
     await wrap();
     expect(await screen.findByTestId('avatar-bild')).toBeTruthy();
   });
 
-  // Die zentrale Zusicherung aus dem Brief: NICHT die Gerätezeit, sondern
-  // captured_tz DES MOMENTS. Ein Mutant, der `timeZone: capturedTz` aus
-  // zeitInZone entfernt (Gerätezeit zeigen), lässt diesen Test fallen,
-  // vorausgesetzt, die Prüfmaschine läuft nicht zufällig in Asia/Tokyo.
-  test('die Uhrzeit kommt aus captured_tz DES MOMENTS, nicht aus der Gerätezeit', async () => {
-    const p1Tokio = moment({ id: 'p1', captured_at: '2026-08-10T09:00:00.000Z', captured_tz: 'Asia/Tokyo' });
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [p1Tokio], error: null });
+  test('the time comes from captured_tz OF THE MOMENT, not from the device clock', async () => {
+    const p1Tokyo = moment({ id: 'p1', captured_at: '2026-08-10T09:00:00.000Z', captured_tz: 'Asia/Tokyo' });
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [p1Tokyo], error: null });
     (getPool as jest.Mock).mockResolvedValue({
-      vorrat: { urls: new Map([['p1', bild('p1')]]), gueltigBis: Date.now() + 999_999, ausgelassen: 0 },
+      pool: { urls: new Map([['p1', image('p1')]]), gueltigBis: Date.now() + 999_999, ausgelassen: 0 },
       error: null,
-      grund: null,
+      reason: null,
     });
     await wrap();
-    // 09:00 UTC ist 18:00 in Asia/Tokyo (UTC+9), NICHT 09:00.
+    // 09:00 UTC is 18:00 in Asia/Tokyo (UTC+9), NOT 09:00.
     expect(screen.getByText('Lissabon · 18:00')).toBeTruthy();
     expect(screen.queryByText('Lissabon · 09:00')).toBeNull();
   });
 
-  test('eine vorhandene Caption erscheint als eigene Pille', async () => {
-    mockParams = { id: 't1', start: '1' }; // p2 trägt die Caption 'Schön hier'
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+  test('an existing caption appears as its own pill', async () => {
+    mockParams = { id: 't1', start: '1' }; // p2 carries the caption 'Schön hier'
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
     expect(screen.getByTestId('player-caption')).toBeTruthy();
     expect(screen.getByText('Schön hier')).toBeTruthy();
   });
 
-  test('ohne Caption erscheint keine Caption-Pille', async () => {
-    // p1 (start=0) hat caption: null.
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+  test('without a caption no caption pill appears', async () => {
+    // p1 (start=0) has caption: null.
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
     expect(screen.queryByTestId('player-caption')).toBeNull();
   });
 });
 
-describe('Zustandsmaschine über den Screen', () => {
-  test('ein Tipp auf die rechte Hälfte schaltet zum nächsten Moment', async () => {
-    mockParams = { id: 't1', start: '1' }; // p2 (Video), kein Tageswechsel zu p3
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+describe('state machine across the screen', () => {
+  test('a tap on the right half advances to the next moment', async () => {
+    mockParams = { id: 't1', start: '1' }; // p2 (video), no day change to p3
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
     expect(screen.getByTestId('player-video')).toBeTruthy();
     await fireEvent(screen.getByTestId('player-rechts'), 'pressIn');
     await fireEvent(screen.getByTestId('player-rechts'), 'pressOut');
-    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: bild('p3').medium_url });
+    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: image('p3').medium_url });
   });
 
-  test('ein Tipp auf die linke Hälfte am ersten Moment bleibt beim ersten Moment', async () => {
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+  test('a tap on the left half at the first moment stays at the first moment', async () => {
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
-    await fireEvent.press(screen.getByTestId('player-zwischenkarte')); // Tag-1-Karte weg
+    await fireEvent.press(screen.getByTestId('player-zwischenkarte')); // day 1 interstitial gone
     await fireEvent(screen.getByTestId('player-links'), 'pressIn');
     await fireEvent(screen.getByTestId('player-links'), 'pressOut');
-    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: bild('p1').medium_url });
+    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: image('p1').medium_url });
   });
 
-  test('nach Ablauf der Fotodauer schaltet der Player automatisch weiter', async () => {
+  test('once the photo duration is up the player advances on its own', async () => {
     mockParams = { id: 't1', start: '2' }; // p3
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
-    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: bild('p3').medium_url });
+    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: image('p3').medium_url });
     await act(async () => {
-      jest.advanceTimersByTime(5000); // FOTO_DAUER_MS
+      jest.advanceTimersByTime(5000); // PHOTO_DURATION_MS
     });
-    // p3 -> p4 ist ein Tageswechsel: die Zwischenkarte für Tag 2 muss jetzt da sein.
+    // p3 -> p4 is a day change, so the day 2 interstitial has to be there.
     expect(screen.getByTestId('player-zwischenkarte')).toBeTruthy();
     expect(screen.getByText('Tag 2 · 11. August')).toBeTruthy();
   });
 
-  test('am letzten Moment schaltet Weiter zum Ende-Screen, nicht in einen leeren Zustand', async () => {
-    mockParams = { id: 't1', start: '3' }; // p4, letzter ladbarer Moment
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+  test('advancing past the last moment reaches the end screen, not an empty state', async () => {
+    mockParams = { id: 't1', start: '3' }; // p4, the last loadable moment
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
-    await fireEvent.press(screen.getByTestId('player-zwischenkarte')); // Tag-2-Karte weg
+    await fireEvent.press(screen.getByTestId('player-zwischenkarte')); // day 2 interstitial gone
     await fireEvent(screen.getByTestId('player-rechts'), 'pressIn');
     await fireEvent(screen.getByTestId('player-rechts'), 'pressOut');
     expect(screen.getByTestId('player-ende')).toBeTruthy();
@@ -470,40 +407,35 @@ describe('Zustandsmaschine über den Screen', () => {
     expect(screen.getByText('1 Moment ist noch unterwegs.')).toBeTruthy();
   });
 
-  test('Halten pausiert den Auto-Vorschub; Loslassen nach dem Halten setzt fort statt zu navigieren', async () => {
+  test('holding pauses the auto advance, releasing after a hold resumes instead of navigating', async () => {
     mockParams = { id: 't1', start: '2' }; // p3
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
     await fireEvent(screen.getByTestId('player-rechts'), 'pressIn');
-    // Selbst nach Ablauf der vollen Fotodauer bleibt der Moment stehen,
-    // solange gehalten wird, ein Mutant, der die pausiert-Prüfung im
-    // Auto-Vorschub-Effekt entfernt, liesse diesen Test fallen.
     await act(async () => {
       jest.advanceTimersByTime(5000);
     });
-    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: bild('p3').medium_url });
+    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: image('p3').medium_url });
     await fireEvent(screen.getByTestId('player-rechts'), 'pressOut');
-    // Lang genug gehalten (>= Tipp-Schwelle): Loslassen setzt NUR fort, es
-    // navigiert nicht zusätzlich zum nächsten Moment.
-    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: bild('p3').medium_url });
+    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: image('p3').medium_url });
   });
 
-  test('ein kurzer Tipp (unter der Halte-Schwelle) navigiert, ein langer Tipp (Halten) navigiert NICHT', async () => {
+  test('a short tap navigates while a long press only holds', async () => {
     mockParams = { id: 't1', start: '2' }; // p3
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
     await fireEvent(screen.getByTestId('player-rechts'), 'pressIn');
-    await fireEvent(screen.getByTestId('player-rechts'), 'pressOut'); // sofort losgelassen: Tipp
-    expect(screen.getByTestId('player-zwischenkarte')).toBeTruthy(); // p3 -> p4, Tageswechsel
+    await fireEvent(screen.getByTestId('player-rechts'), 'pressOut'); // released at once: a tap
+    expect(screen.getByTestId('player-zwischenkarte')).toBeTruthy(); // p3 -> p4, day change
   });
 });
 
-describe('Tages-Zwischenkarte', () => {
-  test('erscheint vor dem allerersten Moment und verschwindet nach 1,5 Sekunden von selbst', async () => {
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+describe('day interstitial', () => {
+  test('appears before the very first moment and disappears on its own after 1.5 seconds', async () => {
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
     expect(screen.getByTestId('player-zwischenkarte')).toBeTruthy();
     expect(screen.getByText('Tag 1 · Lissabon · 10. August')).toBeTruthy();
@@ -511,22 +443,17 @@ describe('Tages-Zwischenkarte', () => {
       jest.advanceTimersByTime(1500);
     });
     expect(screen.queryByTestId('player-zwischenkarte')).toBeNull();
-    // Danach läuft der normale Auto-Vorschub weiter, ab HIER (nicht ab dem
-    // Mount) schaltet p1 nach FOTO_DAUER_MS zu p2 weiter.
+    // The normal auto advance runs on from HERE (not from the mount): p1
+    // moves to p2 one photo duration later.
     await act(async () => {
       jest.advanceTimersByTime(5000);
     });
     expect(screen.getByTestId('player-video')).toBeTruthy();
   });
 
-  // M4 (Review-Fund): die vorherige Suite prüfte nur "nach 1,5 s ist die
-  // Karte weg", ein Mutant, der ZWISCHENKARTE_DAUER_MS auf z.B. 500 ms
-  // verkürzt, blieb dabei unentdeckt grün (500 < 1500, die Prüfung "nach
-  // 1500ms weg" stimmt für BEIDE Werte). Diese Gegenprobe verlangt
-  // ausdrücklich, dass die Karte VOR Ablauf der vollen Dauer noch steht.
-  test('die Zwischenkarte verschwindet NICHT vor Ablauf der vollen 1,5 Sekunden', async () => {
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+  test('the day interstitial does NOT disappear before the full 1.5 seconds are up', async () => {
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
     expect(screen.getByTestId('player-zwischenkarte')).toBeTruthy();
     await act(async () => {
@@ -535,85 +462,69 @@ describe('Tages-Zwischenkarte', () => {
     expect(screen.getByTestId('player-zwischenkarte')).toBeTruthy();
   });
 
-  // Die Kernfrage aus dem Auftrag: ein Tipp während der Karte darf NICHT
-  // gleichzeitig auch noch weiterschalten (sonst wäre man nach einem Tipp
-  // schon beim ZWEITEN Moment, nicht beim ersten).
-  test('ein Tipp während der Karte überspringt NUR sie, ohne zusätzlich weiterzuschalten', async () => {
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+  test('a tap during the day interstitial skips ONLY the interstitial, without advancing as well', async () => {
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
     await fireEvent.press(screen.getByTestId('player-zwischenkarte'));
     expect(screen.queryByTestId('player-zwischenkarte')).toBeNull();
-    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: bild('p1').medium_url });
+    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: image('p1').medium_url });
   });
 
-  // M5 (Review-Fund): `fireEvent.press` auf ein testID prüft keine
-  // Geometrie/Stapelung, eine Verschiebung der Karte VOR die Tipp-Zonen im
-  // JSX-Baum liesse den obigen Test unverändert grün, obwohl die Karte in
-  // der echten App dann darunter läge. Die Stapelung ist jetzt ein
-  // expliziter, von der Baumreihenfolge unabhängiger zIndex, das prüfen wir
-  // direkt.
-  test('die Zwischenkarte liegt per zIndex über den Tipp-Zonen, unabhängig von der Render-Reihenfolge im Baum', async () => {
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+  // fireEvent.press knows nothing about geometry or stacking, so the
+  // explicit zIndex is what has to be asserted here.
+  test('the day interstitial sits above the tap zones by zIndex, independent of tree order', async () => {
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
-    const karte = StyleSheet.flatten(screen.getByTestId('player-zwischenkarte').props.style);
-    const links = StyleSheet.flatten(screen.getByTestId('player-links').props.style);
-    const rechts = StyleSheet.flatten(screen.getByTestId('player-rechts').props.style);
-    expect(karte.zIndex).toBeGreaterThan(links.zIndex ?? 0);
-    expect(karte.zIndex).toBeGreaterThan(rechts.zIndex ?? 0);
+    const card = StyleSheet.flatten(screen.getByTestId('player-zwischenkarte').props.style);
+    const left = StyleSheet.flatten(screen.getByTestId('player-links').props.style);
+    const right = StyleSheet.flatten(screen.getByTestId('player-rechts').props.style);
+    expect(card.zIndex).toBeGreaterThan(left.zIndex ?? 0);
+    expect(card.zIndex).toBeGreaterThan(right.zIndex ?? 0);
   });
 
-  // Klein (Review-Fund): die Karte ist vollflächig-opak, ohne einen noch
-  // höheren zIndex für die Schliessen-Pille liesse sich der Player während
-  // ihrer 1,5 s nicht verlassen.
-  test('die Schliessen-Pille bleibt auch WÄHREND die Zwischenkarte steht bedienbar', async () => {
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+  // The interstitial covers the whole screen opaquely, so without an even
+  // higher zIndex the close pill would be unreachable for its 1.5 s.
+  test('the close pill stays usable WHILE the day interstitial is up', async () => {
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
     expect(screen.getByTestId('player-zwischenkarte')).toBeTruthy();
-    const schliessen = StyleSheet.flatten(screen.getByTestId('player-schliessen').props.style);
-    const karte = StyleSheet.flatten(screen.getByTestId('player-zwischenkarte').props.style);
-    expect(schliessen.zIndex).toBeGreaterThan(karte.zIndex ?? 0);
+    const closePill = StyleSheet.flatten(screen.getByTestId('player-schliessen').props.style);
+    const card = StyleSheet.flatten(screen.getByTestId('player-zwischenkarte').props.style);
+    expect(closePill.zIndex).toBeGreaterThan(card.zIndex ?? 0);
     await fireEvent.press(screen.getByTestId('player-schliessen'));
     expect(mockBack).toHaveBeenCalled();
   });
 
-  // Wichtig 1 (Review-Fund): die Zwischenkarte muss ein Video darunter
-  // WIRKLICH pausieren (player.pause()), sonst liefen Bild und Ton hinter
-  // der opaken Karte weiter, und ein sehr kurzes Video (dauerFuer <= 1,5 s)
-  // könnte sogar unter der Karte zu Ende laufen: der Moment, den die Karte
-  // gerade ankündigt, würde dann nie gezeigt, und die Karte verschwände
-  // vorzeitig.
-  test('ein Video unter der Zwischenkarte wird wirklich pausiert und geht nicht verloren', async () => {
-    // p2v: Tag-2-Video mit einer Dauer knapp unter der Kartenzeit (1,5 s),
-    // würde die Karte das Video nicht pausieren, liesse `playToEnd` (oder
-    // der dauerFuer-Fallback-Timer) den Moment schon während der Karte
-    // verschwinden.
+  test('a video under the day interstitial is really paused and does not get lost', async () => {
+    // p2v: a day 2 video whose duration sits just below the interstitial's
+    // own 1.5 s.
     const p2v = moment({
       id: 'p2v', type: 'video', duration_s: 1, captured_at: '2026-08-11T09:00:00.000Z', place_name: null,
     });
-    mockParams = { id: 't1', start: '2' }; // p3 (Tag 1, letzter Moment vor dem Tageswechsel)
+    mockParams = { id: 't1', start: '2' }; // p3 (day 1, the last moment before the day change)
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [p1, p2, p3, p2v], error: null });
     (getPool as jest.Mock).mockResolvedValue({
-      vorrat: {
-        urls: new Map([['p1', bild('p1')], ['p2', bild('p2')], ['p3', bild('p3')], ['p2v', bild('p2v')]]),
+      pool: {
+        urls: new Map([['p1', image('p1')], ['p2', image('p2')], ['p3', image('p3')], ['p2v', image('p2v')]]),
         gueltigBis: Date.now() + 999_999,
         ausgelassen: 0,
       },
       error: null,
-      grund: null,
+      reason: null,
     });
     await wrap();
-    // p3 -> p2v: Tageswechsel, die Karte für Tag 2 erscheint VOR dem Video.
+    // p3 -> p2v: a day change, the day 2 interstitial appears BEFORE the video.
     await fireEvent(screen.getByTestId('player-rechts'), 'pressIn');
     await fireEvent(screen.getByTestId('player-rechts'), 'pressOut');
     expect(screen.getByTestId('player-zwischenkarte')).toBeTruthy();
     expect(screen.getByTestId('player-video')).toBeTruthy();
     expect(mockVideoPlayer.pause).toHaveBeenCalled();
 
-    // Selbst nach Ablauf von dauerFuer(p2v) = 1000 ms UND playToEnd bleibt
-    // der Moment stehen, solange die Karte noch steht (1,5 s > 1 s).
+    // Even after durationFor(p2v) = 1000 ms AND playToEnd, the moment stays
+    // put while the interstitial is still standing (1.5 s > 1 s).
     await act(async () => {
       jest.advanceTimersByTime(1000);
       mockListeners.playToEnd?.forEach((cb) => cb());
@@ -621,119 +532,91 @@ describe('Tages-Zwischenkarte', () => {
     expect(screen.getByTestId('player-zwischenkarte')).toBeTruthy();
     expect(screen.getByTestId('player-video')).toBeTruthy();
 
-    // Nach Ablauf der vollen 1,5 s verschwindet die Karte, das Video setzt
-    // fort (play() erneut aufgerufen) und läuft normal zu Ende.
     await act(async () => {
-      jest.advanceTimersByTime(500); // insgesamt 1500ms seit dem Tageswechsel
+      jest.advanceTimersByTime(500); // 1500 ms in total since the day change
     });
     expect(screen.queryByTestId('player-zwischenkarte')).toBeNull();
     expect(screen.getByTestId('player-video')).toBeTruthy();
     await act(async () => {
       mockListeners.playToEnd?.forEach((cb) => cb());
     });
-    expect(screen.queryByTestId('player-video')).toBeNull(); // letzter Moment erreicht -> Ende-Screen
+    expect(screen.queryByTestId('player-video')).toBeNull(); // last moment reached, end screen
     expect(screen.getByTestId('player-ende')).toBeTruthy();
   });
 
-  // Phase-5-Final-Review, Punkt 1, DER Repro aus dem Bericht: der
-  // Zwischenkarten-Timer bleibt nach einem Tipp-Überspringen verwaist stehen
-  // (seine Deps `[phase, spielliste, startDate, stand.index]` ändern sich
-  // durch `ueberspringen()` nicht, Cleanup/Neulauf bleiben also aus) und
-  // feuert trotzdem noch, wenn inzwischen aus einem GANZ ANDEREN Grund
-  // (Kommentar-Sheet) pausiert wurde. Die ALTE Repräsentation (`pausiert:
-  // false` unbedingt) hätte diese fremde Pause stillschweigend aufgehoben,
-  // der Player wäre HINTER dem offenen Sheet weitergelaufen (Bild UND Ton).
-  // Ersetzt zwei ältere Tests (M6), die genau dieses unbedingte Zurücksetzen
-  // noch als GEWÜNSCHTES Verhalten prüften, mit den benannten Gründen ist
-  // das nicht mehr korrekt (siehe deren eigener Kommentar: "stand.pausiert
-  // ist bei einem realen Kartenaufruf zwar immer schon false").
-  test('überspringen → Kommentar-Sheet öffnen → 1500 ms vorspulen: der Player bleibt pausiert (Final-Review-Repro)', async () => {
-    // Gleicher Aufbau wie "ein Video unter der Zwischenkarte wird wirklich
-    // pausiert…" oben: p2v ist Tag 2s erstes (Video-)Moment, der Wechsel
-    // p3 → p2v löst die Tages-Zwischenkarte aus.
+  // Skipping the interstitial by tap leaves its timer orphaned: the deps of
+  // that effect do not change, so there is no cleanup and no rerun, and the
+  // timer still fires later, when the player may be paused for a completely
+  // different reason.
+  test('skipping the interstitial and then opening the comment sheet keeps the player paused when the orphaned timer fires', async () => {
     const p2v = moment({
       id: 'p2v', type: 'video', duration_s: 3, captured_at: '2026-08-11T09:00:00.000Z', place_name: null,
     });
-    mockParams = { id: 't1', start: '2' }; // p3 (Tag 1, letzter Moment vor dem Tageswechsel)
+    mockParams = { id: 't1', start: '2' }; // p3 (day 1, the last moment before the day change)
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [p1, p2, p3, p2v], error: null });
     (getPool as jest.Mock).mockResolvedValue({
-      vorrat: {
-        urls: new Map([['p1', bild('p1')], ['p2', bild('p2')], ['p3', bild('p3')], ['p2v', bild('p2v')]]),
+      pool: {
+        urls: new Map([['p1', image('p1')], ['p2', image('p2')], ['p3', image('p3')], ['p2v', image('p2v')]]),
         gueltigBis: Date.now() + 999_999,
         ausgelassen: 0,
       },
       error: null,
-      grund: null,
+      reason: null,
     });
     await wrap();
-    // Schritt 1: Tageswechsel, die Karte für Tag 2 erscheint, ihr
-    // 1,5-s-Timer T startet (t=0 im Folgenden).
+    // Step 1: the day change shows the day 2 interstitial and starts its
+    // 1.5 s timer T (t=0 from here on).
     await fireEvent(screen.getByTestId('player-rechts'), 'pressIn');
     await fireEvent(screen.getByTestId('player-rechts'), 'pressOut');
     expect(screen.getByTestId('player-zwischenkarte')).toBeTruthy();
 
-    // Schritt 2: bei t≈200ms auf die Karte tippen (überspringen). T lebt
-    // verwaist weiter.
+    // Step 2: tap the interstitial at t=200 ms (skip). T lives on, orphaned.
     await act(async () => {
       jest.advanceTimersByTime(200);
     });
     await fireEvent.press(screen.getByTestId('player-zwischenkarte'));
     expect(screen.queryByTestId('player-zwischenkarte')).toBeNull();
 
-    // Schritt 3: bei t≈400ms den Kommentar-Knopf tippen → Sheet öffnet,
-    // Video pausiert ECHT (player.pause()).
+    // Step 3: at t=400 ms open the comment sheet, which really pauses the
+    // video (player.pause()).
     await act(async () => {
       jest.advanceTimersByTime(200);
     });
     await fireEvent.press(screen.getByTestId('player-kommentare-oeffnen'));
-    expect(screen.getByTestId('kommentar-eingabe')).toBeTruthy(); // Sheet ist offen
-    const spielAufrufeBeimOeffnen = mockVideoPlayer.play.mock.calls.length;
-    const pauseAufrufeBeimOeffnen = mockVideoPlayer.pause.mock.calls.length;
+    expect(screen.getByTestId('kommentar-eingabe')).toBeTruthy(); // sheet is open
+    const playCallsOnOpen = mockVideoPlayer.play.mock.calls.length;
+    const pauseCallsOnOpen = mockVideoPlayer.pause.mock.calls.length;
 
-    // Schritt 4: bei insgesamt t=1500ms (seit dem Tageswechsel) feuert der
-    // verwaiste Timer T. Er darf NUR seinen eigenen Grund ('zwischenkarte')
-    // zurücknehmen, der bereits per `ueberspringen()` entfernt wurde
-    // (sicheres No-Op), NICHT 'kommentare'.
+    // Step 4: at t=1500 ms in total the orphaned timer T fires. It may only
+    // take back its own pause reason, never the one the sheet set.
     await act(async () => {
       jest.advanceTimersByTime(1100); // 200 + 200 + 1100 = 1500
     });
 
-    // Schritt 5 (der eigentliche Fehler, jetzt widerlegt): kein neuer
-    // player.play()-Aufruf, der Player läuft NICHT hinter dem (weiterhin
-    // offenen) Sheet weiter. Ohne den Mock-Fix oben (setup nur bei
-    // tatsächlich neuer Quelle, siehe dort) wäre diese Zählung durch
-    // renderausgelöste, mit der Pause-Logik nichts zu tuende Zusatzaufrufe
-    // verrauscht gewesen.
-    expect(mockVideoPlayer.play.mock.calls.length).toBe(spielAufrufeBeimOeffnen);
-    // Gegenprobe: auch kein neuer pause()-Aufruf, der Player wurde nie
-    // wieder losgelassen, den man erneut hätte anhalten müssen.
-    expect(mockVideoPlayer.pause.mock.calls.length).toBe(pauseAufrufeBeimOeffnen);
-    expect(screen.getByTestId('kommentar-eingabe')).toBeTruthy(); // Sheet weiterhin offen
+    expect(mockVideoPlayer.play.mock.calls.length).toBe(playCallsOnOpen);
+    expect(mockVideoPlayer.pause.mock.calls.length).toBe(pauseCallsOnOpen);
+    expect(screen.getByTestId('kommentar-eingabe')).toBeTruthy(); // sheet still open
   });
 });
 
-describe('Video-Momente', () => {
-  test('ein Video schaltet beim playToEnd-Event weiter, nicht erst nach dem Fallback-Timer', async () => {
-    mockParams = { id: 't1', start: '1' }; // p2, duration_s=3 -> Fallback-Timer bei 3000ms
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+describe('video moments', () => {
+  test('a video advances on the playToEnd event, not only after the fallback timer', async () => {
+    mockParams = { id: 't1', start: '1' }; // p2, duration_s=3 -> fallback timer at 3000 ms
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
     expect(screen.getByTestId('player-video')).toBeTruthy();
     await act(async () => {
-      jest.advanceTimersByTime(500); // deutlich vor den 3000ms des Fallbacks
+      jest.advanceTimersByTime(500); // well before the fallback's 3000 ms
       mockListeners.playToEnd?.forEach((cb) => cb());
     });
-    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: bild('p3').medium_url });
+    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: image('p3').medium_url });
   });
 
-  // "Halten = Pause" darf sich nicht auf den Fortschrittsbalken beschränken,
-  // sonst liefen Bild und Ton eines Videos unbeirrt weiter, während die
-  // Anzeige stillsteht. Ein Mutant, der `player.pause()`/`player.play()` aus
-  // VideoMoment entfernt, liesse diesen Test fallen.
-  test('Halten pausiert auch die tatsächliche Videowiedergabe, Loslassen setzt sie fort', async () => {
-    mockParams = { id: 't1', start: '1' }; // p2, Video
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+  test('holding pauses the actual video playback as well, releasing resumes it', async () => {
+    mockParams = { id: 't1', start: '1' }; // p2, video
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
     expect(mockVideoPlayer.pause).not.toHaveBeenCalled();
 
@@ -741,74 +624,62 @@ describe('Video-Momente', () => {
     expect(mockVideoPlayer.pause).toHaveBeenCalledTimes(1);
 
     await act(async () => {
-      jest.advanceTimersByTime(400); // lang genug für "Halten", nicht für "Tipp"
+      jest.advanceTimersByTime(400); // long enough for a hold, too long for a tap
     });
     await fireEvent(screen.getByTestId('player-rechts'), 'pressOut');
-    // play() lief schon einmal beim Erzeugen des Players (Setup), nach dem
-    // Loslassen kommt ein ZWEITER Aufruf hinzu, der das Fortsetzen ist.
+    // play() already ran once when the player was created (setup), the
+    // SECOND call is the resume.
     expect(mockVideoPlayer.play.mock.calls.length).toBeGreaterThanOrEqual(2);
   });
 
-  // Vertrag 4, Kernfall: OHNE ein echtes player.pause() könnte ein Video
-  // während einer Halten-Geste unbeirrt zu Ende laufen und `playToEnd`
-  // feuern, weiterAutomatisch MUSS dann trotzdem mit pausiert:false enden,
-  // sonst bliebe der NÄCHSTE Moment lautlos hängen (das war der explizite
-  // Auftrag: "Bei jedem programmatischen Weiterschalten musst du
-  // pausiert:false selbst setzen: Video-Ende, …").
-  test('feuert playToEnd ausnahmsweise während einer Halten-Geste, bleibt der nächste Moment nicht stumm stehen', async () => {
-    mockParams = { id: 't1', start: '1' }; // p2, Video
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+  test('a playToEnd during a hold gesture still leaves the next moment running, not stuck', async () => {
+    mockParams = { id: 't1', start: '1' }; // p2, video
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
-    await fireEvent(screen.getByTestId('player-rechts'), 'pressIn'); // pausiert:true
+    await fireEvent(screen.getByTestId('player-rechts'), 'pressIn'); // hold
     await act(async () => {
       mockListeners.playToEnd?.forEach((cb) => cb());
     });
-    // p3 ist jetzt aktiv, der Auto-Vorschub-Timer für p3 muss laufen, sonst
-    // bliebe der Player stehen, obwohl niemand mehr hält.
-    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: bild('p3').medium_url });
+    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: image('p3').medium_url });
     await act(async () => {
-      jest.advanceTimersByTime(5000); // FOTO_DAUER_MS
+      jest.advanceTimersByTime(5000); // PHOTO_DURATION_MS
     });
-    expect(screen.getByTestId('player-zwischenkarte')).toBeTruthy(); // p3 -> p4, Tageswechsel
+    expect(screen.getByTestId('player-zwischenkarte')).toBeTruthy(); // p3 -> p4, day change
   });
 
-  test('ein Video, das nicht lädt, zeigt nach einem stillen Neuversuch Thumbnail und Hinweis, Weitertippen bleibt möglich', async () => {
+  test('a video that fails to load shows the thumbnail and a hint after one silent retry, and stays tappable', async () => {
     mockParams = { id: 't1', start: '1' }; // p2
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
 
-    // Erster Fehlschlag: V10 verlangt einen STILLEN Neuversuch, noch kein Hinweistext.
+    // First failure: a SILENT retry, no hint text yet.
     await act(async () => {
       mockListeners.statusChange?.forEach((cb) => cb({ status: 'error' }));
     });
     await act(async () => {});
-    expect(getPool).toHaveBeenCalledTimes(2); // 1x initiales Laden, 1x Neuversuch
+    expect(getPool).toHaveBeenCalledTimes(2); // 1x initial load, 1x retry
     expect(screen.queryByText('Dieses Video lässt sich gerade nicht laden.')).toBeNull();
 
-    // Zweiter Fehlschlag desselben Moments: der einmalige Neuversuch ist
-    // aufgebraucht, jetzt erscheint der Hinweis.
+    // Second failure on the same moment: the one retry is used up, now the
+    // hint appears.
     await act(async () => {
       mockListeners.statusChange?.forEach((cb) => cb({ status: 'error' }));
     });
     expect(screen.getByText('Dieses Video lässt sich gerade nicht laden.')).toBeTruthy();
-    expect(getPool).toHaveBeenCalledTimes(2); // kein dritter, unsichtbarer Versuch mehr
+    expect(getPool).toHaveBeenCalledTimes(2); // no third, invisible attempt
 
-    // Der Recap bricht trotzdem nicht ab, Weitertippen funktioniert weiter.
+    // The recap does not break off, tapping onwards keeps working.
     await fireEvent(screen.getByTestId('player-rechts'), 'pressIn');
     await fireEvent(screen.getByTestId('player-rechts'), 'pressOut');
-    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: bild('p3').medium_url });
+    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: image('p3').medium_url });
   });
 
-  // Klein (Review-Fund): versuchtRef/fehlgeschlagen überlebten bisher ein
-  // frisches laden() (z.B. Wechsel der Reise-ID auf derselben Screen-
-  // Instanz), ein Moment, der beim vorherigen Anlauf zweimal scheiterte,
-  // bekam dann NIE WIEDER einen stillen Neuversuch.
-  test('ein frisches Laden setzt den Fehlschlags-Zustand zurück, derselbe Moment bekommt wieder einen stillen Neuversuch', async () => {
-    mockParams = { id: 't1', start: '1' }; // p2, Video
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+  test('a fresh load resets the failure state, so the same moment gets another silent retry', async () => {
+    mockParams = { id: 't1', start: '1' }; // p2, video
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     const { rerender } = await render(<RecapPlayer />);
     await act(async () => {});
     await act(async () => {
@@ -820,163 +691,130 @@ describe('Video-Momente', () => {
     });
     expect(screen.getByText('Dieses Video lässt sich gerade nicht laden.')).toBeTruthy();
 
-    // Ein frischer Ladevorgang (hier: Wechsel der Reise-ID auf derselben
-    // Komponenten-Instanz, `laden` bekommt dadurch eine neue Identität).
+    // A fresh load: the trip id changes on the same component instance.
     mockParams = { id: 't2', start: '1' };
     await rerender(<RecapPlayer />);
     await act(async () => {});
     expect(screen.queryByText('Dieses Video lässt sich gerade nicht laden.')).toBeNull();
   });
 
-  // Wichtig 2 (Review-Fund): der Stale-Guard in videoZuEnde. p2s
-  // playToEnd-Callback wird VOR dem Weiterschalten festgehalten, die
-  // REGISTRIERUNG wird beim Moment-Wechsel überschrieben (neue
-  // Video-Instanz für p3), das Callback-OBJEKT selbst bleibt aber gültig
-  // und simuliert damit ein Event, das aus Native erst NACH dem Commit auf
-  // den nächsten Moment eintrifft.
-  test('ein verspätetes playToEnd für einen bereits verlassenen Moment schaltet NICHT ein zweites Mal weiter', async () => {
-    mockParams = { id: 't1', start: '1' }; // p2, Video
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+  // p2's playToEnd callback is captured BEFORE advancing: the registration
+  // is replaced on the moment change (a fresh video instance for p3), but
+  // the callback object itself stays valid and stands in for an event that
+  // arrives from native only after the commit to the next moment.
+  test('a late playToEnd for a moment already left behind does NOT advance a second time', async () => {
+    mockParams = { id: 't1', start: '1' }; // p2, video
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
-    const p2EndeCallback = mockListeners.playToEnd[0];
-    expect(p2EndeCallback).toBeTruthy();
+    const p2EndCallback = mockListeners.playToEnd[0];
+    expect(p2EndCallback).toBeTruthy();
 
     await fireEvent(screen.getByTestId('player-rechts'), 'pressIn');
     await fireEvent(screen.getByTestId('player-rechts'), 'pressOut'); // p2 -> p3
-    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: bild('p3').medium_url });
+    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: image('p3').medium_url });
 
-    // Das verspätete Event von p2 trifft jetzt ein.
+    // The late event from p2 arrives now.
     await act(async () => {
-      p2EndeCallback();
+      p2EndCallback();
     });
-    // OHNE die Stale-Guard würde weiterAutomatisch aus dem AKTUELLEN
-    // (p3-)Snapshot rechnen und ein zweites Mal weiterschalten (-> p4),
-    // obwohl niemand getippt hat.
-    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: bild('p3').medium_url });
+    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: image('p3').medium_url });
   });
 
-  // M11 (Review-Fund): dieselbe Stale-Guard fehlte auch am Ende von
-  // beiLadefehler, eine verspätete Neuversuch-Antwort für einen
-  // VERLASSENEN Moment durfte das eigenständig gesetzte Pausieren des
-  // INZWISCHEN AKTIVEN Moments nicht überschreiben.
-  test('eine verspätete Neuversuch-Antwort für einen verlassenen Moment überschreibt das Pausieren des neuen Moments nicht', async () => {
-    mockParams = { id: 't1', start: '1' }; // p2, Video
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    let neuversuchAufloesen: (v: unknown) => void = () => {};
+  test('a late retry answer for a moment left behind does not override the pause of the new moment', async () => {
+    mockParams = { id: 't1', start: '1' }; // p2, video
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    let resolveRetry: (v: unknown) => void = () => {};
     (getPool as jest.Mock)
-      .mockResolvedValueOnce({ vorrat: VORRAT_OK, error: null, grund: null }) // initiales Laden
-      .mockReturnValueOnce(new Promise((resolve) => { neuversuchAufloesen = resolve; })); // Neuversuch hängt
+      .mockResolvedValueOnce({ pool: POOL_OK, error: null, reason: null }) // initial load
+      .mockReturnValueOnce(new Promise((resolve) => { resolveRetry = resolve; })); // the retry hangs
     await wrap();
     await act(async () => {
-      mockListeners.statusChange?.forEach((cb) => cb({ status: 'error' })); // löst den (hängenden) Neuversuch für p2 aus
+      mockListeners.statusChange?.forEach((cb) => cb({ status: 'error' })); // triggers the hanging retry for p2
     });
-    // Nutzer navigiert währenddessen weiter (kurzer Tipp) ...
+    // Meanwhile the viewer taps onwards ...
     await fireEvent(screen.getByTestId('player-rechts'), 'pressIn');
     await fireEvent(screen.getByTestId('player-rechts'), 'pressOut'); // -> p3
-    // ... und hält jetzt auf dem NEUEN Moment.
+    // ... and now holds on the NEW moment.
     await fireEvent(screen.getByTestId('player-rechts'), 'pressIn');
-    // Die verspätete Antwort für p2 trifft jetzt ein.
+    // The late answer for p2 arrives now.
     await act(async () => {
-      neuversuchAufloesen({ vorrat: VORRAT_OK });
+      resolveRetry({ pool: POOL_OK });
     });
-    // p3 bleibt trotzdem pausiert, der Auto-Vorschub darf nicht anlaufen,
-    // selbst wenn die volle Fotodauer vergeht.
     await act(async () => {
       jest.advanceTimersByTime(5000);
     });
-    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: bild('p3').medium_url });
+    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: image('p3').medium_url });
   });
 
-  // Final-Review Phase-5-Nachbesserung: der Test oben prüft nur, dass eine
-  // verspätete Neuversuch-Antwort ein UNABHÄNGIG gesetztes Halten nicht
-  // überschreibt, er sagt nichts darüber, ob der Player nach einem
-  // WEITERGETIPPTEN Neuversuch je wieder anläuft. Genau das war die Lücke:
-  // 'neuversuch' blieb ohne ein `pressOut` auf dem NEUEN Moment für immer
-  // gesetzt (keine Stelle nahm es je zurück, wenn die Stale-Guard in
-  // beiLadefehler einmal fehlschlug). Dieser Test tippt NUR weiter, hält
-  // NICHT erneut, und verlangt den tatsächlichen WIEDERANLAUF: der
-  // Auto-Vorschub muss den neuen Moment nach dessen Fotodauer verlassen.
-  test('eine verspätete Neuversuch-Antwort blockiert den neuen Moment NICHT dauerhaft, der Auto-Vorschub läuft normal weiter', async () => {
-    mockParams = { id: 't1', start: '1' }; // p2, Video
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    let neuversuchAufloesen: (v: unknown) => void = () => {};
+  // Unlike the test above this one only taps onwards and never holds again,
+  // so it demands the actual restart: the auto advance has to leave the new
+  // moment after its photo duration.
+  test('a late retry answer does NOT block the new moment forever, the auto advance keeps running', async () => {
+    mockParams = { id: 't1', start: '1' }; // p2, video
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    let resolveRetry: (v: unknown) => void = () => {};
     (getPool as jest.Mock)
-      .mockResolvedValueOnce({ vorrat: VORRAT_OK, error: null, grund: null }) // initiales Laden
-      .mockReturnValueOnce(new Promise((resolve) => { neuversuchAufloesen = resolve; })); // Neuversuch hängt
+      .mockResolvedValueOnce({ pool: POOL_OK, error: null, reason: null }) // initial load
+      .mockReturnValueOnce(new Promise((resolve) => { resolveRetry = resolve; })); // the retry hangs
     await wrap();
     await act(async () => {
-      mockListeners.statusChange?.forEach((cb) => cb({ status: 'error' })); // löst den (hängenden) Neuversuch für p2 aus
+      mockListeners.statusChange?.forEach((cb) => cb({ status: 'error' })); // triggers the hanging retry for p2
     });
-    // Nutzer tippt (kurz) weiter, OHNE danach zu halten -> p3. Unter dem
-    // alten Code blieb 'neuversuch' hier unentfernt hängen.
+    // The viewer taps onwards without holding afterwards -> p3.
     await fireEvent(screen.getByTestId('player-rechts'), 'pressIn');
     await fireEvent(screen.getByTestId('player-rechts'), 'pressOut');
-    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: bild('p3').medium_url });
+    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: image('p3').medium_url });
 
-    // Die verspätete Antwort für p2 trifft jetzt ein, darf p3 NICHT
-    // dauerhaft stilllegen (Stale-Guard greift: aktivIdRef zeigt auf p3,
-    // nicht mehr auf p2, die Rücknahme in beiLadefehler selbst bleibt also
-    // aus, entscheidend ist, dass der Tipp oben 'neuversuch' bereits
-    // zurückgenommen hat).
+    // The late answer for p2 arrives now.
     await act(async () => {
-      neuversuchAufloesen({ vorrat: VORRAT_OK });
+      resolveRetry({ pool: POOL_OK });
     });
 
-    // p3 läuft normal weiter: nach Ablauf seiner Fotodauer schaltet der
-    // Auto-Vorschub TATSÄCHLICH weiter (p3 -> p4 kreuzt einen Tageswechsel,
-    // die Zwischenkarte für Tag 2 erscheint statt sofort p4s Foto, aber
-    // p4s FotoMoment ist bereits gemountet und trägt dessen source; genau
-    // DAS beweist, dass weiterAutomatisch überhaupt gefeuert hat). Bliebe
-    // 'neuversuch' hängen, stünde der Player hier für immer auf p3 (siehe
-    // der jetzt widerlegte Bug).
+    // p3 -> p4 crosses a day change, so the day 2 interstitial covers p4,
+    // but p4's photo is already mounted and carries its source: that is the
+    // proof that the auto advance fired at all.
     await act(async () => {
-      jest.advanceTimersByTime(5000); // FOTO_DAUER_MS
+      jest.advanceTimersByTime(5000); // PHOTO_DURATION_MS
     });
-    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: bild('p4').medium_url });
+    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: image('p4').medium_url });
   });
 });
 
-function bildErneuert(id: string) {
+function imageRenewed(id: string) {
   return {
     post_id: id,
-    medium_url: `https://cdn.example/${id}-medium-erneuert.jpg`,
-    thumb_url: `https://cdn.example/${id}-thumb-erneuert.jpg`,
+    medium_url: `https://cdn.example/${id}-medium-renewed.jpg`,
+    thumb_url: `https://cdn.example/${id}-thumb-renewed.jpg`,
   };
 }
-const VORRAT_ERNEUERT = {
-  urls: new Map([['p1', bildErneuert('p1')], ['p2', bildErneuert('p2')], ['p3', bildErneuert('p3')], ['p4', bildErneuert('p4')]]),
+const POOL_RENEWED = {
+  urls: new Map([['p1', imageRenewed('p1')], ['p2', imageRenewed('p2')], ['p3', imageRenewed('p3')], ['p4', imageRenewed('p4')]]),
   gueltigBis: Date.now() + 999_999,
   ausgelassen: 0,
 };
 
-describe('Vorrats-Erneuerung (V10)', () => {
-  // M3 (Review-Fund): der vorherige Test zählte nur holeVorrat-Aufrufe; der
-  // Ersatzvorrat trug dieselben URLs wie zuvor, ein Löschen von setUrls()/
-  // setGueltigBis() nach der Erneuerung blieb dadurch unbemerkt. Diese
-  // Fassung verwendet einen ERNEUERTEN Vorrat mit ANDEREN URLs und prüft,
-  // dass genau diese neuen URLs tatsächlich gerendert werden, der Kern von
-  // V10 ist, dass die Erneuerung ANKOMMT, nicht nur stattfindet.
-  test('ein bald ablaufender Vorrat wird erneuert, und die NEUEN URLs kommen tatsächlich an', async () => {
-    mockParams = { id: 't1', start: '1' }; // p2 -> p3, kein Tageswechsel
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    const baldAblaufend = { urls: VORRAT_OK.urls, gueltigBis: Date.now() + 60_000, ausgelassen: 0 }; // < 5-Min-Schwelle
+describe('pool renewal (V10)', () => {
+  test('a pool that expires soon is renewed and the NEW urls really arrive on screen', async () => {
+    mockParams = { id: 't1', start: '1' }; // p2 -> p3, no day change
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    const soonExpiring = { urls: POOL_OK.urls, gueltigBis: Date.now() + 60_000, ausgelassen: 0 }; // < 5-Min-Schwelle
     (getPool as jest.Mock)
-      .mockResolvedValueOnce({ vorrat: baldAblaufend, error: null, grund: null })
-      .mockResolvedValue({ vorrat: VORRAT_ERNEUERT, error: null, grund: null });
+      .mockResolvedValueOnce({ pool: soonExpiring, error: null, reason: null })
+      .mockResolvedValue({ pool: POOL_RENEWED, error: null, reason: null });
     await wrap();
     await fireEvent(screen.getByTestId('player-rechts'), 'pressIn');
     await fireEvent(screen.getByTestId('player-rechts'), 'pressOut');
     await act(async () => {});
     expect(getPool).toHaveBeenCalledTimes(2);
-    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: bildErneuert('p3').medium_url });
+    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: imageRenewed('p3').medium_url });
     expect(screen.queryByTestId('player-fehler')).toBeNull();
   });
 
-  test('ein Vorrat mit reichlich Restlaufzeit wird NICHT erneut geholt', async () => {
+  test('a pool with plenty of time left is NOT fetched again', async () => {
     mockParams = { id: 't1', start: '1' };
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
     await fireEvent(screen.getByTestId('player-rechts'), 'pressIn');
     await fireEvent(screen.getByTestId('player-rechts'), 'pressOut');
@@ -984,16 +822,13 @@ describe('Vorrats-Erneuerung (V10)', () => {
     expect(getPool).toHaveBeenCalledTimes(1);
   });
 
-  // Klein (Review-Fund): "vor jedem Weiter" schliesst ein zurueck() nicht
-  // aus, der Player bleibt auch beim Zurückblättern auf denselben Vorrat
-  // angewiesen.
-  test('auch ein Tipp nach links (zurueck) stösst die Erneuerung an, wenn der Vorrat bald abläuft', async () => {
+  test('a tap to the left (going back) also triggers the renewal when the pool expires soon', async () => {
     mockParams = { id: 't1', start: '2' }; // p3
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    const baldAblaufend = { urls: VORRAT_OK.urls, gueltigBis: Date.now() + 60_000, ausgelassen: 0 };
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    const soonExpiring = { urls: POOL_OK.urls, gueltigBis: Date.now() + 60_000, ausgelassen: 0 };
     (getPool as jest.Mock)
-      .mockResolvedValueOnce({ vorrat: baldAblaufend, error: null, grund: null })
-      .mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+      .mockResolvedValueOnce({ pool: soonExpiring, error: null, reason: null })
+      .mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
     await fireEvent(screen.getByTestId('player-links'), 'pressIn');
     await fireEvent(screen.getByTestId('player-links'), 'pressOut');
@@ -1001,71 +836,66 @@ describe('Vorrats-Erneuerung (V10)', () => {
     expect(getPool).toHaveBeenCalledTimes(2);
   });
 
-  // M10 (Review-Fund): erneuerungLaeuftRef verhindert, dass zwei nahezu
-  // gleichzeitige Anstösse (hier: zwei schnelle Tipps, während die erste
-  // Erneuerung noch unterwegs ist) die Erneuerung doppelt lostreten.
-  test('zwei rasch aufeinanderfolgende Tipps stossen die Erneuerung nur EINMAL an, solange die erste noch läuft', async () => {
+  test('two taps in quick succession trigger the renewal only ONCE while the first is still running', async () => {
     mockParams = { id: 't1', start: '0' };
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    const baldAblaufend = { urls: VORRAT_OK.urls, gueltigBis: Date.now() + 60_000, ausgelassen: 0 };
-    let aufloesen: (v: unknown) => void = () => {};
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    const soonExpiring = { urls: POOL_OK.urls, gueltigBis: Date.now() + 60_000, ausgelassen: 0 };
+    let resolvePool: (v: unknown) => void = () => {};
     (getPool as jest.Mock)
-      .mockResolvedValueOnce({ vorrat: baldAblaufend, error: null, grund: null })
-      .mockReturnValueOnce(new Promise((resolve) => { aufloesen = resolve; }));
+      .mockResolvedValueOnce({ pool: soonExpiring, error: null, reason: null })
+      .mockReturnValueOnce(new Promise((resolve) => { resolvePool = resolve; }));
     await wrap();
     await fireEvent.press(screen.getByTestId('player-zwischenkarte'));
     await fireEvent(screen.getByTestId('player-rechts'), 'pressIn');
-    await fireEvent(screen.getByTestId('player-rechts'), 'pressOut'); // löst die (hängende) Erneuerung aus
+    await fireEvent(screen.getByTestId('player-rechts'), 'pressOut'); // triggers the hanging renewal
     await fireEvent(screen.getByTestId('player-rechts'), 'pressIn');
-    await fireEvent(screen.getByTestId('player-rechts'), 'pressOut'); // zweiter Tipp, Erneuerung läuft noch
-    expect(getPool).toHaveBeenCalledTimes(2); // 1x initiales Laden, NUR 1x Erneuerung
+    await fireEvent(screen.getByTestId('player-rechts'), 'pressOut'); // second tap, renewal still running
+    expect(getPool).toHaveBeenCalledTimes(2); // 1x initial load, ONLY 1x renewal
     await act(async () => {
-      aufloesen({ vorrat: VORRAT_OK });
+      resolvePool({ pool: POOL_OK });
     });
   });
 });
 
-describe('Vorladen (V8)', () => {
-  test('lädt die nächsten drei Fotos vor, ein Video dazwischen zählt nicht mit', async () => {
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
-    await wrap(); // start=0 (p1) -> Nachfolger p2(Video),p3,p4 -> nur p3/p4 sind Fotos
-    expect(mockPrefetch).toHaveBeenCalledWith([bild('p3').medium_url, bild('p4').medium_url]);
+describe('preloading (V8)', () => {
+  test('preloads the next three photos, a video in between does not count', async () => {
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
+    await wrap(); // start=0 (p1) -> successors p2 (video), p3, p4 -> only p3/p4 are photos
+    expect(mockPrefetch).toHaveBeenCalledWith([image('p3').medium_url, image('p4').medium_url]);
   });
 
-  // M2 (Review-Fund): mit nur 4 Momenten insgesamt liess sich VORLADEN_ANZAHL
-  // (3) nicht von z.B. 10 unterscheiden, `.slice(1, 11)` auf einer
-  // 4-elementigen Liste liefert dieselben restlichen Elemente wie
-  // `.slice(1, 4)`. Diese Fixture hat SECHS FOTOS nach dem Start, damit eine
-  // zu grosszügige Vorlade-Anzahl sichtbar wird.
-  test('lädt NICHT mehr als die nächsten drei Fotos vor, auch wenn mehr verfügbar wären', async () => {
-    const viele = ['a', 'b', 'c', 'd', 'e', 'f'].map((buchstabe, i) =>
-      moment({ id: `f${buchstabe}`, captured_at: `2026-08-10T0${i + 1}:00:00.000Z` })
+  // Six photos follow the start here, so a preload count that is too
+  // generous becomes visible at all (with only four moments, three and ten
+  // yield the same slice).
+  test('preloads NO more than the next three photos, even when more are available', async () => {
+    const many = ['a', 'b', 'c', 'd', 'e', 'f'].map((letter, i) =>
+      moment({ id: `f${letter}`, captured_at: `2026-08-10T0${i + 1}:00:00.000Z` })
     );
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: viele, error: null });
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: many, error: null });
     (getPool as jest.Mock).mockResolvedValue({
-      vorrat: {
-        urls: new Map(viele.map((m) => [m.id, bild(m.id)])),
+      pool: {
+        urls: new Map(many.map((m) => [m.id, image(m.id)])),
         gueltigBis: Date.now() + 999_999,
         ausgelassen: 0,
       },
       error: null,
-      grund: null,
+      reason: null,
     });
-    await wrap(); // start=0 (fa) -> Nachfolger fb..ff (5 Fotos) -> nur die ersten DREI (fb,fc,fd)
-    expect(mockPrefetch).toHaveBeenCalledWith([bild('fb').medium_url, bild('fc').medium_url, bild('fd').medium_url]);
+    await wrap(); // start=0 (fa) -> successors fb..ff (5 photos) -> only the first THREE (fb,fc,fd)
+    expect(mockPrefetch).toHaveBeenCalledWith([image('fb').medium_url, image('fc').medium_url, image('fd').medium_url]);
     expect(mockPrefetch).not.toHaveBeenCalledWith(
-      expect.arrayContaining([bild('fe').medium_url, bild('ff').medium_url])
+      expect.arrayContaining([image('fe').medium_url, image('ff').medium_url])
     );
   });
 });
 
-describe('Nachzügler & Ausgelassene am Ende', () => {
-  test('am Ende erscheinen sowohl Nachzügler- als auch Ausgelassen-Zeile, wenn beide vorkommen', async () => {
-    const p6 = moment({ id: 'p6', captured_at: '2026-08-11T11:00:00.000Z' }); // uploaded, aber ohne Vorrats-URL
+describe('stragglers and skipped moments on the end screen', () => {
+  test('both the straggler row and the skipped row appear when both occur', async () => {
+    const p6 = moment({ id: 'p6', captured_at: '2026-08-11T11:00:00.000Z' }); // uploaded, but without a pool url
     mockParams = { id: 't1', start: '3' };
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [...MOMENTE, p6], error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: { ...VORRAT_OK, ausgelassen: 1 }, error: null, grund: null });
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [...MOMENTS, p6], error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: { ...POOL_OK, ausgelassen: 1 }, error: null, reason: null });
     await wrap();
     await fireEvent.press(screen.getByTestId('player-zwischenkarte'));
     await fireEvent(screen.getByTestId('player-rechts'), 'pressIn');
@@ -1075,14 +905,14 @@ describe('Nachzügler & Ausgelassene am Ende', () => {
     expect(screen.getByText('1 Moment liess sich gerade nicht laden. Schau später nochmal rein.')).toBeTruthy();
   });
 
-  test('ohne Nachzügler und ohne Ausgelassene erscheint am Ende keine der beiden Zeilen', async () => {
-    mockParams = { id: 't1', start: '2' }; // p3 -> Tageswechsel zu p4 -> letzter Moment danach
-    const nurTag1 = [p1, p2, p3];
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: nurTag1, error: null });
+  test('without stragglers and without skipped moments neither row appears', async () => {
+    mockParams = { id: 't1', start: '2' }; // p3, the last moment of this day-1-only playlist
+    const onlyDay1 = [p1, p2, p3];
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: onlyDay1, error: null });
     (getPool as jest.Mock).mockResolvedValue({
-      vorrat: { urls: VORRAT_OK.urls, gueltigBis: Date.now() + 999_999, ausgelassen: 0 },
+      pool: { urls: POOL_OK.urls, gueltigBis: Date.now() + 999_999, ausgelassen: 0 },
       error: null,
-      grund: null,
+      reason: null,
     });
     await wrap();
     await fireEvent(screen.getByTestId('player-rechts'), 'pressIn');
@@ -1093,60 +923,55 @@ describe('Nachzügler & Ausgelassene am Ende', () => {
   });
 });
 
-describe('Schliessen', () => {
-  test('der Schliessen-Knopf verlässt den Player per back(), wenn ein Rückweg existiert', async () => {
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+describe('closing the player', () => {
+  test('the close button leaves the player via back() when there is a way back', async () => {
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
     await fireEvent.press(screen.getByTestId('player-schliessen'));
     expect(mockBack).toHaveBeenCalled();
     expect(mockReplace).not.toHaveBeenCalled();
   });
 
-  test('ohne Rückweg im Stapel führt der Schliessen-Knopf per replace zur Recap-Liste', async () => {
-    mockKannZurueck = false;
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+  test('without a way back in the stack the close button replaces to the recap list', async () => {
+    mockCanGoBack = false;
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
     await fireEvent.press(screen.getByTestId('player-schliessen'));
     expect(mockReplace).toHaveBeenCalledWith('/recap');
     expect(mockBack).not.toHaveBeenCalled();
   });
 
-  // Klein (Review-Fund): RN-Pressability feuert onPressOut auf einer
-  // Tipp-Zone AUCH DANN, wenn der PanResponder den Touch währenddessen per
-  // Responder-Terminierung übernommen hat (Beginn eines echten Wischs),
-  // das ist kein echtes Loslassen. Wir simulieren die Übernahme direkt über
-  // `onPanResponderGrant`, ohne rohe Touch-Koordinaten nachzubilden (die in
-  // RNTL ohnehin nicht real Geometrie/Hit-Testing durchlaufen).
-  test('ein vom PanResponder übernommener Touch löst KEINE zusätzliche Tipp-Navigation aus', async () => {
+  // RN Pressability fires onPressOut on a tap zone even when the
+  // PanResponder has taken the touch over meanwhile (the start of a real
+  // swipe), which is not a genuine release. The takeover is simulated
+  // through `onPanResponderGrant` directly, because RNTL does not run real
+  // geometry or hit testing on raw touch coordinates anyway.
+  test('a touch taken over by the PanResponder triggers NO extra tap navigation', async () => {
     const createSpy = jest.spyOn(PanResponder, 'create');
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
-    await fireEvent.press(screen.getByTestId('player-zwischenkarte')); // Karte weg, Tipp-Zonen frei
+    await fireEvent.press(screen.getByTestId('player-zwischenkarte')); // interstitial gone, tap zones free
     const config = createSpy.mock.calls[0][0];
-    // Touch beginnt auf der Tipp-Zone (wie ein echter Wisch, der dort
-    // startet), ohne dieses pressIn bliebe `beruehrungStartRef` auf 0 und
-    // "gehalten" wäre riesig, der Test würde dann selbst OHNE die Sperre
-    // zufällig grün bleiben (über den Halten-statt-Tipp-Zweig).
+    // The touch has to start on the tap zone: without this pressIn the
+    // recorded touch start would stay at 0, the gesture would count as a
+    // very long hold, and the test would go green by accident even without
+    // the takeover guard.
     await fireEvent(screen.getByTestId('player-rechts'), 'pressIn');
     await act(async () => {
-      config.onPanResponderGrant?.({} as never, {} as never); // der Wisch übernimmt den Touch
+      config.onPanResponderGrant?.({} as never, {} as never); // the swipe takes the touch over
     });
-    await fireEvent(screen.getByTestId('player-rechts'), 'pressOut'); // Pressability feuert trotzdem, sofort danach
-    // Keine Navigation: immer noch p1.
-    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: bild('p1').medium_url });
+    await fireEvent(screen.getByTestId('player-rechts'), 'pressOut'); // Pressability fires anyway
+    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: image('p1').medium_url });
     createSpy.mockRestore();
   });
 
-  // Gegenprobe: eine NEUE Berührung (onPressIn) setzt die Übernahme-Sperre
-  // wieder zurück, ein Wisch darf nicht dauerhaft jede künftige Navigation
-  // blockieren.
-  test('nach einer neuen Berührung funktioniert die Tipp-Navigation wieder normal', async () => {
+  test('after a new touch the tap navigation works normally again', async () => {
     const createSpy = jest.spyOn(PanResponder, 'create');
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
     await fireEvent.press(screen.getByTestId('player-zwischenkarte'));
     const config = createSpy.mock.calls[0][0];
@@ -1154,23 +979,21 @@ describe('Schliessen', () => {
     await act(async () => {
       config.onPanResponderGrant?.({} as never, {} as never);
     });
-    await fireEvent(screen.getByTestId('player-rechts'), 'pressOut'); // vom Wisch geschluckt
-    await fireEvent(screen.getByTestId('player-rechts'), 'pressIn'); // neue Berührung
+    await fireEvent(screen.getByTestId('player-rechts'), 'pressOut'); // swallowed by the swipe
+    await fireEvent(screen.getByTestId('player-rechts'), 'pressIn'); // a new touch
     await fireEvent(screen.getByTestId('player-rechts'), 'pressOut');
-    // p1 -> p2, und p2 ist ein Video (nicht 'player-foto').
+    // p1 -> p2, and p2 is a video (not 'player-foto').
     expect(screen.getByTestId('player-video')).toBeTruthy();
     createSpy.mockRestore();
   });
 
-  // Der zweite Teil desselben Bugs: ein erfolgreicher Schliess-Wisch durfte
-  // NICHT gleichzeitig auch noch weiter()/zurueck() auslösen. Die
-  // PanResponder-Release-Logik selbst wird direkt am Config-Objekt geprüft
-  // (Review-Vorschlag), ohne Touch-Simulation, dafür präzise auf die
-  // 120-px-Schwelle.
-  test('Wisch-Release schliesst ab der Schwelle, darunter federt er zurück, ohne Touch-Simulation direkt am Config geprüft', async () => {
+  // The release logic is asserted on the PanResponder config object
+  // itself, without touch simulation: that is the only way to hit the
+  // 120 px threshold precisely in RNTL.
+  test('a swipe release closes from the threshold on and springs back below it', async () => {
     const createSpy = jest.spyOn(PanResponder, 'create');
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
     const config = createSpy.mock.calls[0][0];
     await act(async () => {
@@ -1179,161 +1002,136 @@ describe('Schliessen', () => {
     expect(mockBack).toHaveBeenCalled();
     mockBack.mockClear();
     await act(async () => {
-      config.onPanResponderRelease?.({} as never, { dy: 50 } as never); // federt per Spring zurück
+      config.onPanResponderRelease?.({} as never, { dy: 50 } as never); // springs back
     });
     expect(mockBack).not.toHaveBeenCalled();
     createSpy.mockRestore();
   });
 });
 
-// M9 (Review-Fund): der Kino-Fade (DESIGN-LANGUAGE §5, "das Licht geht aus")
-// hatte keinen einzigen Test, Effekt UND Wert liessen sich vollständig
-// löschen, ohne dass etwas fiel.
-describe('Kino-Fade beim Betreten ("das Licht geht aus")', () => {
-  test('animiert von 1 nach 0 über 350ms', async () => {
+describe('cinema fade on entering ("the lights go down")', () => {
+  test('animates from 1 to 0 over 350 ms', async () => {
     const timingSpy = jest.spyOn(Animated, 'timing');
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
-    const fadeAufruf = timingSpy.mock.calls.find(([, config]) => config.toValue === 0 && config.duration === 350);
-    expect(fadeAufruf).toBeTruthy();
+    const fadeCall = timingSpy.mock.calls.find(([, config]) => config.toValue === 0 && config.duration === 350);
+    expect(fadeCall).toBeTruthy();
     timingSpy.mockRestore();
   });
 
-  // Phase-5-Final-Review, Punkt 3 (Review-Fund): dieser Test war grün, WEIL
-  // der alte Mock `reducedMotion` synchron auf `true` setzte, mit `[]`-Deps
-  // im Player-Effekt (der eigentliche Bug) UND mit `[reducedMotion]`-Deps
-  // (der Fix) liefert ein synchron auf `true` gemockter Hook nämlich
-  // GENAU DASSELBE Ergebnis (der Effekt läuft beim allerersten, einzigen
-  // Commit bereits mit `reducedMotion=true`), der Mock konnte den Bug also
-  // gar nicht aufdecken. Dieser Test bildet die reale Reihenfolge nach: der
-  // Player mountet zuerst mit `reducedMotion=false` (Hook-Vertrag, siehe
-  // useReducedMotion.ts), der normale 350-ms-Aufruf feuert. ERST danach
-  // löst der Hook (asynchron, wie in Produktion) auf `true` auf; nur ein
-  // Effekt, der wirklich an `reducedMotion` hängt, feuert dann einen
-  // ZWEITEN, 200-ms-Aufruf. Gegen den alten `[]`-Deps-Code (von Hand
-  // ausser Kraft gesetzt, siehe Bericht) bleibt dieser zweite Aufruf aus,
-  // der Test wird dort korrekt rot.
-  test('verkürzt sich auf 200ms, sobald der Hook reduced motion ERST NACH dem Mount meldet', async () => {
+  test('shortens to 200 ms once the hook reports reduced motion ONLY AFTER the mount', async () => {
     const timingSpy = jest.spyOn(Animated, 'timing');
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
-    // Direkt nach dem Mount ist reducedMotion noch false (Hook-Vertrag), nur
-    // der normale 350-ms-Aufruf ist bislang passiert.
+    // Right after the mount reducedMotion is still false (hook contract),
+    // so only the normal 350 ms call has happened so far.
     expect(timingSpy.mock.calls.some(([, config]) => config.toValue === 0 && config.duration === 200)).toBe(false);
-    mockReducedMotionAufloesen(true);
+    resolveMockReducedMotion(true);
     await act(async () => {});
-    const fadeAufruf = timingSpy.mock.calls.find(([, config]) => config.toValue === 0 && config.duration === 200);
-    expect(fadeAufruf).toBeTruthy();
+    const fadeCall = timingSpy.mock.calls.find(([, config]) => config.toValue === 0 && config.duration === 200);
+    expect(fadeCall).toBeTruthy();
     timingSpy.mockRestore();
   });
 });
 
-// Ein steuerbares Promise, um "die Antwort ist noch nicht da" nachzustellen
-// (optimistisches Setzen prüfen, ohne das echte Timing zu kennen).
-function unaufgeloest<T>(): { promise: Promise<T>; loese: (wert: T) => void } {
-  let loese!: (wert: T) => void;
+// A controllable promise to stand in for "the answer has not arrived yet",
+// so the optimistic update can be asserted without knowing the real timing.
+function unresolved<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void;
   const promise = new Promise<T>((res) => {
-    loese = res;
+    resolve = res;
   });
-  return { promise, loese };
+  return { promise, resolve };
 }
 
-describe('Reaktionen (Task 12)', () => {
-  // Fix-Runde 2 (Review-Korrektur): entgegen einer früheren, falschen Notiz
-  // im Code IST das sehr wohl prüfbar, gleiches Muster wie der
-  // Zwischenkarten-zIndex-Test aus der Task-11-Fixrunde
-  // ("die Zwischenkarte liegt per zIndex über den Tipp-Zonen..."):
-  // `StyleSheet.flatten` auf die tatsächlichen Style-Props, kein
-  // Hit-Testing nötig.
-  test('die Reaktionen/der Kommentar-Knopf liegen per zIndex über den Tipp-Zonen, unabhängig von der Render-Reihenfolge im Baum', async () => {
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+describe('reactions (Task 12)', () => {
+  // Same approach as the day interstitial zIndex test: StyleSheet.flatten
+  // on the real style props, no hit testing needed.
+  test('the reaction and comment buttons sit above the tap zones by zIndex, independent of tree order', async () => {
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
-    const sozial = StyleSheet.flatten(screen.getByTestId('player-sozial-bereich').props.style);
-    const links = StyleSheet.flatten(screen.getByTestId('player-links').props.style);
-    const rechts = StyleSheet.flatten(screen.getByTestId('player-rechts').props.style);
-    expect(sozial.zIndex).toBeGreaterThan(links.zIndex ?? 0);
-    expect(sozial.zIndex).toBeGreaterThan(rechts.zIndex ?? 0);
+    const social = StyleSheet.flatten(screen.getByTestId('player-sozial-bereich').props.style);
+    const left = StyleSheet.flatten(screen.getByTestId('player-links').props.style);
+    const right = StyleSheet.flatten(screen.getByTestId('player-rechts').props.style);
+    expect(social.zIndex).toBeGreaterThan(left.zIndex ?? 0);
+    expect(social.zIndex).toBeGreaterThan(right.zIndex ?? 0);
   });
 
-  test('lädt die Reaktionen für ALLE Momente der Spielliste in einem einzigen Aufruf', async () => {
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+  test('loads the reactions for ALL moments of the playlist in a single call', async () => {
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
     expect(fetchReactions).toHaveBeenCalledTimes(1);
     expect(fetchReactions).toHaveBeenCalledWith(['p1', 'p2', 'p3', 'p4']);
   });
 
-  test('ein Tipp zeigt die Reaktion SOFORT, ohne auf die Antwort zu warten', async () => {
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
-    const { promise, loese } = unaufgeloest<{ error: string | null }>();
-    (setReaction as jest.Mock).mockReturnValue(promise); // absichtlich NICHT aufgelöst
+  test('a tap shows the reaction IMMEDIATELY, without waiting for the answer', async () => {
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
+    const { promise, resolve } = unresolved<{ error: string | null }>();
+    (setReaction as jest.Mock).mockReturnValue(promise); // deliberately NOT resolved
 
     await wrap();
     expect(screen.getByTestId('player-emoji-herz').props.accessibilityState.selected).toBe(false);
 
     await fireEvent.press(screen.getByTestId('player-emoji-herz'));
-    // Ohne jedes Warten auf `promise`, die Pille muss JETZT schon aktiv sein.
+    // Without any wait on `promise`: the pill has to be active already.
     expect(screen.getByTestId('player-emoji-herz').props.accessibilityState.selected).toBe(true);
     expect(mockHaptics).toHaveBeenCalledWith('light');
 
     await act(async () => {
-      loese({ error: null });
+      resolve({ error: null });
     });
     expect(screen.getByTestId('player-emoji-herz').props.accessibilityState.selected).toBe(true);
   });
 
-  test('scheitert das Setzen, verschwindet die Reaktion wieder und die Ursache steht kurz da', async () => {
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
-    const { promise, loese } = unaufgeloest<{ error: string | null }>();
+  test('when setting fails the reaction disappears again and the cause is shown', async () => {
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
+    const { promise, resolve } = unresolved<{ error: string | null }>();
     (setReaction as jest.Mock).mockReturnValue(promise);
 
     await wrap();
     await fireEvent.press(screen.getByTestId('player-emoji-herz'));
-    // Optimistisch: noch VOR der Antwort schon aktiv.
+    // Optimistic: already active BEFORE the answer arrives.
     expect(screen.getByTestId('player-emoji-herz').props.accessibilityState.selected).toBe(true);
 
     await act(async () => {
-      loese({ error: 'Deine Reaktion konnte nicht gespeichert werden. Probier es gleich nochmal.' });
+      resolve({ error: 'Deine Reaktion konnte nicht gespeichert werden. Probier es gleich nochmal.' });
     });
-    // Rücknahme: die Pille ist wieder inaktiv, UND die Ursache steht da.
     expect(screen.getByTestId('player-emoji-herz').props.accessibilityState.selected).toBe(false);
     expect(
       screen.getByText('Deine Reaktion konnte nicht gespeichert werden. Probier es gleich nochmal.')
     ).toBeTruthy();
   });
 
-  test('ein schneller Doppeltipp auf dasselbe Emoji löst nur EINE Anfrage aus', async () => {
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
-    const { promise, loese } = unaufgeloest<{ error: string | null }>();
+  test('a quick double tap on the same emoji triggers only ONE request', async () => {
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
+    const { promise, resolve } = unresolved<{ error: string | null }>();
     (setReaction as jest.Mock).mockReturnValue(promise);
 
     await wrap();
-    const pille = screen.getByTestId('player-emoji-herz');
-    // Zwei Tipps, WÄHREND die Antwort auf den ersten noch aussteht (die
-    // Anfrage bleibt bis zum manuellen `loese` unten hängen), genau das
-    // pathologische "schneller Doppeltipp" aus dem Auftrag. Der Schutz in
-    // tippeEmoji ist rein synchron (Set.has/Set.add), er braucht dafür
-    // keine echte Gleichzeitigkeit der beiden Presses, nur dass BEIDE
-    // eintreffen, bevor `setzeReaktion` beantwortet ist.
-    await fireEvent.press(pille);
-    await fireEvent.press(pille);
+    const pill = screen.getByTestId('player-emoji-herz');
+    // Two taps while the answer to the first is still outstanding. The
+    // guard is purely synchronous, so it needs no real concurrency, only
+    // both presses arriving before setReaction has answered.
+    await fireEvent.press(pill);
+    await fireEvent.press(pill);
     expect(setReaction).toHaveBeenCalledTimes(1);
 
     await act(async () => {
-      loese({ error: null });
+      resolve({ error: null });
     });
     expect(setReaction).toHaveBeenCalledTimes(1);
   });
 
-  test('ein zweiter Tipp auf eine bereits eigene Reaktion entfernt sie wieder (Toggle)', async () => {
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+  test('a second tap on a reaction of your own removes it again (toggle)', async () => {
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     (fetchReactions as jest.Mock).mockResolvedValue({
       data: { p1: [{ post_id: 'p1', user_id: 'u1', emoji: '❤️' }] },
       error: null,
@@ -1344,29 +1142,28 @@ describe('Reaktionen (Task 12)', () => {
     expect(screen.getByTestId('player-emoji-herz').props.accessibilityState.selected).toBe(true);
 
     await fireEvent.press(screen.getByTestId('player-emoji-herz'));
-    // Sofort (optimistisch) inaktiv, entferneReaktion NICHT setzeReaktion.
     expect(screen.getByTestId('player-emoji-herz').props.accessibilityState.selected).toBe(false);
     expect(removeReaction).toHaveBeenCalledWith('p1', '❤️');
     expect(setReaction).not.toHaveBeenCalled();
   });
 
-  test('scheitert das Entfernen, taucht die Reaktion wieder auf', async () => {
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+  test('when removing fails the reaction reappears', async () => {
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     (fetchReactions as jest.Mock).mockResolvedValue({
       data: { p1: [{ post_id: 'p1', user_id: 'u1', emoji: '❤️' }] },
       error: null,
     });
-    const { promise, loese } = unaufgeloest<{ error: string | null }>();
+    const { promise, resolve } = unresolved<{ error: string | null }>();
     (removeReaction as jest.Mock).mockReturnValue(promise);
 
     await wrap();
     await fireEvent.press(screen.getByTestId('player-emoji-herz'));
-    // Optimistisch: noch VOR der Antwort schon inaktiv.
+    // Optimistic: already inactive BEFORE the answer arrives.
     expect(screen.getByTestId('player-emoji-herz').props.accessibilityState.selected).toBe(false);
 
     await act(async () => {
-      loese({ error: 'Deine Reaktion konnte nicht entfernt werden. Probier es gleich nochmal.' });
+      resolve({ error: 'Deine Reaktion konnte nicht entfernt werden. Probier es gleich nochmal.' });
     });
     expect(screen.getByTestId('player-emoji-herz').props.accessibilityState.selected).toBe(true);
     expect(
@@ -1374,14 +1171,14 @@ describe('Reaktionen (Task 12)', () => {
     ).toBeTruthy();
   });
 
-  test('Reaktionen anderer Personen erscheinen dezent, nur die Emojis, kein Name, kein Zähler', async () => {
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+  test('reactions of other people appear quietly, only the emojis, no name, no counter', async () => {
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     (fetchReactions as jest.Mock).mockResolvedValue({
       data: {
         p1: [
           { post_id: 'p1', user_id: 'u2', emoji: '😂' },
-          { post_id: 'p1', user_id: 'u3', emoji: '😂' }, // dedupliziert
+          { post_id: 'p1', user_id: 'u3', emoji: '😂' }, // deduplicated
           { post_id: 'p1', user_id: 'u2', emoji: '👏' },
         ],
       },
@@ -1393,9 +1190,9 @@ describe('Reaktionen (Task 12)', () => {
     expect(screen.queryByText('Jonas')).toBeNull();
   });
 
-  test('kein Emoji der anderen wird angezeigt, solange nur die eigene Person reagiert hat', async () => {
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+  test('no emoji row of the others is shown while only you have reacted', async () => {
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     (fetchReactions as jest.Mock).mockResolvedValue({
       data: { p1: [{ post_id: 'p1', user_id: 'u1', emoji: '❤️' }] },
       error: null,
@@ -1404,16 +1201,11 @@ describe('Reaktionen (Task 12)', () => {
     expect(screen.queryByTestId('player-reaktionen-andere')).toBeNull();
   });
 
-  // Fix-Runde 1, Mutation A aus dem Review: ohne den `user_id === userId`-
-  // Filter in `eigeneEmojis` würde JEDE Reaktion auf dem Moment, egal von
-  // wem, die eigene Pille aktiv färben. Effekt in Produktion: 😂 leuchtet
-  // als "meine" Reaktion, obwohl sie von Jonas stammt, und ein Tipp darauf
-  // löscht seine statt selbst zu reagieren.
-  test('eine FREMDE Reaktion auf ein Emoji der Leiste färbt die eigene Pille NICHT aktiv', async () => {
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+  test('a reaction by someone else does NOT mark your own pill as active', async () => {
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     (fetchReactions as jest.Mock).mockResolvedValue({
-      data: { p1: [{ post_id: 'p1', user_id: 'u2', emoji: '😂' }] }, // Jonas, nicht ich (u1)
+      data: { p1: [{ post_id: 'p1', user_id: 'u2', emoji: '😂' }] }, // Jonas, not me (u1)
       error: null,
     });
     (setReaction as jest.Mock).mockResolvedValue({ error: null });
@@ -1421,41 +1213,35 @@ describe('Reaktionen (Task 12)', () => {
     await wrap();
     expect(screen.getByTestId('player-emoji-lachen').props.accessibilityState.selected).toBe(false);
 
-    // Ein Tipp auf 😂 muss deshalb SETZEN, nicht Jonas' Reaktion entfernen.
+    // A tap on 😂 therefore has to SET, not remove Jonas' reaction.
     await fireEvent.press(screen.getByTestId('player-emoji-lachen'));
     expect(setReaction).toHaveBeenCalledWith('p1', '😂');
     expect(removeReaction).not.toHaveBeenCalled();
   });
 
-  // Fix-Runde 1, Mutation D aus dem Review: ohne den aktivIdRef-Abgleich
-  // beim Rollback würde ein Fehler zu einem längst verlassenen Moment auf
-  // dem FALSCHEN, inzwischen aktiven Moment aufblitzen.
-  test('ein Reaktionsfehler zu einem verlassenen Moment erscheint NICHT auf dem inzwischen aktiven Moment', async () => {
-    mockParams = { id: 't1', start: '1' }; // p2, kein Tageswechsel zu p3
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
-    const { promise, loese } = unaufgeloest<{ error: string | null }>();
+  test('a reaction error for a moment left behind does NOT flash up on the now active moment', async () => {
+    mockParams = { id: 't1', start: '1' }; // p2, no day change to p3
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
+    const { promise, resolve } = unresolved<{ error: string | null }>();
     (setReaction as jest.Mock).mockReturnValue(promise);
 
     await wrap();
-    await fireEvent.press(screen.getByTestId('player-emoji-herz')); // reagiert auf p2, hängt
+    await fireEvent.press(screen.getByTestId('player-emoji-herz')); // reacts on p2, hangs
     await fireEvent(screen.getByTestId('player-rechts'), 'pressIn');
-    await fireEvent(screen.getByTestId('player-rechts'), 'pressOut'); // weiter zu p3
+    await fireEvent(screen.getByTestId('player-rechts'), 'pressOut'); // on to p3
 
     await act(async () => {
-      loese({ error: 'Deine Reaktion konnte nicht gespeichert werden. Probier es gleich nochmal.' });
+      resolve({ error: 'Deine Reaktion konnte nicht gespeichert werden. Probier es gleich nochmal.' });
     });
     expect(
       screen.queryByText('Deine Reaktion konnte nicht gespeichert werden. Probier es gleich nochmal.')
     ).toBeNull();
   });
 
-  // Klein 4 aus dem Review: ein verschluckter Ladefehler liess jeden Moment
-  // fälschlich reaktionslos wirken, ohne dass die Person je erfahren hätte,
-  // warum.
-  test('ein Ladefehler der Reaktionen wird angezeigt, statt verschluckt zu werden', async () => {
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+  test('a load error of the reactions is shown instead of being swallowed', async () => {
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     (fetchReactions as jest.Mock).mockResolvedValue({
       data: {},
       error: 'Die Reaktionen konnten nicht geladen werden. Probier es gleich nochmal.',
@@ -1466,50 +1252,37 @@ describe('Reaktionen (Task 12)', () => {
     ).toBeTruthy();
   });
 
-  // Klein 5 aus dem Review: sozialApi fängt jeden ERWARTETEN Fehlerpfad
-  // selbst ab (liefert { error }, wirft nicht), ein echtes reject() ist der
-  // unerwartete Rest. Ohne das eigene .catch() bliebe der Pending-Schlüssel
-  // für immer belegt, dieses Emoji auf diesem Moment liesse sich nie wieder
-  // antippen.
-  test('ein tatsächlich abgelehntes Promise (nicht nur { error }) rollt zurück und gibt das Emoji wieder frei', async () => {
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
-    (setReaction as jest.Mock).mockRejectedValueOnce(new Error('unerwarteter Absturz'));
+  test('a genuinely rejected promise (not just { error }) rolls back and frees the emoji again', async () => {
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
+    (setReaction as jest.Mock).mockRejectedValueOnce(new Error('unexpected crash'));
     (setReaction as jest.Mock).mockResolvedValueOnce({ error: null });
 
     await wrap();
-    // Anders als bei den obigen Rücknahme-Tests bewusst OHNE Zwischen-
-    // Assertion auf den optimistischen Zustand: ein bereits ABGELEHNTES
-    // Promise (mockRejectedValueOnce) löst genauso schnell auf wie ein
-    // bereits AUFGELÖSTES, der Rollback ist zum Zeitpunkt des awaiteten
-    // fireEvent.press schon gelaufen (dieselbe Lehre wie bei "scheitert das
-    // Setzen" weiter oben, das ursprünglich denselben Fehler hatte). Hier
-    // zählt allein das Endergebnis: Rollback UND Fehlermeldung UND ein
-    // freigegebener Pending-Schlüssel.
+    // Deliberately without an intermediate assertion on the optimistic
+    // state: an already REJECTED promise settles just as fast as an already
+    // RESOLVED one, so the rollback has run by the time the awaited
+    // fireEvent.press returns.
     await fireEvent.press(screen.getByTestId('player-emoji-herz'));
 
     await act(async () => {});
-    // Rollback nach der Ablehnung, UND eine Fehlermeldung statt einer
-    // Unhandled Rejection.
     expect(screen.getByTestId('player-emoji-herz').props.accessibilityState.selected).toBe(false);
     expect(
       screen.getByText('Deine Reaktion konnte nicht gespeichert werden. Probier es gleich nochmal.')
     ).toBeTruthy();
 
-    // Der Pending-Schlüssel wurde freigegeben: ein erneuter Tipp löst eine
-    // ZWEITE Anfrage aus, statt für immer gesperrt zu bleiben.
     await fireEvent.press(screen.getByTestId('player-emoji-herz'));
     expect(setReaction).toHaveBeenCalledTimes(2);
   });
 });
 
-describe('Kommentar-Sheet (Task 12)', () => {
-  test('öffnet das Sheet, lädt die Kommentare des aktiven Moments und pausiert den Player', async () => {
+describe('comment sheet (Task 12)', () => {
+  test('opens the sheet, loads the comments of the active moment and pauses the player', async () => {
     mockParams = { id: 't1', start: '2' }; // p3
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     (fetchComments as jest.Mock).mockResolvedValue({
-      data: [{ id: 'c1', post_id: 'p3', user_id: 'u2', text: 'Wow!', created_at: 't', autor_name: 'Jonas' }],
+      data: [{ id: 'c1', post_id: 'p3', user_id: 'u2', text: 'Wow!', created_at: 't', authorName: 'Jonas' }],
       error: null,
     });
     await wrap();
@@ -1520,185 +1293,150 @@ describe('Kommentar-Sheet (Task 12)', () => {
     expect(screen.getByText('Jonas')).toBeTruthy();
     expect(screen.getByText('Wow!')).toBeTruthy();
 
-    // Pausiert: selbst nach Ablauf der vollen Fotodauer bleibt p3 stehen.
+    // Paused: p3 stays put even after the full photo duration.
     await act(async () => {
       jest.advanceTimersByTime(5000);
     });
-    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: bild('p3').medium_url });
+    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: image('p3').medium_url });
 
-    // Schliessen (Sheet-Backdrop-Tipp) setzt pausiert wieder zurück, der
-    // Auto-Vorschub läuft danach normal weiter, ohne dass irgendetwas
-    // anderes ihn manuell wieder anstossen müsste.
+    // Closing (a tap on the sheet backdrop) takes the pause reason back.
     await fireEvent.press(screen.getByTestId('sheet-backdrop'));
     await act(async () => {
       jest.advanceTimersByTime(5000);
     });
-    expect(screen.getByTestId('player-zwischenkarte')).toBeTruthy(); // p3 -> p4, Tageswechsel
+    expect(screen.getByTestId('player-zwischenkarte')).toBeTruthy(); // p3 -> p4, day change
   });
 
-  // Wichtig 3 aus dem Review: eine noch laufende Sendung für einen
-  // VERLASSENEN Moment (Sheet geschlossen, während schreibeKommentar noch
-  // unterwegs war) darf den Senden-Knopf einer NEUEN Sitzung nicht für den
-  // Rest der Player-Sitzung als "sendet gerade" (Spinner, disabled) stehen
-  // lassen, ihre eigene, spät eintreffende Antwort trifft auf den
-  // Stale-Guard in kommentarAbsenden und würde `kommentarSendetLaeuft`
-  // sonst nie mehr zurücksetzen.
-  test('eine hängende Sendung für einen verlassenen Moment lässt den Senden-Knopf einer neu geöffneten Sitzung nicht für immer als "sendet" stehen', async () => {
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+  test('a hanging send for a moment left behind does not leave the send button of a new session stuck on sending', async () => {
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     (fetchComments as jest.Mock).mockResolvedValue({ data: [], error: null });
-    const { promise } = unaufgeloest<{ error: string | null }>();
-    (writeComment as jest.Mock).mockReturnValue(promise); // bleibt für p1 hängen
+    const { promise } = unresolved<{ error: string | null }>();
+    (writeComment as jest.Mock).mockReturnValue(promise); // hangs for p1
 
     await wrap(); // start=0 -> p1
-    await fireEvent.press(screen.getByTestId('player-zwischenkarte')); // Tag-1-Karte weg
-    await fireEvent.press(screen.getByTestId('player-kommentare-oeffnen')); // öffnet für p1
+    await fireEvent.press(screen.getByTestId('player-zwischenkarte')); // day 1 interstitial gone
+    await fireEvent.press(screen.getByTestId('player-kommentare-oeffnen')); // opens for p1
     await act(async () => {});
     await fireEvent.changeText(screen.getByTestId('kommentar-eingabe'), 'Hallo');
-    await fireEvent.press(screen.getByTestId('kommentar-senden')); // sendetLaeuft=true, hängt
+    await fireEvent.press(screen.getByTestId('kommentar-senden')); // sending starts and hangs
 
-    await fireEvent.press(screen.getByTestId('sheet-backdrop')); // schliessen, OHNE auf die Antwort zu warten
+    await fireEvent.press(screen.getByTestId('sheet-backdrop')); // close WITHOUT waiting for the answer
     await fireEvent(screen.getByTestId('player-rechts'), 'pressIn');
-    await fireEvent(screen.getByTestId('player-rechts'), 'pressOut'); // weiter zu p2
-    await fireEvent.press(screen.getByTestId('player-kommentare-oeffnen')); // neu öffnen für p2
+    await fireEvent(screen.getByTestId('player-rechts'), 'pressOut'); // on to p2
+    await fireEvent.press(screen.getByTestId('player-kommentare-oeffnen')); // open again for p2
     await act(async () => {});
 
-    // Fixiert: der Knopf zeigt "Senden", nicht dauerhaft den Spinner.
     expect(screen.getByText('Senden')).toBeTruthy();
   });
 
-  // Review-Fund, Fix-Runde 2: der ursprüngliche Fix (Runde 1) hat bei JEDEM
-  // Öffnen zurückgesetzt, auch beim Wiederöffnen DESSELBEN Moments,
-  // während schreibeKommentar für GENAU DIESEN Moment noch läuft. Das war
-  // VOR Runde 1 gar nicht möglich (dort wurde nie zurückgesetzt) und damit
-  // eine neue Regression: der Senden-Knopf wäre wieder aktiv geworden,
-  // OBWOHL die erste Anfrage noch offen ist, ein zweiter Tipp hätte einen
-  // zweiten, überlappenden Versand ausgelöst.
-  test('eine hängende Sendung für DENSELBEN Moment bleibt beim Wiederöffnen erkennbar "sendet", kein doppelter Versand möglich', async () => {
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+  test('a hanging send for the SAME moment still reads as sending when the sheet is reopened, so no double send is possible', async () => {
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     (fetchComments as jest.Mock).mockResolvedValue({ data: [], error: null });
-    const { promise } = unaufgeloest<{ error: string | null }>();
-    (writeComment as jest.Mock).mockReturnValue(promise); // bleibt für p1 hängen
+    const { promise } = unresolved<{ error: string | null }>();
+    (writeComment as jest.Mock).mockReturnValue(promise); // hangs for p1
 
     await wrap(); // start=0 -> p1
-    await fireEvent.press(screen.getByTestId('player-zwischenkarte')); // Tag-1-Karte weg
-    await fireEvent.press(screen.getByTestId('player-kommentare-oeffnen')); // öffnet für p1
+    await fireEvent.press(screen.getByTestId('player-zwischenkarte')); // day 1 interstitial gone
+    await fireEvent.press(screen.getByTestId('player-kommentare-oeffnen')); // opens for p1
     await act(async () => {});
     await fireEvent.changeText(screen.getByTestId('kommentar-eingabe'), 'Hallo');
-    await fireEvent.press(screen.getByTestId('kommentar-senden')); // sendetLaeuft=true, hängt
+    await fireEvent.press(screen.getByTestId('kommentar-senden')); // sending starts and hangs
     expect(writeComment).toHaveBeenCalledTimes(1);
 
-    // Schliessen (Player bleibt bei p1) und SOFORT wieder öffnen, derselbe
-    // Moment, dieselbe noch laufende Sendung.
+    // Close (the player stays on p1) and reopen at once: same moment, same
+    // send still running.
     await fireEvent.press(screen.getByTestId('sheet-backdrop'));
     await fireEvent.press(screen.getByTestId('player-kommentare-oeffnen'));
     await act(async () => {});
 
-    // Der Knopf zeigt weiterhin den Spinner, nicht "Senden", ein Tipp
-    // würde also keinen zweiten Versand auslösen (disabled bleibt aktiv).
     expect(screen.queryByText('Senden')).toBeNull();
     expect(
       screen.getByTestId('kommentar-senden').props.accessibilityState.disabled
     ).toBe(true);
   });
 
-  // Mutationsschutz: ein Mutant, der `pausiert: false` beim Öffnen entfernt
-  // (Sheet öffnet, ohne den Player anzuhalten), liesse GENAU diesen Test
-  // fallen, ohne ihn würde der obige Test nicht zwingend unterscheiden
-  // können, ob "p3 bleibt stehen" am Sheet oder an einem Zufall liegt, weil
-  // dort auch andere Timer-Effekte mitspielen könnten.
-  test('ein Video pausiert ebenfalls, solange das Sheet offen ist', async () => {
-    mockParams = { id: 't1', start: '1' }; // p2, Video
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+  test('a video is paused as well while the sheet is open', async () => {
+    mockParams = { id: 't1', start: '1' }; // p2, video
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
-    const spielVorherAnzahl = mockVideoPlayer.play.mock.calls.length;
+    const playCallsBefore = mockVideoPlayer.play.mock.calls.length;
 
     await fireEvent.press(screen.getByTestId('player-kommentare-oeffnen'));
     expect(mockVideoPlayer.pause).toHaveBeenCalled();
 
     await fireEvent.press(screen.getByTestId('sheet-backdrop'));
-    expect(mockVideoPlayer.play.mock.calls.length).toBeGreaterThan(spielVorherAnzahl);
+    expect(mockVideoPlayer.play.mock.calls.length).toBeGreaterThan(playCallsBefore);
   });
 
-  // Review-Fund, Fix-Runde 2: strukturell dieselbe Race wie beim
-  // Zwischenkarten-Test oben ("ein Video unter der Zwischenkarte wird
-  // wirklich pausiert..."), hier für das Kommentar-Sheet. `oeffneKommentare`
-  // setzt `pausiert:true` synchron, VideoMoments echtes `player.pause()`
-  // committet aber erst im nächsten Effekt-Durchlauf, ein `playToEnd`, das
-  // GENAU in diesem Fenster eintrifft, darf den Player nicht HINTER dem
-  // gerade geöffneten Sheet weiterschalten.
-  test('ein playToEnd, das GENAU beim Öffnen des Sheets eintrifft, schaltet den Player nicht hinter dem Sheet weiter', async () => {
-    mockParams = { id: 't1', start: '1' }; // p2, Video
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+  // Opening the sheet sets the pause reason synchronously, but the real
+  // player.pause() only commits on the next effect run: a playToEnd that
+  // arrives exactly inside that window must not advance behind the sheet.
+  test('a playToEnd arriving exactly as the sheet opens does not advance the player behind it', async () => {
+    mockParams = { id: 't1', start: '1' }; // p2, video
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     (fetchComments as jest.Mock).mockResolvedValue({ data: [], error: null });
     await wrap();
     expect(screen.getByTestId('player-video')).toBeTruthy();
 
     await fireEvent.press(screen.getByTestId('player-kommentare-oeffnen'));
-    // Das Race-Fenster nachgestellt: playToEnd feuert, während das Sheet
-    // gerade offen ist.
+    // The race window: playToEnd fires while the sheet has just opened.
     await act(async () => {
       mockListeners.playToEnd?.forEach((cb) => cb());
     });
-    // Weiterhin p2 (nicht zu p3 gewechselt), UND das Sheet ist weiterhin
-    // offen, der Player also nicht heimlich dahinter weitergelaufen.
     expect(screen.getByTestId('player-video')).toBeTruthy();
     expect(screen.getByTestId('sheet-panel')).toBeTruthy();
 
-    // Auch der Fallback-Timer schaltet nicht weiter, solange das Sheet
-    // offen bleibt.
+    // The fallback timer does not advance either while the sheet stays open.
     await act(async () => {
       jest.advanceTimersByTime(5000);
     });
     expect(screen.getByTestId('player-video')).toBeTruthy();
 
-    // Schliessen lässt den Player normal weiterlaufen, kein dauerhafter
-    // Stillstand.
     await fireEvent.press(screen.getByTestId('sheet-backdrop'));
     await act(async () => {
-      jest.advanceTimersByTime(3000); // dauerFuer(p2) = duration_s(3) * 1000
+      jest.advanceTimersByTime(3000); // durationFor(p2) = duration_s (3) * 1000
     });
-    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: bild('p3').medium_url });
+    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: image('p3').medium_url });
   });
 
-  test('eine späte Antwort für einen längst verlassenen Moment überschreibt die Kommentare des NEUEN Moments nicht', async () => {
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
-    const { promise: erstePromise, loese: loeseErste } =
-      unaufgeloest<{ data: unknown; error: string | null }>();
+  test('a late answer for a moment long left behind does not overwrite the comments of the NEW moment', async () => {
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
+    const { promise: firstPromise, resolve: resolveFirst } =
+      unresolved<{ data: unknown; error: string | null }>();
     (fetchComments as jest.Mock)
-      .mockReturnValueOnce(erstePromise) // Öffnen für p1, bleibt hängen
+      .mockReturnValueOnce(firstPromise) // opening for p1, stays pending
       .mockResolvedValueOnce({
-        data: [{ id: 'c2', post_id: 'p2', user_id: 'u2', text: 'Zweiter Moment', created_at: 't', autor_name: 'Jonas' }],
+        data: [{ id: 'c2', post_id: 'p2', user_id: 'u2', text: 'Zweiter Moment', created_at: 't', authorName: 'Jonas' }],
         error: null,
       });
 
     await wrap(); // start=0 -> p1
-    await fireEvent.press(screen.getByTestId('player-zwischenkarte')); // Tag-1-Karte weg
-    await fireEvent.press(screen.getByTestId('player-kommentare-oeffnen')); // öffnet für p1, hängt
-    await fireEvent.press(screen.getByTestId('sheet-backdrop')); // schliessen, läuft weiter
+    await fireEvent.press(screen.getByTestId('player-zwischenkarte')); // day 1 interstitial gone
+    await fireEvent.press(screen.getByTestId('player-kommentare-oeffnen')); // opens for p1, hangs
+    await fireEvent.press(screen.getByTestId('sheet-backdrop')); // close, the request runs on
 
     await fireEvent(screen.getByTestId('player-rechts'), 'pressIn');
     await fireEvent(screen.getByTestId('player-rechts'), 'pressOut'); // p1 -> p2
-    await fireEvent.press(screen.getByTestId('player-kommentare-oeffnen')); // öffnet für p2
+    await fireEvent.press(screen.getByTestId('player-kommentare-oeffnen')); // opens for p2
     await act(async () => {});
     expect(screen.getByText('Zweiter Moment')).toBeTruthy();
 
-    // Die LÄNGST fällige Antwort für p1 trifft jetzt erst ein, sie darf die
-    // bereits angezeigten Kommentare von p2 nicht verdrängen.
+    // The long overdue answer for p1 only arrives now.
     await act(async () => {
-      loeseErste({ data: [{ id: 'c1', post_id: 'p1', user_id: 'u2', text: 'Erster Moment', created_at: 't', autor_name: 'Jonas' }], error: null });
+      resolveFirst({ data: [{ id: 'c1', post_id: 'p1', user_id: 'u2', text: 'Erster Moment', created_at: 't', authorName: 'Jonas' }], error: null });
     });
     expect(screen.getByText('Zweiter Moment')).toBeTruthy();
     expect(screen.queryByText('Erster Moment')).toBeNull();
   });
 
-  test('ein zu langer Kommentar wird vor dem Absenden abgefangen, schreibeKommentar meldet den Fehler, kein optimistisches Anhängen', async () => {
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+  test('a comment that is too long is reported as an error and nothing is appended optimistically', async () => {
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     (writeComment as jest.Mock).mockResolvedValue({
       error: 'Kommentare dürfen höchstens 500 Zeichen haben.',
     });
@@ -1707,26 +1445,26 @@ describe('Kommentar-Sheet (Task 12)', () => {
     await fireEvent.press(screen.getByTestId('player-kommentare-oeffnen'));
     await act(async () => {});
 
-    const zuLangerText = 'a'.repeat(501);
-    await fireEvent.changeText(screen.getByTestId('kommentar-eingabe'), zuLangerText);
+    const tooLongText = 'a'.repeat(501);
+    await fireEvent.changeText(screen.getByTestId('kommentar-eingabe'), tooLongText);
     await fireEvent.press(screen.getByTestId('kommentar-senden'));
     await act(async () => {});
 
-    expect(writeComment).toHaveBeenCalledWith('p1', zuLangerText);
+    expect(writeComment).toHaveBeenCalledWith('p1', tooLongText);
     expect(screen.getByText('Kommentare dürfen höchstens 500 Zeichen haben.')).toBeTruthy();
-    // Kein zweiter fetchKommentare-Aufruf (kein Neuladen bei einem Fehler),
-    // der einzige Aufruf ist der beim Öffnen des Sheets.
+    // No second fetchComments call (no reload after an error), the only one
+    // is the call from opening the sheet.
     expect(fetchComments).toHaveBeenCalledTimes(1);
   });
 
-  test('ein erfolgreich gesendeter Kommentar leert das Feld und lädt die Liste neu', async () => {
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+  test('a successfully sent comment clears the field and reloads the list', async () => {
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     (writeComment as jest.Mock).mockResolvedValue({ error: null });
     (fetchComments as jest.Mock)
-      .mockResolvedValueOnce({ data: [], error: null }) // beim Öffnen
+      .mockResolvedValueOnce({ data: [], error: null }) // when opening
       .mockResolvedValueOnce({
-        data: [{ id: 'c1', post_id: 'p1', user_id: 'u1', text: 'Toller Moment!', created_at: 't', autor_name: 'Lea' }],
+        data: [{ id: 'c1', post_id: 'p1', user_id: 'u1', text: 'Toller Moment!', created_at: 't', authorName: 'Lea' }],
         error: null,
       });
 
@@ -1745,29 +1483,24 @@ describe('Kommentar-Sheet (Task 12)', () => {
   });
 });
 
-// Task 7: «In Galerie sichern» für den aktuellen Moment. exportApi selbst
-// ist gemockt (eigene, vollständige Tests in exportApi.test.ts), hier wird
-// nur geprüft, dass der Player sie mit dem richtigen Moment/URL aufruft und
-// auf jedes ihrer drei Ergebnisse (Erfolg, keine Berechtigung, sonstiger
-// Fehler) richtig reagiert.
-describe('«In Galerie sichern»', () => {
+describe('saving a moment to the photo library', () => {
   beforeEach(() => {
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
   });
 
-  test('ruft sichereMomentInGalerie mit dem aktiven Moment und seiner MEDIUM-URL (nicht dem Thumbnail) auf', async () => {
+  test('calls saveMomentToGallery with the active moment and its MEDIUM url, not the thumbnail', async () => {
     (saveMomentToGallery as jest.Mock).mockResolvedValue({ ok: true });
     await wrap();
     await fireEvent.press(screen.getByTestId('player-sichern'));
     await act(async () => {});
     expect(saveMomentToGallery).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'p1' }),
-      expect.objectContaining({ medium_url: bild('p1').medium_url, thumb_url: bild('p1').thumb_url })
+      expect.objectContaining({ medium_url: image('p1').medium_url, thumb_url: image('p1').thumb_url })
     );
   });
 
-  test('Erfolg zeigt eine kurze Bestätigung', async () => {
+  test('success shows a short confirmation', async () => {
     (saveMomentToGallery as jest.Mock).mockResolvedValue({ ok: true });
     await wrap();
     await fireEvent.press(screen.getByTestId('player-sichern'));
@@ -1775,17 +1508,14 @@ describe('«In Galerie sichern»', () => {
     expect(await screen.findByTestId('player-export-hinweis')).toHaveTextContent('In der Fotobibliothek gesichert.');
   });
 
-  // Kernfall (Brief, wörtlich): NIE ein stiller Fehlschlag bei fehlender
-  // Berechtigung, ein Alert mit Weg in die Einstellungen, nicht nur eine
-  // leicht zu übersehende Pille.
-  test('fehlende Berechtigung zeigt einen Alert mit Weg in die Einstellungen, keine stille Pille', async () => {
+  test('a missing permission shows an alert with a way into the settings, not a quiet pill', async () => {
     (saveMomentToGallery as jest.Mock).mockResolvedValue({
       ok: false, grund: 'keine_berechtigung', text: 'Reelive braucht Zugriff auf deine Fotobibliothek …',
     });
     await wrap();
     await fireEvent.press(screen.getByTestId('player-sichern'));
     await act(async () => {});
-    expect(mockAlertSpion).toHaveBeenCalledWith(
+    expect(mockAlertSpy).toHaveBeenCalledWith(
       'Kein Zugriff auf die Fotobibliothek',
       'Reelive braucht Zugriff auf deine Fotobibliothek …',
       expect.any(Array)
@@ -1793,19 +1523,19 @@ describe('«In Galerie sichern»', () => {
     expect(screen.queryByTestId('player-export-hinweis')).toBeNull();
   });
 
-  test('"Einstellungen öffnen" im Alert ruft Linking.openSettings auf', async () => {
+  test('tapping "Einstellungen öffnen" in the alert calls Linking.openSettings', async () => {
     (saveMomentToGallery as jest.Mock).mockResolvedValue({
       ok: false, grund: 'keine_berechtigung', text: 'Kein Zugriff.',
     });
     await wrap();
     await fireEvent.press(screen.getByTestId('player-sichern'));
     await act(async () => {});
-    const knoepfe = mockAlertSpion.mock.calls[0][2] as AlertKnopf[];
-    knoepfe.find((k) => k.text === 'Einstellungen öffnen')?.onPress?.();
+    const buttons = mockAlertSpy.mock.calls[0][2] as AlertButton[];
+    buttons.find((b) => b.text === 'Einstellungen öffnen')?.onPress?.();
     expect(mockOpenSettings).toHaveBeenCalled();
   });
 
-  test('ein sonstiger Fehlschlag (z.B. Netzwerk) zeigt die Ursache als Pille, ohne Alert', async () => {
+  test('any other failure, a network problem say, shows the cause as a pill without an alert', async () => {
     (saveMomentToGallery as jest.Mock).mockResolvedValue({
       ok: false, grund: 'fehler', text: 'Dieser Moment konnte nicht gesichert werden. Probier es gleich nochmal.',
     });
@@ -1815,32 +1545,27 @@ describe('«In Galerie sichern»', () => {
     expect(await screen.findByTestId('player-export-hinweis')).toHaveTextContent(
       'Dieser Moment konnte nicht gesichert werden. Probier es gleich nochmal.'
     );
-    expect(mockAlertSpion).not.toHaveBeenCalled();
+    expect(mockAlertSpy).not.toHaveBeenCalled();
   });
 
-  test('zeigt einen Ladeindikator, während sichereMomentInGalerie noch läuft', async () => {
-    let aufloesen!: (wert: { ok: true }) => void;
-    (saveMomentToGallery as jest.Mock).mockReturnValue(new Promise((resolve) => { aufloesen = resolve; }));
+  test('shows a loading indicator while saveMomentToGallery is still running', async () => {
+    let resolveSave!: (value: { ok: true }) => void;
+    (saveMomentToGallery as jest.Mock).mockReturnValue(new Promise((resolve) => { resolveSave = resolve; }));
     await wrap();
     await fireEvent.press(screen.getByTestId('player-sichern'));
     await act(async () => {});
     expect(screen.getByTestId('player-sichern-laedt')).toBeTruthy();
-    // Ein zweiter Tipp während des Ladens darf KEINEN zweiten Aufruf
-    // auslösen (Doppel-Tipp-Schutz).
+    // A second tap while it is loading must NOT trigger a second call.
     await fireEvent.press(screen.getByTestId('player-sichern'));
     await act(async () => {
-      aufloesen({ ok: true });
+      resolveSave({ ok: true });
     });
     expect(saveMomentToGallery).toHaveBeenCalledTimes(1);
   });
 
-  // Wechselt der Moment, WÄHREND sichereMomentInGalerie noch für den
-  // VORHERIGEN Moment läuft, darf dessen verspätete Antwort weder eine
-  // Pille auf dem NEUEN Moment zeigen noch dessen Sichern-Knopf für immer im
-  // Ladezustand einfrieren (Stale-Guard, gleiches Prinzip wie beiLadefehler).
-  test('eine verspätete Antwort für einen verlassenen Moment zeigt keine Pille auf dem neuen Moment', async () => {
-    let aufloesen!: (wert: { ok: true }) => void;
-    (saveMomentToGallery as jest.Mock).mockReturnValue(new Promise((resolve) => { aufloesen = resolve; }));
+  test('a late save answer for a moment left behind shows no pill on the new moment and leaves its button usable', async () => {
+    let resolveSave!: (value: { ok: true }) => void;
+    (saveMomentToGallery as jest.Mock).mockReturnValue(new Promise((resolve) => { resolveSave = resolve; }));
     await wrap();
     await fireEvent.press(screen.getByTestId('player-sichern'));
     await act(async () => {});
@@ -1848,39 +1573,29 @@ describe('«In Galerie sichern»', () => {
     await fireEvent(screen.getByTestId('player-rechts'), 'pressIn');
     await fireEvent(screen.getByTestId('player-rechts'), 'pressOut');
     await act(async () => {});
-    // p2 (Video) ist jetzt aktiv statt p1 (Foto), einziger Video-Moment der
-    // Fixture, eindeutiger Beleg für den Momentwechsel als `player-video`.
+    // p2 (video) is active now instead of p1 (photo), and it is the only
+    // video in the fixture.
     expect(screen.getByTestId('player-video')).toBeTruthy();
 
     await act(async () => {
-      aufloesen({ ok: true });
+      resolveSave({ ok: true });
     });
     expect(screen.queryByTestId('player-export-hinweis')).toBeNull();
-    // Der Sichern-Knopf des NEUEN Moments bleibt bedienbar (kein
-    // fälschlich hängender Ladezustand).
     await fireEvent.press(screen.getByTestId('player-sichern'));
     await act(async () => {});
     expect(saveMomentToGallery).toHaveBeenCalledTimes(2);
   });
 });
 
-// Task 8, Phase 6: Melden und Moderation. "Auf dem Gerät wirklich
-// erreichbar" (Vorlage: der zIndex-Test aus Phase 5, siehe "Tages-
-// Zwischenkarte"/"Reaktionen" oben) heisst hier etwas anderes als dort: in
-// Phase 5 lag eine ZWEITE, konkurrierende Fläche versehentlich UNTER den
-// Tipp-Zonen, ein reines fireEvent.press-Rendertest sah das nie, weil es
-// keine Geometrie/Stapelung prüft. Für das lange Tippen gibt es keine zweite
-// Fläche: `onLongPress` hängt an GENAU denselben Pressable-Knoten
-// (`player-links`/`player-rechts`), die bereits onPressIn/onPressOut tragen
-// und die die zIndex-Tests oben als vordersten, tatsächlich Berührungen
-// empfangenden Layer in ihrer Bildschirmhälfte nachweisen, es gibt also
-// keine neue Stapelfrage zu beweisen. Jeder Test unten feuert das Ereignis
-// deshalb bewusst auf genau diesem, bereits als erreichbar erwiesenen
-// Knoten (nicht auf einer neuen, separat einzuführenden Testkomponente).
-describe('Melden (Task 8)', () => {
-  test('ein langes Tippen auf die Tipp-Zone öffnet das Melden-Sheet und pausiert den Player', async () => {
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+// `onLongPress` hangs off exactly the same Pressable nodes as
+// onPressIn/onPressOut (`player-links`/`player-rechts`), which the zIndex
+// tests above already show to be the frontmost touch layer in their half of
+// the screen: there is no new stacking question to prove here, so every
+// test below fires on that very node.
+describe('reporting a moment (Task 8)', () => {
+  test('a long press on the tap zone opens the report sheet and pauses the player', async () => {
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
 
     await fireEvent(screen.getByTestId('player-rechts'), 'longPress');
@@ -1888,37 +1603,34 @@ describe('Melden (Task 8)', () => {
     expect(screen.getByText('Diesen Moment melden')).toBeTruthy();
     expect(screen.getByTestId('melden-grund')).toBeTruthy();
 
-    // Pausiert: selbst nach Ablauf der vollen Fotodauer bleibt p1 stehen.
+    // Paused: p1 stays put even after the full photo duration.
     await act(async () => {
       jest.advanceTimersByTime(5000);
     });
-    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: bild('p1').medium_url });
+    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: image('p1').medium_url });
   });
 
-  test('das lange Tippen funktioniert von der LINKEN wie von der RECHTEN Tipp-Zone aus', async () => {
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+  test('the long press works from the LEFT tap zone just as from the RIGHT one', async () => {
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
     await fireEvent(screen.getByTestId('player-links'), 'longPress');
     await act(async () => {});
     expect(screen.getByTestId('melden-grund')).toBeTruthy();
   });
 
-  // Brief, wörtlich: "Der Moment bleibt sichtbar, Melden ist kein
-  // Verstecken." Weder das Öffnen des Sheets noch ein erfolgreiches Senden
-  // (siehe weiter unten) dürfen `spielliste`/`urls` anfassen.
-  test('der Moment bleibt sichtbar, während das Melden-Sheet offen ist', async () => {
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+  test('the moment stays visible while the report sheet is open', async () => {
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
     await fireEvent(screen.getByTestId('player-rechts'), 'longPress');
     await act(async () => {});
-    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: bild('p1').medium_url });
+    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: image('p1').medium_url });
   });
 
-  test('der Senden-Knopf bleibt deaktiviert, solange kein Grund eingetragen ist, auch bei reinen Leerzeichen', async () => {
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+  test('the send button stays disabled while no reason is entered, whitespace included', async () => {
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
     await fireEvent(screen.getByTestId('player-rechts'), 'longPress');
     await act(async () => {});
@@ -1931,9 +1643,9 @@ describe('Melden (Task 8)', () => {
     expect(screen.getByTestId('melden-senden').props.accessibilityState.disabled).toBe(false);
   });
 
-  test('Erfolg: sendet den Grund für den AKTIVEN Moment und zeigt danach eine Bestätigung', async () => {
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+  test('a successful report sends the reason for the ACTIVE moment and then shows a confirmation', async () => {
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
     await fireEvent(screen.getByTestId('player-rechts'), 'longPress');
     await act(async () => {});
@@ -1944,17 +1656,17 @@ describe('Melden (Task 8)', () => {
     expect(reportMoment).toHaveBeenCalledWith('p1', 'Sieht komisch aus');
     expect(screen.getByTestId('melden-bestaetigung')).toBeTruthy();
     expect(screen.queryByTestId('melden-grund')).toBeNull();
-    // Weiterhin derselbe Moment, die Bestätigung ersetzt nur den
-    // Sheet-Inhalt, nicht den Player dahinter.
-    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: bild('p1').medium_url });
+    // Still the same moment: the confirmation replaces the sheet content,
+    // not the player behind it.
+    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: image('p1').medium_url });
   });
 
-  test('ein Fehlschlag zeigt die Ursache am Formular, ohne die Bestätigung zu zeigen, das Sheet bleibt bedienbar', async () => {
+  test('a failed report shows the cause on the form, without a confirmation, and the sheet stays usable', async () => {
     (reportMoment as jest.Mock).mockResolvedValue({
       error: 'Deine Meldung konnte nicht gesendet werden. Probier es gleich nochmal.',
     });
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
     await fireEvent(screen.getByTestId('player-rechts'), 'longPress');
     await act(async () => {});
@@ -1969,133 +1681,110 @@ describe('Melden (Task 8)', () => {
     expect(screen.getByTestId('melden-grund')).toBeTruthy();
   });
 
-  test('ein zweiter Tipp auf Senden, während die erste Anfrage noch läuft, löst KEINEN zweiten Aufruf aus', async () => {
-    let aufloesen!: (wert: { error: null }) => void;
-    (reportMoment as jest.Mock).mockReturnValue(new Promise((resolve) => { aufloesen = resolve; }));
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+  test('a second tap on send while the first request is still running triggers NO second call', async () => {
+    let resolveReport!: (value: { error: null }) => void;
+    (reportMoment as jest.Mock).mockReturnValue(new Promise((resolve) => { resolveReport = resolve; }));
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
     await fireEvent(screen.getByTestId('player-rechts'), 'longPress');
     await act(async () => {});
     await fireEvent.changeText(screen.getByTestId('melden-grund'), 'Sieht komisch aus');
-    await fireEvent.press(screen.getByTestId('melden-senden')); // sendetLaeuft=true, hängt
+    await fireEvent.press(screen.getByTestId('melden-senden')); // sending starts and hangs
     await act(async () => {});
     await fireEvent.press(screen.getByTestId('melden-senden'));
     await act(async () => {
-      aufloesen({ error: null });
+      resolveReport({ error: null });
     });
     expect(reportMoment).toHaveBeenCalledTimes(1);
   });
 
-  // Schliessen (Sheet-Backdrop-Tipp) setzt den Pausier-Grund zurück, der
-  // Auto-Vorschub läuft danach normal weiter (gleiches Prinzip wie der
-  // erste Kommentar-Sheet-Test oben). start='1' (p2, Video) wie im
-  // Kommentar-Test dort, am ALLERERSTEN Moment (index 0) steht zusätzlich
-  // die Tages-Zwischenkarte (eigener, unabhängiger Pausier-Grund), die die
-  // Prüfung sonst verfälschen würde.
-  test('Schliessen setzt den Pausier-Grund zurück, der Auto-Vorschub läuft danach normal weiter', async () => {
-    mockParams = { id: 't1', start: '1' }; // p2 (Video), kein Tageswechsel zu p3
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+  // start='1' on purpose: at the very first moment the day interstitial
+  // would add its own, independent pause reason and blur the check.
+  test('closing the report sheet takes the pause reason back and the auto advance runs on', async () => {
+    mockParams = { id: 't1', start: '1' }; // p2 (video), no day change to p3
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
     await fireEvent(screen.getByTestId('player-rechts'), 'longPress');
     await act(async () => {});
     await fireEvent.press(screen.getByTestId('sheet-backdrop'));
     await act(async () => {
-      jest.advanceTimersByTime(3000); // dauerFuer(p2) = max(1000, 3*1000) = 3000ms
+      jest.advanceTimersByTime(3000); // durationFor(p2) = max(1000, 3*1000) = 3000 ms
     });
-    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: bild('p3').medium_url });
+    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: image('p3').medium_url });
   });
 
-  // Stale-Guard (gleiches Prinzip wie kommentarAbsenden): eine spät
-  // eintreffende Antwort für einen längst verlassenen Moment darf eine NEU
-  // geöffnete Sitzung für einen ANDEREN Moment nicht fälschlich als
-  // "bestätigt" zeigen.
-  test('eine hängende Meldung für einen verlassenen Moment zeigt ihre späte Antwort NICHT auf einer neu geöffneten Sitzung', async () => {
-    let aufloesenErsteAnfrage!: (wert: { error: null }) => void;
+  test('a hanging report for a moment left behind does NOT show its late answer on a newly opened session', async () => {
+    let resolveFirstReport!: (value: { error: null }) => void;
     (reportMoment as jest.Mock).mockImplementationOnce(
-      () => new Promise((resolve) => { aufloesenErsteAnfrage = resolve; })
+      () => new Promise((resolve) => { resolveFirstReport = resolve; })
     );
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
 
-    // Öffnet für p1, sendet, hängt.
+    // Opens for p1, sends, hangs.
     await fireEvent(screen.getByTestId('player-rechts'), 'longPress');
     await act(async () => {});
     await fireEvent.changeText(screen.getByTestId('melden-grund'), 'Erstes');
     await fireEvent.press(screen.getByTestId('melden-senden'));
     await act(async () => {});
 
-    // Schliessen, ohne auf die Antwort zu warten, weiter zu p2, erneut öffnen
-    // (frische Sitzung, noch nichts abgeschickt).
+    // Close without waiting for the answer, on to p2, open again (a fresh
+    // session with nothing sent yet).
     await fireEvent.press(screen.getByTestId('sheet-backdrop'));
     await fireEvent(screen.getByTestId('player-rechts'), 'pressIn');
     await fireEvent(screen.getByTestId('player-rechts'), 'pressOut');
     await act(async () => {});
     await fireEvent(screen.getByTestId('player-rechts'), 'longPress');
     await act(async () => {});
-    expect(screen.getByTestId('melden-grund')).toBeTruthy(); // frisches, leeres Formular für p2
+    expect(screen.getByTestId('melden-grund')).toBeTruthy(); // a fresh, empty form for p2
 
-    // Die alte, hängende Antwort für p1 trifft jetzt ein.
+    // The old, hanging answer for p1 arrives now.
     await act(async () => {
-      aufloesenErsteAnfrage({ error: null });
+      resolveFirstReport({ error: null });
     });
-    // Die neue Sitzung (p2) bleibt unberührt: keine fälschliche Bestätigung,
-    // das Formular ist weiterhin da.
     expect(screen.queryByTestId('melden-bestaetigung')).toBeNull();
     expect(screen.getByTestId('melden-grund')).toBeTruthy();
   });
 });
 
-// ---------------------------------------------------------------------------
-// «Nochmal versuchen» nur, wo es etwas ausrichtet
-// ---------------------------------------------------------------------------
-//
-// Der Knopf stand unter jedem Fehlertext, auch unter «Diese Reise ist noch
-// versiegelt.» und «Kein Zugriff auf diese Reise.». Beides sind
-// ENTSCHEIDUNGEN des Servers, keine Ausfaelle: sie bleiben so, bis sich etwas
-// ausserhalb dieser App aendert, und der Knopf war ein Versprechen, das er
-// beliebig oft nicht einloesen konnte. Die Regel dafuer steht in
-// features/recap/urlVorrat.ts (`wiederholenHilft`) und ist hier echt, nicht
-// gemockt.
-describe('der Fehler-Zustand bietet nur an, was er halten kann', () => {
-  const LADEFEHLER = 'Die Momente konnten nicht geladen werden. Probier es gleich nochmal.';
+// The rule for this lives in features/recap/urlPool.ts (`retryHelps`) and
+// is real here, not mocked.
+describe('the error state only offers what it can deliver', () => {
+  const LOAD_ERROR = 'Die Momente konnten nicht geladen werden. Probier es gleich nochmal.';
 
   test.each([
     ['Diese Reise ist noch versiegelt.', 'versiegelt'],
     ['Kein Zugriff auf diese Reise.', 'kein_zugriff'],
-  ])('unter «%s» steht kein Wiederholen-Knopf', async (text, grund) => {
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: null, error: text, grund });
+  ])('under "%s" there is no retry button', async (text, reason) => {
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: null, error: text, reason });
     await wrap();
 
     expect(screen.getByTestId('player-fehler')).toBeTruthy();
     expect(screen.getByText(text)).toBeTruthy();
     expect(screen.queryByText('Nochmal versuchen')).toBeNull();
-    // Der Rueckweg bleibt: er ist dann die einzige Handlung, die es gibt.
+    // The way back stays: it is then the only action there is.
     expect(screen.getByText('Zurück zur Übersicht')).toBeTruthy();
   });
 
-  // Die Gegenprobe, die den Knopf am Leben haelt: ohne `grund` ist der Fehler
-  // eine Momentaufnahme (Netz weg, 502 beim Signieren), und dort ist
-  // Wiederholen genau die richtige Handlung.
-  test('ein Fehler ohne Grund behaelt seinen Knopf', async () => {
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: null, error: LADEFEHLER, grund: null });
+  test('an error without a reason keeps its retry button', async () => {
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: null, error: LOAD_ERROR, reason: null });
     await wrap();
 
     expect(screen.getByText('Nochmal versuchen')).toBeTruthy();
   });
 
-  // Und die Zuordnung: `grund` gehoert zum VORRAT. Scheitert die REISE-Abfrage,
-  // steht deren Text vorn (Prioritaet im Ladeweg), und die Lage ist eine
-  // andere, auch wenn der Vorrat daneben fachlich abgelehnt hat.
-  test('ein Reise-Fehler behaelt seinen Knopf, auch neben einer fachlichen Ablehnung des Vorrats', async () => {
+  // The reason belongs to the POOL. If the TRIP request fails, its text
+  // comes first in the load path, and the situation is a different one.
+  test('a trip error keeps its button, even next to a domain rejection of the pool', async () => {
     (fetchTrip as jest.Mock).mockResolvedValue({ data: null, error: 'Die Reise liess sich nicht laden.' });
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
     (getPool as jest.Mock).mockResolvedValue({
-      vorrat: null, error: 'Kein Zugriff auf diese Reise.', grund: 'kein_zugriff',
+      pool: null, error: 'Kein Zugriff auf diese Reise.', reason: 'kein_zugriff',
     });
     await wrap();
 
@@ -2104,67 +1793,67 @@ describe('der Fehler-Zustand bietet nur an, was er halten kann', () => {
   });
 });
 
-// ——— Geraetekanten (gefunden am echten iPhone, 2026-08-11) ———
+// Device edges (found on a real iPhone, 2026-08-11)
 //
-// Der Player zeigt keinen Header und liegt randlos hinter Dynamic Island und
-// Home-Indicator. Bis hierher standen Kopf- und Sozialbereich auf den
-// gestalteten 32 Punkten, am Geraet lag die Fortschrittsleiste damit UNTER
-// der Insel.
+// The player shows no header and sits edge to edge behind the Dynamic
+// Island and the home indicator. Header and social area used to stand on
+// the designed 32 points, which on the device put the progress bar UNDER
+// the island.
 //
-// Warum diese Suite das nie sehen konnte: der globale Mock aus jest.setup.ts
-// meldet Insets von 0 (react-native-safe-area-context/jest/mock), und bei 0
-// liefert useOberkante(32) genau die gestalteten 32 zurueck, richtige wie
-// falsche Fassung sind ununterscheidbar. Erst mit echten Geraetemassen
-// trennen sie sich, deshalb wird der Hook hier gezielt uebersteuert.
-describe('Sicherer Bereich des Geraets', () => {
-  let insetSpion: jest.SpyInstance | undefined;
+// Why this suite could never see it: the global mock from jest.setup.ts
+// reports insets of 0, and at 0 the topInset helper returns exactly the
+// designed 32, so the right and the wrong version are indistinguishable.
+// Only real device measurements pull them apart, which is why the hook is
+// overridden on purpose here.
+describe('safe area of the device', () => {
+  let insetSpy: jest.SpyInstance | undefined;
 
-  const insetsSetzen = (top: number, bottom: number) => {
-    const modul = require('react-native-safe-area-context');
-    insetSpion = jest
-      .spyOn(modul, 'useSafeAreaInsets')
+  const setInsets = (top: number, bottom: number) => {
+    const safeAreaModule = require('react-native-safe-area-context');
+    insetSpy = jest
+      .spyOn(safeAreaModule, 'useSafeAreaInsets')
       .mockReturnValue({ top, bottom, left: 0, right: 0 });
   };
 
-  // Der Spion ueberlebt jest.clearAllMocks() (das raeumt nur Aufzeichnungen,
-  // nicht Implementierungen), er muss also von Hand zurueck, sonst laufen alle
-  // spaeteren Suiten mit fremden Geraetemassen.
+  // The spy survives jest.clearAllMocks() (which only clears recordings, not
+  // implementations), so it has to be restored by hand, otherwise every
+  // later suite runs with foreign device measurements.
   afterEach(() => {
-    insetSpion?.mockRestore();
-    insetSpion = undefined;
+    insetSpy?.mockRestore();
+    insetSpy = undefined;
   });
 
   beforeEach(() => {
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTE, error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
   });
 
-  test('unter der Dynamic Island rueckt die Fortschrittsleiste nach unten', async () => {
-    insetsSetzen(59, 34);
+  test('under the Dynamic Island the progress bar moves down', async () => {
+    setInsets(59, 34);
     await wrap();
 
-    const oben = StyleSheet.flatten(screen.getByTestId('player-kopf-bereich').props.style);
-    expect(oben.top).toBe(59 + 16);
+    const topStyle = StyleSheet.flatten(screen.getByTestId('player-kopf-bereich').props.style);
+    expect(topStyle.top).toBe(59 + 16);
   });
 
-  test('ueber dem Home-Indicator rueckt die Reaktionsreihe nach oben', async () => {
-    insetsSetzen(59, 34);
+  test('above the home indicator the reaction row moves up', async () => {
+    setInsets(59, 34);
     await wrap();
 
-    const unten = StyleSheet.flatten(screen.getByTestId('player-sozial-bereich').props.style);
-    expect(unten.bottom).toBe(34 + 16);
+    const bottomStyle = StyleSheet.flatten(screen.getByTestId('player-sozial-bereich').props.style);
+    expect(bottomStyle.bottom).toBe(34 + 16);
   });
 
-  // Gegenprobe: wo das Geraet nichts wegnimmt, bleibt der gestaltete Abstand
-  // exakt stehen. Sonst waere der Fix eine Verschiebung fuer alle statt einer
-  // Ausweichbewegung nur dort, wo sie noetig ist.
-  test('ohne Insets bleiben die gestalteten Abstaende unveraendert', async () => {
-    insetsSetzen(0, 0);
+  // Counter check: where the device takes nothing away, the designed
+  // spacing stays exactly as it is, otherwise the fix would be a shift for
+  // everyone instead of a dodge only where one is needed.
+  test('without insets the designed spacings stay unchanged', async () => {
+    setInsets(0, 0);
     await wrap();
 
-    const oben = StyleSheet.flatten(screen.getByTestId('player-kopf-bereich').props.style);
-    const unten = StyleSheet.flatten(screen.getByTestId('player-sozial-bereich').props.style);
-    expect(oben.top).toBe(32);
-    expect(unten.bottom).toBe(32);
+    const topStyle = StyleSheet.flatten(screen.getByTestId('player-kopf-bereich').props.style);
+    const bottomStyle = StyleSheet.flatten(screen.getByTestId('player-sozial-bereich').props.style);
+    expect(topStyle.top).toBe(32);
+    expect(bottomStyle.bottom).toBe(32);
   });
 });

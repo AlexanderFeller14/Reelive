@@ -1,10 +1,10 @@
 import { Stack } from 'expo-router';
 import { cinema } from '@/theme/tokens';
 
-// Medien-Screens (DESIGN-LANGUAGE v2 §1): feste Kino-Palette, kein Theme,
-// anders als reise/_layout.tsx wird hier bewusst NICHT useTheme() verwendet.
-// Header aus, jeder Screen bringt seinen eigenen Kopf mit.
-export default function AufnehmenStackLayout() {
+// Media screens (DESIGN-LANGUAGE v2 §1): fixed cinema palette, no theme;
+// unlike trip/_layout.tsx, useTheme() is deliberately NOT used here. Header
+// off, every screen brings its own head.
+export default function CaptureStackLayout() {
   return (
     <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: cinema['bg-0'] } }} />
   );

@@ -9,7 +9,7 @@
 // no .from(), no .rpc(), no .auth. Proven here by test (spies on the whole
 // client, see shareApi.test.ts), and additionally for the WHOLE screen
 // statically via the module graph
-// (mobile/src/app/teilen/__tests__/modulgraph.test.ts), not just asserted.
+// (mobile/src/app/share/__tests__/moduleGraph.test.ts), not just asserted.
 import { supabase } from '@/lib/supabase';
 import { OFFLINE_HINT, istOffline } from '@/lib/networkError';
 
@@ -119,7 +119,7 @@ type ResolveResponse = {
 // two fields, `m.lat` is `undefined`, and `undefined ?? null` would indeed
 // give `null`, but an `m.lat` holding a string or NaN would pass through
 // unchecked. Downstream, `zuKartenPunkten` checks exclusively for `=== null`
-// (features/karte/kartenPunkte.ts); anything else counts as a valid
+// (features/map/mapPoints.ts); anything else counts as a valid
 // coordinate there and would place a pin at a position that doesn't exist.
 function numberOrNull(wert: unknown): number | null {
   return typeof wert === 'number' && Number.isFinite(wert) ? wert : null;

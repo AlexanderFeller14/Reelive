@@ -46,7 +46,7 @@ jest.mock('@/theme/useReducedMotion', () => ({
 }));
 
 // expo-image is a native view and can't be loaded in Jest; the placeholder
-// just passes the props through (same pattern as vorschau.test.tsx).
+// just passes the props through (same pattern as preview.test.tsx).
 jest.mock('expo-image', () => {
   const ReactActual = require('react');
   const { View } = require('react-native');

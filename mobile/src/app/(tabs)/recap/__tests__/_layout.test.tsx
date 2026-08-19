@@ -1,28 +1,30 @@
 import { render } from '@testing-library/react-native';
 import * as React from 'react';
 import { ThemeProvider } from '@/theme/ThemeProvider';
+import { cinema } from '@/theme/tokens';
 
-// Am Geraet gefunden (2026-08-11): ein Tippen auf den Recap-Tab oeffnete den
-// Player statt der Liste. Sobald ein Stack ueberhaupt <Stack.Screen>-Kinder
-// hat, legt deren Reihenfolge fest, welche Route zuerst registriert wird, und
-// die erste ist die Startroute des Stacks. Hier stand `[id]/player` allein,
-// also wurde der Player zur Startroute, und zwar ohne `id` im Pfad
-// (`/recap/player`). `useLocalSearchParams` lieferte `undefined`, fetchTrip
-// fragte die Datenbank nach der UUID «undefined» und bekam Postgres 22P02,
-// der Screen zeigte einen Ladefehler statt der leeren Liste.
+// Found on the device (2026-08-11): tapping the recap tab opened the player
+// instead of the list. As soon as a stack has <Stack.Screen> children at all,
+// their order decides which route gets registered first, and the first one is
+// the stack's initial route. Here `[id]/player` stood alone, so the player
+// became the initial route, and it did so without an `id` in the path
+// (`/recap/player`). `useLocalSearchParams` returned `undefined`, fetchTrip
+// asked the database for the UUID "undefined" and got Postgres 22P02, so the
+// screen showed a load error instead of the empty list.
 //
-// Die 1316 Tests dieser Suite haben das nicht bemerkt, weil sie jeden Screen
-// einzeln rendern und nie die Navigation dazwischen. Dieser Test prueft
-// deshalb genau das, was ein Screen-Test nicht sehen kann: die Reihenfolge,
-// in der das Layout seine Routen anmeldet.
+// The 1316 tests of this suite did not notice, because they render every
+// screen on its own and never the navigation between them. This test checks
+// exactly what a screen test cannot see: the order in which the layout
+// registers its routes.
 //
-// `Stack` wird komplett gemockt, wie in (tabs)/__tests__/_layout.test.tsx.
-// Ein echtes Rendern braeuchte den Stack-Navigator von @react-navigation und
-// wuerde die eigentliche Zusicherung (welche Route steht vorn) nur verrauschen.
-let letzteKinder: React.ReactNode;
+// `Stack` is mocked completely, as in (tabs)/__tests__/_layout.test.tsx.
+// Rendering it for real would need the stack navigator from @react-navigation
+// and would only add noise around the actual assertion (which route comes
+// first).
+let lastChildren: React.ReactNode;
 jest.mock('expo-router', () => {
   function Stack(props: { children?: React.ReactNode }) {
-    letzteKinder = props.children;
+    lastChildren = props.children;
     return null;
   }
   Stack.Screen = () => null;
@@ -31,22 +33,29 @@ jest.mock('expo-router', () => {
 
 import RecapStackLayout from '../_layout';
 
-// Die Kommentar-Knoten im Layout zaehlen nicht mit, gefiltert wird auf das,
-// was tatsaechlich eine Route anmeldet: ein Element mit `name`.
-function routenNamen(): string[] {
-  return React.Children.toArray(letzteKinder)
-    .filter(
-      (k): k is React.ReactElement<{ name: string }> =>
-        React.isValidElement(k) && typeof (k.props as { name?: unknown }).name === 'string'
-    )
-    .map((k) => k.props.name);
+type ScreenProps = {
+  name: string;
+  options?: { animation?: string; contentStyle?: { backgroundColor?: string } };
+};
+
+// The comment nodes in the layout do not count, filtered is what actually
+// registers a route: an element with a `name`.
+function routeElements(): React.ReactElement<ScreenProps>[] {
+  return React.Children.toArray(lastChildren).filter(
+    (child): child is React.ReactElement<ScreenProps> =>
+      React.isValidElement(child) && typeof (child.props as { name?: unknown }).name === 'string'
+  );
+}
+
+function routeNames(): string[] {
+  return routeElements().map((child) => child.props.name);
 }
 
 beforeEach(() => {
-  letzteKinder = undefined;
+  lastChildren = undefined;
 });
 
-const rendern = async () => {
+const renderLayout = async () => {
   await render(
     <ThemeProvider>
       <RecapStackLayout />
@@ -54,25 +63,36 @@ const rendern = async () => {
   );
 };
 
-test('der Recap-Stack meldet die Liste als erste Route an, nicht den Player', async () => {
-  await rendern();
-  expect(routenNamen()[0]).toBe('index');
+test('the recap stack registers the list as its first route, not the player', async () => {
+  await renderLayout();
+  expect(routeNames()[0]).toBe('index');
 });
 
-// Der eigentliche Fund, als Zusicherung formuliert: der Player darf nie
-// vorne stehen. Ohne diesen Test faellt ein spaeteres Umsortieren der Kinder
-// wieder in denselben Fehler, und zwar unbemerkt bis zum naechsten
-// Geraetetest.
-test('der Player steht nicht an erster Stelle', async () => {
-  await rendern();
-  expect(routenNamen()[0]).not.toBe('[id]/player');
+// The actual finding, phrased as an assertion: the player must never stand
+// first. Without this test a later reordering of the children falls back into
+// the same bug, and unnoticed until the next device test.
+test('the player does not stand first', async () => {
+  await renderLayout();
+  expect(routeNames()[0]).not.toBe('[id]/player');
 });
 
-// Der Player braucht seine eigenen Optionen (Fade durch Dunkel, Kino-Grund,
-// DESIGN-LANGUAGE §5), er muss also deklariert BLEIBEN. Wer den Bug oben
-// dadurch «loest», dass er das Kind einfach loescht, nimmt dem Wechsel in den
-// Saal seine Inszenierung.
-test('der Player bleibt mit eigenen Optionen deklariert', async () => {
-  await rendern();
-  expect(routenNamen()).toContain('[id]/player');
+// The player needs options of its own (fade through black, cinema ground,
+// DESIGN-LANGUAGE §5), so it has to STAY declared. Whoever "solves" the bug
+// above by simply deleting the child takes the staging away from the switch
+// into the auditorium.
+test('the player stays declared with options of its own', async () => {
+  await renderLayout();
+  expect(routeNames()).toContain('[id]/player');
+});
+
+// And WHICH options those are. The test above only proves the child is still
+// there, an options object emptied by accident would pass it just as well.
+// The switch from a light screen into the auditorium is the one
+// DESIGN-LANGUAGE §5 wants as a fade through black, and the ground underneath
+// has to be the cinema one, otherwise the fade starts on white.
+test('the player fades through black onto the cinema ground', async () => {
+  await renderLayout();
+  const player = routeElements().find((child) => child.props.name === '[id]/player');
+  expect(player?.props.options?.animation).toBe('fade');
+  expect(player?.props.options?.contentStyle?.backgroundColor).toBe(cinema['bg-0']);
 });

@@ -42,10 +42,10 @@ test.each([
 import { isAreaForSignedIn } from '../guard';
 
 // The capture preview deliberately sits NEXT TO the tab navigator instead of
-// inside it (see app/vorschau.tsx): only that way does it cover the tab bar
+// inside it (see app/preview.tsx): only that way does it cover the tab bar
 // immediately, instead of letting it disappear one blink later. That makes
 // it the first area for signed-in people outside of '(tabs)', and the guard
-// would have sent it straight back to /aufnehmen without this exception.
+// would have sent it straight back to /capture without this exception.
 test.each([
   ['(tabs)', true],
   ['preview', true],

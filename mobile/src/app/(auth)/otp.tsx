@@ -10,36 +10,32 @@ import { requestOtp, verifyOtp } from '@/features/auth/authApi';
 
 export default function OtpScreen() {
   const { colors } = useTheme();
-  const oben = useTopInset(spacing.xxl);
+  const topInset = useTopInset(spacing.xxl);
   const { phone } = useLocalSearchParams<{ phone: string }>();
   const [code, setCode] = useState('');
   const [error, setError] = useState<string | undefined>();
   const [loading, setLoading] = useState(false);
-  // «Code erneut senden» loeste vorher requestOtp aus und verwarf das Ergebnis:
-  // ob ein neuer Code unterwegs war oder Supabase mit 429 abgewiesen hatte, sah
-  // der Screen gleich aus, naemlich nach nichts. Wer keinen Code bekam, tippte
-  // dann in Endlosschleife auf einen Knopf, der nie antwortet.
-  const [erneut, setErneut] = useState<{ text: string; fehler: boolean } | null>(null);
-  const [erneutLaeuft, setErneutLaeuft] = useState(false);
+  const [resend, setResend] = useState<{ text: string; error: boolean } | null>(null);
+  const [resendLoading, setResendLoading] = useState(false);
 
   const submit = async () => {
     setLoading(true);
     const { error: apiError } = await verifyOtp(phone, code);
     setLoading(false);
     if (apiError) setError(apiError);
-    // Erfolg: onAuthStateChange feuert, der Guard (Root-Layout) leitet weiter.
+    // On success onAuthStateChange fires and the guard (root layout) moves on.
   };
 
-  const erneutSenden = async () => {
-    setErneutLaeuft(true);
-    setErneut(null);
+  const resendCode = async () => {
+    setResendLoading(true);
+    setResend(null);
     const { error: apiError } = await requestOtp(phone);
-    setErneutLaeuft(false);
-    setErneut({ text: apiError ?? 'Neuer Code ist unterwegs.', fehler: !!apiError });
+    setResendLoading(false);
+    setResend({ text: apiError ?? 'Neuer Code ist unterwegs.', error: !!apiError });
   };
 
   return (
-    <View style={[styles.screen, { backgroundColor: colors['bg-0'], paddingTop: oben }]}>
+    <View style={[styles.screen, { backgroundColor: colors['bg-0'], paddingTop: topInset }]}>
       <Text style={[type.label, { color: colors['text-2'] }]}>Schritt 2 von 2</Text>
       <Text style={[type.h1, { color: colors['text-1'] }]}>Dein Code</Text>
       <Text style={[type.secondary, { color: colors['text-2'] }]}>
@@ -60,12 +56,12 @@ export default function OtpScreen() {
         <Button
           variant="text"
           label="Code erneut senden"
-          onPress={() => void erneutSenden()}
-          loading={erneutLaeuft}
+          onPress={() => void resendCode()}
+          loading={resendLoading}
         />
-        {erneut && (
-          <Text style={[type.secondary, { color: erneut.fehler ? colors.danger : colors['text-2'] }]}>
-            {erneut.text}
+        {resend && (
+          <Text style={[type.secondary, { color: resend.error ? colors.danger : colors['text-2'] }]}>
+            {resend.text}
           </Text>
         )}
       </View>

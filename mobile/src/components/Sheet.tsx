@@ -54,11 +54,11 @@ export const MAX_HEIGHT_RATIO = 0.85;
 // pinned button, and the bottom padding, even on the smallest device
 // (667 pt: 334 + 44 + 16 + 52 + 32 = 478 of 567 possible).
 //
-// Used by recap/[id]/karte.tsx and teilen/[token].tsx. Before the merge fix
+// Used by recap/[id]/map.tsx and share/[token].tsx. Before the merge fix
 // round the number stood twice; the screen exported it explicitly,
 // "instead of guessing a second number", but the shared recap can't import
-// it without pulling recapApi/urlVorrat/tripsApi into its module graph
-// (teilen/__tests__/modulgraph.test.ts forbids exactly that). So it goes
+// it without pulling recapApi/urlPool/tripsApi into its module graph
+// (share/__tests__/moduleGraph.test.ts forbids exactly that). So it goes
 // where the reasoning comes from anyway.
 export const SHEET_SCROLL_RATIO = 0.5;
 
@@ -92,7 +92,7 @@ type Props = {
 // tap on the background or a sufficient downward swipe calls `onClose`
 // immediately. The sheet disappears as soon as the calling site sets
 // `visible` to false, the same control flow as the Alert.alert dialogs in
-// reise/[id]/index.tsx: the parent holds the state, the component itself
+// trip/[id]/index.tsx: the parent holds the state, the component itself
 // stays stateless regarding "is currently animating closed". A swipe that
 // doesn't cross the threshold springs back instead of closing.
 //

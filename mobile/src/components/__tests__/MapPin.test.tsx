@@ -6,7 +6,7 @@ import type { MapPoint } from '@/features/map/types';
 
 // expo-image is a native view, in the test a placeholder that forwards all
 // props (`source`, `testID`, `onLoad`, `onError`) is enough. Same pattern as
-// in recap/__tests__/uebersicht.test.tsx and player.test.tsx; a real import
+// in recap/__tests__/overview.test.tsx and player.test.tsx; a real import
 // fails during the test run already when loading the module
 // (expo-image/src/observe.ts expects a native environment).
 jest.mock('expo-image', () => {
@@ -38,7 +38,7 @@ jest.mock('react-native-maps', () => {
   };
 });
 
-// Controllable like in recap/__tests__/karte.test.tsx: AccessibilityInfo
+// Controllable like in recap/__tests__/map.test.tsx: AccessibilityInfo
 // always reports "no reduction" during the test run, the branch in the
 // skeleton circle would otherwise be dead code from the test's point of view.
 let mockReducedMotion = false;

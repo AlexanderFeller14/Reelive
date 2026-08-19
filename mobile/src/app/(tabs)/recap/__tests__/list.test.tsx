@@ -2,12 +2,11 @@ import { render, screen, fireEvent } from '@testing-library/react-native';
 import { ThemeProvider } from '@/theme/ThemeProvider';
 
 const mockPush = jest.fn();
-// Echte Effekt-Semantik statt `(cb) => cb()`: Letzteres feuert bei JEDEM
-// Rendern und läuft in eine Endlosschleife, sobald `laden()` ein frisches
-// Array liefert (Falle, die in reise/__tests__/liste.test.tsx und
-// detail.test.tsx bereits zweimal Zeit gekostet hat, siehe Task-10-Auftrag).
-// `useEffect(cb, [cb])` bildet ab, was `useFocusEffect` in der App tatsächlich
-// tut: einmal beim Fokussieren, nicht bei jedem Render.
+// Real effect semantics instead of `(cb) => cb()`: the latter fires on EVERY
+// render and runs into an endless loop as soon as `load()` delivers a fresh
+// array (a trap that has already cost time twice, in trip/__tests__/list.test.tsx
+// and detail.test.tsx). `useEffect(cb, [cb])` mirrors what `useFocusEffect`
+// actually does in the app: once on focus, not on every render.
 jest.mock('expo-router', () => {
   const ReactActual = require('react');
   return {
@@ -16,10 +15,9 @@ jest.mock('expo-router', () => {
     Stack: { Screen: () => null },
   };
 });
-// expo-image ist ein natives View, im Test reicht ein Platzhalter, der alle
-// Props durchreicht (gleiches Muster wie uebersicht.test.tsx). Ohne Mock
-// scheitert schon der Import, expo-image/src/observe.ts erwartet eine native
-// Umgebung.
+// expo-image is a native view; in the test a placeholder passing all props
+// through is enough (same pattern as overview.test.tsx). Without the mock even
+// the import fails, expo-image/src/observe.ts expects a native environment.
 jest.mock('expo-image', () => {
   const ReactActual = require('react');
   const { View } = require('react-native');
@@ -27,10 +25,10 @@ jest.mock('expo-image', () => {
 });
 jest.mock('@/features/trips/tripsApi', () => ({ fetchTrips: jest.fn() }));
 
-import RecapListe from '../index';
+import RecapList from '../index';
 import { fetchTrips } from '@/features/trips/tripsApi';
 
-const aktiveReise = {
+const activeTrip = {
   id: 't1', name: 'Norwegen mit dem Camper', start_date: '2026-08-01', end_date: '2026-08-14',
   status: 'active' as const, owner_id: 'u1',
   members: [
@@ -39,112 +37,99 @@ const aktiveReise = {
   ],
   member_count: 2, my_post_count: 7,
 };
-const recap = { ...aktiveReise, id: 't2', name: 'Lissabon Städtetrip', status: 'revealed' as const };
-const archiv = { ...aktiveReise, id: 't3', name: 'Alte Reise nach Kreta', status: 'archived' as const };
+const recap = { ...activeTrip, id: 't2', name: 'Lissabon Städtetrip', status: 'revealed' as const };
+const archived = { ...activeTrip, id: 't3', name: 'Alte Reise nach Kreta', status: 'archived' as const };
 
-const wrap = () => render(<ThemeProvider><RecapListe /></ThemeProvider>);
+const wrap = () => render(<ThemeProvider><RecapList /></ThemeProvider>);
 
 beforeEach(() => jest.clearAllMocks());
 
-const geladen = (trips: unknown[]) => ({ data: trips, error: null });
-const LADEFEHLER = 'Deine Reisen konnten nicht geladen werden. Probier es gleich nochmal.';
+const loaded = (trips: unknown[]) => ({ data: trips, error: null });
+const LOAD_ERROR = 'Deine Reisen konnten nicht geladen werden. Probier es gleich nochmal.';
 
-test('zeigt aufgedeckte und archivierte Reisen, aber keine laufende', async () => {
-  (fetchTrips as jest.Mock).mockResolvedValue(geladen([aktiveReise, recap, archiv]));
+test('shows revealed and archived trips, but never the one still running', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(loaded([activeTrip, recap, archived]));
   await wrap();
   expect(await screen.findByText('Lissabon Städtetrip')).toBeTruthy();
   expect(screen.getByText('Alte Reise nach Kreta')).toBeTruthy();
   expect(screen.queryByText('Norwegen mit dem Camper')).toBeNull();
 });
 
-test('ohne Recaps lädt der leere Zustand zum Handeln ein', async () => {
-  (fetchTrips as jest.Mock).mockResolvedValue(geladen([aktiveReise]));
+test('with no recaps yet the empty state invites you to travel', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(loaded([activeTrip]));
   await wrap();
   expect(await screen.findByText('Noch kein Recap')).toBeTruthy();
   expect(screen.getByText('Der erste kommt, sobald ihr eine Reise abschliesst.')).toBeTruthy();
 });
 
-test('ganz ohne Reisen ist der leere Zustand ebenfalls sichtbar', async () => {
-  (fetchTrips as jest.Mock).mockResolvedValue(geladen([]));
+test('without a single trip the empty state stands there just the same', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(loaded([]));
   await wrap();
   expect(await screen.findByText('Noch kein Recap')).toBeTruthy();
 });
 
-test('der leere Zustand zeigt die Filmrolle', async () => {
-  (fetchTrips as jest.Mock).mockResolvedValue(geladen([]));
+test('the empty state shows the film reel', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(loaded([]));
   await wrap();
   expect(await screen.findByTestId('leerzustand-filmrolle')).toBeTruthy();
 });
 
-// Gegenprobe zum Test darüber: ohne sie belegte er nur, dass das Bild
-// existiert, nicht, dass es am leeren Zustand hängt. Über einer Liste echter
-// Recap-Karten wäre die Filmrolle blosse Deko (DESIGN-LANGUAGE §7).
-test('neben echten Recaps steht keine Filmrolle', async () => {
-  (fetchTrips as jest.Mock).mockResolvedValue(geladen([recap]));
+test('beside real recaps no film reel stands', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(loaded([recap]));
   await wrap();
   await screen.findByText('Lissabon Städtetrip');
   expect(screen.queryByTestId('leerzustand-filmrolle')).toBeNull();
 });
 
-// Das Bild trägt keine Bedeutung, die der Text nicht schon sagt. Läge es im
-// Accessibility-Baum, sagte VoiceOver vor «Noch kein Recap» ein nutzloses
-// «Bild» an.
-test('die Filmrolle ist für VoiceOver unsichtbar', async () => {
-  (fetchTrips as jest.Mock).mockResolvedValue(geladen([]));
+test('the film reel stays invisible to VoiceOver', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(loaded([]));
   await wrap();
-  const bild = await screen.findByTestId('leerzustand-filmrolle');
-  expect(bild.props.accessible).toBe(false);
+  const image = await screen.findByTestId('leerzustand-filmrolle');
+  expect(image.props.accessible).toBe(false);
 });
 
-// Gegenprobe: ohne diesen Test belegt der Test oben nur, dass der Text
-// existiert, nicht, dass er an eine Bedingung geknüpft ist. Bei einem
-// Ladefehler wäre «Noch kein Recap» schlicht falsch: über die Reisen der
-// Person ist dann nichts bekannt.
-test('ein Ladefehler zeigt die Ursache statt «Noch kein Recap»', async () => {
-  (fetchTrips as jest.Mock).mockResolvedValue({ data: [], error: LADEFEHLER });
+test('a load error names its cause instead of claiming there is no recap yet', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue({ data: [], error: LOAD_ERROR });
   await wrap();
-  expect(await screen.findByText(LADEFEHLER)).toBeTruthy();
+  expect(await screen.findByText(LOAD_ERROR)).toBeTruthy();
   expect(screen.queryByText('Noch kein Recap')).toBeNull();
 });
 
-test('nach einem Ladefehler lädt der Knopf erneut', async () => {
-  (fetchTrips as jest.Mock).mockResolvedValue({ data: [], error: LADEFEHLER });
+test('after a load error the button fetches the list again', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue({ data: [], error: LOAD_ERROR });
   await wrap();
-  await screen.findByText(LADEFEHLER);
+  await screen.findByText(LOAD_ERROR);
 
-  (fetchTrips as jest.Mock).mockResolvedValue(geladen([recap]));
+  (fetchTrips as jest.Mock).mockResolvedValue(loaded([recap]));
   await fireEvent.press(screen.getByText('Nochmal versuchen'));
   expect(await screen.findByText('Lissabon Städtetrip')).toBeTruthy();
-  expect(screen.queryByText(LADEFEHLER)).toBeNull();
+  expect(screen.queryByText(LOAD_ERROR)).toBeNull();
 });
 
-test('eine Karte führt in die Übersicht dieser Reise', async () => {
-  (fetchTrips as jest.Mock).mockResolvedValue(geladen([recap]));
+test('a card leads into the overview of exactly that trip', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(loaded([recap]));
   await wrap();
   await fireEvent.press(await screen.findByText('Lissabon Städtetrip'));
   expect(mockPush).toHaveBeenCalledWith('/recap/t2/overview');
 });
 
-// Review Task 10, Important 1: die Karte trägt hier `alsRecap`, ein Tipp
-// führt tatsächlich in die Übersicht (siehe Test oben), die Pille darf hier
-// also stehen (anders als auf dem Reise-Tab, siehe TripCard.test.tsx).
-test('eine Recap-Karte trägt die Play-Pille', async () => {
-  (fetchTrips as jest.Mock).mockResolvedValue(geladen([recap]));
+// The card carries `asRecap` here and a tap really does lead into the overview
+// (see the test above), so the pill may stand here, unlike on the trip tab
+// (see TripCard.test.tsx).
+test('a recap card carries the play pill', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(loaded([recap]));
   await wrap();
   expect(await screen.findByText('Recap ansehen')).toBeTruthy();
 });
 
-// Review Task 10, Important 2 (M2): `geladen &&` in der `leer`-Bedingung
-// entfernt hätte «Noch kein Recap» schon WÄHREND des Ladens gezeigt, obwohl
-// `trips` zu diesem Zeitpunkt nur deshalb leer ist, weil noch nichts
-// angekommen ist, keine Aussage über die Daten der Person. `fetchTrips`
-// bleibt hier absichtlich unaufgelöst hängen, bis der Test es selbst freigibt.
-test('während des Ladens erscheint der leere Zustand nicht', async () => {
-  let freigeben: (v: { data: unknown[]; error: null }) => void = () => {};
-  (fetchTrips as jest.Mock).mockReturnValue(new Promise((res) => { freigeben = res; }));
+// `fetchTrips` deliberately hangs unresolved here until the test releases it
+// itself, that is the only way to look at the screen mid-load.
+test('while the list is still loading the empty state stays away', async () => {
+  let release: (v: { data: unknown[]; error: null }) => void = () => {};
+  (fetchTrips as jest.Mock).mockReturnValue(new Promise((res) => { release = res; }));
   await wrap();
   expect(screen.queryByText('Noch kein Recap')).toBeNull();
 
-  freigeben(geladen([]));
+  release(loaded([]));
   expect(await screen.findByText('Noch kein Recap')).toBeTruthy();
 });

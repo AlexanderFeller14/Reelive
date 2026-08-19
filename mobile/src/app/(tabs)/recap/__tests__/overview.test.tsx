@@ -4,25 +4,24 @@ import { ThemeProvider } from '@/theme/ThemeProvider';
 const mockPush = jest.fn();
 const mockReplace = jest.fn();
 const mockBack = jest.fn();
-// Steuerbar wie in aufnehmen/__tests__/preview.test.tsx (`mockKannZurueck`):
-// nur so lässt sich der replace-Zweig von zurueck() überhaupt erreichen,
-// mit einem hart auf `true` verdrahteten canGoBack bleibt er toter Code aus
-// Test-Sicht (Review Task 10, Important 2, M8).
-let mockKannZurueck = true;
-// Echte Effekt-Semantik statt `(cb) => cb()` (Task-10-Auftrag: diese Falle
-// hat in reise/__tests__/liste.test.tsx und detail.test.tsx schon zweimal
-// Zeit gekostet, sobald ein Ladeweg ein frisches Array liefert).
+// Steerable like in app/__tests__/preview.test.tsx: only this way is the
+// replace branch of goBack() reachable at all, with a canGoBack hardwired to
+// `true` it stays dead code from a test's point of view.
+let mockCanGoBack = true;
+// Real effect semantics instead of `(cb) => cb()`: the latter fires on every
+// render and has already cost time twice in trip/__tests__/list.test.tsx and
+// detail.test.tsx as soon as a load path delivers a fresh array.
 jest.mock('expo-router', () => {
   const ReactActual = require('react');
   return {
-    useRouter: () => ({ push: mockPush, replace: mockReplace, back: mockBack, canGoBack: () => mockKannZurueck }),
+    useRouter: () => ({ push: mockPush, replace: mockReplace, back: mockBack, canGoBack: () => mockCanGoBack }),
     useLocalSearchParams: () => ({ id: 't1' }),
     useFocusEffect: (cb: () => void | (() => void)) => ReactActual.useEffect(cb, [cb]),
   };
 });
-// expo-image ist ein natives View, im Test reicht ein einfacher Platzhalter,
-// der alle Props (inkl. `source`, `testID`) durchreicht, damit sich pro
-// Kachel prüfen lässt, WELCHE URL tatsächlich gezogen wurde.
+// expo-image is a native view; a plain placeholder passing all props through
+// (incl. `source`, `testID`) is enough and lets each tile be checked for
+// WHICH url it actually pulled.
 jest.mock('expo-image', () => {
   const ReactActual = require('react');
   const { View } = require('react-native');
@@ -30,26 +29,25 @@ jest.mock('expo-image', () => {
 });
 jest.mock('@/features/trips/tripsApi', () => ({ fetchTrip: jest.fn() }));
 jest.mock('@/features/recap/recapApi', () => ({ fetchRecapMoments: jest.fn() }));
-// Nur die IO-Funktion wird gemockt. `wiederholenHilft` bleibt echt: sie ist
-// die Regel, ob «Nochmal versuchen» ueberhaupt etwas ausrichten kann, und ein
-// Mock davon liesse den Test genau die Zusicherung nicht mehr pruefen, um die
-// es hier geht. `jest.requireActual` zieht dabei @/lib/supabase mit, deshalb
-// steht dessen Mock daneben (gleiches Muster wie in player.test.tsx).
+// Only the IO function is mocked. `retryHelps` stays real: it is the rule for
+// whether "Nochmal versuchen" can achieve anything at all, and mocking it
+// would take away the very assurance these tests are about.
+// `jest.requireActual` drags in @/lib/supabase, hence its mock beside it
+// (same pattern as in player.test.tsx).
 jest.mock('@/lib/supabase', () => ({ supabase: { functions: { invoke: jest.fn() } } }));
 jest.mock('@/features/recap/urlPool', () => ({
   ...jest.requireActual('@/features/recap/urlPool'),
   getPool: jest.fn(),
 }));
-// Task 6: mutierbar, damit einzelne Tests die Owner-Rolle wechseln können
-// (gleiches Muster wie reise/__tests__/detail.test.tsx, mockAuth.userId).
+// Mutable so single tests can switch the owner role (same pattern as
+// trip/__tests__/detail.test.tsx).
 const mockAuth = { userId: 'u1' };
 jest.mock('@/features/auth/AuthProvider', () => ({ useAuth: () => mockAuth }));
-// ShareSheetContent hat ihre eigene, vollständige Testdatei
-// (features/sharing/__tests__/ShareSheetContent.test.tsx), hier nur ein
-// Platzhalter, der belegt, DASS und MIT WELCHER tripId sie gemountet wird,
-// ohne die Supabase-Aufrufkette dieser Datei über den Import-Graph
-// mitzuziehen (sie ist hier ungemockt und würde beim Modul-Load werfen,
-// siehe @/lib/supabase).
+// ShareSheetContent has its own complete test file
+// (features/sharing/__tests__/ShareSheetContent.test.tsx); here only a
+// placeholder proving THAT and WITH WHICH tripId it gets mounted, without
+// dragging this file's supabase call chain in through the import graph (it is
+// unmocked here and would throw on module load, see @/lib/supabase).
 jest.mock('@/features/sharing/ShareSheetContent', () => {
   const ReactActual = require('react');
   const { Text } = require('react-native');
@@ -58,32 +56,30 @@ jest.mock('@/features/sharing/ShareSheetContent', () => {
       ReactActual.createElement(Text, { testID: 'mock-teilen-sheet-inhalt' }, tripId),
   };
 });
-// Task 7: exportApi hat ihre eigene, vollständige Testdatei
-// (features/recap/__tests__/exportApi.test.ts), hier nur ein Spion. Ein
-// echter Import würde expo-media-library ziehen, das sich in diesem
-// Jest-Setup nicht mocken lässt (native Klassenvererbung, siehe Kommentar
-// dort/Bericht).
+// exportApi has its own complete test file
+// (features/recap/__tests__/exportApi.test.ts), here only a spy. A real import
+// would pull in expo-media-library, which cannot be mocked in this jest setup
+// (native class inheritance, see the comment there).
 jest.mock('@/features/recap/exportApi', () => ({ saveAllToGallery: jest.fn() }));
 const mockOpenSettings = jest.fn(() => Promise.resolve());
 jest.mock('expo-linking', () => ({ openSettings: () => mockOpenSettings() }));
-// SiegelAbziehen hat ihre eigene Testdatei (components/__tests__/
-// SiegelAbziehen.test.tsx: Skia, Timer, Haptik). Hier zählt nur, DASS der
-// Screen sie mit welcher Grösse zeigt und was nach `onAbgezogen` passiert.
+// SealPeel has its own test file (components/__tests__/SealPeel.test.tsx:
+// skia, timers, haptics). Here only THAT the screen shows it at which size
+// and what happens after `onPeeled` counts.
 //
-// Das Siegel steht jetzt bei JEDEM Öffnen (kein dauerhafter Merker mehr),
-// läge also vor jedem Inhalt. Damit die vielen Inhalts-Tests (Raster, Zeilen,
-// Segment-Zeile, Teilen, Alle sichern) den Recap unverändert offen vorfinden,
-// zieht der Mock standardmässig SOFORT beim Mount ab (`mockSiegelAutoPeel`);
-// die Siegel-Tests unten schalten das ab, um das stehende Siegel zu prüfen
-// und selbst zu tippen.
-let mockSiegelAutoPeel = true;
+// The seal stands on EVERY open, so it would lie in front of every content.
+// For the many content tests (grid, lines, segment row, sharing, save all) to
+// find the recap open as before, the mock peels off IMMEDIATELY on mount by
+// default; the seal tests below switch that off to look at the standing seal
+// and tap it themselves.
+let mockSealAutoPeel = true;
 jest.mock('@/components/SealPeel', () => {
   const ReactActual = require('react');
   const { Pressable } = require('react-native');
   return {
     SealPeel: ({ size, onPeeled, testID }: { size: number; onPeeled: () => void; testID?: string }) => {
       ReactActual.useEffect(() => {
-        if (mockSiegelAutoPeel) onPeeled();
+        if (mockSealAutoPeel) onPeeled();
         // eslint-disable-next-line react-hooks/exhaustive-deps
       }, []);
       return ReactActual.createElement(Pressable, {
@@ -94,7 +90,7 @@ jest.mock('@/components/SealPeel', () => {
   };
 });
 
-import RecapUebersicht from '../[id]/overview';
+import RecapOverview from '../[id]/overview';
 import { fetchTrip } from '@/features/trips/tripsApi';
 import { fetchRecapMoments } from '@/features/recap/recapApi';
 import { saveAllToGallery } from '@/features/recap/exportApi';
@@ -117,125 +113,121 @@ function moment(overrides: Partial<{
   };
 }
 
-// Chronologisch (Ortszeit Lissabon, Sommer: UTC+1): p5 07:00, p1 09:00,
-// p2 18:00, alle Tag 1; p4 (Nachzügler) ebenfalls Tag 1, stört die
-// Gruppierung aber nicht (als 'pending' ohnehin herausgefiltert, bevor
-// gruppiereNachTagen ihn sieht); p3 11.8. ist Tag 2, ohne place_name, prüft,
-// dass der Ortsname in der Überschrift entfällt statt einen leeren
-// Platzhalter zu zeigen.
+// Chronological (local time Lisbon, summer: UTC+1): p5 07:00, p1 09:00,
+// p2 18:00, all day 1; p4 (straggler) also day 1, but it does not disturb the
+// grouping (as 'pending' it is filtered out before groupByDays sees it); p3 on
+// the 11th is day 2, without a place_name, which checks that the place drops
+// out of the heading instead of showing an empty placeholder.
 //
-// p5 ist 'uploaded', aber absichtlich NICHT im Vorrat (die Function konnte
-// keine URL ausstellen), und bewusst VOR p1 platziert, nicht dahinter
-// (Review Task 10, Important 2, M3): stünde er chronologisch am Ende, fiele
-// seine Auslassung keinem Index mehr auf, weil kein sichtbarer Moment mehr
-// hinter ihm steht, dessen Index sich verschieben könnte. Nur VOR p1
-// platziert zeigt sich ein Fehler, der den Index aus der vollen (inkl.
-// Ausgelassener) statt aus der sichtbaren Liste zählt.
-const ausgelassenM = moment({ id: 'p5', captured_at: '2026-08-10T07:00:00.000Z' });
+// p5 is 'uploaded' but deliberately NOT in the pool (the function could not
+// issue a url), and deliberately placed BEFORE p1, not behind it: standing
+// chronologically last, its omission would go unnoticed by any index, because
+// no visible moment behind it could shift. Only placed BEFORE p1 does an index
+// counted over the full list (skipped ones included) instead of over the
+// visible one show up as an error.
+const skippedM = moment({ id: 'p5', captured_at: '2026-08-10T07:00:00.000Z' });
 const m1 = moment({ id: 'p1', captured_at: '2026-08-10T09:00:00.000Z' });
 const m2 = moment({ id: 'p2', captured_at: '2026-08-10T18:00:00.000Z' });
 const pendingM = moment({ id: 'p4', captured_at: '2026-08-10T20:00:00.000Z', upload_status: 'pending' });
 const m3 = moment({ id: 'p3', captured_at: '2026-08-11T10:00:00.000Z', place_name: null });
 
-// Bereits chronologisch sortiert, wie recapApi.fetchRecapMomente es liefern
-// würde, die Komponente sortiert selbst nicht nach.
-const VOLLSTAENDIG = [ausgelassenM, m1, m2, pendingM, m3];
+// Already sorted chronologically, the way recapApi.fetchRecapMoments would
+// deliver it; the component does not sort again.
+const COMPLETE = [skippedM, m1, m2, pendingM, m3];
 
-function bild(id: string) {
+function image(id: string) {
   return { post_id: id, medium_url: `https://cdn.example/${id}-medium.jpg`, thumb_url: `https://cdn.example/${id}-thumb.jpg` };
 }
 
-const VORRAT_OK = {
-  urls: new Map([['p1', bild('p1')], ['p2', bild('p2')], ['p3', bild('p3')]]),
+const POOL_OK = {
+  urls: new Map([['p1', image('p1')], ['p2', image('p2')], ['p3', image('p3')]]),
   gueltigBis: Date.now() + 999_999,
   ausgelassen: 1,
 };
 
-const wrap = () => render(<ThemeProvider><RecapUebersicht /></ThemeProvider>);
+const wrap = () => render(<ThemeProvider><RecapOverview /></ThemeProvider>);
 
-// Ein Ladeweg, der sauber durchläuft, aber nichts Sichtbares liefert, für
-// alle Tests, in denen es nicht um die Kacheln geht, sondern um das, was
-// unabhängig von ihnen im Kopf des Screens steht (Teilen-Knopf, Segment-Zeile).
-// Modulweit statt zweimal lokal: zwei Kopien liefen irgendwann auseinander,
-// und beide Blöcke wollen exakt denselben Zustand.
-const leererLadeErfolg = () => {
+// A load path that runs through cleanly but delivers nothing visible, for all
+// tests that are not about the tiles but about what stands in the head of the
+// screen regardless of them (share button, segment row). Module-wide instead
+// of twice locally: two copies would drift apart eventually, and both blocks
+// want exactly the same state.
+const emptyLoadSuccess = () => {
   (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [], error: null });
   (getPool as jest.Mock).mockResolvedValue({
-    vorrat: { urls: new Map(), gueltigBis: Date.now() + 999_999, ausgelassen: 0 },
+    pool: { urls: new Map(), gueltigBis: Date.now() + 999_999, ausgelassen: 0 },
     error: null,
-    grund: null,
+    reason: null,
   });
 };
 
 beforeEach(() => {
   jest.clearAllMocks();
-  mockKannZurueck = true;
+  mockCanGoBack = true;
   mockAuth.userId = 'u1';
-  mockSiegelAutoPeel = true;
+  mockSealAutoPeel = true;
   (fetchTrip as jest.Mock).mockResolvedValue({ data: trip, error: null });
 });
 
 const POPCORN_TEXT = "Dein Recap wartet. Popcorn holen, Licht aus, los geht's.";
 
-test('über den Tagen lädt das Popcorn zum Anschauen ein', async () => {
-  (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: VOLLSTAENDIG, error: null });
-  (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+test('above the days the popcorn invites you to watch', async () => {
+  (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: COMPLETE, error: null });
+  (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
   await wrap();
   expect(await screen.findByText(POPCORN_TEXT)).toBeTruthy();
   expect(screen.getByTestId('recap-popcorn')).toBeTruthy();
 });
 
-// Die Einladung gilt dem, was zu sehen ist. Über einem Ladefehler stünde sie
-// als Versprechen auf einen Recap, den dieser Screen gerade nicht zeigen kann.
-test('bei einem Ladefehler gibt es kein Popcorn', async () => {
+test('a load error gets no popcorn', async () => {
   (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [], error: null });
   (getPool as jest.Mock).mockResolvedValue({
-    vorrat: null, error: 'Der Recap konnte nicht geladen werden.', grund: null,
+    pool: null, error: 'Der Recap konnte nicht geladen werden.', reason: null,
   });
   await wrap();
   await screen.findByText('Der Recap konnte nicht geladen werden.');
   expect(screen.queryByTestId('recap-popcorn')).toBeNull();
 });
 
-// Dasselbe für eine Reise, in der nie etwas ankam: «Dein Recap wartet» wäre
-// dort eine Vorfreude auf nichts.
-test('eine leer gebliebene Reise zeigt kein Popcorn', async () => {
-  leererLadeErfolg();
+test('a trip that stayed empty shows no popcorn either', async () => {
+  emptyLoadSuccess();
   await wrap();
   await screen.findByText('Diese Reise ist leer geblieben.');
   expect(screen.queryByTestId('recap-popcorn')).toBeNull();
 });
 
-test('gruppiert nach Tagen mit Ortsname, und ohne Ortsname entfällt er', async () => {
-  (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: VOLLSTAENDIG, error: null });
-  (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+test('the popcorn picture stays invisible to VoiceOver, the sentence below says it all', async () => {
+  (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: COMPLETE, error: null });
+  (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
+  await wrap();
+  const popcorn = await screen.findByTestId('recap-popcorn');
+  expect(popcorn.props.accessible).toBe(false);
+});
+
+test('groups by days with the place name, and drops it where no moment carries one', async () => {
+  (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: COMPLETE, error: null });
+  (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
   await wrap();
   expect(await screen.findByText('Tag 1 · Lissabon · 10. August')).toBeTruthy();
   expect(screen.getByText('Tag 2 · 11. August')).toBeTruthy();
 });
 
-// Review Task 10, Important 2, M4: `tage.map` in der Reihenfolge, in der
-// `gruppiereNachTagen` sie liefert (chronologisch), nicht rückwärts. Ein
-// Feature, dessen Eckpfeiler laut CLAUDE.md die Chronologie ist, darf die
-// Tage nicht in beliebiger Reihenfolge zeigen.
-test('die Tage stehen in chronologischer Reihenfolge, nicht rückwärts', async () => {
-  (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: VOLLSTAENDIG, error: null });
-  (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+test('the days stand in chronological order, not backwards', async () => {
+  (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: COMPLETE, error: null });
+  (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
   await wrap();
   await screen.findByText('Tag 1 · Lissabon · 10. August');
 
-  const ueberschriften = screen.getAllByText(/^Tag \d/).map((el) => el.props.children);
-  expect(ueberschriften).toEqual(['Tag 1 · Lissabon · 10. August', 'Tag 2 · 11. August']);
+  const headings = screen.getAllByText(/^Tag \d/).map((el) => el.props.children);
+  expect(headings).toEqual(['Tag 1 · Lissabon · 10. August', 'Tag 2 · 11. August']);
 });
 
-test('Nachzügler und Ausgelassene tragen keine Kachel, aber je eine ehrliche Zeile', async () => {
-  (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: VOLLSTAENDIG, error: null });
-  (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+test('stragglers and skipped moments get no tile, but each an honest line', async () => {
+  (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: COMPLETE, error: null });
+  (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
   await wrap();
   await screen.findByText('Tag 1 · Lissabon · 10. August');
 
-  // Genau drei Kacheln (p1, p2, p3), weder der Nachzügler (p4) noch der
-  // Ausgelassene (p5) bekommen eine, obwohl beide in `momente` stecken.
   expect(screen.getAllByTestId(/^recap-kachel-/)).toHaveLength(3);
   expect(screen.queryByTestId('recap-kachel-p4')).toBeNull();
   expect(screen.queryByTestId('recap-kachel-p5')).toBeNull();
@@ -244,18 +236,18 @@ test('Nachzügler und Ausgelassene tragen keine Kachel, aber je eine ehrliche Ze
   expect(screen.getByText('1 Moment liess sich gerade nicht laden. Schau später nochmal rein.')).toBeTruthy();
 });
 
-test('Mehrzahl bei mehreren Nachzüglern und mehreren Ausgelassenen', async () => {
-  const pend2 = moment({ id: 'p6', captured_at: '2026-08-10T21:00:00.000Z', upload_status: 'pending' });
-  const pend3 = moment({ id: 'p7', captured_at: '2026-08-10T22:00:00.000Z', upload_status: 'pending' });
-  const ausgelassen2 = moment({ id: 'p8', captured_at: '2026-08-10T23:00:00.000Z' });
+test('plural wording for several stragglers and several skipped moments', async () => {
+  const pending2 = moment({ id: 'p6', captured_at: '2026-08-10T21:00:00.000Z', upload_status: 'pending' });
+  const pending3 = moment({ id: 'p7', captured_at: '2026-08-10T22:00:00.000Z', upload_status: 'pending' });
+  const skipped2 = moment({ id: 'p8', captured_at: '2026-08-10T23:00:00.000Z' });
   (fetchRecapMoments as jest.Mock).mockResolvedValue({
-    data: [ausgelassenM, m1, pendingM, pend2, pend3, ausgelassen2],
+    data: [skippedM, m1, pendingM, pending2, pending3, skipped2],
     error: null,
   });
   (getPool as jest.Mock).mockResolvedValue({
-    vorrat: { urls: new Map([['p1', bild('p1')]]), gueltigBis: Date.now() + 999_999, ausgelassen: 2 },
+    pool: { urls: new Map([['p1', image('p1')]]), gueltigBis: Date.now() + 999_999, ausgelassen: 2 },
     error: null,
-    grund: null,
+    reason: null,
   });
   await wrap();
   expect(await screen.findByText('3 Momente sind noch unterwegs.')).toBeTruthy();
@@ -263,121 +255,107 @@ test('Mehrzahl bei mehreren Nachzüglern und mehreren Ausgelassenen', async () =
   expect(screen.getAllByTestId(/^recap-kachel-/)).toHaveLength(1);
 });
 
-// Review Task 10, Important 2, M3 (Kernfall): p5 liegt chronologisch VOR
-// allen sichtbaren Kacheln (siehe Fixture-Kommentar oben). Zählte der Index
-// über die volle Liste statt über die sichtbaren Momente, bekäme p1 den
-// Index 1 statt 0, der Player würde beim Tipp auf die erste Kachel den
-// zweiten Moment öffnen.
-test('ein Tipp auf eine Kachel übergibt den richtigen, tagübergreifenden Startindex', async () => {
-  (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: VOLLSTAENDIG, error: null });
-  (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+// The core case: p5 lies chronologically BEFORE all visible tiles (see the
+// fixture comment above). Counting the index over the full list instead of
+// over the visible moments would give p1 the index 1 instead of 0, and the
+// player would open the second moment on a tap on the first tile.
+test('a tap on a tile hands over the right start index, counted across the day border', async () => {
+  (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: COMPLETE, error: null });
+  (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
   await wrap();
   await screen.findByText('Tag 1 · Lissabon · 10. August');
 
-  // p1 ist die erste sichtbare Kachel überhaupt (Index 0) …
   await fireEvent.press(screen.getByTestId('recap-kachel-p1'));
   expect(mockPush).toHaveBeenCalledWith({ pathname: '/recap/[id]/player', params: { id: 't1', start: '0' } });
 
-  // … p3 die dritte (Index 2), der Index läuft über die Tagesgrenze hinweg
-  // weiter, statt in Tag 2 wieder bei 0 zu beginnen.
   await fireEvent.press(screen.getByTestId('recap-kachel-p3'));
   expect(mockPush).toHaveBeenCalledWith({ pathname: '/recap/[id]/player', params: { id: 't1', start: '2' } });
 });
 
-// Review Task 10, Important 2, M7: `thumb_url` ist die Kachel-URL, nicht
-// `medium_url`, sonst zöge jede Kachel im Raster das volle Bild.
-test('die Kachel zeigt das Thumbnail, nicht das volle Bild', async () => {
-  (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: VOLLSTAENDIG, error: null });
-  (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+test('the tile pulls the thumbnail, not the full image', async () => {
+  (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: COMPLETE, error: null });
+  (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
   await wrap();
-  const bildElement = await screen.findByTestId('recap-bild-p2');
-  expect(bildElement.props.source).toEqual({ uri: bild('p2').thumb_url });
-  expect(bildElement.props.source).not.toEqual({ uri: bild('p2').medium_url });
+  const imageElement = await screen.findByTestId('recap-bild-p2');
+  expect(imageElement.props.source).toEqual({ uri: image('p2').thumb_url });
+  expect(imageElement.props.source).not.toEqual({ uri: image('p2').medium_url });
 });
 
-// Review Task 10, Important 2, M5: `ausgelassenAnzahl` ist die vom Server
-// gezählte Grösse (`vorrat.ausgelassen`), hier bewusst höher als das, was
-// sich aus `uploaded.length - mitBild.length` lokal ergäbe (in dieser
-// Fixture wäre die lokale Differenz 1), damit ein Test, der stattdessen die
-// lokale Differenz anzeigt, sichtbar eine andere Zahl zeigt.
-test('die Ausgelassen-Zeile zeigt die vom Server gezählte Zahl, nicht eine lokal nachgerechnete', async () => {
-  (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: VOLLSTAENDIG, error: null });
+// `ausgelassen: 5` is deliberately higher here than what `uploaded.length -
+// withImage.length` would give locally (the local difference would be 1 in
+// this fixture), so a screen showing the local difference instead visibly
+// shows a different number.
+test('the skipped line shows the number the server counted, not one recomputed locally', async () => {
+  (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: COMPLETE, error: null });
   (getPool as jest.Mock).mockResolvedValue({
-    vorrat: { ...VORRAT_OK, ausgelassen: 5 },
+    pool: { ...POOL_OK, ausgelassen: 5 },
     error: null,
-    grund: null,
+    reason: null,
   });
   await wrap();
   expect(await screen.findByText('5 Momente liessen sich gerade nicht laden. Schau später nochmal rein.')).toBeTruthy();
   expect(screen.queryByText(/^1 Moment liess/)).toBeNull();
 });
 
-test('eine Reise ganz ohne sichtbare Momente sagt es freundlich', async () => {
+test('a trip without a single visible moment says so kindly', async () => {
   (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [], error: null });
   (getPool as jest.Mock).mockResolvedValue({
-    vorrat: { urls: new Map(), gueltigBis: Date.now() + 999_999, ausgelassen: 0 },
+    pool: { urls: new Map(), gueltigBis: Date.now() + 999_999, ausgelassen: 0 },
     error: null,
-    grund: null,
+    reason: null,
   });
   await wrap();
   expect(await screen.findByText('Diese Reise ist leer geblieben.')).toBeTruthy();
 });
 
-// Gegenprobe zum Test oben: eine Reise mit einem wartenden Nachzügler, aber
-// sonst nichts Sichtbarem, ist NICHT "leer geblieben", es kommt ja noch was.
-test('mit nur einem Nachzügler erscheint die leere Zeile nicht', async () => {
+test('with only a straggler on its way the empty line stays away, something is still coming', async () => {
   (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [pendingM], error: null });
   (getPool as jest.Mock).mockResolvedValue({
-    vorrat: { urls: new Map(), gueltigBis: Date.now() + 999_999, ausgelassen: 0 },
+    pool: { urls: new Map(), gueltigBis: Date.now() + 999_999, ausgelassen: 0 },
     error: null,
-    grund: null,
+    reason: null,
   });
   await wrap();
   expect(await screen.findByText('1 Moment ist noch unterwegs.')).toBeTruthy();
   expect(screen.queryByText('Diese Reise ist leer geblieben.')).toBeNull();
 });
 
-// Review Task 10, Important 2, M6: dieselbe Gegenprobe für die ANDERE Hälfte
-// der `komplettLeer`-Bedingung, nur Ausgelassene, kein Nachzügler. Ohne
-// `&& ausgelassenAnzahl === 0` stünden «Diese Reise ist leer geblieben.»
-// UND die Ausgelassen-Zeile gleichzeitig da.
-test('mit nur Ausgelassenen erscheint die leere Zeile ebenfalls nicht', async () => {
-  (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [ausgelassenM], error: null });
+test('with only skipped moments the empty line stays away as well', async () => {
+  (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [skippedM], error: null });
   (getPool as jest.Mock).mockResolvedValue({
-    vorrat: { urls: new Map(), gueltigBis: Date.now() + 999_999, ausgelassen: 1 },
+    pool: { urls: new Map(), gueltigBis: Date.now() + 999_999, ausgelassen: 1 },
     error: null,
-    grund: null,
+    reason: null,
   });
   await wrap();
   expect(await screen.findByText('1 Moment liess sich gerade nicht laden. Schau später nochmal rein.')).toBeTruthy();
   expect(screen.queryByText('Diese Reise ist leer geblieben.')).toBeNull();
 });
 
-test('ein Fehler beim Laden des Vorrats zeigt die Ursache statt eines leeren Rasters', async () => {
+test('an error while loading the pool names its cause instead of showing an empty grid', async () => {
   (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [m1], error: null });
   (getPool as jest.Mock).mockResolvedValue({
-    vorrat: null,
+    pool: null,
     error: 'Diese Reise ist noch versiegelt.',
-    grund: 'versiegelt',
+    reason: 'versiegelt',
   });
   await wrap();
   expect(await screen.findByText('Diese Reise ist noch versiegelt.')).toBeTruthy();
   expect(screen.queryByTestId('recap-kachel-p1')).toBeNull();
 });
 
-test('eine nicht mehr existierende Reise zeigt einen Rückweg statt eines leeren Screens', async () => {
+test('a trip that no longer exists offers a way back instead of an empty screen', async () => {
   (fetchTrip as jest.Mock).mockResolvedValue({ data: null, error: null });
   (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [], error: null });
-  (getPool as jest.Mock).mockResolvedValue({ vorrat: null, error: null, grund: null });
+  (getPool as jest.Mock).mockResolvedValue({ pool: null, error: null, reason: null });
   await wrap();
   expect(await screen.findByText('Diese Reise gibt es nicht mehr.')).toBeTruthy();
 });
 
-// Review Task 10, Important 2, M9: solange `geladen` noch `false` ist (die
-// drei parallelen Abrufe hängen hier absichtlich), muss das Skelett stehen,
-// nicht «Diese Reise gibt es nicht mehr.», was ohne den `!geladen`-Guard
-// zeigen würde, weil `trip` bis zur ersten Antwort `null` ist.
-test('während des Ladens erscheint das Skelett, nicht «gibt es nicht mehr»', async () => {
+// The three parallel fetches hang on purpose here: without the `loaded` guard
+// the screen would claim the trip is gone, because `trip` is `null` until the
+// first answer arrives.
+test('while everything is still loading the skeleton stands there, not "gibt es nicht mehr"', async () => {
   (fetchTrip as jest.Mock).mockReturnValue(new Promise(() => {}));
   (fetchRecapMoments as jest.Mock).mockReturnValue(new Promise(() => {}));
   (getPool as jest.Mock).mockReturnValue(new Promise(() => {}));
@@ -386,12 +364,12 @@ test('während des Ladens erscheint das Skelett, nicht «gibt es nicht mehr»', 
   expect(screen.queryByText('Diese Reise gibt es nicht mehr.')).toBeNull();
 });
 
-test('der Zurück-Pfeil verlässt den Screen per back(), wenn ein Rückweg existiert', async () => {
+test('the back arrow leaves the screen via back() when there is a way back', async () => {
   (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [], error: null });
   (getPool as jest.Mock).mockResolvedValue({
-    vorrat: { urls: new Map(), gueltigBis: Date.now() + 999_999, ausgelassen: 0 },
+    pool: { urls: new Map(), gueltigBis: Date.now() + 999_999, ausgelassen: 0 },
     error: null,
-    grund: null,
+    reason: null,
   });
   await wrap();
   await screen.findByText('Lissabon Städtetrip');
@@ -400,17 +378,15 @@ test('der Zurück-Pfeil verlässt den Screen per back(), wenn ein Rückweg exist
   expect(mockReplace).not.toHaveBeenCalled();
 });
 
-// Review Task 10, Important 2, M8: ohne Rückweg (z.B. per Deep Link direkt
-// in die Übersicht) gibt es nichts vom Stapel zu nehmen, nur dort ist
-// `replace('/recap')` richtig. Mit einem hart auf `true` verdrahteten
-// `canGoBack` bliebe dieser Zweig für einen Test unerreichbar.
-test('ohne Rückweg im Stapel führt der Zurück-Pfeil per replace zur Liste', async () => {
-  mockKannZurueck = false;
+// Without a way back (deep link straight into the overview, say) there is
+// nothing to take off the stack, and only there is `replace('/recap')` right.
+test('without a way back on the stack the back arrow replaces its way to the list', async () => {
+  mockCanGoBack = false;
   (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [], error: null });
   (getPool as jest.Mock).mockResolvedValue({
-    vorrat: { urls: new Map(), gueltigBis: Date.now() + 999_999, ausgelassen: 0 },
+    pool: { urls: new Map(), gueltigBis: Date.now() + 999_999, ausgelassen: 0 },
     error: null,
-    grund: null,
+    reason: null,
   });
   await wrap();
   await screen.findByText('Lissabon Städtetrip');
@@ -419,29 +395,28 @@ test('ohne Rückweg im Stapel führt der Zurück-Pfeil per replace zur Liste', a
   expect(mockBack).not.toHaveBeenCalled();
 });
 
-// Task 6: «Recap teilen», nur Owner-Person, nur bei status==='revealed'
-// (Brief, wörtlich). `trip` (Fixture oben) ist bereits status:'revealed',
-// owner_id:'u1'; mockAuth.userId startet ebenfalls bei 'u1' (beforeEach).
-describe('«Recap teilen»: nur Owner-Person, nur bei revealed', () => {
-  test('die Owner-Person sieht den Teilen-Knopf bei einer aufgedeckten Reise', async () => {
-    leererLadeErfolg();
+// `trip` (fixture above) is already status:'revealed', owner_id:'u1';
+// mockAuth.userId starts at 'u1' as well (beforeEach).
+describe('"Recap teilen": the owner only, and only once revealed', () => {
+  test('the owner sees the share button on a revealed trip', async () => {
+    emptyLoadSuccess();
     await wrap();
     await screen.findByText('Lissabon Städtetrip');
     expect(screen.getByTestId('uebersicht-teilen-oeffnen')).toBeTruthy();
   });
 
-  test('ein Tipp auf den Teilen-Knopf öffnet das Sheet mit TeilenSheetInhalt für diese Reise', async () => {
-    leererLadeErfolg();
+  test('a tap on the share button opens the sheet with ShareSheetContent for this trip', async () => {
+    emptyLoadSuccess();
     await wrap();
     await screen.findByText('Lissabon Städtetrip');
     expect(screen.queryByTestId('mock-teilen-sheet-inhalt')).toBeNull();
     await fireEvent.press(screen.getByTestId('uebersicht-teilen-oeffnen'));
-    const inhalt = await screen.findByTestId('mock-teilen-sheet-inhalt');
-    expect(inhalt).toHaveTextContent('t1');
+    const content = await screen.findByTestId('mock-teilen-sheet-inhalt');
+    expect(content).toHaveTextContent('t1');
   });
 
-  test('ein Wisch/Tipp auf den Hintergrund schliesst das Sheet wieder', async () => {
-    leererLadeErfolg();
+  test('a swipe or tap on the backdrop closes the sheet again', async () => {
+    emptyLoadSuccess();
     await wrap();
     await screen.findByText('Lissabon Städtetrip');
     await fireEvent.press(screen.getByTestId('uebersicht-teilen-oeffnen'));
@@ -450,86 +425,78 @@ describe('«Recap teilen»: nur Owner-Person, nur bei revealed', () => {
     expect(screen.queryByTestId('mock-teilen-sheet-inhalt')).toBeNull();
   });
 
-  test('eine NICHT-Owner-Person sieht den Teilen-Knopf nicht', async () => {
+  test('someone who is not the owner never sees the share button', async () => {
     mockAuth.userId = 'jemand-anders';
-    leererLadeErfolg();
+    emptyLoadSuccess();
     await wrap();
     await screen.findByText('Lissabon Städtetrip');
     expect(screen.queryByTestId('uebersicht-teilen-oeffnen')).toBeNull();
   });
 
-  // status==='active' kommt in der Praxis für diesen Screen kaum vor (der
-  // Recap ist bis zum Reveal versiegelt), die Sichtbarkeitsregel gilt
-  // trotzdem unabhängig davon, ob die Function das später ohnehin ablehnen
-  // würde: die UI blendet aus, bevor überhaupt ein Aufruf stattfindet.
-  test('bei status "active" (noch nicht aufgedeckt) fehlt der Teilen-Knopf, selbst für die Owner-Person', async () => {
+  test('on a trip still sealed (status "active") the share button is missing, even for the owner', async () => {
     (fetchTrip as jest.Mock).mockResolvedValue({ data: { ...trip, status: 'active' as const }, error: null });
-    leererLadeErfolg();
+    emptyLoadSuccess();
     await wrap();
     await screen.findByText('Lissabon Städtetrip');
     expect(screen.queryByTestId('uebersicht-teilen-oeffnen')).toBeNull();
   });
 
-  // Brief, wörtlich: "nur bei status==='revealed'", bewusst OHNE Ausnahme
-  // für 'archived', obwohl ein bereits bestehender Link auf einer
-  // archivierten Reise laut Server-Policy weiterhin widerrufbar bliebe
+  // Deliberately WITHOUT an exception for 'archived', even though an already
+  // existing link on an archived trip would stay revocable per server policy
   // (supabase/migrations/20260808130000_share_links_widerruf_archiviert.sql).
-  // Das ist eine echte Lücke (siehe Bericht, "Bedenken"): sobald eine Reise
-  // archiviert, verschwindet in DIESER App-Version der einzige Weg, einen
-  // zuvor erstellten Link noch zu widerrufen, nicht Teil dieses Tasks, hier
-  // nur als Zusicherung festgehalten, dass die Gating-Regel exakt dem Brief
-  // folgt und nicht heimlich grosszügiger ist.
-  test('bei status "archived" fehlt der Teilen-Knopf ebenfalls, auch für die Owner-Person', async () => {
+  // That is a real gap: as soon as a trip is archived, THIS app version loses
+  // the only way to revoke a link created earlier. Held here as an assurance
+  // that the gating rule follows the brief exactly and is not secretly more
+  // generous.
+  test('on an archived trip the share button is missing as well, owner or not', async () => {
     (fetchTrip as jest.Mock).mockResolvedValue({ data: { ...trip, status: 'archived' as const }, error: null });
-    leererLadeErfolg();
+    emptyLoadSuccess();
     await wrap();
     await screen.findByText('Lissabon Städtetrip');
     expect(screen.queryByTestId('uebersicht-teilen-oeffnen')).toBeNull();
   });
 });
 
-// Task 7: «Alle sichern», offen für jedes Mitglied (kein Owner-Vorbehalt
-// wie beim Teilen), nur ausgeblendet, wenn es nichts zu sichern gibt.
-describe('«Alle sichern»', () => {
+describe('"Alle sichern"', () => {
   beforeEach(() => {
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: VOLLSTAENDIG, error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: COMPLETE, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
   });
 
-  test('sichtbar für eine NICHT-Owner-Person, solange es Momente zum Sichern gibt', async () => {
+  test('visible to someone who is not the owner, as long as there are moments to save', async () => {
     mockAuth.userId = 'jemand-anders';
     await wrap();
     await screen.findByText('Lissabon Städtetrip');
     expect(screen.getByTestId('uebersicht-alle-sichern-oeffnen')).toBeTruthy();
   });
 
-  test('fehlt, wenn es buchstäblich nichts zu sichern gibt', async () => {
+  test('missing when there is literally nothing to save', async () => {
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [], error: null });
     (getPool as jest.Mock).mockResolvedValue({
-      vorrat: { urls: new Map(), gueltigBis: Date.now() + 999_999, ausgelassen: 0 },
+      pool: { urls: new Map(), gueltigBis: Date.now() + 999_999, ausgelassen: 0 },
       error: null,
-      grund: null,
+      reason: null,
     });
     await wrap();
     await screen.findByText('Diese Reise ist leer geblieben.');
     expect(screen.queryByTestId('uebersicht-alle-sichern-oeffnen')).toBeNull();
   });
 
-  test('ruft sichereAlleInGalerie mit GENAU den drei sichtbaren Momenten (moment+URL) auf', async () => {
+  test('calls saveAllToGallery with EXACTLY the three visible moments (moment plus url)', async () => {
     (saveAllToGallery as jest.Mock).mockReturnValue(new Promise(() => {}));
     await wrap();
     await screen.findByText('Lissabon Städtetrip');
     await fireEvent.press(screen.getByTestId('uebersicht-alle-sichern-oeffnen'));
     expect(saveAllToGallery).toHaveBeenCalledTimes(1);
-    const eintraege = (saveAllToGallery as jest.Mock).mock.calls[0][0] as { moment: { id: string } }[];
-    expect(eintraege.map((e) => e.moment.id).sort()).toEqual(['p1', 'p2', 'p3']);
+    const entries = (saveAllToGallery as jest.Mock).mock.calls[0][0] as { moment: { id: string } }[];
+    expect(entries.map((e) => e.moment.id).sort()).toEqual(['p1', 'p2', 'p3']);
   });
 
-  test('zeigt den laufenden Fortschritt («N von M»), sobald onFortschritt feuert', async () => {
-    let fortschrittMelden!: (stand: { erledigt: number; gesamt: number }) => void;
+  test('shows the running progress ("N von M") as soon as onProgress fires', async () => {
+    let reportProgress!: (state: { erledigt: number; gesamt: number }) => void;
     (saveAllToGallery as jest.Mock).mockImplementation(
-      (_eintraege: unknown, onFortschritt: (stand: { erledigt: number; gesamt: number }) => void) => {
-        fortschrittMelden = onFortschritt;
+      (_entries: unknown, onProgress: (state: { erledigt: number; gesamt: number }) => void) => {
+        reportProgress = onProgress;
         return new Promise(() => {});
       }
     );
@@ -538,12 +505,12 @@ describe('«Alle sichern»', () => {
     await fireEvent.press(screen.getByTestId('uebersicht-alle-sichern-oeffnen'));
     expect(screen.getByText('0 von 3 gesichert')).toBeTruthy();
     await act(async () => {
-      fortschrittMelden({ erledigt: 2, gesamt: 3 });
+      reportProgress({ erledigt: 2, gesamt: 3 });
     });
     expect(screen.getByText('2 von 3 gesichert')).toBeTruthy();
   });
 
-  test('eine ehrliche Bilanz am Ende, inklusive Fehlschlägen, nicht bloss "fertig"', async () => {
+  test('an honest summary at the end, failures included, never a blanket "fertig"', async () => {
     (saveAllToGallery as jest.Mock).mockResolvedValue({
       status: 'fertig', gesichert: 2, gesamt: 3, fehlgeschlagen: 1, abgebrochen: false,
     });
@@ -556,7 +523,20 @@ describe('«Alle sichern»', () => {
     );
   });
 
-  test('"Fertig" schliesst das Sheet wieder', async () => {
+  test('an aborted run names where it stopped, and what failed on the way there', async () => {
+    (saveAllToGallery as jest.Mock).mockResolvedValue({
+      status: 'fertig', gesichert: 1, gesamt: 3, fehlgeschlagen: 1, abgebrochen: true,
+    });
+    await wrap();
+    await screen.findByText('Lissabon Städtetrip');
+    await fireEvent.press(screen.getByTestId('uebersicht-alle-sichern-oeffnen'));
+    await act(async () => {});
+    expect(await screen.findByTestId('export-bilanz')).toHaveTextContent(
+      'Abgebrochen bei 1 von 3 Momenten. 1 ist dabei fehlgeschlagen.'
+    );
+  });
+
+  test('"Fertig" closes the sheet again', async () => {
     (saveAllToGallery as jest.Mock).mockResolvedValue({
       status: 'fertig', gesichert: 3, gesamt: 3, fehlgeschlagen: 0, abgebrochen: false,
     });
@@ -569,9 +549,7 @@ describe('«Alle sichern»', () => {
     expect(screen.queryByTestId('export-bilanz')).toBeNull();
   });
 
-  // Kernfall (Brief, wörtlich: "nie ein stiller Fehlschlag", gilt genauso
-  // für "alle sichern" wie für den Einzelmoment im Player).
-  test('fehlende Berechtigung zeigt die Ursache und "Einstellungen öffnen", statt einfach nichts zu tun', async () => {
+  test('a missing permission names the cause and offers the settings, instead of simply doing nothing', async () => {
     (saveAllToGallery as jest.Mock).mockResolvedValue({
       status: 'keine_berechtigung', text: 'Reelive braucht Zugriff auf deine Fotobibliothek …',
     });
@@ -584,29 +562,27 @@ describe('«Alle sichern»', () => {
     expect(mockOpenSettings).toHaveBeenCalled();
   });
 
-  test('"Abbrechen" bricht den laufenden Export über das AbortSignal ab', async () => {
-    let empfangenesSignal: AbortSignal | undefined;
+  test('"Abbrechen" stops the running export through the AbortSignal', async () => {
+    let receivedSignal: AbortSignal | undefined;
     (saveAllToGallery as jest.Mock).mockImplementation(
-      (_eintraege: unknown, _onFortschritt: unknown, signal?: AbortSignal) => {
-        empfangenesSignal = signal;
+      (_entries: unknown, _onProgress: unknown, signal?: AbortSignal) => {
+        receivedSignal = signal;
         return new Promise(() => {});
       }
     );
     await wrap();
     await screen.findByText('Lissabon Städtetrip');
     await fireEvent.press(screen.getByTestId('uebersicht-alle-sichern-oeffnen'));
-    expect(empfangenesSignal?.aborted).toBe(false);
+    expect(receivedSignal?.aborted).toBe(false);
     await fireEvent.press(screen.getByText('Abbrechen'));
-    expect(empfangenesSignal?.aborted).toBe(true);
+    expect(receivedSignal?.aborted).toBe(true);
   });
 
-  // Ein Schliessen WÄHREND der Export noch läuft ist implizit ein Abbrechen
-  // (Kommentar im Code: kein stiller Weiterlauf ohne sichtbare Kontrolle).
-  test('ein Schliessen des Sheets WÄHREND des Laufs bricht ihn ebenfalls ab', async () => {
-    let empfangenesSignal: AbortSignal | undefined;
+  test('closing the sheet WHILE the run is going aborts it as well', async () => {
+    let receivedSignal: AbortSignal | undefined;
     (saveAllToGallery as jest.Mock).mockImplementation(
-      (_eintraege: unknown, _onFortschritt: unknown, signal?: AbortSignal) => {
-        empfangenesSignal = signal;
+      (_entries: unknown, _onProgress: unknown, signal?: AbortSignal) => {
+        receivedSignal = signal;
         return new Promise(() => {});
       }
     );
@@ -614,13 +590,10 @@ describe('«Alle sichern»', () => {
     await screen.findByText('Lissabon Städtetrip');
     await fireEvent.press(screen.getByTestId('uebersicht-alle-sichern-oeffnen'));
     await fireEvent.press(screen.getByTestId('sheet-backdrop'));
-    expect(empfangenesSignal?.aborted).toBe(true);
+    expect(receivedSignal?.aborted).toBe(true);
   });
 
-  // Gegenprobe: ist der Export bereits FERTIG, darf ein Schliessen keinen
-  // (inzwischen längst erledigten) Abbruch mehr auslösen, es gibt nichts
-  // mehr, das abzubrechen wäre.
-  test('ein Schliessen NACH dem Ende bricht nichts mehr ab', async () => {
+  test('closing AFTER the end aborts nothing any more', async () => {
     (saveAllToGallery as jest.Mock).mockResolvedValue({
       status: 'fertig', gesichert: 3, gesamt: 3, fehlgeschlagen: 0, abgebrochen: false,
     });
@@ -631,25 +604,23 @@ describe('«Alle sichern»', () => {
     await screen.findByTestId('export-bilanz');
     await fireEvent.press(screen.getByTestId('sheet-backdrop'));
     expect(screen.queryByTestId('export-bilanz')).toBeNull();
-    // Kein zweiter Aufruf durch das Schliessen selbst ausgelöst.
     expect(saveAllToGallery).toHaveBeenCalledTimes(1);
   });
 });
 
-// Task 11 / Spec §5.1: die Segment-Zeile ist der EINZIGE Ort, an dem die Karte
-// überhaupt auftaucht, es gibt keinen Tab, keinen zweiten Knopf, keinen
-// anderen Weg dorthin. Damit entscheidet allein diese Zeile darüber, ob die
-// Karte erreichbar ist.
-describe('Segment-Zeile «Nach Tagen» / «Auf der Karte»', () => {
-  test('eine aufgedeckte Reise bietet beide Lesarten an', async () => {
-    leererLadeErfolg();
+// Spec §5.1: the segment row is the ONLY place the map turns up at all, there
+// is no tab, no second button, no other way there. So this row alone decides
+// whether the map can be reached.
+describe('segment row "Nach Tagen" / "Auf der Karte"', () => {
+  test('a revealed trip offers both readings', async () => {
+    emptyLoadSuccess();
     await wrap();
     expect(await screen.findByText('Auf der Karte')).toBeTruthy();
     expect(screen.getByText('Nach Tagen')).toBeTruthy();
   });
 
-  test('ein Tipp führt zur Karte DIESER Reise', async () => {
-    leererLadeErfolg();
+  test('a tap leads to the map of THIS trip', async () => {
+    emptyLoadSuccess();
     await wrap();
     await fireEvent.press(await screen.findByText('Auf der Karte'));
     expect(mockPush).toHaveBeenCalledWith({
@@ -658,79 +629,70 @@ describe('Segment-Zeile «Nach Tagen» / «Auf der Karte»', () => {
     });
   });
 
-  // DER Kernfall dieses Tasks (Spec K10, R3): eine Karte der laufenden Reise
-  // würde verraten, wo die anderen gerade waren, genau das, was die
-  // Versiegelung verhindert. Serverseitig ist es erzwungen
-  // (`posts_select_revealed_members` lässt Mitglieder erst bei status in
-  // ('revealed','archived') lesen), der Client darf den Weg trotzdem gar nicht
-  // erst anbieten.
-  test('eine noch versiegelte Reise (status "active") bietet die Karte nicht an', async () => {
+  test('the active half is one piece of information, not a button that would promise a tap', async () => {
+    emptyLoadSuccess();
+    await wrap();
+    await screen.findByText('Nach Tagen');
+    const activeHalf = screen.getByTestId('uebersicht-segment-tage');
+    expect(activeHalf.props.accessibilityRole).toBe('text');
+    expect(activeHalf.props.accessible).toBe(true);
+  });
+
+  test('a trip still sealed (status "active") does not offer the map', async () => {
     (fetchTrip as jest.Mock).mockResolvedValue({ data: { ...trip, status: 'active' as const }, error: null });
-    leererLadeErfolg();
+    emptyLoadSuccess();
     await wrap();
     await screen.findByText('Lissabon Städtetrip');
     expect(screen.queryByText('Auf der Karte')).toBeNull();
-    // Und zwar fehlt die ganze ZEILE, nicht bloss die zweite Pille (Spec §5.1,
-    // wörtlich: «gibt es die Zeile nicht»): eine einzelne, unangetastete
-    // «Nach Tagen»-Pille wäre ein Segment-Control mit genau einem Segment,
-    // sie behauptete eine Wahl, die es hier nicht gibt.
+    // The whole ROW is missing, not just the second pill (Spec §5.1,
+    // verbatim: "gibt es die Zeile nicht"): a single untouched "Nach Tagen"
+    // pill would be a segment control with exactly one segment, claiming a
+    // choice that does not exist here.
     expect(screen.queryByText('Nach Tagen')).toBeNull();
   });
 
-  // Spec §5.1, wörtlich: «Für `revealed` und `archived` gibt es sie.» Eine
-  // archivierte Reise ist aufgedeckt und bleibt es, sie zu archivieren nimmt
-  // niemandem das Recht, den eigenen Recap zu lesen (dieselbe Grenze zieht die
-  // Server-Policy: status in ('revealed','archived')).
-  test('eine archivierte Reise bietet die Karte weiterhin an', async () => {
+  test('an archived trip still offers the map', async () => {
     (fetchTrip as jest.Mock).mockResolvedValue({ data: { ...trip, status: 'archived' as const }, error: null });
-    leererLadeErfolg();
+    emptyLoadSuccess();
     await wrap();
     expect(await screen.findByText('Auf der Karte')).toBeTruthy();
     expect(screen.getByText('Nach Tagen')).toBeTruthy();
   });
 
-  // Die Zeile hängt an der Reise, nicht an der Owner-Rolle (anders als
-  // «Recap teilen» darüber): jedes Mitglied liest denselben Recap, und die
-  // Karte ist nur eine zweite Lesart davon.
-  test('auch eine NICHT-Owner-Person sieht die Karte', async () => {
+  test('someone who is not the owner sees the map too', async () => {
     mockAuth.userId = 'jemand-anders';
-    leererLadeErfolg();
+    emptyLoadSuccess();
     await wrap();
     expect(await screen.findByText('Auf der Karte')).toBeTruthy();
   });
 });
 
-// ---------------------------------------------------------------------------
-// «Nochmal versuchen» nur, wo es etwas ausrichtet
-// ---------------------------------------------------------------------------
-//
-// Dieser Screen hat ZWEI Fehler-Stellen: eine ohne geladene Reise (der Screen
-// besteht dann nur aus Kopf und Fehlertext) und eine mit. Beide boten den
-// Knopf bis hierher immer an, auch unter «Diese Reise ist noch versiegelt.»,
-// wo ein zweiter Versuch nie etwas anderes bekommt. Die Regel steht in
-// features/recap/urlVorrat.ts und ist hier echt, nicht gemockt.
-describe('der Fehler bietet nur an, was er halten kann', () => {
-  const LADEFEHLER = 'Die Momente konnten nicht geladen werden. Probier es gleich nochmal.';
+// This screen has TWO error sites: one without a loaded trip (the screen is
+// then only head and error text) and one with. Both offered the button
+// unconditionally up to this point, even under "Diese Reise ist noch
+// versiegelt.", where a second attempt never gets anything else. The rule
+// lives in features/recap/urlPool.ts and is real here, not mocked.
+describe('the error only offers what it can keep', () => {
+  const LOAD_ERROR = 'Die Momente konnten nicht geladen werden. Probier es gleich nochmal.';
+  const TRIP_LOAD_ERROR = 'Diese Reise konnte nicht geladen werden. Probier es gleich nochmal.';
 
   test.each([
     ['Diese Reise ist noch versiegelt.', 'versiegelt'],
     ['Kein Zugriff auf diese Reise.', 'kein_zugriff'],
-  ])('mit geladener Reise steht unter «%s» kein Knopf', async (text, grund) => {
+  ])('with the trip loaded, no button stands under "%s"', async (text, reason) => {
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [], error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: null, error: text, grund });
+    (getPool as jest.Mock).mockResolvedValue({ pool: null, error: text, reason });
     await wrap();
 
     expect(await screen.findByText(text)).toBeTruthy();
     expect(screen.queryByLabelText('Nochmal versuchen')).toBeNull();
   });
 
-  // Die zweite Stelle: ohne Reise rendert der Screen einen anderen Zweig, und
-  // ein Fix, der nur den ersten trifft, waere hier stumm.
-  test('ohne geladene Reise steht unter einer fachlichen Ablehnung ebenfalls kein Knopf', async () => {
+  test('without a loaded trip a domain refusal carries no button either', async () => {
     (fetchTrip as jest.Mock).mockResolvedValue({ data: null, error: null });
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [], error: null });
     (getPool as jest.Mock).mockResolvedValue({
-      vorrat: null, error: 'Diese Reise ist noch versiegelt.', grund: 'versiegelt',
+      pool: null, error: 'Diese Reise ist noch versiegelt.', reason: 'versiegelt',
     });
     await wrap();
 
@@ -738,37 +700,46 @@ describe('der Fehler bietet nur an, was er halten kann', () => {
     expect(screen.queryByLabelText('Nochmal versuchen')).toBeNull();
   });
 
-  test('ein Fehler ohne Grund behaelt seinen Knopf', async () => {
+  test('an error without a reason keeps its button', async () => {
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [], error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: null, error: LADEFEHLER, grund: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: null, error: LOAD_ERROR, reason: null });
     await wrap();
 
-    expect(await screen.findByText(LADEFEHLER)).toBeTruthy();
+    expect(await screen.findByText(LOAD_ERROR)).toBeTruthy();
+    expect(screen.getByLabelText('Nochmal versuchen')).toBeTruthy();
+  });
+
+  test('a failed trip fetch outranks the pool refusal and keeps its own button', async () => {
+    (fetchTrip as jest.Mock).mockResolvedValue({ data: null, error: TRIP_LOAD_ERROR });
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [], error: null });
+    (getPool as jest.Mock).mockResolvedValue({
+      pool: null, error: 'Diese Reise ist noch versiegelt.', reason: 'versiegelt',
+    });
+    await wrap();
+
+    expect(await screen.findByText(TRIP_LOAD_ERROR)).toBeTruthy();
+    expect(screen.queryByText('Diese Reise ist noch versiegelt.')).toBeNull();
     expect(screen.getByLabelText('Nochmal versuchen')).toBeTruthy();
   });
 });
 
-// Das Wachssiegel auf dem Recap: es steht bei JEDEM Öffnen in der Mitte statt
-// des Inhalts, ein Tipp zieht es ab (Animation in SiegelAbziehen), danach
-// kommt der Recap. Kein dauerhafter Merker mehr, deshalb hier
-// `mockSiegelAutoPeel = false`, damit das stehende Siegel geprüft werden kann
-// (die übrigen Tests ziehen es über den Auto-Peel-Mock sofort ab).
-describe('Siegel auf der Recap-Übersicht', () => {
+// `mockSealAutoPeel = false` throughout this block, so the standing seal can
+// be looked at; the other tests peel it off immediately through the mock.
+describe('the seal on the recap overview', () => {
   beforeEach(() => {
-    mockSiegelAutoPeel = false;
+    mockSealAutoPeel = false;
   });
 
-  const vollerRecap = () => {
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: VOLLSTAENDIG, error: null });
-    (getPool as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+  const fullRecap = () => {
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: COMPLETE, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
   };
 
-  test('das Siegel steht mit Hinweis da, Raster, Popcorn, Segment-Zeile und Zähl-Zeilen fehlen', async () => {
-    vollerRecap();
+  test('the seal stands there with its hint, while grid, popcorn, segment row and counting lines stay closed', async () => {
+    fullRecap();
     await wrap();
     expect(await screen.findByTestId('recap-siegel')).toBeTruthy();
     expect(screen.getByText('Dein Recap ist versiegelt. Tipp aufs Siegel, um ihn zu öffnen.')).toBeTruthy();
-    // Titel und Kopf bleiben, alles, was zum Inhalt gehört, ist zu.
     expect(screen.getByText('Lissabon Städtetrip')).toBeTruthy();
     expect(screen.queryByText(POPCORN_TEXT)).toBeNull();
     expect(screen.queryByText('Tag 1 · Lissabon · 10. August')).toBeNull();
@@ -777,17 +748,17 @@ describe('Siegel auf der Recap-Übersicht', () => {
     expect(screen.queryByText('1 Moment ist noch unterwegs.')).toBeNull();
   });
 
-  test('die Bühne des Siegels nimmt die Inhaltsbreite ein, gedeckelt bei 416', async () => {
-    vollerRecap();
+  test('the stage of the seal takes the content width, capped at 416', async () => {
+    fullRecap();
     await wrap();
-    const siegel = await screen.findByTestId('recap-siegel');
-    // Jest-Fenster ist 750 breit, minus zweimal Screen-Rand 24 wären 702,
-    // der Deckel (Schärfegrenze des PNGs) hält bei 416.
-    expect(siegel.props.style).toEqual({ width: 416, height: 416 });
+    const seal = await screen.findByTestId('recap-siegel');
+    // The jest window is 750 wide, minus twice the screen margin 24 would be
+    // 702; the cap (sharpness limit of the png) holds at 416.
+    expect(seal.props.style).toEqual({ width: 416, height: 416 });
   });
 
-  test('abgezogen: der Recap kommt, das Siegel ist weg', async () => {
-    vollerRecap();
+  test('peeled off: the recap arrives, the seal is gone', async () => {
+    fullRecap();
     await wrap();
     await fireEvent.press(await screen.findByTestId('recap-siegel'));
 
@@ -799,32 +770,29 @@ describe('Siegel auf der Recap-Übersicht', () => {
     expect(screen.queryByTestId('recap-siegel')).toBeNull();
   });
 
-  // Das Siegel steht nur vor etwas, das sich aufdecken lässt. Eine Reise, in
-  // der bislang nur ein Nachzügler unterwegs ist, hat hinter dem Siegel nichts,
-  // das Abziehen liefe ins Leere; die ehrliche Zeile steht stattdessen direkt.
-  test('ohne einen einzigen sichtbaren Tag gibt es kein Siegel', async () => {
+  test('without a single visible day there is no seal, peeling it would lead nowhere', async () => {
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [pendingM], error: null });
     (getPool as jest.Mock).mockResolvedValue({
-      vorrat: { urls: new Map(), gueltigBis: Date.now() + 999_999, ausgelassen: 0 },
+      pool: { urls: new Map(), gueltigBis: Date.now() + 999_999, ausgelassen: 0 },
       error: null,
-      grund: null,
+      reason: null,
     });
     await wrap();
     expect(await screen.findByText('1 Moment ist noch unterwegs.')).toBeTruthy();
     expect(screen.queryByTestId('recap-siegel')).toBeNull();
   });
 
-  test('bei einem Ladefehler oder einer leer gebliebenen Reise steht kein Siegel', async () => {
+  test('neither a load error nor a trip that stayed empty carries a seal', async () => {
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [], error: null });
     (getPool as jest.Mock).mockResolvedValue({
-      vorrat: null, error: 'Der Recap konnte nicht geladen werden.', grund: null,
+      pool: null, error: 'Der Recap konnte nicht geladen werden.', reason: null,
     });
     await wrap();
     await screen.findByText('Der Recap konnte nicht geladen werden.');
     expect(screen.queryByTestId('recap-siegel')).toBeNull();
 
     screen.unmount();
-    leererLadeErfolg();
+    emptyLoadSuccess();
     await wrap();
     await screen.findByText('Diese Reise ist leer geblieben.');
     expect(screen.queryByTestId('recap-siegel')).toBeNull();

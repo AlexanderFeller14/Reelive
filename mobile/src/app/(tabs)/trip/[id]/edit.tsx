@@ -11,100 +11,88 @@ import { fetchTrip, updateTrip } from '@/features/trips/tripsApi';
 import { validateDateRange } from '@/features/trips/tripDay';
 import type { Selection } from '@/features/trips/calendar';
 
-export default function ReiseBearbeiten() {
+export default function EditTrip() {
   const { colors } = useTheme();
-  const oben = useTopInset(spacing.xxl);
+  const topInset = useTopInset(spacing.xxl);
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
   const [name, setName] = useState('');
-  const [zeitraum, setZeitraum] = useState<Selection>({ start: null, end: null });
-  const [nameFehler, setNameFehler] = useState<string | undefined>();
-  const [zeitraumFehler, setZeitraumFehler] = useState<string | undefined>();
-  const [laedt, setLaedt] = useState(false);
-  // Drei getrennte Zustaende, weil sie drei verschiedene Dinge bedeuten und
-  // verschiedene naechste Schritte haben: die Vorschau laedt noch, das Laden
-  // ist gescheitert (wiederholbar), das Speichern ist gescheitert (Formular
-  // steht, Eingaben bleiben erhalten).
-  const [geladen, setGeladen] = useState(false);
-  const [ladefehler, setLadefehler] = useState<string | null>(null);
-  const [speicherFehler, setSpeicherFehler] = useState<string | null>(null);
-  const [versuch, setVersuch] = useState(0);
+  const [dateRange, setDateRange] = useState<Selection>({ start: null, end: null });
+  const [nameError, setNameError] = useState<string | undefined>();
+  const [dateRangeError, setDateRangeError] = useState<string | undefined>();
+  const [loading, setLoading] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
-    let aktiv = true;
-    setGeladen(false);
+    let active = true;
+    setLoaded(false);
     void fetchTrip(id).then(({ data, error }) => {
-      if (!aktiv) return;
-      // Vorher blieb das Formular bei einem Lesefehler einfach leer stehen,
-      // es sah aus wie eine Reise ohne Namen und ohne Daten, also wie ein
-      // Zustand der Daten statt wie ein Fehler beim Lesen. Jetzt sagt der
-      // Screen, was los ist, und bietet den einen sinnvollen Schritt an.
-      setLadefehler(error ?? (data ? null : 'Diese Reise gibt es nicht mehr.'));
+      if (!active) return;
+      setLoadError(error ?? (data ? null : 'Diese Reise gibt es nicht mehr.'));
       if (data) {
         setName(data.name);
-        // Ohne Umformatierung: der Kalender rechnet in denselben
-        // ISO-Kalendertagen, die die Datenbank liefert.
-        setZeitraum({ start: data.start_date, end: data.end_date });
+        setDateRange({ start: data.start_date, end: data.end_date });
       }
-      setGeladen(true);
+      setLoaded(true);
     });
     return () => {
-      aktiv = false;
+      active = false;
     };
-  }, [id, versuch]);
+  }, [id, attempt]);
 
-  const speichern = async () => {
-    const nFehler = name.trim().length === 0 ? 'Gib deiner Reise einen Namen.' : null;
-    const { start, end } = zeitraum;
-    // Gleiche Prüfung wie im Anlege-Screen: der Kalender liefert entweder beide
-    // Enden oder keines, `validateDateRange` bleibt als letzte Prüfung davor.
-    const zFehler = !start || !end ? 'Trag den Zeitraum ein.' : validateDateRange(start, end);
-    setNameFehler(nFehler ?? undefined);
-    setZeitraumFehler(zFehler ?? undefined);
-    setSpeicherFehler(null);
-    if (nFehler || zFehler || !start || !end) return;
+  const save = async () => {
+    const nextNameError = name.trim().length === 0 ? 'Gib deiner Reise einen Namen.' : null;
+    const { start, end } = dateRange;
+    // Same check as in the create screen: the calendar hands over either both
+    // ends or neither, `validateDateRange` stays in front as the last check.
+    const nextRangeError = !start || !end ? 'Trag den Zeitraum ein.' : validateDateRange(start, end);
+    setNameError(nextNameError ?? undefined);
+    setDateRangeError(nextRangeError ?? undefined);
+    setSaveError(null);
+    if (nextNameError || nextRangeError || !start || !end) return;
 
-    setLaedt(true);
+    setLoading(true);
     const { error } = await updateTrip(id, { name, startDate: start, endDate: end });
-    setLaedt(false);
-    // Der Fehler gehoert NICHT in den Namensfeld-Slot: er sagt nichts ueber den
-    // Namen aus (DESIGN-LANGUAGE §4 will feldgenaue Zuordnung, und «Probier es
-    // gleich nochmal» unter dem Namensfeld behauptet, der Name sei schuld).
-    if (error) return setSpeicherFehler(error);
+    setLoading(false);
+    if (error) return setSaveError(error);
     router.back();
   };
 
-  if (!geladen) return <View style={{ flex: 1, backgroundColor: colors['bg-0'] }} />;
+  if (!loaded) return <View style={{ flex: 1, backgroundColor: colors['bg-0'] }} />;
 
-  if (ladefehler) {
+  if (loadError) {
     return (
-      <View style={[styles.screen, { backgroundColor: colors['bg-0'], paddingTop: oben }]}>
+      <View style={[styles.screen, { backgroundColor: colors['bg-0'], paddingTop: topInset }]}>
         <Text style={[type.h1, { color: colors['text-1'] }]}>Reise bearbeiten</Text>
-        <Text style={[type.body, { color: colors.danger }]}>{ladefehler}</Text>
-        <Button variant="primary" label="Nochmal versuchen" onPress={() => setVersuch((v) => v + 1)} />
+        <Text style={[type.body, { color: colors.danger }]}>{loadError}</Text>
+        <Button variant="primary" label="Nochmal versuchen" onPress={() => setAttempt((v) => v + 1)} />
         <Button variant="text" label="Zurück" onPress={() => router.back()} />
       </View>
     );
   }
 
   return (
-    // Wie im Anlege-Screen: seit der Knopf unten klebt, braucht der Screen
-    // Tastatur-Ausweichlogik, sonst verdeckt die Tastatur ihn beim Tippen des
-    // Namens. Die Abstände liegen am inneren View, weil `behavior="padding"`
-    // das eigene `paddingBottom` der KeyboardAvoidingView sonst über den
-    // Screen-Rand schreibt und der Knopf auf der Tab-Bar klebt.
+    // Like the create screen: since the button sticks to the bottom, the
+    // screen needs keyboard avoidance, otherwise the keyboard covers it while
+    // typing the name. The spacing sits on the inner view, because with
+    // `behavior="padding"` the KeyboardAvoidingView writes its own
+    // `paddingBottom` over the screen margin and the button sticks to the tab
+    // bar.
     <KeyboardAvoidingView
       style={{ flex: 1, backgroundColor: colors['bg-0'] }}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <View style={[styles.screen, { paddingTop: oben }]}>
+      <View style={[styles.screen, { paddingTop: topInset }]}>
         <Text style={[type.h1, { color: colors['text-1'] }]}>Reise bearbeiten</Text>
-        <Input label="Name der Reise" value={name} onChangeText={setName} error={nameFehler} />
-        <DateRangeField value={zeitraum} onChange={setZeitraum} error={zeitraumFehler} />
-        {/* Wie im Anlege-Screen: Knopf ans untere Ende, Felder bleiben oben. */}
-        <View style={styles.fueller} />
-        {speicherFehler && <Text style={[type.body, { color: colors.danger }]}>{speicherFehler}</Text>}
-        <Button variant="primary" label="Speichern" onPress={speichern} loading={laedt} />
+        <Input label="Name der Reise" value={name} onChangeText={setName} error={nameError} />
+        <DateRangeField value={dateRange} onChange={setDateRange} error={dateRangeError} />
+        {/* Like the create screen: button to the bottom edge, fields stay up. */}
+        <View style={styles.filler} />
+        {saveError && <Text style={[type.body, { color: colors.danger }]}>{saveError}</Text>}
+        <Button variant="primary" label="Speichern" onPress={save} loading={loading} />
       </View>
     </KeyboardAvoidingView>
   );
@@ -112,5 +100,5 @@ export default function ReiseBearbeiten() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, padding: spacing.screen, paddingTop: spacing.xxl, gap: spacing.l },
-  fueller: { flex: 1 },
+  filler: { flex: 1 },
 });
