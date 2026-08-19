@@ -6,16 +6,16 @@ import { Camera, Map, Play, User } from 'lucide-react-native';
 import { Pille } from '@/components/Pille';
 import { useTheme } from '@/theme/ThemeProvider';
 import { cinema, type } from '@/theme/tokens';
-import * as aufnahmeSperre from '@/features/kamera/aufnahmeSperre';
-import * as kinoBuehne from '@/features/kamera/kinoBuehne';
+import * as captureLock from '@/features/camera/captureLock';
+import * as cinemaStage from '@/features/camera/cinemaStage';
 
-// Höhe und Luft der Leiste wohnen in kinoBuehne.ts (LEISTE_INHALT,
+// Höhe und Luft der Leiste wohnen in cinemaStage.ts (LEISTE_INHALT,
 // LEISTE_LUFT_OBEN, leisteHoehe): der Kamera-Screen hebt seine unteren
 // Bedienelemente um genau diese Höhe, sobald die Leiste als Overlay über dem
 // Sucher liegt — eine geteilte Formel statt zweier Zahlen, die
 // auseinanderlaufen können. Die Begründung der Werte (UIKit-Konstante 49,
 // ein Rasterschritt Luft über den Icons) steht dort.
-const LUFT_OBEN = kinoBuehne.LEISTE_LUFT_OBEN;
+const LUFT_OBEN = cinemaStage.BAR_TOP_PADDING;
 
 // DESIGN-LANGUAGE v2 §4: Tab-Bar volle Breite, bg-0, 1 px Hairline oben,
 // keine Rundung (die schwebende v1-Pille entfällt). Aktiv accent, inaktiv text-2.
@@ -52,7 +52,7 @@ export default function TabsLayout() {
   // verschieden hohe Flächen — die Vorschau zeigte dadurch ~10 % weniger
   // Bildbreite als der Sucher («mehr gecropt als bevor ich auslöse»). Mit der
   // Leiste als Overlay sind beide Flächen gleich, was man sieht, ist was man
-  // bekommt. Der Screen meldet über kinoBuehne nur, OB der Sucher steht (die
+  // bekommt. Der Screen meldet über cinemaStage nur, OB der Sucher steht (die
   // hellen Zustände des Tabs behalten die normale Leiste); an WELCHEM Tab die
   // Kino-Form gilt, entscheidet unten die Route der screenOptions-Funktion.
   // Der Fokus taugt dafür nämlich nicht: die Aufnahme-Vorschau überdeckt den
@@ -60,13 +60,13 @@ export default function TabsLayout() {
   // spränge beim Instant-Rückweg im ersten Frame sichtbar um — genau der
   // unsaubere Übergang aus dem Gerätefund. Solange aufnehmen der GEWÄHLTE
   // Tab ist, bleibt die Kino-Leiste deshalb stehen, Vorschau hin oder her.
-  const sucherSichtbar = useSyncExternalStore(kinoBuehne.abonnieren, kinoBuehne.lesen);
+  const sucherSichtbar = useSyncExternalStore(cinemaStage.subscribe, cinemaStage.get);
   return (
     <Tabs
       // Während einer laufenden Aufnahme (Foto-Zyklus oder Video) läuft ein
       // Tab-Tipp ins Leere: ein Wechsel feuerte das Fokus-Cleanup mitten in
       // die laufende Kamera-Session und navigierte von einer Aufnahme weg,
-      // die gleich in die Vorschau will (siehe aufnahmeSperre.ts). Die Leiste
+      // die gleich in die Vorschau will (siehe captureLock.ts). Die Leiste
       // bleibt dabei stehen — display:'none' nähme der Szene mitten in der
       // Aufnahme die Höhe, und der Sucher spränge sichtbar. Der Listener
       // liest die Sperre synchron zum Ereignis, ein Re-Render ist nicht
@@ -74,7 +74,7 @@ export default function TabsLayout() {
       // dasselbe Navigations-Ereignis laufen.
       screenListeners={{
         tabPress: (e) => {
-          if (aufnahmeSperre.istGesperrt()) e.preventDefault();
+          if (captureLock.isLocked()) e.preventDefault();
         },
       }}
       screenOptions={({ route }) => {
@@ -102,14 +102,14 @@ export default function TabsLayout() {
                   backgroundColor: 'transparent',
                   borderTopWidth: 0,
                   paddingTop: LUFT_OBEN,
-                  height: kinoBuehne.leisteHoehe(bottom),
+                  height: cinemaStage.barHeight(bottom),
                 }
               : {
                   backgroundColor: colors['bg-0'],
                   borderTopWidth: StyleSheet.hairlineWidth,
                   borderTopColor: colors.line,
                   paddingTop: LUFT_OBEN,
-                  height: kinoBuehne.leisteHoehe(bottom),
+                  height: cinemaStage.barHeight(bottom),
                 },
           // DESIGN-LANGUAGE §1: UI auf dem Bild nur translucent
           // (rgba(19,17,16,0.55) + Blur 10) — exakt das Pille-Rezept, nur

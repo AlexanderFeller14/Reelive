@@ -26,14 +26,14 @@ import { cinema, palette, radius, spacing, type } from '@/theme/tokens';
 import { useTopInset } from '@/theme/useTopInset';
 import * as medien from '@/features/moments/media';
 import * as ortUndZeit from '@/features/moments/placeAndTime';
-import * as uebergabe from '@/features/kamera/uebergabe';
-import * as nativeAufnahme from '@/features/kamera/nativeAufnahme';
+import * as handoff from '@/features/camera/handoff';
+import * as nativeCapture from '@/features/camera/nativeCapture';
 import * as uploadWorker from '@/features/moments/uploadWorker';
 import { ownMomentCount } from '@/features/moments/counter';
 import { useAuth } from '@/features/auth/AuthProvider';
 import type { QueueJob } from '@/features/moments/types';
 
-const { SofortVorschau } = nativeAufnahme;
+const { InstantPreview } = nativeCapture;
 
 const CAPTION_MAX = 120;
 
@@ -165,20 +165,20 @@ export default function PreviewScreen() {
   // beim Erscheinen abgeholt, wie `zeit` daneben. Videos (und der
   // Deep-Link-Fall) tragen weiterhin eine uri in den Params — `foto` ist
   // dann null und alles läuft den alten Weg.
-  const [foto] = useState(() => (typ === 'photo' ? uebergabe.abholen() : null));
+  const [foto] = useState(() => (typ === 'photo' ? handoff.takePhoto() : null));
 
   // Der vorgewärmte Player aus der Übergabe (Gerätefund 2026-08-14,
   // Snapchat-Massstab): die Kamera erzeugt und lädt ihn VOR der Navigation,
   // die Blende geht dann in ein bereits laufendes Video. Wie das Foto EINMAL
   // beim Erscheinen abgeholt; ohne Übergabe (Deep Link, gescheitertes
   // Vorwärmen) lädt der Hook darunter selbst über die uri.
-  const [vorbereitet] = useState(() => (typ === 'video' ? uebergabe.videoAbholen() : null));
+  const [vorbereitet] = useState(() => (typ === 'video' ? handoff.takeVideo() : null));
 
   // `vorbereiteterPlayer` ist NUR für die Player-Form gesetzt (Task 12: die
-  // native Form hat ihr eigenes Verhalten, direkt an `vorbereitet?.art` in
-  // Render, `absenden` und `verwerfen`). Ein art-bewusster Blick genügt hier,
-  // statt an mehreren Stellen `.art === 'player'` zu wiederholen.
-  const vorbereiteterPlayer = vorbereitet?.art === 'player' ? vorbereitet : null;
+  // native Form hat ihr eigenes Verhalten, direkt an `vorbereitet?.kind` in
+  // Render, `absenden` und `verwerfen`). Ein kind-bewusster Blick genügt hier,
+  // statt an mehreren Stellen `.kind === 'player'` zu wiederholen.
+  const vorbereiteterPlayer = vorbereitet?.kind === 'player' ? vorbereitet : null;
 
   // Nachzug aus Task 8 (Video-Nachzug): «das Aufgenommene formatfüllend» gilt
   // auch für Videos, dieser Screen ist der letzte Blick vor dem Versiegeln.
@@ -368,7 +368,7 @@ export default function PreviewScreen() {
   // Tab-Leiste, die unter der Vorschau kurz in die helle Form zurückfiel
   // und beim Zurückkommen sichtbar umsprang; seit die Kino-Leiste am
   // GEWÄHLTEN Tab hängt statt am Fokus, steht das Layout schon beim
-  // ersten Frame (kinoBuehne.ts / _layout.tsx).
+  // ersten Frame (cinemaStage.ts / _layout.tsx).
   const zurueckZurKamera = () => {
     if (router.canGoBack()) router.back();
     else router.replace('/aufnehmen');
@@ -380,8 +380,8 @@ export default function PreviewScreen() {
     // Verantwortungsbereich des nativen Moduls, nicht in dem von
     // medien.dateiVerwerfen — sie kennt weder uri noch fertigen Zustand
     // dieses Screens.
-    if (vorbereitet?.art === 'nativ') {
-      nativeAufnahme.verwerfen();
+    if (vorbereitet?.kind === 'native') {
+      nativeCapture.discard();
       zurueckZurKamera();
       return;
     }
@@ -391,7 +391,7 @@ export default function PreviewScreen() {
     // Abräumen am Promise statt an einem Wert. Scheiterte das Speichern,
     // gibt es nichts zu räumen.
     if (foto) {
-      void foto.datei.then((d) => medien.discardFile(d.uri)).catch(() => {});
+      void foto.file.then((d) => medien.discardFile(d.uri)).catch(() => {});
     } else if (uri) {
       medien.discardFile(uri);
     }
@@ -437,10 +437,10 @@ export default function PreviewScreen() {
     try {
       // Die eigene Pipeline (Task 12): die Hintergrund-Datei schreibt der
       // native Ringpuffer, dieses await wartet darauf wie beim Instant-Foto
-      // auf foto.datei — eine Ablehnung (voller Speicher) landet dadurch im
+      // auf foto.file — eine Ablehnung (voller Speicher) landet dadurch im
       // selben catch wie jeder andere Sendefehler, VOR dem Lesen der uri.
-      if (vorbereitet?.art === 'nativ') await vorbereitet.dateiFertig;
-      quelle = foto ? (await foto.datei).uri : (uri ?? null);
+      if (vorbereitet?.kind === 'native') await vorbereitet.fileReady;
+      quelle = foto ? (await foto.file).uri : (uri ?? null);
       if (!quelle) {
         // quelleFehlt leitet bereits um, hierher kommt es nie — aber wenn
         // doch (etwa eine Übergabe ohne brauchbare uri, Gerätefund
@@ -562,11 +562,11 @@ export default function PreviewScreen() {
       <Stack.Screen options={{ animation: 'none' }} />
 
       {typ === 'video' ? (
-        vorbereitet?.art === 'nativ' ? (
+        vorbereitet?.kind === 'native' ? (
           // Die eigene Pipeline (Task 12): der native Ringpuffer spielt
           // bereits, bevor dieser Screen überhaupt zeichnet — keine
           // VideoView, kein Poster, davon braucht diese Form keins.
-          <SofortVorschau testID="sofort-vorschau" style={StyleSheet.absoluteFill} />
+          <InstantPreview testID="sofort-vorschau" style={StyleSheet.absoluteFill} />
         ) : (
           <>
             <VideoView

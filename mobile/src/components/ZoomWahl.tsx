@@ -2,7 +2,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { Pille } from '@/components/Pille';
 import { PressScale } from '@/components/PressScale';
-import { aktiveStufe, beschriftung } from '@/features/kamera/zoom';
+import { activeStep, label } from '@/features/camera/zoom';
 import { cinema, radius, spacing, type } from '@/theme/tokens';
 
 type Props = {
@@ -22,7 +22,7 @@ type Props = {
 // Fläche scheint nichts hindurch, deshalb dort keine zweite Pille (siehe den
 // Hinweis in Pille.tsx, Präzedenz: `emojiPilleAktiv` im Recap-Player).
 export function ZoomWahl({ stufen, faktor, onWahl }: Props) {
-  const aktiv = aktiveStufe(faktor, stufen);
+  const aktiv = activeStep(faktor, stufen);
 
   return (
     <Pille testID="zoom-wahl" style={styles.reihe}>
@@ -30,7 +30,7 @@ export function ZoomWahl({ stufen, faktor, onWahl }: Props) {
         const istAktiv = stufe === aktiv;
         // Die aktive Stufe zeigt, wo man wirklich steht (etwa «2,3×»), die
         // anderen ihre eigene Zahl.
-        const text = beschriftung(istAktiv ? faktor : stufe);
+        const text = label(istAktiv ? faktor : stufe);
         return (
           <PressScale
             key={stufe}

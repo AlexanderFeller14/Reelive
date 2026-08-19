@@ -44,15 +44,15 @@ function optionenFuer(routeName: string): GeleseneOptions | undefined {
 }
 
 import TabsLayout from '../_layout';
-import * as aufnahmeSperre from '@/features/kamera/aufnahmeSperre';
-import * as kinoBuehne from '@/features/kamera/kinoBuehne';
+import * as captureLock from '@/features/camera/captureLock';
+import * as cinemaStage from '@/features/camera/cinemaStage';
 
 beforeEach(() => {
   letzteScreenOptions = undefined;
   letzteScreenListeners = undefined;
   mockUseSegments.mockReturnValue(['(tabs)']);
-  aufnahmeSperre.sperren(false);
-  kinoBuehne.setzen(false);
+  captureLock.lock(false);
+  cinemaStage.set(false);
 });
 
 test('auf einer beliebigen Nicht-Player-Route bleibt die Tab-Bar sichtbar', async () => {
@@ -132,12 +132,12 @@ test('der Kamera-Screen (aufnehmen) behält die Tab-Bar', async () => {
 // Sucher und Vorschau zeichnen beide mit `cover`, aber in verschieden hohe
 // Flächen: die Vorschau (Vollbild) zeigte ~10 % weniger Bildbreite als der
 // Sucher (Vollbild minus Leiste) — «mehr gecropt als bevor ich auslöse».
-// Zeigt der Kamera-Screen den Sucher (kinoBuehne), legt sich die Leiste
+// Zeigt der Kamera-Screen den Sucher (cinemaStage), legt sich die Leiste
 // deshalb ALS durchscheinende Fläche ÜBER das Kamerabild (position
 // absolute), statt ihm Platz wegzunehmen: beide Flächen sind dann gleich
 // gross, was man sieht, ist was man bekommt.
-test('zeigt der Sucher (kinoBuehne), liegt die Leiste durchscheinend über dem Bild', async () => {
-  kinoBuehne.setzen(true);
+test('zeigt der Sucher (cinemaStage), liegt die Leiste durchscheinend über dem Bild', async () => {
+  cinemaStage.set(true);
   mockUseSegments.mockReturnValue(['(tabs)', 'aufnehmen']);
   await render(<TabsLayout />);
   const optionen = optionenFuer('aufnehmen');
@@ -163,7 +163,7 @@ test('ohne Sucher (helle Zustände des Tabs) bleibt die Leiste die normale helle
 // GEWÄHLTEN Tab (route.name), nicht am Fokus: solange aufnehmen der gewählte
 // Tab ist, bleibt sie stehen, auch mit einer Vorschau darüber.
 test('mit stehendem Sucher-Zeichen bleibt die Kino-Leiste, solange aufnehmen der gewählte Tab ist', async () => {
-  kinoBuehne.setzen(true);
+  cinemaStage.set(true);
   // Fokus liegt auf der Vorschau (Root-Stack), nicht im Tab-Navigator.
   mockUseSegments.mockReturnValue(['vorschau']);
   await render(<TabsLayout />);
@@ -171,7 +171,7 @@ test('mit stehendem Sucher-Zeichen bleibt die Kino-Leiste, solange aufnehmen der
 });
 
 test('auf einem ANDEREN gewählten Tab gilt trotz Sucher-Zeichen die normale Leiste', async () => {
-  kinoBuehne.setzen(true);
+  cinemaStage.set(true);
   mockUseSegments.mockReturnValue(['(tabs)', 'reise']);
   await render(<TabsLayout />);
   const optionen = optionenFuer('reise');
@@ -183,7 +183,7 @@ test('auf einem ANDEREN gewählten Tab gilt trotz Sucher-Zeichen die normale Lei
 // auch wenn das Sucher-Zeichen (etwa durch eine liegen gebliebene Meldung)
 // noch stünde.
 test('auf der Player-Route bleibt die Leiste auch mit gesetztem Sucher-Zeichen abgeschaltet', async () => {
-  kinoBuehne.setzen(true);
+  cinemaStage.set(true);
   mockUseSegments.mockReturnValue(['(tabs)', 'recap', '[id]', 'player']);
   await render(<TabsLayout />);
   expect(optionenFuer('recap')?.tabBarStyle?.display).toBe('none');
@@ -197,7 +197,7 @@ test('auf der Player-Route bleibt die Leiste auch mit gesetztem Sucher-Zeichen a
 // läuft per preventDefault ins Leere.
 test('während einer laufenden Aufnahme läuft ein Tab-Tipp ins Leere', async () => {
   await render(<TabsLayout />);
-  aufnahmeSperre.sperren(true);
+  captureLock.lock(true);
   const ereignis = { preventDefault: jest.fn() };
   letzteScreenListeners?.tabPress?.(ereignis);
   expect(ereignis.preventDefault).toHaveBeenCalled();

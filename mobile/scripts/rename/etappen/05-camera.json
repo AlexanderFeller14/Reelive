@@ -1,0 +1,106 @@
+{
+  "dateien": {
+    "features/kamera/aufnahmeSperre.ts": "features/camera/captureLock.ts",
+    "features/kamera/kinoBuehne.ts": "features/camera/cinemaStage.ts",
+    "features/kamera/multiKamera.ts": "features/camera/multiCamera.ts",
+    "features/kamera/nativeAufnahme.ts": "features/camera/nativeCapture.ts",
+    "features/kamera/nativeZoom.ts": "features/camera/nativeZoom.ts",
+    "features/kamera/uebergabe.ts": "features/camera/handoff.ts",
+    "features/kamera/zoom.ts": "features/camera/zoom.ts",
+    "features/kamera/__tests__/kinoBuehne.test.ts": "features/camera/__tests__/cinemaStage.test.ts",
+    "features/kamera/__tests__/multiKamera.test.ts": "features/camera/__tests__/multiCamera.test.ts",
+    "features/kamera/__tests__/nativeAufnahme.test.ts": "features/camera/__tests__/nativeCapture.test.ts",
+    "features/kamera/__tests__/nativeZoom.test.ts": "features/camera/__tests__/nativeZoom.test.ts",
+    "features/kamera/__tests__/uebergabe.test.ts": "features/camera/__tests__/handoff.test.ts",
+    "features/kamera/__tests__/zoom.test.ts": "features/camera/__tests__/zoom.test.ts"
+  },
+  "symbole": {
+    "features/kamera/aufnahmeSperre.ts": {
+      "gesperrt": "locked",
+      "sperren": "lock",
+      "istGesperrt": "isLocked"
+    },
+    "features/kamera/kinoBuehne.ts": {
+      "LEISTE_INHALT": "BAR_CONTENT_HEIGHT",
+      "LEISTE_LUFT_OBEN": "BAR_TOP_PADDING",
+      "sichtbar": "visible",
+      "hoerer": "listeners",
+      "leisteHoehe": "barHeight",
+      "setzen": "set",
+      "lesen": "get",
+      "abonnieren": "subscribe"
+    },
+    "features/kamera/multiKamera.ts": {
+      "Druckstufe": "PressureLevel",
+      "NativesMultiKameraModul": "NativeMultiCameraModule",
+      "modul": "nativeModule",
+      "nativesModul": "getNativeModule",
+      "MAX_FEHLSCHLAEGE_IN_FOLGE": "MAX_CONSECUTIVE_FAILURES",
+      "fehlschlägeInFolge": "consecutiveFailures",
+      "gescheitert": "failed",
+      "verfuegbar": "available",
+      "starten": "start",
+      "stoppen": "stop",
+      "wechsleKamera": "switchCamera",
+      "zoomSetzen": "setZoom",
+      "fokussiere": "focus",
+      "aufnahmeStarten": "startCapture",
+      "aufnahmeStoppen": "stopCapture",
+      "fotoAufnehmen": "takePhoto",
+      "blitz": "setFlash",
+      "aufDruck": "onPressureChange",
+      "sucherKomponente": "getViewfinderComponent",
+      "MultiKameraSucher": "MultiCameraViewfinder"
+    },
+    "features/kamera/nativeAufnahme.ts": {
+      "NativesAufnahmeModul": "NativeCaptureModule",
+      "modul": "nativeModule",
+      "nativesModul": "getNativeModule",
+      "verfuegbar": "available",
+      "aufnahmeStarten": "startCapture",
+      "aufnahmeStoppen": "stopCapture",
+      "dateiFertig": "fileReady",
+      "verwerfen": "discard",
+      "SofortVorschau": "InstantPreview"
+    },
+    "features/kamera/nativeZoom.ts": {
+      "KameraZoomModul": "NativeZoomModule",
+      "NativeLinse": "NativeLens",
+      "modul": "nativeModule",
+      "nativesModul": "getNativeModule",
+      "BEKANNTE_TYPEN": "KNOWN_TYPES",
+      "alsTyp": "toType",
+      "linsen": "lenses",
+      "zoomGrenzen": "zoomLimits",
+      "setzeZoom": "setZoom",
+      "fokussiere": "focus"
+    },
+    "features/kamera/uebergabe.ts": {
+      "FotoUebergabe": "PhotoHandoff",
+      "VideoUebergabe": "VideoHandoff",
+      "liegt": "pendingPhoto",
+      "videoLiegt": "pendingVideo",
+      "uebergeben": "setPhoto",
+      "abholen": "takePhoto",
+      "videoUebergeben": "setVideo",
+      "videoAbholen": "takeVideo",
+      "gespeicherteDatei": "savedFile"
+    },
+    "features/kamera/zoom.ts": {
+      "LinsenTyp": "LensType",
+      "Linse": "Lens",
+      "Zoomgeraet": "ZoomDevice",
+      "zoomGeraet": "zoomDevice",
+      "nativerFaktor": "nativeFactor",
+      "begrenzen": "clamp",
+      "OHNE_NACHKOMMA_AB": "WITHOUT_DECIMAL_FROM",
+      "beschriftung": "label",
+      "fingerAbstand": "fingerDistance",
+      "aktiveStufe": "activeStep",
+      "zugFaktor": "dragFactor",
+      "MultiCamKamera": "MultiCamCamera",
+      "MultiCamZiel": "MultiCamTarget",
+      "multiCamZiel": "multiCamTarget"
+    }
+  }
+}

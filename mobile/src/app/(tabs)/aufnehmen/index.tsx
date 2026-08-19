@@ -28,18 +28,18 @@ import { Button } from '@/components/Button';
 import { Pille } from '@/components/Pille';
 import { PressScale } from '@/components/PressScale';
 import { ZoomWahl } from '@/components/ZoomWahl';
-import * as nativeAufnahme from '@/features/kamera/nativeAufnahme';
-import * as nativeZoom from '@/features/kamera/nativeZoom';
-import * as multiKamera from '@/features/kamera/multiKamera';
+import * as nativeCapture from '@/features/camera/nativeCapture';
+import * as nativeZoom from '@/features/camera/nativeZoom';
+import * as multiCamera from '@/features/camera/multiCamera';
 import {
-  begrenzen,
-  fingerAbstand,
-  multiCamZiel,
-  nativerFaktor,
-  zoomGeraet,
-  zugFaktor,
-  type Linse,
-} from '@/features/kamera/zoom';
+  clamp,
+  fingerDistance,
+  multiCamTarget,
+  nativeFactor,
+  zoomDevice,
+  dragFactor,
+  type Lens,
+} from '@/features/camera/zoom';
 import { cinema, motion, palette, radius, spacing, type } from '@/theme/tokens';
 import { useTopInset } from '@/theme/useTopInset';
 import { useReducedMotion } from '@/theme/useReducedMotion';
@@ -48,9 +48,9 @@ import * as tripsCache from '@/features/trips/tripsCache';
 import type { CachedTrip } from '@/features/trips/tripsCache';
 import { ownMomentCount } from '@/features/moments/counter';
 import { useAuth } from '@/features/auth/AuthProvider';
-import * as uebergabe from '@/features/kamera/uebergabe';
-import * as aufnahmeSperre from '@/features/kamera/aufnahmeSperre';
-import * as kinoBuehne from '@/features/kamera/kinoBuehne';
+import * as handoff from '@/features/camera/handoff';
+import * as captureLock from '@/features/camera/captureLock';
+import * as cinemaStage from '@/features/camera/cinemaStage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // Höchstdauer eines Videos, dieselbe Zahl geht an den Auslöser UND an
@@ -202,8 +202,8 @@ function momenteText(anzahl: number): string {
 // 0,5× eine eigene Linse ist oder nur auf 1× klemmt. Als freie Funktion,
 // weil der Kamerawechsel sie für die NEUE Richtung braucht, bevor React die
 // abgeleiteten Werte der alten ersetzt hat.
-function hatUltraweitIn(linsen: Linse[]): boolean {
-  return linsen.some((l) => l.typ === 'ultraWide' || l.bestandteile.includes('ultraWide'));
+function hatUltraweitIn(linsen: Lens[]): boolean {
+  return linsen.some((l) => l.type === 'ultraWide' || l.components.includes('ultraWide'));
 }
 
 // Kino gilt in diesem Tab NUR dem Sucher (DESIGN-LANGUAGE v2 §1: die feste
@@ -516,7 +516,7 @@ export default function AufnehmenScreen() {
   // Rückfall muss ein Rendern auslösen. Der Startwert kommt vom Modul selbst
   // (kein Modul, Android, Simulator → sofort false, die CameraView übernimmt,
   // ohne dass je etwas anlief).
-  const [multiCam, setMultiCam] = useState(() => multiKamera.verfuegbar());
+  const [multiCam, setMultiCam] = useState(() => multiCamera.available());
   const [richtung, setRichtung] = useState<'back' | 'front'>('back');
   const [blitz, setBlitz] = useState<'off' | 'on'>('off');
   // Zähler-Nachzug aus Task 9 (Task-10-Auftrag): Serverstand PLUS wartende
@@ -735,7 +735,7 @@ export default function AufnehmenScreen() {
         // steht (Deep Link, Unmount — per Tab geht es ja nicht mehr), darf
         // die Tab-Bar nicht app-weit tot bleiben. Die regulären Ausgänge
         // lösen selbst (handleFoto/handleVideoStop); hier fängt der Rest.
-        aufnahmeSperre.sperren(false);
+        captureLock.lock(false);
       };
     }, [laden])
   );
@@ -760,9 +760,9 @@ export default function AufnehmenScreen() {
       setStatusBarStyle(zeigtSucher ? 'light' : 'dark');
       // Dieselbe Bedingung meldet die Kino-Bühne an den Tab-Navigator: über
       // dem Sucher liegt die Leiste durchscheinend AUF dem Bild, damit Sucher
-      // und Vorschau dieselbe Fläche zeigen (kinoBuehne.ts, Gerätefund
+      // und Vorschau dieselbe Fläche zeigen (cinemaStage.ts, Gerätefund
       // 2026-08-18 «mehr gecropt als bevor ich auslöse»).
-      kinoBuehne.setzen(zeigtSucher);
+      cinemaStage.set(zeigtSucher);
       // Beim Blur bleibt das Zeichen bewusst STEHEN: der Blur feuert auch,
       // wenn nur die Vorschau den Tab überdeckt — nähme man es hier zurück,
       // fiele die Leiste unsichtbar in die helle Form und spränge beim
@@ -776,7 +776,7 @@ export default function AufnehmenScreen() {
 
   // Sicherheitsnetz: verlässt der Screen die Bühne ganz (Unmount, Deep
   // Link), darf das Sucher-Zeichen nicht stehen bleiben.
-  useEffect(() => () => kinoBuehne.setzen(false), []);
+  useEffect(() => () => cinemaStage.set(false), []);
 
   // Überdeckt die Vorschau den Tab, den fürs Foto eingefrorenen Sucher
   // schon JETZT wieder anlaufen lassen (unsichtbar, er liegt darunter): der
@@ -819,11 +819,11 @@ export default function AufnehmenScreen() {
   useFocusEffect(
     useCallback(() => {
       if (!multiCam) return;
-      void multiKamera.starten().then((ok) => {
+      void multiCamera.start().then((ok) => {
         if (!ok && aktiv.current) setMultiCam(false);
       });
       return () => {
-        if (!nimmtAufRef.current && !inVorschauRef.current) multiKamera.stoppen();
+        if (!nimmtAufRef.current && !inVorschauRef.current) multiCamera.stop();
       };
     }, [multiCam])
   );
@@ -841,18 +841,18 @@ export default function AufnehmenScreen() {
   useEffect(() => {
     if (!multiCam) return;
     const an = blitz === 'on' && nimmtAuf;
-    multiKamera.blitz(an);
+    multiCamera.setFlash(an);
     return () => {
-      if (an) multiKamera.blitz(false);
+      if (an) multiCamera.setFlash(false);
     };
   }, [multiCam, blitz, nimmtAuf, richtung]);
 
   // Liegt die Leiste über dem Bild, nimmt sie dem Screen keinen Platz mehr
   // weg — die unten verankerten Bedienelemente (Auslöser, Zoom-Reihe,
   // Fehler-Pille) heben sich deshalb um ihre Höhe, sonst lägen sie dahinter.
-  // Dieselbe Formel wie in _layout.tsx (kinoBuehne.leisteHoehe), damit die
+  // Dieselbe Formel wie in _layout.tsx (cinemaStage.leisteHoehe), damit die
   // beiden Seiten nicht auseinanderlaufen können.
-  const leisteHoehe = kinoBuehne.leisteHoehe(useSafeAreaInsets().bottom);
+  const leisteHoehe = cinemaStage.barHeight(useSafeAreaInsets().bottom);
 
   // Steht bei den Hooks, weil die frühen Returns weiter unten dazwischenliegen.
   // Was oben auf dem Sucher liegt, schont dieselbe Oberkante wie jeder andere
@@ -869,8 +869,8 @@ export default function AufnehmenScreen() {
   // ist eine Abfrage ohne Nebenwirkung, ein Zustand daneben wäre eine zweite
   // Wahrheit. Zurückgesetzt wird der Faktor dort, wo die Richtung wechselt
   // (siehe «Kamera wechseln»), nicht hier.
-  const linsen = useMemo(() => nativeZoom.linsen(richtung), [richtung]);
-  const zoom = useMemo(() => zoomGeraet(linsen), [linsen]);
+  const linsen = useMemo(() => nativeZoom.lenses(richtung), [richtung]);
+  const zoom = useMemo(() => zoomDevice(linsen), [linsen]);
 
   // Ob diese Blickrichtung einen Ultraweitwinkel hat. Daran entscheidet die
   // MultiCam-Session, ob 0,5× eine eigene Linse ist oder nur ein Beschnitt
@@ -882,7 +882,7 @@ export default function AufnehmenScreen() {
   // Die Basis der aktiven Blickrichtung: 0,5 auf einem Ultraweitwinkel-Gerät,
   // sonst 1; auch für die einlinsige Front, deren Anzeige und Gerätefaktor
   // dasselbe sind (sie hat kein virtuelles Mehrfach-Gerät, `zoom` ist null).
-  const zoomBasis = zoom?.basis ?? 1;
+  const zoomBasis = zoom?.base ?? 1;
 
   const zoomSetzen = useCallback(
     (neu: number, sanft: boolean) => {
@@ -896,13 +896,13 @@ export default function AufnehmenScreen() {
       if (multiCam) {
         faktorRef.current = neu;
         setFaktor(neu);
-        multiKamera.zoomSetzen(multiCamZiel(neu, richtung, hatUltraweit), sanft);
+        multiCamera.setZoom(multiCamTarget(neu, richtung, hatUltraweit), sanft);
         return;
       }
       if (!zoom) return;
       faktorRef.current = neu;
       setFaktor(neu);
-      nativeZoom.setzeZoom(zoom.name, nativerFaktor(neu, zoom.basis), sanft);
+      nativeZoom.setZoom(zoom.name, nativeFactor(neu, zoom.base), sanft);
     },
     [zoom, multiCam, richtung, hatUltraweit]
   );
@@ -915,7 +915,7 @@ export default function AufnehmenScreen() {
   useFocusEffect(
     useCallback(() => {
       if (!multiCam) return;
-      return multiKamera.aufDruck((stufe) => {
+      return multiCamera.onPressureChange((stufe) => {
         if (stufe === 'nominal') return;
         if (faktorRef.current < 1) zoomSetzen(1, false);
       });
@@ -960,7 +960,7 @@ export default function AufnehmenScreen() {
     // Gerät gar nicht in der Session, und niemand setzt seinen Zoom hinter
     // unserem Rücken auf 1,0 zurück.
     if (!zoom || multiCam) return;
-    nativeZoom.setzeZoom(zoom.name, nativerFaktor(faktorRef.current, zoom.basis), false);
+    nativeZoom.setZoom(zoom.name, nativeFactor(faktorRef.current, zoom.base), false);
   }, [zoom, multiCam]);
 
   // Die Zoom-Grenzen einer Blickrichtung, in der Zählung des Geräts, mit
@@ -982,20 +982,20 @@ export default function AufnehmenScreen() {
   // bleibt ein bescheidener Ersatzbereich statt eines toten Zooms: er formt
   // nur die Finger-Abbildung, geklemmt wird nativ ohnehin am echten Gerät.
   const zoomGrenzenFuer = (r: 'back' | 'front') => {
-    const linsenDort = nativeZoom.linsen(r);
-    const geraet = zoomGeraet(linsenDort);
+    const linsenDort = nativeZoom.lenses(r);
+    const geraet = zoomDevice(linsenDort);
     if (geraet) {
       return (
-        nativeZoom.zoomGrenzen(geraet.name) ?? {
+        nativeZoom.zoomLimits(geraet.name) ?? {
           min: 1,
-          max: nativerFaktor(geraet.stufen[geraet.stufen.length - 1], geraet.basis),
+          max: nativeFactor(geraet.steps[geraet.steps.length - 1], geraet.base),
         }
       );
     }
     if (!multiCam) return null;
-    const linse = linsenDort.find((l) => l.typ === 'wide') ?? linsenDort[0];
+    const linse = linsenDort.find((l) => l.type === 'wide') ?? linsenDort[0];
     if (!linse) return null;
-    return nativeZoom.zoomGrenzen(linse.name) ?? { min: 1, max: 8 };
+    return nativeZoom.zoomLimits(linse.name) ?? { min: 1, max: 8 };
   };
 
   // Läuft, sobald die Mehrfach-Kamera bekannt ist. Der Wechsel des GERÄTS
@@ -1011,8 +1011,8 @@ export default function AufnehmenScreen() {
   const fokusAuf = (punkt: { pageX: number; pageY: number }) => {
     // Zwei Sessions, zwei Wege zum selben Gerät: fokussiert wird immer die
     // Kamera, die gerade WIRKLICH läuft. Der Ring darüber ist derselbe.
-    if (multiCam) multiKamera.fokussiere(punkt.pageX, punkt.pageY);
-    else nativeZoom.fokussiere(punkt.pageX, punkt.pageY);
+    if (multiCam) multiCamera.focus(punkt.pageX, punkt.pageY);
+    else nativeZoom.focus(punkt.pageX, punkt.pageY);
     setFokusPunkt((alt) => ({ x: punkt.pageX, y: punkt.pageY, stand: (alt?.stand ?? 0) + 1 }));
   };
   // Stabil über useCallback: der Ring hängt seinen Animations-Effekt daran,
@@ -1185,15 +1185,15 @@ export default function AufnehmenScreen() {
       // Doppeltipp hielte die Vertauschung aufrecht (Final-Review
       // 2026-08-19, Important 1).
       const nummer = ++wechselNummer.current;
-      void multiKamera.wechsleKamera().then((antwort) => {
+      void multiCamera.switchCamera().then((antwort) => {
         // Überholt: ein jüngerer Wechsel ist längst angewandt, seine Antwort
         // stimmt den Zustand ab. Diese hier hat nichts mehr zu sagen.
         if (nummer !== wechselNummer.current) return;
         const wirklich = antwort ?? alt;
         if (wirklich !== neu) richtungAnwenden(neu, wirklich);
         if (!antwort) return;
-        multiKamera.zoomSetzen(
-          multiCamZiel(faktorRef.current, antwort, hatUltraweitIn(nativeZoom.linsen(antwort))),
+        multiCamera.setZoom(
+          multiCamTarget(faktorRef.current, antwort, hatUltraweitIn(nativeZoom.lenses(antwort))),
           false
         );
       });
@@ -1213,9 +1213,9 @@ export default function AufnehmenScreen() {
     const start = zugStart.current;
     if (!start) return;
     zoomSetzen(
-      zugFaktor(hub, start.faktor, start.grenzen, zoomBasis, {
-        hoch: Dimensions.get('window').height * ZUG_WEG_HOCH_ANTEIL,
-        runter: ZUG_WEG_RUNTER,
+      dragFactor(hub, start.faktor, start.grenzen, zoomBasis, {
+        up: Dimensions.get('window').height * ZUG_WEG_HOCH_ANTEIL,
+        down: ZUG_WEG_RUNTER,
       }),
       false
     );
@@ -1233,7 +1233,7 @@ export default function AufnehmenScreen() {
     const doppelt =
       vorher !== null &&
       jetzt - vorher.zeit <= DOPPELTIPP_MS &&
-      (fingerAbstand([vorher, ende]) ?? 0) <= TIPP_RADIUS;
+      (fingerDistance([vorher, ende]) ?? 0) <= TIPP_RADIUS;
     letzterTipp.current = doppelt ? null : { zeit: jetzt, ...ende };
     return doppelt;
   };
@@ -1259,7 +1259,7 @@ export default function AufnehmenScreen() {
         pageX: e?.nativeEvent?.pageX ?? 0,
         pageY: e?.nativeEvent?.pageY ?? 0,
       };
-      const abstand = fingerAbstand(e?.nativeEvent?.touches ?? []);
+      const abstand = fingerDistance(e?.nativeEvent?.touches ?? []);
       if (abstand === null) return;
       // Die Grenzen erst jetzt erfragen: sie hängen am aktiven Kameraformat
       // und damit daran, ob gerade ein Foto oder ein Video ansteht. Ohne
@@ -1269,7 +1269,7 @@ export default function AufnehmenScreen() {
       pinchStart.current = { abstand, faktor: faktorRef.current, grenzen };
     },
     onResponderMove: (e?: GestureResponderEvent) => {
-      const abstand = fingerAbstand(e?.nativeEvent?.touches ?? []);
+      const abstand = fingerDistance(e?.nativeEvent?.touches ?? []);
       if (abstand === null) return;
       // Am Gerät setzen zwei Finger fast nie im selben Ereignis auf: der
       // erste ergreift die Fläche allein (onResponderGrant sieht EINE
@@ -1288,7 +1288,7 @@ export default function AufnehmenScreen() {
       if (start.abstand === 0) return;
       // Hart gesetzt, nicht sanft: der Zoom soll dem Finger folgen, nicht
       // hinterherfahren.
-      zoomSetzen(begrenzen((start.faktor * abstand) / start.abstand, start.grenzen, zoomBasis), false);
+      zoomSetzen(clamp((start.faktor * abstand) / start.abstand, start.grenzen, zoomBasis), false);
     },
     onResponderRelease: (e?: GestureResponderEvent) => {
       const warPinch = pinchStart.current !== null;
@@ -1304,7 +1304,7 @@ export default function AufnehmenScreen() {
       };
       // Gewandert heisst gewischt, nicht getippt. Ein Wischen setzt die
       // Zählung zurück, sonst würde es zur ersten Hälfte eines Doppeltipps.
-      if ((fingerAbstand([start, ende]) ?? 0) > TIPP_RADIUS) {
+      if ((fingerDistance([start, ende]) ?? 0) > TIPP_RADIUS) {
         letzterTipp.current = null;
         return;
       }
@@ -1352,7 +1352,7 @@ export default function AufnehmenScreen() {
         pageY: e?.nativeEvent?.pageY ?? 0,
       };
       // Gewandert heisst gewischt — derselbe Massstab wie beim Tipp oben.
-      if ((fingerAbstand([start, ende]) ?? 0) > TIPP_RADIUS) {
+      if ((fingerDistance([start, ende]) ?? 0) > TIPP_RADIUS) {
         letzterTipp.current = null;
         return;
       }
@@ -1373,10 +1373,10 @@ export default function AufnehmenScreen() {
     // diese Sperre einen zweiten Zyklus an (siehe laeuftFoto oben).
     if (laeuftFoto.current) return;
     laeuftFoto.current = true;
-    // Solange der Zyklus läuft, wechselt kein Tab (aufnahmeSperre.ts) — mit
+    // Solange der Zyklus läuft, wechselt kein Tab (captureLock.ts) — mit
     // Blitz ist das Fenster 1–2 s breit, und ein Wechsel mitten im Capture
     // liesse die Übergabe verwaisen und die Vorschau von fremden Tabs starten.
-    aufnahmeSperre.sperren(true);
+    captureLock.lock(true);
     try {
       // Der MultiCam-Zweig greift in den laufenden Strom (Spec §6): das Modul
       // nimmt den nächsten Frame der aktiven Kamera und legt ihn als JPEG ins
@@ -1386,7 +1386,7 @@ export default function AufnehmenScreen() {
       // kennt keine Vorschau-Pause, der Sucher läuft unter der Vorschau
       // weiter, und der Rückweg trifft dadurch auf ein laufendes Bild.
       if (multiCam) {
-        const foto = await multiKamera.fotoAufnehmen(blitz === 'on');
+        const foto = await multiCamera.takePhoto(blitz === 'on');
         if (!foto) throw new Error('kein Frame');
         // Dieselbe Übergabe wie unten, nur mit einer FERTIGEN Datei statt
         // eines Refs samt Hintergrund-Speichern: der Griff hat das JPEG schon
@@ -1398,7 +1398,7 @@ export default function AufnehmenScreen() {
         // Stelle, statt den Typ zu ändern und die Vorschau mitzuziehen.
         // breite/hoehe braucht auf diesem Weg niemand: sie stehen im JPEG.
         const quelle = { uri: foto.uri } as unknown as PictureRef;
-        uebergabe.uebergeben({ ref: quelle, datei: Promise.resolve({ uri: foto.uri }) });
+        handoff.setPhoto({ ref: quelle, file: Promise.resolve({ uri: foto.uri }) });
         zurPreview({ typ: 'photo', dauer: '0', tripId: reise.id });
         return;
       }
@@ -1433,8 +1433,8 @@ export default function AufnehmenScreen() {
       // gespeichert wird ab jetzt im Hintergrund, «Einsenden» in der
       // Vorschau wartet auf genau dieses Promise (Spec 2026-08-13 §4).
       // gespeicherteDatei statt savePictureAsync direkt: die native Rückgabe
-      // heisst auf iOS `url`, auf Android `uri` (siehe uebergabe.ts).
-      uebergabe.uebergeben({ ref, datei: uebergabe.gespeicherteDatei(ref) });
+      // heisst auf iOS `url`, auf Android `uri` (siehe handoff.ts).
+      handoff.setPhoto({ ref, file: handoff.savedFile(ref) });
       zurPreview({ typ: 'photo', dauer: '0', tripId: reise.id });
     } catch (fehler) {
       console.error('[aufnehmen] Foto kam nicht zustande', fehler);
@@ -1449,7 +1449,7 @@ export default function AufnehmenScreen() {
       // committet — ein erneuter Tipp trifft diesen Screen erst nach der
       // Rückkehr aus der Vorschau wieder.
       laeuftFoto.current = false;
-      aufnahmeSperre.sperren(false);
+      captureLock.lock(false);
     }
   };
 
@@ -1462,8 +1462,8 @@ export default function AufnehmenScreen() {
     setNimmtAuf(true);
     // Kein Tab-Wechsel, solange aufgenommen wird: das Fokus-Cleanup hinge
     // sonst mitten in der laufenden Movie-File-Aufnahme (siehe den
-    // mute-Kommentar an der CameraView und aufnahmeSperre.ts).
-    aufnahmeSperre.sperren(true);
+    // mute-Kommentar an der CameraView und captureLock.ts).
+    captureLock.lock(true);
     // Anker des Zug-Zooms: Faktor und Grenzen beim Aufnahmestart. Grenzen
     // erst jetzt erfragen, nicht beim Rendern — sie hängen am aktiven Format.
     // Ohne Grenzen (Front im expo-Zweig) gibt es keinen Zug.
@@ -1508,8 +1508,8 @@ export default function AufnehmenScreen() {
     // Kamerawechsel mitten drin kostet dort keine Lücke, die Zeitachse ist die
     // gemeinsame Session-Clock.
     nativStart.current = multiCam
-      ? multiKamera.aufnahmeStarten(MAX_VIDEO_SEKUNDEN)
-      : nativeAufnahme.aufnahmeStarten(MAX_VIDEO_SEKUNDEN);
+      ? multiCamera.startCapture(MAX_VIDEO_SEKUNDEN)
+      : nativeCapture.startCapture(MAX_VIDEO_SEKUNDEN);
     void nativStart.current.then((ok) => {
       nativLaeuft.current = ok;
       // Der recordAsync-Weg gehört der CameraView, im MultiCam-Zweig gibt es
@@ -1543,15 +1543,15 @@ export default function AufnehmenScreen() {
       // hängen nativ an derselben laufenden Aufnahme, egal welche Session sie
       // gefüllt hat.
       const ergebnis = await (multiCam
-        ? multiKamera.aufnahmeStoppen()
-        : nativeAufnahme.aufnahmeStoppen());
+        ? multiCamera.stopCapture()
+        : nativeCapture.stopCapture());
       setNimmtAuf(false);
-      aufnahmeSperre.sperren(false);
+      captureLock.lock(false);
       if (!ergebnis) {
         setAufnahmeFehler(FEHLER_TEXT);
         return;
       }
-      uebergabe.videoUebergeben({ art: 'nativ', dateiFertig: nativeAufnahme.dateiFertig() });
+      handoff.setVideo({ kind: 'native', fileReady: nativeCapture.fileReady() });
       zurPreview({
         uri: ergebnis.uri,
         typ: 'video',
@@ -1567,7 +1567,7 @@ export default function AufnehmenScreen() {
     // Ablauf unten stumm ins Leere liefe.
     if (multiCam) {
       setNimmtAuf(false);
-      aufnahmeSperre.sperren(false);
+      captureLock.lock(false);
       setAufnahmeFehler(FEHLER_TEXT);
       return;
     }
@@ -1582,7 +1582,7 @@ export default function AufnehmenScreen() {
     setNimmtAuf(false);
     // Vor beiden Ausgängen (Fehler-Pille wie Navigation): die Aufnahme ist
     // vorbei, die Tabs gehören wieder bedient.
-    aufnahmeSperre.sperren(false);
+    captureLock.lock(false);
     if (!ergebnis?.uri) {
       void cameraRef.current?.resumePreview();
       setAufnahmeFehler(FEHLER_TEXT);
@@ -1610,7 +1610,7 @@ export default function AufnehmenScreen() {
       // selbst über die uri — der alte Weg als Rückfallebene.
       player.release();
     } else {
-      uebergabe.videoUebergeben({ art: 'player', player, poster });
+      handoff.setVideo({ kind: 'player', player, poster });
     }
     zurPreview({ uri: ergebnis.uri, typ: 'video', dauer: String(dauer), tripId: reise.id });
   };
@@ -1644,7 +1644,7 @@ export default function AufnehmenScreen() {
         // Linse wählt der Zoom-Weg, und der Blitz kommt in einem eigenen
         // Schritt. Alles darüber (Zoomfläche, Fokus-Ring, Kopfzeile,
         // Zoom-Reihe, Auslöser) ist für beide Zweige dasselbe.
-        <multiKamera.MultiKameraSucher
+        <multiCamera.MultiCameraViewfinder
           testID="multikamera-sucher"
           style={StyleSheet.absoluteFill}
         />
@@ -1765,7 +1765,7 @@ export default function AufnehmenScreen() {
           ]}
         >
           <ZoomWahl
-            stufen={zoom.stufen}
+            stufen={zoom.steps}
             faktor={faktor}
             onWahl={(stufe) => zoomSetzen(stufe, true)}
           />

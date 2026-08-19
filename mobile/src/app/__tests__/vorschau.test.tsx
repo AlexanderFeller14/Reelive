@@ -87,10 +87,10 @@ jest.mock('expo-video', () => ({
 // Indirektion wegen derselben Hoisting-Falle wie bei den übrigen Mocks
 // dieser Datei (jest.mock wird vor die const-Deklaration gehoben, ein Zugriff
 // auf eine Variable mit dem Präfix `mock` ist davon ausgenommen).
-const mockNativVerwerfen = jest.fn();
-jest.mock('@/features/kamera/nativeAufnahme', () => ({
-  verwerfen: () => mockNativVerwerfen(),
-  SofortVorschau: (props: { testID?: string }) => {
+const mockNativeDiscard = jest.fn();
+jest.mock('@/features/camera/nativeCapture', () => ({
+  discard: () => mockNativeDiscard(),
+  InstantPreview: (props: { testID?: string }) => {
     const ReactActual = require('react');
     const { View } = require('react-native');
     return ReactActual.createElement(View, { testID: props.testID });
@@ -179,7 +179,7 @@ jest.mock('@/features/moments/counter', () => ({
   ownMomentCount: (tripId: string) => mockEigenerZaehler(tripId),
 }));
 
-import * as uebergabe from '@/features/kamera/uebergabe';
+import * as handoff from '@/features/camera/handoff';
 import type { VideoPlayer } from 'expo-video';
 import PreviewScreen from '../vorschau';
 
@@ -226,8 +226,8 @@ beforeEach(() => {
   // Leert den Holder zwischen den Tests: ohne Test-Foto läuft jeder
   // bestehende Foto-Test über den alten uri-Weg (foto === null), ohne
   // Test-Player jeder Video-Test über den eigenen Hook-Player.
-  uebergabe.abholen();
-  uebergabe.videoAbholen();
+  handoff.takePhoto();
+  handoff.takeVideo();
 });
 
 test('die Aufnahme erscheint sofort, ohne auf den Ort zu warten', async () => {
@@ -376,12 +376,12 @@ test('scheitert der Zählerabruf, läuft die Erfolgsanimation ohne Zahl', async 
 });
 
 // Gerätefund 2026-08-14: eine Übergabe ohne brauchbare uri (die iOS-Form von
-// savePictureAsync vor der Begradigung in uebergabe.ts) liess das Einsenden
+// savePictureAsync vor der Begradigung in handoff.ts) liess das Einsenden
 // KOMMENTARLOS abbrechen: kein Job, keine Meldung, der Screen stand einfach
 // da. Fehlt die Quelle, muss das sichtbar scheitern wie jeder Sendefehler.
 test('eine Übergabe ohne uri lässt das Einsenden sichtbar scheitern statt still', async () => {
   mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
-  uebergabe.uebergeben({ ref: {}, datei: Promise.resolve({}) } as never);
+  handoff.setPhoto({ ref: {}, file: Promise.resolve({}) } as never);
   await render(<PreviewScreen />);
 
   await act(async () => {
@@ -557,7 +557,7 @@ test('ein vorgewärmter Player aus der Übergabe geht direkt an die VideoView', 
   mockParams = { uri: 'file://video.mp4', typ: 'video', dauer: '12', tripId: 't1' };
   mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
   const player = vorgewaermterPlayer();
-  uebergabe.videoUebergeben({ art: 'player', player: player as unknown as VideoPlayer, poster: null });
+  handoff.setVideo({ kind: 'player', player: player as unknown as VideoPlayer, poster: null });
   await render(<PreviewScreen />);
 
   expect(screen.getByTestId('video-vorschau').props.player).toBe(player);
@@ -573,8 +573,8 @@ test('das Poster steht sofort über dem Video und weicht dem ersten gezeichneten
   mockParams = { uri: 'file://video.mp4', typ: 'video', dauer: '12', tripId: 't1' };
   mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
   const player = vorgewaermterPlayer();
-  uebergabe.videoUebergeben({
-    art: 'player',
+  handoff.setVideo({
+    kind: 'player',
     player: player as unknown as VideoPlayer,
     poster: 'file://poster.jpg',
   });
@@ -592,8 +592,8 @@ test('der übernommene Player wird beim Verlassen freigegeben, das Poster aufger
   mockParams = { uri: 'file://video.mp4', typ: 'video', dauer: '12', tripId: 't1' };
   mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
   const player = vorgewaermterPlayer();
-  uebergabe.videoUebergeben({
-    art: 'player',
+  handoff.setVideo({
+    kind: 'player',
     player: player as unknown as VideoPlayer,
     poster: 'file://poster.jpg',
   });
@@ -611,7 +611,7 @@ test('auch der übernommene Player wird bei einer Fremd-Pause weitergespielt', a
   mockParams = { uri: 'file://video.mp4', typ: 'video', dauer: '12', tripId: 't1' };
   mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
   const player = vorgewaermterPlayer();
-  uebergabe.videoUebergeben({ art: 'player', player: player as unknown as VideoPlayer, poster: null });
+  handoff.setVideo({ kind: 'player', player: player as unknown as VideoPlayer, poster: null });
   await render(<PreviewScreen />);
 
   const aufruf = player.addListener.mock.calls.find(([ereignis]) => ereignis === 'playingChange');
@@ -629,7 +629,7 @@ test('auch der übernommene Player wird bei einer Fremd-Pause weitergespielt', a
 test('eine native Übergabe zeigt die SofortVorschau statt der VideoView', async () => {
   mockParams = { uri: 'file://nativ.mov', typ: 'video', dauer: '3', tripId: 't1' };
   mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
-  uebergabe.videoUebergeben({ art: 'nativ', dateiFertig: Promise.resolve() });
+  handoff.setVideo({ kind: 'native', fileReady: Promise.resolve() });
   await render(<PreviewScreen />);
   expect(screen.getByTestId('sofort-vorschau')).toBeTruthy();
   expect(screen.queryByTestId('video-vorschau')).toBeNull();
@@ -639,9 +639,9 @@ test('Einsenden wartet bei nativer Übergabe auf dateiFertig', async () => {
   mockParams = { uri: 'file://nativ.mov', typ: 'video', dauer: '3', tripId: 't1' };
   mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
   let aufloesen: () => void = () => {};
-  uebergabe.videoUebergeben({
-    art: 'nativ',
-    dateiFertig: new Promise((r) => {
+  handoff.setVideo({
+    kind: 'native',
+    fileReady: new Promise((r) => {
       aufloesen = r;
     }),
   });
@@ -660,7 +660,7 @@ test('Einsenden wartet bei nativer Übergabe auf dateiFertig', async () => {
 test('scheitert das Hintergrund-Schreiben, zeigt Einsenden den bestehenden Fehlerweg', async () => {
   mockParams = { uri: 'file://nativ.mov', typ: 'video', dauer: '3', tripId: 't1' };
   mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
-  uebergabe.videoUebergeben({ art: 'nativ', dateiFertig: Promise.reject(new Error('voll')) });
+  handoff.setVideo({ kind: 'native', fileReady: Promise.reject(new Error('voll')) });
   await render(<PreviewScreen />);
   await act(async () => {
     await fireEvent.press(screen.getByText('Einsenden'));
@@ -672,10 +672,10 @@ test('scheitert das Hintergrund-Schreiben, zeigt Einsenden den bestehenden Fehle
 test('Verwerfen räumt bei nativer Übergabe über das Modul', async () => {
   mockParams = { uri: 'file://nativ.mov', typ: 'video', dauer: '3', tripId: 't1' };
   mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
-  uebergabe.videoUebergeben({ art: 'nativ', dateiFertig: Promise.resolve() });
+  handoff.setVideo({ kind: 'native', fileReady: Promise.resolve() });
   await render(<PreviewScreen />);
   await fireEvent.press(screen.getByTestId('verwerfen-knopf'));
-  expect(mockNativVerwerfen).toHaveBeenCalled();
+  expect(mockNativeDiscard).toHaveBeenCalled();
   expect(mockDateiVerwerfen).not.toHaveBeenCalled();
 });
 
@@ -1135,7 +1135,7 @@ const fakeRef = { breite: 1920 } as never;
 
 test('ein übergebenes Foto wird aus dem Speicher angezeigt', async () => {
   mockParams = { typ: 'photo', dauer: '0', tripId: 't1' };
-  uebergabe.uebergeben({ ref: fakeRef, datei: Promise.resolve({ uri: 'file://gespeichert.jpg' }) });
+  handoff.setPhoto({ ref: fakeRef, file: Promise.resolve({ uri: 'file://gespeichert.jpg' }) });
   await render(<PreviewScreen />);
   expect(screen.getByTestId('foto-vorschau').props.source).toBe(fakeRef);
 });
@@ -1143,9 +1143,9 @@ test('ein übergebenes Foto wird aus dem Speicher angezeigt', async () => {
 test('Einsenden wartet auf die im Hintergrund gespeicherte Datei', async () => {
   mockParams = { typ: 'photo', dauer: '0', tripId: 't1' };
   let dateiAufloesen: (v: { uri: string }) => void = () => {};
-  uebergabe.uebergeben({
+  handoff.setPhoto({
     ref: fakeRef,
-    datei: new Promise((resolve) => {
+    file: new Promise((resolve) => {
       dateiAufloesen = resolve;
     }),
   });
@@ -1163,7 +1163,7 @@ test('Einsenden wartet auf die im Hintergrund gespeicherte Datei', async () => {
 
 test('scheitert das Hintergrund-Speichern, sagt es der bestehende Fehlerpfad', async () => {
   mockParams = { typ: 'photo', dauer: '0', tripId: 't1' };
-  uebergabe.uebergeben({ ref: fakeRef, datei: Promise.reject(new Error('voll')) });
+  handoff.setPhoto({ ref: fakeRef, file: Promise.reject(new Error('voll')) });
   await render(<PreviewScreen />);
   await fireEvent.press(screen.getByTestId('einsenden-knopf'));
   expect(
@@ -1176,7 +1176,7 @@ test('scheitert das Hintergrund-Speichern, sagt es der bestehende Fehlerpfad', a
 
 test('Verwerfen räumt auch die im Hintergrund entstandene Datei ab', async () => {
   mockParams = { typ: 'photo', dauer: '0', tripId: 't1' };
-  uebergabe.uebergeben({ ref: fakeRef, datei: Promise.resolve({ uri: 'file://gespeichert.jpg' }) });
+  handoff.setPhoto({ ref: fakeRef, file: Promise.resolve({ uri: 'file://gespeichert.jpg' }) });
   await render(<PreviewScreen />);
   await fireEvent.press(screen.getByTestId('verwerfen-knopf'));
   await waitFor(() => expect(mockDateiVerwerfen).toHaveBeenCalledWith('file://gespeichert.jpg'));
