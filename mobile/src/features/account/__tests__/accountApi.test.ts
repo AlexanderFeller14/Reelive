@@ -22,26 +22,26 @@ function httpError(status: number, body: unknown) {
 }
 
 describe('fetchDeletionCounts', () => {
-  // Field names stay as the konto-loeschen edge function's response
+  // Field names stay as the delete-account edge function's response
   // (Task-13 contract), see accountApi.ts.
   const counts: DeletionCounts = {
-    eigene_reisen: 3,
-    momente_in_eigenen_reisen: 128,
-    betroffene_personen: 5,
-    eigene_momente_anderswo: 2,
+    own_trips: 3,
+    moments_in_own_trips: 128,
+    affected_people: 5,
+    own_moments_elsewhere: 2,
   };
 
-  test('success: asks aktion=zahlen and returns the counts unchanged', async () => {
+  test('success: asks action=counts and returns the counts unchanged', async () => {
     mockInvoke.mockResolvedValue({ data: counts, error: null });
     const result = await fetchDeletionCounts();
-    expect(mockInvoke).toHaveBeenCalledWith('konto-loeschen', { body: { aktion: 'zahlen' } });
+    expect(mockInvoke).toHaveBeenCalledWith('delete-account', { body: { action: 'counts' } });
     expect(result).toEqual({ data: counts, error: null });
   });
 
   test('a functional error (plain text in the body) is passed through 1:1', async () => {
     mockInvoke.mockResolvedValue({
       data: null,
-      error: httpError(500, { fehler: 'Die Zahlen konnten nicht ermittelt werden.' }),
+      error: httpError(500, { error: 'Die Zahlen konnten nicht ermittelt werden.' }),
     });
     const result = await fetchDeletionCounts();
     expect(result.data).toBeNull();
@@ -59,8 +59,8 @@ describe('fetchDeletionCounts', () => {
   // pass as "loaded", that's exactly the precondition for "without loaded
   // counts, confirming must not be possible" in the dialog.
   test.each([
-    ['missing field', { eigene_reisen: 1, momente_in_eigenen_reisen: 1, betroffene_personen: 1 }],
-    ['wrong type', { ...counts, eigene_reisen: '3' }],
+    ['missing field', { own_trips: 1, moments_in_own_trips: 1, affected_people: 1 }],
+    ['wrong type', { ...counts, own_trips: '3' }],
     ['null', null],
   ])('a broken response (%s) returns data:null instead of guessed counts', async (_label, broken) => {
     mockInvoke.mockResolvedValue({ data: broken, error: null });
@@ -71,10 +71,10 @@ describe('fetchDeletionCounts', () => {
 });
 
 describe('deleteAccount', () => {
-  test('success: calls aktion=loeschen', async () => {
+  test('success: calls action=delete', async () => {
     mockInvoke.mockResolvedValue({ data: { ok: true }, error: null });
     const result = await deleteAccount();
-    expect(mockInvoke).toHaveBeenCalledWith('konto-loeschen', { body: { aktion: 'loeschen' } });
+    expect(mockInvoke).toHaveBeenCalledWith('delete-account', { body: { action: 'delete' } });
     expect(result).toEqual({ error: null });
   });
 
@@ -83,7 +83,7 @@ describe('deleteAccount', () => {
   // error, otherwise the UI would falsely show an error on an actual
   // success (lost response + retry).
   test('a 401 after the deletion attempt counts as success, not as an error', async () => {
-    mockInvoke.mockResolvedValue({ data: null, error: httpError(401, { fehler: 'Nicht angemeldet.' }) });
+    mockInvoke.mockResolvedValue({ data: null, error: httpError(401, { error: 'Nicht angemeldet.' }) });
     const result = await deleteAccount();
     expect(result).toEqual({ error: null });
   });
@@ -91,7 +91,7 @@ describe('deleteAccount', () => {
   test('another functional error (e.g. 500) stays a genuine error with plain text', async () => {
     mockInvoke.mockResolvedValue({
       data: null,
-      error: httpError(500, { fehler: 'Dein Konto konnte nicht vollständig gelöscht werden. Versuch es später noch einmal.' }),
+      error: httpError(500, { error: 'Dein Konto konnte nicht vollständig gelöscht werden. Versuch es später noch einmal.' }),
     });
     const result = await deleteAccount();
     expect(result.error).toBe('Dein Konto konnte nicht vollständig gelöscht werden. Versuch es später noch einmal.');
@@ -113,21 +113,21 @@ describe('deleteAccount', () => {
 describe('deletionSummaryText', () => {
   test('brief example verbatim: "3 Reisen mit insgesamt 128 Momenten von 5 Personen"', () => {
     const text = deletionSummaryText({
-      eigene_reisen: 3, momente_in_eigenen_reisen: 128, betroffene_personen: 5, eigene_momente_anderswo: 0,
+      own_trips: 3, moments_in_own_trips: 128, affected_people: 5, own_moments_elsewhere: 0,
     });
     expect(text).toContain('3 Reisen mit insgesamt 128 Momenten von 5 Personen');
   });
 
   test('singular for exactly one trip/one moment/one person', () => {
     const text = deletionSummaryText({
-      eigene_reisen: 1, momente_in_eigenen_reisen: 1, betroffene_personen: 1, eigene_momente_anderswo: 0,
+      own_trips: 1, moments_in_own_trips: 1, affected_people: 1, own_moments_elsewhere: 0,
     });
     expect(text).toContain('1 Reise mit insgesamt 1 Moment von 1 Person verschwindet');
   });
 
   test('own moments in other trips are named ADDITIONALLY, even without own trips', () => {
     const text = deletionSummaryText({
-      eigene_reisen: 0, momente_in_eigenen_reisen: 0, betroffene_personen: 0, eigene_momente_anderswo: 4,
+      own_trips: 0, moments_in_own_trips: 0, affected_people: 0, own_moments_elsewhere: 4,
     });
     expect(text).toContain('4 Momente in fremden Reisen');
     expect(text).not.toContain('Reisen mit insgesamt');
@@ -135,14 +135,14 @@ describe('deletionSummaryText', () => {
 
   test('singular for a single moment elsewhere', () => {
     const text = deletionSummaryText({
-      eigene_reisen: 0, momente_in_eigenen_reisen: 0, betroffene_personen: 0, eigene_momente_anderswo: 1,
+      own_trips: 0, moments_in_own_trips: 0, affected_people: 0, own_moments_elsewhere: 1,
     });
     expect(text).toContain('dein Moment in einer fremden Reise');
   });
 
   test('both sentences together, when both apply', () => {
     const text = deletionSummaryText({
-      eigene_reisen: 2, momente_in_eigenen_reisen: 40, betroffene_personen: 3, eigene_momente_anderswo: 5,
+      own_trips: 2, moments_in_own_trips: 40, affected_people: 3, own_moments_elsewhere: 5,
     });
     expect(text).toContain('2 Reisen mit insgesamt 40 Momenten von 3 Personen');
     expect(text).toContain('5 Momente in fremden Reisen');
@@ -150,7 +150,7 @@ describe('deletionSummaryText', () => {
 
   test('without own trips and without moments elsewhere, a true, non-empty sentence remains', () => {
     const text = deletionSummaryText({
-      eigene_reisen: 0, momente_in_eigenen_reisen: 0, betroffene_personen: 0, eigene_momente_anderswo: 0,
+      own_trips: 0, moments_in_own_trips: 0, affected_people: 0, own_moments_elsewhere: 0,
     });
     expect(text.length).toBeGreaterThan(0);
     expect(text).not.toContain('undefined');

@@ -6,12 +6,12 @@
 //
 //   1. None of these files reaches a table via `supabase.from(...)` or
 //      `supabase.rpc(...)` (neither reading nor writing, the web player needs
-//      that nowhere, share-link/aufloesen runs entirely through the edge
+//      that nowhere, share-link/resolve runs entirely through the edge
 //      function).
 //   2. None of these files calls `supabase.auth.*` (no login path).
 //   3. The ONLY `functions.invoke(...)` call in the whole graph sits in
-//      shareApi.ts, calls nothing but 'share-link', and the only `aktion` used
-//      there is 'aufloesen'.
+//      shareApi.ts, calls nothing but 'share-link', and the only `action` used
+//      there is 'resolve'.
 //
 // Unlike a mocked render test this stays true even when the screen is never
 // actually mounted or interacted with, it is a property of the CODE (which
@@ -131,9 +131,9 @@ describe('W4: the web player can write nothing (module graph proof)', () => {
     expect(hits).toEqual([]);
   });
 
-  test('the only functions.invoke() call in the whole graph sits in shareApi.ts and calls nothing but "share-link" with aktion "aufloesen"', () => {
+  test('the only functions.invoke() call in the whole graph sits in shareApi.ts and calls nothing but "share-link" with action "resolve"', () => {
     const INVOKE_RE = /functions\s*\.\s*invoke\s*\(\s*['"]([^'"]+)['"]/g;
-    const ACTION_RE = /aktion:\s*['"]([^'"]+)['"]/g;
+    const ACTION_RE = /action:\s*['"]([^'"]+)['"]/g;
     const filesWithInvoke: string[] = [];
     const functionNames = new Set<string>();
     const actions = new Set<string>();
@@ -155,6 +155,6 @@ describe('W4: the web player can write nothing (module graph proof)', () => {
     expect(filesWithInvoke).toHaveLength(1);
     expect(filesWithInvoke[0].endsWith(path.join('sharing', 'shareApi.ts'))).toBe(true);
     expect([...functionNames]).toEqual(['share-link']);
-    expect([...actions]).toEqual(['aufloesen']);
+    expect([...actions]).toEqual(['resolve']);
   });
 });

@@ -155,7 +155,7 @@ export async function setzeAvatar(
     console.error('[avatarApi] avatar_key setzen fehlgeschlagen', error);
     // Das frische Objekt liegt schon im Speicher, die Spalte kennt es aber
     // nicht. Wegräumen, sonst bleibt es für immer, ohne dass jemand seinen
-    // Pfad noch kennt (dieselbe Überlegung wie in konto-loeschen/ablauf.ts).
+    // Pfad noch kennt (dieselbe Überlegung wie in delete-account/process.ts).
     await altesWegraeumen(schluessel);
     return {
       avatarKey: null,

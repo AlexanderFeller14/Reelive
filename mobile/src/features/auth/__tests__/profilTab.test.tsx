@@ -79,7 +79,7 @@ const mockDeleteAccount = jest.fn();
 jest.mock('@/features/account/accountApi', () => ({
   fetchDeletionCounts: () => mockFetchDeletionCounts(),
   deleteAccount: () => mockDeleteAccount(),
-  deletionSummaryText: (z: { eigene_reisen: number }) => `ZAHLEN-TEXT (${z.eigene_reisen} Reisen)`,
+  deletionSummaryText: (z: { own_trips: number }) => `ZAHLEN-TEXT (${z.own_trips} Reisen)`,
 }));
 
 // Task 10: der WLAN-Schalter liest/schreibt über das Einstellungen-Modul.
@@ -477,11 +477,11 @@ describe('Anzeigename ändern', () => {
 // Task 9: Konto-Löschung. Fixzahlen, deckungsgleich mit dem Brief-Beispiel
 // ("3 Reisen mit insgesamt 128 Momenten von 5 Personen").
 const COUNTS_OK = {
-  data: { eigene_reisen: 3, momente_in_eigenen_reisen: 128, betroffene_personen: 5, eigene_momente_anderswo: 0 },
+  data: { own_trips: 3, moments_in_own_trips: 128, affected_people: 5, own_moments_elsewhere: 0 },
   error: null,
 };
 const EMPTY_COUNTS = {
-  data: { eigene_reisen: 0, momente_in_eigenen_reisen: 0, betroffene_personen: 0, eigene_momente_anderswo: 0 },
+  data: { own_trips: 0, moments_in_own_trips: 0, affected_people: 0, own_moments_elsewhere: 0 },
   error: null,
 };
 

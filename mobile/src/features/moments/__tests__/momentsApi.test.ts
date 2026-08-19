@@ -124,7 +124,7 @@ describe('signedUrls logs the Function’s plain text', () => {
       data: null,
       error: Object.assign(new Error('http'), {
         name: 'FunctionsHttpError',
-        context: new Response(JSON.stringify({ fehler: 'Reise ist bereits aufgedeckt.' }), {
+        context: new Response(JSON.stringify({ error: 'Reise ist bereits aufgedeckt.' }), {
           status: 403,
         }),
       }),
@@ -156,7 +156,7 @@ describe('signedUrls logs the Function’s plain text', () => {
   });
 
   test('a response that is not a real Response still gets evaluated', async () => {
-    mockInvoke.mockResolvedValueOnce(responseWithoutClass(404, { fehler: 'Moment nicht gefunden.' }));
+    mockInvoke.mockResolvedValueOnce(responseWithoutClass(404, { error: 'Moment nicht gefunden.' }));
 
     const result = await signedUrls('p1');
 
@@ -171,7 +171,7 @@ describe('signedUrls logs the Function’s plain text', () => {
       data: null,
       error: Object.assign(new Error('http'), {
         name: 'FunctionsHttpError',
-        context: new Response(JSON.stringify({ fehler: 'Moment nicht gefunden.' }), { status: 404 }),
+        context: new Response(JSON.stringify({ error: 'Moment nicht gefunden.' }), { status: 404 }),
       }),
     });
 
@@ -183,7 +183,7 @@ describe('signedUrls logs the Function’s plain text', () => {
       data: null,
       error: Object.assign(new Error('http'), {
         name: 'FunctionsHttpError',
-        context: new Response(JSON.stringify({ fehler: 'Server nicht konfiguriert.' }), {
+        context: new Response(JSON.stringify({ error: 'Server nicht konfiguriert.' }), {
           status: 500,
         }),
       }),
@@ -226,7 +226,7 @@ describe('confirmUpload', () => {
   });
 
   test('409 is reported as incomplete, with the Function’s plain text', async () => {
-    mockInvoke.mockResolvedValueOnce(httpError(409, { fehler: 'Upload ist noch nicht vollständig.' }));
+    mockInvoke.mockResolvedValueOnce(httpError(409, { error: 'Upload ist noch nicht vollständig.' }));
     const result = await confirmUpload('p1');
     expect(result.incomplete).toBe(true);
     expect(result.error).toBe('Upload ist noch nicht vollständig.');
@@ -242,7 +242,7 @@ describe('confirmUpload', () => {
         name: 'FunctionsHttpError',
         context: {
           status: 409,
-          json: async () => ({ fehler: 'Upload ist noch nicht vollständig.' }),
+          json: async () => ({ error: 'Upload ist noch nicht vollständig.' }),
         },
       }),
     });
@@ -267,7 +267,7 @@ describe('confirmUpload', () => {
   });
 
   test('every other HTTP error is NOT incomplete, the uploads stay done', async () => {
-    mockInvoke.mockResolvedValueOnce(httpError(500, { fehler: 'Bestätigen fehlgeschlagen.' }));
+    mockInvoke.mockResolvedValueOnce(httpError(500, { error: 'Bestätigen fehlgeschlagen.' }));
     const result = await confirmUpload('p1');
     expect(result.incomplete).toBe(false);
     expect(result.error).toBe('Bestätigen fehlgeschlagen.');

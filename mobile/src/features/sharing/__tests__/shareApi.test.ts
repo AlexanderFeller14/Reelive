@@ -40,37 +40,37 @@ const httpError = (status: number, body: unknown) => ({
 
 // Wire-shaped fixture (MediaEntry/ResolveResponse, Task-13 contract):
 // field names match the edge function's actual response byte for byte,
-// including `autor_name`/`autor_avatar_key`/`gueltig_bis`.
+// including `author_name`/`author_avatar_key`/`valid_until`.
 const validResponse = {
-  reise: { name: 'Lissabon Städtetrip', start_date: '2026-08-10', end_date: '2026-08-14' },
-  medien: [
+  trip: { name: 'Lissabon Städtetrip', start_date: '2026-08-10', end_date: '2026-08-14' },
+  media: [
     {
-      post_id: 'p1', autor_name: 'Lea', autor_avatar_key: 'profiles/u1/a.jpg', type: 'photo',
+      post_id: 'p1', author_name: 'Lea', author_avatar_key: 'profiles/u1/a.jpg', type: 'photo',
       captured_at: '2026-08-10T09:00:00.000Z',
       captured_tz: 'Europe/Zurich', place_name: 'Lissabon', caption: 'Schön hier',
       duration_s: null, lat: 38.7139, lng: -9.1301,
       medium_url: 'https://s3/p1', thumb_url: 'https://s3/p1-thumb',
     },
     {
-      post_id: 'p2', autor_name: 'Jonas', autor_avatar_key: null, type: 'video',
+      post_id: 'p2', author_name: 'Jonas', author_avatar_key: null, type: 'video',
       captured_at: '2026-08-10T10:00:00.000Z',
       captured_tz: 'Europe/Zurich', place_name: null, caption: null,
       duration_s: 8, lat: null, lng: null,
       medium_url: 'https://s3/p2', // no thumbnail: field missing entirely
     },
   ],
-  gueltig_bis: '2026-08-08T13:00:00.000Z',
-  ausgelassen: 2,
+  valid_until: '2026-08-08T13:00:00.000Z',
+  skipped: 2,
 };
 
 describe('resolveToken: success', () => {
-  test('calls the function with aktion "aufloesen" and the token, builds a SharedRecap', async () => {
+  test('calls the function with action "resolve" and the token, builds a SharedRecap', async () => {
     mockInvoke.mockResolvedValueOnce({ data: validResponse, error: null });
 
     const { data, error } = await resolveToken('tok123');
 
     expect(error).toBeNull();
-    expect(mockInvoke).toHaveBeenCalledWith('share-link', { body: { aktion: 'aufloesen', token: 'tok123' } });
+    expect(mockInvoke).toHaveBeenCalledWith('share-link', { body: { action: 'resolve', token: 'tok123' } });
     expect(data?.reise).toEqual({ name: 'Lissabon Städtetrip', start_date: '2026-08-10', end_date: '2026-08-14' });
     expect(data?.validUntil).toBe(Date.parse('2026-08-08T13:00:00.000Z'));
     expect(data?.medien).toHaveLength(2);
@@ -84,7 +84,7 @@ describe('resolveToken: success', () => {
   });
 
   // Task 10: the image KEY passes through unchanged, share-link never
-  // hands out a finished URL (see aufloesung.ts). avatarUrl() stays the
+  // hands out a finished URL (see resolution.ts). avatarUrl() stays the
   // only place in the system that knows the URL format, even for the
   // shared recap.
   test('authorAvatarKey passes through unchanged, including as null', async () => {
@@ -101,12 +101,12 @@ describe('resolveToken: success', () => {
   // else would build a URL onto a value that isn't a key at all.
   test.each([
     ['missing field', {}],
-    ['a number instead of a string', { autor_avatar_key: 42 }],
-  ])('an autor_avatar_key that is not a string (%s) becomes null', async (_name, broken) => {
+    ['a number instead of a string', { author_avatar_key: 42 }],
+  ])('an author_avatar_key that is not a string (%s) becomes null', async (_name, broken) => {
     mockInvoke.mockResolvedValueOnce({
       data: {
         ...validResponse,
-        medien: [{ ...validResponse.medien[0], autor_avatar_key: undefined, ...broken }],
+        media: [{ ...validResponse.media[0], author_avatar_key: undefined, ...broken }],
       },
       error: null,
     });
@@ -139,7 +139,7 @@ describe('resolveToken: success', () => {
     mockInvoke.mockResolvedValueOnce({
       data: {
         ...validResponse,
-        medien: [{ ...validResponse.medien[0], lat: undefined, lng: undefined, ...broken }],
+        media: [{ ...validResponse.media[0], lat: undefined, lng: undefined, ...broken }],
       },
       error: null,
     });
@@ -174,10 +174,10 @@ describe('resolveToken: success', () => {
   // out", the same state it was everywhere before this field existed.
   test.each([
     ['missing field', {}],
-    ['text instead of a number', { ausgelassen: 'zwei' }],
-    ['NaN', { ausgelassen: NaN }],
+    ['text instead of a number', { skipped: 'zwei' }],
+    ['NaN', { skipped: NaN }],
   ])('a response with %s counts as "nothing left out", not as an error', async (_name, broken) => {
-    const { ausgelassen: _drop, ...withoutField } = validResponse;
+    const { skipped: _drop, ...withoutField } = validResponse;
     mockInvoke.mockResolvedValueOnce({ data: { ...withoutField, ...broken }, error: null });
     const { data, error } = await resolveToken('tok123');
     expect(error).toBeNull();
@@ -185,7 +185,7 @@ describe('resolveToken: success', () => {
   });
 
   test('an empty reel returns a SharedRecap with an empty medien array, no error', async () => {
-    mockInvoke.mockResolvedValueOnce({ data: { ...validResponse, medien: [] }, error: null });
+    mockInvoke.mockResolvedValueOnce({ data: { ...validResponse, media: [] }, error: null });
     const { data, error } = await resolveToken('tok123');
     expect(error).toBeNull();
     expect(data?.medien).toEqual([]);
@@ -200,10 +200,10 @@ describe('resolveToken: rejection is byte-identical (Task-2 contract)', () => {
   // That's the guarantee that keeps the page in token.tsx from revealing
   // WHICH case applied.
   test.each([
-    [404, { fehler: 'Unbekannter Token.' }],
-    [410, { fehler: 'Dieser Link ist abgelaufen.' }],
-    [403, { fehler: 'Kein Zugriff.' }],
-    [400, { fehler: 'Token fehlt.' }],
+    [404, { error: 'Unbekannter Token.' }],
+    [410, { error: 'Dieser Link ist abgelaufen.' }],
+    [403, { error: 'Kein Zugriff.' }],
+    [400, { error: 'Token fehlt.' }],
   ])('status %s with function text %j still becomes "%s"', async (status, body) => {
     mockInvoke.mockResolvedValueOnce(httpError(status as number, body));
     const { data, error } = await resolveToken('tok123');
@@ -250,22 +250,22 @@ describe('resolveToken: offline is a DIFFERENT cause than a dead link', () => {
 });
 
 describe('resolveToken: a broken 200 response counts as a load error, not a crash', () => {
-  test('missing medien array', async () => {
-    mockInvoke.mockResolvedValueOnce({ data: { ...validResponse, medien: undefined }, error: null });
+  test('missing media array', async () => {
+    mockInvoke.mockResolvedValueOnce({ data: { ...validResponse, media: undefined }, error: null });
     const { data, error } = await resolveToken('tok123');
     expect(data).toBeNull();
     expect(error).toBe('Der Recap konnte nicht geladen werden. Probier es gleich nochmal.');
   });
 
-  test('unparsable gueltig_bis', async () => {
-    mockInvoke.mockResolvedValueOnce({ data: { ...validResponse, gueltig_bis: 'nicht-iso' }, error: null });
+  test('unparsable valid_until', async () => {
+    mockInvoke.mockResolvedValueOnce({ data: { ...validResponse, valid_until: 'nicht-iso' }, error: null });
     const { data, error } = await resolveToken('tok123');
     expect(data).toBeNull();
     expect(error).toBe('Der Recap konnte nicht geladen werden. Probier es gleich nochmal.');
   });
 
-  test('missing reise object', async () => {
-    mockInvoke.mockResolvedValueOnce({ data: { ...validResponse, reise: undefined }, error: null });
+  test('missing trip object', async () => {
+    mockInvoke.mockResolvedValueOnce({ data: { ...validResponse, trip: undefined }, error: null });
     const { data, error } = await resolveToken('tok123');
     expect(data).toBeNull();
     expect(error).toBe('Der Recap konnte nicht geladen werden. Probier es gleich nochmal.');
@@ -293,7 +293,7 @@ describe('W4: resolveToken touches only functions.invoke, never .from()/.rpc()/.
   });
 
   test('rejection case', async () => {
-    mockInvoke.mockResolvedValueOnce(httpError(404, { fehler: 'Unbekannter Token.' }));
+    mockInvoke.mockResolvedValueOnce(httpError(404, { error: 'Unbekannter Token.' }));
     await resolveToken('tok123');
     expect(mockInvoke).toHaveBeenCalledTimes(1);
     expect(mockFrom).not.toHaveBeenCalled();

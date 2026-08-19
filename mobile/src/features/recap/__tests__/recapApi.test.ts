@@ -179,7 +179,7 @@ describe('revealTrip', () => {
   });
 
   test('an HTTP error from the function is reported with its German plain text', async () => {
-    mockInvoke.mockResolvedValueOnce(httpError(403, { fehler: 'Nur wer die Reise angelegt hat, kann sie abschliessen.' }));
+    mockInvoke.mockResolvedValueOnce(httpError(403, { error: 'Nur wer die Reise angelegt hat, kann sie abschliessen.' }));
     const { revealed_at, error } = await revealTrip('t1');
     expect(revealed_at).toBeNull();
     expect(error).toBe('Nur wer die Reise angelegt hat, kann sie abschliessen.');

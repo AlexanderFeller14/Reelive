@@ -1,46 +1,46 @@
 // Setup type definitions for built-in Supabase Runtime APIs
 import '@supabase/functions-js/edge-runtime.d.ts';
 
-// reveal-trip, die EINZIGE Stelle, an der eine Reise je ihren Status
-// wechselt. `authenticated` hat auf `trips.status`/`revealed_at` gar kein
-// Spalten-Grant (supabase/migrations/20260803090200_membership_rls.sql),
-// diese Function ist deshalb kein zusätzlicher Weg neben einem Client-Update,
-// sondern der einzige, der existiert.
+// reveal-trip, the ONLY place a trip ever changes status. `authenticated`
+// has no column grant at all on `trips.status`/`revealed_at`
+// (supabase/migrations/20260803090200_membership_rls.sql), so this function
+// is not an additional path next to a client update, it is the only one
+// that exists.
 //
-// Aufbau und Fehlerformat spiegeln supabase/functions/media-urls/index.ts:
-// dieselben json()/fehler()-Helfer, Identität ausschliesslich aus dem
-// Authorization-Header (supabaseAdmin.auth.getUser(token)), nie aus dem Body.
+// Structure and error format mirror supabase/functions/media-urls/index.ts:
+// the same json()/errorResponse() helpers, identity exclusively from the
+// Authorization header (supabaseAdmin.auth.getUser(token)), never from the
+// body.
 //
-// Seit dem Phase-5-Abschluss-Review (diese Function hatte null automatisierte
-// Tests) ist der Inhalt auf zwei testbare Bausteine aufgeteilt:
-//   - reveal.ts: die reine Entscheidungs- und Versandlogik (Owner-Check,
-//     idempotente Antwort, Archiv-Konflikt, CAS-Update, Push nur im
-//     Gewinner-Zweig, Nachlesen im Verlierer-Zweig) über einer schmalen
-//     `RevealStore`-Schnittstelle, unit-testbar ohne Docker
+// Since the Phase 5 final review (this function had zero automated tests),
+// the content is split into two testable building blocks:
+//   - reveal.ts: the pure decision and send logic (owner check, idempotent
+//     response, archive conflict, CAS update, push only in the winner
+//     branch, follow-up read in the loser branch) over a narrow
+//     `RevealStore` interface, unit-testable with no Docker
 //     (reveal_test.ts).
-//   - revealStore.ts: der reale Adapter dieser Schnittstelle gegen
-//     supabaseAdmin, inklusive der zwei Abfragen, die kein Unit-Test
-//     ersetzen kann (CAS-Bedingung, Empfänger-Einschränkung bei der
-//     Token-Löschung), geprüft in revealStore_integration_test.ts direkt
-//     gegen den echten Stack, ohne Umweg über HTTP oder Expo.
-// Dieser Handler übersetzt nur noch HTTP: Methode, Konfiguration, Identität
-// aus dem JWT, Body-Parsing, das Ergebnis von `fuehreRevealAus` in eine
+//   - revealStore.ts: the real adapter for that interface against
+//     supabaseAdmin, including the two queries no unit test can replace
+//     (CAS condition, recipient restriction on token deletion), checked in
+//     revealStore_integration_test.ts directly against the real stack.
+// This handler now only translates HTTP: method, configuration, identity
+// from the JWT, body parsing, the result of `performReveal` into a
 // Response.
-import { sende } from './push.ts';
-import { fuehreRevealAus } from './reveal.ts';
-import { erstelleAdminClient, erstelleRevealStore } from './revealStore.ts';
-import { erstelleFehlermelder } from '../_shared/fehlermelder.ts';
+import { send } from './push.ts';
+import { performReveal } from './reveal.ts';
+import { createAdminClient, createRevealStore } from './revealStore.ts';
+import { createErrorReporter } from '../_shared/errorReporter.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
 
-// Spec §9 / Abschluss-Review Phase 6: ein schlanker Fehler-Melder über
-// `fetch`, ohne Paket (Begründung und Privacy-Regeln in
-// _shared/fehlermelder.ts). Ohne SENTRY_DSN ein vollständiger No-Op.
+// Spec §9 / Phase 6 final review: a thin error reporter over `fetch`, no
+// package (reasoning and privacy rules in _shared/errorReporter.ts). Without
+// SENTRY_DSN a complete no-op.
 const SENTRY_DSN = Deno.env.get('SENTRY_DSN') ?? '';
-const melde = erstelleFehlermelder(SENTRY_DSN, 'reveal-trip');
+const report = createErrorReporter(SENTRY_DSN, 'reveal-trip');
 
-type AnfrageBody = { trip_id?: unknown };
+type RequestBody = { trip_id?: unknown };
 
 function json(payload: unknown, status: number): Response {
   return new Response(JSON.stringify(payload), {
@@ -49,52 +49,52 @@ function json(payload: unknown, status: number): Response {
   });
 }
 
-// Fehlerantworten sind deutsche Klartexte für die App, nie rohe
-// Provider-Fehler (die landen nur im Server-Log via console.error).
-function fehler(nachricht: string, status: number): Response {
-  return json({ fehler: nachricht }, status);
+// Error responses are German plain text for the app, never a raw provider
+// error (those only end up in the server log via console.error).
+function errorResponse(message: string, status: number): Response {
+  return json({ error: message }, status);
 }
 
 Deno.serve(async (req: Request): Promise<Response> => {
   if (req.method !== 'POST') {
-    return fehler('Nur POST erlaubt.', 405);
+    return errorResponse('Nur POST erlaubt.', 405);
   }
 
   if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
     console.error('reveal-trip: SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY fehlen.');
-    await melde(new Error('reveal-trip: SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY fehlen.'));
-    return fehler('Server nicht konfiguriert.', 500);
+    await report(new Error('reveal-trip: SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY fehlen.'));
+    return errorResponse('Server nicht konfiguriert.', 500);
   }
 
-  const supabaseAdmin = erstelleAdminClient(SUPABASE_URL, SERVICE_ROLE_KEY);
+  const supabaseAdmin = createAdminClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
-  // Identität kommt ausschliesslich aus dem JWT im Authorization-Header,
-  // nie aus dem Body. Der Body enthält nur trip_id.
+  // Identity comes exclusively from the JWT in the Authorization header,
+  // never from the body. The body only contains trip_id.
   const authHeader = req.headers.get('Authorization') ?? '';
   const token = authHeader.replace(/^Bearer\s+/i, '').trim();
   if (!token) {
-    return fehler('Nicht angemeldet.', 401);
+    return errorResponse('Nicht angemeldet.', 401);
   }
 
   const { data: userData, error: userError } = await supabaseAdmin.auth.getUser(token);
   if (userError || !userData?.user) {
-    return fehler('Nicht angemeldet.', 401);
+    return errorResponse('Nicht angemeldet.', 401);
   }
-  const anfragendeId = userData.user.id;
+  const requestingUserId = userData.user.id;
 
-  let body: AnfrageBody;
+  let body: RequestBody;
   try {
     body = await req.json();
   } catch {
-    return fehler('Ungültige Anfrage.', 400);
+    return errorResponse('Ungültige Anfrage.', 400);
   }
 
   const tripId = body.trip_id;
   if (typeof tripId !== 'string' || tripId.length === 0) {
-    return fehler('trip_id fehlt.', 400);
+    return errorResponse('trip_id fehlt.', 400);
   }
 
-  const store = erstelleRevealStore(supabaseAdmin);
-  const ergebnis = await fuehreRevealAus(store, sende, tripId, anfragendeId, melde);
-  return json(ergebnis.body, ergebnis.status);
+  const store = createRevealStore(supabaseAdmin);
+  const result = await performReveal(store, send, tripId, requestingUserId, report);
+  return json(result.body, result.status);
 });

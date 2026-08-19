@@ -1,68 +1,69 @@
 // Setup type definitions for built-in Supabase Runtime APIs
 import '@supabase/functions-js/edge-runtime.d.ts';
 
-// share-link, der ZWEITE Leseweg auf Medien und der erste OHNE jede
-// Anmeldung. Drei Aktionen:
+// share-link, the SECOND read path onto media and the first with NO sign-in
+// at all. Three actions:
 //
-//   erstellen  (JWT, Owner)  → legt eine share_links-Zeile an
-//   widerrufen (JWT, Owner)  → setzt revoked = true
-//   aufloesen  (ohne JWT)    → gibt heraus, was ein Aussenstehender sehen darf
-//
-// ---------------------------------------------------------------------------
-// WARUM DIESE FUNCTION verify_jwt = false HAT, und was das nach sich zieht
-// ---------------------------------------------------------------------------
-// media-urls und reveal-trip stehen in supabase/config.toml mit
-// `verify_jwt = true`: Ohne gültiges, korrekt signiertes JWT erreicht ein
-// Aufruf sie gar nicht erst; das Gateway ist dort die erste von zwei Hürden.
-//
-// Hier geht das nicht. `aufloesen` ist der Weg, über den jemand OHNE Konto
-// einen geteilten Recap anschaut, kein JWT, kein Anon-Key, nichts (Spec §4,
-// W5: «Wer den Link hat, braucht kein Konto»). Das Gateway muss also
-// durchlassen, und damit fällt die erste Hürde für ALLE drei Aktionen weg,
-// nicht nur für die öffentliche.
-//
-// Daraus folgt zwingend: `erstellen` und `widerrufen` prüfen das JWT SELBST
-// (supabaseAdmin.auth.getUser unten). Bei den anderen beiden Functions ist
-// dieselbe Prüfung eine zweite Absicherung; hier ist sie die einzige. Wer sie
-// entfernt oder hinter eine Bedingung stellt, macht `erstellen` für jeden
-// Anonymen aufrufbar. Der Codepfad ist deshalb so gebaut, dass `aufloesen`
-// oben abzweigt und ALLES darunter unbedingt durch die Identitätsprüfung
-// läuft, nicht als if/else, in dem ein späterer Zweig sie versehentlich
-// umgeht.
+//   create  (JWT, owner)  -> creates a share_links row
+//   revoke  (JWT, owner)  -> sets revoked = true
+//   resolve (no JWT)      -> hands out what an outsider is allowed to see
 //
 // ---------------------------------------------------------------------------
-// Die Prüfkette von `aufloesen` liegt NICHT in dieser Datei
+// WHY THIS FUNCTION HAS verify_jwt = false, and what follows from that
 // ---------------------------------------------------------------------------
-// Sie steht in aufloesung.ts als reine Funktion, zusammen mit dem Blättern und
-// der Form der Antwort. Grund: ein Test mit `ignore: !stackBereit` ist auf
-// einer Maschine ohne Docker von einem bestandenen Test nicht zu
-// unterscheiden (der schwerste Befund des Phase-5-Reviews). Dieser Handler
-// übersetzt nur HTTP: Methode, CORS, Konfiguration, Body, Identität, und das
-// Ergebnis in eine Response.
+// media-urls and reveal-trip sit in supabase/config.toml with `verify_jwt =
+// true`: a call never even reaches them without a valid, correctly signed
+// JWT; the gateway is the first of two hurdles there.
 //
-// Ratenbegrenzung: Der Endpunkt ist öffentlich und nimmt einen 32-stelligen
-// Hex-Token (2^128 Möglichkeiten). Raten ist dadurch sinnlos; eine eigene
-// Begrenzung ist hier bewusst NICHT gebaut, sondern gehört beim ersten echten
-// Deployment vor die Function (Supabase/Cloudflare), Spec §5.1.
+// That does not work here. `resolve` is the path through which someone
+// WITHOUT an account views a shared recap, no JWT, no anon key, nothing
+// (Spec §4, W5: "whoever has the link needs no account"). So the gateway
+// has to let everything through, and that removes the first hurdle for ALL
+// three actions, not just the public one.
+//
+// It follows necessarily: `create` and `revoke` check the JWT THEMSELVES
+// (supabaseAdmin.auth.getUser below). For the other two functions the same
+// check is a second safeguard; here it is the only one. Whoever removes it
+// or puts it behind a condition makes `create` callable by anyone anonymous.
+// The code path is therefore built so `resolve` branches off at the top and
+// EVERYTHING below it runs through the identity check unconditionally, not
+// as an if/else where a later branch could accidentally bypass it.
+//
+// ---------------------------------------------------------------------------
+// The check chain of `resolve` does NOT live in this file
+// ---------------------------------------------------------------------------
+// It sits in resolution.ts as a pure function, together with the paging and
+// the shape of the response. Reason: a test with `ignore: !stackReady` is
+// indistinguishable from a passed test on a machine without Docker (the
+// heaviest finding of the Phase 5 review). This handler only translates
+// HTTP: method, CORS, configuration, body, identity, and the result into a
+// Response.
+//
+// Rate limiting: the endpoint is public and accepts a 32-character hex
+// token (2^128 possibilities). Rate limiting is therefore pointless; a
+// dedicated limiter is deliberately NOT built here, it belongs in front of
+// the function (Supabase/Cloudflare) once there is a first real deployment,
+// Spec §5.1.
 import { AwsClient } from 'npm:aws4fetch@1';
 import {
-  baueAufloesungsAntwort,
-  baueMedien,
-  beurteileToken,
-  LINK_ABLEHNUNG,
-  sammleMomente,
-  tokenLaengePlausibel,
-} from './aufloesung.ts';
-import { erstelleAdminClient, erstelleShareStore } from './store.ts';
-import { berechneAblauf, beurteileErstellen, beurteileWiderrufen } from './verwaltung.ts';
-import { erstelleFehlermelder } from '../_shared/fehlermelder.ts';
-// Der Versand-Baustein liegt bei reveal-trip, weil er dort entstanden ist und
-// nichts kennt ausser der Expo-Push-API. Ein zweiter waere eine zweite Stelle,
-// an der Blockgroesse, Fehlerverhalten und das Aufraeumen abgemeldeter Tokens
-// auseinanderlaufen koennten. Cross-Import zwischen Function-Ordnern ist im
-// Projekt etabliert (konto-loeschen/ablauf.ts zieht media-urls/keys.ts).
-import { sende } from '../reveal-trip/push.ts';
-import { versendeTeilenPush } from './benachrichtigung.ts';
+  buildResolveResponse,
+  buildMedia,
+  evaluateToken,
+  LINK_REJECTION,
+  collectMoments,
+  isTokenLengthPlausible,
+} from './resolution.ts';
+import { createAdminClient, createShareStore } from './store.ts';
+import { computeExpiry, evaluateCreate, evaluateRevoke } from './management.ts';
+import { createErrorReporter } from '../_shared/errorReporter.ts';
+// The send building block lives with reveal-trip, because it originated
+// there and knows nothing except the Expo push API. A second one would be a
+// second place where block size, error handling, and the cleanup of
+// deregistered tokens could drift apart. Cross-imports between function
+// folders are established in the project (delete-account/process.ts pulls in
+// media-urls/keys.ts).
+import { send } from '../reveal-trip/push.ts';
+import { sendSharePush } from './notification.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
@@ -72,41 +73,44 @@ const S3_BUCKET = Deno.env.get('S3_BUCKET') ?? '';
 const S3_ACCESS_KEY = Deno.env.get('S3_ACCESS_KEY') ?? '';
 const S3_SECRET_KEY = Deno.env.get('S3_SECRET_KEY') ?? '';
 
-// Spec §9 / Abschluss-Review Phase 6: ein schlanker Fehler-Melder über
-// `fetch`, ohne Paket (Begründung und Privacy-Regeln in
-// _shared/fehlermelder.ts). Ohne SENTRY_DSN ein vollständiger No-Op.
+// Spec §9 / Phase 6 final review: a thin error reporter over `fetch`, no
+// package (reasoning and privacy rules in _shared/errorReporter.ts). Without
+// SENTRY_DSN a complete no-op.
 const SENTRY_DSN = Deno.env.get('SENTRY_DSN') ?? '';
-const melde = erstelleFehlermelder(SENTRY_DSN, 'share-link');
+const report = createErrorReporter(SENTRY_DSN, 'share-link');
 
-// Basis des öffentlichen Web-Players (Route /share/[token], Plan Task 5).
-// Absichtlich ohne Standardwert: ein geratener Standard ergäbe eine Antwort,
-// die aussieht wie ein Link und keiner ist. Fehlt die Variable, sagt
-// `erstellen` das laut (500 + Log) statt einen falschen Link auszugeben.
-// Lokal in supabase/functions/.env, dokumentiert in .env.example.
+// Base of the public web player (route /share/[token], plan Task 5).
+// Deliberately with no default: a guessed default would produce a response
+// that looks like a link and is not one. If the variable is missing,
+// `create` says so loudly (500 + log) instead of handing out a broken link.
+// Local in supabase/functions/.env, documented in .env.example.
+//
+// Env var name TEILEN_BASIS_URL stays as written here deliberately: shared
+// Task-14 contract with the CRON_GEHEIMNIS rename, see task report.
 const SHARE_BASE_URL = (Deno.env.get('TEILEN_BASIS_URL') ?? '').replace(/\/$/, '');
 
-// Gültigkeit der ausgestellten Lese-URLs: eine Stunde, wie beim
-// Mitglieder-Leseweg (media-urls, LESE_URL_GUELTIGKEIT_SEKUNDEN). Eine Antwort
-// deckt eine ganze Filmrolle ab, der Player lädt vor, pausiert, springt
-// zurück. Nach Ablauf führt der einzige Weg zurück durch die Prüfkette dieser
-// Function, und die fragt revoked, expires_at und Reise-Status neu.
-const LESE_URL_GUELTIGKEIT_SEKUNDEN = 3600;
+// Validity of the issued read URLs: one hour, like the member read path
+// (media-urls, READ_URL_VALIDITY_SECONDS). One response covers an entire
+// film roll, the player preloads, pauses, jumps back. After expiry the only
+// way back leads through this function's check chain, which re-checks
+// revoked, expires_at, and trip status.
+const READ_URL_VALIDITY_SECONDS = 3600;
 
-type AnfrageBody = { aktion?: unknown; token?: unknown; trip_id?: unknown; gueltig_tage?: unknown };
+type RequestBody = { action?: unknown; token?: unknown; trip_id?: unknown; valid_days?: unknown };
 
-// CORS: Der öffentliche Web-Player läuft im Browser auf einer ANDEREN Herkunft
-// als die Supabase-Instanz, ohne diese Kopfzeilen scheitert `aufloesen` im
-// Browser am Preflight, obwohl die Function selbst korrekt antwortet. Die
-// anderen beiden Edge Functions brauchen das nicht: sie werden nur aus der
-// nativen App aufgerufen, für die es keine Same-Origin-Regel gibt.
+// CORS: the public web player runs in the browser on a DIFFERENT origin
+// than the Supabase instance, without these headers `resolve` would fail in
+// the browser at the preflight, even though the function itself responds
+// correctly. The other two Edge Functions do not need this: they are only
+// called from the native app, which has no same-origin rule.
 //
-// `*` ist hier richtig und nicht bequem: `aufloesen` ist per Entwurf für jede
-// Herkunft offen (der Token IST die Berechtigung). Es werden keine
-// Anmeldedaten mitgeschickt (kein Access-Control-Allow-Credentials, keine
-// Cookies), ein fremdes Skript kann damit nichts tun, was es nicht auch mit
-// einem eigenen Server-Request könnte. `erstellen`/`widerrufen` bekommen
-// dieselben Kopfzeilen: sie hängen an einem JWT im Authorization-Header, den
-// ein Browser über Herkunftsgrenzen hinweg niemals von selbst mitschickt.
+// `*` is correct here, not just convenient: `resolve` is open to any origin
+// by design (the token IS the authorization). No credentials are sent along
+// (no Access-Control-Allow-Credentials, no cookies), a foreign script can do
+// nothing with it that it could not also do with its own server request.
+// `create`/`revoke` get the same headers: they hang on a JWT in the
+// Authorization header, which a browser never sends along on its own across
+// origins.
 const CORS_HEADERS: Record<string, string> = {
   'access-control-allow-origin': '*',
   'access-control-allow-headers': 'authorization, apikey, content-type, x-client-info',
@@ -121,16 +125,16 @@ function json(payload: unknown, status: number): Response {
   });
 }
 
-// Fehlerantworten sind deutsche Klartexte für die App, nie rohe
-// Provider-Fehler (die landen nur im Server-Log via console.error).
-function fehler(nachricht: string, status: number): Response {
-  return json({ fehler: nachricht }, status);
+// Error responses are German plain text for the app, never a raw provider
+// error (those only end up in the server log via console.error).
+function errorResponse(message: string, status: number): Response {
+  return json({ error: message }, status);
 }
 
-// Die eine Ablehnung, die `aufloesen` nach aussen kennt. Vier Gründe, eine
-// Antwort, siehe LINK_ABLEHNUNG in aufloesung.ts.
-function linkAblehnung(): Response {
-  return fehler(LINK_ABLEHNUNG.nachricht, LINK_ABLEHNUNG.status);
+// The one rejection `resolve` shows to the outside. Four reasons, one
+// response, see LINK_REJECTION in resolution.ts.
+function linkRejection(): Response {
+  return errorResponse(LINK_REJECTION.message, LINK_REJECTION.status);
 }
 
 function s3Client(): AwsClient {
@@ -142,293 +146,294 @@ function s3Client(): AwsClient {
   });
 }
 
-function s3KonfigVollstaendig(): boolean {
+function s3ConfigComplete(): boolean {
   return Boolean(S3_ENDPOINT && S3_REGION && S3_BUCKET && S3_ACCESS_KEY && S3_SECRET_KEY);
 }
 
-// Die Methode ist Teil der Signatur: SigV4 setzt sie als erste Zeile des
-// Canonical Request. Eine hier erzeugte URL taugt darum nur zum GET, ein PUT
-// darauf scheitert mit SignatureDoesNotMatch. Für den öffentlichen Leseweg ist
-// das die Zusicherung, dass ein geteilter Link nie zum Überschreiben fremder
-// Momente umgewidmet werden kann.
+// The method is part of the signature: SigV4 puts it as the first line of
+// the canonical request. A URL created here is therefore only good for a
+// GET, a PUT against it fails with SignatureDoesNotMatch. For the public
+// read path that is the guarantee that a shared link can never be
+// repurposed to overwrite someone else's moments.
 async function presignedGetUrl(aws: AwsClient, key: string): Promise<string> {
   const url = new URL(`${S3_ENDPOINT}/${S3_BUCKET}/${key}`);
-  url.searchParams.set('X-Amz-Expires', String(LESE_URL_GUELTIGKEIT_SEKUNDEN));
+  url.searchParams.set('X-Amz-Expires', String(READ_URL_VALIDITY_SECONDS));
   const signed = await aws.sign(url.toString(), { method: 'GET', aws: { signQuery: true } });
   return signed.url;
 }
 
 Deno.serve(async (req: Request): Promise<Response> => {
-  // Preflight. Muss VOR der Methodenprüfung stehen, der Browser schickt
-  // OPTIONS, nicht POST.
+  // Preflight. Has to come BEFORE the method check, the browser sends
+  // OPTIONS, not POST.
   if (req.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: CORS_HEADERS });
   }
 
   if (req.method !== 'POST') {
-    return fehler('Nur POST erlaubt.', 405);
+    return errorResponse('Nur POST erlaubt.', 405);
   }
 
   if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
     console.error('share-link: SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY fehlen.');
-    await melde(new Error('share-link: SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY fehlen.'));
-    return fehler('Server nicht konfiguriert.', 500);
+    await report(new Error('share-link: SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY fehlen.'));
+    return errorResponse('Server nicht konfiguriert.', 500);
   }
 
-  const supabaseAdmin = erstelleAdminClient(SUPABASE_URL, SERVICE_ROLE_KEY);
-  const store = erstelleShareStore(supabaseAdmin);
+  const supabaseAdmin = createAdminClient(SUPABASE_URL, SERVICE_ROLE_KEY);
+  const store = createShareStore(supabaseAdmin);
 
-  let body: AnfrageBody;
+  let body: RequestBody;
   try {
     body = await req.json();
   } catch {
-    return fehler('Ungültige Anfrage.', 400);
+    return errorResponse('Ungültige Anfrage.', 400);
   }
 
-  const aktion = body.aktion;
+  const action = body.action;
 
   // =========================================================================
-  // aufloesen, OHNE JWT. Der einzige Zweig, der keinen Authorization-Header
-  // liest. Er zweigt hier ab, VOR jeder Identitätsprüfung, damit unten kein
-  // Pfad an ihr vorbeiführen kann.
+  // resolve, with NO JWT. The only branch that reads no Authorization
+  // header. It branches off here, BEFORE any identity check, so nothing
+  // below can bypass it.
   // =========================================================================
-  if (aktion === 'aufloesen') {
+  if (action === 'resolve') {
     const token = body.token;
-    // Ein fehlendes Feld ist ein Programmierfehler des Aufrufers, kein
-    // ungültiger Token, dafür darf es einen eigenen Text geben. Ein
-    // VORHANDENER, aber unsinniger Token bekommt dagegen LINK_ABLEHNUNG wie
-    // jeder unbekannte, sonst wäre die Formprüfung selbst ein Signal.
+    // A missing field is a caller programming error, not an invalid token,
+    // so it may get its own text. An EXISTING but nonsensical token, on the
+    // other hand, gets LINK_REJECTION like any unknown one, otherwise the
+    // shape check itself would be a signal.
     if (typeof token !== 'string' || token.length === 0) {
-      return fehler('token fehlt.', 400);
+      return errorResponse('token fehlt.', 400);
     }
-    if (!tokenLaengePlausibel(token)) {
-      return linkAblehnung();
-    }
-
-    const { zeile, reise, fehler: leseFehler } = await store.holeTokenMitReise(token);
-    if (leseFehler) {
-      console.error('share-link: share_links-Select fehlgeschlagen', leseFehler);
-      // Der Token selbst geht NICHT in den Bericht, er ist die Berechtigung
-      // für einen öffentlichen Recap, kein Diagnosewert (dieselbe Überlegung
-      // wie bei signierten S3-URLs im Kopfkommentar von fehlermelder.ts).
-      await melde(leseFehler);
-      // Bewusst KEIN 500 mit eigenem Text: ein Datenbankfehler beim
-      // Token-Lookup wäre sonst der einzige Weg, an dem sich ein Aufruf von
-      // einem anderen unterscheiden liesse. Er wird geloggt und nach aussen
-      // wie ein unbekannter Token behandelt.
-      return linkAblehnung();
+    if (!isTokenLengthPlausible(token)) {
+      return linkRejection();
     }
 
-    const urteil = beurteileToken(zeile, reise, new Date());
-    if (!urteil.erlaubt) {
-      return fehler(urteil.nachricht, urteil.status);
+    const { row, trip, error: readError } = await store.fetchTokenWithTrip(token);
+    if (readError) {
+      console.error('share-link: share_links-Select fehlgeschlagen', readError);
+      // The token itself does NOT go into the report, it is the
+      // authorization for a public recap, not a diagnostic value (same
+      // reasoning as with signed S3 URLs in the header comment of
+      // errorReporter.ts).
+      await report(readError);
+      // Deliberately NO 500 with its own text: a database error during the
+      // token lookup would otherwise be the only way a call could be told
+      // apart from any other. It gets logged and treated like an unknown
+      // token on the outside.
+      return linkRejection();
     }
-    // Sicher: beurteileToken liefert erlaubt:true nur, wenn beide nicht null
-    // waren (siehe dortige Zweige 1 und 4).
-    const tokenZeile = zeile!;
-    const reiseZeile = reise!;
 
-    if (!s3KonfigVollstaendig()) {
+    const verdict = evaluateToken(row, trip, new Date());
+    if (!verdict.allowed) {
+      return errorResponse(verdict.message, verdict.status);
+    }
+    // Safe: evaluateToken only returns allowed:true when neither was null
+    // (see its branches 1 and 4 there).
+    const tokenRow = row!;
+    const tripRow = trip!;
+
+    if (!s3ConfigComplete()) {
       console.error('share-link: S3-Umgebungsvariablen unvollständig.');
-      await melde(new Error('share-link: S3-Umgebungsvariablen unvollständig.'));
-      return fehler('Server nicht konfiguriert.', 500);
+      await report(new Error('share-link: S3-Umgebungsvariablen unvollständig.'));
+      return errorResponse('Server nicht konfiguriert.', 500);
     }
 
-    // trip_id kommt aus der TOKEN-ZEILE, nie aus dem Anfrage-Body. Darin
-    // steckt Versprechen W1: ein Share-Link zeigt nur die Reise, zu der er
-    // gehört. Der Body dieser Aktion trägt ausser dem Token gar nichts, was
-    // hier noch gelesen würde.
-    const tripId = tokenZeile.trip_id;
+    // trip_id comes from the TOKEN ROW, never from the request body. That
+    // is where promise W1 lives: a share link only shows the trip it
+    // belongs to. This action's body carries nothing else besides the token
+    // that would still be read here.
+    const tripId = tokenRow.trip_id;
 
-    const { zeilen, verloren, fehler: postsFehler } = await sammleMomente(
-      (von, mitZaehlung) => store.holeMomenteSeite(tripId, von, mitZaehlung),
+    const { rows, lost, error: postsError } = await collectMoments(
+      (from, withCount) => store.fetchMomentsPage(tripId, from, withCount),
     );
-    if (postsFehler) {
-      console.error('share-link: posts-Select fehlgeschlagen', postsFehler);
-      await melde(postsFehler, { trip_id: tripId });
-      return fehler('Momente konnten nicht geladen werden.', 500);
+    if (postsError) {
+      console.error('share-link: posts-Select fehlgeschlagen', postsError);
+      await report(postsError, { trip_id: tripId });
+      return errorResponse('Momente konnten nicht geladen werden.', 500);
     }
-    if (verloren > 0) {
+    if (lost > 0) {
       console.error('share-link: aufloesen hat weniger Momente eingesammelt als gezählt.', {
         trip_id: tripId,
-        verloren,
+        lost,
       });
-      await melde(new Error('share-link: aufloesen hat weniger Momente eingesammelt als gezählt.'), {
+      await report(new Error('share-link: aufloesen hat weniger Momente eingesammelt als gezählt.'), {
         trip_id: tripId,
-        verloren,
+        lost,
       });
     }
 
-    // gueltig_bis wird VOR dem Signieren gestempelt. Jede Signatur läuft ab
-    // ihrem eigenen X-Amz-Date, das nie früher liegt als dieser Moment, der
-    // Wert ist damit konservativ (nie später als die echte Ablaufzeit).
-    const gueltigBis = new Date(Date.now() + LESE_URL_GUELTIGKEIT_SEKUNDEN * 1000).toISOString();
+    // valid_until is stamped BEFORE signing. Every signature expires from
+    // its own X-Amz-Date, which is never earlier than this moment, so the
+    // value is conservative (never later than the real expiry).
+    const validUntil = new Date(Date.now() + READ_URL_VALIDITY_SECONDS * 1000).toISOString();
 
-    let medien;
-    let ausgelassen: number;
+    let media;
+    let skipped: number;
     try {
       const aws = s3Client();
-      const ergebnis = await baueMedien(tripId, zeilen, (key) => presignedGetUrl(aws, key));
-      medien = ergebnis.medien;
-      ausgelassen = ergebnis.ausgelassen + verloren;
-      // ergebnis.ausgelassen zählt NUR die storage_key-Abweichungen aus
-      // baueMedien (aufloesung.ts), getrennt von `verloren`
-      // (Paginierungsverlust, oben bereits eigens gemeldet). Ein
-      // storage_key-Abgleich, der nicht passt, ist ein potenzielles
-      // Tampering- oder Bug-Signal (siehe Kommentar in aufloesung.ts) und
-      // bleibt bewusst ein einzelner, aggregierter Bericht statt einem pro
-      // Moment.
-      if (ergebnis.ausgelassen > 0) {
-        await melde(
+      const result = await buildMedia(tripId, rows, (key) => presignedGetUrl(aws, key));
+      media = result.media;
+      skipped = result.skipped + lost;
+      // result.skipped counts ONLY the storage_key deviations from
+      // buildMedia (resolution.ts), separate from `lost` (paging loss,
+      // already reported separately above). A storage_key comparison that
+      // does not match is a potential tampering or bug signal (see comment
+      // in resolution.ts) and deliberately stays a single, aggregated
+      // report instead of one per moment.
+      if (result.skipped > 0) {
+        await report(
           new Error('share-link: öffentliche Momente wegen abweichendem Pfad ausgelassen.'),
-          { trip_id: tripId, anzahl: ergebnis.ausgelassen },
+          { trip_id: tripId, count: result.skipped },
         );
       }
     } catch (err) {
       console.error('share-link: Signieren der Lese-URLs fehlgeschlagen', err);
-      await melde(err, { trip_id: tripId });
-      return fehler('Signieren fehlgeschlagen.', 502);
+      await report(err, { trip_id: tripId });
+      return errorResponse('Signieren fehlgeschlagen.', 502);
     }
 
-    return json(baueAufloesungsAntwort(reiseZeile, medien, gueltigBis, ausgelassen), 200);
+    return json(buildResolveResponse(tripRow, media, validUntil, skipped), 200);
   }
 
   // =========================================================================
-  // Ab hier: nur mit Anmeldung. Weil verify_jwt = false ist, ist DIESE Prüfung
-  // die einzige, am Gateway kommt jeder durch. Sie steht deshalb VOR der
-  // Aktionsunterscheidung: ein neuer Zweig, den jemand später darunter
-  // einhängt, ist automatisch geschützt.
+  // From here on: sign-in required only. Because verify_jwt = false, THIS
+  // check is the only one, everyone gets through at the gateway. It
+  // therefore sits BEFORE the action switch: a new branch someone hangs
+  // underneath it later is automatically protected.
   // =========================================================================
   const authHeader = req.headers.get('Authorization') ?? '';
   const jwt = authHeader.replace(/^Bearer\s+/i, '').trim();
   if (!jwt) {
-    return fehler('Nicht angemeldet.', 401);
+    return errorResponse('Nicht angemeldet.', 401);
   }
 
-  // getUser ist die Autorität, nicht der Inhalt des Tokens: Es fragt GoTrue,
-  // ob dieses JWT zu einer echten Person gehört. Ein Anon- oder
-  // Service-Role-Schlüssel trägt kein `sub` und scheitert hier, obwohl beides
-  // syntaktisch gültige, korrekt signierte JWTs sind. Genau dieser Unterschied
-  // trägt die Function, seit das Gateway nicht mehr vorprüft.
+  // getUser is the authority, not the token's content: it asks GoTrue
+  // whether this JWT belongs to a real person. An anon or service-role key
+  // carries no `sub` and fails here, even though both are syntactically
+  // valid, correctly signed JWTs. This exact difference carries the
+  // function, now that the gateway no longer pre-checks.
   const { data: userData, error: userError } = await supabaseAdmin.auth.getUser(jwt);
   if (userError || !userData?.user) {
-    return fehler('Nicht angemeldet.', 401);
+    return errorResponse('Nicht angemeldet.', 401);
   }
-  const anfragendeId = userData.user.id;
+  const requestingUserId = userData.user.id;
 
   // -------------------------------------------------------------------------
-  // erstellen
+  // create
   // -------------------------------------------------------------------------
-  if (aktion === 'erstellen') {
+  if (action === 'create') {
     const tripId = body.trip_id;
     if (typeof tripId !== 'string' || tripId.length === 0) {
-      return fehler('trip_id fehlt.', 400);
+      return errorResponse('trip_id fehlt.', 400);
     }
 
-    const ablauf = berechneAblauf(body.gueltig_tage, new Date());
-    if (!ablauf.ok) {
-      return fehler(ablauf.nachricht, 400);
+    const expiry = computeExpiry(body.valid_days, new Date());
+    if (!expiry.ok) {
+      return errorResponse(expiry.message, 400);
     }
 
     if (!SHARE_BASE_URL) {
       console.error('share-link: TEILEN_BASIS_URL fehlt, ohne sie entsteht kein gültiger Link.');
-      await melde(new Error('share-link: TEILEN_BASIS_URL fehlt, ohne sie entsteht kein gültiger Link.'));
-      return fehler('Server nicht konfiguriert.', 500);
+      await report(new Error('share-link: TEILEN_BASIS_URL fehlt, ohne sie entsteht kein gültiger Link.'));
+      return errorResponse('Server nicht konfiguriert.', 500);
     }
 
-    const { data: trip, error: tripError } = await store.holeTripFuerErstellen(tripId);
+    const { data: trip, error: tripError } = await store.fetchTripForCreate(tripId);
     if (tripError) {
       console.error('share-link: trips-Select fehlgeschlagen', tripError);
-      await melde(tripError, { trip_id: tripId, user_id: anfragendeId });
-      return fehler('Reise konnte nicht geladen werden.', 500);
+      await report(tripError, { trip_id: tripId, user_id: requestingUserId });
+      return errorResponse('Reise konnte nicht geladen werden.', 500);
     }
-    // Die Service-Role schreibt an RLS vorbei (`rolbypassrls`),
-    // share_links_insert_owner (20260808130000) wird bei diesem Insert gar
-    // nicht ausgewertet. Und seit 20260808140000 hat `authenticated` überhaupt
-    // kein Schreibrecht mehr auf share_links: DIESE Prüfung ist die einzige,
-    // die «nur die Owner-Person, nur eine aufgedeckte Reise» noch erzwingt.
-    // Sie liegt deshalb als reine Funktion in verwaltung.ts und ist dort ohne
-    // Docker geprüft (verwaltung_test.ts), nicht nur im Integrationstest.
-    const erstellUrteil = beurteileErstellen(trip, anfragendeId);
-    if (!erstellUrteil.erlaubt) {
-      return fehler(erstellUrteil.nachricht, erstellUrteil.status);
+    // The service role writes past RLS (`rolbypassrls`),
+    // share_links_insert_owner (20260808130000) never gets evaluated for
+    // this insert at all. And since 20260808140000 `authenticated` no
+    // longer has any write right on share_links whatsoever: THIS check is
+    // the only one still enforcing "only the owner, only a revealed trip".
+    // It therefore lives as a pure function in management.ts and is checked
+    // there with no Docker (management_test.ts), not only in the
+    // integration test.
+    const createVerdict = evaluateCreate(trip, requestingUserId);
+    if (!createVerdict.allowed) {
+      return errorResponse(createVerdict.message, createVerdict.status);
     }
 
-    const { token, error: insertError } = await store.legeLinkAn(tripId, ablauf.expiresAt);
+    const { token, error: insertError } = await store.createLink(tripId, expiry.expiresAt);
     if (insertError || !token) {
       console.error('share-link: share_links-Insert fehlgeschlagen', insertError);
-      await melde(insertError, { trip_id: tripId, user_id: anfragendeId });
-      return fehler('Link konnte nicht erstellt werden.', 500);
+      await report(insertError, { trip_id: tripId, user_id: requestingUserId });
+      return errorResponse('Link konnte nicht erstellt werden.', 500);
     }
 
-    // Die Mitreisenden erfahren, dass ihr Recap jetzt hinter einer
-    // oeffentlichen URL steht, samt den Orten der Momente. NACH dem Insert,
-    // nie davor: eine Meldung ueber einen Link, den es nicht gibt, waere
-    // schlimmer als gar keine. Und mit `await`, damit der Edge-Runtime den
-    // Prozess nicht beendet, bevor der Versand hinausgeht; scheitern kann er
-    // nicht, `versendeTeilenPush` wirft nie (Begruendung dort).
-    await versendeTeilenPush(store, sende, erstellUrteil.daten, anfragendeId, 'erstellt');
+    // The fellow travellers learn that their recap now sits behind a public
+    // URL, places of the moments included. AFTER the insert, never before:
+    // a notification about a link that does not exist would be worse than
+    // none at all. And with `await`, so the edge runtime does not end the
+    // process before the send goes out; it cannot fail, `sendSharePush`
+    // never throws (reasoning there).
+    await sendSharePush(store, send, createVerdict.data, requestingUserId, 'created');
 
     return json({ token, url: `${SHARE_BASE_URL}/share/${token}` }, 200);
   }
 
   // -------------------------------------------------------------------------
-  // widerrufen
+  // revoke
   // -------------------------------------------------------------------------
-  if (aktion === 'widerrufen') {
+  if (action === 'revoke') {
     const token = body.token;
     if (typeof token !== 'string' || token.length === 0) {
-      return fehler('token fehlt.', 400);
+      return errorResponse('token fehlt.', 400);
     }
 
-    const { data: besitzer, error: leseFehler } = await store.holeTokenBesitzer(token);
-    if (leseFehler) {
-      console.error('share-link: share_links-Select für widerrufen fehlgeschlagen', leseFehler);
-      // Auch hier NICHT der Token selbst im Bericht, siehe die Begründung
-      // beim `aufloesen`-Zweig oben.
-      await melde(leseFehler, { user_id: anfragendeId });
-      return fehler('Link konnte nicht geladen werden.', 500);
+    const { data: owner, error: readError } = await store.fetchTokenOwner(token);
+    if (readError) {
+      console.error('share-link: share_links-Select für widerrufen fehlgeschlagen', readError);
+      // Here too the token itself does NOT go into the report, see the
+      // reasoning in the `resolve` branch above.
+      await report(readError, { user_id: requestingUserId });
+      return errorResponse('Link konnte nicht geladen werden.', 500);
     }
 
-    // EINE Antwort für «Token gibt es nicht» und «Token gehört jemand
-    // anderem», die Begründung und die gefrorene Konstante stehen in
-    // verwaltung.ts, geprüft ohne Docker in verwaltung_test.ts.
-    const widerrufUrteil = beurteileWiderrufen(besitzer, anfragendeId);
-    if (!widerrufUrteil.erlaubt) {
-      return fehler(widerrufUrteil.nachricht, widerrufUrteil.status);
+    // ONE response for "token does not exist" and "token belongs to someone
+    // else", the reasoning and the frozen constant sit in management.ts,
+    // checked with no Docker in management_test.ts.
+    const revokeVerdict = evaluateRevoke(owner, requestingUserId);
+    if (!revokeVerdict.allowed) {
+      return errorResponse(revokeVerdict.message, revokeVerdict.status);
     }
 
-    // Idempotent: ein zweiter Widerruf ist kein Fehler. Das Update setzt
-    // revoked = true, ob es vorher schon true war oder nicht, die App bekommt
-    // beide Male dieselbe Antwort. Ein Status-Kriterium gibt es bewusst
-    // nicht: widerrufen muss auf einer archivierten Reise genauso gehen.
-    const { error: updateError } = await store.widerrufeLink(token);
+    // Idempotent: a second revoke is not an error. The update sets revoked
+    // = true, whether it was already true before or not, the app gets the
+    // same response both times. Deliberately no status criterion: revoking
+    // has to work on an archived trip exactly the same.
+    const { error: updateError } = await store.revokeLink(token);
     if (updateError) {
       console.error('share-link: share_links-Update fehlgeschlagen', updateError);
-      await melde(updateError, { user_id: anfragendeId });
-      return fehler('Link konnte nicht widerrufen werden.', 500);
+      await report(updateError, { user_id: requestingUserId });
+      return errorResponse('Link konnte nicht widerrufen werden.', 500);
     }
 
-    // Die Entwarnung. Sie gehoert genauso dazu wie die Meldung beim Erstellen:
-    // wer erfahren hat, dass sein Recap geteilt ist, soll auch erfahren, dass
-    // er es nicht mehr ist, sonst bleibt eine Sorge stehen, die nicht mehr
-    // besteht.
+    // The all-clear. It belongs just as much as the notification when
+    // creating: whoever learned their recap was shared should also learn
+    // that it no longer is, otherwise a worry lingers that no longer
+    // applies.
     //
-    // Auch beim zweiten, idempotenten Widerruf. Der Alternative, nur beim
-    // ersten zu melden, fehlt die Grundlage: `widerrufeLink` setzt
-    // `revoked = true` ohne zu wissen, ob es vorher schon so war, und das
-    // nachzuruesten hiesse, den Weg fuer eine Meldung umzubauen, die im
-    // schlimmsten Fall zweimal dasselbe Richtige sagt.
-    await versendeTeilenPush(
+    // Also on the second, idempotent revoke. The alternative, notifying
+    // only on the first, lacks a foundation: `revokeLink` sets `revoked =
+    // true` with no knowledge of whether it already was, and retrofitting
+    // that would mean rebuilding the path for a notification that, in the
+    // worst case, says the same right thing twice.
+    await sendSharePush(
       store,
-      sende,
-      { id: widerrufUrteil.daten.trip_id, name: widerrufUrteil.daten.name },
-      anfragendeId,
-      'widerrufen',
+      send,
+      { id: revokeVerdict.data.trip_id, name: revokeVerdict.data.name },
+      requestingUserId,
+      'revoked',
     );
 
     return json({ ok: true }, 200);
   }
 
-  return fehler('Unbekannte Aktion.', 400);
+  return errorResponse('Unbekannte Aktion.', 400);
 });

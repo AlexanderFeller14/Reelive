@@ -100,15 +100,15 @@ describe('isSoonExpiring', () => {
 });
 
 describe('getPool', () => {
-  test('success: builds a post_id → URLs mapping, calls the function with aktion "lesen" and trip_id', async () => {
+  test('success: builds a post_id → URLs mapping, calls the function with action "read" and trip_id', async () => {
     mockInvoke.mockResolvedValueOnce({
       data: {
-        medien: [
+        media: [
           { post_id: 'p1', medium_url: 'https://s3/p1', thumb_url: 'https://s3/p1-thumb' },
           { post_id: 'p2', medium_url: 'https://s3/p2' }, // no thumbnail: field absent entirely
         ],
-        gueltig_bis: '2026-08-08T13:00:00.000Z',
-        ausgelassen: 1,
+        valid_until: '2026-08-08T13:00:00.000Z',
+        skipped: 1,
       },
       error: null,
     });
@@ -117,7 +117,7 @@ describe('getPool', () => {
 
     expect(error).toBeNull();
     expect(reason).toBeNull();
-    expect(mockInvoke).toHaveBeenCalledWith('media-urls', { body: { aktion: 'lesen', trip_id: 't1' } });
+    expect(mockInvoke).toHaveBeenCalledWith('media-urls', { body: { action: 'read', trip_id: 't1' } });
     expect(pool?.validUntil).toBe(Date.parse('2026-08-08T13:00:00.000Z'));
     expect(pool?.skipped).toBe(1);
     expect(pool?.urls.size).toBe(2);
@@ -136,7 +136,7 @@ describe('getPool', () => {
 
   test('an empty roll of film returns a pool with an empty mapping, no error', async () => {
     mockInvoke.mockResolvedValueOnce({
-      data: { medien: [], gueltig_bis: '2026-08-08T13:00:00.000Z', ausgelassen: 0 },
+      data: { media: [], valid_until: '2026-08-08T13:00:00.000Z', skipped: 0 },
       error: null,
     });
     const { pool, error } = await getPool('t1');
@@ -147,11 +147,11 @@ describe('getPool', () => {
 
   // isSoonExpiring has its own, independent NaN safety net (see above), this
   // test covers the earlier layer: getPool must not let an UNPARSABLE
-  // gueltig_bis quietly become a pool whose expiry can never again be
+  // valid_until quietly become a pool whose expiry can never again be
   // detected as "soon".
-  test('an unparsable gueltig_bis is treated as a failure, not as a pool with a broken expiry', async () => {
+  test('an unparsable valid_until is treated as a failure, not as a pool with a broken expiry', async () => {
     mockInvoke.mockResolvedValueOnce({
-      data: { medien: [], gueltig_bis: 'nicht-iso', ausgelassen: 0 },
+      data: { media: [], valid_until: 'nicht-iso', skipped: 0 },
       error: null,
     });
     const { pool, error } = await getPool('t1');
@@ -159,12 +159,12 @@ describe('getPool', () => {
     expect(error).toBe('Die Momente konnten nicht geladen werden. Probier es gleich nochmal.');
   });
 
-  // The Array.isArray check on `medien` must not become removable without a
+  // The Array.isArray check on `media` must not become removable without a
   // test noticing, without it the `for…of` would throw a TypeError in
   // production instead of returning an error message.
-  test('a response with a valid gueltig_bis but no medien array is treated as a failure, not a crash', async () => {
+  test('a response with a valid valid_until but no media array is treated as a failure, not a crash', async () => {
     mockInvoke.mockResolvedValueOnce({
-      data: { gueltig_bis: '2026-08-08T13:00:00.000Z', ausgelassen: 0 },
+      data: { valid_until: '2026-08-08T13:00:00.000Z', skipped: 0 },
       error: null,
     });
     await expect(getPool('t1')).resolves.toEqual({
@@ -178,9 +178,9 @@ describe('getPool', () => {
   // rolled out separately; a rollback or a swapped order in which the
   // function doesn't (yet) send the field must not turn "a hint text is
   // missing" into "the whole recap fails to load".
-  test('a response without ausgelassen is treated as 0, not as a load error', async () => {
+  test('a response without skipped is treated as 0, not as a load error', async () => {
     mockInvoke.mockResolvedValueOnce({
-      data: { medien: [], gueltig_bis: '2026-08-08T13:00:00.000Z' },
+      data: { media: [], valid_until: '2026-08-08T13:00:00.000Z' },
       error: null,
     });
     const { pool, error } = await getPool('t1');
@@ -190,13 +190,13 @@ describe('getPool', () => {
 
   // Counter-check to the test above: an ACTUALLY transmitted value (even 0)
   // still passes through unchanged, `?? 0` must not overwrite a real value;
-  // a mutant shortening `response.ausgelassen ?? 0` to `response.ausgelassen
+  // a mutant shortening `response.skipped ?? 0` to `response.skipped
   // || 0` would fail HERE, because 0 is already falsy and both forms behave
   // identically for 0, the actual difference only shows up with a present,
   // non-zero value like this one.
-  test('an actually transmitted ausgelassen value passes through unchanged', async () => {
+  test('an actually transmitted skipped value passes through unchanged', async () => {
     mockInvoke.mockResolvedValueOnce({
-      data: { medien: [], gueltig_bis: '2026-08-08T13:00:00.000Z', ausgelassen: 4 },
+      data: { media: [], valid_until: '2026-08-08T13:00:00.000Z', skipped: 4 },
       error: null,
     });
     const { pool, error } = await getPool('t1');
@@ -208,7 +208,7 @@ describe('getPool', () => {
   // membership revoked mid-recap) and must stay distinguishable BY MACHINE
   // (review finding, Important 2), not just via the displayed text.
   test('403 "Diese Reise ist noch versiegelt." passes through and is recognised as reason "versiegelt"', async () => {
-    mockInvoke.mockResolvedValueOnce(httpError(403, { fehler: 'Diese Reise ist noch versiegelt.' }));
+    mockInvoke.mockResolvedValueOnce(httpError(403, { error: 'Diese Reise ist noch versiegelt.' }));
     const { pool, error, reason } = await getPool('t1');
     expect(pool).toBeNull();
     expect(error).toBe('Diese Reise ist noch versiegelt.');
@@ -216,7 +216,7 @@ describe('getPool', () => {
   });
 
   test('403 "Kein Zugriff auf diese Reise." passes through and is recognised as reason "kein_zugriff", distinct from "versiegelt"', async () => {
-    mockInvoke.mockResolvedValueOnce(httpError(403, { fehler: 'Kein Zugriff auf diese Reise.' }));
+    mockInvoke.mockResolvedValueOnce(httpError(403, { error: 'Kein Zugriff auf diese Reise.' }));
     const { pool, error, reason } = await getPool('t1');
     expect(pool).toBeNull();
     expect(error).toBe('Kein Zugriff auf diese Reise.');
@@ -230,7 +230,7 @@ describe('getPool', () => {
   // genuine 403 responses would NOT notice a removed status check, this one
   // does: the same text at status 500 must not produce a reason.
   test('the same text at a status other than 403 produces no reason', async () => {
-    mockInvoke.mockResolvedValueOnce(httpError(500, { fehler: 'Diese Reise ist noch versiegelt.' }));
+    mockInvoke.mockResolvedValueOnce(httpError(500, { error: 'Diese Reise ist noch versiegelt.' }));
     const { pool, error, reason } = await getPool('t1');
     expect(pool).toBeNull();
     expect(reason).toBeNull();
@@ -246,7 +246,7 @@ describe('getPool', () => {
       data: null,
       error: Object.assign(new Error('http'), {
         name: 'IrgendeinAndererFehler',
-        context: new Response(JSON.stringify({ fehler: 'Diese Reise ist noch versiegelt.' }), { status: 403 }),
+        context: new Response(JSON.stringify({ error: 'Diese Reise ist noch versiegelt.' }), { status: 403 }),
       }),
     });
     const { pool, error, reason } = await getPool('t1');
@@ -273,7 +273,7 @@ describe('getPool', () => {
   });
 
   test('a 401/400/500/502 plain text from the function is NOT passed through, replaced by the generic message', async () => {
-    mockInvoke.mockResolvedValueOnce(httpError(401, { fehler: 'Nicht angemeldet.' }));
+    mockInvoke.mockResolvedValueOnce(httpError(401, { error: 'Nicht angemeldet.' }));
     const { error, reason } = await getPool('t1');
     expect(reason).toBeNull();
     expect(error).toBe('Die Momente konnten nicht geladen werden. Probier es gleich nochmal.');
@@ -315,8 +315,8 @@ describe('getPool', () => {
     expect(error).toBe('Die Momente konnten nicht geladen werden. Probier es gleich nochmal.');
   });
 
-  test('a response without gueltig_bis is treated as a failure', async () => {
-    mockInvoke.mockResolvedValueOnce({ data: { medien: [], ausgelassen: 0 }, error: null });
+  test('a response without valid_until is treated as a failure', async () => {
+    mockInvoke.mockResolvedValueOnce({ data: { media: [], skipped: 0 }, error: null });
     const { pool, error } = await getPool('t1');
     expect(pool).toBeNull();
     expect(error).toBe('Die Momente konnten nicht geladen werden. Probier es gleich nochmal.');

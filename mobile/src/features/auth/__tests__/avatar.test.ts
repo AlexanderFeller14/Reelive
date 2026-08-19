@@ -16,7 +16,7 @@ import { avatarUrl, newAvatarKey } from '../avatar';
 
 const UID = '11111111-2222-3333-4444-555555555555';
 
-// The prefix is not a matter of taste: konto-loeschen/index.ts allows
+// The prefix is not a matter of taste: delete-account/index.ts allows
 // exactly `profiles/<user_id>/` as its allowed prefix, and whatever does not
 // match that stays in storage forever on account deletion.
 test('the key lives in its own profiles folder', () => {

@@ -192,10 +192,10 @@ describe('removeMoment', () => {
   // error" would not have noticed that switch, so this states explicitly
   // that the client no longer touches the table itself.
   test('success: goes through the function, not through the table anymore', async () => {
-    mockInvoke.mockResolvedValue({ data: { entfernt: true }, error: null });
+    mockInvoke.mockResolvedValue({ data: { removed: true }, error: null });
     const result = await removeMoment('p1');
     expect(result).toEqual({ error: null });
-    expect(mockInvoke).toHaveBeenCalledWith('moment-entfernen', { body: { post_id: 'p1' } });
+    expect(mockInvoke).toHaveBeenCalledWith('remove-moment', { body: { post_id: 'p1' } });
     expect(mockFrom).not.toHaveBeenCalled();
   });
 
@@ -204,7 +204,7 @@ describe('removeMoment', () => {
   test('passes the function\'s plain text through unchanged', async () => {
     mockInvoke.mockResolvedValue({
       data: null,
-      error: httpError(403, { fehler: 'Dieser Moment lässt sich nicht entfernen.' }),
+      error: httpError(403, { error: 'Dieser Moment lässt sich nicht entfernen.' }),
     });
     const result = await removeMoment('p1');
     expect(result.error).toBe('Dieser Moment lässt sich nicht entfernen.');

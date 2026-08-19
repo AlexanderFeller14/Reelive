@@ -93,8 +93,8 @@ export async function revealTrip(
     const httpError = error as { name?: string; context?: unknown };
     if (httpError?.name === 'FunctionsHttpError' && httpError.context instanceof Response) {
       try {
-        const body = (await httpError.context.clone().json()) as { fehler?: string };
-        if (typeof body.fehler === 'string') return { revealed_at: null, error: body.fehler };
+        const body = (await httpError.context.clone().json()) as { error?: string };
+        if (typeof body.error === 'string') return { revealed_at: null, error: body.error };
       } catch {
         // Antwort war kein JSON, generische Meldung unten.
       }

@@ -1,59 +1,61 @@
-// Integrationstest für share-link, die zweite Schicht unter
-// aufloesung_test.ts, nie die einzige.
+// Integration test for share-link, the second layer under
+// resolution_test.ts, never the only one.
 //
-// Was hier und NUR hier belegt werden kann (alles andere steht in
-// aufloesung_test.ts und läuft ohne Docker):
-//   1. Der öffentliche Aufruf kommt OHNE JEDEN Header durch das Gateway,
-//      kein Authorization, kein apikey. Das ist die Zusicherung, die
-//      verify_jwt = false überhaupt erst nötig macht (Spec §4, W5).
-//   2. Die ausgestellten URLs zeigen auf echte Bytes: ein GET darauf gibt
-//      zurück, was hochgeladen wurde, mit X-Amz-Expires = 3600.
-//   3. Die SQL-Filter greifen wirklich: nur `upload_status = 'uploaded'`, nur
-//      Momente DIESER Reise (W1), sortiert nach captured_at/id.
-//   4. Widerrufen und Ablaufen liefern eine byte-gleiche Antwort zum
-//      unbekannten Token, hier gegen die echten HTTP-Bytes verglichen, nicht
-//      gegen ein TypeScript-Objekt (W2).
-//   5. Ein Link auf eine `active` Reise lässt sich weder anlegen noch (falls
-//      er per Service-Role doch entsteht) auflösen (W3, beide Hälften).
-//   6. `widerrufen` ist kein Orakel: ein fremder Token und ein nicht
-//      existierender liefern dieselbe Antwort.
-//   7. Die Antwort enthält nirgends author_id, invite_code oder owner_id,
-//      geprüft am rohen Antworttext, inklusive der echten UUID-Werte. Die
-//      UUID-Hälfte davon hängt seit dem Profilbild-Feature (2026-08-12) an der
-//      Fixture: hätte Lea ein Profilbild, stünde ihre uid als Teil von
-//      `autor_avatar_key` (`profiles/<author_id>/<32 hex>.jpg`) im Text. Das
-//      ist bewusst so akzeptiert, siehe die Stelle selbst.
-//   8. Das Blättern über die max_rows-Grenze gegen echtes PostgREST.
+// What can be proven here and ONLY here (everything else lives in
+// resolution_test.ts and runs with no Docker):
+//   1. The public call gets through the gateway with NO HEADERS AT ALL, no
+//      Authorization, no apikey. That is the guarantee that makes verify_jwt
+//      = false necessary in the first place (Spec §4, W5).
+//   2. The issued URLs point at real bytes: a GET against them returns what
+//      was uploaded, with X-Amz-Expires = 3600.
+//   3. The SQL filters really apply: only `upload_status = 'uploaded'`, only
+//      moments of THIS trip (W1), sorted by captured_at/id.
+//   4. Revoking and expiring produce a byte-identical response to an
+//      unknown token, compared here against the real HTTP bytes, not
+//      against a TypeScript object (W2).
+//   5. A link for an `active` trip can neither be created nor (should it
+//      come into being via the service role anyway) resolved (W3, both
+//      halves).
+//   6. `revoke` is no oracle: a foreign token and a non-existent one return
+//      the same response.
+//   7. The response nowhere contains author_id, invite_code, or owner_id,
+//      checked against the raw response text, including the real UUID
+//      values. The UUID half of that has been tied to the fixture since the
+//      profile picture feature (2026-08-12): had Lea a profile picture, her
+//      uid would sit as part of `author_avatar_key`
+//      (`profiles/<author_id>/<32 hex>.jpg`) in the response text. That is
+//      accepted deliberately, see the place itself.
+//   8. Paging past the max_rows boundary against real PostgREST.
 //
-// Ausführen (Terminal 1 offen lassen):
+// To run (leave terminal 1 open):
 //   supabase functions serve --env-file supabase/functions/.env
-// dann in Terminal 2:
+// then in terminal 2:
 //   cd supabase/functions/share-link
 //   npx deno test --allow-net --allow-run=supabase share_link_integration_test.ts
 //
-// Ohne laufenden Stack überspringt sich der Test mit einer Log-Zeile, statt
-// einen Rechner ohne Docker rot zu färben. Das ist hier vertretbar, WEIL die
-// eigentlichen Sicherheitszusicherungen (byte-gleiche Ablehnungen, Form der
-// Antwort, Ableitung der Schlüssel, Blättern) zusätzlich in aufloesung_test.ts
-// stehen und dort immer laufen.
+// Without a running stack the test skips itself with a log line, instead of
+// turning a machine with no Docker red. That is defensible here, BECAUSE the
+// actual security guarantees (byte-identical rejections, response shape,
+// key derivation, paging) additionally live in resolution_test.ts and always
+// run there.
 //
-// SHARE_LINK_URL zeigt den Test auf eine woanders servierte Function (dann
-// zusätzlich --allow-env).
+// SHARE_LINK_URL points the test at a function served elsewhere (then also
+// needs --allow-env).
 
 import { assert, assertEquals, assertFalse } from 'jsr:@std/assert';
-import { erwarteteSchluessel } from '../media-urls/keys.ts';
+import { expectedKeys } from '../media-urls/keys.ts';
 
-// seed.sql-Konten: Lea ist Owner der Testreisen. Ben hat eine auth.users-Zeile,
-// aber KEIN Profil, er kann sich anmelden und ist damit genau der «irgendein
-// angemeldeter Fremder», den es hier braucht; als Autor eines Moments taugt er
-// nicht (posts.author_id verweist auf profiles). Dafür Sofia: ein echtes
-// Profil, das in keiner der Testreisen Mitglied ist.
+// seed.sql accounts: Lea owns the test trips. Ben has an auth.users row but
+// NO profile, he can sign in and is therefore exactly the "some signed-in
+// outsider" needed here; he does not work as a moment's author (posts.author_id
+// references profiles). Sofia is used for that instead: a real profile that
+// is not a member of any of the test trips.
 const LEA_ID = '11111111-1111-4111-8111-111111111111';
 const BEN_ID = '22222222-2222-4222-8222-222222222222';
 const SOFIA_ID = '55555555-5555-4555-8555-555555555555';
 const BUCKET = 'media';
-const MEDIUM_INHALT = 'echte-jpeg-bytes-fuer-den-share-link-test';
-const THUMB_INHALT = 'echte-thumb-bytes-fuer-den-share-link-test';
+const MEDIUM_CONTENT = 'echte-jpeg-bytes-fuer-den-share-link-test';
+const THUMB_CONTENT = 'echte-thumb-bytes-fuer-den-share-link-test';
 
 function b64url(bytes: Uint8Array): string {
   let bin = '';
@@ -81,7 +83,7 @@ async function mintJwt(secret: string, userId: string): Promise<string> {
   return `${data}.${b64url(sig)}`;
 }
 
-// Werte NIE hier fest eintippen: sie unterscheiden sich pro Projekt/Rechner.
+// NEVER hardcode values here: they differ per project/machine.
 async function supabaseStatusEnv(): Promise<Record<string, string> | null> {
   try {
     const cmd = new Deno.Command('supabase', { args: ['status', '-o', 'env'], stdout: 'piped', stderr: 'null' });
@@ -99,7 +101,7 @@ async function supabaseStatusEnv(): Promise<Record<string, string> | null> {
   }
 }
 
-function envOderNull(name: string): string | null {
+function envOrNull(name: string): string | null {
   try {
     return Deno.env.get(name) ?? null;
   } catch {
@@ -107,18 +109,19 @@ function envOderNull(name: string): string | null {
   }
 }
 
-async function functionErreichbar(url: string): Promise<boolean> {
+async function functionReachable(url: string): Promise<boolean> {
   try {
-    // Bewusst ohne apikey: Wenn schon der Erreichbarkeits-Check ohne jeden
-    // Header durchkommt, ist damit gleich die erste Zusicherung angetestet.
+    // Deliberately with no apikey: if even the reachability check gets
+    // through with no header at all, that already tests the first
+    // guarantee.
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: '{}',
       signal: AbortSignal.timeout(3000),
     });
-    const daten = await res.json().catch(() => null);
-    return Boolean(daten && typeof daten === 'object' && 'fehler' in daten);
+    const data = await res.json().catch(() => null);
+    return Boolean(data && typeof data === 'object' && 'error' in data);
   } catch {
     return false;
   }
@@ -129,17 +132,17 @@ const SUPABASE_URL = statusEnv?.API_URL ?? 'http://127.0.0.1:54321';
 const ANON_KEY = statusEnv?.ANON_KEY ?? '';
 const SERVICE_ROLE_KEY = statusEnv?.SERVICE_ROLE_KEY ?? '';
 const JWT_SECRET = statusEnv?.JWT_SECRET ?? '';
-const FUNCTION_URL = envOderNull('SHARE_LINK_URL') ?? `${SUPABASE_URL}/functions/v1/share-link`;
+const FUNCTION_URL = envOrNull('SHARE_LINK_URL') ?? `${SUPABASE_URL}/functions/v1/share-link`;
 
-const stackBereit = Boolean(
-  statusEnv && ANON_KEY && SERVICE_ROLE_KEY && JWT_SECRET && (await functionErreichbar(FUNCTION_URL)),
+const stackReady = Boolean(
+  statusEnv && ANON_KEY && SERVICE_ROLE_KEY && JWT_SECRET && (await functionReachable(FUNCTION_URL)),
 );
 
-if (!stackBereit) {
+if (!stackReady) {
   console.warn(
     'share_link_integration_test: übersprungen, braucht `supabase start` UND ' +
       '`supabase functions serve --env-file supabase/functions/.env` in einem zweiten Terminal. ' +
-      'Die Sicherheitszusicherungen der Prüfkette laufen ohne Stack in aufloesung_test.ts.',
+      'Die Sicherheitszusicherungen der Prüfkette laufen ohne Stack in resolution_test.ts.',
   );
 }
 
@@ -152,43 +155,43 @@ function restHeaders(extra?: Record<string, string>): Record<string, string> {
   };
 }
 
-async function erwarteJson(res: Response, erwarteterStatus: number): Promise<unknown> {
+async function expectJson(res: Response, expectedStatus: number): Promise<unknown> {
   const text = await res.text();
-  assertEquals(res.status, erwarteterStatus, text);
+  assertEquals(res.status, expectedStatus, text);
   return text.length > 0 ? JSON.parse(text) : null;
 }
 
-// Der öffentliche Aufruf: OHNE Authorization, OHNE apikey. Genau so, wie ein
-// Browser ohne Konto ihn macht.
-async function aufloesen(token: unknown): Promise<{ status: number; text: string }> {
+// The public call: WITHOUT Authorization, WITHOUT apikey. Exactly how a
+// browser with no account would make it.
+async function resolve(token: unknown): Promise<{ status: number; text: string }> {
   const res = await fetch(FUNCTION_URL, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ aktion: 'aufloesen', token }),
+    body: JSON.stringify({ action: 'resolve', token }),
   });
   return { status: res.status, text: await res.text() };
 }
 
-function mitJwt(jwt: string): Record<string, string> {
+function withJwt(jwt: string): Record<string, string> {
   return { apikey: ANON_KEY, Authorization: `Bearer ${jwt}`, 'content-type': 'application/json' };
 }
 
-async function rufe(headers: Record<string, string>, body: unknown): Promise<Response> {
+async function call(headers: Record<string, string>, body: unknown): Promise<Response> {
   return await fetch(FUNCTION_URL, { method: 'POST', headers, body: JSON.stringify(body) });
 }
 
-async function legeTripAn(name: string): Promise<string> {
+async function createTrip(name: string): Promise<string> {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/trips`, {
     method: 'POST',
     headers: restHeaders({ Prefer: 'return=representation' }),
     body: JSON.stringify({ name, start_date: '2026-01-01', end_date: '2026-01-02', owner_id: LEA_ID }),
   });
-  const [trip] = (await erwarteJson(res, 201)) as Array<{ id: string }>;
+  const [trip] = (await expectJson(res, 201)) as Array<{ id: string }>;
   return trip.id;
 }
 
 async function reveal(tripId: string): Promise<void> {
-  await erwarteJson(
+  await expectJson(
     await fetch(`${SUPABASE_URL}/rest/v1/trips?id=eq.${tripId}`, {
       method: 'PATCH',
       headers: restHeaders({ Prefer: 'return=representation' }),
@@ -198,8 +201,8 @@ async function reveal(tripId: string): Promise<void> {
   );
 }
 
-async function raeumeAuf(tripIds: Array<string | null>, schluessel: string[]): Promise<void> {
-  for (const key of schluessel) {
+async function cleanUp(tripIds: Array<string | null>, keys: string[]): Promise<void> {
+  for (const key of keys) {
     const res = await fetch(`${SUPABASE_URL}/storage/v1/object/${BUCKET}/${key}`, {
       method: 'DELETE',
       headers: { apikey: SERVICE_ROLE_KEY, Authorization: `Bearer ${SERVICE_ROLE_KEY}` },
@@ -216,11 +219,11 @@ async function raeumeAuf(tripIds: Array<string | null>, schluessel: string[]): P
   }
 }
 
-type AufloesungsAntwort = {
-  reise: { name: string; start_date: string; end_date: string };
-  medien: Array<{
+type ResolveResponse = {
+  trip: { name: string; start_date: string; end_date: string };
+  media: Array<{
     post_id: string;
-    autor_name: string;
+    author_name: string;
     type: string;
     captured_at: string;
     captured_tz: string;
@@ -232,32 +235,32 @@ type AufloesungsAntwort = {
     medium_url: string;
     thumb_url: string | null;
   }>;
-  gueltig_bis: string;
-  ausgelassen: number;
+  valid_until: string;
+  skipped: number;
 };
 
 Deno.test({
   name: 'share-link: erstellen, auflösen ohne Anmeldung, widerrufen, und keine Auskunft an Unbefugte',
-  ignore: !stackBereit,
+  ignore: !stackReady,
   async fn() {
-    const tripId = await legeTripAn('Integrationstest share-link');
-    let nachbarTripId: string | null = null;
-    let aktiveTripId: string | null = null;
-    const hochgeladen: string[] = [];
+    const tripId = await createTrip('Integrationstest share-link');
+    let neighborTripId: string | null = null;
+    let activeTripId: string | null = null;
+    const uploaded: string[] = [];
 
     try {
       const leaJwt = await mintJwt(JWT_SECRET, LEA_ID);
       const benJwt = await mintJwt(JWT_SECRET, BEN_ID);
 
-      // --- W3, erste Hälfte: für eine versiegelte Reise gibt es keinen Link -
-      const zuFrueh = await rufe(mitJwt(leaJwt), { aktion: 'erstellen', trip_id: tripId });
-      assertEquals(await erwarteJson(zuFrueh, 409), { fehler: 'Diese Reise ist noch versiegelt.' });
+      // --- W3, first half: no link exists for a sealed trip ---------------
+      const tooEarly = await call(withJwt(leaJwt), { action: 'create', trip_id: tripId });
+      assertEquals(await expectJson(tooEarly, 409), { error: 'Diese Reise ist noch versiegelt.' });
 
-      // --- Fixtures ------------------------------------------------------
-      // A: ein echter, fertig hochgeladener Moment (der einzige mit Bytes).
+      // --- Fixtures ---------------------------------------------------------
+      // A: a real, fully uploaded moment (the only one with bytes).
       const postAId = crypto.randomUUID();
-      const schluesselA = erwarteteSchluessel(tripId, postAId, 'photo', 'jpg');
-      await erwarteJson(
+      const keysA = expectedKeys(tripId, postAId, 'photo', 'jpg');
+      await expectJson(
         await fetch(`${SUPABASE_URL}/rest/v1/posts`, {
           method: 'POST',
           headers: restHeaders({ Prefer: 'return=representation' }),
@@ -266,16 +269,16 @@ Deno.test({
             trip_id: tripId,
             author_id: LEA_ID,
             type: 'photo',
-            storage_key: schluesselA.storage_key,
-            thumb_key: schluesselA.thumb_key,
+            storage_key: keysA.storage_key,
+            thumb_key: keysA.thumb_key,
             upload_status: 'uploaded',
             captured_at: '2026-01-01T08:00:00+01:00',
             captured_tz: 'Europe/Zurich',
             place_name: 'Zürich',
-            // A trägt Koordinaten, C (weiter unten) nicht, damit zeigt EIN
-            // Durchgang beide Richtungen: dass lat/lng wirklich aus der
-            // Select-Liste kommen, und dass ein Moment ohne Ort trotzdem in
-            // der Filmrolle steht.
+            // A carries coordinates, C (further below) does not, so ONE pass
+            // shows both directions: that lat/lng really come from the
+            // select list, and that a moment with no place still sits in
+            // the film roll.
             lat: 47.3769,
             lng: 8.5417,
             caption: 'Der erste Moment',
@@ -284,11 +287,11 @@ Deno.test({
         201,
       );
 
-      // Bytes direkt über die Storage-API ablegen, dieser Test prüft
-      // share-link, nicht den Upload-Weg von media-urls.
-      for (const [key, inhalt] of [
-        [schluesselA.storage_key, MEDIUM_INHALT],
-        [schluesselA.thumb_key, THUMB_INHALT],
+      // Store bytes directly via the storage API, this test checks
+      // share-link, not media-urls's upload path.
+      for (const [key, content] of [
+        [keysA.storage_key, MEDIUM_CONTENT],
+        [keysA.thumb_key, THUMB_CONTENT],
       ]) {
         const put = await fetch(`${SUPABASE_URL}/storage/v1/object/${BUCKET}/${key}`, {
           method: 'POST',
@@ -297,16 +300,16 @@ Deno.test({
             Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
             'content-type': 'image/jpeg',
           },
-          body: inhalt,
+          body: content,
         });
         assertEquals(put.status, 200, await put.text());
-        hochgeladen.push(key);
+        uploaded.push(key);
       }
 
-      // B: eingesendet, nie fertig hochgeladen, darf in keiner Antwort
-      //    auftauchen.
+      // B: submitted, never finished uploading, must not appear in any
+      //    response.
       const postBId = crypto.randomUUID();
-      await erwarteJson(
+      await expectJson(
         await fetch(`${SUPABASE_URL}/rest/v1/posts`, {
           method: 'POST',
           headers: restHeaders({ Prefer: 'return=representation' }),
@@ -315,7 +318,7 @@ Deno.test({
             trip_id: tripId,
             author_id: LEA_ID,
             type: 'photo',
-            storage_key: erwarteteSchluessel(tripId, postBId, 'photo', 'jpg').storage_key,
+            storage_key: expectedKeys(tripId, postBId, 'photo', 'jpg').storage_key,
             captured_at: '2026-01-01T09:00:00+01:00',
             captured_tz: 'Europe/Zurich',
           }),
@@ -323,9 +326,9 @@ Deno.test({
         201,
       );
 
-      // C: fertig, aber ohne Thumbnail, thumb_url muss null werden.
+      // C: finished, but with no thumbnail, thumb_url has to become null.
       const postCId = crypto.randomUUID();
-      await erwarteJson(
+      await expectJson(
         await fetch(`${SUPABASE_URL}/rest/v1/posts`, {
           method: 'POST',
           headers: restHeaders({ Prefer: 'return=representation' }),
@@ -334,7 +337,7 @@ Deno.test({
             trip_id: tripId,
             author_id: LEA_ID,
             type: 'photo',
-            storage_key: erwarteteSchluessel(tripId, postCId, 'photo', 'jpg').storage_key,
+            storage_key: expectedKeys(tripId, postCId, 'photo', 'jpg').storage_key,
             thumb_key: null,
             upload_status: 'uploaded',
             captured_at: '2026-01-01T10:00:00+01:00',
@@ -344,24 +347,24 @@ Deno.test({
         201,
       );
 
-      // D: liegt in einer ANDEREN Reise, trägt aber einen storage_key, der
-      //    genau auf UNSERE Reise passt. Die einzige Zeile, an der sich die
-      //    Reise-Eingrenzung des Selects überhaupt zeigen kann: Fällt
-      //    `.eq('trip_id', …)` weg, rutscht D durch den Ableitungs-Abgleich
-      //    hindurch in die Antwort, jeder andere fremde Moment würde dort
-      //    noch aussortiert. Das ist W1 in seiner schärfsten Form.
-      nachbarTripId = await legeTripAn('Integrationstest share-link Nachbarreise');
+      // D: sits in an ANOTHER trip, but carries a storage_key that fits
+      //    exactly OUR trip. The only row that can even show the trip
+      //    scoping of the select: drop `.eq('trip_id', …)` and D slips
+      //    through the derivation comparison into the response, every other
+      //    foreign moment would still be sorted out there. This is W1 in
+      //    its sharpest form.
+      neighborTripId = await createTrip('Integrationstest share-link Nachbarreise');
       const postDId = crypto.randomUUID();
-      await erwarteJson(
+      await expectJson(
         await fetch(`${SUPABASE_URL}/rest/v1/posts`, {
           method: 'POST',
           headers: restHeaders({ Prefer: 'return=representation' }),
           body: JSON.stringify({
             id: postDId,
-            trip_id: nachbarTripId,
+            trip_id: neighborTripId,
             author_id: LEA_ID,
             type: 'photo',
-            storage_key: erwarteteSchluessel(tripId, postDId, 'photo', 'jpg').storage_key,
+            storage_key: expectedKeys(tripId, postDId, 'photo', 'jpg').storage_key,
             thumb_key: null,
             upload_status: 'uploaded',
             captured_at: '2026-01-01T11:00:00+01:00',
@@ -373,145 +376,145 @@ Deno.test({
 
       await reveal(tripId);
 
-      // --- erstellen: nur die Owner-Person ---------------------------------
-      const ohneJwt = await fetch(FUNCTION_URL, {
+      // --- create: only the owner -------------------------------------------
+      const noJwt = await fetch(FUNCTION_URL, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ aktion: 'erstellen', trip_id: tripId }),
+        body: JSON.stringify({ action: 'create', trip_id: tripId }),
       });
-      assertEquals(await erwarteJson(ohneJwt, 401), { fehler: 'Nicht angemeldet.' });
+      assertEquals(await expectJson(noJwt, 401), { error: 'Nicht angemeldet.' });
 
-      // Der Anon-Key ist ein syntaktisch gültiges, korrekt signiertes JWT,
-      // und trotzdem keine Person. Weil das Gateway hier nicht mehr vorprüft,
-      // ist dieser Fall der Beleg, dass die eigene Prüfung ihn abfängt.
-      const mitAnonKey = await rufe(mitJwt(ANON_KEY), { aktion: 'erstellen', trip_id: tripId });
-      assertEquals(await erwarteJson(mitAnonKey, 401), { fehler: 'Nicht angemeldet.' });
+      // The anon key is a syntactically valid, correctly signed JWT, and
+      // still not a person. Since the gateway no longer pre-checks here,
+      // this case is the evidence that the function's own check catches it.
+      const withAnonKey = await call(withJwt(ANON_KEY), { action: 'create', trip_id: tripId });
+      assertEquals(await expectJson(withAnonKey, 401), { error: 'Nicht angemeldet.' });
 
-      const fremd = await rufe(mitJwt(benJwt), { aktion: 'erstellen', trip_id: tripId });
-      assertEquals(await erwarteJson(fremd, 403), {
-        fehler: 'Nur wer die Reise angelegt hat, kann den Recap teilen.',
+      const foreign = await call(withJwt(benJwt), { action: 'create', trip_id: tripId });
+      assertEquals(await expectJson(foreign, 403), {
+        error: 'Nur wer die Reise angelegt hat, kann den Recap teilen.',
       });
 
-      const erstellt = (await erwarteJson(
-        await rufe(mitJwt(leaJwt), { aktion: 'erstellen', trip_id: tripId }),
+      const created = (await expectJson(
+        await call(withJwt(leaJwt), { action: 'create', trip_id: tripId }),
         200,
       )) as { token: string; url: string };
-      assert(erstellt.token.length >= 16, `unerwarteter Token: ${erstellt.token}`);
-      assert(erstellt.url.endsWith(`/share/${erstellt.token}`), erstellt.url);
+      assert(created.token.length >= 16, `unerwarteter Token: ${created.token}`);
+      assert(created.url.endsWith(`/share/${created.token}`), created.url);
 
-      // --- aufloesen OHNE jede Anmeldung ----------------------------------
-      const vorherStempel = Date.now();
-      const offen = await aufloesen(erstellt.token);
-      assertEquals(offen.status, 200, offen.text);
-      const antwort = JSON.parse(offen.text) as AufloesungsAntwort;
+      // --- resolve with NO sign-in at all -----------------------------------
+      const beforeTimestamp = Date.now();
+      const open = await resolve(created.token);
+      assertEquals(open.status, 200, open.text);
+      const response = JSON.parse(open.text) as ResolveResponse;
 
-      assertEquals(antwort.reise, {
+      assertEquals(response.trip, {
         name: 'Integrationstest share-link',
         start_date: '2026-01-01',
         end_date: '2026-01-02',
       });
 
-      // Genau A und C, in captured_at-Reihenfolge. B fehlt (pending), D fehlt
-      // (andere Reise), zwei verschiedene Gründe, eine Zusicherung.
-      assertEquals(antwort.medien.map((m) => m.post_id), [postAId, postCId]);
-      assertEquals(antwort.ausgelassen, 0);
+      // Exactly A and C, in captured_at order. B is missing (pending), D is
+      // missing (different trip), two different reasons, one guarantee.
+      assertEquals(response.media.map((m) => m.post_id), [postAId, postCId]);
+      assertEquals(response.skipped, 0);
 
-      const eintragA = antwort.medien[0];
-      assertEquals(eintragA.autor_name, 'Lea');
-      assertEquals(eintragA.caption, 'Der erste Moment');
-      assertEquals(eintragA.place_name, 'Zürich');
-      assertEquals(eintragA.captured_tz, 'Europe/Zurich');
-      assertEquals(eintragA.duration_s, null);
-      // Spec R4: der geteilte Recap zeigt dieselbe Karte wie die App. Nur
-      // hier lässt sich prüfen, dass die zwei Spalten die echte
-      // PostgREST-Abfrage überhaupt verlassen, aufloesung_test.ts sieht die
-      // Select-Liste nicht.
-      assertEquals(eintragA.lat, 47.3769);
-      assertEquals(eintragA.lng, 8.5417);
-      // Und C, ohne Ortsfreigabe eingesendet: null, aber vorhanden. Ein
-      // Moment ohne Ort darf nicht aus dem Recap fallen.
-      assertEquals(antwort.medien[1].lat, null);
-      assertEquals(antwort.medien[1].lng, null);
-      assertEquals(antwort.medien[1].thumb_url, null);
-      assertFalse(antwort.medien[1].medium_url.includes('null'));
+      const entryA = response.media[0];
+      assertEquals(entryA.author_name, 'Lea');
+      assertEquals(entryA.caption, 'Der erste Moment');
+      assertEquals(entryA.place_name, 'Zürich');
+      assertEquals(entryA.captured_tz, 'Europe/Zurich');
+      assertEquals(entryA.duration_s, null);
+      // Spec R4: the shared recap shows the same map as the app. Only here
+      // can it be checked that the two columns really leave the real
+      // PostgREST query, resolution_test.ts does not see the select list.
+      assertEquals(entryA.lat, 47.3769);
+      assertEquals(entryA.lng, 8.5417);
+      // And C, submitted with no location sharing: null, but present. A
+      // moment with no place must not fall out of the recap.
+      assertEquals(response.media[1].lat, null);
+      assertEquals(response.media[1].lng, null);
+      assertEquals(response.media[1].thumb_url, null);
+      assertFalse(response.media[1].medium_url.includes('null'));
 
-      // Gültigkeit: 3600 s, direkt aus der signierten URL abgelesen.
-      assertEquals(new URL(eintragA.medium_url).searchParams.get('X-Amz-Expires'), '3600');
-      assertEquals(new URL(eintragA.thumb_url!).searchParams.get('X-Amz-Expires'), '3600');
-      const restSekunden = (Date.parse(antwort.gueltig_bis) - vorherStempel) / 1000;
+      // Validity: 3600s, read directly off the signed URL.
+      assertEquals(new URL(entryA.medium_url).searchParams.get('X-Amz-Expires'), '3600');
+      assertEquals(new URL(entryA.thumb_url!).searchParams.get('X-Amz-Expires'), '3600');
+      const secondsLeft = (Date.parse(response.valid_until) - beforeTimestamp) / 1000;
       assert(
-        restSekunden > 3000 && restSekunden <= 3601,
-        `gueltig_bis liegt ${restSekunden}s in der Zukunft, erwartet ~3600s`,
+        secondsLeft > 3000 && secondsLeft <= 3601,
+        `gueltig_bis liegt ${secondsLeft}s in der Zukunft, erwartet ~3600s`,
       );
 
-      // Die URLs zeigen auf echte Bytes, nicht nur auf einen Statuscode, den
-      // auch eine Fehlerseite liefern könnte.
-      const getMedium = await fetch(eintragA.medium_url);
+      // The URLs point at real bytes, not just at a status code an error
+      // page could also deliver.
+      const getMedium = await fetch(entryA.medium_url);
       assertEquals(getMedium.status, 200);
-      assertEquals(await getMedium.text(), MEDIUM_INHALT);
-      const getThumb = await fetch(eintragA.thumb_url!);
+      assertEquals(await getMedium.text(), MEDIUM_CONTENT);
+      const getThumb = await fetch(entryA.thumb_url!);
       assertEquals(getThumb.status, 200);
-      assertEquals(await getThumb.text(), THUMB_INHALT);
+      assertEquals(await getThumb.text(), THUMB_CONTENT);
 
-      // Ein PUT auf eine öffentliche Lese-URL scheitert: SigV4 bindet die
-      // Methode in die Signatur. Ein geteilter Link kann nie zum Schreiben
-      // umgewidmet werden.
-      const putVersuch = await fetch(eintragA.medium_url, {
+      // A PUT against a public read URL fails: SigV4 binds the method into
+      // the signature. A shared link can never be repurposed for writing.
+      const putAttempt = await fetch(entryA.medium_url, {
         method: 'PUT',
         headers: { 'content-type': 'image/jpeg' },
         body: 'ueberschrieben-durch-angreifer',
       });
-      assert(putVersuch.status >= 400, `PUT auf eine Lese-URL wurde mit ${putVersuch.status} angenommen`);
-      assertEquals(await (await fetch(eintragA.medium_url)).text(), MEDIUM_INHALT);
+      assert(putAttempt.status >= 400, `PUT auf eine Lese-URL wurde mit ${putAttempt.status} angenommen`);
+      assertEquals(await (await fetch(entryA.medium_url)).text(), MEDIUM_CONTENT);
 
-      // --- Was NICHT in der Antwort stehen darf ---------------------------
-      // Am rohen Text, nicht am geparsten Objekt: so fällt auch ein Feld auf,
-      // das über ein verschachteltes Objekt hineingerät.
-      for (const feld of ['author_id', 'invite_code', 'owner_id', 'reaktionen', 'kommentare', 'mitglieder', 'status']) {
-        assertFalse(offen.text.includes(feld), `die Antwort enthält "${feld}"`);
+      // --- What must NOT be in the response ----------------------------------
+      // Against the raw text, not the parsed object: that also catches a
+      // field smuggled in through a nested object.
+      for (const field of ['author_id', 'invite_code', 'owner_id', 'reaktionen', 'kommentare', 'mitglieder', 'status']) {
+        assertFalse(open.text.includes(field), `die Antwort enthält "${field}"`);
       }
-      // Und die echten Werte, nicht nur die Feldnamen: LEA_ID ist die
-      // author_id aller Momente und zugleich owner_id der Reise.
+      // And the real values, not just the field names: LEA_ID is the
+      // author_id of every moment and at the same time the trip's
+      // owner_id.
       //
-      // Diese Zeile ist seit dem Profilbild-Feature (2026-08-12) an die
-      // Fixture gebunden: Lea hat hier KEIN Profilbild, `autor_avatar_key` ist
-      // deshalb null. Bekäme sie eines, stünde ihre uid als Teil des
-      // Schlüssels (`profiles/<author_id>/<32 hex>.jpg`) im Antworttext, und
-      // die Zusicherung fiele — nicht wegen einer Regression, sondern weil sie
-      // dann eine andere Frage stellte als die, die sie beantworten soll (kein
-      // Klartext-owner_id, kein durchgereichtes author_id-FELD). Die
-      // Preisgabe der uid über den Avatar-Schlüssel ist bewusst akzeptiert:
-      // Nachtrag in
+      // This line has been tied to the fixture since the profile picture
+      // feature (2026-08-12): Lea has NO profile picture here,
+      // `author_avatar_key` is therefore null. Were she to get one, her uid
+      // would sit as part of the key (`profiles/<author_id>/<32 hex>.jpg`)
+      // in the response text, and the guarantee would fail, not because of
+      // a regression, but because it would then ask a different question
+      // than the one it is meant to answer (no plaintext owner_id, no
+      // passed-through author_id FIELD). The disclosure of the uid via the
+      // avatar key is accepted deliberately: addendum in
       // docs/superpowers/specs/2026-08-08-phase-6-teilen-export-store-design.md
-      // §5.1. Wer die Fixture je um ein Bild erweitert, ersetzt diese Zeile
-      // durch eine Prüfung auf owner_id/invite_code im Klartext.
-      assertFalse(offen.text.includes(LEA_ID), 'die Antwort enthält die author_id/owner_id im Klartext');
-      const [tripZeile] = (await erwarteJson(
+      // §5.1. Whoever ever extends the fixture with a picture should
+      // replace this line with a check for owner_id/invite_code in plain
+      // text.
+      assertFalse(open.text.includes(LEA_ID), 'die Antwort enthält die author_id/owner_id im Klartext');
+      const [tripRow] = (await expectJson(
         await fetch(`${SUPABASE_URL}/rest/v1/trips?id=eq.${tripId}&select=invite_code`, {
           headers: restHeaders(),
         }),
         200,
       )) as Array<{ invite_code: string }>;
-      assertFalse(offen.text.includes(tripZeile.invite_code), 'die Antwort enthält den invite_code');
+      assertFalse(open.text.includes(tripRow.invite_code), 'die Antwort enthält den invite_code');
 
-      // --- W1: ein zweiter Link zeigt seine eigene Reise, nicht diese -----
-      // E ist der einzige regulär abgelegte Moment der Nachbarreise. D liegt
-      // ebenfalls dort, trägt aber den auf UNSERE Reise passenden
-      // storage_key, für die Nachbarreise stimmt die Ableitung damit nicht,
-      // und D fällt hier aus dem anderen Grund heraus als oben: nicht wegen
-      // der trip_id, sondern wegen des Abgleichs. Beide Schranken zeigen sich
-      // so an derselben Zeile, jede in einer anderen Antwort.
+      // --- W1: a second link shows its own trip, not this one --------------
+      // E is the only regularly stored moment of the neighbor trip. D also
+      // sits there, but carries the storage_key matching OUR trip, so for
+      // the neighbor trip the derivation does not match, and D drops out
+      // here for a different reason than above: not because of the
+      // trip_id, but because of the comparison. Both barriers show up on
+      // the same row this way, each in a different response.
       const postEId = crypto.randomUUID();
-      await erwarteJson(
+      await expectJson(
         await fetch(`${SUPABASE_URL}/rest/v1/posts`, {
           method: 'POST',
           headers: restHeaders({ Prefer: 'return=representation' }),
           body: JSON.stringify({
             id: postEId,
-            trip_id: nachbarTripId,
+            trip_id: neighborTripId,
             author_id: SOFIA_ID,
             type: 'photo',
-            storage_key: erwarteteSchluessel(nachbarTripId, postEId, 'photo', 'jpg').storage_key,
+            storage_key: expectedKeys(neighborTripId, postEId, 'photo', 'jpg').storage_key,
             thumb_key: null,
             upload_status: 'uploaded',
             captured_at: '2026-01-01T12:00:00+01:00',
@@ -521,173 +524,172 @@ Deno.test({
         201,
       );
 
-      await reveal(nachbarTripId);
-      const nachbarLink = (await erwarteJson(
-        await rufe(mitJwt(leaJwt), { aktion: 'erstellen', trip_id: nachbarTripId }),
+      await reveal(neighborTripId);
+      const neighborLink = (await expectJson(
+        await call(withJwt(leaJwt), { action: 'create', trip_id: neighborTripId }),
         200,
       )) as { token: string };
-      const nachbarOffen = await aufloesen(nachbarLink.token);
-      assertEquals(nachbarOffen.status, 200, nachbarOffen.text);
-      const nachbarAntwort = JSON.parse(nachbarOffen.text) as AufloesungsAntwort;
-      assertEquals(nachbarAntwort.reise.name, 'Integrationstest share-link Nachbarreise');
-      assertEquals(nachbarAntwort.medien.map((m) => m.post_id), [postEId]);
-      // D ist gezählt, aber nicht ausgeliefert, die App sieht die Lücke,
-      // statt einen stillschweigend kürzeren Recap zu bekommen.
-      assertEquals(nachbarAntwort.ausgelassen, 1);
-      // Der Autorenname kommt aus profiles, nicht aus der Owner-Zeile: hier
-      // hat Sofia den Moment eingesendet, nicht Lea.
-      assertEquals(nachbarAntwort.medien[0].autor_name, 'Sofia');
-      // Und keine URL dieser Antwort zeigt in die andere Reise.
-      for (const eintrag of nachbarAntwort.medien) {
-        assertFalse(eintrag.medium_url.includes(tripId), eintrag.medium_url);
+      const neighborOpen = await resolve(neighborLink.token);
+      assertEquals(neighborOpen.status, 200, neighborOpen.text);
+      const neighborResponse = JSON.parse(neighborOpen.text) as ResolveResponse;
+      assertEquals(neighborResponse.trip.name, 'Integrationstest share-link Nachbarreise');
+      assertEquals(neighborResponse.media.map((m) => m.post_id), [postEId]);
+      // D is counted, but not delivered, the app sees the gap instead of
+      // getting a silently shorter recap.
+      assertEquals(neighborResponse.skipped, 1);
+      // The author name comes from profiles, not from the owner row: here
+      // Sofia submitted the moment, not Lea.
+      assertEquals(neighborResponse.media[0].author_name, 'Sofia');
+      // And no URL in this response points into the other trip.
+      for (const entry of neighborResponse.media) {
+        assertFalse(entry.medium_url.includes(tripId), entry.medium_url);
       }
 
-      // --- Die byte-gleichen Ablehnungen, gegen echte HTTP-Bytes ----------
-      const unbekannt = await aufloesen('0000000000000000000000000000dead');
+      // --- The byte-identical rejections, against real HTTP bytes ----------
+      const unknown = await resolve('0000000000000000000000000000dead');
 
-      // a) widerrufen
-      const abgelaufenToken = (await erwarteJson(
-        await rufe(mitJwt(leaJwt), { aktion: 'erstellen', trip_id: tripId, gueltig_tage: 7 }),
+      // a) revoked
+      const expiringToken = (await expectJson(
+        await call(withJwt(leaJwt), { action: 'create', trip_id: tripId, valid_days: 7 }),
         200,
       )) as { token: string };
 
       assertEquals(
-        await erwarteJson(await rufe(mitJwt(leaJwt), { aktion: 'widerrufen', token: erstellt.token }), 200),
+        await expectJson(await call(withJwt(leaJwt), { action: 'revoke', token: created.token }), 200),
         { ok: true },
       );
-      const widerrufen = await aufloesen(erstellt.token);
-      assertEquals([widerrufen.status, widerrufen.text], [unbekannt.status, unbekannt.text]);
+      const revoked = await resolve(created.token);
+      assertEquals([revoked.status, revoked.text], [unknown.status, unknown.text]);
 
-      // Idempotent: ein zweiter Widerruf ist kein Fehler.
+      // Idempotent: a second revoke is not an error.
       assertEquals(
-        await erwarteJson(await rufe(mitJwt(leaJwt), { aktion: 'widerrufen', token: erstellt.token }), 200),
+        await expectJson(await call(withJwt(leaJwt), { action: 'revoke', token: created.token }), 200),
         { ok: true },
       );
 
-      // b) abgelaufen, expires_at per Service-Role in die Vergangenheit
-      //    schieben (die Function selbst kann nur Zukunft ausstellen).
-      await erwarteJson(
-        await fetch(`${SUPABASE_URL}/rest/v1/share_links?token=eq.${abgelaufenToken.token}`, {
+      // b) expired, push expires_at into the past via the service role (the
+      //    function itself can only ever issue a future date).
+      await expectJson(
+        await fetch(`${SUPABASE_URL}/rest/v1/share_links?token=eq.${expiringToken.token}`, {
           method: 'PATCH',
           headers: restHeaders({ Prefer: 'return=representation' }),
           body: JSON.stringify({ expires_at: '2020-01-01T00:00:00Z' }),
         }),
         200,
       );
-      const abgelaufen = await aufloesen(abgelaufenToken.token);
-      assertEquals([abgelaufen.status, abgelaufen.text], [unbekannt.status, unbekannt.text]);
+      const expired = await resolve(expiringToken.token);
+      assertEquals([expired.status, expired.text], [unknown.status, unknown.text]);
 
-      // c) Reise nicht aufgedeckt, W3, zweite Hälfte. Der Link entsteht hier
-      //    per Service-Role (an RLS und an `erstellen` vorbei), weil genau das
-      //    der Fall ist, den die Auflösung selbst abfangen muss: die
-      //    Erstellungs-Prüfung ist nicht die einzige Schranke.
-      aktiveTripId = await legeTripAn('Integrationstest share-link versiegelt');
-      const [versiegelterLink] = (await erwarteJson(
+      // c) trip not revealed, W3, second half. The link is created here via
+      //    the service role (past RLS and past `create`), because that is
+      //    exactly the case resolution itself has to catch: the create
+      //    check is not the only barrier.
+      activeTripId = await createTrip('Integrationstest share-link versiegelt');
+      const [sealedLink] = (await expectJson(
         await fetch(`${SUPABASE_URL}/rest/v1/share_links`, {
           method: 'POST',
           headers: restHeaders({ Prefer: 'return=representation' }),
-          body: JSON.stringify({ trip_id: aktiveTripId }),
+          body: JSON.stringify({ trip_id: activeTripId }),
         }),
         201,
       )) as Array<{ token: string }>;
-      const versiegelt = await aufloesen(versiegelterLink.token);
-      assertEquals([versiegelt.status, versiegelt.text], [unbekannt.status, unbekannt.text]);
+      const sealed = await resolve(sealedLink.token);
+      assertEquals([sealed.status, sealed.text], [unknown.status, unknown.text]);
 
-      // d) ein absurd langer Token, dieselbe Antwort, kein eigenes Signal.
-      const zuLang = await aufloesen('a'.repeat(2000));
-      assertEquals([zuLang.status, zuLang.text], [unbekannt.status, unbekannt.text]);
+      // d) an absurdly long token, the same response, no signal of its own.
+      const tooLong = await resolve('a'.repeat(2000));
+      assertEquals([tooLong.status, tooLong.text], [unknown.status, unknown.text]);
 
-      // --- widerrufen ist kein Orakel -------------------------------------
-      // Nachbarlink existiert, gehört aber nicht Ben. Für ihn muss das
-      // dasselbe sein wie ein Token, den es nie gab, sonst liesse sich die
-      // Existenz eines Tokens mit einem beliebigen eigenen Konto prüfen,
-      // während `aufloesen` sich alle Mühe gibt, nichts zu verraten.
-      const bensVersuchEcht = await rufe(mitJwt(benJwt), { aktion: 'widerrufen', token: nachbarLink.token });
-      const bensVersuchErfunden = await rufe(mitJwt(benJwt), {
-        aktion: 'widerrufen',
+      // --- revoke is no oracle -----------------------------------------------
+      // The neighbor link exists, but does not belong to Ben. For him this
+      // has to be the same as a token that never existed, otherwise a
+      // token's existence could be probed with any own account, while
+      // `resolve` goes to great lengths to reveal nothing.
+      const bensRealAttempt = await call(withJwt(benJwt), { action: 'revoke', token: neighborLink.token });
+      const bensMadeUpAttempt = await call(withJwt(benJwt), {
+        action: 'revoke',
         token: '0000000000000000000000000000beef',
       });
-      const textEcht = await bensVersuchEcht.text();
-      const textErfunden = await bensVersuchErfunden.text();
-      assertEquals([bensVersuchEcht.status, textEcht], [bensVersuchErfunden.status, textErfunden]);
-      assertEquals(bensVersuchEcht.status, 404);
+      const realText = await bensRealAttempt.text();
+      const madeUpText = await bensMadeUpAttempt.text();
+      assertEquals([bensRealAttempt.status, realText], [bensMadeUpAttempt.status, madeUpText]);
+      assertEquals(bensRealAttempt.status, 404);
 
-      // Und der Link ist wirklich unangetastet geblieben.
-      const [nachBen] = (await erwarteJson(
-        await fetch(`${SUPABASE_URL}/rest/v1/share_links?token=eq.${nachbarLink.token}&select=revoked`, {
+      // And the link really stayed untouched.
+      const [afterBen] = (await expectJson(
+        await fetch(`${SUPABASE_URL}/rest/v1/share_links?token=eq.${neighborLink.token}&select=revoked`, {
           headers: restHeaders(),
         }),
         200,
       )) as Array<{ revoked: boolean }>;
-      assertEquals(nachBen.revoked, false);
+      assertEquals(afterBen.revoked, false);
 
-      // --- Archiviert: lesbar, und der Widerruf gelingt weiterhin ---------
-      // «Weggelegt ist nicht zugesperrt», aber die Owner-Person muss den
-      // Link auch danach noch abschalten können (Migration 20260808130000).
-      await erwarteJson(
-        await fetch(`${SUPABASE_URL}/rest/v1/trips?id=eq.${nachbarTripId}`, {
+      // --- Archived: readable, and revoking still succeeds ------------------
+      // "Put away is not locked away", but the owner still has to be able
+      // to switch the link off afterwards too (migration 20260808130000).
+      await expectJson(
+        await fetch(`${SUPABASE_URL}/rest/v1/trips?id=eq.${neighborTripId}`, {
           method: 'PATCH',
           headers: restHeaders({ Prefer: 'return=representation' }),
           body: JSON.stringify({ status: 'archived' }),
         }),
         200,
       );
-      const imArchiv = await aufloesen(nachbarLink.token);
-      assertEquals(imArchiv.status, 200, imArchiv.text);
+      const inArchive = await resolve(neighborLink.token);
+      assertEquals(inArchive.status, 200, inArchive.text);
 
-      // Ein NEUER Link entsteht für eine archivierte Reise nicht mehr.
-      const neuImArchiv = await rufe(mitJwt(leaJwt), { aktion: 'erstellen', trip_id: nachbarTripId });
-      assertEquals(await erwarteJson(neuImArchiv, 409), {
-        fehler: 'Diese Reise ist archiviert. Für sie entsteht kein neuer Link mehr.',
+      // A NEW link no longer gets created for an archived trip.
+      const newInArchive = await call(withJwt(leaJwt), { action: 'create', trip_id: neighborTripId });
+      assertEquals(await expectJson(newInArchive, 409), {
+        error: 'Diese Reise ist archiviert. Für sie entsteht kein neuer Link mehr.',
       });
 
-      // Der bestehende lässt sich aber widerrufen, und danach zeigt er
-      // nichts mehr.
+      // But the existing one can still be revoked, and after that it shows
+      // nothing anymore.
       assertEquals(
-        await erwarteJson(await rufe(mitJwt(leaJwt), { aktion: 'widerrufen', token: nachbarLink.token }), 200),
+        await expectJson(await call(withJwt(leaJwt), { action: 'revoke', token: neighborLink.token }), 200),
         { ok: true },
       );
-      const archivWiderrufen = await aufloesen(nachbarLink.token);
-      assertEquals([archivWiderrufen.status, archivWiderrufen.text], [unbekannt.status, unbekannt.text]);
+      const archiveRevoked = await resolve(neighborLink.token);
+      assertEquals([archiveRevoked.status, archiveRevoked.text], [unknown.status, unknown.text]);
 
-      // --- Kleinkram, der aus der Angreifersicht naheliegt -----------------
-      assertEquals((await aufloesen(undefined)).status, 400);
-      assertEquals((await aufloesen(42)).status, 400);
-      const unbekannteAktion = await fetch(FUNCTION_URL, {
+      // --- Small stuff obvious from an attacker's perspective -----------------
+      assertEquals((await resolve(undefined)).status, 400);
+      assertEquals((await resolve(42)).status, 400);
+      const unknownAction = await fetch(FUNCTION_URL, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ aktion: 'alles_zeigen', token: erstellt.token }),
+        body: JSON.stringify({ action: 'alles_zeigen', token: created.token }),
       });
-      // Unbekannte Aktionen laufen in den JWT-Zweig und scheitern dort ohne
-      // Anmeldung, nicht an einer Verzweigung, die sie hätte durchlassen
-      // können.
-      assertEquals(await erwarteJson(unbekannteAktion, 401), { fehler: 'Nicht angemeldet.' });
+      // Unknown actions run into the JWT branch and fail there with no
+      // sign-in, not at a switch that could have let them through.
+      assertEquals(await expectJson(unknownAction, 401), { error: 'Nicht angemeldet.' });
       assertEquals(
-        await erwarteJson(await rufe(mitJwt(leaJwt), { aktion: 'alles_zeigen' }), 400),
-        { fehler: 'Unbekannte Aktion.' },
+        await expectJson(await call(withJwt(leaJwt), { action: 'alles_zeigen' }), 400),
+        { error: 'Unbekannte Aktion.' },
       );
 
-      // CORS: Ohne diese Kopfzeilen scheitert der öffentliche Web-Player im
-      // Browser, obwohl die Function korrekt antwortet, er läuft auf einer
-      // anderen Herkunft als die Supabase-Instanz.
+      // CORS: without these headers the public web player would fail in the
+      // browser, even though the function responds correctly, it runs on a
+      // different origin than the Supabase instance.
       //
-      // Geprüft wird an der ECHTEN Antwort, nicht am Preflight: Das lokale
-      // Kong beantwortet OPTIONS selbst (HTTP 200 mit einer sehr grosszügigen
-      // Methodenliste), die Anfrage erreicht die Function also gar nicht. Auf
-      // einem gehosteten Projekt ist das nicht so, dort muss die Function
-      // OPTIONS selbst beantworten, und genau dafür steht der Zweig in
-      // index.ts. Was BEIDE Umgebungen zeigen: die Kopfzeilen auf der
-      // POST-Antwort, und die kommen nachweislich aus der Function (Kong
-      // setzt access-control-allow-headers nicht auf diesen Wert).
-      const mitHerkunft = await fetch(FUNCTION_URL, {
+      // Checked against the REAL response, not the preflight: the local
+      // Kong answers OPTIONS itself (HTTP 200 with a very generous method
+      // list), so the request never even reaches the function. On a hosted
+      // project that is not the case, there the function has to answer
+      // OPTIONS itself, and that is exactly what the branch in index.ts is
+      // for. What BOTH environments show: the headers on the POST response,
+      // and those demonstrably come from the function (Kong does not set
+      // access-control-allow-headers to this value).
+      const withOrigin = await fetch(FUNCTION_URL, {
         method: 'POST',
         headers: { 'content-type': 'application/json', origin: 'https://beispiel.test' },
-        body: JSON.stringify({ aktion: 'aufloesen', token: 'gibtesnicht' }),
+        body: JSON.stringify({ action: 'resolve', token: 'gibtesnicht' }),
       });
-      await mitHerkunft.text();
-      assertEquals(mitHerkunft.headers.get('access-control-allow-origin'), '*');
+      await withOrigin.text();
+      assertEquals(withOrigin.headers.get('access-control-allow-origin'), '*');
       assertEquals(
-        mitHerkunft.headers.get('access-control-allow-headers'),
+        withOrigin.headers.get('access-control-allow-headers'),
         'authorization, apikey, content-type, x-client-info',
       );
 
@@ -702,68 +704,68 @@ Deno.test({
       );
       assertEquals(preflight.headers.get('access-control-allow-origin'), '*');
     } finally {
-      await raeumeAuf([tripId, nachbarTripId, aktiveTripId], hochgeladen);
+      await cleanUp([tripId, neighborTripId, activeTripId], uploaded);
     }
   },
 });
 
 // ---------------------------------------------------------------------------
-// Seitengrenze gegen echtes PostgREST
+// Page boundary against real PostgREST
 // ---------------------------------------------------------------------------
-// Die Schleife selbst ist in aufloesung_test.ts ohne Docker geprüft. Was hier
-// dazukommt: dass max_rows in supabase/config.toml wirklich bei 1000 kappt und
-// die Seitengrösse in store.ts dazu passt. 1001 Zeilen sind die kleinste
-// Fixture, die das zeigt.
+// The loop itself is checked with no Docker in resolution_test.ts. What is
+// added here: that max_rows in supabase/config.toml really caps at 1000 and
+// the page size in store.ts matches it. 1001 rows is the smallest fixture
+// that shows this.
 Deno.test({
   name: 'share-link: aufloesen blättert über die max_rows-Grenze und verliert keinen Moment',
-  ignore: !stackBereit,
+  ignore: !stackReady,
   async fn() {
-    const ANZAHL = 1001;
-    const tripId = await legeTripAn('Integrationstest share-link Seitengrenze');
+    const ROW_COUNT = 1001;
+    const tripId = await createTrip('Integrationstest share-link Seitengrenze');
 
     try {
-      const basis = Date.parse('2026-01-01T00:00:00Z');
-      const erwarteteReihenfolge: string[] = [];
-      const zeilen = Array.from({ length: ANZAHL }, (_, i) => {
+      const base = Date.parse('2026-01-01T00:00:00Z');
+      const expectedOrder: string[] = [];
+      const rows = Array.from({ length: ROW_COUNT }, (_, i) => {
         const id = crypto.randomUUID();
-        erwarteteReihenfolge.push(id);
+        expectedOrder.push(id);
         return {
           id,
           trip_id: tripId,
           author_id: LEA_ID,
           type: 'photo',
-          storage_key: erwarteteSchluessel(tripId, id, 'photo', 'jpg').storage_key,
+          storage_key: expectedKeys(tripId, id, 'photo', 'jpg').storage_key,
           thumb_key: null,
           upload_status: 'uploaded',
-          captured_at: new Date(basis + i * 60_000).toISOString(),
+          captured_at: new Date(base + i * 60_000).toISOString(),
           captured_tz: 'Europe/Zurich',
         };
       });
       const insertRes = await fetch(`${SUPABASE_URL}/rest/v1/posts`, {
         method: 'POST',
         headers: restHeaders({ Prefer: 'return=minimal' }),
-        body: JSON.stringify(zeilen),
+        body: JSON.stringify(rows),
       });
       assertEquals(insertRes.status, 201, await insertRes.text());
 
       await reveal(tripId);
       const leaJwt = await mintJwt(JWT_SECRET, LEA_ID);
-      const { token } = (await erwarteJson(
-        await rufe(mitJwt(leaJwt), { aktion: 'erstellen', trip_id: tripId }),
+      const { token } = (await expectJson(
+        await call(withJwt(leaJwt), { action: 'create', trip_id: tripId }),
         200,
       )) as { token: string };
 
-      const offen = await aufloesen(token);
-      assertEquals(offen.status, 200, offen.text.slice(0, 500));
-      const antwort = JSON.parse(offen.text) as AufloesungsAntwort;
+      const open = await resolve(token);
+      assertEquals(open.status, 200, open.text.slice(0, 500));
+      const response = JSON.parse(open.text) as ResolveResponse;
 
-      // Ohne Blättern stünde hier 1000, der stille Verlust, um den es geht.
-      assertEquals(antwort.medien.length, ANZAHL);
-      assertEquals(antwort.medien.map((m) => m.post_id), erwarteteReihenfolge);
-      assertEquals(antwort.ausgelassen, 0);
-      assertEquals(new Set(antwort.medien.map((m) => m.post_id)).size, ANZAHL);
+      // Without paging this would read 1000, the silent loss this is about.
+      assertEquals(response.media.length, ROW_COUNT);
+      assertEquals(response.media.map((m) => m.post_id), expectedOrder);
+      assertEquals(response.skipped, 0);
+      assertEquals(new Set(response.media.map((m) => m.post_id)).size, ROW_COUNT);
     } finally {
-      await raeumeAuf([tripId], []);
+      await cleanUp([tripId], []);
     }
   },
 });

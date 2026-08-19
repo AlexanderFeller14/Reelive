@@ -1,5 +1,5 @@
 // Pool of read URLs for the recap player: ONE call against the edge
-// function `media-urls` (action `lesen`) returns signed GET URLs for ALL
+// function `media-urls` (action `read`) returns signed GET URLs for ALL
 // uploaded moments of a trip at once (task brief). The player therefore
 // doesn't fetch its own signature per moment, it holds a pool that it
 // checks itself for looming expiry, that's the bracket around promise V10:
@@ -21,7 +21,7 @@ export type MediaUrl = { post_id: string; medium_url: string; thumb_url: string 
 // recap from loading (Phase-5 final review, point 2).
 export type Pool = { urls: Map<string, MediaUrl>; validUntil: number; skipped: number };
 
-// The function signs for LESE_URL_GUELTIGKEIT_SEKUNDEN = 3600 s (see
+// The function signs for READ_URL_VALIDITY_SECONDS = 3600 s (see
 // supabase/functions/media-urls/index.ts), a five-minute buffer is enough
 // at that scale to refetch ahead of the actual expiry without re-signing on
 // every other tap. Exported because Task 11 needs the same threshold in its
@@ -64,7 +64,7 @@ function reasonFrom(status: number, text: string): Reason | null {
 // is only set there when thumb_key exists, for a moment without a
 // thumbnail the field is absent entirely (no `null`, no empty string).
 type MediaEntry = { post_id: string; medium_url: string; thumb_url?: string };
-type ReadResponse = { medien: MediaEntry[]; gueltig_bis: string; ausgelassen: number };
+type ReadResponse = { media: MediaEntry[]; valid_until: string; skipped: number };
 
 // functions-js replaces a genuine network error with a fixed English
 // sentence and puts the original fetch error message in `context` (see the
@@ -82,7 +82,7 @@ export async function getPool(
   tripId: string
 ): Promise<{ pool: Pool | null; error: string | null; reason: Reason | null }> {
   const { data, error } = await supabase.functions.invoke('media-urls', {
-    body: { aktion: 'lesen', trip_id: tripId },
+    body: { action: 'read', trip_id: tripId },
   });
 
   if (error) {
@@ -96,9 +96,9 @@ export async function getPool(
     if (httpError?.name === 'FunctionsHttpError' && httpError.context instanceof Response) {
       const status = httpError.context.status;
       try {
-        const body = (await httpError.context.clone().json()) as { fehler?: string };
-        const reason = typeof body.fehler === 'string' ? reasonFrom(status, body.fehler) : null;
-        if (reason) return { pool: null, error: body.fehler as string, reason: reason };
+        const body = (await httpError.context.clone().json()) as { error?: string };
+        const reason = typeof body.error === 'string' ? reasonFrom(status, body.error) : null;
+        if (reason) return { pool: null, error: body.error as string, reason: reason };
       } catch {
         // Antwort war kein JSON, generische Meldung unten.
       }
@@ -107,13 +107,13 @@ export async function getPool(
   }
 
   const response = data as Partial<ReadResponse> | null;
-  const validUntil = typeof response?.gueltig_bis === 'string' ? Date.parse(response.gueltig_bis) : NaN;
-  if (!response || !Array.isArray(response.medien) || Number.isNaN(validUntil)) {
+  const validUntil = typeof response?.valid_until === 'string' ? Date.parse(response.valid_until) : NaN;
+  if (!response || !Array.isArray(response.media) || Number.isNaN(validUntil)) {
     return { pool: null, error: LOAD_ERROR, reason: null };
   }
 
   const urls = new Map<string, MediaUrl>();
-  for (const entry of response.medien) {
+  for (const entry of response.media) {
     urls.set(entry.post_id, {
       post_id: entry.post_id,
       medium_url: entry.medium_url,
@@ -121,7 +121,7 @@ export async function getPool(
     });
   }
 
-  return { pool: { urls, validUntil, skipped: response.ausgelassen ?? 0 }, error: null, reason: null };
+  return { pool: { urls, validUntil, skipped: response.skipped ?? 0 }, error: null, reason: null };
 }
 
 export function isSoonExpiring(pool: Pool, now: number): boolean {

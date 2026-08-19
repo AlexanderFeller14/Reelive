@@ -1,32 +1,33 @@
-// End-to-End-Rauchtest für reveal-trip: echte HTTP-Aufrufe gegen die
-// laufende Function, nicht nur gegen die herausgelösten Bausteine. Die
-// eigentliche Verzweigungslogik ist bereits in reveal_test.ts (ohne Docker)
-// und die beiden DB-kritischen Abfragen in revealStore_integration_test.ts
-// (ohne HTTP) bewiesen, diese Datei bestätigt zusätzlich, dass die
-// Verdrahtung selbst stimmt: Deno.serve → fuehreRevealAus → der echte
-// RevealStore, End-to-End über echtes JWT/HTTP, exakt wie die App es tut.
+// End-to-end smoke test for reveal-trip: real HTTP calls against the
+// running function, not just against the extracted building blocks. The
+// actual branching logic is already proven in reveal_test.ts (with no
+// Docker) and the two DB-critical queries in
+// revealStore_integration_test.ts (with no HTTP), this file additionally
+// confirms that the wiring itself is right: Deno.serve -> performReveal ->
+// the real RevealStore, end-to-end over real JWT/HTTP, exactly the way the
+// app does it.
 //
-// Deckt die vier im Final-Review als Minimum genannten Fälle END-TO-END:
-// Nicht-Owner -> 403, zweiter (sequenzieller) Aufruf -> gleicher revealed_at,
-// archived -> 409. Der vierte Fall (fehlschlagender Push -> trotzdem 200)
-// läuft hier implizit mit: die Test-Reise hat Mitglieder ohne
-// push_tokens-Zeilen, `versendeRevealPush` bricht darum früh ab (keine
-// Tokens), das ECHTE "Push wirft" wird deterministisch (ohne Abhängigkeit
-// von echtem Netz zu Expo) bereits in reveal_test.ts geprüft.
+// Covers the four cases named as a minimum in the final review END-TO-END:
+// non-owner -> 403, second (sequential) call -> same revealed_at, archived
+// -> 409. The fourth case (a failing push -> still 200) runs here
+// implicitly: the test trip has members with no push_tokens rows,
+// `sendRevealPush` therefore aborts early (no tokens), the REAL "push
+// throws" is already checked deterministically (with no dependency on real
+// network to Expo) in reveal_test.ts.
 //
-// Ohne laufenden Stack UND einen `supabase functions serve`-Prozess für
-// reveal-trip überspringt sich der Test mit einer Log-Zeile (Muster wie
-// ../media-urls/lesen_test.ts).
+// Without a running stack AND a `supabase functions serve` process for
+// reveal-trip, the test skips itself with a log line (pattern like
+// ../media-urls/read_integration_test.ts).
 //
-// Ausführen (Terminal 1: `supabase functions serve --env-file
-// supabase/functions/.env`), dann in Terminal 2:
+// To run (terminal 1: `supabase functions serve --env-file
+// supabase/functions/.env`), then in terminal 2:
 //   cd supabase/functions/reveal-trip
 //   npx deno test --allow-net --allow-run=supabase reveal_integration_test.ts
 
 import { assertEquals, assertExists } from 'jsr:@std/assert';
 
-const LEA_ID = '11111111-1111-4111-8111-111111111111'; // Owner (seed.sql)
-const MIRA_ID = '33333333-3333-4333-8333-333333333333'; // Mitglied (seed.sql)
+const LEA_ID = '11111111-1111-4111-8111-111111111111'; // owner (seed.sql)
+const MIRA_ID = '33333333-3333-4333-8333-333333333333'; // member (seed.sql)
 
 function b64url(bytes: Uint8Array): string {
   let bin = '';
@@ -69,7 +70,7 @@ async function supabaseStatusEnv(): Promise<Record<string, string> | null> {
   }
 }
 
-function envOderNull(name: string): string | null {
+function envOrNull(name: string): string | null {
   try {
     return Deno.env.get(name) ?? null;
   } catch {
@@ -77,7 +78,7 @@ function envOderNull(name: string): string | null {
   }
 }
 
-async function functionErreichbar(url: string, anonKey: string): Promise<boolean> {
+async function functionReachable(url: string, anonKey: string): Promise<boolean> {
   try {
     const res = await fetch(url, {
       method: 'POST',
@@ -85,8 +86,8 @@ async function functionErreichbar(url: string, anonKey: string): Promise<boolean
       body: '{}',
       signal: AbortSignal.timeout(3000),
     });
-    const daten = await res.json().catch(() => null);
-    return Boolean(daten && typeof daten === 'object' && 'fehler' in daten);
+    const data = await res.json().catch(() => null);
+    return Boolean(data && typeof data === 'object' && 'error' in data);
   } catch {
     return false;
   }
@@ -97,14 +98,14 @@ const SUPABASE_URL = statusEnv?.API_URL ?? 'http://127.0.0.1:54321';
 const ANON_KEY = statusEnv?.ANON_KEY ?? '';
 const SERVICE_ROLE_KEY = statusEnv?.SERVICE_ROLE_KEY ?? '';
 const JWT_SECRET = statusEnv?.JWT_SECRET ?? '';
-const FUNCTION_URL = envOderNull('REVEAL_TRIP_URL') ?? `${SUPABASE_URL}/functions/v1/reveal-trip`;
+const FUNCTION_URL = envOrNull('REVEAL_TRIP_URL') ?? `${SUPABASE_URL}/functions/v1/reveal-trip`;
 
-const stackBereit = Boolean(
+const stackReady = Boolean(
   statusEnv && ANON_KEY && SERVICE_ROLE_KEY && JWT_SECRET &&
-    (await functionErreichbar(FUNCTION_URL, ANON_KEY)),
+    (await functionReachable(FUNCTION_URL, ANON_KEY)),
 );
 
-if (!stackBereit) {
+if (!stackReady) {
   console.warn(
     'reveal_integration_test: übersprungen, braucht `supabase start` UND ' +
       '`supabase functions serve --env-file supabase/functions/.env` in einem zweiten Terminal.',
@@ -120,15 +121,15 @@ function restHeaders(extra?: Record<string, string>): Record<string, string> {
   };
 }
 
-async function erwarteJson(res: Response, erwarteterStatus: number): Promise<unknown> {
+async function expectJson(res: Response, expectedStatus: number): Promise<unknown> {
   const text = await res.text();
-  assertEquals(res.status, erwarteterStatus, text);
+  assertEquals(res.status, expectedStatus, text);
   return text.length > 0 ? JSON.parse(text) : null;
 }
 
 Deno.test({
   name: 'reveal-trip End-to-End: Nicht-Owner 403, Owner reveals, zweiter Aufruf idempotent',
-  ignore: !stackBereit,
+  ignore: !stackReady,
   async fn() {
     const tripRes = await fetch(`${SUPABASE_URL}/rest/v1/trips`, {
       method: 'POST',
@@ -140,12 +141,12 @@ Deno.test({
         owner_id: LEA_ID,
       }),
     });
-    const [trip] = (await erwarteJson(tripRes, 201)) as Array<{ id: string; status: string }>;
+    const [trip] = (await expectJson(tripRes, 201)) as Array<{ id: string; status: string }>;
     const tripId: string = trip.id;
     assertEquals(trip.status, 'active');
 
     try {
-      await erwarteJson(
+      await expectJson(
         await fetch(`${SUPABASE_URL}/rest/v1/trip_members`, {
           method: 'POST',
           headers: restHeaders({ Prefer: 'return=representation' }),
@@ -162,40 +163,40 @@ Deno.test({
       const reveal = (headers: Record<string, string>) =>
         fetch(FUNCTION_URL, { method: 'POST', headers, body: JSON.stringify({ trip_id: tripId }) });
 
-      // --- Nicht-Owner -> 403, Zustand unverändert ------------------------
-      const nichtOwner = await reveal(miraHeaders);
-      assertEquals(await erwarteJson(nichtOwner, 403), {
-        fehler: 'Nur wer die Reise angelegt hat, kann sie abschliessen.',
+      // --- Non-owner -> 403, state unchanged --------------------------------
+      const nonOwner = await reveal(miraHeaders);
+      assertEquals(await expectJson(nonOwner, 403), {
+        error: 'Nur wer die Reise angelegt hat, kann sie abschliessen.',
       });
-      const nachNichtOwner = (await erwarteJson(
+      const afterNonOwner = (await expectJson(
         await fetch(`${SUPABASE_URL}/rest/v1/trips?id=eq.${tripId}&select=status`, { headers: restHeaders() }),
         200,
       )) as Array<{ status: string }>;
-      assertEquals(nachNichtOwner[0].status, 'active');
+      assertEquals(afterNonOwner[0].status, 'active');
 
-      // --- Owner reveals -> 200 -------------------------------------------
-      const ersterAufruf = await reveal(leaHeaders);
-      const ersteAntwort = (await erwarteJson(ersterAufruf, 200)) as { ok: boolean; revealed_at: string };
-      assertEquals(ersteAntwort.ok, true);
-      assertExists(ersteAntwort.revealed_at);
+      // --- Owner reveals -> 200 ----------------------------------------------
+      const firstCall = await reveal(leaHeaders);
+      const firstResponse = (await expectJson(firstCall, 200)) as { ok: boolean; revealed_at: string };
+      assertEquals(firstResponse.ok, true);
+      assertExists(firstResponse.revealed_at);
 
-      // --- zweiter (sequenzieller) Aufruf -> derselbe revealed_at ---------
-      const zweiterAufruf = await reveal(leaHeaders);
-      const zweiteAntwort = (await erwarteJson(zweiterAufruf, 200)) as { ok: boolean; revealed_at: string };
-      assertEquals(zweiteAntwort.revealed_at, ersteAntwort.revealed_at);
+      // --- second (sequential) call -> same revealed_at ----------------------
+      const secondCall = await reveal(leaHeaders);
+      const secondResponse = (await expectJson(secondCall, 200)) as { ok: boolean; revealed_at: string };
+      assertEquals(secondResponse.revealed_at, firstResponse.revealed_at);
 
-      // --- Re-Review-Fund: Nicht-Owner bleibt 403, auch NACH dem Reveal ---
-      // Der Owner-Check muss vor den Status-Zweigen greifen, nicht nur vor
-      // dem CAS-Update, sonst bekäme jede authentifizierte Person, die die
-      // trip_id kennt, für eine bereits revealte Reise 200 statt 403 (den
-      // idempotenten Zweig einer fremden Person untergeschoben).
-      const nichtOwnerNachReveal = await reveal(miraHeaders);
-      assertEquals(await erwarteJson(nichtOwnerNachReveal, 403), {
-        fehler: 'Nur wer die Reise angelegt hat, kann sie abschliessen.',
+      // --- re-review finding: non-owner stays 403, even AFTER the reveal ----
+      // The owner check has to apply before the status branches, not just
+      // before the CAS update, otherwise any authenticated person who knows
+      // the trip_id would get 200 instead of 403 for an already-revealed
+      // trip (slipping into someone else's idempotent branch).
+      const nonOwnerAfterReveal = await reveal(miraHeaders);
+      assertEquals(await expectJson(nonOwnerAfterReveal, 403), {
+        error: 'Nur wer die Reise angelegt hat, kann sie abschliessen.',
       });
 
       // --- archived -> 409 --------------------------------------------------
-      await erwarteJson(
+      await expectJson(
         await fetch(`${SUPABASE_URL}/rest/v1/trips?id=eq.${tripId}`, {
           method: 'PATCH',
           headers: restHeaders({ Prefer: 'return=representation' }),
@@ -203,13 +204,13 @@ Deno.test({
         }),
         200,
       );
-      const archivAufruf = await reveal(leaHeaders);
-      assertEquals(await erwarteJson(archivAufruf, 409), { fehler: 'Diese Reise ist schon archiviert.' });
+      const archiveCall = await reveal(leaHeaders);
+      assertEquals(await expectJson(archiveCall, 409), { error: 'Diese Reise ist schon archiviert.' });
 
-      // --- Nicht-Owner bleibt 403, auch für eine archivierte Reise --------
-      const nichtOwnerNachArchiv = await reveal(miraHeaders);
-      assertEquals(await erwarteJson(nichtOwnerNachArchiv, 403), {
-        fehler: 'Nur wer die Reise angelegt hat, kann sie abschliessen.',
+      // --- non-owner stays 403, even for an archived trip --------------------
+      const nonOwnerAfterArchive = await reveal(miraHeaders);
+      assertEquals(await expectJson(nonOwnerAfterArchive, 403), {
+        error: 'Nur wer die Reise angelegt hat, kann sie abschliessen.',
       });
     } finally {
       await fetch(`${SUPABASE_URL}/rest/v1/trips?id=eq.${tripId}`, {

@@ -1,15 +1,22 @@
 // Second, public read path onto a recap (Task-5-brief, counterpart's
-// Task-2-brief): the edge function `share-link`, action `aufloesen`, needs
+// Task-2-brief): the edge function `share-link`, action `resolve`, needs
 // NO JWT. Same call path as recapApi.ts/urlPool.ts, supabase.functions.invoke,
 // errors arrive either as a FunctionsHttpError with German plain text in the
 // JSON body, or as a network error detected via istOffline.
 //
 // W4 (spec promise): the web player can write nothing. This file calls
-// ONLY supabase.functions.invoke('share-link', { aktion: 'aufloesen' }),
+// ONLY supabase.functions.invoke('share-link', { action: 'resolve' }),
 // no .from(), no .rpc(), no .auth. Proven here by test (spies on the whole
 // client, see shareApi.test.ts), and additionally for the WHOLE screen
 // statically via the module graph
 // (mobile/src/app/share/__tests__/moduleGraph.test.ts), not just asserted.
+//
+// SharedRecap/SharedMoment keep their `reise`/`medien`/`ausgelassen` field
+// names for now (app-internal shape, consumed directly by
+// app/share/[token].tsx, out of this task's write zone): the RAW wire
+// response (ResolveResponse/MediaEntry below) already matches the
+// English-language server contract from Task 13, this function is the one
+// seam that translates between the two. See task-13-report.md, Bedenken.
 import { supabase } from '@/lib/supabase';
 import { OFFLINE_HINT, istOffline } from '@/lib/networkError';
 
@@ -17,7 +24,7 @@ export type SharedMoment = {
   post_id: string;
   authorName: string;
   // The image KEY, never a finished URL (Task 10, share-link/
-  // aufloesung.ts): `avatarUrl()` (features/auth/avatar.ts) stays the only
+  // resolution.ts): `avatarUrl()` (features/auth/avatar.ts) stays the only
   // place that knows the URL format, even for the shared recap. `null`
   // means "no picture", the normal case, Avatar() draws the initial then.
   authorAvatarKey: string | null;
@@ -45,7 +52,7 @@ export type SharedRecap = {
   // missing object, signing error, dropped while paging). They're missing
   // from `medien`; without this count they'd be missing WITHOUT A TRACE, and
   // the shared page would claim to show the whole trip. It's always present
-  // in the response, even as 0 (share-link/aufloesung.ts,
+  // in the response, even as 0 (share-link/resolution.ts,
   // `baueAufloesungsAntwort`).
   ausgelassen: number;
 };
@@ -79,25 +86,25 @@ function functionMessage(error: unknown, fallback: string): string {
   return istOffline(err ?? null) ? OFFLINE_HINT : fallback;
 }
 
-// Mirrors OeffentlicherMoment in supabase/functions/share-link/aufloesung.ts
+// Mirrors PublicMoment in supabase/functions/share-link/resolution.ts
 // byte for byte (wire contract, Task 13), field names stay as the function
 // sends them.
 type MediaEntry = {
   post_id: string;
-  autor_name: string;
-  // Not optional, but `string | null`, exactly as `OeffentlicherMoment`
-  // describes it in supabase/functions/share-link/aufloesung.ts. Still read
+  author_name: string;
+  // Not optional, but `string | null`, exactly as `PublicMoment`
+  // describes it in supabase/functions/share-link/resolution.ts. Still read
   // defensively (see `stringOrNull`), same reason as lat/lng: the app and
   // the function are rolled out separately.
-  autor_avatar_key: string | null;
+  author_avatar_key: string | null;
   type: 'photo' | 'video';
   captured_at: string;
   captured_tz: string;
   place_name: string | null;
   caption: string | null;
   duration_s: number | null;
-  // Not optional, but `number | null`, exactly as `OeffentlicherMoment`
-  // describes it in supabase/functions/share-link/aufloesung.ts. Still read
+  // Not optional, but `number | null`, exactly as `PublicMoment`
+  // describes it in supabase/functions/share-link/resolution.ts. Still read
   // defensively (see `numberOrNull`).
   lat: number | null;
   lng: number | null;
@@ -105,10 +112,10 @@ type MediaEntry = {
   thumb_url?: string; // only set when a thumbnail exists (contract, see media-urls precedent)
 };
 type ResolveResponse = {
-  reise: { name: string; start_date: string; end_date: string };
-  medien: MediaEntry[];
-  gueltig_bis: string;
-  ausgelassen: number;
+  trip: { name: string; start_date: string; end_date: string };
+  media: MediaEntry[];
+  valid_until: string;
+  skipped: number;
 };
 
 // A coordinate that can be computed with, or `null`.
@@ -136,7 +143,7 @@ function stringOrNull(wert: unknown): string | null {
 
 export async function resolveToken(token: string): Promise<Loaded<SharedRecap | null>> {
   const { data, error } = await supabase.functions.invoke('share-link', {
-    body: { aktion: 'aufloesen', token },
+    body: { action: 'resolve', token },
   });
 
   if (error) {
@@ -146,25 +153,25 @@ export async function resolveToken(token: string): Promise<Loaded<SharedRecap | 
   // Defensive shape check like holeVorrat (urlPool.ts): the app and the edge
   // function are rolled out separately, an unexpected/broken 200 response
   // must not crash, it counts as a load error.
-  const antwort = data as Partial<ResolveResponse> | null;
-  const validUntil = typeof antwort?.gueltig_bis === 'string' ? Date.parse(antwort.gueltig_bis) : NaN;
-  const reise = antwort?.reise;
+  const response = data as Partial<ResolveResponse> | null;
+  const validUntil = typeof response?.valid_until === 'string' ? Date.parse(response.valid_until) : NaN;
+  const trip = response?.trip;
   if (
-    !antwort ||
-    !reise ||
-    typeof reise.name !== 'string' ||
-    typeof reise.start_date !== 'string' ||
-    typeof reise.end_date !== 'string' ||
-    !Array.isArray(antwort.medien) ||
+    !response ||
+    !trip ||
+    typeof trip.name !== 'string' ||
+    typeof trip.start_date !== 'string' ||
+    typeof trip.end_date !== 'string' ||
+    !Array.isArray(response.media) ||
     Number.isNaN(validUntil)
   ) {
     return { data: null, error: LOAD_ERROR };
   }
 
-  const media: SharedMoment[] = antwort.medien.map((m) => ({
+  const media: SharedMoment[] = response.media.map((m) => ({
     post_id: m.post_id,
-    authorName: m.autor_name,
-    authorAvatarKey: stringOrNull(m.autor_avatar_key),
+    authorName: m.author_name,
+    authorAvatarKey: stringOrNull(m.author_avatar_key),
     type: m.type,
     captured_at: m.captured_at,
     captured_tz: m.captured_tz,
@@ -179,16 +186,16 @@ export async function resolveToken(token: string): Promise<Loaded<SharedRecap | 
 
   return {
     data: {
-      reise: { name: reise.name, start_date: reise.start_date, end_date: reise.end_date },
+      reise: { name: trip.name, start_date: trip.start_date, end_date: trip.end_date },
       medien: media,
       validUntil,
       // Read leniently and NOT part of the shape check above: the field is
-      // purely additive (see `baueAufloesungsAntwort`), and an older
+      // purely additive (see `buildResolveResponse`), and an older
       // function without it must not produce a dead page. If it's missing,
       // nothing is claimed, 0 means "nothing left out", the same state it
       // was everywhere before this field existed.
-      ausgelassen: typeof antwort.ausgelassen === 'number' && Number.isFinite(antwort.ausgelassen)
-        ? antwort.ausgelassen
+      ausgelassen: typeof response.skipped === 'number' && Number.isFinite(response.skipped)
+        ? response.skipped
         : 0,
     },
     error: null,

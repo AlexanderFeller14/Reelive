@@ -1,41 +1,42 @@
-// Die gesamte Entscheidungs- und Versandlogik von reveal-trip, herausgelöst
-// aus Deno.serve, Reaktion auf den Final-Review-Befund, dass diese Function
-// null automatisierte Tests hatte (push_test.ts deckt nur push.ts isoliert
-// ab). reveal-trip ist der einzige Weg, auf dem eine Reise je ihren Status
-// wechselt, unumkehrbar, und öffnet in einem Schlag alle Momente für alle
-// Mitglieder, das ist der sicherste Code der App neben media-urls/lesen.
+// The entire decision and send logic of reveal-trip, extracted out of
+// Deno.serve, in response to a final-review finding that this function had
+// zero automated tests (push_test.ts only covers push.ts in isolation).
+// reveal-trip is the only path on which a trip ever changes status,
+// irreversibly, and opens every moment for every member in one stroke,
+// that makes it the most safety-critical code in the app next to
+// media-urls/lesen.
 //
-// Stil wie media-urls/lesenZugriff.ts und ../reveal-trip/push.ts: I/O steckt
-// hinter einer schmalen, injizierbaren Schnittstelle (`RevealStore`,
-// `SendeFn`), die eigentliche Entscheidung ist eine reine Funktion darüber.
-// index.ts implementiert `RevealStore` als dünne, 1:1-Weiterleitung an
-// supabaseAdmin (dieselben Abfragen wie in der Vorfassung, nur hierher
-// verschoben) und ruft `fuehreRevealAus` nur noch auf.
+// Style like media-urls/readAccess.ts and ../reveal-trip/push.ts: I/O
+// sits behind a narrow, injectable interface (`RevealStore`, `SendFn`), the
+// actual decision is a pure function over it. index.ts implements
+// `RevealStore` as a thin, 1:1 forward to supabaseAdmin (the same queries
+// as in the previous version, only moved here) and just calls
+// `performReveal`.
 //
-// Was das für Tests bedeutet: reveal_test.ts prüft `fuehreRevealAus` und
-// `versendeRevealPush` mit einem Fake-Store, kein Docker, kein Netz, läuft
-// auf jeder Maschine. Das deckt die komplette VERZWEIGUNGSLOGIK ab: Owner-
-// Check, idempotente Antwort, Archiv-Konflikt, Push nur im Gewinner-Zweig
-// (nie im Verlierer-Zweig, genau der Fund, der in f26437a einmal schon
-// behoben wurde), Ausschluss der auslösenden Person aus den Empfängern,
-// und dass ein scheiternder Push den bereits vollzogenen Statuswechsel nicht
-// mehr zurücknimmt. Was eine reine Funktion NICHT abdecken kann, dass die
-// CAS-Bedingung (`status = 'active'`) in der ECHTEN Postgres-Abfrage steht
-// und zwei wirklich parallele Aufrufe tatsächlich nur einen Gewinner
-// erzeugen, deckt reveal_integration_test.ts gegen den echten Stack ab.
+// What this means for tests: reveal_test.ts checks `performReveal` and
+// `sendRevealPush` with a fake store, no Docker, no network, runs on any
+// machine. That covers the complete BRANCHING LOGIC: owner check, idempotent
+// response, archive conflict, push only in the winner branch (never in the
+// loser branch, exactly the finding that had already been fixed once in
+// f26437a), exclusion of the triggering person from the recipients, and
+// that a failing push no longer undoes the status change already made.
+// What a pure function CANNOT cover: that the CAS condition (`status =
+// 'active'`) sits in the REAL Postgres query and that two genuinely
+// parallel calls really produce only one winner, that is covered by
+// reveal_integration_test.ts against the real stack.
 
-import type { PushNachricht } from './push.ts';
-import type { MeldeFn } from '../_shared/fehlermelder.ts';
+import type { PushMessage } from './push.ts';
+import type { ReportFn } from '../_shared/errorReporter.ts';
 
-// Ohne übergebenen Melder ein No-Op, Tests, die `fuehreRevealAus` mit den
-// bisherigen vier Argumenten aufrufen (reveal_test.ts), bleiben dadurch
-// unverändert lauffähig; index.ts übergibt den echten, aus SENTRY_DSN
-// gebauten Melder als fünftes Argument (Stil wie `sendeFn`).
-const KEIN_MELDER: MeldeFn = async () => {};
+// A no-op with no reporter passed in, tests that call `performReveal` with
+// the previous four arguments (reveal_test.ts) therefore keep running
+// unchanged; index.ts passes the real reporter built from SENTRY_DSN as the
+// fifth argument (style like `sendFn`).
+const NO_REPORTER: ReportFn = async () => {};
 
 export type TripStatus = 'active' | 'revealed' | 'archived';
 
-export type TripZeile = {
+export type TripRow = {
   id: string;
   name: string;
   owner_id: string;
@@ -43,220 +44,215 @@ export type TripZeile = {
   revealed_at: string | null;
 };
 
-// Ergebnis einer Store-Operation im Supabase-Stil (data/error), damit sich
-// index.ts' Adapter fast wortgleich aus der Vorfassung übernehmen lässt,
-// weniger Umformung heisst weniger Gelegenheit, beim Verschieben
-// Verhalten zu ändern.
-export type StoreErgebnis<T> = { data: T | null; error: unknown };
+// Result of a store operation in the Supabase style (data/error), so
+// index.ts' adapter can be taken over almost word for word from the
+// previous version, less reshaping means less opportunity to change
+// behaviour while moving it.
+export type StoreResult<T> = { data: T | null; error: unknown };
 
 export interface RevealStore {
-  holeTrip(tripId: string): Promise<StoreErgebnis<TripZeile>>;
+  fetchTrip(tripId: string): Promise<StoreResult<TripRow>>;
 
-  // Der CAS-Update: setzt status/revealed_at NUR, wenn status aktuell
-  // 'active' ist. data === null bedeutet "0 Zeilen betroffen", ein
-  // paralleler Aufruf hat gewonnen, nicht dieser. Die Bedingung
-  // `.eq('status','active')` steht in der Adapter-Implementierung (echte
-  // Postgres-Abfrage), sie ist der Teil, den nur ein Integrationstest gegen
-  // echtes Postgres beweisen kann, siehe Kopfkommentar.
-  aktualisiereWennAktiv(tripId: string): Promise<StoreErgebnis<{ revealed_at: string }>>;
+  // The CAS update: sets status/revealed_at ONLY when status is currently
+  // 'active'. data === null means "0 rows affected", a parallel call won,
+  // not this one. The condition `.eq('status','active')` sits in the
+  // adapter implementation (real Postgres query), it is the part only an
+  // integration test against real Postgres can prove, see the header
+  // comment.
+  updateIfActive(tripId: string): Promise<StoreResult<{ revealed_at: string }>>;
 
-  // Nachlesen nach einem verlorenen CAS-Rennen: die Reise IST inzwischen
-  // revealed (ein anderer Aufruf hat gewonnen), wir lesen nur den
-  // Zeitstempel nach.
-  holeRevealedAtNachlese(tripId: string): Promise<StoreErgebnis<{ revealed_at: string | null }>>;
+  // Follow-up read after a lost CAS race: the trip IS revealed by now
+  // (another call won), we only read the timestamp back.
+  fetchRevealedAtFollowUp(tripId: string): Promise<StoreResult<{ revealed_at: string | null }>>;
 
-  // ALLE Mitglieder einer Reise, EINSCHLIESSLICH der auslösenden Person.
-  // Bewusst ohne `.neq('user_id', ausloesendeId)` in der Abfrage: der
-  // Ausschluss passiert in `versendeRevealPush` (reine JS-Filterung), damit
-  // er unit-testbar ist, statt nur in einer SQL-Klausel zu stehen, die kein
-  // Test ohne Docker erreicht.
-  holeMitglieder(tripId: string): Promise<StoreErgebnis<{ user_id: string }[]>>;
+  // ALL members of a trip, INCLUDING the triggering person. Deliberately
+  // with no `.neq('user_id', triggeringUserId)` in the query: the exclusion
+  // happens in `sendRevealPush` (pure JS filtering), so it is unit-testable
+  // instead of living only in a SQL clause no test without Docker reaches.
+  fetchMembers(tripId: string): Promise<StoreResult<{ user_id: string }[]>>;
 
-  holeTokens(userIds: string[]): Promise<StoreErgebnis<{ token: string }[]>>;
+  fetchTokens(userIds: string[]): Promise<StoreResult<{ token: string }[]>>;
 
-  // tokens: von Expo als "DeviceNotRegistered" gemeldete Tokens.
-  // userIds: zusätzliche Einschränkung auf den gerade angeschriebenen
-  // Empfängerkreis (Review-Minor, siehe Kommentar in versendeRevealPush),
-  // beide Parameter kommen bereits korrekt eingeschränkt aus der reinen
-  // Orchestrierung, der Adapter muss sie nur noch 1:1 in die Abfrage
-  // übernehmen.
-  loescheTokens(tokens: string[], userIds: string[]): Promise<{ error: unknown }>;
+  // tokens: tokens Expo reports as "DeviceNotRegistered".
+  // userIds: additional restriction to the just-notified recipient circle
+  // (review minor, see comment in sendRevealPush), both parameters already
+  // arrive correctly restricted from the pure orchestration, the adapter
+  // only has to carry them 1:1 into the query.
+  deleteTokens(tokens: string[], userIds: string[]): Promise<{ error: unknown }>;
 }
 
-// Signatur wie `sende` aus push.ts, aber ohne dessen eigenes `fetchImpl`-
-// Argument, die Injektion passiert hier eine Ebene höher, index.ts übergibt
-// standardmässig die echte `sende`-Funktion (die ihrerseits das echte
-// globale `fetch` benutzt).
-export type SendeFn = (nachrichten: PushNachricht[]) => Promise<string[]>;
+// Signature like `send` from push.ts, but without its own `fetchImpl`
+// argument, the injection happens one level higher here, index.ts passes
+// the real `send` function by default (which itself uses the real global
+// `fetch`).
+export type SendFn = (messages: PushMessage[]) => Promise<string[]>;
 
-// Schickt die Reveal-Benachrichtigung an alle Mitglieder der Reise ausser der
-// auslösenden Person und löscht Tokens, die Expo als abgemeldet meldet.
+// Sends the reveal notification to every member of the trip except the
+// triggering person and deletes tokens Expo reports as deregistered.
 //
-// WICHTIG: `fuehreRevealAus` ruft das NUR im Gewinner-Zweig des CAS-Updates
-// auf. Ein paralleler Aufruf, der den Statuswechsel selbst nicht ausgelöst
-// hat (0 betroffene Zeilen, Nachlese-Zweig), darf den Push nicht ein zweites
-// Mal verschicken, genau dieser Doppel-Versand war ein Review-Fund an einer
-// früheren Fassung dieser Function (f26437a) und ist jetzt durch
-// reveal_test.ts mit einem echten Zwei-Aufrufe-Rennen gegen einen
-// gemeinsamen Fake-Store belegt, nicht nur durch Code-Lesen.
-export async function versendeRevealPush(
+// IMPORTANT: `performReveal` only calls this in the winner branch of the
+// CAS update. A parallel call that did not itself trigger the status
+// change (0 rows affected, follow-up branch) must not send the push a
+// second time, exactly this double send was a review finding on an earlier
+// version of this function (f26437a) and is now proven, not just by
+// reading the code, by reveal_test.ts with a real two-call race against a
+// shared fake store.
+export async function sendRevealPush(
   store: RevealStore,
-  sendeFn: SendeFn,
-  trip: TripZeile,
-  ausloesendeId: string | null,
+  sendFn: SendFn,
+  trip: TripRow,
+  triggeringUserId: string | null,
 ): Promise<void> {
-  const { data: mitglieder, error: mitgliederError } = await store.holeMitglieder(trip.id);
-  if (mitgliederError) {
-    console.error('reveal-trip: trip_members-Select fehlgeschlagen', mitgliederError);
+  const { data: members, error: membersError } = await store.fetchMembers(trip.id);
+  if (membersError) {
+    console.error('reveal-trip: trip_members-Select fehlgeschlagen', membersError);
     return;
   }
 
-  // Die auslösende Person bekommt ihren eigenen Reveal nicht gepusht, sie
-  // weiss es bereits, sie hat gerade selbst auf "Reise abschliessen"
-  // getippt. Vorher eine `.neq('user_id', ausloesendeId)`-Klausel in der
-  // SQL-Abfrage selbst, jetzt dieselbe Menge als reine JS-Filterung, damit
-  // reveal_test.ts sie ohne Docker prüfen kann.
+  // The triggering person does not get her own reveal pushed to her, she
+  // already knows, she just tapped "finish trip" herself. Previously a
+  // `.neq('user_id', triggeringUserId)` clause in the SQL query itself, now
+  // the same set as pure JS filtering, so reveal_test.ts can check it with
+  // no Docker.
   //
-  // ausloesendeId null (Auto-Reveal, Spec 2026-08-18): der Kalender hat
-  // ausgelöst, keine Person, niemand wird gefiltert; der Vergleich
-  // userId !== null ist für jede user_id wahr.
-  const empfaengerIds = (mitglieder ?? [])
+  // triggeringUserId null (auto-reveal, Spec 2026-08-18): the calendar
+  // triggered it, no person, nobody gets filtered; the comparison userId
+  // !== null is true for every user_id.
+  const recipientIds = (members ?? [])
     .map((m) => m.user_id)
-    .filter((userId) => userId !== ausloesendeId);
-  if (empfaengerIds.length === 0) return;
+    .filter((userId) => userId !== triggeringUserId);
+  if (recipientIds.length === 0) return;
 
-  const { data: tokenZeilen, error: tokenError } = await store.holeTokens(empfaengerIds);
+  const { data: tokenRows, error: tokenError } = await store.fetchTokens(recipientIds);
   if (tokenError) {
     console.error('reveal-trip: push_tokens-Select fehlgeschlagen', tokenError);
     return;
   }
-  const tokens = tokenZeilen ?? [];
+  const tokens = tokenRows ?? [];
   if (tokens.length === 0) return;
 
-  const nachrichten: PushNachricht[] = tokens.map((t) => ({
+  const messages: PushMessage[] = tokens.map((t) => ({
     to: t.token,
     title: `✈️ Euer Recap von «${trip.name}» ist bereit!`,
     body: `✈️ Euer Recap von «${trip.name}» ist bereit!`,
     data: { trip_id: trip.id },
   }));
 
-  const tote = await sendeFn(nachrichten);
-  if (tote.length === 0) return;
+  const dead = await sendFn(messages);
+  if (dead.length === 0) return;
 
-  // Zusätzlich auf `empfaengerIds` eingeschränkt (Review-Minor): die
-  // Ticket->Token-Zuordnung in push.ts ist rein positionsbasiert (Ticket i
-  // gehört zu Nachricht i). Käme von Expo je ein versetzter `data`-Block
-  // zurück, dürfte ein fälschlich als DeviceNotRegistered gelesenes Token
-  // NIE ausserhalb des gerade angeschriebenen Empfängerkreises löschen,
-  // die Einschränkung begrenzt den Schaden auf genau diesen Kreis, statt
-  // als Service-Role über die ganze Tabelle zu laufen.
-  const { error: deleteError } = await store.loescheTokens(tote, empfaengerIds);
+  // Additionally restricted to `recipientIds` (review minor): the
+  // ticket-to-token mapping in push.ts is purely position-based (ticket i
+  // belongs to message i). Should Expo ever return a shifted `data` block,
+  // a token wrongly read as DeviceNotRegistered must NEVER delete outside
+  // the just-notified recipient circle, the restriction limits the damage
+  // to exactly this circle, instead of running as the service role over
+  // the whole table.
+  const { error: deleteError } = await store.deleteTokens(dead, recipientIds);
   if (deleteError) {
     console.error('reveal-trip: Aufräumen abgemeldeter push_tokens fehlgeschlagen', deleteError);
   }
 }
 
-export type RevealErgebnis = { status: number; body: Record<string, unknown> };
+export type RevealResult = { status: number; body: Record<string, unknown> };
 
-// Die komplette Entscheidungskette von reveal-trip ab der geladenen
-// Trip-Zeile: Owner-Check → idempotent (schon revealed) → Archiv-Konflikt →
-// CAS-Update → Push nur im Gewinner-Zweig → Nachlesen im Verlierer-Zweig.
-// Wortgleich zur Vorfassung in Deno.serve (Fehlertexte, Status-Codes,
-// Reihenfolge, welcher Zweig den Push auslöst), index.ts ruft das nur noch
-// auf und übersetzt das Ergebnis in eine Response.
-// `melde` ist das fünfte, optionale Argument (Stil wie `sendeFn`): index.ts
-// übergibt den echten, aus SENTRY_DSN gebauten Melder, Tests lassen es weg
-// (KEIN_MELDER) oder injizieren einen eigenen Fake, um zu belegen, DASS er an
-// den drei folgenden Stellen wirklich aufgerufen wird, nicht nur, dass ein
-// Melder existiert (siehe Punkt 2 des Abschluss-Reviews: "ein Fehler-Melder,
-// der keinen Aufrufer hat, ist wertlos"). Absichtlich NICHT in
-// `versendeRevealPush` verdrahtet: Ein Netzfehler gegen Expo, ein kaputtes
-// Ticket oder eine leere Empfängerliste sind dort laut Kommentar dort bereits
-// bewusst tolerierte, nicht-kritische Ausgänge, dieselbe Function würde sich
-// selbst widersprechen, meldete sie an Sentry, was sie im nächsten Atemzug als
-// "darf den Reveal nicht scheitern lassen" einstuft.
-export async function fuehreRevealAus(
+// The complete decision chain of reveal-trip starting from the loaded trip
+// row: owner check -> idempotent (already revealed) -> archive conflict ->
+// CAS update -> push only in the winner branch -> follow-up read in the
+// loser branch. Word for word the same as the previous version inside
+// Deno.serve (error text, status codes, order, which branch triggers the
+// push), index.ts now only calls this and translates the result into a
+// Response.
+// `report` is the fifth, optional argument (style like `sendFn`): index.ts
+// passes the real reporter built from SENTRY_DSN, tests leave it out
+// (NO_REPORTER) or inject their own fake to prove THAT it is really called
+// at the three places below, not just that a reporter exists (see point 2
+// of the final review: "an error reporter with no caller is worthless").
+// Deliberately NOT wired into `sendRevealPush`: a network error against
+// Expo, a broken ticket, or an empty recipient list are, per the comment
+// there, already deliberately tolerated, non-critical outcomes, the same
+// function would contradict itself if it reported to Sentry what it
+// classifies in the next breath as "must not fail the reveal".
+export async function performReveal(
   store: RevealStore,
-  sendeFn: SendeFn,
+  sendFn: SendFn,
   tripId: string,
-  anfragendeId: string,
-  melde: MeldeFn = KEIN_MELDER,
-): Promise<RevealErgebnis> {
-  const { data: trip, error: tripError } = await store.holeTrip(tripId);
+  requestingUserId: string,
+  report: ReportFn = NO_REPORTER,
+): Promise<RevealResult> {
+  const { data: trip, error: tripError } = await store.fetchTrip(tripId);
   if (tripError) {
     console.error('reveal-trip: trips-Select fehlgeschlagen', tripError);
-    await melde(tripError, { trip_id: tripId });
-    return { status: 500, body: { fehler: 'Reise konnte nicht geladen werden.' } };
+    await report(tripError, { trip_id: tripId });
+    return { status: 500, body: { error: 'Reise konnte nicht geladen werden.' } };
   }
   if (!trip) {
-    return { status: 404, body: { fehler: 'Reise nicht gefunden.' } };
+    return { status: 404, body: { error: 'Reise nicht gefunden.' } };
   }
 
-  if (trip.owner_id !== anfragendeId) {
-    return { status: 403, body: { fehler: 'Nur wer die Reise angelegt hat, kann sie abschliessen.' } };
+  if (trip.owner_id !== requestingUserId) {
+    return { status: 403, body: { error: 'Nur wer die Reise angelegt hat, kann sie abschliessen.' } };
   }
 
-  // Idempotent: ein zweiter Tipp auf «Reise abschliessen» (z. B. weil das
-  // Netz beim ersten Mal wackelte) ist kein Fehler, die App bekommt
-  // denselben revealed_at-Wert wie beim ersten erfolgreichen Aufruf. Dieser
-  // Zweig erreicht das CAS-Update gar nicht erst, also auch keinen zweiten
-  // Push, nur für einen SEQUENZIELLEN zweiten Aufruf, nachdem die erste
-  // Antwort schon zurück war. Das echte Wettrennen (zwei Aufrufe, die BEIDE
-  // status==='active' lesen, bevor einer committet) durchläuft stattdessen
-  // den CAS-Zweig unten, Gewinner und Verlierer unterschieden am
-  // Update-Ergebnis.
+  // Idempotent: a second tap on "finish trip" (e.g. because the network
+  // wobbled the first time) is not an error, the app gets the same
+  // revealed_at value as on the first successful call. This branch never
+  // even reaches the CAS update, so no second push either, only for a
+  // SEQUENTIAL second call, after the first response already came back.
+  // The real race (two calls that BOTH read status==='active' before
+  // either commits) instead runs through the CAS branch below, winner and
+  // loser told apart by the update result.
   if (trip.status === 'revealed') {
     return { status: 200, body: { ok: true, revealed_at: trip.revealed_at } };
   }
   if (trip.status === 'archived') {
-    return { status: 409, body: { fehler: 'Diese Reise ist schon archiviert.' } };
+    return { status: 409, body: { error: 'Diese Reise ist schon archiviert.' } };
   }
 
-  // status === 'active': einziger Statuswechsel, atomar über die CAS-
-  // Bedingung im Adapter (`.eq('status','active')` bei der echten
-  // Postgres-Abfrage, siehe RevealStore-Kommentar).
-  const { data: aktualisiert, error: updateError } = await store.aktualisiereWennAktiv(tripId);
+  // status === 'active': the only status change, atomic via the CAS
+  // condition in the adapter (`.eq('status','active')` on the real Postgres
+  // query, see the RevealStore comment).
+  const { data: updated, error: updateError } = await store.updateIfActive(tripId);
   if (updateError) {
     console.error('reveal-trip: trips-Update fehlgeschlagen', updateError);
-    await melde(updateError, { trip_id: tripId, user_id: anfragendeId });
-    return { status: 500, body: { fehler: 'Reise konnte nicht abgeschlossen werden.' } };
+    await report(updateError, { trip_id: tripId, user_id: requestingUserId });
+    return { status: 500, body: { error: 'Reise konnte nicht abgeschlossen werden.' } };
   }
 
   let revealedAt: string | null;
-  if (aktualisiert) {
-    // Wir haben den Statuswechsel ausgelöst, und nur deshalb auch den Push.
-    // Der Versand steht bewusst INNERHALB dieses Zweigs: stünde er nach dem
-    // if/else, würde auch der Verlierer eines Rennens (unten, 0 betroffene
-    // Zeilen) ihn erneut auslösen und dieselbe Benachrichtigung ein zweites
-    // Mal an alle Mitglieder verschicken, obwohl sein eigener Aufruf gar
-    // nichts geändert hat.
-    revealedAt = aktualisiert.revealed_at;
+  if (updated) {
+    // We triggered the status change, and only for that reason also the
+    // push. The send deliberately sits INSIDE this branch: were it after
+    // the if/else, the loser of a race (below, 0 rows affected) would also
+    // trigger it again and send the same notification to every member a
+    // second time, even though its own call changed nothing at all.
+    revealedAt = updated.revealed_at;
 
-    // Der Statuswechsel ist die Wahrheit, die Benachrichtigung nur die
-    // Botschaft: ein Netzfehler gegen Expo, ein kaputtes Ticket oder eine
-    // leere Empfängerliste dürfen den Reveal nicht scheitern lassen, die
-    // Antwort an die Owner-Person bleibt 200 mit dem bereits ermittelten
-    // revealedAt, unabhängig vom Ausgang des Versands.
+    // The status change is the truth, the notification only the message: a
+    // network error against Expo, a broken ticket, or an empty recipient
+    // list must not fail the reveal, the response to the owner stays 200
+    // with the already-determined revealedAt, regardless of how the send
+    // turns out.
     try {
-      await versendeRevealPush(store, sendeFn, trip, anfragendeId);
+      await sendRevealPush(store, sendFn, trip, requestingUserId);
     } catch (err) {
       console.error('reveal-trip: Push-Versand fehlgeschlagen', err);
     }
   } else {
-    // 0 betroffene Zeilen: ein paralleler Aufruf war schneller und hat den
-    // Status bereits von 'active' auf 'revealed' gedreht (die CAS-Bedingung
-    // griff dadurch nicht mehr). Das ist kein Fehler, die Reise IST jetzt
-    // revealed, wir lesen nur nach, mit welchem Zeitstempel. KEIN Push hier:
-    // der Gewinner-Zweig oben hat ihn bereits verschickt.
-    const { data: nachgelesen, error: nachlesenError } = await store.holeRevealedAtNachlese(tripId);
-    if (nachlesenError || !nachgelesen) {
-      console.error('reveal-trip: Nachlesen nach paralellem Reveal fehlgeschlagen', nachlesenError);
-      await melde(nachlesenError ?? new Error('reveal-trip: Nachlesen nach parallelem Reveal ohne Zeile.'), {
+    // 0 rows affected: a parallel call was faster and already flipped the
+    // status from 'active' to 'revealed' (the CAS condition therefore no
+    // longer applied). That is not an error, the trip IS revealed now, we
+    // only read back which timestamp it happened at. NO push here: the
+    // winner branch above already sent it.
+    const { data: followUp, error: followUpError } = await store.fetchRevealedAtFollowUp(tripId);
+    if (followUpError || !followUp) {
+      console.error('reveal-trip: Nachlesen nach paralellem Reveal fehlgeschlagen', followUpError);
+      await report(followUpError ?? new Error('reveal-trip: Nachlesen nach parallelem Reveal ohne Zeile.'), {
         trip_id: tripId,
       });
-      return { status: 500, body: { fehler: 'Reise konnte nicht abgeschlossen werden.' } };
+      return { status: 500, body: { error: 'Reise konnte nicht abgeschlossen werden.' } };
     }
-    revealedAt = nachgelesen.revealed_at;
+    revealedAt = followUp.revealed_at;
   }
 
   return { status: 200, body: { ok: true, revealed_at: revealedAt } };

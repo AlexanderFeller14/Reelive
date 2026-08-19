@@ -1,93 +1,92 @@
-// Unit-Tests für die aus Deno.serve herausgelöste Entscheidungs- und
-// Versandlogik von reveal-trip (reveal.ts). Laufen OHNE `supabase start` und
-// OHNE Netz, Reaktion auf den Final-Review-Befund, dass diese Function
-// bisher NULL automatisierte Tests hatte (push_test.ts deckt nur push.ts
-// isoliert ab, nicht den Statuswechsel selbst).
+// Unit tests for the decision and send logic of reveal-trip (reveal.ts),
+// extracted out of Deno.serve. Run WITHOUT `supabase start` and WITHOUT a
+// network, in response to a final-review finding that this function had
+// ZERO automated tests until now (push_test.ts only covers push.ts in
+// isolation, not the status change itself).
 //
-// Ein Fake-Store hält den Zustand EINER Reise im Speicher und modelliert die
-// CAS-Bedingung des echten Postgres-Updates (`.eq('status','active')`)
-// exakt: `aktualisiereWennAktiv` setzt status/revealed_at nur, wenn status
-// zum Zeitpunkt des Aufrufs noch 'active' ist, und liefert sonst `null`
-// zurück (0 betroffene Zeilen), genau die Semantik, auf die sich
-// `fuehreRevealAus` verlässt. Das macht ein ECHTES Zwei-Aufrufe-Rennen
-// testbar, ohne Docker: zwei `fuehreRevealAus`-Aufrufe gegen denselben
-// Fake-Store, mit `Promise.all` gestartet.
+// A fake store holds the state of ONE trip in memory and models the CAS
+// condition of the real Postgres update (`.eq('status','active')`) exactly:
+// `updateIfActive` sets status/revealed_at only when status is still
+// 'active' at the time of the call, and otherwise returns `null` (0 rows
+// affected), exactly the semantics `performReveal` relies on. That makes a
+// REAL two-call race testable, with no Docker: two `performReveal` calls
+// against the same fake store, started with `Promise.all`.
 //
-// Was ein Fake-Store NICHT beweisen kann: dass die ECHTE Postgres-Abfrage in
-// index.ts' Adapter tatsächlich `.eq('status','active')` trägt, die CAS-
-// Semantik ist hier bewusst vom Test vorgegeben, nicht von der Produktion
-// abgeleitet. Das schliesst reveal_integration_test.ts (Docker-gated, echter
-// Stack, echtes Rennen über echtes Postgres).
+// What a fake store CANNOT prove: that the REAL Postgres query in index.ts'
+// adapter really carries `.eq('status','active')`, the CAS semantics here
+// are deliberately dictated by the test, not derived from production. That
+// gap is closed by reveal_integration_test.ts (Docker-gated, real stack,
+// real race over real Postgres).
 
 import { assertEquals, assertExists } from 'jsr:@std/assert';
-import { fuehreRevealAus, versendeRevealPush, type RevealStore, type SendeFn, type TripZeile } from './reveal.ts';
-import type { PushNachricht } from './push.ts';
-import type { FehlerKontext, MeldeFn } from '../_shared/fehlermelder.ts';
+import { performReveal, sendRevealPush, type RevealStore, type SendFn, type TripRow } from './reveal.ts';
+import type { PushMessage } from './push.ts';
+import type { ErrorContext, ReportFn } from '../_shared/errorReporter.ts';
 
 const OWNER_ID = 'aaaaaaaa-1111-4111-8111-111111111111';
 const MEMBER_ID = 'bbbbbbbb-2222-4222-8222-222222222222';
 const MEMBER2_ID = 'cccccccc-3333-4333-8333-333333333333';
 const TRIP_ID = 'dddddddd-4444-4444-8444-444444444444';
 
-// --- Fake-Store --------------------------------------------------------------
+// --- Fake store --------------------------------------------------------------
 
-type FakeZustand = {
-  trip: TripZeile;
-  // user_id -> tokens dieser Person
+type FakeState = {
+  trip: TripRow;
+  // user_id -> this person's tokens
   tokens: Map<string, string[]>;
 };
 
-// Baut einen Fake-Store über einem gemeinsamen Zustandsobjekt. Mehrere Calls
-// von `fuehreRevealAus` gegen DENSELBEN Zustand simulieren echte
-// Nebenläufigkeit (Rennen), gegen JE EINEN eigenen Zustand simulieren
-// unabhängige Reisen.
-function fakeStore(zustand: FakeZustand, aufrufe: { holeMitglieder: number; loescheTokens: Array<{ tokens: string[]; userIds: string[] }> }): RevealStore {
+// Builds a fake store over a shared state object. Several calls to
+// `performReveal` against the SAME state simulate real concurrency (a
+// race), against ONE state each simulate independent trips.
+function fakeStore(state: FakeState, calls: { fetchMembers: number; deleteTokens: Array<{ tokens: string[]; userIds: string[] }> }): RevealStore {
   return {
-    async holeTrip(tripId) {
-      if (tripId !== zustand.trip.id) return { data: null, error: null };
-      // Kopie: der Aufrufer darf das zurückgegebene Objekt nicht mutieren
-      // können und damit den Fake-Zustand verfälschen.
-      return { data: { ...zustand.trip }, error: null };
+    async fetchTrip(tripId) {
+      if (tripId !== state.trip.id) return { data: null, error: null };
+      // A copy: the caller must not be able to mutate the returned object
+      // and thereby corrupt the fake state.
+      return { data: { ...state.trip }, error: null };
     },
-    async aktualisiereWennAktiv(tripId) {
-      if (tripId !== zustand.trip.id) return { data: null, error: null };
-      // Die CAS-Bedingung: nur wenn AKTUELL 'active', sonst 0 Zeilen (null).
-      if (zustand.trip.status !== 'active') return { data: null, error: null };
+    async updateIfActive(tripId) {
+      if (tripId !== state.trip.id) return { data: null, error: null };
+      // The CAS condition: only if CURRENTLY 'active', otherwise 0 rows
+      // (null).
+      if (state.trip.status !== 'active') return { data: null, error: null };
       const revealedAt = new Date().toISOString();
-      zustand.trip = { ...zustand.trip, status: 'revealed', revealed_at: revealedAt };
+      state.trip = { ...state.trip, status: 'revealed', revealed_at: revealedAt };
       return { data: { revealed_at: revealedAt }, error: null };
     },
-    async holeRevealedAtNachlese(tripId) {
-      if (tripId !== zustand.trip.id) return { data: null, error: null };
-      return { data: { revealed_at: zustand.trip.revealed_at }, error: null };
+    async fetchRevealedAtFollowUp(tripId) {
+      if (tripId !== state.trip.id) return { data: null, error: null };
+      return { data: { revealed_at: state.trip.revealed_at }, error: null };
     },
-    async holeMitglieder(tripId) {
-      aufrufe.holeMitglieder++;
-      if (tripId !== zustand.trip.id) return { data: [], error: null };
-      return { data: [...zustand.tokens.keys()].map((user_id) => ({ user_id })), error: null };
+    async fetchMembers(tripId) {
+      calls.fetchMembers++;
+      if (tripId !== state.trip.id) return { data: [], error: null };
+      return { data: [...state.tokens.keys()].map((user_id) => ({ user_id })), error: null };
     },
-    async holeTokens(userIds) {
-      const zeilen: { token: string }[] = [];
+    async fetchTokens(userIds) {
+      const rows: { token: string }[] = [];
       for (const userId of userIds) {
-        for (const token of zustand.tokens.get(userId) ?? []) {
-          zeilen.push({ token });
+        for (const token of state.tokens.get(userId) ?? []) {
+          rows.push({ token });
         }
       }
-      return { data: zeilen, error: null };
+      return { data: rows, error: null };
     },
-    async loescheTokens(tokens, userIds) {
-      aufrufe.loescheTokens.push({ tokens, userIds });
+    async deleteTokens(tokens, userIds) {
+      calls.deleteTokens.push({ tokens, userIds });
       for (const userId of userIds) {
-        const bisherige = zustand.tokens.get(userId);
-        if (!bisherige) continue;
-        zustand.tokens.set(userId, bisherige.filter((t) => !tokens.includes(t)));
+        const existing = state.tokens.get(userId);
+        if (!existing) continue;
+        state.tokens.set(userId, existing.filter((t) => !tokens.includes(t)));
       }
       return { error: null };
     },
   };
 }
 
-function neueFakeZustand(status: TripZeile['status'] = 'active'): FakeZustand {
+function newFakeState(status: TripRow['status'] = 'active'): FakeState {
   return {
     trip: {
       id: TRIP_ID,
@@ -103,304 +102,304 @@ function neueFakeZustand(status: TripZeile['status'] = 'active'): FakeZustand {
   };
 }
 
-// sendeFn-Spy: zählt Aufrufe, sammelt die adressierten Tokens, liefert
-// standardmässig "niemand tot".
-function fakeSendeFn(tote: string[] = []): { fn: SendeFn; aufrufe: PushNachricht[][] } {
-  const aufrufe: PushNachricht[][] = [];
-  const fn: SendeFn = (nachrichten) => {
-    aufrufe.push(nachrichten);
-    return Promise.resolve(tote);
+// sendFn spy: counts calls, collects the addressed tokens, defaults to
+// "nobody dead".
+function fakeSendFn(dead: string[] = []): { fn: SendFn; calls: PushMessage[][] } {
+  const calls: PushMessage[][] = [];
+  const fn: SendFn = (messages) => {
+    calls.push(messages);
+    return Promise.resolve(dead);
   };
-  return { fn, aufrufe };
+  return { fn, calls };
 }
 
-// Abschluss-Review Phase 6, Punkt 2: "ein Fehler-Melder, der keinen Aufrufer
-// hat, ist wertlos", die folgenden Tests belegen nicht nur, dass
-// `fuehreRevealAus` ein fünftes Argument annimmt, sondern DASS es an genau
-// den drei DB-Fehlerpfaden aufgerufen wird (und an keinem anderen).
-function fakeMelde(): { fn: MeldeFn; aufrufe: Array<{ fehler: unknown; kontext?: FehlerKontext }> } {
-  const aufrufe: Array<{ fehler: unknown; kontext?: FehlerKontext }> = [];
-  const fn: MeldeFn = (fehler, kontext) => {
-    aufrufe.push({ fehler, kontext });
+// Phase 6 final review, point 2: "an error reporter with no caller is
+// worthless", the following tests prove not only that `performReveal`
+// accepts a fifth argument, but THAT it is called at exactly the three DB
+// error paths (and at no other).
+function fakeReporter(): { fn: ReportFn; calls: Array<{ error: unknown; context?: ErrorContext }> } {
+  const calls: Array<{ error: unknown; context?: ErrorContext }> = [];
+  const fn: ReportFn = (error, context) => {
+    calls.push({ error, context });
     return Promise.resolve();
   };
-  return { fn, aufrufe };
+  return { fn, calls };
 }
 
 // =============================================================================
-// fuehreRevealAus, die sechs im Final-Review benannten Zusicherungen
+// performReveal, the six guarantees named in the final review
 // =============================================================================
 
-// --- 1. Owner-Check: Nicht-Owner -> 403 -------------------------------------
-Deno.test('fuehreRevealAus: ein Nicht-Owner bekommt 403 und löst keinen Statuswechsel/Push aus', async () => {
-  const zustand = neueFakeZustand('active');
-  const aufrufe = { holeMitglieder: 0, loescheTokens: [] as Array<{ tokens: string[]; userIds: string[] }> };
-  const store = fakeStore(zustand, aufrufe);
-  const { fn: sendeFn, aufrufe: sendeAufrufe } = fakeSendeFn();
+// --- 1. Owner check: non-owner -> 403 ---------------------------------------
+Deno.test('performReveal: a non-owner gets 403 and triggers no status change/push', async () => {
+  const state = newFakeState('active');
+  const calls = { fetchMembers: 0, deleteTokens: [] as Array<{ tokens: string[]; userIds: string[] }> };
+  const store = fakeStore(state, calls);
+  const { fn: sendFn, calls: sendCalls } = fakeSendFn();
 
-  const ergebnis = await fuehreRevealAus(store, sendeFn, TRIP_ID, MEMBER_ID);
+  const result = await performReveal(store, sendFn, TRIP_ID, MEMBER_ID);
 
-  assertEquals(ergebnis, {
+  assertEquals(result, {
     status: 403,
-    body: { fehler: 'Nur wer die Reise angelegt hat, kann sie abschliessen.' },
+    body: { error: 'Nur wer die Reise angelegt hat, kann sie abschliessen.' },
   });
-  assertEquals(zustand.trip.status, 'active', 'der Status blieb unverändert');
-  assertEquals(sendeAufrufe.length, 0, 'kein Push wurde ausgelöst');
-  assertEquals(aufrufe.holeMitglieder, 0, 'versendeRevealPush wurde gar nicht erst aufgerufen');
+  assertEquals(state.trip.status, 'active', 'der Status blieb unverändert');
+  assertEquals(sendCalls.length, 0, 'kein Push wurde ausgelöst');
+  assertEquals(calls.fetchMembers, 0, 'sendRevealPush wurde gar nicht erst aufgerufen');
 });
 
-// Re-Review-Fund: der Owner-Check muss VOR den Status-Zweigen stehen, nicht
-// nur vor dem CAS-Update. Eine bereits revealte oder archivierte Reise hat
-// je einen eigenen frühen Rückgabe-Zweig (Zeile 184/187), verschöbe man den
-// Owner-Check hinter diese beiden, bekäme JEDE authentifizierte Person, die
-// eine trip_id kennt, für eine revealte Reise 200 statt 403 und für eine
-// archivierte 409 statt 403. Die beiden Tests oben/unten deckten das nicht:
-// "ein Nicht-Owner bekommt 403" prüft nur gegen status='active', und auch
-// reveal_integration_test.ts testet den Nicht-Owner nur dort. Diese beiden
-// Fälle schliessen genau die Lücke, für die Befund 2 ursprünglich geschrieben
-// wurde: kein Mitglied darf die Reise für alle öffnen, unabhängig vom Status.
-Deno.test('fuehreRevealAus: ein Nicht-Owner bekommt 403, auch wenn die Reise bereits revealed ist', async () => {
-  const zustand = neueFakeZustand('revealed');
-  const store = fakeStore(zustand, { holeMitglieder: 0, loescheTokens: [] });
-  const { fn: sendeFn, aufrufe: sendeAufrufe } = fakeSendeFn();
+// Re-review finding: the owner check has to sit BEFORE the status branches,
+// not just before the CAS update. An already-revealed or archived trip each
+// has its own early return branch (line 184/187), had the owner check been
+// moved behind those two, ANY authenticated person who knows a trip_id
+// would get 200 instead of 403 for a revealed trip and 409 instead of 403
+// for an archived one. The two tests above/below did not cover that: "a
+// non-owner gets 403" only checks against status='active', and
+// reveal_integration_test.ts too only tests the non-owner there. These two
+// cases close exactly the gap finding 2 was originally written for: no
+// member may open the trip for everyone, regardless of status.
+Deno.test('performReveal: a non-owner gets 403, even when the trip is already revealed', async () => {
+  const state = newFakeState('revealed');
+  const store = fakeStore(state, { fetchMembers: 0, deleteTokens: [] });
+  const { fn: sendFn, calls: sendCalls } = fakeSendFn();
 
-  const ergebnis = await fuehreRevealAus(store, sendeFn, TRIP_ID, MEMBER_ID);
+  const result = await performReveal(store, sendFn, TRIP_ID, MEMBER_ID);
 
-  assertEquals(ergebnis, {
+  assertEquals(result, {
     status: 403,
-    body: { fehler: 'Nur wer die Reise angelegt hat, kann sie abschliessen.' },
+    body: { error: 'Nur wer die Reise angelegt hat, kann sie abschliessen.' },
   });
-  assertEquals(sendeAufrufe.length, 0);
+  assertEquals(sendCalls.length, 0);
 });
 
-Deno.test('fuehreRevealAus: ein Nicht-Owner bekommt 403, auch wenn die Reise bereits archiviert ist', async () => {
-  const zustand = neueFakeZustand('archived');
-  const store = fakeStore(zustand, { holeMitglieder: 0, loescheTokens: [] });
-  const { fn: sendeFn, aufrufe: sendeAufrufe } = fakeSendeFn();
+Deno.test('performReveal: a non-owner gets 403, even when the trip is already archived', async () => {
+  const state = newFakeState('archived');
+  const store = fakeStore(state, { fetchMembers: 0, deleteTokens: [] });
+  const { fn: sendFn, calls: sendCalls } = fakeSendFn();
 
-  const ergebnis = await fuehreRevealAus(store, sendeFn, TRIP_ID, MEMBER_ID);
+  const result = await performReveal(store, sendFn, TRIP_ID, MEMBER_ID);
 
-  assertEquals(ergebnis, {
+  assertEquals(result, {
     status: 403,
-    body: { fehler: 'Nur wer die Reise angelegt hat, kann sie abschliessen.' },
+    body: { error: 'Nur wer die Reise angelegt hat, kann sie abschliessen.' },
   });
-  assertEquals(sendeAufrufe.length, 0);
+  assertEquals(sendCalls.length, 0);
 });
 
-// --- Reise nicht gefunden ----------------------------------------------------
-Deno.test('fuehreRevealAus: eine unbekannte trip_id liefert 404', async () => {
-  const zustand = neueFakeZustand('active');
-  const store = fakeStore(zustand, { holeMitglieder: 0, loescheTokens: [] });
-  const { fn: sendeFn } = fakeSendeFn();
+// --- Trip not found -----------------------------------------------------------
+Deno.test('performReveal: an unknown trip_id returns 404', async () => {
+  const state = newFakeState('active');
+  const store = fakeStore(state, { fetchMembers: 0, deleteTokens: [] });
+  const { fn: sendFn } = fakeSendFn();
 
-  const ergebnis = await fuehreRevealAus(store, sendeFn, 'unbekannte-trip-id', OWNER_ID);
+  const result = await performReveal(store, sendFn, 'unbekannte-trip-id', OWNER_ID);
 
-  assertEquals(ergebnis, { status: 404, body: { fehler: 'Reise nicht gefunden.' } });
+  assertEquals(result, { status: 404, body: { error: 'Reise nicht gefunden.' } });
 });
 
-// --- 2. Idempotent: sequenzieller zweiter Aufruf ----------------------------
-Deno.test('fuehreRevealAus: eine bereits revealed Reise liefert denselben revealed_at ohne erneutes Update/Push', async () => {
-  const zustand = neueFakeZustand('revealed');
-  const aufrufe = { holeMitglieder: 0, loescheTokens: [] as Array<{ tokens: string[]; userIds: string[] }> };
-  const store = fakeStore(zustand, aufrufe);
-  const { fn: sendeFn, aufrufe: sendeAufrufe } = fakeSendeFn();
+// --- 2. Idempotent: sequential second call ----------------------------------
+Deno.test('performReveal: an already-revealed trip returns the same revealed_at with no repeated update/push', async () => {
+  const state = newFakeState('revealed');
+  const calls = { fetchMembers: 0, deleteTokens: [] as Array<{ tokens: string[]; userIds: string[] }> };
+  const store = fakeStore(state, calls);
+  const { fn: sendFn, calls: sendCalls } = fakeSendFn();
 
-  const ergebnis = await fuehreRevealAus(store, sendeFn, TRIP_ID, OWNER_ID);
+  const result = await performReveal(store, sendFn, TRIP_ID, OWNER_ID);
 
-  assertEquals(ergebnis, { status: 200, body: { ok: true, revealed_at: zustand.trip.revealed_at } });
-  assertEquals(sendeAufrufe.length, 0, 'ein sequenzieller zweiter Aufruf löst keinen erneuten Push aus');
-  assertEquals(aufrufe.holeMitglieder, 0);
+  assertEquals(result, { status: 200, body: { ok: true, revealed_at: state.trip.revealed_at } });
+  assertEquals(sendCalls.length, 0, 'ein sequenzieller zweiter Aufruf löst keinen erneuten Push aus');
+  assertEquals(calls.fetchMembers, 0);
 });
 
-// --- 3. Archiv-Konflikt ------------------------------------------------------
-Deno.test('fuehreRevealAus: eine archivierte Reise liefert 409 und löst keinen Push aus', async () => {
-  const zustand = neueFakeZustand('archived');
-  const aufrufe = { holeMitglieder: 0, loescheTokens: [] as Array<{ tokens: string[]; userIds: string[] }> };
-  const store = fakeStore(zustand, aufrufe);
-  const { fn: sendeFn, aufrufe: sendeAufrufe } = fakeSendeFn();
+// --- 3. Archive conflict ------------------------------------------------------
+Deno.test('performReveal: an archived trip returns 409 and triggers no push', async () => {
+  const state = newFakeState('archived');
+  const calls = { fetchMembers: 0, deleteTokens: [] as Array<{ tokens: string[]; userIds: string[] }> };
+  const store = fakeStore(state, calls);
+  const { fn: sendFn, calls: sendCalls } = fakeSendFn();
 
-  const ergebnis = await fuehreRevealAus(store, sendeFn, TRIP_ID, OWNER_ID);
+  const result = await performReveal(store, sendFn, TRIP_ID, OWNER_ID);
 
-  assertEquals(ergebnis, { status: 409, body: { fehler: 'Diese Reise ist schon archiviert.' } });
-  assertEquals(sendeAufrufe.length, 0);
-  assertEquals(aufrufe.holeMitglieder, 0);
+  assertEquals(result, { status: 409, body: { error: 'Diese Reise ist schon archiviert.' } });
+  assertEquals(sendCalls.length, 0);
+  assertEquals(calls.fetchMembers, 0);
 });
 
-// --- Gewinner-Zweig: aktive Reise, Owner ------------------------------------
-Deno.test('fuehreRevealAus: eine aktive Reise wird revealed und der Push genau einmal an die richtigen Empfänger geschickt', async () => {
-  const zustand = neueFakeZustand('active');
-  const aufrufe = { holeMitglieder: 0, loescheTokens: [] as Array<{ tokens: string[]; userIds: string[] }> };
-  const store = fakeStore(zustand, aufrufe);
-  const { fn: sendeFn, aufrufe: sendeAufrufe } = fakeSendeFn();
+// --- Winner branch: active trip, owner ---------------------------------------
+Deno.test('performReveal: an active trip is revealed and the push is sent exactly once to the right recipients', async () => {
+  const state = newFakeState('active');
+  const calls = { fetchMembers: 0, deleteTokens: [] as Array<{ tokens: string[]; userIds: string[] }> };
+  const store = fakeStore(state, calls);
+  const { fn: sendFn, calls: sendCalls } = fakeSendFn();
 
-  const ergebnis = await fuehreRevealAus(store, sendeFn, TRIP_ID, OWNER_ID);
+  const result = await performReveal(store, sendFn, TRIP_ID, OWNER_ID);
 
-  assertEquals(ergebnis.status, 200);
-  assertEquals((ergebnis.body as { ok: boolean }).ok, true);
-  assertExists((ergebnis.body as { revealed_at: string }).revealed_at);
-  assertEquals(zustand.trip.status, 'revealed');
-  assertEquals(sendeAufrufe.length, 1, 'genau ein Push-Versand');
+  assertEquals(result.status, 200);
+  assertEquals((result.body as { ok: boolean }).ok, true);
+  assertExists((result.body as { revealed_at: string }).revealed_at);
+  assertEquals(state.trip.status, 'revealed');
+  assertEquals(sendCalls.length, 1, 'genau ein Push-Versand');
   assertEquals(
-    sendeAufrufe[0].map((n) => n.to).sort(),
+    sendCalls[0].map((n) => n.to).sort(),
     ['tok-member', 'tok-member2'],
     'beide Mitglieder (nicht der Owner selbst, der hat keinen Token hier) bekommen die Nachricht',
   );
 });
 
-// --- 4. Doppelversand: echtes Zwei-Aufrufe-Rennen ----------------------------
-// Der eigentliche Regressionsfall aus f26437a: zwei Aufrufe sehen BEIDE
-// status==='active', bevor einer den anderen überholt. Mit `Promise.all`
-// gestartet, damit beide `holeTrip` VOR dem ersten `aktualisiereWennAktiv`
-// abschliessen, echte Nebenläufigkeit, kein sequenzieller Ablauf.
-Deno.test('fuehreRevealAus: zwei nebenläufige Aufrufe liefern denselben revealed_at und lösen den Push nur EINMAL aus', async () => {
-  const zustand = neueFakeZustand('active');
-  const aufrufe = { holeMitglieder: 0, loescheTokens: [] as Array<{ tokens: string[]; userIds: string[] }> };
-  const store = fakeStore(zustand, aufrufe);
-  const { fn: sendeFn, aufrufe: sendeAufrufe } = fakeSendeFn();
+// --- 4. Double send: real two-call race --------------------------------------
+// The actual regression case from f26437a: two calls BOTH see
+// status==='active', before either overtakes the other. Started with
+// `Promise.all`, so both `fetchTrip` calls finish BEFORE the first
+// `updateIfActive`, real concurrency, not a sequential flow.
+Deno.test('performReveal: two concurrent calls return the same revealed_at and trigger the push only ONCE', async () => {
+  const state = newFakeState('active');
+  const calls = { fetchMembers: 0, deleteTokens: [] as Array<{ tokens: string[]; userIds: string[] }> };
+  const store = fakeStore(state, calls);
+  const { fn: sendFn, calls: sendCalls } = fakeSendFn();
 
-  const [ergebnisA, ergebnisB] = await Promise.all([
-    fuehreRevealAus(store, sendeFn, TRIP_ID, OWNER_ID),
-    fuehreRevealAus(store, sendeFn, TRIP_ID, OWNER_ID),
+  const [resultA, resultB] = await Promise.all([
+    performReveal(store, sendFn, TRIP_ID, OWNER_ID),
+    performReveal(store, sendFn, TRIP_ID, OWNER_ID),
   ]);
 
-  assertEquals(ergebnisA.status, 200);
-  assertEquals(ergebnisB.status, 200);
+  assertEquals(resultA.status, 200);
+  assertEquals(resultB.status, 200);
   assertEquals(
-    (ergebnisA.body as { revealed_at: string }).revealed_at,
-    (ergebnisB.body as { revealed_at: string }).revealed_at,
+    (resultA.body as { revealed_at: string }).revealed_at,
+    (resultB.body as { revealed_at: string }).revealed_at,
     'beide Antworten tragen denselben Zeitstempel, nur EIN Update hat wirklich geschrieben',
   );
-  assertEquals(sendeAufrufe.length, 1, 'der Push wurde nur vom Gewinner-Zweig ausgelöst, nicht vom Verlierer');
+  assertEquals(sendCalls.length, 1, 'der Push wurde nur vom Gewinner-Zweig ausgelöst, nicht vom Verlierer');
 });
 
-// --- fehlschlagender Push -> trotzdem 200 -----------------------------------
-Deno.test('fuehreRevealAus: ein werfender Push-Versand lässt den Statuswechsel bestehen und die Antwort bleibt 200', async () => {
-  const zustand = neueFakeZustand('active');
-  const store = fakeStore(zustand, { holeMitglieder: 0, loescheTokens: [] });
-  const werfendeSendeFn: SendeFn = () => {
+// --- A failing push -> still 200 ----------------------------------------------
+Deno.test('performReveal: a throwing push send leaves the status change standing and the response stays 200', async () => {
+  const state = newFakeState('active');
+  const store = fakeStore(state, { fetchMembers: 0, deleteTokens: [] });
+  const throwingSendFn: SendFn = () => {
     throw new Error('Expo nicht erreichbar');
   };
 
-  const ergebnis = await fuehreRevealAus(store, werfendeSendeFn, TRIP_ID, OWNER_ID);
+  const result = await performReveal(store, throwingSendFn, TRIP_ID, OWNER_ID);
 
-  assertEquals(ergebnis.status, 200);
-  assertEquals((ergebnis.body as { ok: boolean }).ok, true);
-  assertExists((ergebnis.body as { revealed_at: string }).revealed_at);
-  assertEquals(zustand.trip.status, 'revealed', 'der Statuswechsel bleibt die Wahrheit, unabhängig vom Push-Ausgang');
+  assertEquals(result.status, 200);
+  assertEquals((result.body as { ok: boolean }).ok, true);
+  assertExists((result.body as { revealed_at: string }).revealed_at);
+  assertEquals(state.trip.status, 'revealed', 'der Statuswechsel bleibt die Wahrheit, unabhängig vom Push-Ausgang');
 });
 
-Deno.test('fuehreRevealAus: eine ablehnende Promise aus dem Push-Versand lässt den Statuswechsel ebenfalls bestehen', async () => {
-  const zustand = neueFakeZustand('active');
-  const store = fakeStore(zustand, { holeMitglieder: 0, loescheTokens: [] });
-  const ablehnendeSendeFn: SendeFn = () => Promise.reject(new Error('Netzwerk weg'));
+Deno.test('performReveal: a rejecting promise from the push send also leaves the status change standing', async () => {
+  const state = newFakeState('active');
+  const store = fakeStore(state, { fetchMembers: 0, deleteTokens: [] });
+  const rejectingSendFn: SendFn = () => Promise.reject(new Error('Netzwerk weg'));
 
-  const ergebnis = await fuehreRevealAus(store, ablehnendeSendeFn, TRIP_ID, OWNER_ID);
+  const result = await performReveal(store, rejectingSendFn, TRIP_ID, OWNER_ID);
 
-  assertEquals(ergebnis.status, 200);
-  assertEquals(zustand.trip.status, 'revealed');
+  assertEquals(result.status, 200);
+  assertEquals(state.trip.status, 'revealed');
 });
 
-// --- Fehlerpfade: Select/Update/Nachlesen scheitern -------------------------
-Deno.test('fuehreRevealAus: ein Fehler beim Laden der Trip-Zeile liefert 500', async () => {
+// --- Error paths: select/update/follow-up fail -------------------------------
+Deno.test('performReveal: an error loading the trip row returns 500', async () => {
   const store: RevealStore = {
-    holeTrip: () => Promise.resolve({ data: null, error: new Error('DB weg') }),
-    aktualisiereWennAktiv: () => Promise.resolve({ data: null, error: null }),
-    holeRevealedAtNachlese: () => Promise.resolve({ data: null, error: null }),
-    holeMitglieder: () => Promise.resolve({ data: [], error: null }),
-    holeTokens: () => Promise.resolve({ data: [], error: null }),
-    loescheTokens: () => Promise.resolve({ error: null }),
+    fetchTrip: () => Promise.resolve({ data: null, error: new Error('DB weg') }),
+    updateIfActive: () => Promise.resolve({ data: null, error: null }),
+    fetchRevealedAtFollowUp: () => Promise.resolve({ data: null, error: null }),
+    fetchMembers: () => Promise.resolve({ data: [], error: null }),
+    fetchTokens: () => Promise.resolve({ data: [], error: null }),
+    deleteTokens: () => Promise.resolve({ error: null }),
   };
-  const { fn: sendeFn } = fakeSendeFn();
-  const { fn: melde, aufrufe: meldeAufrufe } = fakeMelde();
+  const { fn: sendFn } = fakeSendFn();
+  const { fn: report, calls: reportCalls } = fakeReporter();
 
-  const ergebnis = await fuehreRevealAus(store, sendeFn, TRIP_ID, OWNER_ID, melde);
-  assertEquals(ergebnis, { status: 500, body: { fehler: 'Reise konnte nicht geladen werden.' } });
-  assertEquals(meldeAufrufe.length, 1);
-  assertEquals((meldeAufrufe[0].fehler as Error).message, 'DB weg');
-  assertEquals(meldeAufrufe[0].kontext, { trip_id: TRIP_ID });
+  const result = await performReveal(store, sendFn, TRIP_ID, OWNER_ID, report);
+  assertEquals(result, { status: 500, body: { error: 'Reise konnte nicht geladen werden.' } });
+  assertEquals(reportCalls.length, 1);
+  assertEquals((reportCalls[0].error as Error).message, 'DB weg');
+  assertEquals(reportCalls[0].context, { trip_id: TRIP_ID });
 });
 
-Deno.test('fuehreRevealAus: ein Fehler beim CAS-Update liefert 500', async () => {
-  const zustand = neueFakeZustand('active');
+Deno.test('performReveal: an error in the CAS update returns 500', async () => {
+  const state = newFakeState('active');
   const store: RevealStore = {
-    ...fakeStore(zustand, { holeMitglieder: 0, loescheTokens: [] }),
-    aktualisiereWennAktiv: () => Promise.resolve({ data: null, error: new Error('DB weg') }),
+    ...fakeStore(state, { fetchMembers: 0, deleteTokens: [] }),
+    updateIfActive: () => Promise.resolve({ data: null, error: new Error('DB weg') }),
   };
-  const { fn: sendeFn } = fakeSendeFn();
-  const { fn: melde, aufrufe: meldeAufrufe } = fakeMelde();
+  const { fn: sendFn } = fakeSendFn();
+  const { fn: report, calls: reportCalls } = fakeReporter();
 
-  const ergebnis = await fuehreRevealAus(store, sendeFn, TRIP_ID, OWNER_ID, melde);
-  assertEquals(ergebnis, { status: 500, body: { fehler: 'Reise konnte nicht abgeschlossen werden.' } });
-  assertEquals(meldeAufrufe.length, 1);
-  assertEquals(meldeAufrufe[0].kontext, { trip_id: TRIP_ID, user_id: OWNER_ID });
+  const result = await performReveal(store, sendFn, TRIP_ID, OWNER_ID, report);
+  assertEquals(result, { status: 500, body: { error: 'Reise konnte nicht abgeschlossen werden.' } });
+  assertEquals(reportCalls.length, 1);
+  assertEquals(reportCalls[0].context, { trip_id: TRIP_ID, user_id: OWNER_ID });
 });
 
-Deno.test('fuehreRevealAus: ein Fehler beim Nachlesen im Verlierer-Zweig liefert 500', async () => {
-  const zustand = neueFakeZustand('active');
-  // status ist bereits 'revealed', aber NICHT über den Fake-Store gesetzt,
-  // simuliert exakt "ein anderer Aufruf hat gewonnen": aktualisiereWennAktiv
-  // liefert null (0 Zeilen), das Nachlesen scheitert.
-  zustand.trip.status = 'revealed';
+Deno.test('performReveal: an error in the follow-up read of the loser branch returns 500', async () => {
+  const state = newFakeState('active');
+  // status is already 'revealed', but NOT set through the fake store,
+  // simulates exactly "another call won": updateIfActive returns null (0
+  // rows), the follow-up read fails.
+  state.trip.status = 'revealed';
   const store: RevealStore = {
-    ...fakeStore(zustand, { holeMitglieder: 0, loescheTokens: [] }),
-    holeTrip: () => Promise.resolve({ data: { ...zustand.trip, status: 'active' }, error: null }),
-    aktualisiereWennAktiv: () => Promise.resolve({ data: null, error: null }),
-    holeRevealedAtNachlese: () => Promise.resolve({ data: null, error: new Error('DB weg') }),
+    ...fakeStore(state, { fetchMembers: 0, deleteTokens: [] }),
+    fetchTrip: () => Promise.resolve({ data: { ...state.trip, status: 'active' }, error: null }),
+    updateIfActive: () => Promise.resolve({ data: null, error: null }),
+    fetchRevealedAtFollowUp: () => Promise.resolve({ data: null, error: new Error('DB weg') }),
   };
-  const { fn: sendeFn } = fakeSendeFn();
-  const { fn: melde, aufrufe: meldeAufrufe } = fakeMelde();
+  const { fn: sendFn } = fakeSendFn();
+  const { fn: report, calls: reportCalls } = fakeReporter();
 
-  const ergebnis = await fuehreRevealAus(store, sendeFn, TRIP_ID, OWNER_ID, melde);
-  assertEquals(ergebnis, { status: 500, body: { fehler: 'Reise konnte nicht abgeschlossen werden.' } });
-  assertEquals(meldeAufrufe.length, 1);
-  assertEquals(meldeAufrufe[0].kontext, { trip_id: TRIP_ID });
+  const result = await performReveal(store, sendFn, TRIP_ID, OWNER_ID, report);
+  assertEquals(result, { status: 500, body: { error: 'Reise konnte nicht abgeschlossen werden.' } });
+  assertEquals(reportCalls.length, 1);
+  assertEquals(reportCalls[0].context, { trip_id: TRIP_ID });
 });
 
-Deno.test('fuehreRevealAus: ohne übergebenen Melder bleibt alles wie zuvor (Default ist ein No-Op)', async () => {
+Deno.test('performReveal: with no reporter passed in, everything stays as before (the default is a no-op)', async () => {
   const store: RevealStore = {
-    holeTrip: () => Promise.resolve({ data: null, error: new Error('DB weg') }),
-    aktualisiereWennAktiv: () => Promise.resolve({ data: null, error: null }),
-    holeRevealedAtNachlese: () => Promise.resolve({ data: null, error: null }),
-    holeMitglieder: () => Promise.resolve({ data: [], error: null }),
-    holeTokens: () => Promise.resolve({ data: [], error: null }),
-    loescheTokens: () => Promise.resolve({ error: null }),
+    fetchTrip: () => Promise.resolve({ data: null, error: new Error('DB weg') }),
+    updateIfActive: () => Promise.resolve({ data: null, error: null }),
+    fetchRevealedAtFollowUp: () => Promise.resolve({ data: null, error: null }),
+    fetchMembers: () => Promise.resolve({ data: [], error: null }),
+    fetchTokens: () => Promise.resolve({ data: [], error: null }),
+    deleteTokens: () => Promise.resolve({ error: null }),
   };
-  const { fn: sendeFn } = fakeSendeFn();
-  // Kein fünftes Argument, muss weiterhin kompilieren und funktionieren.
-  const ergebnis = await fuehreRevealAus(store, sendeFn, TRIP_ID, OWNER_ID);
-  assertEquals(ergebnis, { status: 500, body: { fehler: 'Reise konnte nicht geladen werden.' } });
+  const { fn: sendFn } = fakeSendFn();
+  // No fifth argument, has to keep compiling and working.
+  const result = await performReveal(store, sendFn, TRIP_ID, OWNER_ID);
+  assertEquals(result, { status: 500, body: { error: 'Reise konnte nicht geladen werden.' } });
 });
 
-Deno.test('fuehreRevealAus: ein erfolgreicher Reveal ruft den Melder NICHT auf', async () => {
-  const zustand = neueFakeZustand('active');
-  const store = fakeStore(zustand, { holeMitglieder: 0, loescheTokens: [] });
-  const { fn: sendeFn } = fakeSendeFn();
-  const { fn: melde, aufrufe: meldeAufrufe } = fakeMelde();
+Deno.test('performReveal: a successful reveal does NOT call the reporter', async () => {
+  const state = newFakeState('active');
+  const store = fakeStore(state, { fetchMembers: 0, deleteTokens: [] });
+  const { fn: sendFn } = fakeSendFn();
+  const { fn: report, calls: reportCalls } = fakeReporter();
 
-  const ergebnis = await fuehreRevealAus(store, sendeFn, TRIP_ID, OWNER_ID, melde);
-  assertEquals(ergebnis.status, 200);
-  assertEquals(meldeAufrufe.length, 0);
+  const result = await performReveal(store, sendFn, TRIP_ID, OWNER_ID, report);
+  assertEquals(result.status, 200);
+  assertEquals(reportCalls.length, 0);
 });
 
-Deno.test('fuehreRevealAus: ein scheiternder Push-Versand ruft den Melder NICHT auf (bewusst tolerierter Ausgang)', async () => {
-  const zustand = neueFakeZustand('active');
-  const store = fakeStore(zustand, { holeMitglieder: 0, loescheTokens: [] });
-  const werfendeSendeFn: SendeFn = () => {
+Deno.test('performReveal: a failing push send does NOT call the reporter (a deliberately tolerated outcome)', async () => {
+  const state = newFakeState('active');
+  const store = fakeStore(state, { fetchMembers: 0, deleteTokens: [] });
+  const throwingSendFn: SendFn = () => {
     throw new Error('Netzwerk weg');
   };
-  const { fn: melde, aufrufe: meldeAufrufe } = fakeMelde();
+  const { fn: report, calls: reportCalls } = fakeReporter();
 
-  const ergebnis = await fuehreRevealAus(store, werfendeSendeFn, TRIP_ID, OWNER_ID, melde);
-  assertEquals(ergebnis.status, 200);
-  assertEquals(meldeAufrufe.length, 0);
+  const result = await performReveal(store, throwingSendFn, TRIP_ID, OWNER_ID, report);
+  assertEquals(result.status, 200);
+  assertEquals(reportCalls.length, 0);
 });
 
 // =============================================================================
-// versendeRevealPush, 5. Ausschluss der auslösenden Person, 6. Scoping der
-// Token-Löschung
+// sendRevealPush, 5. exclusion of the triggering person, 6. scoping of the
+// token deletion
 // =============================================================================
 
-const TRIP: TripZeile = {
+const TRIP: TripRow = {
   id: TRIP_ID,
   name: 'Lissabon',
   owner_id: OWNER_ID,
@@ -408,110 +407,110 @@ const TRIP: TripZeile = {
   revealed_at: '2026-08-01T10:00:00.000Z',
 };
 
-// --- 5. `.neq('user_id', ausloesendeId)`, die Owner-Person bekommt ihren
-// eigenen Reveal nicht gepusht -------------------------------------------
-Deno.test('versendeRevealPush: die auslösende Person wird aus den Empfängern ausgeschlossen, auch wenn sie einen eigenen Token hat', async () => {
-  const zustand = neueFakeZustand('revealed');
-  zustand.tokens.set(OWNER_ID, ['tok-owner']);
-  const aufrufe = { holeMitglieder: 0, loescheTokens: [] as Array<{ tokens: string[]; userIds: string[] }> };
-  const store = fakeStore(zustand, aufrufe);
-  const { fn: sendeFn, aufrufe: sendeAufrufe } = fakeSendeFn();
+// --- 5. `.neq('user_id', triggeringUserId)`, the owner does not get her own
+// reveal pushed to her ------------------------------------------------------
+Deno.test('sendRevealPush: the triggering person is excluded from the recipients, even with her own token', async () => {
+  const state = newFakeState('revealed');
+  state.tokens.set(OWNER_ID, ['tok-owner']);
+  const calls = { fetchMembers: 0, deleteTokens: [] as Array<{ tokens: string[]; userIds: string[] }> };
+  const store = fakeStore(state, calls);
+  const { fn: sendFn, calls: sendCalls } = fakeSendFn();
 
-  await versendeRevealPush(store, sendeFn, TRIP, OWNER_ID);
+  await sendRevealPush(store, sendFn, TRIP, OWNER_ID);
 
-  assertEquals(sendeAufrufe.length, 1);
-  const adressierteTokens = sendeAufrufe[0].map((n) => n.to);
-  assertEquals(adressierteTokens.includes('tok-owner'), false, 'der Token der auslösenden Person fehlt');
-  assertEquals(adressierteTokens.sort(), ['tok-member', 'tok-member2']);
+  assertEquals(sendCalls.length, 1);
+  const addressedTokens = sendCalls[0].map((n) => n.to);
+  assertEquals(addressedTokens.includes('tok-owner'), false, 'der Token der auslösenden Person fehlt');
+  assertEquals(addressedTokens.sort(), ['tok-member', 'tok-member2']);
 });
 
-Deno.test('versendeRevealPush: bleiben nach Ausschluss der auslösenden Person keine Empfänger übrig, wird gar nicht erst gesendet', async () => {
-  const zustand: FakeZustand = {
+Deno.test('sendRevealPush: if no recipients remain after excluding the triggering person, nothing is sent at all', async () => {
+  const state: FakeState = {
     trip: { ...TRIP },
     tokens: new Map([[OWNER_ID, ['tok-owner']]]),
   };
-  const store = fakeStore(zustand, { holeMitglieder: 0, loescheTokens: [] });
-  const { fn: sendeFn, aufrufe: sendeAufrufe } = fakeSendeFn();
+  const store = fakeStore(state, { fetchMembers: 0, deleteTokens: [] });
+  const { fn: sendFn, calls: sendCalls } = fakeSendFn();
 
-  await versendeRevealPush(store, sendeFn, TRIP, OWNER_ID);
+  await sendRevealPush(store, sendFn, TRIP, OWNER_ID);
 
-  assertEquals(sendeAufrufe.length, 0, 'kein Empfänger übrig, also kein Aufruf an Expo');
+  assertEquals(sendCalls.length, 0, 'kein Empfänger übrig, also kein Aufruf an Expo');
 });
 
-// --- 6. `.in('user_id', empfaengerIds)` bei der Token-Löschung, die
-// Orchestrierung reicht die Empfänger-Einschränkung an den Store weiter ---
-Deno.test('versendeRevealPush: die Token-Löschung wird auf genau die angeschriebenen Empfänger eingeschränkt', async () => {
-  const zustand = neueFakeZustand('revealed');
-  const aufrufe = { holeMitglieder: 0, loescheTokens: [] as Array<{ tokens: string[]; userIds: string[] }> };
-  const store = fakeStore(zustand, aufrufe);
-  const { fn: sendeFn } = fakeSendeFn(['tok-member']); // Expo meldet MEMBER_ID als abgemeldet
+// --- 6. `.in('user_id', recipientIds)` when deleting tokens, the
+// orchestration passes the recipient restriction through to the store -----
+Deno.test('sendRevealPush: the token deletion is restricted to exactly the notified recipients', async () => {
+  const state = newFakeState('revealed');
+  const calls = { fetchMembers: 0, deleteTokens: [] as Array<{ tokens: string[]; userIds: string[] }> };
+  const store = fakeStore(state, calls);
+  const { fn: sendFn } = fakeSendFn(['tok-member']); // Expo reports MEMBER_ID as deregistered
 
-  await versendeRevealPush(store, sendeFn, TRIP, OWNER_ID);
+  await sendRevealPush(store, sendFn, TRIP, OWNER_ID);
 
-  assertEquals(aufrufe.loescheTokens.length, 1);
-  assertEquals(aufrufe.loescheTokens[0], {
+  assertEquals(calls.deleteTokens.length, 1);
+  assertEquals(calls.deleteTokens[0], {
     tokens: ['tok-member'],
     userIds: [MEMBER_ID, MEMBER2_ID],
   });
 });
 
-Deno.test('versendeRevealPush: meldet Expo niemanden als abgemeldet, wird gar nicht erst gelöscht', async () => {
-  const zustand = neueFakeZustand('revealed');
-  const aufrufe = { holeMitglieder: 0, loescheTokens: [] as Array<{ tokens: string[]; userIds: string[] }> };
-  const store = fakeStore(zustand, aufrufe);
-  const { fn: sendeFn } = fakeSendeFn([]);
+Deno.test('sendRevealPush: if Expo reports nobody as deregistered, nothing gets deleted at all', async () => {
+  const state = newFakeState('revealed');
+  const calls = { fetchMembers: 0, deleteTokens: [] as Array<{ tokens: string[]; userIds: string[] }> };
+  const store = fakeStore(state, calls);
+  const { fn: sendFn } = fakeSendFn([]);
 
-  await versendeRevealPush(store, sendeFn, TRIP, OWNER_ID);
+  await sendRevealPush(store, sendFn, TRIP, OWNER_ID);
 
-  assertEquals(aufrufe.loescheTokens.length, 0);
+  assertEquals(calls.deleteTokens.length, 0);
 });
 
-Deno.test('versendeRevealPush: ein Fehler beim Laden der Mitglieder bricht ohne Push ab', async () => {
+Deno.test('sendRevealPush: an error loading the members aborts with no push', async () => {
   const store: RevealStore = {
-    holeTrip: () => Promise.resolve({ data: null, error: null }),
-    aktualisiereWennAktiv: () => Promise.resolve({ data: null, error: null }),
-    holeRevealedAtNachlese: () => Promise.resolve({ data: null, error: null }),
-    holeMitglieder: () => Promise.resolve({ data: null, error: new Error('DB weg') }),
-    holeTokens: () => Promise.resolve({ data: [], error: null }),
-    loescheTokens: () => Promise.resolve({ error: null }),
+    fetchTrip: () => Promise.resolve({ data: null, error: null }),
+    updateIfActive: () => Promise.resolve({ data: null, error: null }),
+    fetchRevealedAtFollowUp: () => Promise.resolve({ data: null, error: null }),
+    fetchMembers: () => Promise.resolve({ data: null, error: new Error('DB weg') }),
+    fetchTokens: () => Promise.resolve({ data: [], error: null }),
+    deleteTokens: () => Promise.resolve({ error: null }),
   };
-  const { fn: sendeFn, aufrufe: sendeAufrufe } = fakeSendeFn();
+  const { fn: sendFn, calls: sendCalls } = fakeSendFn();
 
-  await versendeRevealPush(store, sendeFn, TRIP, OWNER_ID);
+  await sendRevealPush(store, sendFn, TRIP, OWNER_ID);
 
-  assertEquals(sendeAufrufe.length, 0);
+  assertEquals(sendCalls.length, 0);
 });
 
-Deno.test('versendeRevealPush: keine Push-Tokens unter den Empfängern -> kein Sende-Aufruf', async () => {
-  const zustand: FakeZustand = {
+Deno.test('sendRevealPush: no push tokens among the recipients -> no send call', async () => {
+  const state: FakeState = {
     trip: { ...TRIP },
-    tokens: new Map([[MEMBER_ID, []]]), // Mitglied existiert, hat aber keinen Token
+    tokens: new Map([[MEMBER_ID, []]]), // member exists, but has no token
   };
-  const store = fakeStore(zustand, { holeMitglieder: 0, loescheTokens: [] });
-  const { fn: sendeFn, aufrufe: sendeAufrufe } = fakeSendeFn();
+  const store = fakeStore(state, { fetchMembers: 0, deleteTokens: [] });
+  const { fn: sendFn, calls: sendCalls } = fakeSendFn();
 
-  await versendeRevealPush(store, sendeFn, TRIP, OWNER_ID);
+  await sendRevealPush(store, sendFn, TRIP, OWNER_ID);
 
-  assertEquals(sendeAufrufe.length, 0);
+  assertEquals(sendCalls.length, 0);
 });
 
-// Auto-Reveal (Spec 2026-08-18): der Kalender löst aus, keine Person. Bei
-// ausloesendeId null darf NIEMAND aus den Empfängern gefiltert werden, auch
-// die Owner-Person nicht.
-Deno.test('versendeRevealPush: ausloesendeId null schreibt alle Mitglieder an', async () => {
-  const zustand = neueFakeZustand('active');
-  zustand.tokens.set(OWNER_ID, ['tok-owner']);
-  const aufrufe = { holeMitglieder: 0, loescheTokens: [] as Array<{ tokens: string[]; userIds: string[] }> };
-  const store = fakeStore(zustand, aufrufe);
-  const gesendet: PushNachricht[] = [];
-  const sendeFake: SendeFn = async (nachrichten) => {
-    gesendet.push(...nachrichten);
+// Auto-reveal (Spec 2026-08-18): the calendar triggers it, no person. With
+// triggeringUserId null, NOBODY may be filtered out of the recipients, not
+// even the owner.
+Deno.test('sendRevealPush: triggeringUserId null notifies every member', async () => {
+  const state = newFakeState('active');
+  state.tokens.set(OWNER_ID, ['tok-owner']);
+  const calls = { fetchMembers: 0, deleteTokens: [] as Array<{ tokens: string[]; userIds: string[] }> };
+  const store = fakeStore(state, calls);
+  const sent: PushMessage[] = [];
+  const fakeSend: SendFn = async (messages) => {
+    sent.push(...messages);
     return [];
   };
 
-  await versendeRevealPush(store, sendeFake, zustand.trip, null);
+  await sendRevealPush(store, fakeSend, state.trip, null);
 
-  const empfaenger = gesendet.map((n) => n.to).sort();
-  const alleTokens = [...zustand.tokens.values()].flat().sort();
-  assertEquals(empfaenger, alleTokens);
+  const recipients = sent.map((n) => n.to).sort();
+  const allTokens = [...state.tokens.values()].flat().sort();
+  assertEquals(recipients, allTokens);
 });

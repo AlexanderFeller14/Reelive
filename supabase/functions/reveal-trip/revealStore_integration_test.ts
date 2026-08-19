@@ -1,33 +1,32 @@
-// Integrationstest für revealStore.ts, genau die zwei Abfragen, die kein
-// Fake-Store in reveal_test.ts beweisen kann, weil er die CAS-Semantik selbst
-// vorgibt statt sie von echtem Postgres abzuleiten:
-//   1. aktualisiereWennAktiv trägt `.eq('status','active')` im echten Update,
-// zwei WIRKLICH parallele Aufrufe dürfen nur einen Gewinner erzeugen
-//      (Final-Review-Mutation 2: diese Klausel gestrichen liesse ein
-//      Wettrennen beide Aufrufe committen, mit unterschiedlichen
-//      Zeitstempeln).
-//   2. loescheTokens trägt `.in('user_id', userIds)` zusätzlich zu
-//      `.in('token', tokens)`, ein Token, das nicht zum angeschriebenen
-//      Empfängerkreis gehört, bleibt unangetastet, selbst wenn sein Wert in
-//      `tokens` steht (Final-Review-Mutation 6).
+// Integration test for revealStore.ts, exactly the two queries no fake
+// store in reveal_test.ts can prove, because it dictates the CAS semantics
+// itself instead of deriving them from real Postgres:
+//   1. updateIfActive carries `.eq('status','active')` in the real update,
+//      two GENUINELY parallel calls may only ever produce one winner
+//      (final-review mutation 2: removing this clause would let a race let
+//      both calls commit, with different timestamps).
+//   2. deleteTokens carries `.in('user_id', userIds)` in addition to
+//      `.in('token', tokens)`, a token that does not belong to the notified
+//      recipient circle stays untouched, even if its value sits in
+//      `tokens` (final-review mutation 6).
 //
-// Bewusst OHNE Umweg über HTTP oder Expo: `erstelleRevealStore` wird direkt
-// aufgerufen, kein `Deno.serve`, kein `functions serve`-Prozess nötig, nur
-// ein laufendes `supabase start` (Postgres + PostgREST + Auth). Das macht den
-// Test schneller und robuster als ein Aufruf über die echte Function, ohne
-// die beiden Abfragen selbst schwächer zu prüfen: es sind exakt dieselben
-// Store-Methoden, die index.ts über reveal.ts aufruft.
+// Deliberately with NO detour through HTTP or Expo: `createRevealStore` is
+// called directly, no `Deno.serve`, no `functions serve` process needed,
+// only a running `supabase start` (Postgres + PostgREST + Auth). That makes
+// the test faster and more robust than a call through the real function,
+// without checking the two queries themselves any less thoroughly: these
+// are exactly the same store methods index.ts calls through reveal.ts.
 //
-// Ohne laufenden Stack überspringt sich der Test mit einer Log-Zeile, statt
-// einen Rechner ohne Docker rot zu färben (Muster wie lesen_test.ts /
+// Without a running stack the test skips itself with a log line, instead of
+// turning a machine with no Docker red (pattern like read_integration_test.ts /
 // confirm_integration_test.ts in ../media-urls).
 //
-// Ausführen:
+// To run:
 //   cd supabase/functions/reveal-trip
 //   npx deno test --allow-net --allow-run=supabase revealStore_integration_test.ts
 
 import { assert, assertEquals } from 'jsr:@std/assert';
-import { erstelleAdminClient, erstelleRevealStore } from './revealStore.ts';
+import { createAdminClient, createRevealStore } from './revealStore.ts';
 
 const LEA_ID = '11111111-1111-4111-8111-111111111111';
 const MIRA_ID = '33333333-3333-4333-8333-333333333333';
@@ -54,9 +53,9 @@ const statusEnv = await supabaseStatusEnv();
 const SUPABASE_URL = statusEnv?.API_URL ?? 'http://127.0.0.1:54321';
 const SERVICE_ROLE_KEY = statusEnv?.SERVICE_ROLE_KEY ?? '';
 
-// Erreichbarkeit direkt über die REST-API prüfen, diese Datei braucht keine
-// servierte Edge Function, nur Postgres/PostgREST/Auth.
-async function restErreichbar(): Promise<boolean> {
+// Check reachability directly via the REST API, this file needs no served
+// edge function, only Postgres/PostgREST/Auth.
+async function restReachable(): Promise<boolean> {
   if (!SERVICE_ROLE_KEY) return false;
   try {
     const res = await fetch(`${SUPABASE_URL}/rest/v1/trips?select=id&limit=1`, {
@@ -69,9 +68,9 @@ async function restErreichbar(): Promise<boolean> {
   }
 }
 
-const stackBereit = Boolean(statusEnv && SERVICE_ROLE_KEY && (await restErreichbar()));
+const stackReady = Boolean(statusEnv && SERVICE_ROLE_KEY && (await restReachable()));
 
-if (!stackBereit) {
+if (!stackReady) {
   console.warn(
     'revealStore_integration_test: übersprungen, braucht `supabase start`. Details im Datei-Header.',
   );
@@ -86,13 +85,13 @@ function restHeaders(extra?: Record<string, string>): Record<string, string> {
   };
 }
 
-async function erwarteJson(res: Response, erwarteterStatus: number): Promise<unknown> {
+async function expectJson(res: Response, expectedStatus: number): Promise<unknown> {
   const text = await res.text();
-  assertEquals(res.status, erwarteterStatus, text);
+  assertEquals(res.status, expectedStatus, text);
   return text.length > 0 ? JSON.parse(text) : null;
 }
 
-async function neueTrip(status: 'active' | 'revealed' | 'archived' = 'active'): Promise<string> {
+async function newTrip(status: 'active' | 'revealed' | 'archived' = 'active'): Promise<string> {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/trips`, {
     method: 'POST',
     headers: restHeaders({ Prefer: 'return=representation' }),
@@ -105,83 +104,83 @@ async function neueTrip(status: 'active' | 'revealed' | 'archived' = 'active'): 
       ...(status !== 'active' ? { revealed_at: '2026-01-03T00:00:00Z' } : {}),
     }),
   });
-  const [trip] = (await erwarteJson(res, 201)) as Array<{ id: string }>;
+  const [trip] = (await expectJson(res, 201)) as Array<{ id: string }>;
   return trip.id;
 }
 
-async function loescheTrip(tripId: string): Promise<void> {
+async function deleteTrip(tripId: string): Promise<void> {
   await fetch(`${SUPABASE_URL}/rest/v1/trips?id=eq.${tripId}`, { method: 'DELETE', headers: restHeaders() }).catch(
     () => null,
   );
 }
 
-// --- 1. CAS-Rennen: zwei wirklich parallele Aufrufe, nur ein Gewinner ------
+// --- 1. CAS race: two genuinely parallel calls, only one winner -----------
 Deno.test({
-  name: 'aktualisiereWennAktiv: zwei parallele Aufrufe committen nur einmal (CAS-Bedingung im echten Update)',
-  ignore: !stackBereit,
+  name: 'updateIfActive: zwei parallele Aufrufe committen nur einmal (CAS-Bedingung im echten Update)',
+  ignore: !stackReady,
   async fn() {
-    const tripId = await neueTrip('active');
+    const tripId = await newTrip('active');
     try {
-      const supabaseAdmin = erstelleAdminClient(SUPABASE_URL, SERVICE_ROLE_KEY);
-      const store = erstelleRevealStore(supabaseAdmin);
+      const supabaseAdmin = createAdminClient(SUPABASE_URL, SERVICE_ROLE_KEY);
+      const store = createRevealStore(supabaseAdmin);
 
-      // Mehrere parallele Aufrufe statt nur zwei: erhöht die Chance, das
-      // Zeitfenster tatsächlich zu treffen, in dem beide (oder mehr) den
-      // Ausgangszustand 'active' sehen, bevor der erste committet.
-      const ERGEBNISSE = await Promise.all(
-        Array.from({ length: 6 }, () => store.aktualisiereWennAktiv(tripId)),
+      // Several parallel calls instead of just two: raises the odds of
+      // actually hitting the window in which both (or more) see the
+      // starting state 'active' before the first one commits.
+      const RESULTS = await Promise.all(
+        Array.from({ length: 6 }, () => store.updateIfActive(tripId)),
       );
 
-      const gewinner = ERGEBNISSE.filter((e) => e.data !== null);
-      const verlierer = ERGEBNISSE.filter((e) => e.data === null && e.error === null);
+      const winners = RESULTS.filter((r) => r.data !== null);
+      const losers = RESULTS.filter((r) => r.data === null && r.error === null);
 
-      assertEquals(gewinner.length, 1, `genau ein Aufruf darf gewinnen, tatsächlich: ${gewinner.length}`);
+      assertEquals(winners.length, 1, `genau ein Aufruf darf gewinnen, tatsächlich: ${winners.length}`);
       assertEquals(
-        verlierer.length,
+        losers.length,
         5,
-        `die übrigen fünf müssen 0 Zeilen (data:null, kein Fehler) sehen, tatsächlich: ${verlierer.length}`,
+        `die übrigen fünf müssen 0 Zeilen (data:null, kein Fehler) sehen, tatsächlich: ${losers.length}`,
       );
 
-      // Der committete Zustand stimmt mit dem Gewinner überein, kein
-      // zweiter, späterer Schreibvorgang hat ihn überschrieben.
-      const { data: nachher } = await store.holeRevealedAtNachlese(tripId);
-      assertEquals(nachher?.revealed_at, gewinner[0].data?.revealed_at);
+      // The committed state matches the winner, no second, later write
+      // overwrote it.
+      const { data: after } = await store.fetchRevealedAtFollowUp(tripId);
+      assertEquals(after?.revealed_at, winners[0].data?.revealed_at);
     } finally {
-      await loescheTrip(tripId);
+      await deleteTrip(tripId);
     }
   },
 });
 
 Deno.test({
-  name: 'aktualisiereWennAktiv: eine bereits revealed Reise liefert data:null (CAS greift nicht mehr)',
-  ignore: !stackBereit,
+  name: 'updateIfActive: eine bereits revealed Reise liefert data:null (CAS greift nicht mehr)',
+  ignore: !stackReady,
   async fn() {
-    const tripId = await neueTrip('revealed');
+    const tripId = await newTrip('revealed');
     try {
-      const supabaseAdmin = erstelleAdminClient(SUPABASE_URL, SERVICE_ROLE_KEY);
-      const store = erstelleRevealStore(supabaseAdmin);
+      const supabaseAdmin = createAdminClient(SUPABASE_URL, SERVICE_ROLE_KEY);
+      const store = createRevealStore(supabaseAdmin);
 
-      const { data, error } = await store.aktualisiereWennAktiv(tripId);
+      const { data, error } = await store.updateIfActive(tripId);
       assertEquals(data, null);
       assertEquals(error, null);
     } finally {
-      await loescheTrip(tripId);
+      await deleteTrip(tripId);
     }
   },
 });
 
-// --- 2. Empfänger-Einschränkung bei der Token-Löschung ----------------------
+// --- 2. Recipient restriction when deleting tokens --------------------------
 Deno.test({
-  name: 'loescheTokens: ein Token ausserhalb der userIds-Einschränkung bleibt unangetastet, selbst wenn sein Wert in tokens steht',
-  ignore: !stackBereit,
+  name: 'deleteTokens: ein Token ausserhalb der userIds-Einschränkung bleibt unangetastet, selbst wenn sein Wert in tokens steht',
+  ignore: !stackReady,
   async fn() {
-    const supabaseAdmin = erstelleAdminClient(SUPABASE_URL, SERVICE_ROLE_KEY);
-    const store = erstelleRevealStore(supabaseAdmin);
+    const supabaseAdmin = createAdminClient(SUPABASE_URL, SERVICE_ROLE_KEY);
+    const store = createRevealStore(supabaseAdmin);
 
     const TOKEN_MIRA = `tok-integration-mira-${crypto.randomUUID()}`;
     const TOKEN_JONAS = `tok-integration-jonas-${crypto.randomUUID()}`;
 
-    await erwarteJson(
+    await expectJson(
       await fetch(`${SUPABASE_URL}/rest/v1/push_tokens`, {
         method: 'POST',
         headers: restHeaders({ Prefer: 'return=representation' }),
@@ -194,14 +193,14 @@ Deno.test({
     );
 
     try {
-      // tokens enthält BEIDE Werte, userIds beschränkt aber auf Mira allein,
-      // genau die Situation aus Mutation 6: Jonas' Token darf nicht fallen,
-      // auch wenn sein Wert (fälschlich oder durch eine versetzte
-      // Expo-Antwort) mit in `tokens` gelandet wäre.
-      const { error } = await store.loescheTokens([TOKEN_MIRA, TOKEN_JONAS], [MIRA_ID]);
+      // tokens contains BOTH values, but userIds restricts to Mira alone,
+      // exactly the situation from mutation 6: Jonas's token must not drop,
+      // even if its value had (wrongly, or via a shifted Expo response)
+      // ended up in `tokens` too.
+      const { error } = await store.deleteTokens([TOKEN_MIRA, TOKEN_JONAS], [MIRA_ID]);
       assertEquals(error, null);
 
-      const nachher = (await erwarteJson(
+      const after = (await expectJson(
         await fetch(
           `${SUPABASE_URL}/rest/v1/push_tokens?token=in.(${TOKEN_MIRA},${TOKEN_JONAS})&select=token,user_id`,
           { headers: restHeaders() },
@@ -209,9 +208,9 @@ Deno.test({
         200,
       )) as Array<{ token: string; user_id: string }>;
 
-      assertEquals(nachher.map((z) => z.token), [TOKEN_JONAS], 'nur Jonas’ Token überlebt, Miras wurde gelöscht');
+      assertEquals(after.map((r) => r.token), [TOKEN_JONAS], 'nur Jonas’ Token überlebt, Miras wurde gelöscht');
       assert(
-        !nachher.some((z) => z.token === TOKEN_MIRA),
+        !after.some((r) => r.token === TOKEN_MIRA),
         'Miras Token (innerhalb der userIds-Einschränkung) wurde tatsächlich gelöscht',
       );
     } finally {
@@ -224,16 +223,16 @@ Deno.test({
 });
 
 Deno.test({
-  name: 'loescheTokens: liegen beide Tokens innerhalb der userIds-Einschränkung, werden beide gelöscht',
-  ignore: !stackBereit,
+  name: 'deleteTokens: liegen beide Tokens innerhalb der userIds-Einschränkung, werden beide gelöscht',
+  ignore: !stackReady,
   async fn() {
-    const supabaseAdmin = erstelleAdminClient(SUPABASE_URL, SERVICE_ROLE_KEY);
-    const store = erstelleRevealStore(supabaseAdmin);
+    const supabaseAdmin = createAdminClient(SUPABASE_URL, SERVICE_ROLE_KEY);
+    const store = createRevealStore(supabaseAdmin);
 
     const TOKEN_MIRA = `tok-integration-mira-${crypto.randomUUID()}`;
     const TOKEN_JONAS = `tok-integration-jonas-${crypto.randomUUID()}`;
 
-    await erwarteJson(
+    await expectJson(
       await fetch(`${SUPABASE_URL}/rest/v1/push_tokens`, {
         method: 'POST',
         headers: restHeaders({ Prefer: 'return=representation' }),
@@ -246,16 +245,16 @@ Deno.test({
     );
 
     try {
-      const { error } = await store.loescheTokens([TOKEN_MIRA, TOKEN_JONAS], [MIRA_ID, JONAS_ID]);
+      const { error } = await store.deleteTokens([TOKEN_MIRA, TOKEN_JONAS], [MIRA_ID, JONAS_ID]);
       assertEquals(error, null);
 
-      const nachher = (await erwarteJson(
+      const after = (await expectJson(
         await fetch(`${SUPABASE_URL}/rest/v1/push_tokens?token=in.(${TOKEN_MIRA},${TOKEN_JONAS})&select=token`, {
           headers: restHeaders(),
         }),
         200,
       )) as Array<{ token: string }>;
-      assertEquals(nachher, []);
+      assertEquals(after, []);
     } finally {
       await fetch(`${SUPABASE_URL}/rest/v1/push_tokens?token=in.(${TOKEN_MIRA},${TOKEN_JONAS})`, {
         method: 'DELETE',

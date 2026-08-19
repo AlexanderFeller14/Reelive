@@ -152,8 +152,8 @@ async function functionPlainText(error: unknown): Promise<string> {
   const readable = typeof response.clone === 'function' ? response.clone() : response;
   try {
     if (typeof readable.json === 'function') {
-      const body = (await readable.json()) as { fehler?: string } | null;
-      if (typeof body?.fehler === 'string') return `${response.status} ${body.fehler}`;
+      const body = (await readable.json()) as { error?: string } | null;
+      if (typeof body?.error === 'string') return `${response.status} ${body.error}`;
     }
   } catch {
     // Not JSON — the raw text does the job too.
@@ -182,7 +182,7 @@ export async function signedUrls(
   momentId: string
 ): Promise<{ urls: SignedUrls | null; permanentlyRejected: boolean }> {
   const { data, error } = await supabase.functions.invoke('media-urls', {
-    body: { aktion: 'sign', post_id: momentId },
+    body: { action: 'sign', post_id: momentId },
   });
   if (error || !data) {
     console.error('[postsApi] signierteUrls fehlgeschlagen', momentId, await functionPlainText(error));
@@ -202,7 +202,7 @@ export async function confirmUpload(
   momentId: string
 ): Promise<{ error: string | null; incomplete?: boolean }> {
   const { data, error } = await supabase.functions.invoke('media-urls', {
-    body: { aktion: 'confirm', post_id: momentId },
+    body: { action: 'confirm', post_id: momentId },
   });
   if (error) {
     // On an HTTP error the Function sends its German plain text along in the
@@ -215,8 +215,8 @@ export async function confirmUpload(
       const incomplete = response.status === INCOMPLETE_STATUS;
       try {
         const readable = typeof response.clone === 'function' ? response.clone() : response;
-        const body = (await readable.json?.()) as { fehler?: string } | null;
-        if (typeof body?.fehler === 'string') return { error: body.fehler, incomplete };
+        const body = (await readable.json?.()) as { error?: string } | null;
+        if (typeof body?.error === 'string') return { error: body.error, incomplete };
       } catch {
         // Response wasn't JSON, generic message, the status still counts.
       }

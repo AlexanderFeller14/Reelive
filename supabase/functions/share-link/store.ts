@@ -1,80 +1,83 @@
-// Der reale I/O-Adapter für share-link, dieselbe Rollenteilung wie
-// reveal-trip/revealStore.ts gegenüber reveal.ts: aufloesung.ts bleibt reine
-// Logik ohne Supabase-Import, hier stehen genau die Abfragen, die kein
-// Unit-Test ersetzen kann und die deshalb der Integrationstest gegen den
-// echten Stack prüft:
+// The real I/O adapter for share-link, the same division of roles as
+// reveal-trip/revealStore.ts against reveal.ts: resolution.ts stays pure
+// logic with no Supabase import, here sit exactly the queries no unit test
+// can replace and that the integration test therefore checks against the
+// real stack:
 //
-//   - die EINE Abfrage, die Token-Zeile UND Reise zusammen holt (siehe
-//     holeTokenMitReise, der Grund ist nicht Bequemlichkeit, sondern
-//     Zeitverhalten)
-//   - `.eq('trip_id', …)` und `.eq('upload_status', 'uploaded')` beim
-//     Einsammeln der Momente (W1 und «nur fertige Uploads»)
-//   - die Sortierung nach captured_at, id (Global Constraint)
-//   - der Embed auf profiles für Autorenname UND Bild-Schlüssel (seit
-//     Task 10: display_name, avatar_key). Die author_id steht in keiner
-//     Select-Liste — geheim ist sie damit trotzdem nicht mehr, sie steckt im
-//     avatar_key. Begründung an der Abfrage selbst (holeMomenteSeite, Punkt 4)
+//   - the ONE query that fetches the token row AND the trip together (see
+//     fetchTokenWithTrip, the reason is not convenience, but timing
+//     behaviour)
+//   - `.eq('trip_id', …)` and `.eq('upload_status', 'uploaded')` while
+//     collecting the moments (W1 and "only finished uploads")
+//   - the sort by captured_at, id (global constraint)
+//   - the embed on profiles for author name AND picture key (since Task 10:
+//     display_name, avatar_key). author_id sits in no select list, that
+//     does not make it secret anymore though, it travels inside avatar_key.
+//     Reasoning at the query itself (fetchMomentsPage, point 4)
 import { createClient } from 'jsr:@supabase/supabase-js@2';
-import type { AufloesungsTrip, MomentZeile, SeitenErgebnis, ShareLinkZeile, TripStatus } from './aufloesung.ts';
+import type { ResolutionTrip, MomentRow, PageResult, ShareLinkRow, TripStatus } from './resolution.ts';
 
-// Fabrik statt eines direkten `createClient(...)`-Aufrufs: nur so lässt sich
-// der Rückgabetyp sauber benennen. `ReturnType<typeof createClient>` allein
-// inferiert an dieser Stelle einen ANDEREN Typ als der tatsächliche Aufruf
-// `createClient(url, key)`, createClient hat interdependente generische
-// Default-Typparameter (ausführlich in reveal-trip/revealStore.ts).
-export function erstelleAdminClient(supabaseUrl: string, serviceRoleKey: string) {
+// Factory instead of a direct `createClient(...)` call: only this lets the
+// return type be named cleanly. `ReturnType<typeof createClient>` alone
+// infers a DIFFERENT type at this point than the actual call
+// `createClient(url, key)`, createClient has interdependent generic default
+// type parameters (details in reveal-trip/revealStore.ts).
+export function createAdminClient(supabaseUrl: string, serviceRoleKey: string) {
   return createClient(supabaseUrl, serviceRoleKey);
 }
-export type AdminClient = ReturnType<typeof erstelleAdminClient>;
+export type AdminClient = ReturnType<typeof createAdminClient>;
 
-// Seitengrösse beim Einsammeln der Momente. Orientiert an max_rows aus
-// supabase/config.toml (1000): grösser hat keine Wirkung, weil PostgREST dort
-// ohnehin kappt, kleiner kostet nur Round-Trips. Die Richtigkeit der Schleife
-// in sammleMomente hängt NICHT daran, dass die beiden Zahlen gleich sind.
-export const POSTS_SEITENGROESSE = 1000;
+// Page size when collecting moments. Aligned with max_rows from
+// supabase/config.toml (1000): bigger has no effect, since PostgREST caps
+// there anyway, smaller only costs extra round trips. The correctness of
+// the loop in collectMoments does NOT depend on the two numbers being
+// equal.
+export const POSTS_PAGE_SIZE = 1000;
 
-// `name` seit der Teilen-Benachrichtigung mit dabei: der Push-Text nennt die
-// Reise («… euren Recap von «Lissabon» geteilt»), und ihn nachträglich aus
-// einer zweiten Abfrage zu holen hiesse, denselben Datensatz zweimal zu laden.
-export type TripFuerErstellen = { id: string; owner_id: string; status: TripStatus; name: string };
-export type TokenBesitzer = { token: string; trip_id: string; owner_id: string; name: string };
+// `name` has been included since the share notification: the push text
+// names the trip ("… euren Recap von «Lissabon» geteilt"), and fetching it
+// afterwards through a second query would mean loading the same record
+// twice.
+export type TripForCreate = { id: string; owner_id: string; status: TripStatus; name: string };
+export type TokenOwner = { token: string; trip_id: string; owner_id: string; name: string };
 
 export interface ShareStore {
-  // Token-Zeile und Reise in EINER Abfrage.
-  holeTokenMitReise(
+  // Token row and trip in ONE query.
+  fetchTokenWithTrip(
     token: string,
-  ): Promise<{ zeile: ShareLinkZeile | null; reise: AufloesungsTrip | null; fehler: unknown }>;
+  ): Promise<{ row: ShareLinkRow | null; trip: ResolutionTrip | null; error: unknown }>;
 
-  holeMomenteSeite(tripId: string, von: number, mitZaehlung: boolean): Promise<SeitenErgebnis>;
+  fetchMomentsPage(tripId: string, from: number, withCount: boolean): Promise<PageResult>;
 
-  holeTripFuerErstellen(tripId: string): Promise<{ data: TripFuerErstellen | null; error: unknown }>;
+  fetchTripForCreate(tripId: string): Promise<{ data: TripForCreate | null; error: unknown }>;
 
-  legeLinkAn(tripId: string, expiresAt: string | null): Promise<{ token: string | null; error: unknown }>;
+  createLink(tripId: string, expiresAt: string | null): Promise<{ token: string | null; error: unknown }>;
 
-  holeTokenBesitzer(token: string): Promise<{ data: TokenBesitzer | null; error: unknown }>;
+  fetchTokenOwner(token: string): Promise<{ data: TokenOwner | null; error: unknown }>;
 
-  widerrufeLink(token: string): Promise<{ error: unknown }>;
+  revokeLink(token: string): Promise<{ error: unknown }>;
 
-  // Die drei Wege der Teilen-Benachrichtigung (benachrichtigung.ts), wortgleich
-  // zu denen des Reveal-Stores: dieselbe Tabelle, dieselbe Einschränkung, und
-  // beim Löschen dieselbe zusätzliche Begrenzung auf den angeschriebenen Kreis.
-  holeMitglieder(tripId: string): Promise<{ data: { user_id: string }[] | null; error: unknown }>;
+  // The three paths of the share notification (notification.ts), word
+  // for word the same as the reveal store's: the same table, the same
+  // restriction, and when deleting the same extra limit to the notified
+  // circle.
+  fetchMembers(tripId: string): Promise<{ data: { user_id: string }[] | null; error: unknown }>;
 
-  holeTokens(userIds: string[]): Promise<{ data: { token: string }[] | null; error: unknown }>;
+  fetchTokens(userIds: string[]): Promise<{ data: { token: string }[] | null; error: unknown }>;
 
-  loescheTokens(tokens: string[], userIds: string[]): Promise<{ error: unknown }>;
+  deleteTokens(tokens: string[], userIds: string[]): Promise<{ error: unknown }>;
 
-  // Der Anzeigename der Owner-Person fuer den Text der Meldung. Ein Fehler
-  // hier kostet nur den Namen, nicht die Meldung (siehe versendeTeilenPush).
-  holeAnzeigename(userId: string): Promise<{ data: string | null; error: unknown }>;
+  // The display name of the owner for the notification text. A failure
+  // here only costs the name, not the notification (see sendSharePush).
+  fetchDisplayName(userId: string): Promise<{ data: string | null; error: unknown }>;
 }
 
-// Rohform des PostgREST-Embeds: `trips(...)` kommt als eingebettetes Objekt
-// (many-to-one über share_links.trip_id) zurück, in seltenen Fällen als
-// null-Objekt. supabase-js kennt ohne generierte Datenbank-Typen die Form
-// nicht, darum hier einmal benannt und einmal gecastet, statt an fünf Stellen
-// `any` zu verteilen.
-type ShareLinkMitTrip = {
+// Raw shape of the PostgREST embed: `trips(...)` comes back as an embedded
+// object (many-to-one via share_links.trip_id), in rare cases as a null
+// object. supabase-js does not know the shape without generated database
+// types, hence named once and cast once here, instead of spreading `any`
+// across five places.
+type ShareLinkWithTrip = {
   token: string;
   trip_id: string;
   expires_at: string | null;
@@ -82,7 +85,7 @@ type ShareLinkMitTrip = {
   trips: { status: TripStatus; name: string; start_date: string; end_date: string } | null;
 };
 
-type PostMitProfil = {
+type PostWithProfile = {
   id: string;
   type: 'photo' | 'video';
   media_ext: string | null;
@@ -91,205 +94,205 @@ type PostMitProfil = {
   captured_at: string;
   captured_tz: string;
   place_name: string | null;
-  // double precision in Postgres (20260803090100_content_tables.sql), also
-  // number in JSON, und nullable, weil ein Moment ohne Ortsfreigabe der
-  // Normalfall ist.
+  // double precision in Postgres (20260803090100_content_tables.sql), so
+  // number in JSON, and nullable, because a moment with no place sharing is
+  // the normal case.
   lat: number | null;
   lng: number | null;
   caption: string | null;
   duration_s: number | null;
-  // avatar_key seit Task 10 mit im Embed: derselbe Join, der schon
-  // display_name holt, kostet damit keinen zusätzlichen Round-Trip. Nullable,
-  // weil ein Profil ohne Bild der Normalfall ist (Avatar() zeichnet dann die
-  // Initiale, siehe mobile/src/components/Avatar.tsx).
+  // avatar_key has been in the embed since Task 10: the same join that
+  // already fetches display_name, so no extra round trip. Nullable, because
+  // a profile with no picture is the normal case (Avatar() then draws the
+  // initial, see mobile/src/components/Avatar.tsx).
   profiles: { display_name: string; avatar_key: string | null } | null;
 };
 
-export function erstelleShareStore(supabaseAdmin: AdminClient): ShareStore {
+export function createShareStore(supabaseAdmin: AdminClient): ShareStore {
   return {
-    // EINE Abfrage für Token und Reise, nicht zwei nacheinander, und das ist
-    // kein Feinschliff, sondern gehört zur Zusicherung der byte-gleichen
-    // Ablehnungen.
+    // ONE query for token and trip, not two in sequence, and that is not
+    // polish, it belongs to the guarantee of byte-identical rejections.
     //
-    // Mit zwei Abfragen bräuchte ein unbekannter Token EINEN Round-Trip zur
-    // Datenbank und ein gültiger Token ZWEI. Die vier Ablehnungen wären dann
-    // zwar byte-gleich im Inhalt, aber messbar verschieden in der Zeit: «Token
-    // unbekannt» käme systematisch schneller zurück als «Reise nicht
-    // aufgedeckt». Genau davor warnt Spec §5.1 ausdrücklich («mit demselben
-    // Text und derselben Antwortzeit»). Mit dem Embed führt Postgres beides in
-    // EINEM Statement aus (LATERAL Join); alle vier Ablehnungswege bestehen
-    // aus genau einem Datenbank-Round-Trip und einer Rückgabe.
+    // With two queries an unknown token would need ONE round trip to the
+    // database and a valid token TWO. The four rejections would then still
+    // be byte-identical in content, but measurably different in timing:
+    // "token unknown" would systematically come back faster than "trip not
+    // revealed". That is exactly what Spec §5.1 explicitly warns against
+    // ("with the same text and the same response time"). With the embed,
+    // Postgres runs both in ONE statement (LATERAL join); all four
+    // rejection paths consist of exactly one database round trip and one
+    // return.
     //
-    // Was dadurch NICHT verschwindet, ehrlichkeitshalber: der Index-Lookup auf
-    // dem Primärschlüssel unterscheidet sich zwischen Treffer und Fehlschlag
-    // um Bruchteile einer Mikrosekunde, und ein Treffer zieht zusätzlich die
-    // Trip-Zeile. Das liegt weit unter dem Rauschen einer HTTP-Runde über das
-    // Netz. Ausbeutbar wäre es nur mit sehr vielen Messungen pro Kandidat,
-    // und der Kandidatenraum sind 2^128 Token.
-    async holeTokenMitReise(token) {
+    // What this does NOT eliminate, for honesty's sake: the index lookup on
+    // the primary key differs between a hit and a miss by a fraction of a
+    // microsecond, and a hit additionally pulls the trip row. That sits far
+    // below the noise of an HTTP round trip over the network. It would only
+    // be exploitable with very many measurements per candidate, and the
+    // candidate space is 2^128 tokens.
+    async fetchTokenWithTrip(token) {
       const { data, error } = await supabaseAdmin
         .from('share_links')
         .select('token, trip_id, expires_at, revoked, trips(status, name, start_date, end_date)')
         .eq('token', token)
         .maybeSingle();
 
-      if (error) return { zeile: null, reise: null, fehler: error };
+      if (error) return { row: null, trip: null, error };
 
-      const roh = data as unknown as ShareLinkMitTrip | null;
-      if (!roh) return { zeile: null, reise: null, fehler: null };
+      const raw = data as unknown as ShareLinkWithTrip | null;
+      if (!raw) return { row: null, trip: null, error: null };
 
-      // Die Trip-Felder werden hier von der Token-Zeile GETRENNT, damit
-      // beurteileToken die Reise als eigenes Argument bekommt und keine der
-      // beiden Zeilen als Ganzes weiterreicht.
-      const zeile: ShareLinkZeile = {
-        token: roh.token,
-        trip_id: roh.trip_id,
-        expires_at: roh.expires_at,
-        revoked: roh.revoked,
+      // The trip fields get SEPARATED from the token row here, so
+      // evaluateToken gets the trip as its own argument and no single row
+      // gets passed through as a whole.
+      const row: ShareLinkRow = {
+        token: raw.token,
+        trip_id: raw.trip_id,
+        expires_at: raw.expires_at,
+        revoked: raw.revoked,
       };
-      const reise: AufloesungsTrip | null = roh.trips
+      const trip: ResolutionTrip | null = raw.trips
         ? {
-          status: roh.trips.status,
-          name: roh.trips.name,
-          start_date: roh.trips.start_date,
-          end_date: roh.trips.end_date,
+          status: raw.trips.status,
+          name: raw.trips.name,
+          start_date: raw.trips.start_date,
+          end_date: raw.trips.end_date,
         }
         : null;
-      return { zeile, reise, fehler: null };
+      return { row, trip, error: null };
     },
 
-    // Eine Seite Momente. Die Schleife darüber steht in
-    // aufloesung.ts/sammleMomente (reine Logik, ohne Stack testbar); hier
-    // stehen nur die vier Bestandteile, die wirklich an Postgres hängen:
+    // One page of moments. The loop over it sits in
+    // resolution.ts/collectMoments (pure logic, testable with no stack);
+    // here sit only the four parts that really depend on Postgres:
     //
-    //   1. `.eq('trip_id', tripId)`, die trip_id stammt aus der
-    //      share_links-Zeile. Ohne diese Einschränkung liefe die Abfrage über
-    //      die ganze posts-Tabelle, und der Ableitungs-Abgleich in baueMedien
-    //      wäre die einzige verbleibende Schranke (W1).
-    //   2. `.eq('upload_status', 'uploaded')`, ein Moment mit 'pending' hat
-    //      kein vollständiges Objekt im Speicher, eine URL darauf wäre ein 404
-    //      in der Filmrolle.
-    //   3. captured_at aufsteigend, id als zweites Kriterium (Global
-    //      Constraint: nie nach created_at, nie nach Upload-Zeit).
-    //   4. der Embed `profiles!posts_author_id_fkey(display_name, avatar_key)`
-    //      (avatar_key seit Task 10 dazu, derselbe Join, kein zweiter
-    //      Round-Trip). Die Disambiguierung ist nötig, weil PostgREST zwischen
-    //      posts und profiles ZWEI Beziehungen findet (die Fremdschlüsselspalte
-    //      author_id und den many-to-many-Weg über reactions) und sonst mit
-    //      PGRST201 abbricht. Geholt werden ausschliesslich display_name und
-    //      avatar_key — author_id steht zwar in keiner Select-Liste dieser
-    //      Datei, ZURÜCKGEHALTEN wird sie seit dem Profilbild-Feature
-    //      (2026-08-12) aber nicht mehr: `avatar_key` lautet
-    //      `profiles/<author_id>/<32 hex>.jpg` und trägt die Auth-UUID der
-    //      Autorin damit in die anonyme Antwort, sobald sie ein Bild hat.
-    //      Bewusst akzeptiert (siehe Nachtrag in
+    //   1. `.eq('trip_id', tripId)`, the trip_id comes from the share_links
+    //      row. Without this restriction the query would run over the
+    //      whole posts table, and the derivation comparison in buildMedia
+    //      would be the only remaining barrier (W1).
+    //   2. `.eq('upload_status', 'uploaded')`, a moment with 'pending' has
+    //      no complete object in storage, a URL for it would be a 404 in
+    //      the film roll.
+    //   3. captured_at ascending, id as the second criterion (global
+    //      constraint: never by created_at, never by upload time).
+    //   4. the embed `profiles!posts_author_id_fkey(display_name,
+    //      avatar_key)` (avatar_key added since Task 10, same join, no
+    //      second round trip). The disambiguation is needed because
+    //      PostgREST finds TWO relations between posts and profiles (the
+    //      foreign key column author_id and the many-to-many path via
+    //      reactions) and would otherwise abort with PGRST201. Only
+    //      display_name and avatar_key are fetched, author_id sits in no
+    //      select list of this file, but it has not been WITHHELD since the
+    //      profile picture feature (2026-08-12) anymore: `avatar_key` reads
+    //      `profiles/<author_id>/<32 hex>.jpg` and thereby carries the
+    //      author's auth UUID into the anonymous response once she has a
+    //      picture. Accepted deliberately (see addendum in
     //      docs/superpowers/specs/2026-08-08-phase-6-teilen-export-store-design.md
-    //      §5.1): die UUID gewährt für sich keinen Zugriff — profiles-RLS
-    //      verlangt gemeinsame Mitgliedschaft, `select` auf storage.objects
-    //      verlangt authenticated, und kein anonymer Endpunkt nimmt eine rohe
-    //      uid entgegen. Ablesbar ist einzig, dass zwei geteilte Recaps
-    //      dieselbe Autorin haben; ihren Namen zeigt die Antwort ohnehin.
-    async holeMomenteSeite(tripId, von, mitZaehlung) {
+    //      §5.1): the UUID by itself grants no access, profiles RLS
+    //      requires shared membership, `select` on storage.objects requires
+    //      authenticated, and no anonymous endpoint accepts a raw uid. All
+    //      that can be read off is that two shared recaps have the same
+    //      author; the response names her anyway.
+    async fetchMomentsPage(tripId, from, withCount) {
       const { data, error, count } = await supabaseAdmin
         .from('posts')
         .select(
           'id, type, media_ext, storage_key, thumb_key, captured_at, captured_tz, place_name, lat, lng, caption, duration_s, profiles!posts_author_id_fkey(display_name, avatar_key)',
-          mitZaehlung ? { count: 'exact' } : undefined,
+          withCount ? { count: 'exact' } : undefined,
         )
         .eq('trip_id', tripId)
         .eq('upload_status', 'uploaded')
         .order('captured_at', { ascending: true })
         .order('id', { ascending: true })
-        .range(von, von + POSTS_SEITENGROESSE - 1);
+        .range(from, from + POSTS_PAGE_SIZE - 1);
 
-      if (error) return { zeilen: [], anzahl: null, fehler: error };
+      if (error) return { rows: [], count: null, error };
 
-      const roh = (data ?? []) as unknown as PostMitProfil[];
-      const zeilen: MomentZeile[] = roh.map((z) => ({
-        id: z.id,
-        type: z.type,
-        media_ext: z.media_ext,
-        storage_key: z.storage_key,
-        thumb_key: z.thumb_key,
-        captured_at: z.captured_at,
-        captured_tz: z.captured_tz,
-        place_name: z.place_name,
-        lat: z.lat,
-        lng: z.lng,
-        caption: z.caption,
-        duration_s: z.duration_s,
-        autor_name: z.profiles?.display_name ?? null,
-        // Analog zu autor_name: `?.` statt eines Absturzes für den (heute
-        // theoretischen) Fall eines fehlenden Profils, `?? null` für den
-        // ECHTEN Normalfall «Profil da, aber ohne Bild».
-        autor_avatar_key: z.profiles?.avatar_key ?? null,
+      const raw = (data ?? []) as unknown as PostWithProfile[];
+      const rows: MomentRow[] = raw.map((r) => ({
+        id: r.id,
+        type: r.type,
+        media_ext: r.media_ext,
+        storage_key: r.storage_key,
+        thumb_key: r.thumb_key,
+        captured_at: r.captured_at,
+        captured_tz: r.captured_tz,
+        place_name: r.place_name,
+        lat: r.lat,
+        lng: r.lng,
+        caption: r.caption,
+        duration_s: r.duration_s,
+        author_name: r.profiles?.display_name ?? null,
+        // Same pattern as author_name: `?.` instead of a crash for the
+        // (today theoretical) case of a missing profile, `?? null` for the
+        // REAL normal case "profile exists, but with no picture".
+        author_avatar_key: r.profiles?.avatar_key ?? null,
       }));
-      return { zeilen, anzahl: mitZaehlung ? (count ?? null) : null, fehler: null };
+      return { rows, count: withCount ? (count ?? null) : null, error: null };
     },
 
-    // `erstellen` prüft Eigentümerschaft und Status selbst, weil die
-    // Service-Role an RLS vorbeischreibt und share_links_insert_owner damit
-    // gar nicht ausgewertet wird.
-    async holeTripFuerErstellen(tripId) {
+    // `create` checks ownership and status itself, because the service role
+    // writes past RLS and share_links_insert_owner therefore never gets
+    // evaluated at all.
+    async fetchTripForCreate(tripId) {
       const { data, error } = await supabaseAdmin
         .from('trips')
         .select('id, owner_id, status, name')
         .eq('id', tripId)
         .maybeSingle();
-      return { data: data as TripFuerErstellen | null, error };
+      return { data: data as TripForCreate | null, error };
     },
 
-    // token wird NICHT mitgegeben: der Default der Spalte
+    // token is NOT passed in: the column's default
     // (encode(gen_random_bytes(16), 'hex'), 20260803090100_content_tables.sql)
-    // erzeugt ihn in der Datenbank. Ein in der Function erzeugter Token wäre
-    // eine zweite Quelle für dieselbe Sache, und der Zufall käme dann aus dem
-    // Edge-Runtime statt aus pgcrypto.
-    async legeLinkAn(tripId, expiresAt) {
+    // generates it in the database. A token generated in the function would
+    // be a second source for the same thing, and the randomness would then
+    // come from the edge runtime instead of pgcrypto.
+    async createLink(tripId, expiresAt) {
       const { data, error } = await supabaseAdmin
         .from('share_links')
         .insert({ trip_id: tripId, expires_at: expiresAt })
         .select('token')
         .maybeSingle();
-      const zeile = data as { token: string } | null;
-      return { token: zeile?.token ?? null, error };
+      const row = data as { token: string } | null;
+      return { token: row?.token ?? null, error };
     },
 
-    // Für `widerrufen`: Token-Zeile plus Eigentümerschaft der zugehörigen
-    // Reise, wieder in einer Abfrage. Der Grund ist hier ein anderer als bei
-    // holeTokenMitReise (nicht Zeitverhalten, sondern schlicht weniger
-    // Round-Trips), das Muster dasselbe.
-    async holeTokenBesitzer(token) {
+    // For `revoke`: the token row plus ownership of the trip it belongs to,
+    // again in one query. The reason here differs from fetchTokenWithTrip
+    // (not timing behaviour, simply fewer round trips), the pattern is the
+    // same.
+    async fetchTokenOwner(token) {
       const { data, error } = await supabaseAdmin
         .from('share_links')
         .select('token, trip_id, trips(owner_id, name)')
         .eq('token', token)
         .maybeSingle();
       if (error) return { data: null, error };
-      const roh = data as unknown as
+      const raw = data as unknown as
         | { token: string; trip_id: string; trips: { owner_id: string; name: string } | null }
         | null;
-      if (!roh || !roh.trips) return { data: null, error: null };
+      if (!raw || !raw.trips) return { data: null, error: null };
       return {
         data: {
-          token: roh.token,
-          trip_id: roh.trip_id,
-          owner_id: roh.trips.owner_id,
-          name: roh.trips.name,
+          token: raw.token,
+          trip_id: raw.trip_id,
+          owner_id: raw.trips.owner_id,
+          name: raw.trips.name,
         },
         error: null,
       };
     },
 
-    // Bewusst kein Löschen: ein widerrufener Link bleibt unterscheidbar von
-    // einem, den es nie gab, damit ein Support-Fall beantwortbar ist (Spec
-    // §5.1). Nach aussen zeigen beide dasselbe.
+    // Deliberately no delete: a revoked link stays distinguishable from one
+    // that never existed, so a support case stays answerable (Spec §5.1).
+    // From the outside both look the same.
     //
-    // Kein Status-Kriterium: ein Widerruf macht einen Link schwächer, nie
-    // stärker, und muss darum auf einer archivierten Reise genauso gehen wie
-    // auf einer aufgedeckten. Für die Service-Role greift RLS ohnehin nicht;
-    // die entsprechende Lockerung für den direkten Client-Weg steht in
+    // No status criterion: a revocation makes a link weaker, never
+    // stronger, and therefore has to work on an archived trip exactly like
+    // on a revealed one. RLS does not apply to the service role anyway; the
+    // corresponding relaxation for the direct client path sits in
     // supabase/migrations/20260808130000_share_links_widerruf_archiviert.sql.
-    async widerrufeLink(token) {
+    async revokeLink(token) {
       const { error } = await supabaseAdmin
         .from('share_links')
         .update({ revoked: true })
@@ -297,11 +300,11 @@ export function erstelleShareStore(supabaseAdmin: AdminClient): ShareStore {
       return { error };
     },
 
-    // Wortgleich zu erstelleRevealStore (reveal-trip/revealStore.ts): ALLE
-    // Mitglieder, einschliesslich der ausloesenden Person. Der Ausschluss
-    // passiert in `empfaengerKreis` als reine Filterung, damit ein Test ohne
-    // Docker ihn erreicht.
-    async holeMitglieder(tripId) {
+    // Word for word the same as createRevealStore (reveal-trip/revealStore.ts):
+    // ALL members, including the person who triggered it. The exclusion
+    // happens in `recipientCircle` as a pure filter, so a test reaches it
+    // with no Docker.
+    async fetchMembers(tripId) {
       const { data, error } = await supabaseAdmin
         .from('trip_members')
         .select('user_id')
@@ -309,7 +312,7 @@ export function erstelleShareStore(supabaseAdmin: AdminClient): ShareStore {
       return { data: data as { user_id: string }[] | null, error };
     },
 
-    async holeTokens(userIds) {
+    async fetchTokens(userIds) {
       const { data, error } = await supabaseAdmin
         .from('push_tokens')
         .select('token')
@@ -317,11 +320,11 @@ export function erstelleShareStore(supabaseAdmin: AdminClient): ShareStore {
       return { data: data as { token: string }[] | null, error };
     },
 
-    // userIds zusaetzlich zu tokens, dieselbe Begrenzung und derselbe Grund
-    // wie im Reveal-Store: die Ticket-zu-Token-Zuordnung ist positionsbasiert,
-    // ein versetzter Block duerfte nie ausserhalb des angeschriebenen Kreises
-    // loeschen.
-    async loescheTokens(tokens, userIds) {
+    // userIds in addition to tokens, the same restriction and the same
+    // reason as in the reveal store: the ticket-to-token mapping is
+    // position-based, a shifted block must never be allowed to delete
+    // outside the notified circle.
+    async deleteTokens(tokens, userIds) {
       const { error } = await supabaseAdmin
         .from('push_tokens')
         .delete()
@@ -330,14 +333,14 @@ export function erstelleShareStore(supabaseAdmin: AdminClient): ShareStore {
       return { error };
     },
 
-    async holeAnzeigename(userId) {
+    async fetchDisplayName(userId) {
       const { data, error } = await supabaseAdmin
         .from('profiles')
         .select('display_name')
         .eq('id', userId)
         .maybeSingle();
-      const zeile = data as { display_name: string } | null;
-      return { data: zeile?.display_name ?? null, error };
+      const row = data as { display_name: string } | null;
+      return { data: row?.display_name ?? null, error };
     },
   };
 }

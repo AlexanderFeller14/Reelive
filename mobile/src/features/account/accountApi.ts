@@ -1,6 +1,6 @@
 // Account deletion (Task 9, phase 6). Calls the edge function
-// `konto-loeschen` (finished and verified, see
-// supabase/functions/konto-loeschen/), no new schema is created here, only
+// `delete-account` (finished and verified, see
+// supabase/functions/delete-account/), no new schema is created here, only
 // the call path. Same pattern as recapApi.revealTrip/urlPool.holeVorrat:
 // supabase.functions.invoke, errors arrive either as a FunctionsHttpError
 // with German plain text in the JSON body, or as a network error detected
@@ -44,8 +44,8 @@ async function functionPlainText(error: unknown): Promise<string | null> {
   const httpError = error as { name?: string; context?: unknown } | null;
   if (httpError?.name === 'FunctionsHttpError' && httpError.context instanceof Response) {
     try {
-      const body = (await httpError.context.clone().json()) as { fehler?: string };
-      if (typeof body.fehler === 'string') return body.fehler;
+      const body = (await httpError.context.clone().json()) as { error?: string };
+      if (typeof body.error === 'string') return body.error;
     } catch {
       // Response wasn't JSON, null, caller falls back.
     }
@@ -53,16 +53,16 @@ async function functionPlainText(error: unknown): Promise<string | null> {
   return null;
 }
 
-// Matches the function's response for `{ aktion: 'zahlen' }`
-// (supabase/functions/konto-loeschen/index.ts). `betroffene_personen`
+// Matches the function's response for `{ action: 'counts' }`
+// (supabase/functions/delete-account/index.ts). `affected_people`
 // already counts WITHOUT the requesting person themself (store.ts,
-// `zaehle`), `deletionSummaryText` below doesn't need to correct that
+// `fetchCounts`), `deletionSummaryText` below doesn't need to correct that
 // again.
 export type DeletionCounts = {
-  eigene_reisen: number;
-  momente_in_eigenen_reisen: number;
-  betroffene_personen: number;
-  eigene_momente_anderswo: number;
+  own_trips: number;
+  moments_in_own_trips: number;
+  affected_people: number;
+  own_moments_elsewhere: number;
 };
 
 const COUNTS_ERROR = 'Die Zahlen konnten nicht ermittelt werden. Probier es gleich nochmal.';
@@ -72,8 +72,8 @@ const COUNTS_ERROR = 'Die Zahlen konnten nicht ermittelt werden. Probier es glei
 // possible."), `data: null` on every error, never a guessed/empty counts
 // structure a caller could accidentally let pass as "loaded".
 export async function fetchDeletionCounts(): Promise<Loaded<DeletionCounts | null>> {
-  const { data, error } = await supabase.functions.invoke('konto-loeschen', {
-    body: { aktion: 'zahlen' },
+  const { data, error } = await supabase.functions.invoke('delete-account', {
+    body: { action: 'counts' },
   });
   if (error) {
     const plainText = await functionPlainText(error);
@@ -82,19 +82,19 @@ export async function fetchDeletionCounts(): Promise<Loaded<DeletionCounts | nul
   const counts = data as Partial<DeletionCounts> | null;
   if (
     !counts ||
-    typeof counts.eigene_reisen !== 'number' ||
-    typeof counts.momente_in_eigenen_reisen !== 'number' ||
-    typeof counts.betroffene_personen !== 'number' ||
-    typeof counts.eigene_momente_anderswo !== 'number'
+    typeof counts.own_trips !== 'number' ||
+    typeof counts.moments_in_own_trips !== 'number' ||
+    typeof counts.affected_people !== 'number' ||
+    typeof counts.own_moments_elsewhere !== 'number'
   ) {
     return { data: null, error: COUNTS_ERROR };
   }
   return {
     data: {
-      eigene_reisen: counts.eigene_reisen,
-      momente_in_eigenen_reisen: counts.momente_in_eigenen_reisen,
-      betroffene_personen: counts.betroffene_personen,
-      eigene_momente_anderswo: counts.eigene_momente_anderswo,
+      own_trips: counts.own_trips,
+      moments_in_own_trips: counts.moments_in_own_trips,
+      affected_people: counts.affected_people,
+      own_moments_elsewhere: counts.own_moments_elsewhere,
     },
     error: null,
   };
@@ -111,8 +111,8 @@ const DELETE_ERROR = 'Dein Konto konnte nicht vollständig gelöscht werden. Pro
 // not an error, otherwise the UI would show an error on an actual
 // success. Every OTHER status stays a genuine error.
 export async function deleteAccount(): Promise<{ error: string | null }> {
-  const { error } = await supabase.functions.invoke('konto-loeschen', {
-    body: { aktion: 'loeschen' },
+  const { error } = await supabase.functions.invoke('delete-account', {
+    body: { action: 'delete' },
   });
   if (!error) return { error: null };
   if (functionStatus(error) === 401) return { error: null };
@@ -121,16 +121,16 @@ export async function deleteAccount(): Promise<{ error: string | null }> {
 }
 
 // Pure text building blocks (no IO), separately testable, no own file
-// needed for two small sentences. `betroffene_personen` already counts
+// needed for two small sentences. `affected_people` already counts
 // without the requesting person (see DeletionCounts above).
 function ownTripsSentence(counts: DeletionCounts): string {
-  const tripWord = counts.eigene_reisen === 1 ? 'Reise' : 'Reisen';
-  const momentWord = counts.momente_in_eigenen_reisen === 1 ? 'Moment' : 'Momenten';
-  const personWord = counts.betroffene_personen === 1 ? 'Person' : 'Personen';
-  const verb = counts.eigene_reisen === 1 ? 'verschwindet' : 'verschwinden';
+  const tripWord = counts.own_trips === 1 ? 'Reise' : 'Reisen';
+  const momentWord = counts.moments_in_own_trips === 1 ? 'Moment' : 'Momenten';
+  const personWord = counts.affected_people === 1 ? 'Person' : 'Personen';
+  const verb = counts.own_trips === 1 ? 'verschwindet' : 'verschwinden';
   return (
-    `${counts.eigene_reisen} ${tripWord} mit insgesamt ${counts.momente_in_eigenen_reisen} ${momentWord} von ` +
-    `${counts.betroffene_personen} ${personWord} ${verb} unwiederbringlich, auch für alle anderen.`
+    `${counts.own_trips} ${tripWord} mit insgesamt ${counts.moments_in_own_trips} ${momentWord} von ` +
+    `${counts.affected_people} ${personWord} ${verb} unwiederbringlich, auch für alle anderen.`
   );
 }
 
@@ -146,8 +146,8 @@ function ownMomentsElsewhereSentence(count: number): string {
 // bare account deletion itself remains to be said.
 export function deletionSummaryText(counts: DeletionCounts): string {
   const sentences: string[] = [];
-  if (counts.eigene_reisen > 0) sentences.push(ownTripsSentence(counts));
-  if (counts.eigene_momente_anderswo > 0) sentences.push(ownMomentsElsewhereSentence(counts.eigene_momente_anderswo));
+  if (counts.own_trips > 0) sentences.push(ownTripsSentence(counts));
+  if (counts.own_moments_elsewhere > 0) sentences.push(ownMomentsElsewhereSentence(counts.own_moments_elsewhere));
   if (sentences.length === 0) return 'Dein Konto und dein Profil werden endgültig gelöscht.';
   return sentences.join(' ');
 }

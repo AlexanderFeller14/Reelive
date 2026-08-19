@@ -1,5 +1,5 @@
 // Management of the OWNER'S OWN share link (Task-6-brief), the counterpart
-// to shareApi.ts (there: `aufloesen`, no JWT, for the public web player,
+// to shareApi.ts (there: `resolve`, no JWT, for the public web player,
 // Task 5). Creating and revoking go through the edge function `share-link`
 // (service role): it re-checks owner role and trip status server-side
 // again, even though the calling site (uebersicht.tsx) already knows that,
@@ -9,10 +9,10 @@
 // plan, file structure) sketches exactly one shared file "create, revoke,
 // resolve link": `mobile/src/app/share/__tests__/moduleGraph.test.ts`
 // (Task 5, W4 proof) reads the ENTIRE source text of every file reachable
-// from share/[token].tsx and demands that EXACTLY ONE `aktion` literal
-// appears in the whole graph: `'aufloesen'`. shareApi.ts is in this graph
-// (the web player imports it). Additional `aktion: 'erstellen'`/
-// `'widerrufen'` literals in the SAME file would have broken this
+// from share/[token].tsx and demands that EXACTLY ONE `action` literal
+// appears in the whole graph: `'resolve'`. shareApi.ts is in this graph
+// (the web player imports it). Additional `action: 'create'`/
+// `'revoke'` literals in the SAME file would have broken this
 // already-committed, verified test, not because the web player would
 // actually call them (it doesn't import this file at all), but because the
 // test searches the source text of the whole file, not just the execution
@@ -41,8 +41,8 @@ async function functionErrorText(error: unknown, fallback: string): Promise<stri
   const httpError = error as { name?: string; context?: unknown };
   if (httpError?.name === 'FunctionsHttpError' && httpError.context instanceof Response) {
     try {
-      const body = (await httpError.context.clone().json()) as { fehler?: string };
-      if (typeof body.fehler === 'string') return body.fehler;
+      const body = (await httpError.context.clone().json()) as { error?: string };
+      if (typeof body.error === 'string') return body.error;
     } catch {
       // Response wasn't JSON, generic message below.
     }
@@ -94,7 +94,7 @@ const REVOKE_ERROR = 'Der Link konnte nicht deaktiviert werden. Probier es gleic
 //
 // With that, the CLOCK also moves to the right place. The old version
 // compared against `Date.now()`, i.e. the device clock; the view compares
-// against `now()` in Postgres. That's the same clock `share-link/aufloesen`
+// against `now()` in Postgres. That's the same clock `share-link/resolve`
 // measures a token against too, and the only one that counts: if the
 // device is two days fast, the app used to consider a carrying link
 // expired and offered to create a second one.
@@ -127,31 +127,31 @@ export async function fetchActiveLink(tripId: string): Promise<Loaded<ActiveLink
 // validDays: null means "no expiry" (share-link/index.ts, Task-2 contract).
 // `expiresAt` in the return value is computed HERE, in the client, from
 // `validDays`; the function itself returns only { token, url } on
-// `erstellen`, no expires_at. This is purely informative for display
+// `create`, no expires_at. This is purely informative for display
 // ("valid until …"), never for a check: the only authoritative clock is
-// the function's own (beurteileToken there compares against the expires_at
+// the function's own (evaluateToken there compares against the expires_at
 // row actually stored in share_links). A deviation of a few seconds from
 // network latency doesn't matter for a display text.
 export async function createLink(tripId: string, validDays: number | null): Promise<Loaded<ActiveLink | null>> {
   const { data, error } = await supabase.functions.invoke('share-link', {
-    body: { aktion: 'erstellen', trip_id: tripId, gueltig_tage: validDays },
+    body: { action: 'create', trip_id: tripId, valid_days: validDays },
   });
   if (error) {
     return { data: null, error: await functionErrorText(error, CREATE_ERROR) };
   }
-  const antwort = data as { token?: unknown; url?: unknown } | null;
-  if (!antwort || typeof antwort.token !== 'string' || typeof antwort.url !== 'string') {
+  const response = data as { token?: unknown; url?: unknown } | null;
+  if (!response || typeof response.token !== 'string' || typeof response.url !== 'string') {
     return { data: null, error: CREATE_ERROR };
   }
   const expiresAt = validDays === null ? null : new Date(Date.now() + validDays * 86_400_000).toISOString();
-  return { data: { token: antwort.token, url: antwort.url, expiresAt }, error: null };
+  return { data: { token: response.token, url: response.url, expiresAt }, error: null };
 }
 
 // Idempotent server-side (share-link/index.ts), a second revoke is not an
 // error, this function passes that through unchanged.
 export async function revokeLink(token: string): Promise<{ error: string | null }> {
   const { data, error } = await supabase.functions.invoke('share-link', {
-    body: { aktion: 'widerrufen', token },
+    body: { action: 'revoke', token },
   });
   if (error) {
     return { error: await functionErrorText(error, REVOKE_ERROR) };
@@ -172,7 +172,7 @@ export async function revokeLink(token: string): Promise<{ error: string | null 
 // Hence a database function that only says yes or no
 // (`public.recap_ist_geteilt`, migration 20260810100000). It checks
 // membership itself and applies the same three conditions as
-// `share-link/aufloesen`: not revoked, not expired, row exists.
+// `share-link/resolve`: not revoked, not expired, row exists.
 //
 // The error case returns `null` instead of `false`, and that's the point:
 // "not shared" and "we can't tell right now" are two different answers,

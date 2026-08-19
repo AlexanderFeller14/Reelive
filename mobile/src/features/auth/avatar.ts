@@ -11,11 +11,12 @@ export const AVATAR_BUCKET = 'avatare';
 // ---------------------------------------------------------------------------
 // WARNING: the prefix is AGREED UPON, not freely chosen.
 // ---------------------------------------------------------------------------
-// konto-loeschen/index.ts builds its allowed prefixes as
-// `profiles/${anfragendeId}/` and only deletes what matches that (the guard
-// pfadGehoertUns in konto-loeschen/ablauf.ts, with a detailed rationale
-// there). A key following a different scheme would stay in storage forever
-// on account deletion, without anyone still knowing its path.
+// delete-account/index.ts builds its allowed prefixes as
+// `profiles/${requestingUserId}/` and only deletes what matches that (the
+// guard pathBelongsToUs in delete-account/process.ts, with a detailed
+// rationale there). A key following a different scheme would stay in
+// storage forever on account deletion, without anyone still knowing its
+// path.
 //
 // The random part achieves two things: the URL is not derivable from a known
 // user_id, and every new image gets a new URL. That way the image cache

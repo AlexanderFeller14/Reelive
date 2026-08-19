@@ -76,23 +76,23 @@ beforeEach(() => {
 });
 
 const validResponse = {
-  reise: { name: 'Lissabon Städtetrip', start_date: '2026-08-10', end_date: '2026-08-14' },
-  medien: [
+  trip: { name: 'Lissabon Städtetrip', start_date: '2026-08-10', end_date: '2026-08-14' },
+  media: [
     {
-      post_id: 'p1', autor_name: 'Lea', type: 'photo', captured_at: '2026-08-10T09:00:00.000Z',
+      post_id: 'p1', author_name: 'Lea', type: 'photo', captured_at: '2026-08-10T09:00:00.000Z',
       captured_tz: 'Europe/Zurich', place_name: 'Lissabon', caption: null,
       duration_s: null, medium_url: 'https://s3/p1', thumb_url: null,
     },
     {
-      post_id: 'p2', autor_name: 'Jonas', type: 'video', captured_at: '2026-08-10T10:00:00.000Z',
+      post_id: 'p2', author_name: 'Jonas', type: 'video', captured_at: '2026-08-10T10:00:00.000Z',
       captured_tz: 'Europe/Zurich', place_name: 'Lissabon', caption: null,
       duration_s: 3, medium_url: 'https://s3/p2', thumb_url: null,
     },
   ],
-  gueltig_bis: '2099-01-01T00:00:00.000Z',
+  valid_until: '2099-01-01T00:00:00.000Z',
 };
 
-test('a whole run through the page (load, tap, hold, auto advance, video end, closing titles, "Nochmal ansehen") calls functions.invoke("share-link", aktion "aufloesen") exactly ONCE and never .from()/.rpc()/.auth', async () => {
+test('a whole run through the page (load, tap, hold, auto advance, video end, closing titles, "Nochmal ansehen") calls functions.invoke("share-link", action "resolve") exactly ONCE and never .from()/.rpc()/.auth', async () => {
   mockInvoke.mockResolvedValueOnce({ data: validResponse, error: null });
 
   await render(<SharedRecapScreen />);
@@ -128,7 +128,7 @@ test('a whole run through the page (load, tap, hold, auto advance, video end, cl
   expect(screen.getByTestId('teilen-bereit')).toBeTruthy();
 
   expect(mockInvoke).toHaveBeenCalledTimes(1);
-  expect(mockInvoke).toHaveBeenCalledWith('share-link', { body: { aktion: 'aufloesen', token: 'tok123' } });
+  expect(mockInvoke).toHaveBeenCalledWith('share-link', { body: { action: 'resolve', token: 'tok123' } });
   expect(mockFrom).not.toHaveBeenCalled();
   expect(mockRpc).not.toHaveBeenCalled();
   expect(mockAuthSignInWithOtp).not.toHaveBeenCalled();
@@ -140,7 +140,7 @@ test('after a rejected token, "Nochmal versuchen" reaches for functions.invoke o
     data: null,
     error: Object.assign(new Error('http'), {
       name: 'FunctionsHttpError',
-      context: new Response(JSON.stringify({ fehler: 'Unbekannter Token.' }), { status: 404 }),
+      context: new Response(JSON.stringify({ error: 'Unbekannter Token.' }), { status: 404 }),
     }),
   });
   await render(<SharedRecapScreen />);

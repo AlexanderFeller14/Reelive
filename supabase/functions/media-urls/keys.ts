@@ -1,55 +1,57 @@
-// Spiegelt bewusst mobile/src/features/moments/medien.ts: der Client braucht die
-// Schlüssel vor dem Insert, diese Funktion traut ihm nicht und leitet sie neu ab.
+// Deliberately mirrors mobile/src/features/moments/media.ts: the client
+// needs the keys before the insert, this function does not trust it and
+// re-derives them.
 //
-// Phase-4-Final-Review, Important 5: die Endung kommt aus posts.media_ext, also
-// aus der Zeile, die die Function selbst gelesen hat, nie aus dem Anfrage-Body.
-// `expo-camera` nimmt auf iOS QuickTime (.mov) auf und auf Android .mp4; ohne
-// diese Unterscheidung lägen die iOS-Bytes dauerhaft unter `.mp4` mit
-// Content-Type video/mp4 im Speicher, und der Schlüssel ist pro Moment
-// unveränderlich.
+// Phase-4 final review, Important 5: the extension comes from
+// posts.media_ext, i.e. from the row this function read itself, never from
+// the request body. `expo-camera` records QuickTime (.mov) on iOS and .mp4
+// on Android; without this distinction the iOS bytes would sit permanently
+// under `.mp4` with content type video/mp4 in storage, and the key is
+// immutable per moment.
 //
-// Die Liste hier ist die zweite Absicherung neben der Check-Constraint aus
-// 20260807100000_post_media_ext.sql: was nicht darin steht, fällt auf den
-// Standard der Aufnahmeart zurück. Damit kann selbst eine später gelockerte
-// Constraint der Function keinen fremden Pfadbestandteil unterschieben.
-const ERLAUBTE_ENDUNGEN: Record<'photo' | 'video', readonly string[]> = {
+// The list here is the second safeguard next to the check constraint from
+// 20260807100000_post_media_ext.sql: anything not listed falls back to the
+// default for the capture type. That way even a later-loosened constraint
+// cannot smuggle a foreign path component past this function.
+const ALLOWED_EXTENSIONS: Record<'photo' | 'video', readonly string[]> = {
   photo: ['jpg'],
   video: ['mp4', 'mov'],
 };
-const STANDARD_ENDUNG: Record<'photo' | 'video', string> = { photo: 'jpg', video: 'mp4' };
+const DEFAULT_EXTENSION: Record<'photo' | 'video', string> = { photo: 'jpg', video: 'mp4' };
 
 // ---------------------------------------------------------------------------
-// ACHTUNG, bevor hier jemand etwas ändert: Das ist kein Hilfsmittel mehr,
-// sondern das SPEICHERFORMAT.
+// WARNING before anyone changes anything here: this is no longer a
+// convenience helper, it is the STORAGE FORMAT.
 // ---------------------------------------------------------------------------
-// Seit Phase 5 leitet auch die Aktion `lesen` den Pfad hierüber ab, statt
-// posts.storage_key zu übernehmen (Begründung in index.ts). Damit ist diese
-// Funktion der einzige Ort, der weiss, wo die Bytes liegen, für ALLE bereits
-// hochgeladenen Momente, rückwirkend.
+// Since Phase 5 the `read` action also derives its path through here,
+// instead of taking posts.storage_key as given (reasoning in index.ts). That
+// makes this function the only place that knows where the bytes live, for
+// ALL already-uploaded moments, retroactively.
 //
-// Eine Änderung an Präfix, Endung oder Thumb-Suffix entwertet deshalb jedes
-// gespeicherte Objekt: die Zeilen zeigen weiterhin auf den alten Pfad, die
-// Ableitung auf einen neuen, und `lesen` lässt jeden betroffenen Moment aus
-// (der Abgleich in index.ts schlägt an). Das ist keine Datenmigration, das ist
-// eine Umbenennung im Bucket, jedes Objekt, bevor die neue Fassung live geht.
+// A change to the prefix, extension, or thumb suffix therefore invalidates
+// every stored object: the rows keep pointing at the old path, the
+// derivation at a new one, and `read` leaves out every affected moment (the
+// comparison in index.ts catches it). This is not a data migration, it is a
+// rename inside the bucket, for every object, before the new version goes
+// live.
 //
-// Wer das Schema wirklich ändern muss, braucht dreierlei: die Umbenennung im
-// Speicher, ein Nachziehen von posts.storage_key/thumb_key, und einen Plan für
-// die Zeit dazwischen (beide Schemata parallel lesen). Ohne das ist der Recap
-// aller Altreisen leer.
+// Whoever really needs to change the scheme needs three things: the rename
+// in storage, a rewrite of posts.storage_key/thumb_key, and a plan for the
+// time in between (reading both schemes in parallel). Without that, the
+// recap of every past trip comes back empty.
 // ---------------------------------------------------------------------------
-export function erwarteteSchluessel(
+export function expectedKeys(
   tripId: string,
   postId: string,
-  typ: 'photo' | 'video',
+  mediaType: 'photo' | 'video',
   mediaExt?: string | null,
 ): { storage_key: string; thumb_key: string } {
-  const kandidat = (mediaExt ?? '').toLowerCase();
-  const ext = ERLAUBTE_ENDUNGEN[typ].includes(kandidat) ? kandidat : STANDARD_ENDUNG[typ];
+  const candidate = (mediaExt ?? '').toLowerCase();
+  const ext = ALLOWED_EXTENSIONS[mediaType].includes(candidate) ? candidate : DEFAULT_EXTENSION[mediaType];
   return {
     storage_key: `trips/${tripId}/${postId}.${ext}`,
-    // Thumbnails entstehen immer lokal als JPEG (Spec §4), unabhängig davon,
-    // was das Medium selbst für ein Container ist.
+    // Thumbnails are always generated locally as JPEG (Spec §4), regardless
+    // of the container the medium itself uses.
     thumb_key: `trips/${tripId}/${postId}_t.jpg`,
   };
 }

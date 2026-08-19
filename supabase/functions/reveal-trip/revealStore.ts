@@ -1,74 +1,75 @@
-// Der reale I/O-Adapter für reveal.ts' `RevealStore`-Schnittstelle, dünne
-// Weiterleitung an einen Supabase-Client (Service-Role), dieselben Abfragen
-// wie in der Fassung vor der Auslagerung, nur hierher verschoben. Eigene
-// Datei statt Teil von reveal.ts: reveal.ts bleibt reine Logik ohne
-// Supabase-Import, testbar ohne jede I/O; hier stehen genau die zwei
-// Abfragen, die kein Unit-Test ersetzen kann,
-//   - die CAS-Bedingung `.eq('status','active')` im Update
-//     (aktualisiereWennAktiv)
-//   - die Empfänger-Einschränkung `.in('user_id', userIds)` bei der
-//     Token-Löschung (loescheTokens),
-// und die deshalb direkt (ohne Umweg über HTTP oder Expo)
-// revealStore_integration_test.ts gegen den echten lokalen Stack prüft.
+// The real I/O adapter for reveal.ts' `RevealStore` interface, a thin
+// forward to a Supabase client (service role), the same queries as in the
+// version before the extraction, only moved here. Its own file instead of
+// part of reveal.ts: reveal.ts stays pure logic with no Supabase import,
+// testable with no I/O at all; here sit exactly the two queries no unit
+// test can replace,
+//   - the CAS condition `.eq('status','active')` in the update
+//     (updateIfActive)
+//   - the recipient restriction `.in('user_id', userIds)` when deleting
+//     tokens (deleteTokens),
+// and which revealStore_integration_test.ts therefore checks directly
+// (with no detour through HTTP or Expo) against the real local stack.
 import { createClient } from 'jsr:@supabase/supabase-js@2';
-import type { RevealStore, TripZeile } from './reveal.ts';
+import type { RevealStore, TripRow } from './reveal.ts';
 
-// Fabrik statt eines direkten `createClient(...)`-Aufrufs: nur so lässt sich
-// der Rückgabetyp sauber benennen. `ReturnType<typeof createClient>` allein
-// (ohne die Fabrik) inferiert an dieser Stelle einen ANDEREN Typ als der
-// tatsächliche Aufruf `createClient(url, key)`, createClient hat
-// interdependente generische Default-Typparameter, und `typeof createClient`
-// referenziert die allgemeine Funktionssignatur, nicht die an einer
-// konkreten Aufrufstelle inferierten Defaults (in einer früheren Fassung
-// dieser Function schlug `deno check` deshalb fehl, siehe task-2-report.md).
-export function erstelleAdminClient(supabaseUrl: string, serviceRoleKey: string) {
+// Factory instead of a direct `createClient(...)` call: only this lets the
+// return type be named cleanly. `ReturnType<typeof createClient>` alone
+// (without the factory) infers a DIFFERENT type at this point than the
+// actual call `createClient(url, key)`, createClient has interdependent
+// generic default type parameters, and `typeof createClient` references
+// the general function signature, not the defaults inferred at a concrete
+// call site (an earlier version of this function had `deno check` fail
+// because of this, see task-2-report.md).
+export function createAdminClient(supabaseUrl: string, serviceRoleKey: string) {
   return createClient(supabaseUrl, serviceRoleKey);
 }
-export type AdminClient = ReturnType<typeof erstelleAdminClient>;
+export type AdminClient = ReturnType<typeof createAdminClient>;
 
-export function erstelleRevealStore(supabaseAdmin: AdminClient): RevealStore {
+export function createRevealStore(supabaseAdmin: AdminClient): RevealStore {
   return {
-    async holeTrip(tripId) {
+    async fetchTrip(tripId) {
       const { data, error } = await supabaseAdmin
         .from('trips')
         .select('id, name, owner_id, status, revealed_at')
         .eq('id', tripId)
         .maybeSingle();
-      return { data: data as TripZeile | null, error };
+      return { data: data as TripRow | null, error };
     },
 
-    // `revealed_at: 'now'` ist kein Tippfehler für `new Date().toISOString()`:
-    // 'now' ist in Postgres ein besonderer Datum/Zeit-Eingabewert (siehe
-    // Postgres-Doku „Special Date/Time Inputs“), der beim Cast auf timestamptz
-    // zur Startzeit der AUSFÜHRENDEN Transaktion aufgelöst wird, exakt
-    // dasselbe Verhalten wie now()/CURRENT_TIMESTAMP in SQL, nur ausdrückbar
-    // als gewöhnlicher Update-Wert über PostgREST (das keine SQL-Funktionsauf-
-    // rufe im Request-Body entgegennimmt). Am lokalen Stack verifiziert: zwei
-    // PATCH-Aufrufe im Abstand mehrerer Sekunden liefern unterschiedliche,
-    // dem jeweiligen Ausführungszeitpunkt entsprechende Werte, der Zeitstempel
-    // kommt also wirklich aus der Datenbank, nie aus Deno. Das ist relevant für
-    // die Nachzügler-Regel (posts_insert_member,
-    // supabase/migrations/20260803090300_sealing_rls.sql), die
-    // `captured_at <= t.revealed_at` vergleicht, ABER `captured_at` ist
-    // Gerätezeit: der Client setzt die Spalte selbst beim Insert (Spalten-Grant
-    // in supabase/migrations/20260803090600_role_hardening.sql, Abschnitt 2).
-    // Der Vergleich läuft also so oder so Gerätezeit gegen Serverzeit, dieses
-    // grössere, prinzipiell unvermeidbare Delta beseitigt `now` nicht. Was
-    // `now` beseitigt, ist die zusätzliche, kleinere Verschiebung, die
-    // entstünde, WÜRDE Deno selbst einen Zeitstempel berechnen (z. B. `new
-    // Date().toISOString()`) und ihn als Literal in dieselbe Spalte schreiben:
-    // dann hinge revealed_at zusätzlich von der Uhr des Deno-Hosts ab, die von
-    // der DB-Server-Uhr abweichen kann. `now` sorgt dafür, dass revealed_at
-    // ausschliesslich von EINER Uhr abhängt, der des DB-Servers, derselben,
-    // die auch bestimmt, wann ein `captured_at`-Wert als Nachzügler gilt.
+    // `revealed_at: 'now'` is not a typo for `new Date().toISOString()`:
+    // 'now' is a special date/time input value in Postgres (see the
+    // Postgres docs "Special Date/Time Inputs"), which on cast to
+    // timestamptz resolves to the start time of the EXECUTING transaction,
+    // exactly the same behaviour as now()/CURRENT_TIMESTAMP in SQL, just
+    // expressible as an ordinary update value over PostgREST (which does
+    // not accept SQL function calls in the request body). Verified against
+    // the local stack: two PATCH calls several seconds apart return
+    // different values matching their respective execution time, so the
+    // timestamp really comes from the database, never from Deno. That
+    // matters for the latecomer rule (posts_insert_member,
+    // supabase/migrations/20260803090300_sealing_rls.sql), which compares
+    // `captured_at <= t.revealed_at`, BUT `captured_at` is device time: the
+    // client sets the column itself on insert (column grant in
+    // supabase/migrations/20260803090600_role_hardening.sql, section 2).
+    // The comparison therefore runs device time against server time either
+    // way, `now` does not remove this larger, fundamentally unavoidable
+    // delta. What `now` removes is the additional, smaller drift that
+    // would arise WERE Deno itself to compute a timestamp (e.g. `new
+    // Date().toISOString()`) and write it as a literal into the same
+    // column: then revealed_at would additionally depend on the Deno
+    // host's clock, which can differ from the DB server clock. `now` makes
+    // sure revealed_at depends exclusively on ONE clock, the DB server's,
+    // the same one that also determines when a `captured_at` value counts
+    // as a latecomer.
     //
-    // Die CAS-Bedingung `.eq('status','active')`: nur ein Update, dessen
-    // WHERE-Klausel beim Ausführen noch zutrifft, betrifft eine Zeile. Zwei
-    // wirklich parallele Aufrufe serialisieren sich an der Zeilensperre von
-    // Postgres, der zweite sieht beim Ausführen bereits status='revealed'
-    // und betrifft 0 Zeilen. Das ist der Teil, den revealStore_integration_test.ts
-    // direkt (ohne HTTP) gegen den echten Stack beweist.
-    async aktualisiereWennAktiv(tripId) {
+    // The CAS condition `.eq('status','active')`: only an update whose
+    // WHERE clause still holds at execution time affects a row. Two
+    // genuinely parallel calls serialize on Postgres's row lock, the second
+    // one already sees status='revealed' at execution time and affects 0
+    // rows. That is the part revealStore_integration_test.ts proves
+    // directly (with no HTTP) against the real stack.
+    async updateIfActive(tripId) {
       const { data, error } = await supabaseAdmin
         .from('trips')
         .update({ status: 'revealed', revealed_at: 'now' })
@@ -79,7 +80,7 @@ export function erstelleRevealStore(supabaseAdmin: AdminClient): RevealStore {
       return { data: data as { revealed_at: string } | null, error };
     },
 
-    async holeRevealedAtNachlese(tripId) {
+    async fetchRevealedAtFollowUp(tripId) {
       const { data, error } = await supabaseAdmin
         .from('trips')
         .select('revealed_at')
@@ -88,7 +89,7 @@ export function erstelleRevealStore(supabaseAdmin: AdminClient): RevealStore {
       return { data: data as { revealed_at: string | null } | null, error };
     },
 
-    async holeMitglieder(tripId) {
+    async fetchMembers(tripId) {
       const { data, error } = await supabaseAdmin
         .from('trip_members')
         .select('user_id')
@@ -96,7 +97,7 @@ export function erstelleRevealStore(supabaseAdmin: AdminClient): RevealStore {
       return { data: data as { user_id: string }[] | null, error };
     },
 
-    async holeTokens(userIds) {
+    async fetchTokens(userIds) {
       const { data, error } = await supabaseAdmin
         .from('push_tokens')
         .select('token')
@@ -104,12 +105,12 @@ export function erstelleRevealStore(supabaseAdmin: AdminClient): RevealStore {
       return { data: data as { token: string }[] | null, error };
     },
 
-    // userIds zusätzlich zu tokens (Review-Minor, siehe Kommentar in
-    // reveal.ts/versendeRevealPush): begrenzt eine fälschlich als
-    // DeviceNotRegistered gelesene Zuordnung auf den gerade angeschriebenen
-    // Empfängerkreis, statt als Service-Role über die ganze Tabelle zu
-    // laufen. Direkt geprüft in revealStore_integration_test.ts.
-    async loescheTokens(tokens, userIds) {
+    // userIds in addition to tokens (review minor, see the comment in
+    // reveal.ts/sendRevealPush): limits a mapping wrongly read as
+    // DeviceNotRegistered to the just-notified recipient circle, instead of
+    // running as the service role over the whole table. Checked directly
+    // in revealStore_integration_test.ts.
+    async deleteTokens(tokens, userIds) {
       const { error } = await supabaseAdmin
         .from('push_tokens')
         .delete()

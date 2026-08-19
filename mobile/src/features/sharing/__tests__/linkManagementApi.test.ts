@@ -94,7 +94,7 @@ describe('fetchActiveLink', () => {
   // compared `expires_at` against `Date.now()`, i.e. against the DEVICE
   // CLOCK. If the device was fast, it considered a carrying link expired
   // and offered to create a second one. Now the clock in Postgres decides,
-  // the same one `share-link/aufloesen` measures against too.
+  // the same one `share-link/resolve` measures against too.
   //
   // The mock deliberately returns a row here whose expiry, by device
   // clock, is long past: the old version would have discarded it, the new
@@ -132,12 +132,12 @@ describe('fetchActiveLink', () => {
 });
 
 describe('createLink', () => {
-  test('calls the function with aktion "erstellen", trip_id, and gueltig_tage', async () => {
+  test('calls the function with action "create", trip_id, and valid_days', async () => {
     mockInvoke.mockResolvedValueOnce({ data: { token: 'tok1', url: `${ENV_BASE_URL}/share/tok1` }, error: null });
     const { data, error } = await createLink('t1', 7);
     expect(error).toBeNull();
     expect(mockInvoke).toHaveBeenCalledWith('share-link', {
-      body: { aktion: 'erstellen', trip_id: 't1', gueltig_tage: 7 },
+      body: { action: 'create', trip_id: 't1', valid_days: 7 },
     });
     expect(data?.token).toBe('tok1');
     expect(data?.url).toBe(`${ENV_BASE_URL}/share/tok1`);
@@ -152,13 +152,13 @@ describe('createLink', () => {
     mockInvoke.mockResolvedValueOnce({ data: { token: 'tok1', url: 'https://x/share/tok1' }, error: null });
     const { data } = await createLink('t1', null);
     expect(mockInvoke).toHaveBeenCalledWith('share-link', {
-      body: { aktion: 'erstellen', trip_id: 't1', gueltig_tage: null },
+      body: { action: 'create', trip_id: 't1', valid_days: null },
     });
     expect(data?.expiresAt).toBeNull();
   });
 
   test('a functional function error (e.g. 409 "still sealed") is passed through 1:1', async () => {
-    mockInvoke.mockResolvedValueOnce(httpError(409, { fehler: 'Diese Reise ist noch versiegelt.' }));
+    mockInvoke.mockResolvedValueOnce(httpError(409, { error: 'Diese Reise ist noch versiegelt.' }));
     const { data, error } = await createLink('t1', 7);
     expect(data).toBeNull();
     expect(error).toBe('Diese Reise ist noch versiegelt.');
@@ -179,15 +179,15 @@ describe('createLink', () => {
 });
 
 describe('revokeLink', () => {
-  test('calls the function with aktion "widerrufen" and token', async () => {
+  test('calls the function with action "revoke" and token', async () => {
     mockInvoke.mockResolvedValueOnce({ data: { ok: true }, error: null });
     const { error } = await revokeLink('tok1');
     expect(error).toBeNull();
-    expect(mockInvoke).toHaveBeenCalledWith('share-link', { body: { aktion: 'widerrufen', token: 'tok1' } });
+    expect(mockInvoke).toHaveBeenCalledWith('share-link', { body: { action: 'revoke', token: 'tok1' } });
   });
 
   test('a functional function error (e.g. 404 "does not exist") is passed through 1:1', async () => {
-    mockInvoke.mockResolvedValueOnce(httpError(404, { fehler: 'Diesen Link gibt es nicht.' }));
+    mockInvoke.mockResolvedValueOnce(httpError(404, { error: 'Diesen Link gibt es nicht.' }));
     const { error } = await revokeLink('tok1');
     expect(error).toBe('Diesen Link gibt es nicht.');
   });

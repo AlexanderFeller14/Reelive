@@ -136,10 +136,10 @@ const REMOVE_ERROR = 'Der Moment konnte nicht entfernt werden. Probier es gleich
 //
 // Deleting from storage needs the S3 credentials, and those never belong in
 // an app. The function checks the same rule that also enforces
-// `posts_delete_after_reveal` (supabase/functions/moment-entfernen/
-// zugriff.ts), and does so BEFORE the storage step.
+// `posts_delete_after_reveal` (supabase/functions/remove-moment/
+// access.ts), and does so BEFORE the storage step.
 export async function removeMoment(momentId: string): Promise<{ error: string | null }> {
-  const { error } = await supabase.functions.invoke('moment-entfernen', {
+  const { error } = await supabase.functions.invoke('remove-moment', {
     body: { post_id: momentId },
   });
   if (!error) return { error: null };
@@ -148,15 +148,15 @@ export async function removeMoment(momentId: string): Promise<{ error: string | 
   if (httpError?.name === 'FunctionsHttpError' && httpError.context instanceof Response) {
     const response = httpError.context;
     try {
-      const body = (await response.clone().json()) as { fehler?: string };
-      if (typeof body.fehler === 'string' && body.fehler.length > 0) return { error: body.fehler };
+      const body = (await response.clone().json()) as { error?: string };
+      if (typeof body.error === 'string' && body.error.length > 0) return { error: body.error };
     } catch {
       // Antwort war kein JSON, generische Meldung unten.
     } finally {
       // The clone was read, the original wasn't, and an unread response
       // body keeps its stream open. That's invisible on the device, but not
       // in a test run: Jest reported a worker afterwards that didn't shut
-      // down cleanly. Same cleanup as in konto-loeschen/store.ts (`await
+      // down cleanly. Same cleanup as in delete-account/store.ts (`await
       // antwort.body?.cancel()`).
       void response.body?.cancel().catch(() => {});
     }
