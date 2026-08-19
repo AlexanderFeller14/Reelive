@@ -37,7 +37,7 @@ describe('retryHelps', () => {
 });
 
 describe('isSoonExpiring', () => {
-  const pool = (gueltigBis: number): Pool => ({ urls: new Map(), gueltigBis, ausgelassen: 0 });
+  const pool = (validUntil: number): Pool => ({ urls: new Map(), validUntil, skipped: 0 });
 
   // Literal-pinned the same way as PHOTO_DURATION_MS/VIDEO_DURATION_MIN_MS in
   // playerLogic.test.ts (review finding, Phase-5 final review, point 8):
@@ -94,7 +94,7 @@ describe('isSoonExpiring', () => {
   // a pool came to exist: `NaN - now < THRESHOLD` would be `false` ("never
   // expires", the opposite of V10); the negated `>=` form must return
   // `true` here ("renew").
-  test('a NaN gueltigBis counts as soon expiring, not as "never expires"', () => {
+  test('a NaN validUntil counts as soon expiring, not as "never expires"', () => {
     expect(isSoonExpiring(pool(NaN), 1_000_000)).toBe(true);
   });
 });
@@ -118,8 +118,8 @@ describe('getPool', () => {
     expect(error).toBeNull();
     expect(reason).toBeNull();
     expect(mockInvoke).toHaveBeenCalledWith('media-urls', { body: { aktion: 'lesen', trip_id: 't1' } });
-    expect(pool?.gueltigBis).toBe(Date.parse('2026-08-08T13:00:00.000Z'));
-    expect(pool?.ausgelassen).toBe(1);
+    expect(pool?.validUntil).toBe(Date.parse('2026-08-08T13:00:00.000Z'));
+    expect(pool?.skipped).toBe(1);
     expect(pool?.urls.size).toBe(2);
     expect(pool?.urls.get('p1')).toEqual({
       post_id: 'p1',
@@ -142,7 +142,7 @@ describe('getPool', () => {
     const { pool, error } = await getPool('t1');
     expect(error).toBeNull();
     expect(pool?.urls.size).toBe(0);
-    expect(pool?.ausgelassen).toBe(0);
+    expect(pool?.skipped).toBe(0);
   });
 
   // isSoonExpiring has its own, independent NaN safety net (see above), this
@@ -185,12 +185,12 @@ describe('getPool', () => {
     });
     const { pool, error } = await getPool('t1');
     expect(error).toBeNull();
-    expect(pool?.ausgelassen).toBe(0);
+    expect(pool?.skipped).toBe(0);
   });
 
   // Counter-check to the test above: an ACTUALLY transmitted value (even 0)
   // still passes through unchanged, `?? 0` must not overwrite a real value;
-  // a mutant shortening `antwort.ausgelassen ?? 0` to `antwort.ausgelassen
+  // a mutant shortening `response.ausgelassen ?? 0` to `response.ausgelassen
   // || 0` would fail HERE, because 0 is already falsy and both forms behave
   // identically for 0, the actual difference only shows up with a present,
   // non-zero value like this one.
@@ -201,7 +201,7 @@ describe('getPool', () => {
     });
     const { pool, error } = await getPool('t1');
     expect(error).toBeNull();
-    expect(pool?.ausgelassen).toBe(4);
+    expect(pool?.skipped).toBe(4);
   });
 
   // The two 403 cases mean different things (trip still sealed vs.

@@ -155,7 +155,11 @@ const SINGLE_CAMERA = { name: 'Frontkamera', type: 'wide', components: [], switc
 
 const mockLenses = jest.fn((position: string) => (position === 'back' ? [TRIPLE_CAMERA] : [SINGLE_CAMERA]));
 const mockSetZoom = jest.fn();
-const mockZoomLimits = jest.fn((_name: string) => ({ min: 1, max: 120 }));
+// Typed with the nullable return of the real nativeZoom.zoomLimits: a device
+// that stays silent about its bounds is a case the screen has to survive.
+const mockZoomLimits = jest.fn(
+  (_name: string): { min: number; max: number } | null => ({ min: 1, max: 120 })
+);
 const mockFocus = jest.fn();
 // The pre-warmed video player (device finding 2026-08-14). The default status
 // is readyToPlay so the remaining stop tests need no timer control; the
@@ -2764,4 +2768,84 @@ test('a second, quick tap in the MultiCam branch triggers no second photo', asyn
   expect(mockMultiCamera.takePhoto).toHaveBeenCalledTimes(1);
   expect(mockPush).toHaveBeenCalledTimes(1);
   expect(captureLock.isLocked()).toBe(false);
+});
+
+// Both overlays are pure answers of the picture to something the finger has
+// already done. They must not swallow the next touch, and they have nothing
+// to add for VoiceOver.
+test('focus ring and switch fade take no touch and say nothing to VoiceOver', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(loaded([trip()]));
+  await render(<CaptureScreen />);
+  await screen.findByLabelText('Auslöser');
+
+  jest.useFakeTimers();
+  await tap(140, 420, { x: 140, y: 420 });
+  const ring = screen.getByTestId('fokus-ring');
+  expect(ring.props.pointerEvents).toBe('none');
+  expect(ring.props.accessible).toBe(false);
+  await act(async () => {
+    jest.advanceTimersByTime(5000);
+  });
+  jest.useRealTimers();
+
+  await tap();
+  await tap();
+  const fade = screen.getByTestId('wechsel-blende').parent;
+  expect(fade?.props.pointerEvents).toBe('none');
+  expect(fade?.props.accessible).toBe(false);
+});
+
+// Both fallbacks of zoomLimitsFor: the device is silent about its bounds
+// (nativeZoom.zoomLimits returns null). Without them the drag zoom would have
+// no anchor at all and stop working.
+test('a silent device falls back to the factor of its own last switch point', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(loaded([trip()]));
+  mockZoomLimits.mockImplementation(() => null);
+  mockRecordAsync.mockImplementation(() => new Promise(() => {}));
+  await render(<CaptureScreen />);
+  await screen.findByLabelText('Auslöser');
+
+  await holdCapture();
+
+  mockSetZoom.mockClear();
+  // Triple camera: switch points 2 and 8, base 0,5, so the last step is 4x
+  // displayed, which is native 8. That derived maximum replaces the missing
+  // answer of the device (without the fallback the drag would not zoom at all).
+  await fireEvent(screen.getByLabelText('Auslöser'), 'touchMove', {
+    nativeEvent: { pageX: 100, pageY: -1000 },
+  });
+  expect(mockSetZoom).toHaveBeenLastCalledWith('Rückseitige Dreifach-Kamera', 8, false);
+});
+
+test('a silent multicam lens without switch points falls back to a maximum of 8x', async () => {
+  await multiCamViewfinder();
+  // The front is a single lens: no switch points, so zoomDevice() gives up and
+  // the second fallback takes over. It stays silent about its bounds too.
+  mockZoomLimits.mockImplementation(() => null);
+
+  jest.useFakeTimers();
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressIn', {
+    nativeEvent: { pageX: 100, pageY: 600, identifier: 1 },
+  });
+  await act(async () => {
+    jest.advanceTimersByTime(600);
+  });
+  jest.useRealTimers();
+
+  mockMultiCamera.switchCamera.mockResolvedValue('front');
+  const surface = viewfinderSurface();
+  for (const id of [7, 8]) {
+    await act(async () => {
+      surface.props.onTouchStart({ nativeEvent: { identifier: id, pageX: 210, pageY: 380 } });
+    });
+    await act(async () => {
+      surface.props.onTouchEnd({ nativeEvent: { identifier: id, pageX: 211, pageY: 381 } });
+    });
+  }
+
+  mockMultiCamera.setZoom.mockClear();
+  await fireEvent(screen.getByLabelText('Auslöser'), 'touchMove', {
+    nativeEvent: { pageX: 100, pageY: -1000, identifier: 1 },
+  });
+  expect(mockMultiCamera.setZoom).toHaveBeenLastCalledWith({ camera: 'front', factor: 8 }, false);
 });

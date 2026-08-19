@@ -1,0 +1,18 @@
+{
+  "dateien": {},
+  "symbole": {},
+  "eigenschaften": {
+    "features/recap/exportApi.ts": {
+      "erlaubt": "allowed",
+      "grund": "reason",
+      "erledigt": "done",
+      "gesamt": "total",
+      "gesichert": "saved",
+      "fehlgeschlagen": "failed",
+      "abgebrochen": "cancelled"
+    },
+    "features/recap/urlPool.ts": {
+      "gueltigBis": "validUntil"
+    }
+  }
+}

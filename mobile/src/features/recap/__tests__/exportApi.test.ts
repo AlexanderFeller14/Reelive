@@ -145,7 +145,7 @@ describe('ensurePermission', () => {
   test('already granted: no additional request call', async () => {
     mockGetPermissionsAsync.mockResolvedValue(GRANTED);
     const result = await ensurePermission();
-    expect(result).toEqual({ erlaubt: true });
+    expect(result).toEqual({ allowed: true });
     expect(mockRequestPermissionsAsync).not.toHaveBeenCalled();
   });
 
@@ -161,7 +161,7 @@ describe('ensurePermission', () => {
     mockGetPermissionsAsync.mockResolvedValue(DENIED_CAN_ASK);
     mockRequestPermissionsAsync.mockResolvedValue(GRANTED);
     const result = await ensurePermission();
-    expect(result).toEqual({ erlaubt: true });
+    expect(result).toEqual({ allowed: true });
     expect(mockRequestPermissionsAsync).toHaveBeenCalledWith(true);
   });
 
@@ -169,7 +169,7 @@ describe('ensurePermission', () => {
     mockGetPermissionsAsync.mockResolvedValue(DENIED_CAN_ASK);
     mockRequestPermissionsAsync.mockResolvedValue(DENIED_CAN_ASK);
     const result = await ensurePermission();
-    expect(result).toEqual({ erlaubt: false, text: NO_ACCESS_TEXT });
+    expect(result).toEqual({ allowed: false, text: NO_ACCESS_TEXT });
   });
 
   // canAskAgain:false (person permanently chose "don't allow"), a repeated
@@ -179,14 +179,14 @@ describe('ensurePermission', () => {
   test('permanently denied (canAskAgain=false): doesn\'t even ask again, still reports the path to Settings', async () => {
     mockGetPermissionsAsync.mockResolvedValue(DENIED_CANT_ASK);
     const result = await ensurePermission();
-    expect(result).toEqual({ erlaubt: false, text: NO_ACCESS_TEXT });
+    expect(result).toEqual({ allowed: false, text: NO_ACCESS_TEXT });
     expect(mockRequestPermissionsAsync).not.toHaveBeenCalled();
   });
 
   test('an error in the check itself is not a silent failure, but its own message', async () => {
     mockGetPermissionsAsync.mockRejectedValue(new Error('kaputt'));
     const result = await ensurePermission();
-    expect(result.erlaubt).toBe(false);
+    expect(result.allowed).toBe(false);
     expect((result as { text: string }).text).toMatch(/nicht geprüft werden/);
   });
 });
@@ -195,7 +195,7 @@ describe('saveMomentToGallery', () => {
   test('without permission: no download, no Asset.create, NO_ACCESS_TEXT', async () => {
     mockGetPermissionsAsync.mockResolvedValue(DENIED_CANT_ASK);
     const result = await saveMomentToGallery(moment(), mediaUrl('p1'));
-    expect(result).toEqual({ ok: false, grund: 'keine_berechtigung', text: NO_ACCESS_TEXT });
+    expect(result).toEqual({ ok: false, reason: 'no_permission', text: NO_ACCESS_TEXT });
     expect(mockDownloadFileAsync).not.toHaveBeenCalled();
     expect(mockAssetCreate).not.toHaveBeenCalled();
   });
@@ -268,21 +268,21 @@ describe('saveAllToGallery', () => {
       url: mediaUrl(`p${i + 1}`),
     }));
 
-  test('without permission: status "keine_berechtigung", not a single download', async () => {
+  test('without permission: status "no_permission", not a single download', async () => {
     mockGetPermissionsAsync.mockResolvedValue(DENIED_CANT_ASK);
     const result = await saveAllToGallery(entries(5), jest.fn());
-    expect(result).toEqual({ status: 'keine_berechtigung', text: NO_ACCESS_TEXT });
+    expect(result).toEqual({ status: 'no_permission', text: NO_ACCESS_TEXT });
     expect(mockDownloadFileAsync).not.toHaveBeenCalled();
   });
 
   test('all succeed: an honest tally and progress "1 of 3" … "3 of 3"', async () => {
     const progressList: AllProgress[] = [];
     const result = await saveAllToGallery(entries(3), (progress) => progressList.push(progress));
-    expect(result).toEqual({ status: 'fertig', gesichert: 3, gesamt: 3, fehlgeschlagen: 0, abgebrochen: false });
+    expect(result).toEqual({ status: 'finished', saved: 3, total: 3, failed: 0, cancelled: false });
     expect(progressList).toEqual([
-      { erledigt: 1, gesamt: 3 },
-      { erledigt: 2, gesamt: 3 },
-      { erledigt: 3, gesamt: 3 },
+      { done: 1, total: 3 },
+      { done: 2, total: 3 },
+      { done: 3, total: 3 },
     ]);
   });
 
@@ -292,7 +292,7 @@ describe('saveAllToGallery', () => {
   test('a failure in the middle does NOT abort the whole action, but counts honestly', async () => {
     mockDownloadPlan['https://cdn.example/p2-medium.jpg'] = 'error';
     const result = await saveAllToGallery(entries(3), jest.fn());
-    expect(result).toEqual({ status: 'fertig', gesichert: 2, gesamt: 3, fehlgeschlagen: 1, abgebrochen: false });
+    expect(result).toEqual({ status: 'finished', saved: 2, total: 3, failed: 1, cancelled: false });
     // p1 and p3 still got saved, no failure stops the remaining moments.
     expect(mockAssetCreate).toHaveBeenCalledTimes(2);
   });
@@ -302,7 +302,7 @@ describe('saveAllToGallery', () => {
     mockDownloadPlan['https://cdn.example/p3-medium.jpg'] = 'error';
     mockDownloadPlan['https://cdn.example/p5-medium.jpg'] = 'error';
     const result = await saveAllToGallery(entries(5), jest.fn());
-    expect(result).toEqual({ status: 'fertig', gesichert: 2, gesamt: 5, fehlgeschlagen: 3, abgebrochen: false });
+    expect(result).toEqual({ status: 'finished', saved: 2, total: 5, failed: 3, cancelled: false });
   });
 
   test('abort BEFORE the next element: the remaining elements are never touched at all', async () => {
@@ -310,10 +310,10 @@ describe('saveAllToGallery', () => {
     const progressList: AllProgress[] = [];
     const run = saveAllToGallery(entries(5), (progress) => {
       progressList.push(progress);
-      if (progress.erledigt === 2) controller.abort();
+      if (progress.done === 2) controller.abort();
     }, controller.signal);
     const result = await run;
-    expect(result).toEqual({ status: 'fertig', gesichert: 2, gesamt: 5, fehlgeschlagen: 0, abgebrochen: true });
+    expect(result).toEqual({ status: 'finished', saved: 2, total: 5, failed: 0, cancelled: true });
     expect(mockDownloadFileAsync).toHaveBeenCalledTimes(2);
   });
 
@@ -331,7 +331,7 @@ describe('saveAllToGallery', () => {
     await Promise.resolve();
     controller.abort();
     const result = await run;
-    expect(result).toEqual({ status: 'fertig', gesichert: 1, gesamt: 3, fehlgeschlagen: 0, abgebrochen: true });
+    expect(result).toEqual({ status: 'finished', saved: 1, total: 3, failed: 0, cancelled: true });
     // p3 was never touched.
     const loadedUrls = mockDownloadFileAsync.mock.calls.map((c) => c[0]);
     expect(loadedUrls).not.toContain('https://cdn.example/p3-medium.jpg');
@@ -353,7 +353,7 @@ describe('saveAllToGallery', () => {
   test('every intermediate file is gone right after its own element, not cleaned up all together at the end', async () => {
     const afterElement1: boolean[] = [];
     await saveAllToGallery(entries(3), (progress) => {
-      if (progress.erledigt === 1) {
+      if (progress.done === 1) {
         afterElement1.push([...mockExisting].some((p) => p.includes('p1.jpg')));
       }
     });

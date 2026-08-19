@@ -202,7 +202,7 @@ beforeEach(() => {
   (markRevealSeen as jest.Mock).mockResolvedValue(undefined);
   // Default without open reports, for the same reason.
   (fetchReports as jest.Mock).mockResolvedValue({ data: [], error: null });
-  (getPool as jest.Mock).mockResolvedValue({ pool: { urls: new Map(), gueltigBis: 0, ausgelassen: 0 }, error: null, reason: null });
+  (getPool as jest.Mock).mockResolvedValue({ pool: { urls: new Map(), validUntil: 0, skipped: 0 }, error: null, reason: null });
 });
 
 test('the detail wears the same cover as the card that was tapped', async () => {
@@ -974,8 +974,8 @@ describe('moderation of reported moments', () => {
     (getPool as jest.Mock).mockResolvedValue({
       pool: {
         urls: new Map([['p1', { post_id: 'p1', medium_url: 'https://cdn.example/p1.jpg', thumb_url: 'https://cdn.example/p1-thumb.jpg' }]]),
-        gueltigBis: Date.now() + 999_999,
-        ausgelassen: 0,
+        validUntil: Date.now() + 999_999,
+        skipped: 0,
       },
       error: null,
       reason: null,
@@ -994,7 +994,7 @@ describe('moderation of reported moments', () => {
   test('without a thumbnail in the pool an empty surface appears instead of a broken image', async () => {
     (fetchReports as jest.Mock).mockResolvedValue({ data: [reportFixture], error: null });
     (getPool as jest.Mock).mockResolvedValue({
-      pool: { urls: new Map(), gueltigBis: Date.now() + 999_999, ausgelassen: 0 },
+      pool: { urls: new Map(), validUntil: Date.now() + 999_999, skipped: 0 },
       error: null,
       reason: null,
     });

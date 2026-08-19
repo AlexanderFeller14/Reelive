@@ -194,8 +194,8 @@ function image(id: string) {
 }
 const POOL_OK = {
   urls: new Map([['p1', image('p1')], ['p2', image('p2')], ['p3', image('p3')], ['p4', image('p4')]]),
-  gueltigBis: Date.now() + 999_999,
-  ausgelassen: 0,
+  validUntil: Date.now() + 999_999,
+  skipped: 0,
 };
 
 async function wrap() {
@@ -224,7 +224,7 @@ describe('loading and edge cases', () => {
   test('a trip without a single loadable moment shows its own text instead of an empty player', async () => {
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [], error: null });
     (getPool as jest.Mock).mockResolvedValue({
-      pool: { urls: new Map(), gueltigBis: Date.now() + 999_999, ausgelassen: 0 },
+      pool: { urls: new Map(), validUntil: Date.now() + 999_999, skipped: 0 },
       error: null,
       reason: null,
     });
@@ -237,7 +237,7 @@ describe('loading and edge cases', () => {
   test('a straggler alone leaves nothing to play, so the player shows the empty text', async () => {
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [pendingMoment], error: null });
     (getPool as jest.Mock).mockResolvedValue({
-      pool: { urls: new Map(), gueltigBis: Date.now() + 999_999, ausgelassen: 0 },
+      pool: { urls: new Map(), validUntil: Date.now() + 999_999, skipped: 0 },
       error: null,
       reason: null,
     });
@@ -318,7 +318,7 @@ describe('header and caption pills (step 3)', () => {
     const p1WithImage = moment({ id: 'p1', authorAvatarKey: 'profiles/u1/a.jpg' });
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [p1WithImage], error: null });
     (getPool as jest.Mock).mockResolvedValue({
-      pool: { urls: new Map([['p1', image('p1')]]), gueltigBis: Date.now() + 999_999, ausgelassen: 0 },
+      pool: { urls: new Map([['p1', image('p1')]]), validUntil: Date.now() + 999_999, skipped: 0 },
       error: null,
       reason: null,
     });
@@ -330,7 +330,7 @@ describe('header and caption pills (step 3)', () => {
     const p1Tokyo = moment({ id: 'p1', captured_at: '2026-08-10T09:00:00.000Z', captured_tz: 'Asia/Tokyo' });
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [p1Tokyo], error: null });
     (getPool as jest.Mock).mockResolvedValue({
-      pool: { urls: new Map([['p1', image('p1')]]), gueltigBis: Date.now() + 999_999, ausgelassen: 0 },
+      pool: { urls: new Map([['p1', image('p1')]]), validUntil: Date.now() + 999_999, skipped: 0 },
       error: null,
       reason: null,
     });
@@ -338,6 +338,23 @@ describe('header and caption pills (step 3)', () => {
     // 09:00 UTC is 18:00 in Asia/Tokyo (UTC+9), NOT 09:00.
     expect(screen.getByText('Lissabon · 18:00')).toBeTruthy();
     expect(screen.queryByText('Lissabon · 09:00')).toBeNull();
+  });
+
+  // A zone name the device does not know makes Intl throw a RangeError. A
+  // best-effort device time beats an empty pill or a crashing recap.
+  test('an unknown capture time zone falls back to device time instead of tearing the pill down', async () => {
+    const capturedAt = '2026-08-10T09:00:00.000Z';
+    const p1Nowhere = moment({ id: 'p1', captured_at: capturedAt, captured_tz: 'Mond/Krater' });
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [p1Nowhere], error: null });
+    (getPool as jest.Mock).mockResolvedValue({
+      pool: { urls: new Map([['p1', image('p1')]]), validUntil: Date.now() + 999_999, skipped: 0 },
+      error: null,
+      reason: null,
+    });
+    await wrap();
+    const d = new Date(capturedAt);
+    const deviceTime = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+    expect(screen.getByText(`Lissabon · ${deviceTime}`)).toBeTruthy();
   });
 
   test('an existing caption appears as its own pill', async () => {
@@ -509,8 +526,8 @@ describe('day interstitial', () => {
     (getPool as jest.Mock).mockResolvedValue({
       pool: {
         urls: new Map([['p1', image('p1')], ['p2', image('p2')], ['p3', image('p3')], ['p2v', image('p2v')]]),
-        gueltigBis: Date.now() + 999_999,
-        ausgelassen: 0,
+        validUntil: Date.now() + 999_999,
+        skipped: 0,
       },
       error: null,
       reason: null,
@@ -557,8 +574,8 @@ describe('day interstitial', () => {
     (getPool as jest.Mock).mockResolvedValue({
       pool: {
         urls: new Map([['p1', image('p1')], ['p2', image('p2')], ['p3', image('p3')], ['p2v', image('p2v')]]),
-        gueltigBis: Date.now() + 999_999,
-        ausgelassen: 0,
+        validUntil: Date.now() + 999_999,
+        skipped: 0,
       },
       error: null,
       reason: null,
@@ -676,6 +693,34 @@ describe('video moments', () => {
     expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: image('p3').medium_url });
   });
 
+  // The same treatment as for a video, symmetrically for a photo (V10: a broken
+  // URL must never end the recap).
+  test('a photo that fails twice keeps its thumbnail, says so, and stays tappable', async () => {
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
+    await wrap();
+
+    // First failure: a SILENT retry, no hint text yet.
+    await act(async () => {
+      screen.getByTestId('player-foto').props.onError();
+    });
+    await act(async () => {});
+    expect(screen.queryByText('Dieses Foto lässt sich gerade nicht laden.')).toBeNull();
+
+    // Second failure on the same moment: the retry is used up, the hint appears
+    // over the thumbnail, and the photo view itself is gone.
+    await act(async () => {
+      screen.getByTestId('player-foto').props.onError();
+    });
+    expect(screen.getByText('Dieses Foto lässt sich gerade nicht laden.')).toBeTruthy();
+    expect(screen.queryByTestId('player-foto')).toBeNull();
+
+    // The recap does not break off, tapping onwards keeps working.
+    await fireEvent(screen.getByTestId('player-rechts'), 'pressIn');
+    await fireEvent(screen.getByTestId('player-rechts'), 'pressOut');
+    expect(screen.getByTestId('player-video')).toBeTruthy();
+  });
+
   test('a fresh load resets the failure state, so the same moment gets another silent retry', async () => {
     mockParams = { id: 't1', start: '1' }; // p2, video
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
@@ -790,15 +835,15 @@ function imageRenewed(id: string) {
 }
 const POOL_RENEWED = {
   urls: new Map([['p1', imageRenewed('p1')], ['p2', imageRenewed('p2')], ['p3', imageRenewed('p3')], ['p4', imageRenewed('p4')]]),
-  gueltigBis: Date.now() + 999_999,
-  ausgelassen: 0,
+  validUntil: Date.now() + 999_999,
+  skipped: 0,
 };
 
 describe('pool renewal (V10)', () => {
   test('a pool that expires soon is renewed and the NEW urls really arrive on screen', async () => {
     mockParams = { id: 't1', start: '1' }; // p2 -> p3, no day change
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
-    const soonExpiring = { urls: POOL_OK.urls, gueltigBis: Date.now() + 60_000, ausgelassen: 0 }; // < 5-Min-Schwelle
+    const soonExpiring = { urls: POOL_OK.urls, validUntil: Date.now() + 60_000, skipped: 0 }; // < 5-Min-Schwelle
     (getPool as jest.Mock)
       .mockResolvedValueOnce({ pool: soonExpiring, error: null, reason: null })
       .mockResolvedValue({ pool: POOL_RENEWED, error: null, reason: null });
@@ -825,7 +870,7 @@ describe('pool renewal (V10)', () => {
   test('a tap to the left (going back) also triggers the renewal when the pool expires soon', async () => {
     mockParams = { id: 't1', start: '2' }; // p3
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
-    const soonExpiring = { urls: POOL_OK.urls, gueltigBis: Date.now() + 60_000, ausgelassen: 0 };
+    const soonExpiring = { urls: POOL_OK.urls, validUntil: Date.now() + 60_000, skipped: 0 };
     (getPool as jest.Mock)
       .mockResolvedValueOnce({ pool: soonExpiring, error: null, reason: null })
       .mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
@@ -839,7 +884,7 @@ describe('pool renewal (V10)', () => {
   test('two taps in quick succession trigger the renewal only ONCE while the first is still running', async () => {
     mockParams = { id: 't1', start: '0' };
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
-    const soonExpiring = { urls: POOL_OK.urls, gueltigBis: Date.now() + 60_000, ausgelassen: 0 };
+    const soonExpiring = { urls: POOL_OK.urls, validUntil: Date.now() + 60_000, skipped: 0 };
     let resolvePool: (v: unknown) => void = () => {};
     (getPool as jest.Mock)
       .mockResolvedValueOnce({ pool: soonExpiring, error: null, reason: null })
@@ -876,8 +921,8 @@ describe('preloading (V8)', () => {
     (getPool as jest.Mock).mockResolvedValue({
       pool: {
         urls: new Map(many.map((m) => [m.id, image(m.id)])),
-        gueltigBis: Date.now() + 999_999,
-        ausgelassen: 0,
+        validUntil: Date.now() + 999_999,
+        skipped: 0,
       },
       error: null,
       reason: null,
@@ -895,7 +940,7 @@ describe('stragglers and skipped moments on the end screen', () => {
     const p6 = moment({ id: 'p6', captured_at: '2026-08-11T11:00:00.000Z' }); // uploaded, but without a pool url
     mockParams = { id: 't1', start: '3' };
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [...MOMENTS, p6], error: null });
-    (getPool as jest.Mock).mockResolvedValue({ pool: { ...POOL_OK, ausgelassen: 1 }, error: null, reason: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: { ...POOL_OK, skipped: 1 }, error: null, reason: null });
     await wrap();
     await fireEvent.press(screen.getByTestId('player-zwischenkarte'));
     await fireEvent(screen.getByTestId('player-rechts'), 'pressIn');
@@ -910,7 +955,7 @@ describe('stragglers and skipped moments on the end screen', () => {
     const onlyDay1 = [p1, p2, p3];
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: onlyDay1, error: null });
     (getPool as jest.Mock).mockResolvedValue({
-      pool: { urls: POOL_OK.urls, gueltigBis: Date.now() + 999_999, ausgelassen: 0 },
+      pool: { urls: POOL_OK.urls, validUntil: Date.now() + 999_999, skipped: 0 },
       error: null,
       reason: null,
     });
@@ -1510,7 +1555,7 @@ describe('saving a moment to the photo library', () => {
 
   test('a missing permission shows an alert with a way into the settings, not a quiet pill', async () => {
     (saveMomentToGallery as jest.Mock).mockResolvedValue({
-      ok: false, grund: 'keine_berechtigung', text: 'Reelive braucht Zugriff auf deine Fotobibliothek …',
+      ok: false, reason: 'no_permission', text: 'Reelive braucht Zugriff auf deine Fotobibliothek …',
     });
     await wrap();
     await fireEvent.press(screen.getByTestId('player-sichern'));
@@ -1525,7 +1570,7 @@ describe('saving a moment to the photo library', () => {
 
   test('tapping "Einstellungen öffnen" in the alert calls Linking.openSettings', async () => {
     (saveMomentToGallery as jest.Mock).mockResolvedValue({
-      ok: false, grund: 'keine_berechtigung', text: 'Kein Zugriff.',
+      ok: false, reason: 'no_permission', text: 'Kein Zugriff.',
     });
     await wrap();
     await fireEvent.press(screen.getByTestId('player-sichern'));
@@ -1537,7 +1582,7 @@ describe('saving a moment to the photo library', () => {
 
   test('any other failure, a network problem say, shows the cause as a pill without an alert', async () => {
     (saveMomentToGallery as jest.Mock).mockResolvedValue({
-      ok: false, grund: 'fehler', text: 'Dieser Moment konnte nicht gesichert werden. Probier es gleich nochmal.',
+      ok: false, reason: 'error', text: 'Dieser Moment konnte nicht gesichert werden. Probier es gleich nochmal.',
     });
     await wrap();
     await fireEvent.press(screen.getByTestId('player-sichern'));

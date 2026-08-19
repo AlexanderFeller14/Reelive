@@ -141,8 +141,8 @@ function image(id: string) {
 
 const POOL_OK = {
   urls: new Map([['p1', image('p1')], ['p2', image('p2')], ['p3', image('p3')]]),
-  gueltigBis: Date.now() + 999_999,
-  ausgelassen: 1,
+  validUntil: Date.now() + 999_999,
+  skipped: 1,
 };
 
 const wrap = () => render(<ThemeProvider><RecapOverview /></ThemeProvider>);
@@ -155,7 +155,7 @@ const wrap = () => render(<ThemeProvider><RecapOverview /></ThemeProvider>);
 const emptyLoadSuccess = () => {
   (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [], error: null });
   (getPool as jest.Mock).mockResolvedValue({
-    pool: { urls: new Map(), gueltigBis: Date.now() + 999_999, ausgelassen: 0 },
+    pool: { urls: new Map(), validUntil: Date.now() + 999_999, skipped: 0 },
     error: null,
     reason: null,
   });
@@ -245,7 +245,7 @@ test('plural wording for several stragglers and several skipped moments', async 
     error: null,
   });
   (getPool as jest.Mock).mockResolvedValue({
-    pool: { urls: new Map([['p1', image('p1')]]), gueltigBis: Date.now() + 999_999, ausgelassen: 2 },
+    pool: { urls: new Map([['p1', image('p1')]]), validUntil: Date.now() + 999_999, skipped: 2 },
     error: null,
     reason: null,
   });
@@ -281,14 +281,14 @@ test('the tile pulls the thumbnail, not the full image', async () => {
   expect(imageElement.props.source).not.toEqual({ uri: image('p2').medium_url });
 });
 
-// `ausgelassen: 5` is deliberately higher here than what `uploaded.length -
+// `skipped: 5` is deliberately higher here than what `uploaded.length -
 // withImage.length` would give locally (the local difference would be 1 in
 // this fixture), so a screen showing the local difference instead visibly
 // shows a different number.
 test('the skipped line shows the number the server counted, not one recomputed locally', async () => {
   (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: COMPLETE, error: null });
   (getPool as jest.Mock).mockResolvedValue({
-    pool: { ...POOL_OK, ausgelassen: 5 },
+    pool: { ...POOL_OK, skipped: 5 },
     error: null,
     reason: null,
   });
@@ -300,7 +300,7 @@ test('the skipped line shows the number the server counted, not one recomputed l
 test('a trip without a single visible moment says so kindly', async () => {
   (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [], error: null });
   (getPool as jest.Mock).mockResolvedValue({
-    pool: { urls: new Map(), gueltigBis: Date.now() + 999_999, ausgelassen: 0 },
+    pool: { urls: new Map(), validUntil: Date.now() + 999_999, skipped: 0 },
     error: null,
     reason: null,
   });
@@ -311,7 +311,7 @@ test('a trip without a single visible moment says so kindly', async () => {
 test('with only a straggler on its way the empty line stays away, something is still coming', async () => {
   (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [pendingM], error: null });
   (getPool as jest.Mock).mockResolvedValue({
-    pool: { urls: new Map(), gueltigBis: Date.now() + 999_999, ausgelassen: 0 },
+    pool: { urls: new Map(), validUntil: Date.now() + 999_999, skipped: 0 },
     error: null,
     reason: null,
   });
@@ -323,7 +323,7 @@ test('with only a straggler on its way the empty line stays away, something is s
 test('with only skipped moments the empty line stays away as well', async () => {
   (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [skippedM], error: null });
   (getPool as jest.Mock).mockResolvedValue({
-    pool: { urls: new Map(), gueltigBis: Date.now() + 999_999, ausgelassen: 1 },
+    pool: { urls: new Map(), validUntil: Date.now() + 999_999, skipped: 1 },
     error: null,
     reason: null,
   });
@@ -367,7 +367,7 @@ test('while everything is still loading the skeleton stands there, not "gibt es 
 test('the back arrow leaves the screen via back() when there is a way back', async () => {
   (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [], error: null });
   (getPool as jest.Mock).mockResolvedValue({
-    pool: { urls: new Map(), gueltigBis: Date.now() + 999_999, ausgelassen: 0 },
+    pool: { urls: new Map(), validUntil: Date.now() + 999_999, skipped: 0 },
     error: null,
     reason: null,
   });
@@ -384,7 +384,7 @@ test('without a way back on the stack the back arrow replaces its way to the lis
   mockCanGoBack = false;
   (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [], error: null });
   (getPool as jest.Mock).mockResolvedValue({
-    pool: { urls: new Map(), gueltigBis: Date.now() + 999_999, ausgelassen: 0 },
+    pool: { urls: new Map(), validUntil: Date.now() + 999_999, skipped: 0 },
     error: null,
     reason: null,
   });
@@ -473,7 +473,7 @@ describe('"Alle sichern"', () => {
   test('missing when there is literally nothing to save', async () => {
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [], error: null });
     (getPool as jest.Mock).mockResolvedValue({
-      pool: { urls: new Map(), gueltigBis: Date.now() + 999_999, ausgelassen: 0 },
+      pool: { urls: new Map(), validUntil: Date.now() + 999_999, skipped: 0 },
       error: null,
       reason: null,
     });
@@ -493,9 +493,9 @@ describe('"Alle sichern"', () => {
   });
 
   test('shows the running progress ("N von M") as soon as onProgress fires', async () => {
-    let reportProgress!: (state: { erledigt: number; gesamt: number }) => void;
+    let reportProgress!: (state: { done: number; total: number }) => void;
     (saveAllToGallery as jest.Mock).mockImplementation(
-      (_entries: unknown, onProgress: (state: { erledigt: number; gesamt: number }) => void) => {
+      (_entries: unknown, onProgress: (state: { done: number; total: number }) => void) => {
         reportProgress = onProgress;
         return new Promise(() => {});
       }
@@ -505,14 +505,14 @@ describe('"Alle sichern"', () => {
     await fireEvent.press(screen.getByTestId('uebersicht-alle-sichern-oeffnen'));
     expect(screen.getByText('0 von 3 gesichert')).toBeTruthy();
     await act(async () => {
-      reportProgress({ erledigt: 2, gesamt: 3 });
+      reportProgress({ done: 2, total: 3 });
     });
     expect(screen.getByText('2 von 3 gesichert')).toBeTruthy();
   });
 
   test('an honest summary at the end, failures included, never a blanket "fertig"', async () => {
     (saveAllToGallery as jest.Mock).mockResolvedValue({
-      status: 'fertig', gesichert: 2, gesamt: 3, fehlgeschlagen: 1, abgebrochen: false,
+      status: 'finished', saved: 2, total: 3, failed: 1, cancelled: false,
     });
     await wrap();
     await screen.findByText('Lissabon Städtetrip');
@@ -525,7 +525,7 @@ describe('"Alle sichern"', () => {
 
   test('an aborted run names where it stopped, and what failed on the way there', async () => {
     (saveAllToGallery as jest.Mock).mockResolvedValue({
-      status: 'fertig', gesichert: 1, gesamt: 3, fehlgeschlagen: 1, abgebrochen: true,
+      status: 'finished', saved: 1, total: 3, failed: 1, cancelled: true,
     });
     await wrap();
     await screen.findByText('Lissabon Städtetrip');
@@ -538,7 +538,7 @@ describe('"Alle sichern"', () => {
 
   test('"Fertig" closes the sheet again', async () => {
     (saveAllToGallery as jest.Mock).mockResolvedValue({
-      status: 'fertig', gesichert: 3, gesamt: 3, fehlgeschlagen: 0, abgebrochen: false,
+      status: 'finished', saved: 3, total: 3, failed: 0, cancelled: false,
     });
     await wrap();
     await screen.findByText('Lissabon Städtetrip');
@@ -551,7 +551,7 @@ describe('"Alle sichern"', () => {
 
   test('a missing permission names the cause and offers the settings, instead of simply doing nothing', async () => {
     (saveAllToGallery as jest.Mock).mockResolvedValue({
-      status: 'keine_berechtigung', text: 'Reelive braucht Zugriff auf deine Fotobibliothek …',
+      status: 'no_permission', text: 'Reelive braucht Zugriff auf deine Fotobibliothek …',
     });
     await wrap();
     await screen.findByText('Lissabon Städtetrip');
@@ -595,7 +595,7 @@ describe('"Alle sichern"', () => {
 
   test('closing AFTER the end aborts nothing any more', async () => {
     (saveAllToGallery as jest.Mock).mockResolvedValue({
-      status: 'fertig', gesichert: 3, gesamt: 3, fehlgeschlagen: 0, abgebrochen: false,
+      status: 'finished', saved: 3, total: 3, failed: 0, cancelled: false,
     });
     await wrap();
     await screen.findByText('Lissabon Städtetrip');
@@ -773,7 +773,7 @@ describe('the seal on the recap overview', () => {
   test('without a single visible day there is no seal, peeling it would lead nowhere', async () => {
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [pendingM], error: null });
     (getPool as jest.Mock).mockResolvedValue({
-      pool: { urls: new Map(), gueltigBis: Date.now() + 999_999, ausgelassen: 0 },
+      pool: { urls: new Map(), validUntil: Date.now() + 999_999, skipped: 0 },
       error: null,
       reason: null,
     });

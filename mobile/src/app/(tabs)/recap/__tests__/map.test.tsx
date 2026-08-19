@@ -190,8 +190,8 @@ function image(id: string): MediaUrl {
 // screen must not rely on that, and no test of this screen would know of it.
 const POOL_OK = {
   urls: new Map([['p1', image('p1')], ['p2', image('p2')], ['p3', image('p3')], ['p4', image('p4')]]),
-  gueltigBis: Date.now() + 999_999,
-  ausgelassen: 1,
+  validUntil: Date.now() + 999_999,
+  skipped: 1,
 };
 
 // The generic load error, word for word the same as in urlPool.ts and
@@ -782,7 +782,7 @@ test('a stuck attempt does not block a DIFFERENT cluster', async () => {
   loadSuccess([m1, m2Near, m6, m7], {
     ...POOL_OK,
     urls: new Map([['p1', image('p1')], ['p2', image('p2')], ['p6', image('p6')], ['p7', image('p7')]]),
-    ausgelassen: 0,
+    skipped: 0,
   });
   await wrap();
   await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
@@ -1532,7 +1532,7 @@ test('the notice about missing moments catches no tap', async () => {
 });
 
 test('a complete trip claims nothing of the sort', async () => {
-  loadSuccess(CLOSE_TOGETHER, { ...POOL_OK, ausgelassen: 0 });
+  loadSuccess(CLOSE_TOGETHER, { ...POOL_OK, skipped: 0 });
   await wrap();
   await screen.findByTestId('karte-nadel-p1');
   expect(screen.queryByTestId('karte-fehlen-ganz')).toBeNull();

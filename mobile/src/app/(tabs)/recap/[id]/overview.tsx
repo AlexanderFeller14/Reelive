@@ -61,18 +61,18 @@ function skippedText(count: number): string {
   return `${count} ${count === 1 ? 'Moment liess' : 'Momente liessen'} sich gerade nicht laden. Schau später nochmal rein.`;
 }
 
-function summaryText(outcome: Extract<AllResult, { status: 'fertig' }>): string {
-  if (outcome.abgebrochen) {
-    const parts = [`Abgebrochen bei ${outcome.gesichert} von ${outcome.gesamt} Momenten.`];
-    if (outcome.fehlgeschlagen > 0) {
-      parts.push(`${outcome.fehlgeschlagen} ${outcome.fehlgeschlagen === 1 ? 'ist' : 'sind'} dabei fehlgeschlagen.`);
+function summaryText(outcome: Extract<AllResult, { status: 'finished' }>): string {
+  if (outcome.cancelled) {
+    const parts = [`Abgebrochen bei ${outcome.saved} von ${outcome.total} Momenten.`];
+    if (outcome.failed > 0) {
+      parts.push(`${outcome.failed} ${outcome.failed === 1 ? 'ist' : 'sind'} dabei fehlgeschlagen.`);
     }
     return parts.join(' ');
   }
-  if (outcome.fehlgeschlagen === 0) {
-    return `${outcome.gesichert} von ${outcome.gesamt} Momenten gesichert.`;
+  if (outcome.failed === 0) {
+    return `${outcome.saved} von ${outcome.total} Momenten gesichert.`;
   }
-  return `${outcome.gesichert} von ${outcome.gesamt} Momenten gesichert. ${outcome.fehlgeschlagen} ${outcome.fehlgeschlagen === 1 ? 'ist' : 'sind'} fehlgeschlagen.`;
+  return `${outcome.saved} von ${outcome.total} Momenten gesichert. ${outcome.failed} ${outcome.failed === 1 ? 'ist' : 'sind'} fehlgeschlagen.`;
 }
 
 // Quiet bg-1 surface with an opacity pulse (DESIGN-LANGUAGE §4: "Skeleton:
@@ -182,7 +182,7 @@ function ExportSheetContent({
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.s }}>
           <ActivityIndicator testID="export-laedt" color={colors['text-1']} />
           <Text style={[type.body, { color: colors['text-1'] }]}>
-            {state.erledigt} von {state.gesamt} gesichert
+            {state.done} von {state.total} gesichert
           </Text>
         </View>
         <Button variant="secondary" label="Abbrechen" onPress={onCancel} />
@@ -190,7 +190,7 @@ function ExportSheetContent({
     );
   }
 
-  if (outcome.status === 'keine_berechtigung') {
+  if (outcome.status === 'no_permission') {
     return (
       <View style={{ gap: spacing.base }}>
         <Text style={[type.body, { color: colors['text-1'] }]}>{outcome.text}</Text>
@@ -224,7 +224,7 @@ export default function RecapOverview() {
   // cornerstone: sealing is enforced on the server).
   const [shareOpen, setShareOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
-  const [exportState, setExportState] = useState<AllProgress>({ erledigt: 0, gesamt: 0 });
+  const [exportState, setExportState] = useState<AllProgress>({ done: 0, total: 0 });
   const [exportOutcome, setExportOutcome] = useState<AllResult | null>(null);
   const exportAbortRef = useRef<AbortController | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -320,7 +320,7 @@ export default function RecapOverview() {
     const controller = new AbortController();
     exportAbortRef.current = controller;
     setExportOutcome(null);
-    setExportState({ erledigt: 0, gesamt: entries.length });
+    setExportState({ done: 0, total: entries.length });
     setExportOpen(true);
     void saveAllToGallery(entries, (state) => setExportState(state), controller.signal).then((outcome) => {
       if (!active.current) return;
@@ -398,7 +398,7 @@ export default function RecapOverview() {
 
   const days = groupByDays(withImage, trip.start_date);
   const pendingCount = moments.length - uploaded.length;
-  const skippedCount = pool?.ausgelassen ?? 0;
+  const skippedCount = pool?.skipped ?? 0;
   const completelyEmpty = days.length === 0 && pendingCount === 0 && skippedCount === 0;
   const sealed = days.length > 0 && !unsealed;
   const stage = Math.min(windowWidth - 2 * spacing.screen, SEAL_STAGE_MAX);

@@ -98,7 +98,7 @@ ist es ein Befehl.
    (Einstellungen → Datenschutz & Sicherheit), Gerät per Kabel anschliessen.
 4. **Beide `.env` auf die LAN-IP des Macs**, nicht `127.0.0.1`: das ist für ein
    Handy es selbst. Betroffen sind `EXPO_PUBLIC_SUPABASE_URL` und
-   `EXPO_PUBLIC_TEILEN_BASIS_URL` in `mobile/.env` sowie `S3_ENDPOINT` und
+   `EXPO_PUBLIC_SHARE_BASE_URL` in `mobile/.env` sowie `S3_ENDPOINT` und
    `TEILEN_BASIS_URL` in `supabase/functions/.env`. Die beiden Teilen-Basen
    müssen übereinstimmen. Aktuelle Adresse: `ipconfig getifaddr en0`.
 
@@ -203,7 +203,7 @@ diese Reihenfolge einhalten, jeder Schritt setzt den vorigen voraus:
      konfigurierbaren Text — das System zeigt dort einen festen eigenen Dialog. `expo-notifications`
      bleibt darum ohne Konfigurationsobjekt in den `plugins`.
    - **`ios.associatedDomains` / `android.intentFilters`** (Universal Links / App Links, damit
-     ein geteilter `/teilen/<token>`-Link die App statt des Browsers öffnet) stehen **nicht**
+     ein geteilter `/share/<token>`-Link die App statt des Browsers öffnet) stehen **nicht**
      in `mobile/app.json` — die Datei ist reines JSON ohne Kommentare, ein inaktiver Platzhalter
      wäre entweder unsichtbar (auskommentiert = in JSON gar nicht ausdrückbar) oder aktiv
      falsch (eine erfundene Domain erzeugt bereits beim Build eine echte, nur eben nutzlose
@@ -264,7 +264,7 @@ Profils. Ohne `EXPO_PUBLIC_SUPABASE_URL`/`EXPO_PUBLIC_SUPABASE_ANON_KEY` wirft
 `mobile/src/lib/supabase.ts` schon beim Modul-Laden — der erste `eas build --profile
 production` liefert dann eine App, die sofort mit «Supabase-Konfiguration fehlt» abstürzt.
 Build-kritisch sind: die beiden Supabase-Variablen (Absturz ohne sie),
-`EXPO_PUBLIC_TEILEN_BASIS_URL` (ohne sie zeigt "Recap teilen" für einen bestehenden Link nur
+`EXPO_PUBLIC_SHARE_BASE_URL` (ohne sie zeigt "Recap teilen" für einen bestehenden Link nur
 eine Konfigurationsmeldung statt des Links) sowie `EXPO_PUBLIC_AUTH_APPLE`/
 `EXPO_PUBLIC_AUTH_GOOGLE` (fehlen sie, bleiben die Login-Buttons wie gewollt ausgeblendet —
 ungefährlich, aber besser explizit gesetzt als dem impliziten `undefined`-Fallback überlassen).
@@ -291,7 +291,7 @@ keine automatische Ableitung der einen aus der anderen:
 | Variable | Wo | Wofür |
 |---|---|---|
 | `TEILEN_BASIS_URL` | `supabase/functions/.env` (serverseitig, Function `share-link`) | Baut die fertige Teilen-URL bei `aktion: 'erstellen'` |
-| `EXPO_PUBLIC_TEILEN_BASIS_URL` | `mobile/.env` (clientseitig) | Zeigt den Link eines bereits bestehenden Teilen-Links erneut an, ohne ihn neu zu erzeugen |
+| `EXPO_PUBLIC_SHARE_BASE_URL` | `mobile/.env` (clientseitig) | Zeigt den Link eines bereits bestehenden Teilen-Links erneut an, ohne ihn neu zu erzeugen |
 
 Beide müssen auf dieselbe Basis-URL zeigen (siehe Kommentare in den jeweiligen `.env.example`).
 Weichen sie voneinander ab, zeigt "Recap teilen" für einen bestehenden Link eine andere

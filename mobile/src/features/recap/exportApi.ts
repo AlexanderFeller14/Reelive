@@ -83,18 +83,18 @@ export const NO_ACCESS_TEXT =
 const PERMISSION_CHECK_ERROR =
   'Der Zugriff auf die Fotobibliothek konnte nicht geprüft werden. Probier es gleich nochmal.';
 
-export type PermissionResult = { erlaubt: true } | { erlaubt: false; text: string };
+export type PermissionResult = { allowed: true } | { allowed: false; text: string };
 
 export async function ensurePermission(): Promise<PermissionResult> {
   try {
     const current = await MediaLibrary.getPermissionsAsync(true);
-    if (current.granted) return { erlaubt: true };
-    if (!current.canAskAgain) return { erlaubt: false, text: NO_ACCESS_TEXT };
+    if (current.granted) return { allowed: true };
+    if (!current.canAskAgain) return { allowed: false, text: NO_ACCESS_TEXT };
     const requested = await MediaLibrary.requestPermissionsAsync(true);
-    if (requested.granted) return { erlaubt: true };
-    return { erlaubt: false, text: NO_ACCESS_TEXT };
+    if (requested.granted) return { allowed: true };
+    return { allowed: false, text: NO_ACCESS_TEXT };
   } catch {
-    return { erlaubt: false, text: PERMISSION_CHECK_ERROR };
+    return { allowed: false, text: PERMISSION_CHECK_ERROR };
   }
 }
 
@@ -123,11 +123,11 @@ async function downloadAndSaveOne(url: string, filename: string, signal?: AbortS
 
 const SINGLE_ERROR = 'Dieser Moment konnte nicht gesichert werden. Probier es gleich nochmal.';
 
-export type SingleResult = { ok: true } | { ok: false; grund: 'keine_berechtigung' | 'fehler'; text: string };
+export type SingleResult = { ok: true } | { ok: false; reason: 'no_permission' | 'error'; text: string };
 
 export async function saveMomentToGallery(moment: RecapMoment, url: MediaUrl): Promise<SingleResult> {
   const permission = await ensurePermission();
-  if (!permission.erlaubt) return { ok: false, grund: 'keine_berechtigung', text: permission.text };
+  if (!permission.allowed) return { ok: false, reason: 'no_permission', text: permission.text };
 
   resetExportFolder();
   const extension = mediaExtension(moment.type, url.medium_url);
@@ -135,20 +135,20 @@ export async function saveMomentToGallery(moment: RecapMoment, url: MediaUrl): P
     await downloadAndSaveOne(url.medium_url, `${moment.id}.${extension}`);
     return { ok: true };
   } catch {
-    return { ok: false, grund: 'fehler', text: SINGLE_ERROR };
+    return { ok: false, reason: 'error', text: SINGLE_ERROR };
   }
 }
 
-export type AllProgress = { erledigt: number; gesamt: number };
+export type AllProgress = { done: number; total: number };
 
 // Deliberately discriminates between "never got started" (no permission,
 // before the first download) and "is done" (a tally, even if incomplete),
-// a shared shape would have forced a caller to distinguish `gesichert:0,
-// gesamt:0` from a genuine zero-length run, without the shape itself
+// a shared shape would have forced a caller to distinguish `saved:0,
+// total:0` from a genuine zero-length run, without the shape itself
 // providing a way to do so.
 export type AllResult =
-  | { status: 'keine_berechtigung'; text: string }
-  | { status: 'fertig'; gesichert: number; gesamt: number; fehlgeschlagen: number; abgebrochen: boolean };
+  | { status: 'no_permission'; text: string }
+  | { status: 'finished'; saved: number; total: number; failed: number; cancelled: boolean };
 
 // No `Promise.all`: sequential, on purpose, a progress of "7 of 23" assumes
 // there's a well-defined "done so far" at every point in time; parallel
@@ -160,31 +160,31 @@ export async function saveAllToGallery(
   signal?: AbortSignal
 ): Promise<AllResult> {
   const permission = await ensurePermission();
-  if (!permission.erlaubt) return { status: 'keine_berechtigung', text: permission.text };
+  if (!permission.allowed) return { status: 'no_permission', text: permission.text };
 
   resetExportFolder();
 
-  const gesamt = entries.length;
-  let gesichert = 0;
-  let fehlgeschlagen = 0;
+  const total = entries.length;
+  let saved = 0;
+  let failed = 0;
 
-  for (let i = 0; i < gesamt; i++) {
+  for (let i = 0; i < total; i++) {
     if (signal?.aborted) {
-      return { status: 'fertig', gesichert, gesamt, fehlgeschlagen, abgebrochen: true };
+      return { status: 'finished', saved, total, failed, cancelled: true };
     }
     const { moment, url } = entries[i];
     const extension = mediaExtension(moment.type, url.medium_url);
     try {
       await downloadAndSaveOne(url.medium_url, `${moment.id}.${extension}`, signal);
-      gesichert += 1;
+      saved += 1;
     } catch (error) {
       if (isAbortError(error)) {
-        return { status: 'fertig', gesichert, gesamt, fehlgeschlagen, abgebrochen: true };
+        return { status: 'finished', saved, total, failed, cancelled: true };
       }
-      fehlgeschlagen += 1;
+      failed += 1;
     }
-    onProgress({ erledigt: i + 1, gesamt });
+    onProgress({ done: i + 1, total });
   }
 
-  return { status: 'fertig', gesichert, gesamt, fehlgeschlagen, abgebrochen: false };
+  return { status: 'finished', saved, total, failed, cancelled: false };
 }

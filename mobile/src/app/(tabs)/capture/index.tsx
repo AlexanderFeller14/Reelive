@@ -299,7 +299,6 @@ function FocusRing({ x, y, onDone }: { x: number; y: number; onDone: () => void 
     <Animated.View
       testID="fokus-ring"
       pointerEvents="none"
-      // Says nothing the tap has not already said itself.
       accessible={false}
       style={[
         styles.focusRing,
@@ -963,10 +962,7 @@ export default function CaptureScreen() {
   // in the expo-camera branch and therefore no zoom; there the path leads only
   // over the virtual device. The MultiCam session zooms it digitally instead,
   // and its limits come from the lens itself: the real wide lens, not blindly
-  // the first of the list (the discovery order is no contract). If the module
-  // answers without limits for it, a modest substitute range remains instead
-  // of a dead zoom: it only shapes the finger mapping, the clamping happens
-  // natively on the real device anyway.
+  // the first of the list (the discovery order is no contract).
   const zoomLimitsFor = (position: 'back' | 'front') => {
     const facingLenses = nativeZoom.lenses(position);
     const device = zoomDevice(facingLenses);

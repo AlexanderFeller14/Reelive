@@ -124,12 +124,9 @@ function dayHeading(day: RecapDay): string {
   return parts.join(' · ');
 }
 
-// Time in THE MOMENT'S TIME ZONE (captured_tz), not in device time. Unlike
-// preview.tsx (where moment time and device time are the same, because the
-// shot is taken live) this strictly needs Intl.DateTimeFormat with
-// `timeZone`, there is no Intl-free way. An invalid or unknown zone name
-// (see days.ts, same defensive principle) makes it throw a RangeError, and
-// showing a best-effort device time beats crashing or an empty pill.
+// Unlike preview.tsx (where moment time and device time are the same, because
+// the shot is taken live) this strictly needs Intl.DateTimeFormat with
+// `timeZone`, there is no Intl-free way.
 function timeInZone(capturedAt: string, capturedTz: string): string {
   try {
     return new Intl.DateTimeFormat('de-DE', {
@@ -323,10 +320,6 @@ function MomentView({
       <PhotoMoment url={url.medium_url} onError={onError} />
     );
   }
-  // Edge case: a video that does not load shows its thumbnail plus a hint and
-  // stays tappable (the tap zones sit unchanged above this surface, which is
-  // purely informational). The same treatment applies symmetrically to a photo
-  // whose loading fails twice (V10: a broken URL must never end the recap).
   return (
     <View style={StyleSheet.absoluteFill}>
       {url?.thumb_url && (
@@ -460,9 +453,9 @@ export default function RecapPlayer() {
 
     setStartDate(trip.start_date);
     setUrls(urlsMap);
-    setValidUntil(pool?.gueltigBis ?? 0);
+    setValidUntil(pool?.validUntil ?? 0);
     setPendingCount(moments.length - uploaded.length);
-    setSkippedCount(pool?.ausgelassen ?? 0);
+    setSkippedCount(pool?.skipped ?? 0);
     setPlaylist(withUrl);
     retriedRef.current.clear();
     setFailed(new Set());
@@ -690,7 +683,7 @@ export default function RecapPlayer() {
     if (!mounted.current || activeIdRef.current !== momentId) return;
     setExportRunning(false);
     if (!result.ok) {
-      if (result.grund === 'keine_berechtigung') {
+      if (result.reason === 'no_permission') {
         Alert.alert('Kein Zugriff auf die Fotobibliothek', result.text, [
           { text: 'Abbrechen', style: 'cancel' },
           { text: 'Einstellungen öffnen', onPress: () => void Linking.openSettings() },
@@ -772,13 +765,13 @@ export default function RecapPlayer() {
 
   const checkAndRefreshPoolInBackground = useCallback(async () => {
     if (refreshRunningRef.current) return;
-    if (!isSoonExpiring({ urls, gueltigBis: validUntil, ausgelassen: skippedCount }, Date.now())) return;
+    if (!isSoonExpiring({ urls, validUntil: validUntil, skipped: skippedCount }, Date.now())) return;
     refreshRunningRef.current = true;
     try {
       const { pool } = await getPool(tripId);
       if (pool && mounted.current) {
         setUrls(pool.urls);
-        setValidUntil(pool.gueltigBis);
+        setValidUntil(pool.validUntil);
       }
     } finally {
       refreshRunningRef.current = false;
@@ -904,7 +897,7 @@ export default function RecapPlayer() {
         const { pool } = await getPool(tripId);
         if (mounted.current && pool) {
           setUrls(pool.urls);
-          setValidUntil(pool.gueltigBis);
+          setValidUntil(pool.validUntil);
         }
         // Additional stale guard (same principle as videoEnded): the player may long
         // since have advanced to ANOTHER moment, whose independently set pause state

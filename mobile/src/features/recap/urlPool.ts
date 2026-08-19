@@ -14,12 +14,12 @@ import { supabase } from '@/lib/supabase';
 import { OFFLINE_HINT, istOffline } from '@/lib/networkError';
 
 export type MediaUrl = { post_id: string; medium_url: string; thumb_url: string | null };
-// ausgelassen: number of moments for which there was no URL, Task 11 turns
+// skipped: number of moments for which there was no URL, Task 11 turns
 // that into "N Momente konnten nicht geladen werden". The function
 // normally always sends this field (even as 0), but the app and the
 // function are rolled out separately, a missing field must never keep the
 // recap from loading (Phase-5 final review, point 2).
-export type Pool = { urls: Map<string, MediaUrl>; gueltigBis: number; ausgelassen: number };
+export type Pool = { urls: Map<string, MediaUrl>; validUntil: number; skipped: number };
 
 // The function signs for LESE_URL_GUELTIGKEIT_SEKUNDEN = 3600 s (see
 // supabase/functions/media-urls/index.ts), a five-minute buffer is enough
@@ -107,8 +107,8 @@ export async function getPool(
   }
 
   const response = data as Partial<ReadResponse> | null;
-  const gueltigBis = typeof response?.gueltig_bis === 'string' ? Date.parse(response.gueltig_bis) : NaN;
-  if (!response || !Array.isArray(response.medien) || Number.isNaN(gueltigBis)) {
+  const validUntil = typeof response?.gueltig_bis === 'string' ? Date.parse(response.gueltig_bis) : NaN;
+  if (!response || !Array.isArray(response.medien) || Number.isNaN(validUntil)) {
     return { pool: null, error: LOAD_ERROR, reason: null };
   }
 
@@ -121,9 +121,9 @@ export async function getPool(
     });
   }
 
-  return { pool: { urls, gueltigBis, ausgelassen: response.ausgelassen ?? 0 }, error: null, reason: null };
+  return { pool: { urls, validUntil, skipped: response.ausgelassen ?? 0 }, error: null, reason: null };
 }
 
 export function isSoonExpiring(pool: Pool, now: number): boolean {
-  return !(pool.gueltigBis - now >= SOON_EXPIRING_THRESHOLD_MS);
+  return !(pool.validUntil - now >= SOON_EXPIRING_THRESHOLD_MS);
 }
