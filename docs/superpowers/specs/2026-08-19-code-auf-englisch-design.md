@@ -17,7 +17,7 @@ in der Du-Form gemäss `DESIGN-LANGUAGE.md` §6.
 | TypeScript-Dateien in `mobile/src` | 225, davon 102 Testdateien |
 | Codezeilen | 52 036 |
 | Kommentarzeilen | 13 340, davon rund 10 700 deutsch |
-| Sichtbare deutsche UI-Strings | 1161 |
+| Sichtbare deutsche UI-Texte | 2647 (AST-Zaehlung: String-Literale, JSX-Text, Template-Teile) |
 | Navigationspfade als String-Literal | 46 |
 | Swift-Zeilen im eigenen Native-Modul | 2428 |
 | TypeScript in `supabase/functions` | 41 Dateien, 10 659 Zeilen, 20 Deno-Tests |
@@ -26,8 +26,10 @@ in der Du-Form gemäss `DESIGN-LANGUAGE.md` §6.
 
 Bereits englisch und deshalb nicht Teil der Arbeit: das gesamte
 Datenbankschema (`trips`, `posts`, `share_links`, `captured_at`), die meisten
-RLS-Funktionen, die Feature-Ordner `auth`, `trips`, `recap`, `moments`, `push`
-sowie die Basiskomponenten (`Button`, `Card`, `Badge`, `Input`, `Sheet`).
+RLS-Funktionen, die Feature-Ordner `trips`, `recap`, `moments`, `push` und
+`auth` sowie die Basiskomponenten (`Button`, `Card`, `Badge`, `Input`,
+`Sheet`). Einzelne Dateien darin tragen trotzdem deutsche Namen und stehen
+unten in der Umbenennungstabelle, etwa `auth/zuschnitt.ts`.
 
 ## Rahmenbedingungen
 
@@ -61,7 +63,7 @@ und nicht etwa ein blutleeres `test('day assignment')`.
 
 ### Bleibt deutsch
 
-Die 1161 sichtbaren UI-Texte. Sämtliche Dokumente unter `docs/`, dazu
+Die 2647 sichtbaren UI-Texte. Sämtliche Dokumente unter `docs/`, dazu
 `CLAUDE.md`, `DESIGN-LANGUAGE.md`, `README.md` und `TODO.md`. Commit-Messages
 folgen weiter der bisherigen Praxis auf Deutsch.
 
@@ -160,6 +162,7 @@ das die Namen im Schema sind. Diese Grenze verläuft sauber an den API-Modulen.
 | `karte/kartenPunkte.ts` | `map/mapPoints.ts` |
 | `karte/nadel.ts` | `map/pin.ts` |
 | `karte/typen.ts` | `map/types.ts` |
+| `auth/zuschnitt.ts` | `auth/crop.ts` |
 | `konto/kontoApi.ts` | `account/accountApi.ts` |
 | `moments/einstellungen.ts` | `moments/settings.ts` |
 | `moments/medien.ts` | `moments/media.ts` |
@@ -283,7 +286,7 @@ gewollt und laut Rahmenbedingungen zulässig.
 
 Bezeichner werden über die TypeScript-Sprachebene umbenannt, konkret mit
 `ts-morph` und dessen `rename`, nicht mit `sed`. Der Unterschied ist der
-Schutz der 1161 UI-Texte: ein semantisches Rename kennt Deklaration und
+Schutz der 2647 UI-Texte: ein semantisches Rename kennt Deklaration und
 Verwendung, respektiert Scopes und fasst String-Literale grundsätzlich nicht
 an. Ein textueller Ersatz von `Reise` würde `"Neue Reise"` mittreffen.
 
@@ -375,8 +378,8 @@ Nach jeder Etappe, vor dem Commit:
 
 Zusätzlich zwei projektweite Wächter:
 
-1. **Zähler der sichtbaren Texte.** Die Zahl der deutschen UI-Strings muss bei
-   1161 bleiben. Sinkt sie, hat das Werkzeug einen sichtbaren Text erwischt.
+1. **Zähler der sichtbaren Texte.** Die Zahl der deutschen UI-Texte muss bei
+   2647 bleiben. Sinkt sie, hat das Werkzeug einen sichtbaren Text erwischt.
    Steigt sie, wurde versehentlich ein Bezeichner zu einem String.
 2. **Suche nach deutschen Resten.** Ein `grep` auf Umlaute und die
    Glossar-Stämme (`reise`, `karte`, `fehler`, `zaehler`, ...) ausserhalb von
