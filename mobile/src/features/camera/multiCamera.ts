@@ -1,5 +1,5 @@
-// Access to the native `MultiKamera` module (modules/kamera-zoom, file
-// MultiKameraModule.swift). This file is the ONLY place that knows it, same
+// Access to the native `MultiCamera` module (modules/camera-zoom, file
+// MultiCameraModule.swift). This file is the ONLY place that knows it, same
 // pattern as nativeCapture.ts and nativeZoom.ts. If the module is missing
 // (Android, Simulator, old build) or the setup fails twice in a row, the
 // helpers answer with false/null: the screen then falls back to the
@@ -11,31 +11,33 @@ import { requireNativeViewManager, requireOptionalNativeModule } from 'expo-modu
 import type { MultiCamTarget } from './zoom';
 
 // Native contract (Task 12): the raw strings the Swift enum sends over the
-// bridge (`Druckstufe.rawValue`), unchanged until the native module itself
-// is renamed.
+// bridge (`PressureLevel.rawValue`). The Swift case identifiers moved to
+// English (`.serious`/`.critical`) in this task, but their raw values are
+// pinned to the pre-existing German strings on purpose, so this union stays
+// unchanged.
 type PressureLevel = 'nominal' | 'ernst' | 'kritisch';
 
 // Native contract (Task 12): every method key below is dispatched by name
-// against MultiKameraModule.swift's Function/AsyncFunction/Events
+// against MultiCameraModule.swift's Function/AsyncFunction/Events
 // declarations and must keep its exact spelling; only the parameter labels
 // (positional, no runtime meaning) and the type's own name are ours to
-// translate. Field names `uri`/`dauerS`/`breite`/`hoehe`/`stufe` mirror the
-// dictionary keys the native side actually sends/expects and stay for the
-// same reason.
+// translate. Field names `uri`/`durationS`/`width`/`height`/`level` mirror
+// the dictionary keys the native side actually sends/expects and stay for
+// the same reason.
 type NativeMultiCameraModule = {
-  istVerfuegbar(): boolean;
-  starten(): Promise<void>;
-  stoppen(): Promise<void>;
-  wechsleKamera(): Promise<'front' | 'back'>;
-  zoomSetzen(camera: string, factor: number, smooth: boolean): void;
-  fokussiere(x: number, y: number): Promise<void>;
-  aufnahmeStarten(maxSeconds: number): Promise<void>;
-  aufnahmeStoppen(): Promise<{ uri: string; dauerS: number }>;
-  fotoAufnehmen(flash: boolean): Promise<{ uri: string; breite: number; hoehe: number }>;
-  blitz(on: boolean): void;
+  isAvailable(): boolean;
+  start(): Promise<void>;
+  stop(): Promise<void>;
+  switchCamera(): Promise<'front' | 'back'>;
+  setZoom(camera: string, factor: number, smooth: boolean): void;
+  focus(x: number, y: number): Promise<void>;
+  startRecording(maxSeconds: number): Promise<void>;
+  stopRecording(): Promise<{ uri: string; durationS: number }>;
+  takePhoto(flash: boolean): Promise<{ uri: string; width: number; height: number }>;
+  flash(on: boolean): void;
   addListener(
-    eventName: 'druckGeaendert',
-    listener: (event: { stufe: PressureLevel }) => void
+    eventName: 'pressureChanged',
+    listener: (event: { level: PressureLevel }) => void
   ): { remove(): void };
 };
 
@@ -45,7 +47,7 @@ let nativeModule: NativeMultiCameraModule | null | undefined;
 
 function getNativeModule(): NativeMultiCameraModule | null {
   if (nativeModule === undefined) {
-    nativeModule = requireOptionalNativeModule<NativeMultiCameraModule>('MultiKamera');
+    nativeModule = requireOptionalNativeModule<NativeMultiCameraModule>('MultiCamera');
   }
   return nativeModule;
 }
@@ -61,7 +63,7 @@ let failed = false;
 export function available(): boolean {
   if (failed) return false;
   const m = getNativeModule();
-  return m !== null && m.istVerfuegbar();
+  return m !== null && m.isAvailable();
 }
 
 export async function start(): Promise<boolean> {
@@ -69,7 +71,7 @@ export async function start(): Promise<boolean> {
   const m = getNativeModule();
   if (!m) return false;
   try {
-    await m.starten();
+    await m.start();
     consecutiveFailures = 0;
     return true;
   } catch {
@@ -81,7 +83,7 @@ export async function start(): Promise<boolean> {
 
 export function stop(): void {
   void getNativeModule()
-    ?.stoppen()
+    ?.stop()
     .catch(() => {});
 }
 
@@ -89,19 +91,19 @@ export async function switchCamera(): Promise<'front' | 'back' | null> {
   const m = getNativeModule();
   if (!m) return null;
   try {
-    return await m.wechsleKamera();
+    return await m.switchCamera();
   } catch {
     return null;
   }
 }
 
 export function setZoom(target: MultiCamTarget, smooth: boolean): void {
-  getNativeModule()?.zoomSetzen(target.camera, target.factor, smooth);
+  getNativeModule()?.setZoom(target.camera, target.factor, smooth);
 }
 
 export function focus(x: number, y: number): void {
   void getNativeModule()
-    ?.fokussiere(x, y)
+    ?.focus(x, y)
     .catch(() => {});
 }
 
@@ -116,18 +118,18 @@ export async function startCapture(maxSeconds: number): Promise<boolean> {
   const m = getNativeModule();
   if (!m) return false;
   try {
-    await m.aufnahmeStarten(maxSeconds);
+    await m.startRecording(maxSeconds);
     return true;
   } catch {
     return false;
   }
 }
 
-export async function stopCapture(): Promise<{ uri: string; dauerS: number } | null> {
+export async function stopCapture(): Promise<{ uri: string; durationS: number } | null> {
   const m = getNativeModule();
   if (!m) return null;
   try {
-    return await m.aufnahmeStoppen();
+    return await m.stopRecording();
   } catch {
     return null;
   }
@@ -142,11 +144,11 @@ export async function stopCapture(): Promise<{ uri: string; dauerS: number } | n
 // error pill.
 export async function takePhoto(
   flash: boolean
-): Promise<{ uri: string; breite: number; hoehe: number } | null> {
+): Promise<{ uri: string; width: number; height: number } | null> {
   const m = getNativeModule();
   if (!m) return null;
   try {
-    return await m.fotoAufnehmen(flash);
+    return await m.takePhoto(flash);
   } catch {
     return null;
   }
@@ -156,7 +158,7 @@ export async function takePhoto(
 // prop). Synchronous like setZoom: our own session doesn't know props, it
 // gets the switch as a call, and there's no response to wait for.
 export function setFlash(on: boolean): void {
-  getNativeModule()?.blitz(on);
+  getNativeModule()?.flash(on);
 }
 
 // Returns the unsubscribe; without the module a no-op with nothing to
@@ -164,7 +166,7 @@ export function setFlash(on: boolean): void {
 export function onPressureChange(listener: (level: PressureLevel) => void): () => void {
   const m = getNativeModule();
   if (!m) return () => {};
-  const subscription = m.addListener('druckGeaendert', (event) => listener(event.stufe));
+  const subscription = m.addListener('pressureChanged', (event) => listener(event.level));
   return () => subscription.remove();
 }
 
@@ -175,14 +177,14 @@ export function onPressureChange(listener: (level: PressureLevel) => void): () =
 // calling `requireNativeViewManager`. The Simulator, on the other hand, has
 // the module registered (`platforms: ["apple"]`), so the null guard does
 // NOT kick in there. That `AVCaptureMultiCamSession.isMultiCamSupported` is
-// false on the Simulator is only checked by `istVerfuegbar()` inside the
+// false on the Simulator is only checked by `isAvailable()` inside the
 // module, not by this guard here: on the Simulator the call therefore runs
 // all the way to the try/catch, which only catches it if
 // `requireNativeViewManager` actually throws there.
 function getViewfinderComponent(): ComponentType<ViewProps> {
   if (getNativeModule() === null) return View;
   try {
-    return requireNativeViewManager<ViewProps>('MultiKamera');
+    return requireNativeViewManager<ViewProps>('MultiCamera');
   } catch {
     return View;
   }

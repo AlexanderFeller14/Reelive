@@ -186,16 +186,16 @@ describe('multiCamTarget: the MultiCam mapping from display to camera and factor
     expect(multiCamTarget(2, 'front', true)).toEqual({ camera: 'front', factor: 2 });
   });
   it('0.5× on the back is the ultra-wide at factor 1', () => {
-    expect(multiCamTarget(0.5, 'back', true)).toEqual({ camera: 'ultraweit', factor: 1 });
+    expect(multiCamTarget(0.5, 'back', true)).toEqual({ camera: 'ultrawide', factor: 1 });
   });
   it('0.9× is still within the ultra-wide, scaled by 2', () => {
-    expect(multiCamTarget(0.9, 'back', true)).toEqual({ camera: 'ultraweit', factor: 1.8 });
+    expect(multiCamTarget(0.9, 'back', true)).toEqual({ camera: 'ultrawide', factor: 1.8 });
   });
   it('from 1× on, the wide lens takes over with the display factor', () => {
-    expect(multiCamTarget(1, 'back', true)).toEqual({ camera: 'weit', factor: 1 });
-    expect(multiCamTarget(3.5, 'back', true)).toEqual({ camera: 'weit', factor: 3.5 });
+    expect(multiCamTarget(1, 'back', true)).toEqual({ camera: 'wide', factor: 1 });
+    expect(multiCamTarget(3.5, 'back', true)).toEqual({ camera: 'wide', factor: 3.5 });
   });
   it('without an ultra-wide, below 1× it clamps to 1 on the wide lens', () => {
-    expect(multiCamTarget(0.5, 'back', false)).toEqual({ camera: 'weit', factor: 1 });
+    expect(multiCamTarget(0.5, 'back', false)).toEqual({ camera: 'wide', factor: 1 });
   });
 });

@@ -1,4 +1,4 @@
-// Access to the native module (modules/kamera-zoom). What's checked here is
+// Access to the native module (modules/camera-zoom). What's checked here is
 // NOT the Swift — that doesn't exist in the test and just as little on the
 // Simulator, because there's no camera there. What's checked is that the
 // app asserts nothing exactly when there's nothing to assert: without a
@@ -17,7 +17,7 @@ jest.mock('expo-modules-core', () => ({
   ...jest.requireActual('expo-modules-core'),
   requireOptionalNativeModule: () =>
     mockAvailable
-      ? { linsen: mockLenses, zoomGrenzen: mockZoomLimits, setzeZoom: mockSetZoom }
+      ? { lenses: mockLenses, zoomLimits: mockZoomLimits, setZoom: mockSetZoom }
       : null,
 }));
 
@@ -35,7 +35,7 @@ beforeEach(() => {
 
 test('reports the device lenses', () => {
   mockLenses.mockReturnValue([
-    { name: 'Rückseitige Dreifach-Kamera', typ: 'triple', bestandteile: ['ultraWide', 'wide', 'telephoto'], umschaltpunkte: [2, 8] },
+    { name: 'Rückseitige Dreifach-Kamera', type: 'triple', parts: ['ultraWide', 'wide', 'telephoto'], switchPoints: [2, 8] },
   ]);
   expect(nativeZoom().lenses('back')).toEqual([
     { name: 'Rückseitige Dreifach-Kamera', type: 'triple', components: ['ultraWide', 'wide', 'telephoto'], switchPoints: [2, 8] },
@@ -46,7 +46,7 @@ test('reports the device lenses', () => {
 test('a lens type this app doesn\'t know is called "unknown"', () => {
   // Apple can add a device type at any time. It has to be allowed through
   // here without an unknown string travelling through the code as a type.
-  mockLenses.mockReturnValue([{ name: 'Neue Kamera', typ: 'builtInIrgendwas', bestandteile: ['wide', 'nochNeuer'], umschaltpunkte: [] }]);
+  mockLenses.mockReturnValue([{ name: 'Neue Kamera', type: 'builtInIrgendwas', parts: ['wide', 'nochNeuer'], switchPoints: [] }]);
   expect(nativeZoom().lenses('back')).toEqual([
     { name: 'Neue Kamera', type: 'unknown', components: ['wide', 'unknown'], switchPoints: [] },
   ]);

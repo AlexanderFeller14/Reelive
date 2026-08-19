@@ -4,26 +4,26 @@
 // back to expo-camera (runtime fallback, spec §8/§9).
 const mockRemove = jest.fn();
 // Native contract (Task 12): this mock stands in for the real native
-// module, so its keys mirror MultiKameraModule.swift's Function/
-// AsyncFunction/Events names exactly (istVerfuegbar/starten/stoppen/
-// wechsleKamera/zoomSetzen/fokussiere/aufnahmeStarten/aufnahmeStoppen/
-// fotoAufnehmen/blitz/addListener, event 'druckGeaendert', result fields
-// uri/dauerS/breite/hoehe) — see the same note in multiCamera.ts.
+// module, so its keys mirror MultiCameraModule.swift's Function/
+// AsyncFunction/Events names exactly (isAvailable/start/stop/
+// switchCamera/setZoom/focus/startRecording/stopRecording/
+// takePhoto/flash/addListener, event 'pressureChanged', result fields
+// uri/durationS/width/height), see the same note in multiCamera.ts.
 const mockNativeModule = {
-  istVerfuegbar: jest.fn(() => true),
-  starten: jest.fn(async () => {}),
-  stoppen: jest.fn(async () => {}),
-  wechsleKamera: jest.fn(async () => 'front' as 'front' | 'back'),
-  zoomSetzen: jest.fn((_camera: string, _factor: number, _smooth: boolean) => {}),
-  fokussiere: jest.fn(async (_x: number, _y: number) => {}),
-  aufnahmeStarten: jest.fn(async (_maxSeconds: number) => {}),
-  aufnahmeStoppen: jest.fn(async () => ({ uri: 'file://multicam.mov', dauerS: 5.6 })),
-  fotoAufnehmen: jest.fn(async (_flash: boolean) => ({
+  isAvailable: jest.fn(() => true),
+  start: jest.fn(async () => {}),
+  stop: jest.fn(async () => {}),
+  switchCamera: jest.fn(async () => 'front' as 'front' | 'back'),
+  setZoom: jest.fn((_camera: string, _factor: number, _smooth: boolean) => {}),
+  focus: jest.fn(async (_x: number, _y: number) => {}),
+  startRecording: jest.fn(async (_maxSeconds: number) => {}),
+  stopRecording: jest.fn(async () => ({ uri: 'file://multicam.mov', durationS: 5.6 })),
+  takePhoto: jest.fn(async (_flash: boolean) => ({
     uri: 'file:///tmp/reelive-foto-1.jpg',
-    breite: 1080,
-    hoehe: 1920,
+    width: 1080,
+    height: 1920,
   })),
-  blitz: jest.fn((_on: boolean) => {}),
+  flash: jest.fn((_on: boolean) => {}),
   addListener: jest.fn((_event: string, _listener: (payload: unknown) => void) => ({
     remove: mockRemove,
   })),
@@ -62,20 +62,20 @@ beforeEach(() => {
   // call list, not the stored implementation.
   jest.resetAllMocks();
   mockAvailable = true;
-  mockNativeModule.istVerfuegbar.mockReturnValue(true);
-  mockNativeModule.starten.mockResolvedValue(undefined);
-  mockNativeModule.stoppen.mockResolvedValue(undefined);
-  mockNativeModule.wechsleKamera.mockResolvedValue('front');
-  mockNativeModule.zoomSetzen.mockImplementation(() => {});
-  mockNativeModule.fokussiere.mockResolvedValue(undefined);
-  mockNativeModule.aufnahmeStarten.mockResolvedValue(undefined);
-  mockNativeModule.aufnahmeStoppen.mockResolvedValue({ uri: 'file://multicam.mov', dauerS: 5.6 });
-  mockNativeModule.fotoAufnehmen.mockResolvedValue({
+  mockNativeModule.isAvailable.mockReturnValue(true);
+  mockNativeModule.start.mockResolvedValue(undefined);
+  mockNativeModule.stop.mockResolvedValue(undefined);
+  mockNativeModule.switchCamera.mockResolvedValue('front');
+  mockNativeModule.setZoom.mockImplementation(() => {});
+  mockNativeModule.focus.mockResolvedValue(undefined);
+  mockNativeModule.startRecording.mockResolvedValue(undefined);
+  mockNativeModule.stopRecording.mockResolvedValue({ uri: 'file://multicam.mov', durationS: 5.6 });
+  mockNativeModule.takePhoto.mockResolvedValue({
     uri: 'file:///tmp/reelive-foto-1.jpg',
-    breite: 1080,
-    hoehe: 1920,
+    width: 1080,
+    height: 1920,
   });
-  mockNativeModule.blitz.mockImplementation(() => {});
+  mockNativeModule.flash.mockImplementation(() => {});
   mockNativeModule.addListener.mockImplementation(() => ({ remove: mockRemove }));
 });
 
@@ -85,57 +85,57 @@ describe('multiCamera: access to the MultiCam module', () => {
     expect(multiCamera().available()).toBe(false);
   });
 
-  it('available asks the module (istVerfuegbar)', () => {
+  it('available asks the module (isAvailable)', () => {
     const mc = multiCamera();
-    mockNativeModule.istVerfuegbar.mockReturnValueOnce(false);
+    mockNativeModule.isAvailable.mockReturnValueOnce(false);
     expect(mc.available()).toBe(false);
-    mockNativeModule.istVerfuegbar.mockReturnValueOnce(true);
+    mockNativeModule.isAvailable.mockReturnValueOnce(true);
     expect(mc.available()).toBe(true);
-    expect(mockNativeModule.istVerfuegbar).toHaveBeenCalledTimes(2);
+    expect(mockNativeModule.isAvailable).toHaveBeenCalledTimes(2);
   });
 
   it('start resolves true on success', async () => {
     await expect(multiCamera().start()).resolves.toBe(true);
-    expect(mockNativeModule.starten).toHaveBeenCalledTimes(1);
+    expect(mockNativeModule.start).toHaveBeenCalledTimes(1);
   });
 
   it('start resolves false on rejection and switches off for good after the second failure', async () => {
-    mockNativeModule.starten.mockRejectedValue(new Error('aufbau_gescheitert'));
+    mockNativeModule.start.mockRejectedValue(new Error('aufbau_gescheitert'));
     const mc = multiCamera();
 
     await expect(mc.start()).resolves.toBe(false);
     await expect(mc.start()).resolves.toBe(false);
-    expect(mockNativeModule.starten).toHaveBeenCalledTimes(2);
+    expect(mockNativeModule.start).toHaveBeenCalledTimes(2);
 
     // Third call: no further attempt, false right away.
     await expect(mc.start()).resolves.toBe(false);
-    expect(mockNativeModule.starten).toHaveBeenCalledTimes(2);
+    expect(mockNativeModule.start).toHaveBeenCalledTimes(2);
     expect(mc.available()).toBe(false);
   });
 
   it('a success resets the failure counter', async () => {
     const mc = multiCamera();
-    mockNativeModule.starten.mockRejectedValueOnce(new Error('aufbau_gescheitert'));
+    mockNativeModule.start.mockRejectedValueOnce(new Error('aufbau_gescheitert'));
 
     await expect(mc.start()).resolves.toBe(false);
     await expect(mc.start()).resolves.toBe(true);
 
-    mockNativeModule.starten.mockRejectedValueOnce(new Error('aufbau_gescheitert'));
+    mockNativeModule.start.mockRejectedValueOnce(new Error('aufbau_gescheitert'));
     await expect(mc.start()).resolves.toBe(false);
     await expect(mc.start()).resolves.toBe(true);
 
     // All four attempts actually reached the module, none was skipped
     // because of a supposedly permanent failure.
-    expect(mockNativeModule.starten).toHaveBeenCalledTimes(4);
+    expect(mockNativeModule.start).toHaveBeenCalledTimes(4);
   });
 
   it('setZoom passes camera, factor and smooth through to the module', () => {
-    multiCamera().setZoom({ camera: 'weit', factor: 2.5 }, true);
-    expect(mockNativeModule.zoomSetzen).toHaveBeenCalledWith('weit', 2.5, true);
+    multiCamera().setZoom({ camera: 'wide', factor: 2.5 }, true);
+    expect(mockNativeModule.setZoom).toHaveBeenCalledWith('wide', 2.5, true);
   });
 
   it('switchCamera resolves the new direction, null without the module', async () => {
-    mockNativeModule.wechsleKamera.mockResolvedValueOnce('back');
+    mockNativeModule.switchCamera.mockResolvedValueOnce('back');
     await expect(multiCamera().switchCamera()).resolves.toBe('back');
 
     // Fresh registration state: the module access is module-local cached, a
@@ -152,13 +152,13 @@ describe('multiCamera: access to the MultiCam module', () => {
     const unsubscribe = mc.onPressureChange(listener);
 
     expect(mockNativeModule.addListener).toHaveBeenCalledWith(
-      'druckGeaendert',
+      'pressureChanged',
       expect.any(Function)
     );
     const forward = mockNativeModule.addListener.mock.calls[0][1] as (payload: {
-      stufe: 'nominal' | 'ernst' | 'kritisch';
+      level: 'nominal' | 'ernst' | 'kritisch';
     }) => void;
-    forward({ stufe: 'ernst' });
+    forward({ level: 'ernst' });
     expect(listener).toHaveBeenCalledWith('ernst');
 
     unsubscribe();
@@ -175,18 +175,18 @@ describe('multiCamera: access to the MultiCam module', () => {
   });
 
   // The MultiCam path's video capture (Task 5). It natively produces the
-  // same kind of capture as the KameraAufnahme module, just without its
+  // same kind of capture as the CameraCapture module, just without its
   // search for the expo-camera viewfinder; only the pass-through is visible
   // above here.
   it('startCapture passes the max duration through and reports success', async () => {
     await expect(multiCamera().startCapture(90)).resolves.toBe(true);
-    expect(mockNativeModule.aufnahmeStarten).toHaveBeenCalledWith(90);
+    expect(mockNativeModule.startRecording).toHaveBeenCalledWith(90);
   });
 
   it('startCapture resolves false on rejection and without the module', async () => {
     // "laeuft_schon" or "keine_session": the screen should show the error
     // pill, not break on a rejection.
-    mockNativeModule.aufnahmeStarten.mockRejectedValueOnce(new Error('keine_session'));
+    mockNativeModule.startRecording.mockRejectedValueOnce(new Error('keine_session'));
     await expect(multiCamera().startCapture(90)).resolves.toBe(false);
 
     jest.resetModules();
@@ -198,10 +198,10 @@ describe('multiCamera: access to the MultiCam module', () => {
     const mc = multiCamera();
     await expect(mc.stopCapture()).resolves.toEqual({
       uri: 'file://multicam.mov',
-      dauerS: 5.6,
+      durationS: 5.6,
     });
 
-    mockNativeModule.aufnahmeStoppen.mockRejectedValueOnce(new Error('keine_aufnahme'));
+    mockNativeModule.stopRecording.mockRejectedValueOnce(new Error('keine_aufnahme'));
     await expect(mc.stopCapture()).resolves.toBeNull();
 
     jest.resetModules();
@@ -216,16 +216,16 @@ describe('multiCamera: access to the MultiCam module', () => {
   it('takePhoto passes the flash wish through and resolves file and dimensions', async () => {
     await expect(multiCamera().takePhoto(true)).resolves.toEqual({
       uri: 'file:///tmp/reelive-foto-1.jpg',
-      breite: 1080,
-      hoehe: 1920,
+      width: 1080,
+      height: 1920,
     });
-    expect(mockNativeModule.fotoAufnehmen).toHaveBeenCalledWith(true);
+    expect(mockNativeModule.takePhoto).toHaveBeenCalledWith(true);
   });
 
   it('takePhoto resolves null on rejection and without the module', async () => {
     // "kein_frame" (the session delivers nothing more) or "keine_session":
     // the screen should show its error pill, not break on a rejection.
-    mockNativeModule.fotoAufnehmen.mockRejectedValueOnce(new Error('kein_frame'));
+    mockNativeModule.takePhoto.mockRejectedValueOnce(new Error('kein_frame'));
     await expect(multiCamera().takePhoto(false)).resolves.toBeNull();
 
     jest.resetModules();
@@ -236,14 +236,14 @@ describe('multiCamera: access to the MultiCam module', () => {
   it('setFlash passes the switch through; without the module simply nothing happens', () => {
     const mc = multiCamera();
     mc.setFlash(true);
-    expect(mockNativeModule.blitz).toHaveBeenCalledWith(true);
+    expect(mockNativeModule.flash).toHaveBeenCalledWith(true);
     mc.setFlash(false);
-    expect(mockNativeModule.blitz).toHaveBeenLastCalledWith(false);
+    expect(mockNativeModule.flash).toHaveBeenLastCalledWith(false);
 
     jest.resetModules();
     mockAvailable = false;
     expect(() => multiCamera().setFlash(true)).not.toThrow();
-    expect(mockNativeModule.blitz).toHaveBeenCalledTimes(2);
+    expect(mockNativeModule.flash).toHaveBeenCalledTimes(2);
   });
 
   it('MultiCameraViewfinder without the module is the empty fallback view, requireNativeViewManager is never called', () => {

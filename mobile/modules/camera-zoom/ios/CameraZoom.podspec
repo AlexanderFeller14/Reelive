@@ -1,8 +1,8 @@
 Pod::Spec.new do |s|
-  s.name           = 'KameraZoom'
+  s.name           = 'CameraZoom'
   s.version        = '1.0.0'
-  s.summary        = 'Linsen und Zoomfaktor der Kamera'
-  s.description    = 'Meldet die Linsen des Geraets samt Umschaltpunkten und setzt den Zoomfaktor direkt.'
+  s.summary        = 'Camera lenses and zoom factor'
+  s.description    = 'Reports the device lenses with their switch points and sets the zoom factor directly.'
   s.author         = 'Reelive'
   s.homepage       = 'https://docs.expo.dev/modules/'
   s.license        = 'MIT'

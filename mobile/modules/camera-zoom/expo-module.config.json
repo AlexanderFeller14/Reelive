@@ -1,0 +1,11 @@
+{
+  "platforms": ["apple"],
+  "apple": {
+    "modules": [
+      "CameraZoomModule",
+      "CameraCaptureModule",
+      "MultiCameraModule"
+    ],
+    "podspecPath": ["ios/CameraZoom.podspec"]
+  }
+}

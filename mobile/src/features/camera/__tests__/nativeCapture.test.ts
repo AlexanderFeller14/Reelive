@@ -2,14 +2,14 @@
 // Simulator, old build), it answers with false/null instead of throwing —
 // the camera then falls back to the recordAsync path (spec: fallback).
 // Native contract (Task 12): this mock stands in for the real native
-// module, so its keys mirror KameraAufnahmeModule.swift's AsyncFunction
-// names exactly (aufnahmeStarten/aufnahmeStoppen/dateiAbwarten/verwerfen,
-// result fields uri/dauerS) — see the same note in nativeCapture.ts.
+// module, so its keys mirror CameraCaptureModule.swift's AsyncFunction
+// names exactly (startRecording/stopRecording/awaitFile/discard, result
+// fields uri/durationS), see the same note in nativeCapture.ts.
 const mockNativeModule = {
-  aufnahmeStarten: jest.fn(async (_s: number) => {}),
-  aufnahmeStoppen: jest.fn(async () => ({ uri: 'file://a.mov', dauerS: 3.2 })),
-  dateiAbwarten: jest.fn(async () => {}),
-  verwerfen: jest.fn(async () => {}),
+  startRecording: jest.fn(async (_s: number) => {}),
+  stopRecording: jest.fn(async () => ({ uri: 'file://a.mov', durationS: 3.2 })),
+  awaitFile: jest.fn(async () => {}),
+  discard: jest.fn(async () => {}),
 };
 let mockAvailable = true;
 
@@ -36,7 +36,7 @@ beforeEach(() => {
 
 test('startCapture resolves true when the module starts', async () => {
   await expect(nativeCapture().startCapture(90)).resolves.toBe(true);
-  expect(mockNativeModule.aufnahmeStarten).toHaveBeenCalledWith(90);
+  expect(mockNativeModule.startRecording).toHaveBeenCalledWith(90);
 });
 
 test('without the module, startCapture resolves false instead of throwing', async () => {
@@ -45,24 +45,24 @@ test('without the module, startCapture resolves false instead of throwing', asyn
 });
 
 test('a native start failure becomes false (fallback), not a crash', async () => {
-  mockNativeModule.aufnahmeStarten.mockRejectedValueOnce(new Error('already running'));
+  mockNativeModule.startRecording.mockRejectedValueOnce(new Error('already running'));
   await expect(nativeCapture().startCapture(90)).resolves.toBe(false);
 });
 
-test('stopCapture passes uri and dauerS through', async () => {
+test('stopCapture passes uri and durationS through', async () => {
   await expect(nativeCapture().stopCapture()).resolves.toEqual({
     uri: 'file://a.mov',
-    dauerS: 3.2,
+    durationS: 3.2,
   });
 });
 
 test('if stopping fails, null comes back (the camera then shows the error path)', async () => {
-  mockNativeModule.aufnahmeStoppen.mockRejectedValueOnce(new Error('kein writer'));
+  mockNativeModule.stopRecording.mockRejectedValueOnce(new Error('kein writer'));
   await expect(nativeCapture().stopCapture()).resolves.toBeNull();
 });
 
 test('fileReady passes the rejection of the write through unchanged', async () => {
   const error = new Error('storage full');
-  mockNativeModule.dateiAbwarten.mockRejectedValueOnce(error);
+  mockNativeModule.awaitFile.mockRejectedValueOnce(error);
   await expect(nativeCapture().fileReady()).rejects.toBe(error);
 });

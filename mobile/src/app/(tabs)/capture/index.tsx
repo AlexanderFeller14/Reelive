@@ -1534,7 +1534,7 @@ export default function CaptureScreen() {
       goToPreview({
         uri: result.uri,
         typ: 'video',
-        dauer: String(Math.round(result.dauerS)),
+        dauer: String(Math.round(result.durationS)),
         tripId: trip.id,
       });
       return;

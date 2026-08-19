@@ -146,11 +146,10 @@ export function dragFactor(
   return clamp(target, bounds, base);
 }
 
-// Native contract (Task 12): 'weit'/'ultraweit' are passed positionally into
-// MultiKameraModule.swift's `zoomSetzen` and compared there against its own
-// `kameraNamen` list — they must stay exactly as the native side expects,
-// even though they're German words. 'front' happens to already be English.
-export type MultiCamCamera = 'front' | 'weit' | 'ultraweit';
+// Native contract (Task 12): 'wide'/'ultrawide' are passed positionally into
+// MultiCameraModule.swift's `setZoom` and compared there against its own
+// `cameraNames` list, they must stay exactly as the native side expects.
+export type MultiCamCamera = 'front' | 'wide' | 'ultrawide';
 export type MultiCamTarget = { camera: MultiCamCamera; factor: number };
 
 export function multiCamTarget(
@@ -161,6 +160,6 @@ export function multiCamTarget(
   if (facing === 'front') return { camera: 'front', factor: Math.max(display, 1) };
   // The ultra-wide covers exactly half the field-of-view factor of the wide
   // lens, iOS counts it as 1.0 at display 0.5.
-  if (display < 1 && hasUltraWide) return { camera: 'ultraweit', factor: display * 2 };
-  return { camera: 'weit', factor: Math.max(display, 1) };
+  if (display < 1 && hasUltraWide) return { camera: 'ultrawide', factor: display * 2 };
+  return { camera: 'wide', factor: Math.max(display, 1) };
 }

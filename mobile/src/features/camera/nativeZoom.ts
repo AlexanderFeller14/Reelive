@@ -1,5 +1,5 @@
-// Access to the native module `modules/kamera-zoom` (Swift, see
-// KameraZoomModule.swift there). This file is the ONLY place that knows it.
+// Access to the native module `modules/camera-zoom` (Swift, see
+// CameraZoomModule.swift there). This file is the ONLY place that knows it.
 //
 // Why bother with our own Swift at all: `expo-camera` doesn't take a zoom
 // factor, but a slider from 0 to 1 that iOS maps exponentially onto
@@ -13,27 +13,26 @@
 import { requireOptionalNativeModule } from 'expo-modules-core';
 import type { Lens, LensType } from './zoom';
 
-// Native contract (Task 12): mirrors the dictionary `Function("linsen")`
-// returns from KameraZoomModule.swift verbatim (`name`/`typ`/`bestandteile`/
-// `umschaltpunkte`), so these keys stay exactly as the native side sends
-// them. `lenses()` below reshapes this into the public, English-named
-// `Lens` type.
+// Native contract (Task 12): mirrors the dictionary `Function("lenses")`
+// returns from CameraZoomModule.swift verbatim (`name`/`type`/`parts`/
+// `switchPoints`), so these keys stay exactly as the native side sends
+// them. `lenses()` below reshapes this into the public `Lens` type.
 type NativeLens = {
   name: string;
-  typ: string;
-  bestandteile: string[];
-  umschaltpunkte: number[];
+  type: string;
+  parts: string[];
+  switchPoints: number[];
 };
 
 // Native contract (Task 12): method keys are dispatched by name against
-// KameraZoomModule.swift's Function/AsyncFunction declarations and must
+// CameraZoomModule.swift's Function/AsyncFunction declarations and must
 // keep their exact spelling; only the parameter labels (positional, no
 // runtime meaning) are ours to translate.
 type NativeZoomModule = {
-  linsen(position: 'back' | 'front'): NativeLens[];
-  zoomGrenzen(name: string): { min: number; max: number } | null;
-  setzeZoom(name: string, factor: number, smooth: boolean): void;
-  fokussiere(x: number, y: number): Promise<void>;
+  lenses(position: 'back' | 'front'): NativeLens[];
+  zoomLimits(name: string): { min: number; max: number } | null;
+  setZoom(name: string, factor: number, smooth: boolean): void;
+  focus(x: number, y: number): Promise<void>;
 };
 
 // `undefined` means "not looked up yet", `null` means "not present here": on
@@ -41,7 +40,7 @@ type NativeZoomModule = {
 let nativeModule: NativeZoomModule | null | undefined;
 
 function getNativeModule(): NativeZoomModule | null {
-  if (nativeModule === undefined) nativeModule = requireOptionalNativeModule<NativeZoomModule>('KameraZoom');
+  if (nativeModule === undefined) nativeModule = requireOptionalNativeModule<NativeZoomModule>('CameraZoom');
   return nativeModule;
 }
 
@@ -66,22 +65,22 @@ function toType(raw: string): LensType {
 export function lenses(position: 'back' | 'front'): Lens[] {
   const native = getNativeModule();
   if (!native) return [];
-  return native.linsen(position).map((lens) => ({
+  return native.lenses(position).map((lens) => ({
     name: lens.name,
-    type: toType(lens.typ),
-    components: lens.bestandteile.map(toType),
-    switchPoints: lens.umschaltpunkte,
+    type: toType(lens.type),
+    components: lens.parts.map(toType),
+    switchPoints: lens.switchPoints,
   }));
 }
 
 /** Bounds in the device's own counting, not the displayed one. */
 export function zoomLimits(name: string): { min: number; max: number } | null {
-  return getNativeModule()?.zoomGrenzen(name) ?? null;
+  return getNativeModule()?.zoomLimits(name) ?? null;
 }
 
 /** `smooth` ramps in (like the Camera app for a tap on a step), otherwise it's set hard and follows the finger. */
 export function setZoom(name: string, factor: number, smooth: boolean): void {
-  getNativeModule()?.setzeZoom(name, factor, smooth);
+  getNativeModule()?.setZoom(name, factor, smooth);
 }
 
 /**
@@ -93,5 +92,5 @@ export function setZoom(name: string, factor: number, smooth: boolean): void {
  * mode, no focus point.
  */
 export function focus(x: number, y: number): void {
-  void getNativeModule()?.fokussiere(x, y).catch(() => {});
+  void getNativeModule()?.focus(x, y).catch(() => {});
 }

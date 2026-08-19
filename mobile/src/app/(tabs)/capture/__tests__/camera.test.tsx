@@ -210,7 +210,7 @@ jest.mock('@/features/camera/nativeZoom', () => ({
 // shell reads the variable only on the ACTUAL call.
 const mockNativeCapture = {
   startCapture: jest.fn(async (_s: number) => true),
-  stopCapture: jest.fn(async () => ({ uri: 'file://nativ.mov', dauerS: 3.4 })),
+  stopCapture: jest.fn(async () => ({ uri: 'file://nativ.mov', durationS: 3.4 })),
   fileReady: jest.fn(() => Promise.resolve()),
   discard: jest.fn(),
   available: jest.fn(() => true),
@@ -239,14 +239,14 @@ const mockMultiCamera = {
   onPressureChange: jest.fn((_listener: (level: PressureLevel) => void) => () => {}),
   startCapture: jest.fn(async (_maxSeconds: number) => true),
   stopCapture: jest.fn(
-    async () => ({ uri: 'file://multicam.mov', dauerS: 5.6 }) as { uri: string; dauerS: number } | null
+    async () => ({ uri: 'file://multicam.mov', durationS: 5.6 }) as { uri: string; durationS: number } | null
   ),
   takePhoto: jest.fn(
     async (_flash: boolean) =>
-      ({ uri: 'file:///tmp/reelive-foto-1.jpg', breite: 1080, hoehe: 1920 }) as {
+      ({ uri: 'file:///tmp/reelive-foto-1.jpg', width: 1080, height: 1920 }) as {
         uri: string;
-        breite: number;
-        hoehe: number;
+        width: number;
+        height: number;
       } | null
   ),
   setFlash: jest.fn((_on: boolean) => {}),
@@ -328,11 +328,11 @@ beforeEach(() => {
   // branch has no way back over recordAsync (there is no CameraView), so a
   // permanently refusing start would be a permanent error, not a starting state.
   mockMultiCamera.startCapture.mockResolvedValue(true);
-  mockMultiCamera.stopCapture.mockResolvedValue({ uri: 'file://multicam.mov', dauerS: 5.6 });
+  mockMultiCamera.stopCapture.mockResolvedValue({ uri: 'file://multicam.mov', durationS: 5.6 });
   mockMultiCamera.takePhoto.mockResolvedValue({
     uri: 'file:///tmp/reelive-foto-1.jpg',
-    breite: 1080,
-    hoehe: 1920,
+    width: 1080,
+    height: 1920,
   });
   mockMultiCamera.setFlash.mockImplementation(() => {});
 });
@@ -2346,7 +2346,7 @@ test('after the switch the remembered factor of the new direction applies', asyn
   mockMultiCamera.setZoom.mockClear();
   await tap();
   await tap();
-  expect(mockMultiCamera.setZoom).toHaveBeenLastCalledWith({ camera: 'ultraweit', factor: 1 }, false);
+  expect(mockMultiCamera.setZoom).toHaveBeenLastCalledWith({ camera: 'ultrawide', factor: 1 }, false);
   expect(screen.getByLabelText('Zoom 0,5×').props.accessibilityState.selected).toBe(true);
 
   mockMultiCamera.switchCamera.mockResolvedValue(null);
@@ -2375,7 +2375,7 @@ test('a remembered zoomed in factor survives the round trip too', async () => {
   await tap();
   await tap();
 
-  expect(mockMultiCamera.setZoom).toHaveBeenLastCalledWith({ camera: 'weit', factor: 4 }, false);
+  expect(mockMultiCamera.setZoom).toHaveBeenLastCalledWith({ camera: 'wide', factor: 4 }, false);
   expect(screen.getByLabelText('Zoom 4×').props.accessibilityState.selected).toBe(true);
 });
 
@@ -2502,7 +2502,7 @@ test('the drag zoom keeps working after a switch in the middle of the capture', 
   await fireEvent(screen.getByLabelText('Auslöser'), 'touchMove', {
     nativeEvent: { pageX: 100, pageY: -1000, identifier: 1 },
   });
-  expect(mockMultiCamera.setZoom).toHaveBeenLastCalledWith({ camera: 'weit', factor: 60 }, false);
+  expect(mockMultiCamera.setZoom).toHaveBeenLastCalledWith({ camera: 'wide', factor: 60 }, false);
 });
 
 test('setting the zoom goes to the module as a MultiCam target', async () => {
@@ -2513,7 +2513,7 @@ test('setting the zoom goes to the module as a MultiCam target', async () => {
   // 0,5x is not a slider position but a lens of its own: the session changes to
   // the ultra wide and stands there on its 1,0.
   expect(mockMultiCamera.setZoom).toHaveBeenLastCalledWith(
-    { camera: 'ultraweit', factor: 1 },
+    { camera: 'ultrawide', factor: 1 },
     true
   );
   // The virtual device is still ENUMERATED (hence steps and limits) but does not
@@ -2538,7 +2538,7 @@ test('the pressure level ernst at 0,5x puts the zoom back on 1x', async () => {
   await act(async () => {
     reportPressure('ernst');
   });
-  expect(mockMultiCamera.setZoom).toHaveBeenCalledWith({ camera: 'weit', factor: 1 }, false);
+  expect(mockMultiCamera.setZoom).toHaveBeenCalledWith({ camera: 'wide', factor: 1 }, false);
   expect(screen.getByLabelText('Zoom 1×').props.accessibilityState.selected).toBe(true);
 });
 
@@ -2747,7 +2747,7 @@ test('a failed photo in the MultiCam branch is told by the pill and leaves the t
 
 test('a second, quick tap in the MultiCam branch triggers no second photo', async () => {
   await multiCamViewfinder();
-  let resolvePhoto: (v: { uri: string; breite: number; hoehe: number }) => void = () => {};
+  let resolvePhoto: (v: { uri: string; width: number; height: number }) => void = () => {};
   mockMultiCamera.takePhoto.mockImplementation(
     () =>
       new Promise((resolve) => {
@@ -2762,7 +2762,7 @@ test('a second, quick tap in the MultiCam branch triggers no second photo', asyn
   await fireEvent(screen.getByLabelText('Auslöser'), 'pressOut');
 
   await act(async () => {
-    resolvePhoto({ uri: 'file:///tmp/reelive-foto-1.jpg', breite: 1080, hoehe: 1920 });
+    resolvePhoto({ uri: 'file:///tmp/reelive-foto-1.jpg', width: 1080, height: 1920 });
   });
 
   expect(mockMultiCamera.takePhoto).toHaveBeenCalledTimes(1);
