@@ -345,6 +345,10 @@ beforeEach(() => {
   // mockResolvedValue gesetzte Implementierung, sonst sickerte sie in jeden
   // folgenden Test durch (gleiche Falle wie in uploadWorker.test.ts).
   mockEigenerZaehler.mockImplementation(async () => 0);
+  // Auch die Grenzen zurück auf den Standard: der Zug-Test nach dem Wechsel
+  // gibt Front und Rückseite verschiedene Werte, und clearAllMocks räumt nur
+  // die Historie, nicht die Implementierung.
+  mockZoomGrenzen.mockImplementation(() => ({ min: 1, max: 120 }));
   mockUseReducedMotion.mockReturnValue(false);
   mockCameraPermission = GEWAEHRT;
   mockMicPermission = GEWAEHRT;
@@ -2615,7 +2619,7 @@ test('der Doppeltipp wechselt auch während der gehaltenen Aufnahme', async () =
 // Der Wechsel hat zwei Aufgaben, nicht eine: die Kamera tauschen UND den
 // nativen Zoom auf die neue Richtung nachziehen. Der Faktor gilt dabei JE
 // RICHTUNG weiter (Nutzer-Befund 2026-08-19): wer auf 0,5× filmt, kurz zur
-// Front wechselt und zurückkommt, will wieder seine 0,5× sehen — nicht 1×.
+// Front wechselt und zurückkommt, will wieder seine 0,5× sehen, nicht 1×.
 // Das Nachziehen stellt die Session auf genau diesen gemerkten Stand; das
 // Modul merkt sich je Richtung nur die KAMERA, nicht die Anzeige.
 test('nach dem Wechsel gilt der gemerkte Faktor der neuen Richtung', async () => {
@@ -2629,7 +2633,7 @@ test('nach dem Wechsel gilt der gemerkte Faktor der neuen Richtung', async () =>
   await tippen();
   expect(mockMultiKamera.zoomSetzen).toHaveBeenLastCalledWith({ kamera: 'front', faktor: 1 }, false);
 
-  // Und zurück: die Rückseite steht wieder auf ihren gemerkten 0,5× — als
+  // Und zurück: die Rückseite steht wieder auf ihren gemerkten 0,5×, als
   // native Linse (Ultraweitwinkel auf dessen 1,0) UND in der Reihe.
   mockMultiKamera.wechsleKamera.mockResolvedValue('back');
   mockMultiKamera.zoomSetzen.mockClear();
@@ -2650,11 +2654,65 @@ test('nach dem Wechsel gilt der gemerkte Faktor der neuen Richtung', async () =>
   expect(screen.getByLabelText('Zoom 0,5×').props.accessibilityState.selected).toBe(true);
 });
 
+// Dasselbe Gedächtnis oberhalb von 1×: der Betreten-Effekt (reingezoomter
+// Stand springt beim Betreten des SCREENS auf 1× zurück) darf nicht an der
+// zoomSetzen-Identität hängen, sonst läuft er bei jedem Kamerawechsel neu
+// und wirft den gerade wiederhergestellten Faktor sofort weg (Re-Review
+// 2026-08-19, Important 1: der Zug-Zoom sprang mitten in der Aufnahme bei
+// jedem Rückwechsel auf 1×).
+test('auch ein gemerkter Rein-Zoom übersteht den Rundlauf', async () => {
+  await multiCamSucher();
+  await fireEvent.press(screen.getByText('4×'));
+
+  mockMultiKamera.wechsleKamera.mockResolvedValue('front');
+  await tippen();
+  await tippen();
+
+  mockMultiKamera.wechsleKamera.mockResolvedValue('back');
+  mockMultiKamera.zoomSetzen.mockClear();
+  await tippen();
+  await tippen();
+
+  expect(mockMultiKamera.zoomSetzen).toHaveBeenLastCalledWith({ kamera: 'weit', faktor: 4 }, false);
+  expect(screen.getByLabelText('Zoom 4×').props.accessibilityState.selected).toBe(true);
+});
+
+// Zwei schnelle Doppeltipps: die Antwort des ERSTEN Wechsels trudelt ein,
+// nachdem der zweite längst angewandt ist. Sie ist überholt und muss
+// verworfen werden, sonst zieht sie den Zoom auf eine Kamera nach, die gar
+// nicht mehr im Bild steht (Re-Review 2026-08-19, Minor 2).
+test('eine überholte Wechsel-Antwort wird verworfen', async () => {
+  await multiCamSucher();
+
+  let ersteAntwort: (r: 'front' | 'back' | null) => void = () => {};
+  mockMultiKamera.wechsleKamera
+    .mockImplementationOnce(
+      () => new Promise<'front' | 'back' | null>((r) => { ersteAntwort = r; })
+    )
+    .mockResolvedValueOnce('back');
+
+  // Wechsel 1: optimistisch zur Front, die Antwort bleibt offen.
+  await tippen();
+  await tippen();
+  // Wechsel 2: zurück zur Rückseite, sofort beantwortet und nachgezogen.
+  await tippen();
+  await tippen();
+
+  // Jetzt erst kommt die alte Antwort: sie darf nichts mehr umstellen und
+  // nichts mehr nachziehen.
+  mockMultiKamera.zoomSetzen.mockClear();
+  await act(async () => {
+    ersteAntwort('front');
+  });
+  expect(mockMultiKamera.zoomSetzen).not.toHaveBeenCalled();
+  expect(screen.getByTestId('zoom-wahl')).toBeTruthy();
+});
+
 // Der Sucher nimmt Gesten sofort an, der erste Session-Aufbau braucht
 // 300-400 ms: ein Doppeltipp in diesem Fenster wird nativ abgelehnt
 // (keine_session → null im Adapter), gewechselt hat dann NIEMAND. Der Screen
 // stellt die Richtung optimistisch um und muss sie bei dieser Antwort
-// zurückrollen — sonst stünde er dauerhaft verkehrt zur Session, und jeder
+// zurückrollen, sonst stünde er dauerhaft verkehrt zur Session, und jeder
 // weitere Doppeltipp hielte die Vertauschung aufrecht (Final-Review
 // 2026-08-19, Important 1).
 test('ein Doppeltipp im Aufbau-Fenster rollt die Ansicht zur Session zurück', async () => {
@@ -2671,7 +2729,7 @@ test('ein Doppeltipp im Aufbau-Fenster rollt die Ansicht zur Session zurück', a
   expect(mockMultiKamera.zoomSetzen).not.toHaveBeenCalled();
 });
 
-// Die Front hat eine einzige Linse, also keine Stufen-Reihe — zoomen kann die
+// Die Front hat eine einzige Linse, also keine Stufen-Reihe. Zoomen kann die
 // MultiCam-Session sie trotzdem, digital über videoZoomFactor (Nutzer-Befund
 // 2026-08-19: «in der Innenkamera nicht zoomen»). Im expo-camera-Zweig bleibt
 // die Front bewusst ohne Zoom, dort führt der Weg nur übers virtuelle
@@ -2684,7 +2742,7 @@ test('die Frontkamera zoomt digital über den Pinch', async () => {
   mockMultiKamera.zoomSetzen.mockClear();
 
   // Ohne Stufen-Reihe muss die Fläche die Zwei-Finger-Bewegung trotzdem
-  // ergreifen — das Gate hing bisher an der Reihe (zoomSichtbar).
+  // ergreifen; das Gate hing bisher an der Reihe (zoomSichtbar).
   const flaeche = sucherFlaeche() as unknown as {
     props: { onMoveShouldSetResponder: (e: object) => boolean };
   };
@@ -2701,12 +2759,18 @@ test('die Frontkamera zoomt digital über den Pinch', async () => {
 
 // Der Zug-Zoom mitten in der Aufnahme, über den Wechsel hinweg (Nutzer-Befund
 // 2026-08-19: nach dem Doppeltipp liess sich gar nicht mehr zoomen). Der
-// Anker wird beim Wechsel auf die NEUE Richtung umgeschrieben — Faktor aus
+// Anker wird beim Wechsel auf die NEUE Richtung umgeschrieben: Faktor aus
 // dem Richtungs-Gedächtnis, Grenzen der neuen Kamera; vorher blieb er auf
 // den alten Grenzen stehen (Back→Front) oder fiel ganz weg (Front→Back, die
 // Front hat kein virtuelles Mehrfach-Gerät).
 test('der Zug-Zoom funktioniert nach dem Wechsel mitten in der Aufnahme weiter', async () => {
   await multiCamSucher();
+  // Front und Rückseite bekommen VERSCHIEDENE Grenzen: nur so beweist der
+  // geklemmte Endwert, dass wirklich das Gerät der neuen Richtung gefragt
+  // wurde und nicht das alte weiterverwendet wird.
+  mockZoomGrenzen.mockImplementation((name: string) =>
+    name === 'Frontkamera' ? { min: 1, max: 40 } : { min: 1, max: 120 }
+  );
 
   jest.useFakeTimers();
   await fireEvent(screen.getByLabelText('Auslöser'), 'pressIn', {
@@ -2729,15 +2793,14 @@ test('der Zug-Zoom funktioniert nach dem Wechsel mitten in der Aufnahme weiter',
     });
   }
 
-  // Der Zug zoomt jetzt die FRONT: voller Weg nach oben, geklemmt auf deren
-  // Gerätemaximum (zoomGrenzen-Mock: 120, Basis der Front ist 1). Der
-  // identifier ist der HALTENDE Finger vom pressIn — der Auslöser hört nur
-  // auf ihn.
+  // Der Zug zoomt jetzt die FRONT: voller Weg nach oben, geklemmt auf DEREN
+  // Gerätemaximum 40 (Basis der Front ist 1). Der identifier ist der
+  // HALTENDE Finger vom pressIn, der Auslöser hört nur auf ihn.
   mockMultiKamera.zoomSetzen.mockClear();
   await fireEvent(screen.getByLabelText('Auslöser'), 'touchMove', {
     nativeEvent: { pageX: 100, pageY: -1000, identifier: 1 },
   });
-  expect(mockMultiKamera.zoomSetzen).toHaveBeenLastCalledWith({ kamera: 'front', faktor: 120 }, false);
+  expect(mockMultiKamera.zoomSetzen).toHaveBeenLastCalledWith({ kamera: 'front', faktor: 40 }, false);
 
   // Zurück zur Rückseite: der Anker steht auf deren gemerktem 1×, und der
   // volle Weg endet an DEREN Anzeige-Maximum (nativ 120 × Basis 0,5 = 60×).

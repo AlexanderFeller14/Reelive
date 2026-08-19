@@ -197,7 +197,7 @@ function momenteText(anzahl: number): string {
   return `${anzahl} ${anzahl === 1 ? 'Moment' : 'Momente'}`;
 }
 
-// Ob unter diesen Linsen ein Ultraweitwinkel ist — als eigene Linse oder als
+// Ob unter diesen Linsen ein Ultraweitwinkel ist: als eigene Linse oder als
 // Bestandteil eines virtuellen Geräts. Daran entscheidet multiCamZiel, ob
 // 0,5× eine eigene Linse ist oder nur auf 1× klemmt. Als freie Funktion,
 // weil der Kamerawechsel sie für die NEUE Richtung braucht, bevor React die
@@ -596,9 +596,15 @@ export default function AufnehmenScreen() {
   const faktorRef = useRef(1);
   // Der zuletzt gewählte Anzeige-Faktor JE BLICKRICHTUNG (Nutzer-Befund
   // 2026-08-19): wer auf 0,5× filmt, kurz zur Front wechselt und zurückkommt,
-  // will wieder seine 0,5× sehen — nicht 1×. Geschrieben und gelesen wird nur
+  // will wieder seine 0,5× sehen, nicht 1×. Geschrieben und gelesen wird nur
   // beim Kamerawechsel (richtungAnwenden), dazwischen führt faktorRef.
   const faktorJeRichtung = useRef<{ back: number; front: number }>({ back: 1, front: 1 });
+  // Laufende Nummer der Kamerawechsel: jede native Antwort trägt die Nummer
+  // ihres Anstosses, und nur die JÜNGSTE darf abstimmen oder nachziehen.
+  // Ohne sie rollte die verspätete Antwort eines überholten Wechsels in
+  // einen Zustand hinein, der längst dem nächsten gehört (Re-Review
+  // 2026-08-19, Minor 2).
+  const wechselNummer = useRef(0);
   // Dieselben Werte wie `nimmtAuf` und `inVorschau`, ebenfalls nur synchron
   // lesbar: das Blur-Cleanup des MultiCam-Lebenszyklus (siehe unten) muss
   // ihren Stand im Moment des Blurs kennen, darf aber nicht an ihnen HÄNGEN:
@@ -874,7 +880,7 @@ export default function AufnehmenScreen() {
   const hatUltraweit = useMemo(() => hatUltraweitIn(linsen), [linsen]);
 
   // Die Basis der aktiven Blickrichtung: 0,5 auf einem Ultraweitwinkel-Gerät,
-  // sonst 1 — auch für die einlinsige Front, deren Anzeige und Gerätefaktor
+  // sonst 1; auch für die einlinsige Front, deren Anzeige und Gerätefaktor
   // dasselbe sind (sie hat kein virtuelles Mehrfach-Gerät, `zoom` ist null).
   const zoomBasis = zoom?.basis ?? 1;
 
@@ -921,14 +927,26 @@ export default function AufnehmenScreen() {
   // soll nicht unbemerkt in die nächste Aufnahme hineinragen. Der Weitwinkel
   // (≤ 1×) bleibt stehen (Präzisierung 2026-08-18): wer bewusst auf 0,5×
   // gestellt hat, will nach dem Verwerfen genau dort weitermachen. Über
-  // zoomSetzen, damit auch das Gerät zurückgeht, nicht nur die Pille. Der
-  // Guard hält den Effekt still, wenn er nur wegen einer neuen
-  // zoomSetzen-Identität (Kamerawechsel) erneut läuft — der Wechsel selbst
-  // setzt schon auf 1×.
+  // zoomSetzen, damit auch das Gerät zurückgeht, nicht nur die Pille.
+  //
+  // zoomSetzen kommt über eine Ref herein statt als Abhängigkeit: seine
+  // Identität wechselt mit der Blickrichtung, und ein daran hängender Effekt
+  // liefe bei JEDEM Kamerawechsel neu und würfe den gerade aus dem
+  // Richtungs-Gedächtnis wiederhergestellten Faktor weg. Mitten in der
+  // gehaltenen Aufnahme sprang so der Zug-Zoom bei jedem Rückwechsel auf 1×
+  // (Re-Review 2026-08-19, Important 1). Das Gedächtnis wird beim Betreten
+  // mitgeklemmt: auch die gerade NICHT sichtbare Richtung soll keinen alten
+  // Rein-Zoom in die nächste Aufnahme tragen.
+  const zoomSetzenRef = useRef(zoomSetzen);
+  useEffect(() => {
+    zoomSetzenRef.current = zoomSetzen;
+  }, [zoomSetzen]);
   useFocusEffect(
     useCallback(() => {
-      if (faktorRef.current > 1) zoomSetzen(1, false);
-    }, [zoomSetzen])
+      faktorJeRichtung.current.back = Math.min(faktorJeRichtung.current.back, 1);
+      faktorJeRichtung.current.front = Math.min(faktorJeRichtung.current.front, 1);
+      if (faktorRef.current > 1) zoomSetzenRef.current(1, false);
+    }, [])
   );
 
   // Der Fallstrick dieser Funktion: auf dem virtuellen Gerät IST der native
@@ -950,15 +968,19 @@ export default function AufnehmenScreen() {
   // keine Grenzen, dient die oberste Stufe als Maximum. Von Pinch UND
   // Zug-Zoom benutzt. Richtungs-parametrisiert statt an den aktuellen
   // Zustand gebunden: der Kamerawechsel braucht die Grenzen der NEUEN
-  // Richtung, bevor React die abgeleiteten Werte der alten ersetzt hat —
-  // genau daran starb der Zug-Zoom nach dem Wechsel mitten in der Aufnahme
-  // (Nutzer-Befund 2026-08-19: Front→Back verlor den Anker ganz, Back→Front
-  // behielt die falschen Grenzen).
+  // Richtung, bevor React die abgeleiteten Werte der alten ersetzt hat.
+  // Genau daran starb der Zug-Zoom nach dem Wechsel mitten in der Aufnahme
+  // (Nutzer-Befund 2026-08-19: Front zu Back verlor den Anker ganz, Back zu
+  // Front behielt die falschen Grenzen).
   //
   // Eine Richtung ohne virtuelles Mehrfach-Gerät (jede Front) hat im
-  // expo-camera-Zweig keine Grenzen und damit keinen Zoom — dort führt der
+  // expo-camera-Zweig keine Grenzen und damit keinen Zoom, dort führt der
   // Weg nur über das virtuelle Gerät. Die MultiCam-Session zoomt sie
-  // dagegen digital, ihre Grenzen kommen von der Linse selbst.
+  // dagegen digital, ihre Grenzen kommen von der Linse selbst: der echten
+  // Weitwinkel-Linse, nicht blind der ersten der Liste (die Reihenfolge der
+  // Discovery ist kein Vertrag). Antwortet das Modul für sie ohne Grenzen,
+  // bleibt ein bescheidener Ersatzbereich statt eines toten Zooms: er formt
+  // nur die Finger-Abbildung, geklemmt wird nativ ohnehin am echten Gerät.
   const zoomGrenzenFuer = (r: 'back' | 'front') => {
     const linsenDort = nativeZoom.linsen(r);
     const geraet = zoomGeraet(linsenDort);
@@ -970,8 +992,10 @@ export default function AufnehmenScreen() {
         }
       );
     }
-    if (!multiCam || linsenDort.length === 0) return null;
-    return nativeZoom.zoomGrenzen(linsenDort[0].name);
+    if (!multiCam) return null;
+    const linse = linsenDort.find((l) => l.typ === 'wide') ?? linsenDort[0];
+    if (!linse) return null;
+    return nativeZoom.zoomGrenzen(linse.name) ?? { min: 1, max: 8 };
   };
 
   // Läuft, sobald die Mehrfach-Kamera bekannt ist. Der Wechsel des GERÄTS
@@ -1094,7 +1118,7 @@ export default function AufnehmenScreen() {
   // frei — dann bleibt der Zoom bedienbar, wie in der Kamera-App.
   const zoomBedienbar = !nimmtAuf || aufnahmeGesperrt;
   // Zoomen können und Stufen zeigen sind zwei Fragen: die einlinsige Front
-  // hat keine Reihe, zoomt im MultiCam-Zweig aber digital — der Pinch muss
+  // hat keine Reihe, zoomt im MultiCam-Zweig aber digital: der Pinch muss
   // dort greifen, obwohl keine Stufen im Bild stehen.
   const zoomMoeglich = multiCam || zoom !== null;
   const zoomSichtbar = zoom !== null && zoomBedienbar;
@@ -1120,7 +1144,7 @@ export default function AufnehmenScreen() {
 
   // Stellt den Screen auf eine Blickrichtung um: merkt sich den Faktor der
   // alten Richtung, stellt den gemerkten der neuen wieder her und verankert
-  // einen laufenden Zug-Zoom neu — Faktor aus dem Gedächtnis, Grenzen der
+  // einen laufenden Zug-Zoom neu: Faktor aus dem Gedächtnis, Grenzen der
   // neuen Kamera (vorher blieb der Anker auf den alten Grenzen stehen oder
   // fiel beim Wechsel auf die geräte-lose Front ganz weg, und der Zug war
   // für den Rest der Aufnahme tot). Im expo-camera-Zweig bleibt es beim
@@ -1152,7 +1176,7 @@ export default function AufnehmenScreen() {
       // Sobald die Antwort da ist, wird der NATIVE Zoom nachgezogen. Ohne
       // das liefen Anzeige und Session auseinander: das Modul merkt sich je
       // Richtung ihre zuletzt gewählte Kamera samt stehendem Zoomfaktor,
-      // der Screen ihren Anzeige-Faktor — erst das Nachziehen bringt beide
+      // der Screen ihren Anzeige-Faktor; erst das Nachziehen bringt beide
       // auf denselben gemerkten Stand (im expo-camera-Zweig erledigt das
       // zoomNachsetzen über onAvailableLensesChanged). Antwortet das Modul
       // mit null (kein Modul, Aufbau-Fenster, Wechsel abgelehnt), hat nativ
@@ -1160,7 +1184,11 @@ export default function AufnehmenScreen() {
       // stünde der Screen dauerhaft verkehrt zur Session, und jeder weitere
       // Doppeltipp hielte die Vertauschung aufrecht (Final-Review
       // 2026-08-19, Important 1).
+      const nummer = ++wechselNummer.current;
       void multiKamera.wechsleKamera().then((antwort) => {
+        // Überholt: ein jüngerer Wechsel ist längst angewandt, seine Antwort
+        // stimmt den Zustand ab. Diese hier hat nichts mehr zu sagen.
+        if (nummer !== wechselNummer.current) return;
         const wirklich = antwort ?? alt;
         if (wirklich !== neu) richtungAnwenden(neu, wirklich);
         if (!antwort) return;
@@ -1179,7 +1207,7 @@ export default function AufnehmenScreen() {
   // rein, zurück nach unten wieder raus. Hart gesetzt wie der Pinch — der
   // Zoom folgt dem Finger, nicht hinterher.
   const zoomZug = (hub: number) => {
-    // Der Anker existiert nur, wo es Grenzen gab (zoomGrenzenFuer) — die
+    // Der Anker existiert nur, wo es Grenzen gab (zoomGrenzenFuer); die
     // Frage «hat diese Richtung überhaupt Zoom?» ist damit schon beantwortet,
     // auch für die geräte-lose Front im MultiCam-Zweig.
     const start = zugStart.current;

@@ -57,13 +57,13 @@ public class MultiKameraModule: Module {
   // Geräte, Inputs, Outputs und Verbindungen werden AUSSCHLIESSLICH auf der
   // Session-Queue geschrieben: beim Aufbau und beim Abbau. Innerhalb der
   // Session-Queue wird frei gelesen, der Verteiler tut es pro Frame auf der
-  // Video-Queue — er läuft erst, wenn der Aufbau committet ist, und der Abbau
+  // Video-Queue; er läuft erst, wenn der Aufbau committet ist, und der Abbau
   // drainiert seine Queue, bevor er leert. NICHT verlassen darf sich darauf,
   // wer von Main oder vom JS-Thread hereinschaut: der Sucher nimmt Gesten
   // sofort an, der erste Aufbau braucht 300-400 ms, ein Doppeltipp oder Zoom
   // in diesem Fenster träfe die Dictionaries mitten in der Mutation
   // (Final-Review 2026-08-19, Important 1). Für diese Aufrufer gilt darum:
-  // `geraete` und `session` nur über geraetFuer()/laufendeSession() lesen —
+  // `geraete` und `session` nur über geraetFuer()/laufendeSession() lesen:
   // beide prüfen unter dem zustandLock das bereit-Zeichen, und die
   // Schreibstellen der beiden Felder nehmen dasselbe Lock.
   private static var geraete: [String: AVCaptureDevice] = [:]
@@ -144,7 +144,7 @@ public class MultiKameraModule: Module {
   }
 
   // Das Gerät einer Ebene für Aufrufer AUSSERHALB der Session-Queue (Zoom vom
-  // JS-Thread, Fokus auf Main): unter dem Lock und nur bei fertiger Session —
+  // JS-Thread, Fokus auf Main): unter dem Lock und nur bei fertiger Session;
   // deren unbewachter Blick in `geraete` liefe sonst in die Mutation des
   // Aufbaus. Die Session-Queue selbst liest weiterhin direkt.
   private static func geraetFuer(_ name: String) -> AVCaptureDevice? {
@@ -161,6 +161,16 @@ public class MultiKameraModule: Module {
     defer { zustandLock.unlock() }
     guard _bereit else { return nil }
     return session
+  }
+
+  // Ob die Session einen Ton-Anschluss hat, nach derselben Regel:
+  // aufnahmeStarten fragt es auf Main, geschrieben wird audioOutput auf der
+  // Session-Queue (Aufbau vor dem bereit-Zeichen, Abbau danach).
+  private static func tonVerbunden() -> Bool {
+    zustandLock.lock()
+    defer { zustandLock.unlock() }
+    guard _bereit else { return false }
+    return audioOutput?.connection(with: .audio) != nil
   }
 
   private static var blitzGewuenscht: Bool {
@@ -251,7 +261,7 @@ public class MultiKameraModule: Module {
       // Im Aufbau-Fenster (der Sucher nimmt Gesten sofort an, der erste
       // Aufbau braucht 300-400 ms) gibt es nichts zu wechseln: ablehnen,
       // statt eine Zielrichtung zu versprechen, die die Session nie
-      // angewandt hat — der Screen glaubte der Antwort und stünde danach
+      // angewandt hat: der Screen glaubte der Antwort und stünde danach
       // dauerhaft verkehrt zur Session, jeder weitere Doppeltipp hielte die
       // Vertauschung aufrecht. Die JS-Seite macht aus der Ablehnung ein
       // null und rollt ihre optimistische Umstellung zurück.
@@ -261,7 +271,11 @@ public class MultiKameraModule: Module {
       }
       let ziel = Self.wechselZiel()
       Self.aktiveKameraSetzen(ziel)
-      promise.resolve(ziel == "front" ? "front" : "back")
+      // Aufgelöst wird der ANGEWANDTE Zustand, nicht das Ziel: steigt
+      // aktiveKameraSetzen an seinem Guard aus, erfährt der Screen die
+      // wirkliche Lage statt eines Versprechens.
+      let angewandt = Self.aktiveKamera
+      promise.resolve(angewandt == "front" ? "front" : "back")
     }.runOnQueue(.main)
 
     // `kamera` ist das Ziel aus multiCamZiel (front | weit | ultraweit). Liegt
@@ -331,9 +345,11 @@ public class MultiKameraModule: Module {
     // den beiden Delegate-Queues pro Frame GELESEN und darf deshalb nur von
     // einer einzigen Stelle geschrieben werden: sonst schrieben zwei Module
     // von zwei Queues aus auf dieselbe Objektreferenz. Die Session wird hier
-    // nur gelesen (`isRunning`), nicht umgebaut; dafür braucht es die
-    // Session-Queue nicht, und Lesen von überall ist für diese Felder die
-    // Regel der Datei (siehe oben bei `geraete`).
+    // nur gelesen (`isRunning`), nicht umgebaut; sie kommt darum über
+    // laufendeSession() herein und der Ton-Anschluss über tonVerbunden(),
+    // beide gelockt und nur bei fertigem Aufbau: der frühere direkte Blick
+    // von Main in diese Felder ist seit dem Aufbau-Fenster-Gate widerrufen
+    // (siehe oben bei `geraete`).
     AsyncFunction("aufnahmeStarten") { (maxSekunden: Double, promise: Promise) in
       // Lehnt NUR ab, wenn eine Aufnahme läuft, die noch nicht gestoppt ist:
       // eine gestoppte bleibt absichtlich stehen (die Vorschau spielt noch aus
@@ -355,7 +371,7 @@ public class MultiKameraModule: Module {
         // beschriebe die Datei falsch.
         let aufnahme = try Aufnahme(
           ziel: ziel, maxSekunden: maxSekunden,
-          mitTon: Self.audioOutput?.connection(with: .audio) != nil
+          mitTon: Self.tonVerbunden()
         )
         KameraAufnahmeModule.aktuelle = aufnahme
         promise.resolve()
