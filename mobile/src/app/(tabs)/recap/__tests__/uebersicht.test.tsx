@@ -66,6 +66,33 @@ jest.mock('@/features/teilen/TeilenSheetInhalt', () => {
 jest.mock('@/features/recap/exportApi', () => ({ sichereAlleInGalerie: jest.fn() }));
 const mockOpenSettings = jest.fn(() => Promise.resolve());
 jest.mock('expo-linking', () => ({ openSettings: () => mockOpenSettings() }));
+// SiegelAbziehen hat ihre eigene Testdatei (components/__tests__/
+// SiegelAbziehen.test.tsx: Skia, Timer, Haptik). Hier zählt nur, DASS der
+// Screen sie mit welcher Grösse zeigt und was nach `onAbgezogen` passiert.
+//
+// Das Siegel steht jetzt bei JEDEM Öffnen (kein dauerhafter Merker mehr),
+// läge also vor jedem Inhalt. Damit die vielen Inhalts-Tests (Raster, Zeilen,
+// Segment-Zeile, Teilen, Alle sichern) den Recap unverändert offen vorfinden,
+// zieht der Mock standardmässig SOFORT beim Mount ab (`mockSiegelAutoPeel`);
+// die Siegel-Tests unten schalten das ab, um das stehende Siegel zu prüfen
+// und selbst zu tippen.
+let mockSiegelAutoPeel = true;
+jest.mock('@/components/SiegelAbziehen', () => {
+  const ReactActual = require('react');
+  const { Pressable } = require('react-native');
+  return {
+    SiegelAbziehen: ({ groesse, onAbgezogen, testID }: { groesse: number; onAbgezogen: () => void; testID?: string }) => {
+      ReactActual.useEffect(() => {
+        if (mockSiegelAutoPeel) onAbgezogen();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, []);
+      return ReactActual.createElement(Pressable, {
+        testID, accessibilityRole: 'button', accessibilityLabel: 'Siegel abziehen',
+        onPress: onAbgezogen, style: { width: groesse, height: groesse },
+      });
+    },
+  };
+});
 
 import RecapUebersicht from '../[id]/uebersicht';
 import { fetchTrip } from '@/features/trips/tripsApi';
@@ -144,6 +171,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockKannZurueck = true;
   mockAuth.userId = 'u1';
+  mockSiegelAutoPeel = true;
   (fetchTrip as jest.Mock).mockResolvedValue({ data: trip, error: null });
 });
 
@@ -717,5 +745,88 @@ describe('der Fehler bietet nur an, was er halten kann', () => {
 
     expect(await screen.findByText(LADEFEHLER)).toBeTruthy();
     expect(screen.getByLabelText('Nochmal versuchen')).toBeTruthy();
+  });
+});
+
+// Das Wachssiegel auf dem Recap: es steht bei JEDEM Öffnen in der Mitte statt
+// des Inhalts, ein Tipp zieht es ab (Animation in SiegelAbziehen), danach
+// kommt der Recap. Kein dauerhafter Merker mehr, deshalb hier
+// `mockSiegelAutoPeel = false`, damit das stehende Siegel geprüft werden kann
+// (die übrigen Tests ziehen es über den Auto-Peel-Mock sofort ab).
+describe('Siegel auf der Recap-Übersicht', () => {
+  beforeEach(() => {
+    mockSiegelAutoPeel = false;
+  });
+
+  const vollerRecap = () => {
+    (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: VOLLSTAENDIG, error: null });
+    (holeVorrat as jest.Mock).mockResolvedValue({ vorrat: VORRAT_OK, error: null, grund: null });
+  };
+
+  test('das Siegel steht mit Hinweis da, Raster, Popcorn, Segment-Zeile und Zähl-Zeilen fehlen', async () => {
+    vollerRecap();
+    await wrap();
+    expect(await screen.findByTestId('recap-siegel')).toBeTruthy();
+    expect(screen.getByText('Dein Recap ist versiegelt. Tipp aufs Siegel, um ihn zu öffnen.')).toBeTruthy();
+    // Titel und Kopf bleiben, alles, was zum Inhalt gehört, ist zu.
+    expect(screen.getByText('Lissabon Städtetrip')).toBeTruthy();
+    expect(screen.queryByText(POPCORN_TEXT)).toBeNull();
+    expect(screen.queryByText('Tag 1 · Lissabon · 10. August')).toBeNull();
+    expect(screen.queryAllByTestId(/^recap-kachel-/)).toHaveLength(0);
+    expect(screen.queryByText('Auf der Karte')).toBeNull();
+    expect(screen.queryByText('1 Moment ist noch unterwegs.')).toBeNull();
+  });
+
+  test('die Bühne des Siegels nimmt die Inhaltsbreite ein, gedeckelt bei 416', async () => {
+    vollerRecap();
+    await wrap();
+    const siegel = await screen.findByTestId('recap-siegel');
+    // Jest-Fenster ist 750 breit, minus zweimal Screen-Rand 24 wären 702,
+    // der Deckel (Schärfegrenze des PNGs) hält bei 416.
+    expect(siegel.props.style).toEqual({ width: 416, height: 416 });
+  });
+
+  test('abgezogen: der Recap kommt, das Siegel ist weg', async () => {
+    vollerRecap();
+    await wrap();
+    await fireEvent.press(await screen.findByTestId('recap-siegel'));
+
+    expect(await screen.findByText('Tag 1 · Lissabon · 10. August')).toBeTruthy();
+    expect(screen.getByText(POPCORN_TEXT)).toBeTruthy();
+    expect(screen.getAllByTestId(/^recap-kachel-/)).toHaveLength(3);
+    expect(screen.getByText('Auf der Karte')).toBeTruthy();
+    expect(screen.getByText('1 Moment ist noch unterwegs.')).toBeTruthy();
+    expect(screen.queryByTestId('recap-siegel')).toBeNull();
+  });
+
+  // Das Siegel steht nur vor etwas, das sich aufdecken lässt. Eine Reise, in
+  // der bislang nur ein Nachzügler unterwegs ist, hat hinter dem Siegel nichts,
+  // das Abziehen liefe ins Leere; die ehrliche Zeile steht stattdessen direkt.
+  test('ohne einen einzigen sichtbaren Tag gibt es kein Siegel', async () => {
+    (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: [pendingM], error: null });
+    (holeVorrat as jest.Mock).mockResolvedValue({
+      vorrat: { urls: new Map(), gueltigBis: Date.now() + 999_999, ausgelassen: 0 },
+      error: null,
+      grund: null,
+    });
+    await wrap();
+    expect(await screen.findByText('1 Moment ist noch unterwegs.')).toBeTruthy();
+    expect(screen.queryByTestId('recap-siegel')).toBeNull();
+  });
+
+  test('bei einem Ladefehler oder einer leer gebliebenen Reise steht kein Siegel', async () => {
+    (fetchRecapMomente as jest.Mock).mockResolvedValue({ data: [], error: null });
+    (holeVorrat as jest.Mock).mockResolvedValue({
+      vorrat: null, error: 'Der Recap konnte nicht geladen werden.', grund: null,
+    });
+    await wrap();
+    await screen.findByText('Der Recap konnte nicht geladen werden.');
+    expect(screen.queryByTestId('recap-siegel')).toBeNull();
+
+    screen.unmount();
+    leererLadeErfolg();
+    await wrap();
+    await screen.findByText('Diese Reise ist leer geblieben.');
+    expect(screen.queryByTestId('recap-siegel')).toBeNull();
   });
 });

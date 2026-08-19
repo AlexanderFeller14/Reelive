@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Animated, ScrollView, Text, View, StyleSheet } from 'react-native';
+import {
+  ActivityIndicator, Animated, Easing, ScrollView, Text, View, StyleSheet, useWindowDimensions,
+} from 'react-native';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { Image } from 'expo-image';
 import * as Linking from 'expo-linking';
@@ -7,6 +9,7 @@ import { ChevronLeft, Download, Share2 } from 'lucide-react-native';
 import { PressScale } from '@/components/PressScale';
 import { Button } from '@/components/Button';
 import { Sheet } from '@/components/Sheet';
+import { SiegelAbziehen } from '@/components/SiegelAbziehen';
 import { useTheme } from '@/theme/ThemeProvider';
 import { useReducedMotion } from '@/theme/useReducedMotion';
 import { motion, radius, spacing, type } from '@/theme/tokens';
@@ -270,6 +273,25 @@ export default function RecapUebersicht() {
   const [nochmalHilft, setNochmalHilft] = useState(true);
   const [laedt, setLaedt] = useState(false);
   const aktiv = useRef(true);
+  // Das Siegel auf dem Recap: solange die Person es auf diesem Gerät noch nie
+  // abgezogen hat, steht statt Segment-Zeile, Popcorn und Tagesraster das
+  // Wachssiegel in der Mitte (SiegelAbziehen), ein Tipp zieht es ab, danach
+  // blendet der Inhalt ein. Das Siegel steht bei JEDEM Öffnen des Recaps neu
+  // (bewusste Entscheidung: das Aufbrechen ist der Moment, nicht ein
+  // einmaliges Freischalten), es gibt darum keinen dauerhaften Merker mehr.
+  // `entsiegeltRef` hält das Abziehen nur für die Lebenszeit DIESES Screens
+  // fest, damit die Rückkehr aus dem Player (der Screen bleibt gemountet,
+  // useFocusEffect lädt aber neu) nicht schon wieder ein Siegel zeigt; erst
+  // ein echtes Verlassen und neu Öffnen bringt es zurück.
+  const [entsiegelt, setEntsiegelt] = useState(false);
+  const entsiegeltRef = useRef(false);
+  // Frisch abgezogen: der Inhalt kommt nicht schlagartig, er blendet ein
+  // (§5: nur Opacity, duration-gentle, ease-smooth). Startwert 1, damit der
+  // Inhalt nach dem Abziehen und bei einem Reload aus dem Player (entsiegelt
+  // ist dann schon true) ohne erneuten Fade dasteht.
+  const [einblendung] = useState(() => new Animated.Value(1));
+  const reducedMotion = useReducedMotion();
+  const { width: fensterBreite } = useWindowDimensions();
 
   const laden = useCallback(async () => {
     const [
@@ -281,6 +303,9 @@ export default function RecapUebersicht() {
     setTrip(t);
     setMomente(m);
     setVorrat(v);
+    // Nur die laufende Sitzung entscheidet: beim ersten Laden false (Siegel
+    // steht), nach dem Abziehen true (bleibt bei einem Reload offen).
+    setEntsiegelt(entsiegeltRef.current);
     setFehler(tFehler ?? vFehler ?? mFehler ?? null);
     // `grund` gehört zum VORRAT und zählt deshalb nur, wenn dessen Fehler auch
     // der angezeigte ist (Priorität Reise vor Vorrat vor Momenten, siehe oben).
@@ -318,6 +343,25 @@ export default function RecapUebersicht() {
     // frühere Cast auf `Href` (Übergangslösung, solange die Route fehlte) ist
     // damit hinfällig und entfernt, die Navigation ist wieder typgeprüft.
     router.push({ pathname: '/recap/[id]/player', params: { id, start: String(index) } });
+  };
+
+  // Das Siegel ist ab (SiegelAbziehen meldet sich, sobald seine Bühne leer
+  // ist): Inhalt einblenden. Reihenfolge bewusst: erst die Deckkraft auf 0,
+  // DANN `entsiegelt`, sonst stünde der Inhalt für einen Frame voll da, bevor
+  // der Fade beginnt. Nur Sitzungs-State, kein dauerhafter Merker: beim
+  // nächsten Öffnen des Recaps steht das Siegel wieder.
+  const entsiegeln = () => {
+    entsiegeltRef.current = true;
+    einblendung.setValue(0);
+    setEntsiegelt(true);
+    Animated.timing(einblendung, {
+      toValue: 1,
+      duration: reducedMotion ? motion.duration.base : motion.duration.gentle,
+      // Ausdrücklich, nicht der RN-Default (inOut): siehe MemorySubmission-
+      // Animation, der Default lässt einen Fade zäh auslaufen.
+      easing: Easing.bezier(...motion.easeSmooth),
+      useNativeDriver: true,
+    }).start();
   };
 
   if (!geladen) return <SkelettScreen />;
@@ -450,10 +494,21 @@ export default function RecapUebersicht() {
   const pendingAnzahl = momente.length - uploaded.length;
   const ausgelassenAnzahl = vorrat?.ausgelassen ?? 0;
   const komplettLeer = tage.length === 0 && pendingAnzahl === 0 && ausgelassenAnzahl === 0;
+  // Das Siegel steht nur vor etwas, das sich aufdecken lässt: mindestens ein
+  // Tag mit Bild. Vor einer Reise, die nur Nachzügler oder Ausgelassene hat,
+  // gäbe es hinter dem Siegel nichts zu sehen, das Abziehen liefe ins Leere;
+  // kommen die Momente später an, steht das Siegel dann, wenn es sich lohnt.
+  const versiegelt = tage.length > 0 && !entsiegelt;
+  // Bühne des Siegels: volle Inhaltsbreite, gedeckelt wie die Filmrolle der
+  // Recap-Liste (Schärfegrenze des PNGs, siehe SIEGEL_BUEHNE_MAX).
+  const buehne = Math.min(fensterBreite - 2 * spacing.screen, SIEGEL_BUEHNE_MAX);
 
   return (
     <View style={{ flex: 1, backgroundColor: colors['bg-0'] }}>
-      <ScrollView contentContainerStyle={[styles.inhalt, { paddingTop: oben }]}>
+      {/* `flexGrow: 1` nur solange das Siegel steht: dann füllt der Inhalt
+          die Höhe, und die Bühne kann sich im Rest unter dem Titel
+          zentrieren. Danach normal, ein kurzer Recap darf kurz sein. */}
+      <ScrollView contentContainerStyle={[styles.inhalt, { paddingTop: oben }, versiegelt && styles.inhaltGestreckt]}>
         {kopf}
         <Text style={[type.h1, { color: colors['text-1'] }]}>{trip.name}</Text>
 
@@ -472,7 +527,7 @@ export default function RecapUebersicht() {
             Hell, nicht translucent: die `Pille`-Komponente ist für eine
             Fremdfläche gemacht (DESIGN-LANGUAGE §1, «auf Fotos»), hier liegt
             reines Weiss darunter. */}
-        {kannKarte && (
+        {kannKarte && !versiegelt && (
           <View style={styles.segmentZeile}>
             {/* Die aktive Hälfte ist bewusst KEIN Knopf: sie zeigt, wo man
                 gerade ist, und ein Tipp darauf täte nichts. Ein Press-Feedback
@@ -525,8 +580,19 @@ export default function RecapUebersicht() {
           <Text style={[type.h2, { color: colors['text-1'], marginTop: spacing.xl }]}>
             Diese Reise ist leer geblieben.
           </Text>
+        ) : versiegelt ? (
+          // Der inszenierte Moment vor dem Recap (§7: nur inszenierte Momente
+          // zentrieren): das Siegel in der Mitte, darunter eine Zeile, die
+          // sagt, was zu tun ist. Kein Rahmen, kein Schatten von uns, das
+          // Siegel bringt seinen eigenen mit.
+          <View style={styles.siegelBuehne}>
+            <SiegelAbziehen testID="recap-siegel" groesse={buehne} onAbgezogen={entsiegeln} />
+            <Text style={[type.body, { color: colors['text-2'], textAlign: 'center' }]}>
+              Dein Recap ist versiegelt. Tipp aufs Siegel, um ihn zu öffnen.
+            </Text>
+          </View>
         ) : (
-          <View style={{ gap: spacing.xl, marginTop: spacing.xl }}>
+          <Animated.View style={{ gap: spacing.xl, marginTop: spacing.xl, opacity: einblendung }}>
             {/* Der Vorhang-Moment vor dem Recap. Er steht bewusst in DIESEM
                 Zweig und nicht über der ganzen Seite: über einem Ladefehler
                 oder einer leer gebliebenen Reise wäre «Dein Recap wartet» ein
@@ -548,10 +614,12 @@ export default function RecapUebersicht() {
             {tage.map((tag) => (
               <TagesAbschnitt key={tag.nummer} tag={tag} urls={urls} indexById={indexById} onTip={zumPlayer} />
             ))}
-          </View>
+          </Animated.View>
         )}
 
-        {!fehler && (pendingAnzahl > 0 || ausgelassenAnzahl > 0) && (
+        {/* Unter dem Siegel auch diese Zeilen nicht: sie gehören zum Inhalt,
+            der noch zu ist. */}
+        {!fehler && !versiegelt && (pendingAnzahl > 0 || ausgelassenAnzahl > 0) && (
           <View style={{ gap: spacing.xs, marginTop: spacing.xl }}>
             {pendingAnzahl > 0 && (
               <Text style={[type.secondary, { color: colors['text-2'] }]}>{unterwegsText(pendingAnzahl)}</Text>
@@ -588,8 +656,18 @@ export default function RecapUebersicht() {
   );
 }
 
+// Obergrenze der Siegel-Bühne, dieselbe Schärfegrenze wie FILMROLLE_MAX in
+// recap/index.tsx: das Siegel nimmt 500/720 der Bühne ein, bei 416 sind das
+// 289 pt, mal drei 867 px, unter den 1254 px der Quelle. Auf jedem iPhone
+// bleibt die Breite ohnehin darunter, die Grenze greift erst auf dem iPad.
+const SIEGEL_BUEHNE_MAX = 416;
+
 const styles = StyleSheet.create({
   inhalt: { padding: spacing.screen, paddingTop: spacing.xl, paddingBottom: spacing.xxl, gap: spacing.m },
+  inhaltGestreckt: { flexGrow: 1 },
+  // Füllt die Höhe unter dem Titel und zentriert das Siegel darin, mit dem
+  // Hinweis darunter (Abstand aus dem 4er-Raster).
+  siegelBuehne: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: spacing.l },
   kopfzeile: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   kopfAktionen: { flexDirection: 'row', alignItems: 'center', gap: spacing.base },
   // Zwei Pillen nebeneinander, linksbündig (DESIGN-LANGUAGE §7: Text ist

@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Reelive Sticker Peel</title>
+  <style>
+    *{box-sizing:border-box}html,body{height:100%;margin:0}
+    body{display:grid;place-items:center;background:#f4f0e9;font-family:system-ui,sans-serif}
+    .stage{position:relative;width:min(88vmin,720px);aspect-ratio:1;border-radius:32px;
+      background:radial-gradient(circle at 50% 42%,#fff 0,#f8f4ed 48%,#e9e1d5 100%);
+      box-shadow:0 24px 70px #4a28151f;overflow:hidden}
+    canvas{width:100%;height:100%;display:block}
+    button{position:absolute;left:50%;bottom:22px;translate:-50% 0;border:0;border-radius:999px;
+      padding:11px 18px;background:#171717;color:white;font-weight:650;cursor:pointer;
+      box-shadow:0 8px 22px #0002;opacity:0;transition:opacity .25s}
+    .stage:hover button,.done button{opacity:1}
+    @media(prefers-reduced-motion:reduce){button{opacity:1}}
+  </style>
+</head>
+<body>
+  <main class="stage" id="stage">
+    <canvas id="canvas" width="720" height="720" aria-label="Reelive Wachssiegel wird wie ein flexibler Sticker abgezogen"></canvas>
+    <button id="replay">Noch einmal</button>
+  </main>
+  <script>
+    const canvas=document.querySelector('#canvas'),ctx=canvas.getContext('2d');
+    const stage=document.querySelector('#stage'),replay=document.querySelector('#replay');
+    const img=new Image(); img.src='../../mobile/assets/images/rotes-brief-wachssiegel-transparent.png';
+    const back=document.createElement('canvas'),backCtx=back.getContext('2d');
+    const N=42,S=500,OX=110,OY=105,DURATION=2700;
+    let start=0,raf=0,nodes=[],springs=[];
+
+    const clamp=(v,a=0,b=1)=>Math.max(a,Math.min(b,v));
+    const smooth=t=>{t=clamp(t);return t*t*(3-2*t)};
+    const easeOut=t=>1-Math.pow(1-clamp(t),4);
+
+    function initPhysics(){
+      nodes=[];
+      for(let y=0;y<=N;y++){nodes[y]=[];for(let x=0;x<=N;x++){
+        const px=OX+x/N*S,py=OY+y/N*S;
+        nodes[y][x]={x:px,y:py,ox:px,oy:py,u:x/N,v:y/N,pinned:true,back:false};
+      }}
+    }
+
+    function stepPhysics(p){
+      const travel=smooth(clamp((p-.05)/.90));
+      const maxS=(OX+OY+2*S)/Math.SQRT2;
+      const minS=(OX+OY)/Math.SQRT2;
+      const front=maxS+28-(maxS-minS+190)*travel;
+      const radius=54;
+      for(const row of nodes)for(const n of row){
+        const s=(n.ox+n.oy)/Math.SQRT2;
+        const t=(n.ox-n.oy)/Math.SQRT2;
+        const d=s-front;
+        if(d<=0){n.x=n.ox;n.y=n.oy;n.pinned=true;n.back=false;continue}
+        n.pinned=false;
+        const theta=Math.min(d/radius,Math.PI);
+        const extra=Math.max(0,d-Math.PI*radius);
+        const curledS=front+radius*Math.sin(theta)-extra;
+        const height=radius*(1-Math.cos(theta));
+        let x=(curledS+t)/Math.SQRT2;
+        let y=(curledS-t)/Math.SQRT2;
+        x+=height*.52;
+        y-=height*.88;
+        if(extra>0){x+=extra*.22;y-=extra*.28}
+        n.x=x;n.y=y;n.back=theta>Math.PI/2;
+      }
+    }
+
+    function triangle(a,b,c,ta,tb,tc,texture=img,alpha=1){
+      const den=ta.x*(tb.y-tc.y)+tb.x*(tc.y-ta.y)+tc.x*(ta.y-tb.y);
+      if(Math.abs(den)<.0001)return;
+      const A=(a.x*(tb.y-tc.y)+b.x*(tc.y-ta.y)+c.x*(ta.y-tb.y))/den;
+      const C=(a.y*(tb.y-tc.y)+b.y*(tc.y-ta.y)+c.y*(ta.y-tb.y))/den;
+      const B=(a.x*(tc.x-tb.x)+b.x*(ta.x-tc.x)+c.x*(tb.x-ta.x))/den;
+      const D=(a.y*(tc.x-tb.x)+b.y*(ta.x-tc.x)+c.y*(tb.x-ta.x))/den;
+      const E=a.x-A*ta.x-B*ta.y,F=a.y-C*ta.x-D*ta.y;
+      const mx=(a.x+b.x+c.x)/3,my=(a.y+b.y+c.y)/3;
+      const expand=p=>{const dx=p.x-mx,dy=p.y-my,d=Math.hypot(dx,dy)||1;return{x:p.x+dx/d*.85,y:p.y+dy/d*.85}};
+      const aa=expand(a),bb=expand(b),cc=expand(c);
+      ctx.save();ctx.globalAlpha=alpha;ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';
+      ctx.beginPath();ctx.moveTo(aa.x,aa.y);ctx.lineTo(bb.x,bb.y);ctx.lineTo(cc.x,cc.y);ctx.closePath();ctx.clip();
+      ctx.setTransform(A,C,B,D,E,F);ctx.drawImage(texture,0,0,img.width,img.height);ctx.restore();
+    }
+
+    function render(p){
+      ctx.setTransform(1,0,0,1,0,0);ctx.clearRect(0,0,720,720);
+      const shadowP=smooth(clamp((p-.05)/.85));
+      ctx.save();ctx.filter=`blur(${16+22*shadowP}px)`;ctx.globalAlpha=.20*(1-.55*shadowP);
+      ctx.fillStyle='#36150d';ctx.beginPath();ctx.ellipse(360+80*shadowP,590-70*shadowP,215-70*shadowP,45-17*shadowP,-.18,0,Math.PI*2);ctx.fill();ctx.restore();
+
+      for(let y=0;y<N;y++)for(let x=0;x<N;x++){
+        const u=x/N,v=y/N,u1=(x+1)/N,v1=(y+1)/N;
+        const a=nodes[y][x],b=nodes[y][x+1],c=nodes[y+1][x+1],d=nodes[y+1][x];
+        const ta={x:u*img.width,y:v*img.height},tb={x:u1*img.width,y:v*img.height},tc={x:u1*img.width,y:v1*img.height},td={x:u*img.width,y:v1*img.height};
+        triangle(a,b,c,ta,tb,tc,img);
+        triangle(a,c,d,ta,tc,td,img);
+      }
+    }
+
+    function tick(now){
+      const reduced=matchMedia('(prefers-reduced-motion:reduce)').matches;
+      const p=reduced?1:clamp((now-start)/DURATION);
+      stepPhysics(p);
+      render(p);
+      if(p<1)raf=requestAnimationFrame(tick);else stage.classList.add('done');
+    }
+    function play(){cancelAnimationFrame(raf);stage.classList.remove('done');initPhysics();start=performance.now();raf=requestAnimationFrame(tick)}
+    replay.addEventListener('click',play);img.addEventListener('load',()=>{
+      back.width=img.width;back.height=img.height;backCtx.drawImage(img,0,0);
+      backCtx.globalCompositeOperation='source-atop';backCtx.fillStyle='rgba(255,176,150,.58)';
+      backCtx.fillRect(0,0,back.width,back.height);backCtx.globalCompositeOperation='source-over';play();
+    });
+  </script>
+</body>
+</html>

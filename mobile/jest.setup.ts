@@ -64,3 +64,33 @@ jest.mock('react-native-maps', () => {
 // frei erfunden und absichtlich keine echte Adresse: es wird nichts geladen,
 // die Tests vergleichen nur die zusammengebaute Zeichenkette.
 process.env.EXPO_PUBLIC_SUPABASE_URL ??= 'http://test.local:54321';
+
+// @shopify/react-native-skia ist ein natives Zeichen-Backend (JSI), das es im
+// Test-Environment nicht gibt, gleiche Fehlstelle wie react-native-maps oben.
+// Der Mock rendert die Zeichenknoten als schlichte Views mit denselben Props
+// (inkl. testID), genug, um zu pruefen, WAS eine Komponente zeichnet und wie
+// sie auf Tipps reagiert, ohne einen Pixel zu rechnen. `useImage` liefert ein
+// geladenes Bild in der Groesse des Siegel-PNGs (1254 x 1254), damit
+// Komponenten, die auf ein geladenes Bild warten, im Test nicht ewig warten.
+jest.mock('@shopify/react-native-skia', () => {
+  const ReactActual = require('react');
+  const { View } = require('react-native');
+  // Jeder Zeichenknoten bekommt eine feste testID nach seinem Typ
+  // (`skia-oval`, `skia-vertices`, ...): die echten Skia-Komponenten kennen
+  // kein testID, Tests koennen die Knoten aber so trotzdem finden und ihre
+  // Props (Vertices, Indizes, Bild) pruefen.
+  const knoten = (typ: string) => (props: Record<string, unknown>) =>
+    ReactActual.createElement(View, { testID: `skia-${typ}`, ...props }, props.children);
+  return {
+    __esModule: true,
+    Canvas: knoten('canvas'),
+    Group: knoten('group'),
+    Oval: knoten('oval'),
+    Vertices: knoten('vertices'),
+    ImageShader: knoten('image-shader'),
+    BlurMask: knoten('blur-mask'),
+    useImage: () => ({ width: () => 1254, height: () => 1254 }),
+    FilterMode: { Linear: 1, Nearest: 0 },
+    MipmapMode: { None: 0, Nearest: 1, Linear: 2 },
+  };
+});
