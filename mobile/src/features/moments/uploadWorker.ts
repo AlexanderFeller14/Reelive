@@ -14,21 +14,13 @@ import type { QueueJob } from './types';
 
 const INTERVAL_MS = 5_000;
 
-// Task-13-Fix-Runde-1: a job that's just waiting on network I/O when
-// signing out (for a video easily several seconds) must not keep writing
-// afterwards. start()/stop() count this generation up; every run remembers
-// its own at the start, processJob checks it again before every single
-// write (insert, upload, update, confirmation, delete), not just once at
-// the entrance, because the state can have changed between two await
-// points. That covers the RACE (signed out mid-write), but NOT the more
-// common, race-free case: a job merely sits in the queue (zustand:
-// 'wartet') while A signs out and B signs in, the next regular tick would
-// run under B's fresh, valid generation and the check above would pass
-// trivially. THAT's what Fix-Runde-2 handles: authorship gets captured in
-// QueueJob.author_id when enqueuing (no longer read from the session when
-// writing, see momentsApi.createMoment), and nextJob() below only selects
-// jobs of the person CURRENTLY signed in (momentsApi.currentAuthorId()). Both
-// mechanisms complement each other, neither replaces the other.
+// Task-13-Fix-Runde-1: processJob checks the generation again before every
+// single write (insert, upload, update, confirmation, delete), not just
+// once at the entrance, because the state can have changed between two
+// await points. Fix-Runde-2 additionally captures authorship in
+// QueueJob.author_id at enqueue time (see momentsApi.createMoment),
+// covering the more common, race-free case a generation check alone can't
+// catch.
 let generation = 0;
 function belongsToCurrentGeneration(myGeneration: number): boolean {
   return myGeneration === generation;
@@ -88,25 +80,13 @@ async function uploadPart(url: string, uri: string, contentType: string): Promis
     httpMethod: 'PUT',
     headers: { 'Content-Type': contentType },
   });
-  // upload() does NOT throw on 4xx/5xx, it returns the response (unlike a
-  // read error or abort). The status therefore has to be checked itself,
-  // otherwise a rejected upload counts as done and the moment would be
-  // lost.
   if (response.status < 200 || response.status >= 300) {
     throw new Error('Hochladen fehlgeschlagen.');
   }
 }
 
-// The one way a moment leaves the queue WITHOUT success. Two cases end up
-// here: permanent rejection by the policy and the missing local file. Both
-// are final, and Spec §8 promises "discarded with an explanation" for both.
-//
-// The order isn't arbitrary (Final-Review, Important 9): record FIRST, then
-// discard. If it breaks off between the two steps, the job stays put and
+// If it breaks off between recording and discarding, the job stays put and
 // runs through here again (insert or replace makes that harmless).
-// The other way around, the moment would be silently gone. The files go
-// last (Critical 2): without cleanup, the medium and thumbnail would stay
-// behind forever, and nobody would ever come back to them.
 async function discardJob(job: QueueJob, reason: string, myGeneration: number): Promise<void> {
   await queueDb.rememberDiscarded({
     id: job.post_id,
@@ -120,11 +100,6 @@ async function discardJob(job: QueueJob, reason: string, myGeneration: number): 
   media.removeMomentFiles(job.post_id);
 }
 
-// Works through ONE already selected job completely (all due steps), not
-// just a single step, see processOneJob() for the selection. myGeneration:
-// the worker runtime this run belonged to at the start (see
-// belongsToCurrentGeneration above), gets re-checked before every single
-// write, not just once on entry.
 async function processJob(job: QueueJob, now: number, myGeneration: number): Promise<void> {
   let current = job;
   try {
@@ -200,14 +175,12 @@ async function processJob(job: QueueJob, now: number, myGeneration: number): Pro
     if (!belongsToCurrentGeneration(myGeneration)) return;
     const confirmed = await momentsApi.confirmUpload(current.post_id);
     if (confirmed.error) {
-      // Final-Review, Important 4: an incomplete object was a dead end.
-      // medium_geladen/thumb_geladen got set as soon as the PUT returned
-      // 2xx, and never taken back. If storage holds a 0-byte or truncated
-      // object, confirm correctly responds with "upload not yet complete",
-      // but the next run skipped both uploads and only called confirm
-      // again. Forever, every five seconds. The flags therefore get reset
-      // BEFORE the failure is saved (the catch branch handles that with
-      // `current`), so the next attempt genuinely uploads again.
+      // Final-Review, Important 4: medium_geladen/thumb_geladen used to
+      // get set as soon as the PUT returned 2xx and never taken back. If
+      // storage held a 0-byte or truncated object, confirm correctly
+      // responded with "upload not yet complete", but the next run
+      // skipped both uploads and only called confirm again. Forever,
+      // every five seconds.
       if (confirmed.incomplete) {
         current = { ...current, medium_geladen: false, thumb_geladen: false };
       }
@@ -227,10 +200,6 @@ async function processJob(job: QueueJob, now: number, myGeneration: number): Pro
     // The failure counter is a write too: a finished generation must no
     // longer leave it behind (see comment above).
     if (!belongsToCurrentGeneration(myGeneration)) return;
-    // Second permanent case besides the policy rejection above: the
-    // capture no longer sits on the device. The job must NOT go into the
-    // normal backoff here, otherwise it would run into the same wall again
-    // on every app start.
     if (error instanceof LocalFileMissing) {
       await discardJob(current, error.message, myGeneration);
       console.error(
@@ -246,16 +215,9 @@ async function processJob(job: QueueJob, now: number, myGeneration: number): Pro
   }
 }
 
-// Prevents overlap WITHIN the same worker generation (Task-6-Brief, e.g.
-// the 5-second tick while an upload is still underway), deliberately no
-// longer via a single global flag (Task-13-Fix-Runde-2): one run only
-// blocks a second run of the SAME generation. A new run after stop()+start()
-// (switching to another person on the same device, or an immediate
-// re-sign-in of the same person) belongs to a NEW generation and isn't
-// blocked by a still-winding-down old run, whose write attempts fail on the
-// generation check in processJob anyway. A purely global flag that stop()
-// resets (Round 1), by contrast, would have allowed ANY overlap, including
-// two runs of the same, still-running generation.
+// Deliberately no longer a single global flag (Task-13-Fix-Runde-2): a
+// purely global flag that stop() resets (Round 1) would have allowed ANY
+// overlap, including two runs of the same, still-running generation.
 let runningGeneration: number | null = null;
 
 // Exported and does exactly one select-plus-process run, that's the only
@@ -303,9 +265,6 @@ export async function pending(): Promise<number> {
 let intervalId: ReturnType<typeof setInterval> | null = null;
 let networkSubscription: { remove: () => void } | null = null;
 
-// Idempotent: a second call while the worker is already running doesn't
-// create a second interval/subscription (and doesn't count the generation
-// up either then, since no new runtime is starting after all).
 export function start(): void {
   if (intervalId !== null) return;
   generation += 1;
@@ -317,14 +276,6 @@ export function start(): void {
   });
 }
 
-// Also idempotent: without a running worker (or called a second time)
-// nothing happens. Counts the generation up, every run that still knew this
-// runtime recognizes itself as outdated on its next write attempt (see
-// processJob) and aborts instead of writing. No separate reset of
-// runningGeneration needed: it's bound to the OLD generation, an
-// immediately following start() creates a NEW one (see there) and is
-// therefore never blocked by a still-winding-down old run
-// (Task-13-Fix-Runde-2).
 export function stop(): void {
   if (intervalId !== null) {
     clearInterval(intervalId);

@@ -169,9 +169,6 @@ test('reports the confirmation as incomplete, gets genuinely re-uploaded on the 
   expect(mockUpload).toHaveBeenCalledTimes(2);
 });
 
-// Every OTHER failure of the confirmation (network down, Function
-// unreachable) must not throw away the uploads, they're already done after
-// all.
 test('an ordinary confirmation failure keeps the completed uploads', async () => {
   (momentsApi.confirmUpload as jest.Mock).mockResolvedValueOnce({ error: 'Netz weg' });
   jobs.push({ ...basis });
@@ -278,9 +275,6 @@ test('a server-side vanished moment gets discarded instead of retried forever', 
   expect(media.removeMomentFiles).toHaveBeenCalledWith('p1');
 });
 
-// The boundary everything hinges on: an ordinary failure fetching the URLs
-// (server down, network down) is NOT permanent and must not cost the
-// moment.
 test('a retryable failure fetching the URLs keeps the job', async () => {
   (momentsApi.signedUrls as jest.Mock).mockResolvedValueOnce({
     urls: null,
@@ -332,8 +326,6 @@ test('the missing capture gets recorded with a reason before the job disappears'
   expect(rememberCall).toBeLessThan(removeCall);
 });
 
-// The thumbnail counts just the same: if the medium is still there but the
-// preview image isn't, the second PUT failed on the same native exception.
 test('a missing preview image also leads to discarding instead of a crash', async () => {
   jobs.push({ ...basis, zeile_angelegt: true, medium_geladen: true });
   mockFile.exists = false;
@@ -344,9 +336,6 @@ test('a missing preview image also leads to discarding instead of a crash', asyn
   expect(queueDb.removeJob).toHaveBeenCalledWith('j1');
 });
 
-// An ordinary failure is not a rejection, it gets retried and must not be
-// reported to anyone (Spec §8: upload errors stay invisible as long as the
-// queue retries them).
 test('a retryable failure does NOT get reported as discarded', async () => {
   mockUpload.mockResolvedValueOnce({ status: 500, body: '', headers: {} });
   jobs.push({ ...basis });
@@ -384,13 +373,6 @@ test('start() is idempotent, stop() cleans up the interval and network listener'
   }
 });
 
-// Task-13-Fix-Runde-1: postsApi.momentAnlegen() only reads the authorship
-// from the currently active session AT CALL TIME (not when enqueuing). If A
-// signs out and B signs in on the same device while a job is still waiting
-// on the network response (for a video easily several seconds), the
-// capture must not get written afterwards, under whoever's session. The
-// test builds exactly this moment: createMoment hangs, stop() happens in
-// between, only THEN does the network response resolve.
 test('a job stuck mid-write when signing out no longer writes anything afterwards', async () => {
   jobs.push({ ...basis });
   let resolveCreateMoment: (v: { error: string | null }) => void = () => {};
@@ -413,18 +395,11 @@ test('a job stuck mid-write when signing out no longer writes anything afterward
   resolveCreateMoment({ error: null }); // the network response does come back after all now
   await run;
 
-  // createMoment was still triggered under the valid (old) generation,
-  // that's correct. But the result must no longer get persisted after
-  // that: no posts_angelegt update, no removal from the queue.
   expect(momentsApi.createMoment).toHaveBeenCalledTimes(1);
   expect(queueDb.updateJob).not.toHaveBeenCalled();
   expect(queueDb.removeJob).not.toHaveBeenCalled();
 });
 
-// A still-winding-down, outdated run must not block an immediately
-// following start() (e.g. switching to another person on the same
-// device), the mutex hangs off the generation, not off a single global
-// flag (Task-13-Fix-Runde-2).
 test('a new run after stop() is not blocked by a still-winding-down old one (different generation)', async () => {
   jobs.push({ ...basis });
   let resolveCreateMoment: (v: { error: string | null }) => void = () => {};
@@ -452,13 +427,6 @@ test('a new run after stop() is not blocked by a still-winding-down old one (dif
   await firstRun;
 });
 
-// Task-13-Fix-Runde-2, THE DECISIVE CASE: no race, no concurrency at all. A
-// moment merely sits in the queue (zustand: 'wartet', long due), nobody is
-// mid-write. A signs out, B signs in, and ONLY AFTERWARDS does the next
-// regular tick run, entirely under B's valid, fresh session. The generation
-// check from Round 1 passes here TRIVIALLY (the generation compares itself
-// to itself), only the author_id filter in nextJob (via currentAuthorId)
-// prevents A's moment from being written under B's name.
 test('a job that merely sits in the queue does NOT get written under a different, meanwhile signed-in person', async () => {
   jobs.push({ ...basis, author_id: 'person-a' });
   // No signing-out-mid-write needed: currentAuthorId() already returns
@@ -486,9 +454,6 @@ test('the same pending job runs through as soon as the matching person signs in 
   expect(queueDb.removeJob).toHaveBeenCalledWith('j1');
 });
 
-// On a shared device, jobs of several people may be pending, only the one
-// matching the currently signed-in person gets processed, the other stays
-// untouched.
 test('on a shared device, only the job of the currently signed-in person gets processed', async () => {
   jobs.push(
     { ...basis, id: 'von-a', post_id: 'p-a', author_id: 'person-a' },

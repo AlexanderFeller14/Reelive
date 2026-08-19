@@ -54,11 +54,6 @@ test('wifiOnly pauses on mobile data instead of letting jobs fail', () => {
   expect(nextJob(jobs, 10_000, false, false, 'u1')?.id).toBe('j1');
 });
 
-// Task-13-Fix-Runde-2: the DECISIVE case needs NO race. A job merely sits
-// in the queue (zustand: 'wartet', long due), A signs out, B signs in, and
-// the next regular tick runs entirely under B's valid, fresh session.
-// Without the author_id filter, nextJob would select this job anyway, and
-// createMoment would write it under B's name.
 describe('nextJob only selects jobs of the currently signed-in person', () => {
   test('a job of another person does NOT get selected, even though it is long due, no race needed', () => {
     const jobs = [job({ id: 'a', author_id: 'person-a', naechster_versuch: 0 })];
@@ -81,11 +76,6 @@ describe('nextJob only selects jobs of the currently signed-in person', () => {
     expect(nextJob(jobs, 10_000, true, false, 'person-a')?.id).toBe('alt-von-a');
   });
 
-  // Legacy data (migration from before Task 13) or a failed session lookup:
-  // currentAuthorId() then returns null. A job never matches against null,
-  // isComplete() in queueDb already ensures that author_id is never null
-  // in a QueueJob anyway, but the logic here doesn't rely on that and is
-  // defensively correct.
   test('currentAuthorId === null selects no job, not even one with author_id null', () => {
     const jobs = [job({ id: 'a', author_id: null as unknown as string, naechster_versuch: 0 })];
     expect(nextJob(jobs, 10_000, true, false, null)).toBeNull();

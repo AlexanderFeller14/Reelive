@@ -52,10 +52,6 @@ test('success: creates it, author_id comes from the job, typ gets renamed to typ
   expect(mockGetSession).not.toHaveBeenCalled();
 });
 
-// A job whose author_id does NOT match the currently signed-in person never
-// gets selected by uploadWorker.nextJob() in the first place (see
-// queueLogic.test.ts), createMoment itself therefore deliberately trusts
-// the stored identity and no longer guesses.
 test('author_id of another user is passed through unchanged (the selection beforehand is the safeguard)', async () => {
   mockInsert.mockResolvedValueOnce({ error: null });
   await createMoment({ ...job, author_id: 'jemand-anders' });
@@ -97,9 +93,7 @@ test('every other error gets retried, not discarded', async () => {
 });
 
 // Final-Review, Important 5: the Edge Function derives the storage key from
-// EXACTLY THIS column. It already sits in the key and gets read from there,
-// instead of being stored a second time in the job where it could drift
-// apart.
+// EXACTLY THIS column.
 test('media_ext comes from the storage key (iOS delivers mov, Android mp4)', async () => {
   mockInsert.mockResolvedValueOnce({ error: null });
   await createMoment({ ...job, typ: 'video', storage_key: 'trips/t1/p1.mov', duration_s: 8 });

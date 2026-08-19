@@ -21,10 +21,6 @@ function functionMessage(error: unknown, fallback: string): string {
   return message(err ?? null, fallback);
 }
 
-// Primary key already present (Postgres 23505): a restart after a crash
-// calls createMoment again with the same id. The row already exists then,
-// that's success, not an error, otherwise the job would hang forever (Brief
-// Step 3).
 const PRIMARY_KEY_VIOLATION = '23505';
 
 // RLS rejection (Postgres 42501). Unlike every other failure, retrying isn't
@@ -86,16 +82,12 @@ export async function createMoment(
     id: job.post_id,
     trip_id: job.trip_id,
     author_id: job.author_id,
-    // Only field whose name differs: QueueJob.typ → posts.type.
     type: job.typ,
-    // Important 5: the capture's actual extension (iOS delivers .mov,
-    // Android .mp4). It already sits in the storage key and is read from
-    // there, instead of being stored a second time in the job where it
-    // could drift apart from it. The Edge Function derives its key from
-    // EXACTLY THIS column, the client determines the extension this way,
-    // but only within the check constraint from the migration, and only on
-    // insert (an update on posts hasn't been available to authenticated
-    // since Phase 1).
+    // Important 5: the Edge Function derives its key from EXACTLY THIS
+    // column, the client determines the extension this way, but only
+    // within the check constraint from the migration, and only on insert
+    // (an update on posts hasn't been available to authenticated since
+    // Phase 1).
     media_ext: media.extensionFrom(job.storage_key),
     storage_key: job.storage_key,
     thumb_key: job.thumb_key,
@@ -157,9 +149,6 @@ async function functionPlainText(error: unknown): Promise<string> {
   const response = asResponse(httpError?.context);
   if (!response) return httpError?.message ?? String(error);
 
-  // A body can only be read once. Where cloning is possible, it's cloned;
-  // otherwise it stays with the first attempt, and the status alone is
-  // still more than before.
   const readable = typeof response.clone === 'function' ? response.clone() : response;
   try {
     if (typeof readable.json === 'function') {

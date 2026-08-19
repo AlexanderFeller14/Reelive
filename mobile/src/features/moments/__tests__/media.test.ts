@@ -356,9 +356,8 @@ test('removeMomentFiles clears out the whole moment folder', async () => {
   expect(mockExisting.has('file:///dokumente/momente/p1')).toBe(false);
 });
 
-// Cleanup must never throw: it runs in the worker right after removing the
-// job. A run that fails on it would repeat the job forever, more expensive
-// than a file left behind.
+// It runs in the worker right after removing the job; a run that fails on
+// it would repeat the job forever, more expensive than a file left behind.
 test('cleanup never throws, even when there is nothing (left) to delete', () => {
   expect(() => removeMomentFiles('gibt-es-nicht')).not.toThrow();
   expect(() => discardFile('file:///Caches/weg.jpg')).not.toThrow();
@@ -370,9 +369,6 @@ test('discardFile deletes the camera file', () => {
   expect(mockExisting.has('file:///Caches/roh.jpg')).toBe(false);
 });
 
-// The distinction that makes the difference in the error path: everything
-// derived may go, the raw capture never, even when it happens to be the
-// medium at the same time (video).
 test('discardIntermediates leaves the raw capture alone', () => {
   mockExisting.add('file:///Caches/roh.mov');
   mockExisting.add('file:///Caches/standbild.jpg');

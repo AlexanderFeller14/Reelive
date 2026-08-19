@@ -113,9 +113,6 @@ test('initQueue creates every field of QueueJob as a column', async () => {
   }
 });
 
-// Task-13-Fix-Runde-2: `create table if not exists` only creates a NEW
-// table with the full schema, an existing install (table already exists,
-// without the new author_id column) does NOT grow along with it.
 test('initQueue carries a missing column of an existing install forward via ALTER TABLE, without "not null"', async () => {
   existingColumns = ALL_COLUMNS.filter((s) => s !== 'author_id');
   await initQueue();
@@ -136,11 +133,8 @@ test('initQueue leaves an already complete table untouched (no ALTER TABLE)', as
   expect(hasSchemaChange).toBe(false);
 });
 
-// A column carried forward via ALTER TABLE is nullable, legacy rows get
-// author_id: null. isComplete() (required-field check) rejects them on read
-// as incomplete, instead of processing them under the currently signed-in
-// person. That's deliberate, not a side effect: a legacy moment without a
-// known author identity must never land under a stranger's name.
+// That's deliberate, not a side effect: a legacy moment without a known
+// author identity must never land under a stranger's name.
 test('allJobs rejects a legacy row without author_id (migration from before Task 13)', async () => {
   rows.push({ ...job, id: 'alt-1', author_id: null });
   const jobs = await allJobs();
@@ -184,10 +178,6 @@ test('allJobs resolves relative paths against the current Documents location', a
   expect(read.thumb_uri).toBe('file:///container-NEU/Documents/momente/p1/thumb.jpg');
 });
 
-// Legacy rows from before the fix carry the absolute path of the THEN
-// CURRENT install. They get re-anchored on read — iOS does carry the files
-// under Documents along on update, only the container UUID in the path no
-// longer matches.
 test('allJobs re-anchors absolute legacy rows at the current Documents location', async () => {
   rows.push({
     ...job,
@@ -301,11 +291,8 @@ test('does not open the database on import, only on first access', async () => {
   expect(mockOpenDatabaseAsync).toHaveBeenCalledTimes(1);
 });
 
-// Task 13: the worker (and with it initQueue()) only runs from signedIn
-// onwards, a freshly installed device or one without session/profile
-// therefore doesn't have the table yet. allJobs() still gets called
-// directly from outside (trip detail, counter) and must never block those
-// callers with an SQLite error, but has to ensure the table itself.
+// allJobs() still gets called directly from outside (trip detail, counter)
+// and must never block those callers with an SQLite error.
 //
 // Fresh module after jest.resetModules() like in the test directly above,
 // otherwise an earlier test in this file (e.g. the first initQueue call)
@@ -334,8 +321,6 @@ test('initQueue also creates the table for discarded moments', async () => {
   );
 });
 
-// insert or replace: a restart after a crash must not report the same
-// moment twice.
 test('rememberDiscarded writes idempotently', async () => {
   await rememberDiscarded({
     id: 'p9',
@@ -349,8 +334,6 @@ test('rememberDiscarded writes idempotently', async () => {
   expect(values).toEqual(['p9', 't1', 'u1', 'Nach dem Reveal aufgenommen.', 1234]);
 });
 
-// On a shared device, a discarded moment is nobody's business except the
-// person who captured it.
 test('discardedMoments only reads this trip’s own entries', async () => {
   discardedRows.push({ id: 'p9', trip_id: 't1', author_id: 'u1', grund: 'Grund', verworfen_am: 1 });
   await expect(discardedMoments('t1', 'u1')).resolves.toEqual([

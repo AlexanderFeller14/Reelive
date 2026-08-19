@@ -33,19 +33,10 @@ async function ensureTable(): Promise<void> {
   tableEnsured = true;
 }
 
-// Single source of truth for the column schema: name, SQLite type, and
-// whether the column is required (not null). `create table`, the column
-// order for insert/update, AND the required-field check on read (see
-// toJob) are all derived from this one array, so they can no longer drift
-// apart.
 const COLUMN_SCHEMA = [
   { name: 'id', typ: 'text', pflicht: true },
   { name: 'post_id', typ: 'text', pflicht: true },
   { name: 'trip_id', typ: 'text', pflicht: true },
-  // Task-13-Fix-Runde-2: required like every other core column, a row
-  // without author_id (e.g. a legacy row from an install predating this
-  // field, see migrateColumns below) counts as incomplete via isComplete()
-  // and never gets processed, instead of being guessed.
   { name: 'author_id', typ: 'text', pflicht: true },
   { name: 'typ', typ: 'text', pflicht: true },
   { name: 'medium_uri', typ: 'text', pflicht: true },
@@ -87,9 +78,6 @@ function toRow(job: QueueJob): Row {
     trip_id: job.trip_id,
     author_id: job.author_id,
     typ: job.typ,
-    // Only the part below Documents (queuePaths.ts): the absolute path
-    // carries the installation's container UUID and dies with every app
-    // rebuild.
     medium_uri: forStorage(job.medium_uri),
     thumb_uri: forStorage(job.thumb_uri),
     storage_key: job.storage_key,
@@ -110,10 +98,6 @@ function toRow(job: QueueJob): Row {
   };
 }
 
-// Protection against silent data loss: a row with a missing required field
-// or an invalid zustand (e.g. after a crash mid-write, or a `create table
-// if not exists` that didn't grow along) must not pass as a valid QueueJob,
-// otherwise the damage silently travels on into queueLogic and Task 6.
 function isComplete(row: Record<string, unknown>): boolean {
   for (const def of COLUMN_SCHEMA) {
     if (def.pflicht && (row[def.name] === null || row[def.name] === undefined)) {
@@ -125,8 +109,6 @@ function isComplete(row: Record<string, unknown>): boolean {
   return true;
 }
 
-// Returns null instead of throwing: a single broken row must not take the
-// rest of the queue down with it (see allJobs).
 function toJob(row: Record<string, unknown>): QueueJob | null {
   if (!isComplete(row)) return null;
   return {
@@ -135,9 +117,6 @@ function toJob(row: Record<string, unknown>): QueueJob | null {
     trip_id: row.trip_id as string,
     author_id: row.author_id as string,
     typ: row.typ as QueueJob['typ'],
-    // Resolved against the CURRENT Documents location; absolute legacy rows
-    // from before the 2026-08-18 fix get re-anchored in the process
-    // (queuePaths.ts).
     medium_uri: forReading(row.medium_uri as string),
     thumb_uri: forReading(row.thumb_uri as string),
     storage_key: row.storage_key as string,
@@ -162,19 +141,13 @@ function valuesFor(row: Row, columns: readonly Column[]): (string | number | nul
   return columns.map((column) => row[column]);
 }
 
-// Migration for existing installs: `create table if not exists` only
-// creates a NEW table with the full, current schema, a table that already
-// exists (e.g. from before Task-13-Fix-Runde-2, when there was no
-// author_id yet) does NOT grow along with it. PRAGMA table_info shows the
-// columns that actually exist; if one is missing, it's carried forward via
-// ALTER TABLE, deliberately WITHOUT "not null", even though COLUMN_SCHEMA
-// lists the column as required: SQLite refuses a NOT-NULL column without a
-// DEFAULT on an already populated table. Existing rows therefore get NULL,
-// isComplete() (see toJob) rejects them on read as incomplete instead of
-// continuing to process them under the currently signed-in person. That's
-// deliberate: a legacy moment without a known author identity must never
-// land under a stranger's name, not even by simply attributing it to the
-// person currently using the device.
+// SQLite refuses a NOT-NULL column without a DEFAULT on an already
+// populated table, so the ALTER TABLE below deliberately omits "not null"
+// even though COLUMN_SCHEMA lists the column as required. Existing rows
+// get NULL, isComplete() (see toJob) rejects them on read as incomplete:
+// a legacy moment without a known author identity must never land under a
+// stranger's name, not even by simply attributing it to the person
+// currently using the device.
 async function migrateColumns(db: SQLiteDatabase): Promise<void> {
   const existingColumns = await db.getAllAsync<{ name: string }>('pragma table_info(upload_queue)', []);
   const names = new Set(existingColumns.map((s) => s.name));
@@ -230,12 +203,8 @@ export async function addJob(job: QueueJob): Promise<void> {
   }
 }
 
-// A freshly installed device (or one where the worker has never started,
-// because session/profile are missing, see uploadWorker/_layout.tsx) hasn't
-// created the table yet. Reading must never block a screen with an SQLite
-// error ("no such table") because of that, so allJobs ensures the table
-// itself (`create table if not exists` is cheap enough), instead of making
-// every caller (trip detail, counter, ...) defensive individually.
+// allJobs ensures the table itself instead of making every caller (trip
+// detail, counter, ...) defensive individually.
 export async function allJobs(): Promise<QueueJob[]> {
   await ensureTable();
   const db = await getDatabase();
@@ -298,8 +267,6 @@ export async function removeJob(id: string): Promise<void> {
 // gone. The same path also applies when someone's membership gets revoked
 // mid-upload.
 
-// `insert or replace`: a restart after a crash must not report the same
-// moment twice.
 export async function rememberDiscarded(entry: DiscardedMoment): Promise<void> {
   await ensureTable();
   const db = await getDatabase();
@@ -314,8 +281,6 @@ export async function rememberDiscarded(entry: DiscardedMoment): Promise<void> {
   }
 }
 
-// Only your own: on a shared device, a discarded moment is nobody's
-// business except the person who captured it.
 export async function discardedMoments(tripId: string, authorId: string): Promise<DiscardedMoment[]> {
   await ensureTable();
   const db = await getDatabase();

@@ -23,12 +23,7 @@ export type QueueJob = {
   post_id: string;
   trip_id: string;
   // Captured when enqueuing (Task-13-Fix-Runde-2), NOT read from the session
-  // when writing: otherwise a moment that merely sits in the queue
-  // (zustand: 'wartet', not yet processed) could land under the name of the
-  // next signed-in person on the same device, without any race at all, as
-  // soon as A signs out and B signs in before the job ever ran. See
-  // preview.tsx (sets it) and queueLogic.nextJob (only selects jobs of the
-  // currently signed-in person).
+  // when writing. See preview.tsx, which sets it.
   author_id: string;
   typ: 'photo' | 'video';
   medium_uri: string;

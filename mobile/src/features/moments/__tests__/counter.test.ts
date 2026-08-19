@@ -1,8 +1,6 @@
 // Before the reveal, the counter is the only information about sealed
 // moments at all (see Task-9-Auftrag), it must never jump backwards after
-// an offline capture. That's why it counts the server count PLUS the own,
-// not yet uploaded moments of the same trip from the queue. That's exactly
-// what the three cases below check.
+// an offline capture.
 jest.mock('@/features/trips/tripsApi', () => ({
   eigeneZaehler: jest.fn(async () => ({ data: { t1: 5 }, error: null })),
 }));
@@ -48,14 +46,9 @@ test('a trip without a server count (never submitted yet) starts at 0 instead of
   await expect(ownMomentCount('t9')).resolves.toBe(1);
 });
 
-// === Fix-Runde 1: double counting once the posts row is already created ===
-// uploadWorker.processJob sets zeile_angelegt: true AS SOON AS the posts row
-// exists, but the job stays in the queue until confirmed completion (media
-// AND thumbnail upload), because both can independently fail multiple times
-// and get retried. my_post_counts() already counts this row server-side
-// though. If ownMomentCount counted such a job in addition, the number
-// would jump back as soon as the job eventually disappears, exactly the
-// behavior the counter must never show per its brief.
+// Fix-Runde 1: `my_post_counts()` already counts a posts row server-side
+// as soon as it exists (zeile_angelegt: true), even before the media and
+// thumbnail upload are confirmed.
 
 test('a pending job with an already created row does NOT increase the count (already in the server count)', async () => {
   (queueDb.allJobs as jest.Mock).mockResolvedValueOnce([

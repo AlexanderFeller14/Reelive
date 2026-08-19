@@ -10,11 +10,8 @@ const PHOTO_MAX_EDGE = 1920;
 const THUMB_MAX_EDGE = 320;
 const JPEG_QUALITY = 0.8;
 
-// Below the documents directory, one folder per moment.
 const MOMENTS_FOLDER = 'momente';
 
-// File extension from a local path or storage key, lowercased and without
-// the dot. Empty if none is recognizable.
 export function extensionFrom(uri: string): string {
   const withoutSuffix = uri.split(/[?#]/)[0];
   const name = withoutSuffix.slice(withoutSuffix.lastIndexOf('/') + 1);
@@ -22,9 +19,6 @@ export function extensionFrom(uri: string): string {
   return dot > 0 ? name.slice(dot + 1).toLowerCase() : '';
 }
 
-// Which extensions are even allowed per capture type, and what applies when
-// nothing usable can be read from the capture.
-//
 // Final-Review, Important 5: expo-camera produces a QuickTime file (.mov) on
 // iOS, .mp4 on Android. The earlier version uploaded the iOS bytes under
 // ….mp4 with Content-Type video/mp4 anyway, the bucket accepted it because it
@@ -44,9 +38,6 @@ const CONTENT_TYPES: Record<string, string> = {
   mov: 'video/quicktime',
 };
 
-// The capture's actual extension, constrained to the allowed list. Anything
-// unknown falls back to the default instead of leaking into the key and
-// therefore into the signed path.
 export function mediaExtension(type: 'photo' | 'video', uri: string): string {
   const candidate = extensionFrom(uri);
   return ALLOWED_EXTENSIONS[type].includes(candidate) ? candidate : DEFAULT_EXTENSION[type];
@@ -83,7 +74,7 @@ type ResizeTarget = { width?: number; height?: number };
 
 // Loads the image once unchanged (no resize()), just to learn the actual
 // source dimensions; the context-based API only knows width/height after
-// renderAsync(). Context and result are released again immediately.
+// renderAsync().
 async function sourceDimensions(uri: string): Promise<Dimensions> {
   const context = ImageManipulator.manipulate(uri);
   try {
@@ -98,22 +89,19 @@ async function sourceDimensions(uri: string): Promise<Dimensions> {
   }
 }
 
-// Scales the LONG edge to `longEdge`: width for landscape/square, height for
-// portrait (only set one dimension, the native implementation carries the
-// other along preserving the aspect ratio). If the image is already
-// smaller, it isn't scaled up, an empty target means "skip resize".
+// The native implementation carries the other dimension along, preserving
+// the aspect ratio, once only one is set here.
 function scaleLongEdge(source: Dimensions, longEdge: number): ResizeTarget {
   const longestSide = Math.max(source.width, source.height);
   if (longestSide <= longEdge) return {};
   return source.width >= source.height ? { width: longEdge } : { height: longEdge };
 }
 
-// Scales `uri` to `target` and saves it as JPEG with a fixed quality.
 // expo-image-manipulator has used this context-based, chainable API since
 // SDK 54 (manipulate → resize → renderAsync → saveAsync); the old
 // manipulateAsync is now only a @deprecated wrapper around it. The wrapper
 // releases its SharedObjects after use ("these shared objects will not be
-// used anymore"), same pattern here, via try/finally including on failure.
+// used anymore").
 async function saveAsJpeg(uri: string, target: ResizeTarget): Promise<string> {
   const context = ImageManipulator.manipulate(uri);
   try {
@@ -139,9 +127,7 @@ export async function preparePhoto(uri: string): Promise<{ medium: string; thumb
   return { medium, thumb };
 }
 
-// Videos aren't post-processed, the resolution already comes from the
-// camera's capture quality (Task-Brief). Only a still frame is pulled for
-// the thumbnail; the caller (Preview) catches errors and shows a message.
+// The caller (Preview) catches errors from this and shows a message.
 export async function prepareVideo(uri: string): Promise<{ medium: string; thumb: string }> {
   const stillFrame = await getThumbnailAsync(uri, { time: 0 });
   return { medium: uri, thumb: stillFrame.uri };
@@ -201,9 +187,6 @@ export async function persistDurably(
 // permanent rejection (see uploadWorker). Without this, the medium and
 // thumbnail of every uploaded moment would stay behind forever, for video
 // the full 30 seconds in 1080p.
-//
-// Never throws: a failed cleanup costs storage space, a worker run that
-// fails on it would repeat the job forever.
 export function removeMomentFiles(momentId: string): void {
   try {
     const folder = momentFolder(momentId);
@@ -213,9 +196,6 @@ export function removeMomentFiles(momentId: string): void {
   }
 }
 
-// Deletes a single local file, if it (still) exists. Never throws, a file
-// left behind must not hold up either submitting or discarding.
-//
 // Re-Review: used to be called `rohaufnahmeVerwerfen`. The name became
 // misleading the moment intermediates were also released through it, and
 // exactly this fuzziness ("which file is actually the only copy?") was
@@ -229,11 +209,8 @@ export function discardFile(uri: string): void {
   }
 }
 
-// Releases what was DERIVED from the raw capture: the compressed medium and
-// the thumbnail in the cache. The raw capture itself is guaranteed to stay,
-// for a video it IS the medium (prepareVideo returns `uri` unchanged), and
-// it's then the only copy. Exactly this distinction was missing and cost the
-// capture in the error path.
+// Exactly this distinction was missing and cost the capture in the error
+// path.
 export function discardIntermediates(
   rawCapture: string,
   prepared: { medium: string; thumb: string }
