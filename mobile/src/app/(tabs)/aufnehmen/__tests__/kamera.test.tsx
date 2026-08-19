@@ -2875,6 +2875,11 @@ test('der Auslöser holt das Foto vom MultiKamera-Modul und geht zur Vorschau', 
   const abgeholt = uebergabe.abholen();
   expect(abgeholt).not.toBeNull();
   await expect(abgeholt!.datei).resolves.toEqual({ uri: 'file:///tmp/reelive-foto-1.jpg' });
+  // Auch die GESTALT der Anzeige-Quelle steht fest: hier liegt kein
+  // PictureRef, sondern die tmp-Datei in der Form `{ uri }` (expo-image nimmt
+  // beides). Der Screen deutet sie dafür einmal um; ohne diese Zusicherung
+  // liefe ein späteres Weiten des Übergabe-Typs an dieser Stelle vorbei.
+  expect(abgeholt!.ref).toEqual({ uri: 'file:///tmp/reelive-foto-1.jpg' });
 });
 
 // Der Sucher läuft unter der Vorschau weiter (Spec §6): es gibt hier nichts

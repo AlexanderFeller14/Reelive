@@ -891,12 +891,20 @@ public class MultiKameraModule: Module {
       // Puffer fest, er geht also nicht in den Pool zurück, bevor die
       // Foto-Queue ihn gelesen hat. Die Masse gleich mit, danach ist hier
       // Schluss, jede weitere Zeile hier fehlte allen drei Strömen.
-      let quelle = CIImage(cvPixelBuffer: bild)
+      //
+      // Der Träger statt des blossen CIImage: ein mitgereichtes Bild hinge am
+      // Closure-Kontext und hielte den Puffer bis zum ENDE des Blocks fest,
+      // also über das Kodieren und das Schreiben hinweg. Aus dem Träger nimmt
+      // ihn das Rendern heraus und lässt ihn sofort los.
+      let traeger = FotoTraeger(CIImage(cvPixelBuffer: bild))
       let breite = CVPixelBufferGetWidth(bild)
       let hoehe = CVPixelBufferGetHeight(bild)
       fotoQueue.async {
-        fotoSichern(quelle, breite: breite, hoehe: hoehe, promise: promise)
+        // Zuerst das Licht, dann die Arbeit: die LED hat ihren Zweck mit dem
+        // gegriffenen Frame erfüllt und soll nicht noch durch das Kodieren und
+        // das Schreiben hindurch nachbrennen.
         fotoLichtZurueck(mitLicht)
+        fotoSichern(traeger, breite: breite, hoehe: hoehe, promise: promise)
       }
     }
     // Die Frist: eine unterbrochene Session (Anruf, andere App) oder eine
@@ -923,13 +931,25 @@ public class MultiKameraModule: Module {
 
   // Kodieren und schreiben, auf der Foto-Queue.
   private static func fotoSichern(
-    _ quelle: CIImage, breite: Int, hoehe: Int, promise: Promise
+    _ traeger: FotoTraeger, breite: Int, hoehe: Int, promise: Promise
   ) {
+    // Das Rendern steht in einem eigenen, engen Bereich: danach hält NICHTS
+    // mehr den Frame, und der Puffer geht zurück in den Pool der aktiven
+    // Kamera. Sonst fehlte er dort über das Kodieren und das Schreiben hinweg,
+    // zusammen zwei bis drei Frame-Abstände, und die Kamera müsste in dieser
+    // Zeit auf einen anderen Puffer ausweichen oder Frames fallen lassen.
+    // Das gerenderte CGImage trägt seine Bildpunkte selbst, es hängt nicht
+    // mehr am Puffer.
+    //
     // Keine zweite Spiegelung und keine Drehung: Hochkant und die Spiegelung
     // der Front stehen fest an der Verbindung (siehe `ausrichten`), der Puffer
     // kommt also schon so an, wie das Bild aussehen soll.
+    let gerendert: CGImage? = {
+      guard let quelle = traeger.entnehmen() else { return nil }
+      return fotoKontext.createCGImage(quelle, from: quelle.extent)
+    }()
     guard
-      let bild = fotoKontext.createCGImage(quelle, from: quelle.extent),
+      let bild = gerendert,
       let daten = UIImage(cgImage: bild).jpegData(compressionQuality: 0.9)
     else {
       promise.reject("kein_jpeg", "Der Frame liess sich nicht als JPEG kodieren")
@@ -1191,6 +1211,27 @@ final class MultiKameraVerteiler: NSObject,
     // Aufruf ein Schloss und ein nil-Vergleich, sonst nichts.
     MultiKameraModule.fotoWunschEinloesen(sampleBuffer)
     KameraAufnahmeModule.aktuelle?.schreibeVideo(sampleBuffer)
+  }
+}
+
+// Trägt den gegriffenen Frame von der Video- auf die Foto-Queue. Eine Klasse,
+// weil die Referenz LOSLASSBAR sein muss: ein direkt mitgereichtes CIImage
+// hinge am Closure-Kontext und hielte den Puffer der aktiven Kamera bis zum
+// Ende des Blocks aus deren Pool heraus. Angefasst wird der Träger nur von je
+// einer Queue nacheinander (gefüllt auf der Video-, geleert auf der
+// Foto-Queue), die Übergabe dazwischen ist das `async` selbst.
+private final class FotoTraeger {
+  private var bild: CIImage?
+
+  init(_ bild: CIImage) {
+    self.bild = bild
+  }
+
+  // Gibt den Frame heraus und lässt ihn hier los: wer ihn nimmt, hält ihn ab
+  // jetzt allein und kann ihn mit seinem Bereich beenden.
+  func entnehmen() -> CIImage? {
+    defer { bild = nil }
+    return bild
   }
 }
 
