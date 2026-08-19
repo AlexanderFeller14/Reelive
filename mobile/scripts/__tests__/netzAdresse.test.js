@@ -9,8 +9,8 @@ test('ersetzt eine veraltete Adresse in einer URL-Zeile', () => {
 });
 
 test('Port und Pfad bleiben stehen', () => {
-  expect(mitNeuerAdresse('TEILEN_BASIS_URL=http://10.0.0.7:8081/teilen', NEU)).toBe(
-    'TEILEN_BASIS_URL=http://192.168.1.213:8081/teilen'
+  expect(mitNeuerAdresse('EXPO_PUBLIC_SHARE_BASE_URL=http://10.0.0.7:8081/share', NEU)).toBe(
+    'EXPO_PUBLIC_SHARE_BASE_URL=http://192.168.1.213:8081/share'
   );
 });
 
@@ -36,14 +36,14 @@ test('mehrere Zeilen werden gemeinsam nachgezogen', () => {
     '# Kommentar',
     'S3_ENDPOINT=http://192.168.1.30:54321/storage/v1/s3',
     'GEHEIM=nichts',
-    'TEILEN_BASIS_URL=http://192.168.1.30:8081',
+    'EXPO_PUBLIC_SHARE_BASE_URL=http://192.168.1.30:8081',
   ].join('\n');
   expect(mitNeuerAdresse(vorher, NEU)).toBe(
     [
       '# Kommentar',
       'S3_ENDPOINT=http://192.168.1.213:54321/storage/v1/s3',
       'GEHEIM=nichts',
-      'TEILEN_BASIS_URL=http://192.168.1.213:8081',
+      'EXPO_PUBLIC_SHARE_BASE_URL=http://192.168.1.213:8081',
     ].join('\n')
   );
 });

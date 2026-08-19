@@ -36,7 +36,7 @@ test('a successful join leads into the trip and discards the code', async () => 
   const { deps, redeemInvite, discardRememberedInvite } = makeDeps({
     result: { status: 'joined', trip_id: 't1' },
   });
-  await expect(redeemPendingInvite(deps)).resolves.toBe('/reise/t1');
+  await expect(redeemPendingInvite(deps)).resolves.toBe('/trip/t1');
   expect(redeemInvite).toHaveBeenCalledWith('abc123');
   expect(discardRememberedInvite).toHaveBeenCalledTimes(1);
 });
@@ -45,7 +45,7 @@ test('already_member also leads into the trip', async () => {
   const { deps, discardRememberedInvite } = makeDeps({
     result: { status: 'already_member', trip_id: 't1' },
   });
-  await expect(redeemPendingInvite(deps)).resolves.toBe('/reise/t1');
+  await expect(redeemPendingInvite(deps)).resolves.toBe('/trip/t1');
   expect(discardRememberedInvite).toHaveBeenCalledTimes(1);
 });
 
@@ -82,11 +82,11 @@ test('effect torn down during the attempt: code is discarded, but no longer navi
 });
 
 test('resolveTargetPath: joined → trip', () => {
-  expect(resolveTargetPath({ status: 'joined', trip_id: 't1' })).toBe('/reise/t1');
+  expect(resolveTargetPath({ status: 'joined', trip_id: 't1' })).toBe('/trip/t1');
 });
 
 test('resolveTargetPath: already_member → trip', () => {
-  expect(resolveTargetPath({ status: 'already_member', trip_id: 't1' })).toBe('/reise/t1');
+  expect(resolveTargetPath({ status: 'already_member', trip_id: 't1' })).toBe('/trip/t1');
 });
 
 test('resolveTargetPath: not_found → no target', () => {

@@ -397,7 +397,7 @@ Deno.test({
         200,
       )) as { token: string; url: string };
       assert(erstellt.token.length >= 16, `unerwarteter Token: ${erstellt.token}`);
-      assert(erstellt.url.endsWith(`/teilen/${erstellt.token}`), erstellt.url);
+      assert(erstellt.url.endsWith(`/share/${erstellt.token}`), erstellt.url);
 
       // --- aufloesen OHNE jede Anmeldung ----------------------------------
       const vorherStempel = Date.now();

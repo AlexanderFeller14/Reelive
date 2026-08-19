@@ -101,7 +101,7 @@ export default function JoinScreen() {
         ) : offen && !fehler ? (
           <Button variant="primary" label="Reise beitreten" onPress={() => void beitreten()} loading={laedt} />
         ) : (
-          <Button variant="secondary" label="Zu meinen Reisen" onPress={() => router.replace('/reise')} />
+          <Button variant="secondary" label="Zu meinen Reisen" onPress={() => router.replace('/trip')} />
         )}
       </View>
     </View>

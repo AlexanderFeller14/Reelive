@@ -56,14 +56,14 @@ test('eingeloggt: Beitritt führt in die Reise', async () => {
   (redeemInvite as jest.Mock).mockResolvedValue({ status: 'joined', trip_id: 't1' });
   await wrap();
   await fireEvent.press(await screen.findByText('Reise beitreten'));
-  await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/reise/t1'));
+  await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/trip/t1'));
 });
 
 test('bereits Mitglied führt ebenfalls in die Reise', async () => {
   (redeemInvite as jest.Mock).mockResolvedValue({ status: 'already_member', trip_id: 't1' });
   await wrap();
   await fireEvent.press(await screen.findByText('Reise beitreten'));
-  await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/reise/t1'));
+  await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/trip/t1'));
 });
 
 test('ohne Session wird der Code gemerkt und zum Login geschickt', async () => {

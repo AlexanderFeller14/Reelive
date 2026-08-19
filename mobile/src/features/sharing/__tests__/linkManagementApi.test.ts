@@ -16,7 +16,7 @@ const ENV_BASE_URL = 'http://127.0.0.1:8081';
 
 beforeEach(() => {
   jest.clearAllMocks();
-  process.env.EXPO_PUBLIC_TEILEN_BASIS_URL = ENV_BASE_URL;
+  process.env.EXPO_PUBLIC_SHARE_BASE_URL = ENV_BASE_URL;
 });
 
 // aktive_share_links: .select(…).eq('trip_id', …).order(…).limit(1).maybeSingle()
@@ -80,14 +80,14 @@ describe('fetchActiveLink', () => {
     activeLinksChain({ data: { token: 'tok123', expires_at: null }, error: null });
     const { data, error } = await fetchActiveLink('t1');
     expect(error).toBeNull();
-    expect(data).toEqual({ token: 'tok123', url: `${ENV_BASE_URL}/teilen/tok123`, expiresAt: null });
+    expect(data).toEqual({ token: 'tok123', url: `${ENV_BASE_URL}/share/tok123`, expiresAt: null });
   });
 
   test('a hit with an expiry passes the date through for display', async () => {
     const future = new Date(Date.now() + 999_999).toISOString();
     activeLinksChain({ data: { token: 'tok1', expires_at: future }, error: null });
     const { data } = await fetchActiveLink('t1');
-    expect(data).toEqual({ token: 'tok1', url: `${ENV_BASE_URL}/teilen/tok1`, expiresAt: future });
+    expect(data).toEqual({ token: 'tok1', url: `${ENV_BASE_URL}/share/tok1`, expiresAt: future });
   });
 
   // The actual behavior change, and it's an improvement: the old version
@@ -119,11 +119,11 @@ describe('fetchActiveLink', () => {
     expect(error).toBe('Du bist offline. Verbinde dich und probier es nochmal.');
   });
 
-  // Missing EXPO_PUBLIC_TEILEN_BASIS_URL: a found token could otherwise
+  // Missing EXPO_PUBLIC_SHARE_BASE_URL: a found token could otherwise
   // only be assembled into a broken/wrong URL (empty prefix), that would
   // be worse than an honest configuration error.
-  test('a hit WITHOUT EXPO_PUBLIC_TEILEN_BASIS_URL set returns a configuration error instead of a broken URL', async () => {
-    delete process.env.EXPO_PUBLIC_TEILEN_BASIS_URL;
+  test('a hit WITHOUT EXPO_PUBLIC_SHARE_BASE_URL set returns a configuration error instead of a broken URL', async () => {
+    delete process.env.EXPO_PUBLIC_SHARE_BASE_URL;
     activeLinksChain({ data: { token: 'tok1', expires_at: null }, error: null });
     const { data, error } = await fetchActiveLink('t1');
     expect(data).toBeNull();
@@ -133,14 +133,14 @@ describe('fetchActiveLink', () => {
 
 describe('createLink', () => {
   test('calls the function with aktion "erstellen", trip_id, and gueltig_tage', async () => {
-    mockInvoke.mockResolvedValueOnce({ data: { token: 'tok1', url: `${ENV_BASE_URL}/teilen/tok1` }, error: null });
+    mockInvoke.mockResolvedValueOnce({ data: { token: 'tok1', url: `${ENV_BASE_URL}/share/tok1` }, error: null });
     const { data, error } = await createLink('t1', 7);
     expect(error).toBeNull();
     expect(mockInvoke).toHaveBeenCalledWith('share-link', {
       body: { aktion: 'erstellen', trip_id: 't1', gueltig_tage: 7 },
     });
     expect(data?.token).toBe('tok1');
-    expect(data?.url).toBe(`${ENV_BASE_URL}/teilen/tok1`);
+    expect(data?.url).toBe(`${ENV_BASE_URL}/share/tok1`);
     // expiresAt is computed client-side from validDays, ~7 days ahead.
     expect(data?.expiresAt).not.toBeNull();
     const inDays = (Date.parse(data!.expiresAt!) - Date.now()) / 86_400_000;
@@ -149,7 +149,7 @@ describe('createLink', () => {
   });
 
   test('validDays=null (unlimited) returns expiresAt=null, without passing that to the function', async () => {
-    mockInvoke.mockResolvedValueOnce({ data: { token: 'tok1', url: 'https://x/teilen/tok1' }, error: null });
+    mockInvoke.mockResolvedValueOnce({ data: { token: 'tok1', url: 'https://x/share/tok1' }, error: null });
     const { data } = await createLink('t1', null);
     expect(mockInvoke).toHaveBeenCalledWith('share-link', {
       body: { aktion: 'erstellen', trip_id: 't1', gueltig_tage: null },

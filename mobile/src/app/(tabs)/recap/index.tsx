@@ -106,7 +106,7 @@ export default function RecapListe() {
                 trip={t}
                 position={i}
                 asRecap
-                onPress={() => router.push(`/recap/${t.id}/uebersicht`)}
+                onPress={() => router.push(`/recap/${t.id}/overview`)}
               />
             ))}
           </View>

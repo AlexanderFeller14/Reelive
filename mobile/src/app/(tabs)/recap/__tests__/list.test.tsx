@@ -122,7 +122,7 @@ test('eine Karte führt in die Übersicht dieser Reise', async () => {
   (fetchTrips as jest.Mock).mockResolvedValue(geladen([recap]));
   await wrap();
   await fireEvent.press(await screen.findByText('Lissabon Städtetrip'));
-  expect(mockPush).toHaveBeenCalledWith('/recap/t2/uebersicht');
+  expect(mockPush).toHaveBeenCalledWith('/recap/t2/overview');
 });
 
 // Review Task 10, Important 1: die Karte trägt hier `alsRecap`, ein Tipp

@@ -83,7 +83,7 @@ export default function Einladen() {
         loading={!geladen}
         disabled={geladen && !url}
       />
-      <Button variant="text" label="Später" onPress={() => router.replace(`/reise/${id}`)} />
+      <Button variant="text" label="Später" onPress={() => router.replace(`/trip/${id}`)} />
     </View>
   );
 }

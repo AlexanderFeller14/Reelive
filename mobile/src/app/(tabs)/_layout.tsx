@@ -82,7 +82,7 @@ export default function TabsLayout() {
         // steht. Der Renderer nimmt die Options des fokussierten Tabs — die
         // Route hier IST die Tab-Wahl, und die ändert sich nicht, wenn die
         // Vorschau den Navigator nur überdeckt.
-        const kino = route.name === 'aufnehmen' && sucherSichtbar;
+        const kino = route.name === 'capture' && sucherSichtbar;
         return {
           headerShown: false,
           sceneStyle: { backgroundColor: colors['bg-0'] },
@@ -121,10 +121,10 @@ export default function TabsLayout() {
         };
       }}
     >
-      <Tabs.Screen name="aufnehmen" options={{ title: 'Aufnehmen', tabBarIcon: ({ color }) => <Camera color={color} strokeWidth={1.75} /> }} />
-      <Tabs.Screen name="reise" options={{ title: 'Reise', tabBarIcon: ({ color }) => <Map color={color} strokeWidth={1.75} /> }} />
+      <Tabs.Screen name="capture" options={{ title: 'Aufnehmen', tabBarIcon: ({ color }) => <Camera color={color} strokeWidth={1.75} /> }} />
+      <Tabs.Screen name="trip" options={{ title: 'Reise', tabBarIcon: ({ color }) => <Map color={color} strokeWidth={1.75} /> }} />
       <Tabs.Screen name="recap" options={{ title: 'Recap', tabBarIcon: ({ color }) => <Play color={color} strokeWidth={1.75} /> }} />
-      <Tabs.Screen name="profil" options={{ title: 'Profil', tabBarIcon: ({ color }) => <User color={color} strokeWidth={1.75} /> }} />
+      <Tabs.Screen name="profile" options={{ title: 'Profil', tabBarIcon: ({ color }) => <User color={color} strokeWidth={1.75} /> }} />
     </Tabs>
   );
 }

@@ -2,12 +2,12 @@ export type AuthStatus = 'loading' | 'signedOut' | 'needsProfile' | 'signedIn';
 
 // Pure routing decision, kept separate so it is testable without
 // React/Supabase. null = do not redirect yet (splash stands).
-export function resolveRoute(status: AuthStatus): '/welcome' | '/profile-setup' | '/aufnehmen' | null {
+export function resolveRoute(status: AuthStatus): '/welcome' | '/profile-setup' | '/capture' | null {
   switch (status) {
     case 'loading': return null;
     case 'signedOut': return '/welcome';
     case 'needsProfile': return '/profile-setup';
-    case 'signedIn': return '/aufnehmen';
+    case 'signedIn': return '/capture';
   }
 }
 
@@ -22,7 +22,7 @@ export function resolveRoute(status: AuthStatus): '/welcome' | '/profile-setup' 
 // platform, otherwise the guard would redirect every call to /welcome
 // immediately, before the screen even renders.
 export function isPublicArea(area: string | undefined): boolean {
-  return area === 'join' || area === 'teilen';
+  return area === 'join' || area === 'share';
 }
 
 // Where a signed-in person is allowed to stand without being sent back to
@@ -39,7 +39,7 @@ export function isPublicArea(area: string | undefined): boolean {
 // The web hard lock stays unaffected by this: isWebLocked() still only lets
 // 'teilen' through, so the preview never even gets mounted on web.
 export function isAreaForSignedIn(area: string | undefined): boolean {
-  return area === '(tabs)' || area === 'vorschau';
+  return area === '(tabs)' || area === 'preview';
 }
 
 // Web hard lock (coordinator decision, Task 5, from a finding in Task 4):
@@ -75,5 +75,5 @@ export function isAreaForSignedIn(area: string | undefined): boolean {
 // never run (this also closes the silent job loss via enqueueJob() reported
 // in Task 4, because vorschau.tsx would have to be mounted for that first).
 export function isWebLocked(platformOS: string, area: string | undefined): boolean {
-  return platformOS === 'web' && area !== 'teilen';
+  return platformOS === 'web' && area !== 'share';
 }

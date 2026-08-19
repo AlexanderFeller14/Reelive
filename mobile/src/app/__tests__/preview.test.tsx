@@ -181,7 +181,7 @@ jest.mock('@/features/moments/counter', () => ({
 
 import * as handoff from '@/features/camera/handoff';
 import type { VideoPlayer } from 'expo-video';
-import PreviewScreen from '../vorschau';
+import PreviewScreen from '../preview';
 
 // Nicht hart auf "14:34" verdrahtet: welche lokale Uhrzeit aus dem UTC-ISO-Wert
 // wird, hängt von der Zeitzone der ausführenden Maschine ab (hier zufällig
@@ -322,7 +322,7 @@ test('ohne Rückweg im Stapel führt der Weg zurück per replace zur Kamera', as
     await fireEvent.press(screen.getByText('Einsenden'));
   });
 
-  expect(mockReplace).toHaveBeenCalledWith('/aufnehmen');
+  expect(mockReplace).toHaveBeenCalledWith('/capture');
   expect(mockBack).not.toHaveBeenCalled();
 });
 
@@ -1186,5 +1186,5 @@ test('Verwerfen räumt auch die im Hintergrund entstandene Datei ab', async () =
 test('ohne Übergabe und ohne uri führt die Vorschau zurück zur Kamera', async () => {
   mockParams = { typ: 'photo', dauer: '0', tripId: 't1' };
   await render(<PreviewScreen />);
-  await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/aufnehmen'));
+  await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/capture'));
 });

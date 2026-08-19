@@ -44,7 +44,7 @@ export default function NeueReise() {
     if (error || !id) return setNameFehler(error ?? undefined);
     // Direkt weiter zum Einladen (App-Konzept §5.3); replace, damit «zurück»
     // wieder in der Liste landet und nicht im ausgefüllten Formular.
-    router.replace(`/reise/${id}/einladen`);
+    router.replace(`/trip/${id}/invite`);
   };
 
   return (

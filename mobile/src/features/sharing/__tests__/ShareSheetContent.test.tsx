@@ -35,7 +35,7 @@ jest.mock('../linkManagementApi', () => ({
 import { ShareSheetContent } from '../ShareSheetContent';
 import { fetchActiveLink, createLink, revokeLink } from '../linkManagementApi';
 
-const ACTIVE_LINK = { token: 'tok123', url: 'http://127.0.0.1:8081/teilen/tok123', expiresAt: null };
+const ACTIVE_LINK = { token: 'tok123', url: 'http://127.0.0.1:8081/share/tok123', expiresAt: null };
 
 // @testing-library/react-native v14 is fully async, render() itself
 // returns a Promise (pattern as in player.test.tsx: `await render(...)`).

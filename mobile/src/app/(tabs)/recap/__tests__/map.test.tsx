@@ -127,7 +127,7 @@ jest.mock('react-native-maps', () => {
   };
 });
 
-import RecapKarte from '../[id]/karte';
+import RecapKarte from '../[id]/map';
 import { SHEET_SCROLL_RATIO } from '@/components/Sheet';
 import { fetchRecapMoments } from '@/features/recap/recapApi';
 import { getPool } from '@/features/recap/urlPool';
@@ -687,7 +687,7 @@ test('ohne Rückweg im Stapel führt der Zurück-Pfeil auf die Übersicht dieser
   ladeErfolg();
   await wrap();
   await fireEvent.press(await screen.findByLabelText('Zurück'));
-  expect(mockReplace).toHaveBeenCalledWith({ pathname: '/recap/[id]/uebersicht', params: { id: 't1' } });
+  expect(mockReplace).toHaveBeenCalledWith({ pathname: '/recap/[id]/overview', params: { id: 't1' } });
   expect(mockBack).not.toHaveBeenCalled();
 });
 

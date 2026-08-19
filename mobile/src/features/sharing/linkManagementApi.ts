@@ -7,7 +7,7 @@
 //
 // DELIBERATELY NOT added to shareApi.ts, even though the plan (phase-6
 // plan, file structure) sketches exactly one shared file "create, revoke,
-// resolve link": `mobile/src/app/teilen/__tests__/modulgraph.test.ts`
+// resolve link": `mobile/src/app/share/__tests__/modulgraph.test.ts`
 // (Task 5, W4 proof) reads the ENTIRE source text of every file reachable
 // from teilen/[token].tsx and demands that EXACTLY ONE `aktion` literal
 // appears in the whole graph: `'aufloesen'`. shareApi.ts is in this graph
@@ -54,7 +54,7 @@ async function functionErrorText(error: unknown, fallback: string): Promise<stri
 // security value, only a display decision. Without a default: a guessed
 // default would give a link that looks like one and isn't (the same stance
 // as the function itself, supabase/functions/share-link/index.ts,
-// TEILEN_BASIS_URL).
+// SHARE_BASE_URL).
 //
 // Read as a FUNCTION rather than a module-wide constant: `process.env.*`
 // gets replaced by a literal at build time by Metro, but is read normally
@@ -62,12 +62,12 @@ async function functionErrorText(error: unknown, fallback: string): Promise<stri
 // FIRST import of this module and couldn't be switched anymore in tests
 // that want to check both the set and the missing case.
 function shareBaseUrl(): string {
-  return (process.env.EXPO_PUBLIC_TEILEN_BASIS_URL ?? '').replace(/\/$/, '');
+  return (process.env.EXPO_PUBLIC_SHARE_BASE_URL ?? '').replace(/\/$/, '');
 }
 const MISSING_CONFIG_TEXT = 'Die Teilen-Funktion ist nicht eingerichtet. Wende dich an die Entwicklung.';
 
 function buildUrl(token: string): string {
-  return `${shareBaseUrl()}/teilen/${token}`;
+  return `${shareBaseUrl()}/share/${token}`;
 }
 
 export type ActiveLink = { token: string; url: string; expiresAt: string | null };

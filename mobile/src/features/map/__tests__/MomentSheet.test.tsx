@@ -197,8 +197,8 @@ describe('what a tap in the sheet returns', () => {
 describe('the sheet building blocks live in exactly one place', () => {
   const SRC = path.resolve(__dirname, '../../..');
   const SCREENS = [
-    path.join(SRC, 'app', '(tabs)', 'recap', '[id]', 'karte.tsx'),
-    path.join(SRC, 'app', 'teilen', '[token].tsx'),
+    path.join(SRC, 'app', '(tabs)', 'recap', '[id]', 'map.tsx'),
+    path.join(SRC, 'app', 'share', '[token].tsx'),
   ];
   const BUILDING_BLOCKS = [
     'MomentSheetContent',

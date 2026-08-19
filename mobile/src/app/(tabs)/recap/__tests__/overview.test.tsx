@@ -94,7 +94,7 @@ jest.mock('@/components/SealPeel', () => {
   };
 });
 
-import RecapUebersicht from '../[id]/uebersicht';
+import RecapUebersicht from '../[id]/overview';
 import { fetchTrip } from '@/features/trips/tripsApi';
 import { fetchRecapMoments } from '@/features/recap/recapApi';
 import { saveAllToGallery } from '@/features/recap/exportApi';
@@ -653,7 +653,7 @@ describe('Segment-Zeile «Nach Tagen» / «Auf der Karte»', () => {
     await wrap();
     await fireEvent.press(await screen.findByText('Auf der Karte'));
     expect(mockPush).toHaveBeenCalledWith({
-      pathname: '/recap/[id]/karte',
+      pathname: '/recap/[id]/map',
       params: { id: 't1' },
     });
   });

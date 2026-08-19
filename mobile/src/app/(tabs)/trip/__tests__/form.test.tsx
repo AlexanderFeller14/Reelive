@@ -29,8 +29,8 @@ jest.mock('@/features/trips/tripDay', () => ({
   todaysCalendarDay: () => '2026-08-12',
 }));
 
-import NeueReise from '../neu';
-import ReiseBearbeiten from '../[id]/bearbeiten';
+import NeueReise from '../new';
+import ReiseBearbeiten from '../[id]/edit';
 import { createTrip, updateTrip, fetchTrip } from '@/features/trips/tripsApi';
 
 const wrap = (ui: React.ReactElement) => render(<ThemeProvider>{ui}</ThemeProvider>);
@@ -81,7 +81,7 @@ test('gültige Eingabe legt an und führt zum Einladen', async () => {
       name: 'Norwegen', startDate: '2026-08-01', endDate: '2026-08-14', ownerId: 'u1',
     })
   );
-  expect(mockReplace).toHaveBeenCalledWith('/reise/neu-1/einladen');
+  expect(mockReplace).toHaveBeenCalledWith('/trip/neu-1/invite');
 });
 
 test('Bearbeiten kommt mit vorbelegten Werten und speichert', async () => {

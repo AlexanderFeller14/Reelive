@@ -118,7 +118,7 @@ jest.mock('expo-haptics', () => ({
 
 // Pfad-Anpassung (Task-10-Kontext, Abweichung 2): Router-Root ist mobile/src/app/,
 // nicht mobile/app/, von __tests__/ drei Ebenen hoch zu app/(tabs)/...
-import ProfilScreen from '../../../app/(tabs)/profil';
+import ProfilScreen from '../../../app/(tabs)/profile';
 import { setzeAvatar } from '@/features/auth/avatarApi';
 import { fetchOwnProfile, updateProfile } from '../profileApi';
 

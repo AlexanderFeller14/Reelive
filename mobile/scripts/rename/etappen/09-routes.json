@@ -1,0 +1,35 @@
+{
+  "dateien": {
+    "app/vorschau.tsx": "app/preview.tsx",
+    "app/__tests__/vorschau.test.tsx": "app/__tests__/preview.test.tsx",
+
+    "app/teilen/[token].tsx": "app/share/[token].tsx",
+    "app/teilen/__tests__/token.test.tsx": "app/share/__tests__/token.test.tsx",
+    "app/teilen/__tests__/w4Verhalten.test.tsx": "app/share/__tests__/w4Behavior.test.tsx",
+    "app/teilen/__tests__/modulgraph.test.ts": "app/share/__tests__/moduleGraph.test.ts",
+
+    "app/(tabs)/profil.tsx": "app/(tabs)/profile.tsx",
+
+    "app/(tabs)/aufnehmen/_layout.tsx": "app/(tabs)/capture/_layout.tsx",
+    "app/(tabs)/aufnehmen/index.tsx": "app/(tabs)/capture/index.tsx",
+    "app/(tabs)/aufnehmen/__tests__/kamera.test.tsx": "app/(tabs)/capture/__tests__/camera.test.tsx",
+
+    "app/(tabs)/reise/_layout.tsx": "app/(tabs)/trip/_layout.tsx",
+    "app/(tabs)/reise/index.tsx": "app/(tabs)/trip/index.tsx",
+    "app/(tabs)/reise/neu.tsx": "app/(tabs)/trip/new.tsx",
+    "app/(tabs)/reise/[id]/index.tsx": "app/(tabs)/trip/[id]/index.tsx",
+    "app/(tabs)/reise/[id]/bearbeiten.tsx": "app/(tabs)/trip/[id]/edit.tsx",
+    "app/(tabs)/reise/[id]/einladen.tsx": "app/(tabs)/trip/[id]/invite.tsx",
+    "app/(tabs)/reise/__tests__/detail.test.tsx": "app/(tabs)/trip/__tests__/detail.test.tsx",
+    "app/(tabs)/reise/__tests__/einladen.test.tsx": "app/(tabs)/trip/__tests__/invite.test.tsx",
+    "app/(tabs)/reise/__tests__/formular.test.tsx": "app/(tabs)/trip/__tests__/form.test.tsx",
+    "app/(tabs)/reise/__tests__/liste.test.tsx": "app/(tabs)/trip/__tests__/list.test.tsx",
+
+    "app/(tabs)/recap/[id]/uebersicht.tsx": "app/(tabs)/recap/[id]/overview.tsx",
+    "app/(tabs)/recap/[id]/karte.tsx": "app/(tabs)/recap/[id]/map.tsx",
+    "app/(tabs)/recap/__tests__/uebersicht.test.tsx": "app/(tabs)/recap/__tests__/overview.test.tsx",
+    "app/(tabs)/recap/__tests__/karte.test.tsx": "app/(tabs)/recap/__tests__/map.test.tsx",
+    "app/(tabs)/recap/__tests__/liste.test.tsx": "app/(tabs)/recap/__tests__/list.test.tsx"
+  },
+  "symbole": {}
+}

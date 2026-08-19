@@ -257,7 +257,7 @@ export default function PreviewScreen() {
   // Aufnahme entstand. Zurück zur Kamera statt eines leeren Screens.
   const quelleFehlt = typ === 'photo' ? !foto && !uri : !uri;
   useEffect(() => {
-    if (quelleFehlt) router.replace('/aufnehmen');
+    if (quelleFehlt) router.replace('/capture');
   }, [quelleFehlt, router]);
 
   // Höhe der stehenden Tastatur, 0 heisst geschlossen.
@@ -352,7 +352,7 @@ export default function PreviewScreen() {
   );
 
   // Final-Review, Important 3: die Vorfassung navigierte mit
-  // router.replace('/aufnehmen') zurück. replace ersetzt aber nur den
+  // router.replace('/capture') zurück. replace ersetzt aber nur den
   // fokussierten Eintrag durch einen NEUEN, aus [kamera, preview] wurde
   // [kamera, kamera]. Jede Aufnahme stapelte damit einen weiteren
   // Kamera-Screen, jeder mit eigener Kamera-Instanz, und die Zurück-Geste lief
@@ -371,7 +371,7 @@ export default function PreviewScreen() {
   // ersten Frame (cinemaStage.ts / _layout.tsx).
   const zurueckZurKamera = () => {
     if (router.canGoBack()) router.back();
-    else router.replace('/aufnehmen');
+    else router.replace('/capture');
   };
 
   const verwerfen = () => {

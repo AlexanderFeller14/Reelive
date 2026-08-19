@@ -126,13 +126,13 @@ export default function ReiseListe() {
                 key={t.id}
                 trip={t}
                 position={i}
-                onPress={() => router.push(`/reise/${t.id}?cover=${i}`)}
+                onPress={() => router.push(`/trip/${t.id}?cover=${i}`)}
               />
             ))}
           </View>
         )}
       </ScrollView>
-      <Fab label="Neue Reise" onPress={() => router.push('/reise/neu')} />
+      <Fab label="Neue Reise" onPress={() => router.push('/trip/new')} />
     </View>
   );
 }

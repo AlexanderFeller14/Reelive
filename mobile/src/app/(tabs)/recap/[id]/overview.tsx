@@ -335,7 +335,7 @@ export default function RecapUebersicht() {
   };
 
   const zurKarte = () => {
-    router.push({ pathname: '/recap/[id]/karte', params: { id } });
+    router.push({ pathname: '/recap/[id]/map', params: { id } });
   };
 
   const zumPlayer = (index: number) => {

@@ -1048,7 +1048,7 @@ export default function RecapKarte() {
     // Ohne Rückweg (Deep Link direkt auf die Karte) führt der Weg auf die
     // Übersicht DIESER Reise, nicht auf die Recap-Liste: die Karte ist eine
     // Lesart dieses Recaps, kein eigener Bereich der App (Spec §5.1).
-    else router.replace({ pathname: '/recap/[id]/uebersicht', params: { id } });
+    else router.replace({ pathname: '/recap/[id]/overview', params: { id } });
   };
 
   // ---------------------------------------------------------------------

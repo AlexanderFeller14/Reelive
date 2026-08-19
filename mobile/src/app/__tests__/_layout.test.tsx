@@ -226,7 +226,7 @@ describe('Web-Hartsperre (istWebGesperrt)', () => {
 
   test('auf Web bleibt "teilen" erreichbar, <Stack/> wird gerendert, keine Sperr-Seite', async () => {
     Platform.OS = 'web';
-    mockSegments[0] = 'teilen';
+    mockSegments[0] = 'share';
     const { queryByText, unmount } = await render(<RootLayout />);
     expect(mockStackRender).toHaveBeenCalledTimes(1);
     expect(queryByText('Reelive gibt es als App.')).toBeNull();

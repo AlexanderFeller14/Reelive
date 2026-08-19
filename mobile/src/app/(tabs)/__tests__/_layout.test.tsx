@@ -75,7 +75,7 @@ test('auf der Player-Route (recap/[id]/player) wird die Tab-Bar abgeschaltet', a
 // dass ein anderer, häufig aufgerufener Screen im selben Tab (die
 // Tages-Übersicht) die Tab-Bar behält.
 test('eine andere Route im selben Tab (recap/[id]/uebersicht) behält die Tab-Bar', async () => {
-  mockUseSegments.mockReturnValue(['(tabs)', 'recap', '[id]', 'uebersicht']);
+  mockUseSegments.mockReturnValue(['(tabs)', 'recap', '[id]', 'overview']);
   await render(<TabsLayout />);
   expect(optionenFuer('recap')?.tabBarStyle?.display).not.toBe('none');
 });
@@ -97,7 +97,7 @@ test('eine andere Route im selben Tab (recap/[id]/uebersicht) behält die Tab-Ba
 // Dieser Test hält die Entscheidung fest, statt sie stumm zu lassen: wer sie
 // umdreht, muss hier vorbei und die Unterkante der Karte mitnehmen.
 test('die Karte (recap/[id]/karte) behält die Tab-Bar, sie ist kein Vollbild-Medienscreen', async () => {
-  mockUseSegments.mockReturnValue(['(tabs)', 'recap', '[id]', 'karte']);
+  mockUseSegments.mockReturnValue(['(tabs)', 'recap', '[id]', 'map']);
   await render(<TabsLayout />);
   expect(optionenFuer('recap')?.tabBarStyle?.display).not.toBe('none');
 });
@@ -107,9 +107,9 @@ test('die Karte (recap/[id]/karte) behält die Tab-Bar, sie ist kein Vollbild-Me
 // anderen Tab) darf die Tab-Bar NICHT abschalten, der Vergleich prüft alle
 // drei Segmente gemeinsam, nicht nur das letzte.
 test('ein "player"-Segment ausserhalb von recap/[id]/ schaltet die Tab-Bar NICHT ab', async () => {
-  mockUseSegments.mockReturnValue(['(tabs)', 'aufnehmen', 'player']);
+  mockUseSegments.mockReturnValue(['(tabs)', 'capture', 'player']);
   await render(<TabsLayout />);
-  expect(optionenFuer('aufnehmen')?.tabBarStyle?.display).not.toBe('none');
+  expect(optionenFuer('capture')?.tabBarStyle?.display).not.toBe('none');
 });
 
 // Der Kamera-Screen behält die Leiste: Er ist der Tab, von dem aus man in die
@@ -123,9 +123,9 @@ test('ein "player"-Segment ausserhalb von recap/[id]/ schaltet die Tab-Bar NICHT
 // schon da war. Die Begründung für den Umzug steht in guard.ts bei
 // istFlaecheFuerAngemeldete().
 test('der Kamera-Screen (aufnehmen) behält die Tab-Bar', async () => {
-  mockUseSegments.mockReturnValue(['(tabs)', 'aufnehmen']);
+  mockUseSegments.mockReturnValue(['(tabs)', 'capture']);
   await render(<TabsLayout />);
-  expect(optionenFuer('aufnehmen')?.tabBarStyle?.display).not.toBe('none');
+  expect(optionenFuer('capture')?.tabBarStyle?.display).not.toBe('none');
 });
 
 // === Kino-Leiste über dem Sucher (Gerätefund 2026-08-18) ===
@@ -138,9 +138,9 @@ test('der Kamera-Screen (aufnehmen) behält die Tab-Bar', async () => {
 // gross, was man sieht, ist was man bekommt.
 test('zeigt der Sucher (cinemaStage), liegt die Leiste durchscheinend über dem Bild', async () => {
   cinemaStage.set(true);
-  mockUseSegments.mockReturnValue(['(tabs)', 'aufnehmen']);
+  mockUseSegments.mockReturnValue(['(tabs)', 'capture']);
   await render(<TabsLayout />);
-  const optionen = optionenFuer('aufnehmen');
+  const optionen = optionenFuer('capture');
   expect(optionen?.tabBarStyle?.position).toBe('absolute');
   expect(optionen?.tabBarStyle?.backgroundColor).toBe('transparent');
   expect(optionen?.tabBarStyle?.borderTopWidth).toBe(0);
@@ -149,9 +149,9 @@ test('zeigt der Sucher (cinemaStage), liegt die Leiste durchscheinend über dem 
 });
 
 test('ohne Sucher (helle Zustände des Tabs) bleibt die Leiste die normale helle', async () => {
-  mockUseSegments.mockReturnValue(['(tabs)', 'aufnehmen']);
+  mockUseSegments.mockReturnValue(['(tabs)', 'capture']);
   await render(<TabsLayout />);
-  const optionen = optionenFuer('aufnehmen');
+  const optionen = optionenFuer('capture');
   expect(optionen?.tabBarStyle?.position).not.toBe('absolute');
   expect(optionen?.tabBarBackground).toBeUndefined();
 });
@@ -165,16 +165,16 @@ test('ohne Sucher (helle Zustände des Tabs) bleibt die Leiste die normale helle
 test('mit stehendem Sucher-Zeichen bleibt die Kino-Leiste, solange aufnehmen der gewählte Tab ist', async () => {
   cinemaStage.set(true);
   // Fokus liegt auf der Vorschau (Root-Stack), nicht im Tab-Navigator.
-  mockUseSegments.mockReturnValue(['vorschau']);
+  mockUseSegments.mockReturnValue(['preview']);
   await render(<TabsLayout />);
-  expect(optionenFuer('aufnehmen')?.tabBarStyle?.position).toBe('absolute');
+  expect(optionenFuer('capture')?.tabBarStyle?.position).toBe('absolute');
 });
 
 test('auf einem ANDEREN gewählten Tab gilt trotz Sucher-Zeichen die normale Leiste', async () => {
   cinemaStage.set(true);
-  mockUseSegments.mockReturnValue(['(tabs)', 'reise']);
+  mockUseSegments.mockReturnValue(['(tabs)', 'trip']);
   await render(<TabsLayout />);
-  const optionen = optionenFuer('reise');
+  const optionen = optionenFuer('trip');
   expect(optionen?.tabBarStyle?.position).not.toBe('absolute');
   expect(optionen?.tabBarBackground).toBeUndefined();
 });

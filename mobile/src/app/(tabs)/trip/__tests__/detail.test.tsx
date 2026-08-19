@@ -338,7 +338,7 @@ test('zeigt den eigenen Zähler mit Erklärung', async () => {
 test('Owner kann vom Screen aus einladen', async () => {
   await wrap();
   await fireEvent.press(await screen.findByText('Freunde einladen'));
-  expect(mockPush).toHaveBeenCalledWith('/reise/t1/einladen');
+  expect(mockPush).toHaveBeenCalledWith('/trip/t1/invite');
 });
 
 // Kurzhand für die Tests unten: die Verwaltung steckt jetzt hinter der
@@ -363,7 +363,7 @@ test('Owner kann auch aus dem Sheet heraus einladen; es schliesst sich dabei', a
   const knoepfe = screen.getAllByText('Freunde einladen');
   expect(knoepfe).toHaveLength(2);
   await fireEvent.press(knoepfe[1]);
-  expect(mockPush).toHaveBeenCalledWith('/reise/t1/einladen');
+  expect(mockPush).toHaveBeenCalledWith('/trip/t1/invite');
   await waitFor(() => expect(screen.queryByText('Hat die Reise angelegt')).toBeNull());
 });
 
@@ -420,7 +420,7 @@ test('Owner löscht die Reise', async () => {
   await wrap();
   await fireEvent.press(await screen.findByText('Reise löschen'));
   await waitFor(() => expect(deleteTrip).toHaveBeenCalledWith('t1'));
-  await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/reise'));
+  await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/trip'));
 });
 
 test('Mitglied verlässt die Reise', async () => {
@@ -428,7 +428,7 @@ test('Mitglied verlässt die Reise', async () => {
   await wrap();
   await fireEvent.press(await screen.findByText('Reise verlassen'));
   await waitFor(() => expect(removeMember).toHaveBeenCalledWith('t1', 'u2'));
-  await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/reise'));
+  await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/trip'));
 });
 
 test('Löschen schlägt fehl: keine Navigation, Fehler wird gezeigt', async () => {
@@ -455,7 +455,7 @@ test('ein Lesefehler erklärt sich und lässt zurück statt weiss zu bleiben', a
   expect(await screen.findByText(LADEFEHLER)).toBeTruthy();
   // Der Stack hat keinen Header, ohne diesen Knopf gäbe es keinen Rückweg.
   await fireEvent.press(screen.getByText('Zu meinen Reisen'));
-  expect(mockReplace).toHaveBeenCalledWith('/reise');
+  expect(mockReplace).toHaveBeenCalledWith('/trip');
 });
 
 test('nach einem Lesefehler lädt der Knopf erneut', async () => {
@@ -919,7 +919,7 @@ test('«Recap starten» führt zur Recap-Übersicht dieser Reise', async () => {
   (hasSeenReveal as jest.Mock).mockResolvedValue(true);
   await wrap();
   await fireEvent.press(await screen.findByText('Recap starten'));
-  expect(mockPush).toHaveBeenCalledWith({ pathname: '/recap/[id]/uebersicht', params: { id: 't1' } });
+  expect(mockPush).toHaveBeenCalledWith({ pathname: '/recap/[id]/overview', params: { id: 't1' } });
 });
 
 // DESIGN-LANGUAGE §7: höchstens eine Fläche trägt die Akzentfarbe, auch auf
@@ -1083,7 +1083,7 @@ test('«Recap starten» verwendet die tatsächliche Reise-Kennung, nicht fest ve
   await wrap();
   await fireEvent.press(await screen.findByText('Recap starten'));
   expect(mockPush).toHaveBeenCalledWith({
-    pathname: '/recap/[id]/uebersicht',
+    pathname: '/recap/[id]/overview',
     params: { id: 'reise-xyz' },
   });
 });

@@ -17,7 +17,7 @@ jest.mock('@/features/trips/tripsApi', () => ({ fetchInviteCode: jest.fn() }));
 jest.mock('@/features/trips/inviteLink', () => ({ createInviteUrl: (c: string) => `reelive://join/${c}` }));
 jest.mock('react-native-qrcode-svg', () => 'QRCode');
 
-import Einladen from '../[id]/einladen';
+import Einladen from '../[id]/invite';
 import { fetchInviteCode } from '@/features/trips/tripsApi';
 
 const wrap = () => render(<ThemeProvider><Einladen /></ThemeProvider>);

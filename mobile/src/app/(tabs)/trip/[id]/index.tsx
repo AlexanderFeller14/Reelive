@@ -250,7 +250,7 @@ export default function ReiseDetail() {
   // gesetzt (richtig gegen Nebenläufigkeit) und im Abbruchpfad
   // (`if (!aktiv.current) return`) NIE zurückgenommen: verlor der Screen
   // während des AsyncStorage-Lesens den Fokus (Tab-Wechsel, ein `push` auf
-  // `/reise/[id]/einladen`, der Screen bleibt dabei gemountet), blieb er
+  // `/trip/[id]/invite`, der Screen bleibt dabei gemountet), blieb er
   // für den Rest dieses Mounts auf "true" hängen, ohne dass je `revealBereit`
   // oder `inszenierungSichtbar` gesetzt worden wäre, eine aufgedeckte Reise
   // hätte dann WEDER die Inszenierung NOCH «Recap starten» gezeigt. Mit der
@@ -376,12 +376,12 @@ export default function ReiseDetail() {
 
   const zumRecap = () => {
     // Phase-5-Final-Review, Punkt 7: der Cast war eine Übergangslösung, so
-    // lange `/recap/[id]/uebersicht` in der generierten (gitignorten)
+    // lange `/recap/[id]/overview` in der generierten (gitignorten)
     // Routen-Liste fehlte, Task 11 hat die Route angelegt, `tsc` ist ohne
     // Cast sauber (siehe dasselbe Muster in recap/[id]/uebersicht.tsx:
     // `zumPlayer`, das exakt diese Begründung schon für `/recap/[id]/player`
     // dokumentiert).
-    router.push({ pathname: '/recap/[id]/uebersicht', params: { id } });
+    router.push({ pathname: '/recap/[id]/overview', params: { id } });
   };
 
   // Erst wenn die Erklärung tatsächlich gesehen und bestätigt wurde. Der
@@ -456,7 +456,7 @@ export default function ReiseDetail() {
         {fehler && (
           <Button variant="secondary" label="Nochmal versuchen" onPress={() => void nochmal()} loading={laedt} />
         )}
-        <Button variant="text" label="Zu meinen Reisen" onPress={() => router.replace('/reise')} />
+        <Button variant="text" label="Zu meinen Reisen" onPress={() => router.replace('/trip')} />
       </View>
     );
   }
@@ -479,7 +479,7 @@ export default function ReiseDetail() {
   // das niemand mehr aufgemacht hat.
   const einladen = () => {
     setMitgliederSichtbar(false);
-    router.push(`/reise/${id}/einladen`);
+    router.push(`/trip/${id}/invite`);
   };
 
   const entfernen = (m: TripMember) => {
@@ -510,7 +510,7 @@ export default function ReiseDetail() {
           if (!userId) return;
           void removeMember(id, userId).then(({ error }) => {
             if (error) return Alert.alert('Nicht verlassen', error);
-            router.replace('/reise');
+            router.replace('/trip');
           });
         },
       },
@@ -527,7 +527,7 @@ export default function ReiseDetail() {
         onPress: () => {
           void deleteTrip(id).then(({ error }) => {
             if (error) return Alert.alert('Nicht gelöscht', error);
-            router.replace('/reise');
+            router.replace('/trip');
           });
         },
       },
@@ -806,7 +806,7 @@ export default function ReiseDetail() {
         />
       )}
       {istOwner && (
-        <Button variant="secondary" label="Reise bearbeiten" onPress={() => router.push(`/reise/${id}/bearbeiten`)} />
+        <Button variant="secondary" label="Reise bearbeiten" onPress={() => router.push(`/trip/${id}/edit`)} />
       )}
       </View>
 

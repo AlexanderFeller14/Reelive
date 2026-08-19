@@ -7,7 +7,7 @@ import type { RedeemResult } from './types';
 // into the trip just like a fresh join.
 export function resolveTargetPath(result: RedeemResult): Href | null {
   if (result.trip_id && (result.status === 'joined' || result.status === 'already_member')) {
-    return `/reise/${result.trip_id}`;
+    return `/trip/${result.trip_id}`;
   }
   return null;
 }

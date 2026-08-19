@@ -4,7 +4,7 @@ test.each([
   ['loading', null],
   ['signedOut', '/welcome'],
   ['needsProfile', '/profile-setup'],
-  ['signedIn', '/aufnehmen'],
+  ['signedIn', '/capture'],
 ] as const)('Status %s → Route %s', (status, route) => {
   expect(resolveRoute(status)).toBe(route);
 });
@@ -13,7 +13,7 @@ import { isPublicArea } from '../guard';
 
 test.each([
   ['join', true],
-  ['teilen', true],
+  ['share', true],
   ['(auth)', false],
   ['(tabs)', false],
   [undefined, false],
@@ -25,12 +25,12 @@ import { isWebLocked } from '../guard';
 
 test.each([
   // platformOS, area, expected locked
-  ['web', 'teilen', false],
+  ['web', 'share', false],
   ['web', 'join', true], // deliberately locked despite isPublicArea('join') === true, see comment in guard.ts
   ['web', '(auth)', true],
   ['web', '(tabs)', true],
   ['web', undefined, true],
-  ['ios', 'teilen', false],
+  ['ios', 'share', false],
   ['ios', 'join', false],
   ['ios', '(auth)', false],
   ['ios', '(tabs)', false],
@@ -48,10 +48,10 @@ import { isAreaForSignedIn } from '../guard';
 // would have sent it straight back to /aufnehmen without this exception.
 test.each([
   ['(tabs)', true],
-  ['vorschau', true],
+  ['preview', true],
   ['(auth)', false],
   ['join', false],
-  ['teilen', false],
+  ['share', false],
   [undefined, false],
 ])('isAreaForSignedIn(%s) → %s', (area, expected) => {
   expect(isAreaForSignedIn(area)).toBe(expected);

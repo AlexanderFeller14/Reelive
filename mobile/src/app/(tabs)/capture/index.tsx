@@ -1080,7 +1080,7 @@ export default function AufnehmenScreen() {
   }
 
   if (aktiveReisen.length === 0) {
-    return <KeineReiseScreen onAnlegen={() => router.push('/reise/neu')} />;
+    return <KeineReiseScreen onAnlegen={() => router.push('/trip/new')} />;
   }
 
   if (!reise) {
@@ -1099,7 +1099,7 @@ export default function AufnehmenScreen() {
   // Speicher (bewusste Grenze, siehe Auftrag); dazu kommt `tripId`, weil
   // Task 8 daraus den Speicherschlüssel und den Queue-Job baut; eine Kennung
   // ist nichts Bibliotheksspezifisches, verletzt die Grenze also nicht.
-  // `/aufnehmen/preview` selbst entsteht erst in Task 8 und fehlt darum noch
+  // `/capture/preview` selbst entsteht erst in Task 8 und fehlt darum noch
   // in der generierten (gitignorten) Routen-Liste `.expo/types/router.d.ts`.
   // Der Cast über `unknown` (statt `any`, siehe Präzedenz in joinFlow.ts) ist
   // bewusst temporär: sobald Task 8 die Route anlegt, entfällt er ersatzlos.
@@ -1108,7 +1108,7 @@ export default function AufnehmenScreen() {
     // behandeln die Vorschau anders als einen Tab-Wechsel (siehe inVorschau
     // oben).
     setInVorschau(true);
-    router.push({ pathname: '/vorschau', params } as unknown as Href);
+    router.push({ pathname: '/preview', params } as unknown as Href);
   };
 
   // Während einer GEHALTENEN Aufnahme liegt der Finger auf dem Auslöser.

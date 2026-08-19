@@ -404,7 +404,7 @@ test('ohne laufende Reise zeigt der Screen den Weg zum Anlegen', async () => {
   await render(<AufnehmenScreen />);
   expect(await screen.findByText('Keine laufende Reise')).toBeTruthy();
   await fireEvent.press(screen.getByText('Neue Reise anlegen'));
-  expect(mockPush).toHaveBeenCalledWith('/reise/neu');
+  expect(mockPush).toHaveBeenCalledWith('/trip/new');
 });
 
 test('sind alle Reisen bereits versiegelt, gilt das ebenfalls als „keine laufende Reise"', async () => {
@@ -576,7 +576,7 @@ test('ein Tipp friert den Sucher ein, übergibt das Foto im Speicher und navigie
 
   // Die Navigation trägt kein uri mehr: das Bild geht über die Übergabe.
   expect(mockPush).toHaveBeenCalledWith({
-    pathname: '/vorschau',
+    pathname: '/preview',
     params: { typ: 'photo', dauer: '0', tripId: 't1' },
   });
   const abgeholt = handoff.takePhoto();
@@ -639,7 +639,7 @@ test('mit Blitz bleibt der Sucher bis zum fertigen Bild live und friert erst dan
   // Übergang, wie beim Video-Stopp), dann kommt die Vorschau.
   expect(mockPausePreview).toHaveBeenCalledTimes(1);
   expect(mockPush).toHaveBeenCalledWith({
-    pathname: '/vorschau',
+    pathname: '/preview',
     params: { typ: 'photo', dauer: '0', tripId: 't1' },
   });
 });
@@ -1027,7 +1027,7 @@ test('ein Halten auf dem Auslöser nimmt ein Video auf und navigiert nach dem Lo
   });
 
   expect(mockPush).toHaveBeenCalledWith({
-    pathname: '/vorschau',
+    pathname: '/preview',
     params: { uri: 'file://video.mp4', typ: 'video', dauer: expect.any(String), tripId: 't1' },
   });
 });
@@ -1693,7 +1693,7 @@ test('wird die Session beim Start beschäftigt getroffen, wird der Start wiederh
 
   expect(screen.queryByText(FEHLERTEXT)).toBeNull();
   expect(mockPush).toHaveBeenCalledWith({
-    pathname: '/vorschau',
+    pathname: '/preview',
     params: { uri: 'file://video.mp4', typ: 'video', dauer: expect.any(String), tripId: 't1' },
   });
 });
@@ -2948,7 +2948,7 @@ test('der Stopp holt Datei und Dauer vom MultiKamera-Modul', async () => {
   // sie nativ (derselbe Weg wie bei der KameraAufnahme-Pipeline).
   expect(mockCreateVideoPlayer).not.toHaveBeenCalled();
   expect(mockPush).toHaveBeenCalledWith({
-    pathname: '/vorschau',
+    pathname: '/preview',
     params: { uri: 'file://multicam.mov', typ: 'video', dauer: '6', tripId: 't1' },
   });
   // Die Übergabe bleibt wörtlich dieselbe: das Warten auf die fertige Datei
@@ -3040,7 +3040,7 @@ test('der Auslöser holt das Foto vom MultiKamera-Modul und geht zur Vorschau', 
   expect(mockMultiCamera.takePhoto).toHaveBeenCalledTimes(1);
   expect(mockTakePictureAsync).not.toHaveBeenCalled();
   expect(mockPush).toHaveBeenCalledWith({
-    pathname: '/vorschau',
+    pathname: '/preview',
     params: { typ: 'photo', dauer: '0', tripId: 't1' },
   });
   // Die Übergabe trägt die fertige Datei: die Vorschau zeigt sie und sendet

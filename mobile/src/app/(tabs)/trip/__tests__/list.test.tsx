@@ -120,7 +120,7 @@ test('der Knopf führt zum Anlegen', async () => {
   await wrap();
   await waitFor(() => expect(fetchTrips).toHaveBeenCalled());
   await fireEvent.press(screen.getByLabelText('Neue Reise'));
-  expect(mockPush).toHaveBeenCalledWith('/reise/neu');
+  expect(mockPush).toHaveBeenCalledWith('/trip/new');
 });
 
 // `cover` hängt am Weg, nicht an der Reise: Es sagt dem Detail, welches
@@ -130,5 +130,5 @@ test('eine Karte führt in die Reise, mit ihrem Cover-Platz', async () => {
   (fetchTrips as jest.Mock).mockResolvedValue(geladen([trip]));
   await wrap();
   await fireEvent.press(await screen.findByText('Norwegen mit dem Camper'));
-  expect(mockPush).toHaveBeenCalledWith('/reise/t1?cover=0');
+  expect(mockPush).toHaveBeenCalledWith('/trip/t1?cover=0');
 });

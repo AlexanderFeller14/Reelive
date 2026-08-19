@@ -26,7 +26,7 @@ test.each([
   ['exp://192.168.1.5:8081/--/join/abc123?x=1', 'abc123'],
   ['reelive://join/abc123#fragment', 'abc123'],
   ['reelive://join/', null],
-  ['reelive://reise/abc123', null],
+  ['reelive://trip/abc123', null],
   ['', null],
 ])('extractInviteCode(%s) → %s', (url, expected) => {
   expect(extractInviteCode(url)).toBe(expected);

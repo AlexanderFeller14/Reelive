@@ -78,12 +78,12 @@ const S3_SECRET_KEY = Deno.env.get('S3_SECRET_KEY') ?? '';
 const SENTRY_DSN = Deno.env.get('SENTRY_DSN') ?? '';
 const melde = erstelleFehlermelder(SENTRY_DSN, 'share-link');
 
-// Basis des öffentlichen Web-Players (Route /teilen/[token], Plan Task 5).
+// Basis des öffentlichen Web-Players (Route /share/[token], Plan Task 5).
 // Absichtlich ohne Standardwert: ein geratener Standard ergäbe eine Antwort,
 // die aussieht wie ein Link und keiner ist. Fehlt die Variable, sagt
 // `erstellen` das laut (500 + Log) statt einen falschen Link auszugeben.
 // Lokal in supabase/functions/.env, dokumentiert in .env.example.
-const TEILEN_BASIS_URL = (Deno.env.get('TEILEN_BASIS_URL') ?? '').replace(/\/$/, '');
+const SHARE_BASE_URL = (Deno.env.get('TEILEN_BASIS_URL') ?? '').replace(/\/$/, '');
 
 // Gültigkeit der ausgestellten Lese-URLs: eine Stunde, wie beim
 // Mitglieder-Leseweg (media-urls, LESE_URL_GUELTIGKEIT_SEKUNDEN). Eine Antwort
@@ -330,7 +330,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       return fehler(ablauf.nachricht, 400);
     }
 
-    if (!TEILEN_BASIS_URL) {
+    if (!SHARE_BASE_URL) {
       console.error('share-link: TEILEN_BASIS_URL fehlt, ohne sie entsteht kein gültiger Link.');
       await melde(new Error('share-link: TEILEN_BASIS_URL fehlt, ohne sie entsteht kein gültiger Link.'));
       return fehler('Server nicht konfiguriert.', 500);
@@ -369,7 +369,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     // nicht, `versendeTeilenPush` wirft nie (Begruendung dort).
     await versendeTeilenPush(store, sende, erstellUrteil.daten, anfragendeId, 'erstellt');
 
-    return json({ token, url: `${TEILEN_BASIS_URL}/teilen/${token}` }, 200);
+    return json({ token, url: `${SHARE_BASE_URL}/share/${token}` }, 200);
   }
 
   // -------------------------------------------------------------------------
