@@ -25,7 +25,15 @@ import { PressScale } from '@/components/PressScale';
 import { ZoomWahl } from '@/components/ZoomWahl';
 import * as nativeAufnahme from '@/features/kamera/nativeAufnahme';
 import * as nativeZoom from '@/features/kamera/nativeZoom';
-import { begrenzen, fingerAbstand, nativerFaktor, zoomGeraet, zugFaktor } from '@/features/kamera/zoom';
+import * as multiKamera from '@/features/kamera/multiKamera';
+import {
+  begrenzen,
+  fingerAbstand,
+  multiCamZiel,
+  nativerFaktor,
+  zoomGeraet,
+  zugFaktor,
+} from '@/features/kamera/zoom';
 import { cinema, motion, palette, radius, spacing, type } from '@/theme/tokens';
 import { useOberkante } from '@/theme/useOberkante';
 import { useReducedMotion } from '@/theme/useReducedMotion';
@@ -487,6 +495,13 @@ export default function AufnehmenScreen() {
   // Tab-Screens bleiben gemountet, und der orange Mikrofon-Punkt soll nicht
   // app-weit leuchten, während man im Reise-Tab liest.
   const [fokussiert, setFokussiert] = useState(true);
+  // Ob die EIGENE MultiCam-Session den Sucher trägt (Spec §8/§9). Zustand,
+  // nicht abgeleitete Frage: scheitert der Sitzungsaufbau am Gerät, fällt der
+  // Screen für den REST der Sitzung auf expo-camera zurück, und dieser
+  // Rückfall muss ein Rendern auslösen. Der Startwert kommt vom Modul selbst
+  // (kein Modul, Android, Simulator → sofort false, die CameraView übernimmt,
+  // ohne dass je etwas anlief).
+  const [multiCam, setMultiCam] = useState(() => multiKamera.verfuegbar());
   const [richtung, setRichtung] = useState<'back' | 'front'>('back');
   const [blitz, setBlitz] = useState<'off' | 'on'>('off');
   // Zähler-Nachzug aus Task 9 (Task-10-Auftrag): Serverstand PLUS wartende
@@ -564,6 +579,13 @@ export default function AufnehmenScreen() {
   // Pinch-Geste brauchen ihn ausserhalb des Renderns, wo ein State-Wert noch
   // der alte wäre.
   const faktorRef = useRef(1);
+  // Dieselben Werte wie `nimmtAuf` und `inVorschau`, ebenfalls nur synchron
+  // lesbar: das Blur-Cleanup des MultiCam-Lebenszyklus (siehe unten) muss
+  // ihren Stand im Moment des Blurs kennen, darf aber nicht an ihnen HÄNGEN:
+  // als Abhängigkeiten stoppte und startete jede einzelne Aufnahme die
+  // Session neu.
+  const nimmtAufRef = useRef(false);
+  const inVorschauRef = useRef(false);
   // Was beim Aufsetzen der zwei Finger galt. Alles Weitere ist Verhältnis
   // dazu, deshalb wird es beim Loslassen wieder geräumt.
   const pinchStart = useRef<{
@@ -745,6 +767,41 @@ export default function AufnehmenScreen() {
     }, [inVorschau])
   );
 
+  // Hält die beiden Spiegel-Refs nach (siehe dort). Ein eigener Effekt statt
+  // einer Zuweisung beim Rendern: Refs beim Rendern zu beschreiben ist im
+  // konkurrierenden Rendern nicht verlässlich.
+  useEffect(() => {
+    nimmtAufRef.current = nimmtAuf;
+    inVorschauRef.current = inVorschau;
+  }, [nimmtAuf, inVorschau]);
+
+  // Der Lebenszyklus der MultiCam-Session (Spec §8/§9). Zwei Dinge hängen
+  // daran:
+  //
+  // Beim Fokus baut die Session auf. Meldet sie `false` (kein Modul, alter
+  // Build, Simulator, oder zweimal in Folge gescheiterter Aufbau), fällt der
+  // Screen für den REST der Sitzung auf expo-camera zurück: `multiCam` bleibt
+  // dann false, dieser Effekt läuft ins Leere und die CameraView übernimmt.
+  // Der aktiv-Ref schirmt die Antwort ab, die erst nach dem Verlassen des
+  // Screens eintrifft (gleiches Muster wie beim Laden oben).
+  //
+  // Beim Blur wird NUR gestoppt, wenn nichts mehr auf der Session liegt,
+  // nach genau den Bedingungen des mute-Props im anderen Zweig: unter der
+  // AUFNAHME-VORSCHAU läuft sie weiter (ein Neuaufbau wäre ausgerechnet auf
+  // dem Instant-Rückweg der teuerste Moment), und in eine laufende Aufnahme
+  // greift ohnehin niemand hinein.
+  useFocusEffect(
+    useCallback(() => {
+      if (!multiCam) return;
+      void multiKamera.starten().then((ok) => {
+        if (!ok && aktiv.current) setMultiCam(false);
+      });
+      return () => {
+        if (!nimmtAufRef.current && !inVorschauRef.current) multiKamera.stoppen();
+      };
+    }, [multiCam])
+  );
+
   // Liegt die Leiste über dem Bild, nimmt sie dem Screen keinen Platz mehr
   // weg — die unten verankerten Bedienelemente (Auslöser, Zoom-Reihe,
   // Fehler-Pille) heben sich deshalb um ihre Höhe, sonst lägen sie dahinter.
@@ -770,14 +827,48 @@ export default function AufnehmenScreen() {
   const linsen = useMemo(() => nativeZoom.linsen(richtung), [richtung]);
   const zoom = useMemo(() => zoomGeraet(linsen), [linsen]);
 
+  // Ob diese Blickrichtung einen Ultraweitwinkel hat. Daran entscheidet die
+  // MultiCam-Session, ob 0,5× eine eigene Linse ist oder nur ein Beschnitt
+  // (siehe multiCamZiel in zoom.ts). Die Quelle sind dieselben ENUMERIERTEN
+  // Linsen, aus denen auch die Stufen entstehen: aufzählen darf man das
+  // virtuelle Gerät weiterhin, es soll nur nicht in der Session laufen.
+  const hatUltraweit = useMemo(
+    () => linsen.some((l) => l.typ === 'ultraWide' || l.bestandteile.includes('ultraWide')),
+    [linsen]
+  );
+
   const zoomSetzen = useCallback(
     (neu: number, sanft: boolean) => {
       if (!zoom) return;
       faktorRef.current = neu;
       setFaktor(neu);
+      // Nur der SETZ-Weg wechselt: Stufen, Grenzen, Pinch und Zug rechnen in
+      // beiden Zweigen dieselbe Anzeige aus. Die MultiCam-Session kennt aber
+      // keine virtuelle Mehrfach-Kamera, sie führt die Linsen einzeln, der
+      // Anzeige-Faktor wird darum in Linse plus deren eigenen Faktor
+      // übersetzt.
+      if (multiCam) {
+        multiKamera.zoomSetzen(multiCamZiel(neu, richtung, hatUltraweit), sanft);
+        return;
+      }
       nativeZoom.setzeZoom(zoom.name, nativerFaktor(neu, zoom.basis), sanft);
     },
-    [zoom]
+    [zoom, multiCam, richtung, hatUltraweit]
+  );
+
+  // Der Notausgang der MultiCam-Session (Spec §9): zwei Linsen zugleich
+  // heizen, und das Betriebssystem meldet Druck, bevor es selbst eingreift.
+  // Der teure Teil ist der zweite Sensor unter 1×, ab 'ernst' geht der Zoom
+  // deshalb auf 1× zurück, wo eine Linse allein reicht. Bei 'nominal'
+  // passiert nichts: wer zurück auf 0,5× will, tippt selbst.
+  useFocusEffect(
+    useCallback(() => {
+      if (!multiCam) return;
+      return multiKamera.aufDruck((stufe) => {
+        if (stufe === 'nominal') return;
+        if (faktorRef.current < 1) zoomSetzen(1, false);
+      });
+    }, [multiCam, zoomSetzen])
   );
 
   // Beim Betreten des Screens springt ein REINGEZOOMTER Stand (> 1×) auf 1×
@@ -802,9 +893,12 @@ export default function AufnehmenScreen() {
   // begänne der Sucher bei 0,5× und spränge nach jedem Kamerawechsel dorthin
   // zurück.
   const zoomNachsetzen = useCallback(() => {
-    if (!zoom) return;
+    // Im MultiCam-Zweig gibt es nichts nachzusetzen: dort läuft das virtuelle
+    // Gerät gar nicht in der Session, und niemand setzt seinen Zoom hinter
+    // unserem Rücken auf 1,0 zurück.
+    if (!zoom || multiCam) return;
     nativeZoom.setzeZoom(zoom.name, nativerFaktor(faktorRef.current, zoom.basis), false);
-  }, [zoom]);
+  }, [zoom, multiCam]);
 
   // Die Grenzen des aktiven Formats, mit demselben Fallback, den bisher nur
   // der Pinch kannte: kennt das Modul keine Grenzen, dient die oberste
@@ -830,7 +924,10 @@ export default function AufnehmenScreen() {
   // (Kamera-App-Muster, siehe onResponderRelease der Zoomfläche unten). Der
   // Ring ist die sichtbare Antwort darauf.
   const fokusAuf = (punkt: { pageX: number; pageY: number }) => {
-    nativeZoom.fokussiere(punkt.pageX, punkt.pageY);
+    // Zwei Sessions, zwei Wege zum selben Gerät: fokussiert wird immer die
+    // Kamera, die gerade WIRKLICH läuft. Der Ring darüber ist derselbe.
+    if (multiCam) multiKamera.fokussiere(punkt.pageX, punkt.pageY);
+    else nativeZoom.fokussiere(punkt.pageX, punkt.pageY);
     setFokusPunkt((alt) => ({ x: punkt.pageX, y: punkt.pageY, stand: (alt?.stand ?? 0) + 1 }));
   };
   // Stabil über useCallback: der Ring hängt seinen Animations-Effekt daran,
@@ -949,13 +1046,27 @@ export default function AufnehmenScreen() {
   // (Fallback) bräche der Umbau dagegen ab — dort schweigt der Doppeltipp
   // weiterhin, gesperrt oder nicht. Als Funktion statt als Wert, weil die
   // Gesten den nativLaeuft-Ref im Moment des Tipps lesen müssen.
-  const wechselErlaubt = () => !nimmtAuf || nativLaeuft.current;
+  //
+  // Der MultiCam-Zweig kennt diese Frage nicht mehr: dort laufen beide
+  // Kameras in DERSELBEN Session, der Wechsel tauscht nur, welche von ihnen
+  // den Sucher speist. Es gibt nichts, was dabei abbrechen könnte, der Gate
+  // bleibt allein dem expo-camera-Weg.
+  const wechselErlaubt = () => multiCam || !nimmtAuf || nativLaeuft.current;
 
   const kameraWechseln = () => {
     // [dbg] Task-13-Messsonde (fliegt nach der Runde): Wann wurde der
     // Wechsel angefordert? Gegenstück siehe onAvailableLensesChanged.
     console.log('[dbg-flip] Wechsel angefordert', Date.now());
-    setWechselLaeuft(true);
+    if (multiCam) {
+      // Kein Hardware-Umbau, kein Warten, und darum auch keine Blende: die
+      // Session läuft weiter, das Modul legt nur die andere Verbindung auf
+      // den Sucher. Die Antwort wird nicht abgewartet, die Richtung stellt
+      // der Screen sofort um, damit Stufen, Grenzen und Zoom-Ziel im selben
+      // Bild zur neuen Kamera passen.
+      void multiKamera.wechsleKamera();
+    } else {
+      setWechselLaeuft(true);
+    }
     setRichtung((r) => (r === 'back' ? 'front' : 'back'));
     // Die andere Seite hat andere Linsen — der Faktor der einen bedeutet auf
     // der anderen etwas anderes, also zurück auf 1×.
@@ -1354,50 +1465,63 @@ export default function AufnehmenScreen() {
 
   return (
     <View style={styles.screen}>
-      <CameraView
-        ref={cameraRef}
-        style={StyleSheet.absoluteFill}
-        facing={richtung}
-        mode="video"
-        // Nicht `!fokussiert` allein: die Tab-Bar bleibt sichtbar, eine
-        // GESPERRTE Aufnahme läuft nach dem Loslassen weiter, und ein Tipp
-        // auf einen anderen Tab feuert das Fokus-Cleanup mitten drin.
-        // `mute` wechselt dort aber keinen reinen Schalter — expo-camera baut
-        // dafür `session.beginConfiguration()` + `removeInput(audio)`, und
-        // eine Session-Rekonfiguration MITTEN in einer laufenden
-        // AVCaptureMovieFileOutput-Aufnahme bricht sie ab. Solange `nimmtAuf`
-        // gilt, bleibt das Mikrofon also an, unabhängig vom Fokus — es nimmt
-        // ja gerade auf. Und solange die AUFNAHME-VORSCHAU den Tab überdeckt
-        // (inVorschau), ebenfalls: das Wiederanhängen beim Instant-Rückweg
-        // war genau der Session-Umbau, der den Sucher im Moment der Rückkehr
-        // einfror (Nutzer-Befund 2026-08-18). Erst ein echter Tab-Wechsel
-        // hängt das Mikrofon ab — der orange Punkt soll nicht app-weit
-        // leuchten.
-        mute={!fokussiert && !nimmtAuf && !inVorschau}
-        // `flash` gilt für Fotos; beim Video braucht es stattdessen das
-        // Dauerlicht, derselbe Schalter, zwei Prop-Namen. Ob der Foto-Blitz
-        // im Video-Preset am Gerät wirklich feuert, prüft die Geräte-
-        // Checkliste (Spec 2026-08-13 §9); Fallback wäre die Torch.
-        flash={blitz}
-        enableTorch={blitz === 'on' && nimmtAuf}
-        videoQuality="1080p"
-        // Die Mehrfach-Kamera als EIN Gerät: darin schaltet iOS zwischen den
-        // Linsen selbst um, nahtlos und ohne die Session neu aufzubauen. Nur
-        // so führt der Zoom über 0,5× hinweg, ohne zu stocken.
-        selectedLens={zoom?.name}
-        // Feuert nach jedem Gerätewechsel, und zwar NACH expo-cameras
-        // eigenem updateZoom (addDevice, defer-Block): genau der Moment, in
-        // dem unser Faktor wiederhergestellt gehört.
-        onAvailableLensesChanged={() => {
-          // [dbg] Task-13-Messsonde (fliegt nach der Runde): das Ereignis
-          // feuert aus addDevices defer-Block — der Session-Umbau ist damit
-          // durch, die Differenz zur Anforderung ist die Umbau-Dauer.
-          console.log('[dbg-flip] neues Gerät liefert', Date.now());
-          // Die neue Kamera liefert: die Wechsel-Blende kann weg.
-          setWechselLaeuft(false);
-          zoomNachsetzen();
-        }}
-      />
+      {multiCam ? (
+        // Der Sucher der eigenen Session. Er kennt weder `mute` noch `flash`,
+        // `enableTorch`, `selectedLens` oder `onAvailableLensesChanged`: das
+        // Mikrofon hängt an der Session selbst (nicht an einem Prop), die
+        // Linse wählt der Zoom-Weg, und der Blitz kommt in einem eigenen
+        // Schritt. Alles darüber (Zoomfläche, Fokus-Ring, Kopfzeile,
+        // Zoom-Reihe, Auslöser) ist für beide Zweige dasselbe.
+        <multiKamera.MultiKameraSucher
+          testID="multikamera-sucher"
+          style={StyleSheet.absoluteFill}
+        />
+      ) : (
+        <CameraView
+          ref={cameraRef}
+          style={StyleSheet.absoluteFill}
+          facing={richtung}
+          mode="video"
+          // Nicht `!fokussiert` allein: die Tab-Bar bleibt sichtbar, eine
+          // GESPERRTE Aufnahme läuft nach dem Loslassen weiter, und ein Tipp
+          // auf einen anderen Tab feuert das Fokus-Cleanup mitten drin.
+          // `mute` wechselt dort aber keinen reinen Schalter — expo-camera baut
+          // dafür `session.beginConfiguration()` + `removeInput(audio)`, und
+          // eine Session-Rekonfiguration MITTEN in einer laufenden
+          // AVCaptureMovieFileOutput-Aufnahme bricht sie ab. Solange `nimmtAuf`
+          // gilt, bleibt das Mikrofon also an, unabhängig vom Fokus — es nimmt
+          // ja gerade auf. Und solange die AUFNAHME-VORSCHAU den Tab überdeckt
+          // (inVorschau), ebenfalls: das Wiederanhängen beim Instant-Rückweg
+          // war genau der Session-Umbau, der den Sucher im Moment der Rückkehr
+          // einfror (Nutzer-Befund 2026-08-18). Erst ein echter Tab-Wechsel
+          // hängt das Mikrofon ab — der orange Punkt soll nicht app-weit
+          // leuchten.
+          mute={!fokussiert && !nimmtAuf && !inVorschau}
+          // `flash` gilt für Fotos; beim Video braucht es stattdessen das
+          // Dauerlicht, derselbe Schalter, zwei Prop-Namen. Ob der Foto-Blitz
+          // im Video-Preset am Gerät wirklich feuert, prüft die Geräte-
+          // Checkliste (Spec 2026-08-13 §9); Fallback wäre die Torch.
+          flash={blitz}
+          enableTorch={blitz === 'on' && nimmtAuf}
+          videoQuality="1080p"
+          // Die Mehrfach-Kamera als EIN Gerät: darin schaltet iOS zwischen den
+          // Linsen selbst um, nahtlos und ohne die Session neu aufzubauen. Nur
+          // so führt der Zoom über 0,5× hinweg, ohne zu stocken.
+          selectedLens={zoom?.name}
+          // Feuert nach jedem Gerätewechsel, und zwar NACH expo-cameras
+          // eigenem updateZoom (addDevice, defer-Block): genau der Moment, in
+          // dem unser Faktor wiederhergestellt gehört.
+          onAvailableLensesChanged={() => {
+            // [dbg] Task-13-Messsonde (fliegt nach der Runde): das Ereignis
+            // feuert aus addDevices defer-Block — der Session-Umbau ist damit
+            // durch, die Differenz zur Anforderung ist die Umbau-Dauer.
+            console.log('[dbg-flip] neues Gerät liefert', Date.now());
+            // Die neue Kamera liefert: die Wechsel-Blende kann weg.
+            setWechselLaeuft(false);
+            zoomNachsetzen();
+          }}
+        />
+      )}
       {/* Fängt die Bewegung zweier Finger ab. Liegt über dem Kamerabild, aber
           unter allem Bedienbaren: was danach kommt, bekommt seine
           Berührungen zuerst. */}

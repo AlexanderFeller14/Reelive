@@ -148,6 +148,7 @@ const mockRequestMicPermission = jest.fn();
 const mockCameraProps = jest.fn();
 jest.mock('expo-camera', () => {
   const ReactActual = require('react');
+  const { View } = require('react-native');
   return {
     CameraView: ReactActual.forwardRef((props: Record<string, unknown>, ref: unknown) => {
       mockCameraProps(props);
@@ -158,7 +159,11 @@ jest.mock('expo-camera', () => {
         pausePreview: mockPausePreview,
         resumePreview: mockResumePreview,
       }));
-      return null;
+      // Eine leere View mit fester Kennung statt `null`: seit der Sucher zwei
+      // Zweige hat (MultiCam-Session oder CameraView), muss sich prüfen
+      // lassen, WELCHER von beiden im Bild steht. Die Props gehen bewusst
+      // nicht mit hinein, gelesen werden sie über mockCameraProps.
+      return ReactActual.createElement(View, { testID: 'kameraview-attrappe' });
     }),
     useCameraPermissions: () => [mockCameraPermission, mockRequestCameraPermission, jest.fn()],
     useMicrophonePermissions: () => [mockMicPermission, mockRequestMicPermission, jest.fn()],
@@ -256,6 +261,39 @@ jest.mock('@/features/kamera/nativeAufnahme', () => ({
   SofortVorschau: () => mockNativeAufnahme.SofortVorschau(),
 }));
 
+// Die eigene MultiCam-Session (Task 3/4). Standard ist «nicht verfügbar»,
+// genau wie bei der nativen Aufnahme oben: so sehen ALLE bestehenden Tests
+// weiterhin den expo-camera-Zweig, und nur die MultiCam-Gruppe am Ende der
+// Datei stellt um. Die Fabrik reicht über eine Hülle weiter (dieselbe
+// Hochzieh-Falle wie beim nativeAufnahme-Mock, siehe dort).
+type Druckstufe = 'nominal' | 'ernst' | 'kritisch';
+type MultiCamZielMock = { kamera: string; faktor: number };
+const mockMultiKamera = {
+  verfuegbar: jest.fn(() => false),
+  starten: jest.fn(async () => true),
+  stoppen: jest.fn(),
+  wechsleKamera: jest.fn(async () => 'front' as 'front' | 'back' | null),
+  zoomSetzen: jest.fn((_ziel: MultiCamZielMock, _sanft: boolean) => {}),
+  fokussiere: jest.fn((_x: number, _y: number) => {}),
+  aufDruck: jest.fn((_hoerer: (stufe: Druckstufe) => void) => () => {}),
+};
+jest.mock('@/features/kamera/multiKamera', () => {
+  const ReactActual = require('react');
+  const { View } = require('react-native');
+  return {
+    verfuegbar: () => mockMultiKamera.verfuegbar(),
+    starten: () => mockMultiKamera.starten(),
+    stoppen: () => mockMultiKamera.stoppen(),
+    wechsleKamera: () => mockMultiKamera.wechsleKamera(),
+    zoomSetzen: (ziel: MultiCamZielMock, sanft: boolean) => mockMultiKamera.zoomSetzen(ziel, sanft),
+    fokussiere: (x: number, y: number) => mockMultiKamera.fokussiere(x, y),
+    aufDruck: (hoerer: (stufe: Druckstufe) => void) => mockMultiKamera.aufDruck(hoerer),
+    // Der Sucher des MultiCam-Pfads: am Gerät eine native View, hier eine
+    // schlichte, die ihre Props (und damit die testID) durchreicht.
+    MultiKameraSucher: (props: object) => ReactActual.createElement(View, props),
+  };
+});
+
 import AufnehmenScreen from '../index';
 import { fetchTrips } from '@/features/trips/tripsApi';
 import * as uebergabe from '@/features/kamera/uebergabe';
@@ -307,6 +345,14 @@ beforeEach(() => {
   // bestehenden recordAsync-Tests unverändert bleiben. Nur die eigenen
   // Nativ-Tests stellen explizit auf `true` (bzw. mockResolvedValueOnce).
   mockNativeAufnahme.aufnahmeStarten.mockResolvedValue(false);
+  // Dieselbe Regel für die MultiCam-Session: Standard ist der
+  // expo-camera-Zweig, nur die MultiCam-Gruppe stellt auf verfügbar.
+  // (jest.clearAllMocks() räumt nur die Historie, nicht die Implementierung,
+  // sonst sickerte ein mockReturnValue in jeden folgenden Test durch.)
+  mockMultiKamera.verfuegbar.mockReturnValue(false);
+  mockMultiKamera.starten.mockResolvedValue(true);
+  mockMultiKamera.wechsleKamera.mockResolvedValue('front');
+  mockMultiKamera.aufDruck.mockImplementation(() => () => {});
 });
 
 afterEach(() => {
@@ -2433,4 +2479,171 @@ test('Hochziehen während der Aufnahme zoomt bis zum Maximum, Zurückziehen stel
     nativeEvent: { pageX: 100, pageY: 600 },
   });
   expect(mockSetzeZoom).toHaveBeenLastCalledWith('Rückseitige Dreifach-Kamera', 2, false);
+});
+
+// === MultiCam-Pfad (Spec 2026-08-18-multikamera-instant-wechsel §8/§9) ===
+//
+// Trägt die eigene MultiCam-Session den Sucher, entfällt die CameraView: der
+// Kamerawechsel tauscht nur die Eingänge derselben laufenden Session (keine
+// Blende, kein Warten), Zoom und Fokus gehen ans eigene Modul, und die
+// Sitzung überlebt den Wechsel per Konstruktion. Alles darüber (Zoomfläche,
+// Fokus-Ring, Auslöser, Overlays) bleibt für beide Zweige dasselbe, die
+// Tests oben laufen darum unverändert weiter auf dem expo-camera-Zweig.
+async function multiCamSucher() {
+  mockMultiKamera.verfuegbar.mockReturnValue(true);
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  await render(<AufnehmenScreen />);
+  await screen.findByLabelText('Auslöser');
+}
+
+test('der Sucher ist die MultiKamera-View, keine CameraView', async () => {
+  await multiCamSucher();
+
+  expect(screen.getByTestId('multikamera-sucher')).toBeTruthy();
+  expect(screen.queryByTestId('kameraview-attrappe')).toBeNull();
+  // Die CameraView wird nicht bloss versteckt, sie entsteht gar nicht: zwei
+  // Kamera-Sessions auf denselben Geräten schlössen einander ohnehin aus.
+  expect(mockCameraProps).not.toHaveBeenCalled();
+});
+
+test('der Fokus startet die Session; ein Fehlschlag fällt auf expo-camera zurück', async () => {
+  mockMultiKamera.verfuegbar.mockReturnValue(true);
+  // Kein Modul, alter Build, oder zweimal gescheiterter Aufbau: der Screen
+  // fällt für den REST der Sitzung auf expo-camera zurück (Spec §9).
+  mockMultiKamera.starten.mockResolvedValue(false);
+  (fetchTrips as jest.Mock).mockResolvedValue(geladen([reise()]));
+  await render(<AufnehmenScreen />);
+  await screen.findByLabelText('Auslöser');
+
+  expect(mockMultiKamera.starten).toHaveBeenCalled();
+  expect(await screen.findByTestId('kameraview-attrappe')).toBeTruthy();
+  expect(screen.queryByTestId('multikamera-sucher')).toBeNull();
+});
+
+test('der Doppeltipp ruft wechsleKamera und zeigt keine Wechsel-Blende', async () => {
+  await multiCamSucher();
+  expect(screen.getByTestId('zoom-wahl')).toBeTruthy();
+
+  await tippen();
+  await tippen();
+
+  expect(mockMultiKamera.wechsleKamera).toHaveBeenCalledTimes(1);
+  // Die Blende deckte den Hardware-Umbau der CameraView ab (~350–650 ms).
+  // Hier gibt es keinen: eine Blende wäre nur noch ein Schleier über einem
+  // Sucher, der längst weiterläuft.
+  expect(screen.queryByTestId('wechsel-blende')).toBeNull();
+  // Die Front hat nur eine Linse: dass die Reihe verschwindet, belegt die
+  // sofort umgestellte Blickrichtung (ein CameraView-Prop gibt es hier nicht).
+  expect(screen.queryByTestId('zoom-wahl')).toBeNull();
+});
+
+test('der Doppeltipp wechselt auch während der gehaltenen Aufnahme', async () => {
+  // Der nativLaeuft-Gate (Mock-Default: die native Pipeline lehnt ab) sperrte
+  // den Wechsel im expo-camera-Zweig, weil der Session-Umbau eine laufende
+  // recordAsync abbräche. Die MultiCam-Session übersteht ihn per Konstruktion.
+  await multiCamSucher();
+
+  jest.useFakeTimers();
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressIn', {
+    nativeEvent: { pageX: 100, identifier: 1 },
+  });
+  await act(async () => {
+    jest.advanceTimersByTime(600);
+  });
+  jest.useRealTimers();
+
+  // Der Responder gehört dem Auslöser, der zweite Finger kommt über die
+  // rohen Touch-Ereignisse an (gleicher Weg wie der Fokus-Tipp).
+  const flaeche = sucherFlaeche();
+  for (const id of [7, 8]) {
+    await act(async () => {
+      flaeche.props.onTouchStart({ nativeEvent: { identifier: id, pageX: 210, pageY: 380 } });
+    });
+    await act(async () => {
+      flaeche.props.onTouchEnd({ nativeEvent: { identifier: id, pageX: 211, pageY: 381 } });
+    });
+  }
+
+  expect(mockMultiKamera.wechsleKamera).toHaveBeenCalledTimes(1);
+});
+
+test('zoomSetzen geht als MultiCamZiel ans Modul', async () => {
+  await multiCamSucher();
+
+  await fireEvent.press(screen.getByText('0,5×'));
+
+  // 0,5× ist keine Regler-Stellung, sondern eine eigene Linse: die Session
+  // wechselt aufs Ultraweitwinkel und steht dort auf dessen 1,0.
+  expect(mockMultiKamera.zoomSetzen).toHaveBeenLastCalledWith(
+    { kamera: 'ultraweit', faktor: 1 },
+    true
+  );
+  // Das virtuelle Gerät wird weiter ENUMERIERT (daher Stufen und Grenzen),
+  // läuft aber nicht in der Session: über nativeZoom geht nichts mehr.
+  expect(mockSetzeZoom).not.toHaveBeenCalled();
+});
+
+test('Druck ernst bei 0,5× stellt den Zoom auf 1', async () => {
+  await multiCamSucher();
+  await fireEvent.press(screen.getByText('0,5×'));
+  mockMultiKamera.zoomSetzen.mockClear();
+
+  const melden = mockMultiKamera.aufDruck.mock.calls.at(-1)![0];
+  // 'nominal' ist kein Grund einzugreifen: der Nutzer zoomt selbst zurück.
+  await act(async () => {
+    melden('nominal');
+  });
+  expect(mockMultiKamera.zoomSetzen).not.toHaveBeenCalled();
+
+  // 'ernst' heisst: zwei Kameras zugleich sind dem Gerät zu viel. Die
+  // Ultraweitwinkel-Linse ist der teure Teil, 1× läuft auf einer allein.
+  await act(async () => {
+    melden('ernst');
+  });
+  expect(mockMultiKamera.zoomSetzen).toHaveBeenCalledWith({ kamera: 'weit', faktor: 1 }, false);
+  expect(screen.getByLabelText('Zoom 1×').props.accessibilityState.selected).toBe(true);
+});
+
+test('ein Tipp fokussiert über das MultiKamera-Modul', async () => {
+  await multiCamSucher();
+
+  await tippen(140, 420, { x: 140, y: 420 });
+
+  expect(mockMultiKamera.fokussiere).toHaveBeenCalledWith(140, 420);
+  expect(mockFokussiere).not.toHaveBeenCalled();
+  // Der Ring ist die sichtbare Antwort, in beiden Zweigen derselbe.
+  expect(screen.getByTestId('fokus-ring')).toBeTruthy();
+});
+
+test('ein Blur ohne Vorschau stoppt die Session', async () => {
+  await multiCamSucher();
+  expect(mockMultiKamera.stoppen).not.toHaveBeenCalled();
+
+  // Ein anderer Tab: der Aufnahme-Fluss ist vorbei, niemand braucht die
+  // Session mehr (dieselbe Bedingung wie das mute-Prop im anderen Zweig).
+  await fokusVerlieren();
+
+  expect(mockMultiKamera.stoppen).toHaveBeenCalledTimes(1);
+});
+
+test('liegt die Vorschau über dem Tab, läuft die Session weiter', async () => {
+  mockNativeAufnahme.aufnahmeStarten.mockResolvedValue(true);
+  await multiCamSucher();
+
+  jest.useFakeTimers();
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressIn', { nativeEvent: { pageX: 100 } });
+  await act(async () => {
+    jest.advanceTimersByTime(600);
+  });
+  jest.useRealTimers();
+  await act(async () => {
+    await fireEvent(screen.getByLabelText('Auslöser'), 'pressOut');
+  });
+  expect(mockPush).toHaveBeenCalled();
+
+  // Der Blur kommt hier von der Vorschau, die den Tab überdeckt: ein Stopp
+  // wäre ein Session-Neuaufbau ausgerechnet auf dem Instant-Rückweg.
+  await fokusVerlieren();
+
+  expect(mockMultiKamera.stoppen).not.toHaveBeenCalled();
 });
