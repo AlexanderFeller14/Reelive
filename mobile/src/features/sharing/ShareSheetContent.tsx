@@ -14,7 +14,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Share, StyleSheet, Text, View } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import { Copy, Share2 } from 'lucide-react-native';
-import { Pille } from '@/components/Pille';
+import { Pill } from '@/components/Pill';
 import { PressScale } from '@/components/PressScale';
 import { cinema, palette, radius, spacing, type } from '@/theme/tokens';
 import { createLink, fetchActiveLink, revokeLink, type ActiveLink } from './linkManagementApi';
@@ -103,9 +103,9 @@ function ExpiryPill({
           <Text style={[type.secondary, { color: cinema['bg-0'] }]}>{label}</Text>
         </View>
       ) : (
-        <Pille style={styles.expiryPill}>
+        <Pill style={styles.expiryPill}>
           <Text style={[type.secondary, { color: cinema['text-1'] }]}>{label}</Text>
-        </Pille>
+        </Pill>
       )}
     </PressScale>
   );
@@ -254,12 +254,12 @@ export function ShareSheetContent({ tripId }: { tripId: string }) {
             accessibilityLabel="Link kopieren"
             onPress={() => void copy()}
           >
-            <Pille style={styles.pillButton}>
+            <Pill style={styles.pillButton}>
               <Copy size={18} color={cinema['text-1']} strokeWidth={1.75} />
               <Text style={[type.bodyMedium, { color: cinema['text-1'] }]}>
                 {copied ? 'Kopiert' : 'Kopieren'}
               </Text>
-            </Pille>
+            </Pill>
           </PressScale>
           <PressScale
             testID="teilen-teilen"

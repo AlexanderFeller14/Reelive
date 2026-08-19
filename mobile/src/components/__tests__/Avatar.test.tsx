@@ -3,142 +3,142 @@ import { render, screen } from '@testing-library/react-native';
 import { ThemeProvider } from '@/theme/ThemeProvider';
 import { cinema, palette, spacing, type } from '@/theme/tokens';
 
-// expo-image ist ein natives View, im Test reicht ein Platzhalter, der alle
-// Props durchreicht (gleiches Muster wie TripCard.test.tsx). Ohne Mock
-// scheitert schon der Import, expo-image/src/observe.ts erwartet eine
-// native Umgebung.
+// expo-image is a native view, in the test a placeholder that passes all
+// props through is enough (same pattern as TripCard.test.tsx). Without the
+// mock, even the import fails, expo-image/src/observe.ts expects a native
+// environment.
 jest.mock('expo-image', () => {
   const ReactActual = require('react');
   const { View } = require('react-native');
   return { Image: (props: object) => ReactActual.createElement(View, props) };
 });
 
-import { Avatar, AvatarGroup, type Gesicht } from '../Avatar';
+import { Avatar, AvatarGroup, type Face } from '../Avatar';
 import { avatarUrl } from '@/features/auth/avatar';
 
 const wrap = (ui: React.ReactElement) => render(<ThemeProvider>{ui}</ThemeProvider>);
 
-// Die bestehenden Tests arbeiten mit Namen; diese Brücke hält sie unverändert
-// lesbar, statt jeden Aufruf mit `{ name: …, avatarKey: null }` aufzublähen.
-const ohneBild = (namen: string[]): Gesicht[] =>
-  namen.map((name) => ({ name, avatarKey: null }));
+// The existing tests work with names; this bridge keeps them readable
+// unchanged, instead of padding every call out with `{ name: ..., avatarKey: null }`.
+const withoutImage = (names: string[]): Face[] =>
+  names.map((name) => ({ name, avatarKey: null }));
 
-const SCHLUESSEL = 'profiles/11111111-2222-3333-4444-555555555555/abc.jpg';
+const KEY = 'profiles/11111111-2222-3333-4444-555555555555/abc.jpg';
 
-// Bis zum Bild-Upload trägt der Kreis die Initiale, die Tests lesen die
-// Gruppe deshalb über die Anfangsbuchstaben.
-const ACHT = ['Lea', 'Mira', 'Jonas', 'Sofia', 'Ben', 'Nora', 'Timo', 'Ida'];
+// Until the image upload, the circle carries the initial, so the tests
+// read the group via the first letters.
+const EIGHT = ['Lea', 'Mira', 'Jonas', 'Sofia', 'Ben', 'Nora', 'Timo', 'Ida'];
 
-test('ein Avatar trägt die Initiale seines Namens', async () => {
+test('an avatar carries the initial of its name', async () => {
   await wrap(<Avatar name="lea" />);
   expect(screen.getByText('L')).toBeTruthy();
 });
 
-// Hero-Grösse des Profil-Tabs (Bildertausch 2026-08-13): §4 endet bei 44 px,
-// alles darüber ist das grosse Kopfbild. Dort wäre die 12-px-Label-Initiale
-// verloren, sie wechselt auf das Display-Format — die einzige Grösse der
-// Skala (§2: keine neuen erfinden), die einen 160er-Kreis trägt.
-test('über Kartengrösse trägt die Initiale das Display-Format', async () => {
+// Hero size of the profile tab (image swap 2026-08-13): §4 ends at 44 px,
+// anything above that is the large header image. There the 12 px label
+// initial would be lost, it switches to the display format, the only size
+// on the scale (§2: don't invent new ones) that can carry a 160 px circle.
+test('above card size, the initial carries the display format', async () => {
   await wrap(<Avatar name="Lea" size={160} />);
-  const initiale = StyleSheet.flatten(screen.getByText('L').props.style);
-  expect(initiale.fontSize).toBe(type.display.fontSize);
+  const initial = StyleSheet.flatten(screen.getByText('L').props.style);
+  expect(initial.fontSize).toBe(type.display.fontSize);
 });
 
-test('bis 44 px bleibt die Initiale im Label-Format', async () => {
+test('up to 44 px, the initial stays in label format', async () => {
   await wrap(<Avatar name="Lea" size={44} />);
-  const initiale = StyleSheet.flatten(screen.getByText('L').props.style);
-  expect(initiale.fontSize).toBe(type.label.fontSize);
+  const initial = StyleSheet.flatten(screen.getByText('L').props.style);
+  expect(initial.fontSize).toBe(type.label.fontSize);
 });
 
-// Airbnb-Muster: drei Gesichter, dann wird gezählt. Die vierte Person ist
-// bewusst NICHT mehr zu sehen, sie steckt im Rest-Kreis.
-test('die Gruppe zeigt höchstens drei Gesichter', async () => {
-  await wrap(<AvatarGroup gesichter={ohneBild(ACHT)} />);
+// Airbnb pattern: three faces, then it counts. The fourth person is
+// deliberately NOT visible anymore, it's tucked into the rest circle.
+test('the group shows at most three faces', async () => {
+  await wrap(<AvatarGroup faces={withoutImage(EIGHT)} />);
   expect(screen.getByText('L')).toBeTruthy();
   expect(screen.getByText('M')).toBeTruthy();
   expect(screen.getByText('J')).toBeTruthy();
   expect(screen.queryByText('S')).toBeNull();
 });
 
-// Der Rest ist ein vierter KREIS, keine Textzeile daneben: genau das
-// unterscheidet die Airbnb-Facepile von der bisherigen Darstellung.
-test('der Rest steht als eigener Kreis in derselben Reihe', async () => {
-  await wrap(<AvatarGroup gesichter={ohneBild(ACHT)} />);
+// The rest is a fourth CIRCLE, not a text line next to it: that's exactly
+// what distinguishes the Airbnb facepile from the previous display.
+test('the rest stands as its own circle in the same row', async () => {
+  await wrap(<AvatarGroup faces={withoutImage(EIGHT)} />);
   const rest = screen.getByTestId('avatar-rest');
-  const stil = StyleSheet.flatten(rest.props.style);
+  const style = StyleSheet.flatten(rest.props.style);
   expect(screen.getByText('+5')).toBeTruthy();
-  expect(stil.borderRadius).toBe(999);
-  expect(stil.backgroundColor).toBe(palette['bg-1']);
-  expect(stil.width).toBe(stil.height);
+  expect(style.borderRadius).toBe(999);
+  expect(style.backgroundColor).toBe(palette['bg-1']);
+  expect(style.width).toBe(style.height);
 });
 
-// DESIGN-LANGUAGE §4: «Gruppen −8 px überlappend». Der Rest-Kreis gehört zur
-// Gruppe und wird nicht abgesetzt.
-test('der Rest-Kreis überlappt wie die Gesichter davor', async () => {
-  await wrap(<AvatarGroup gesichter={ohneBild(ACHT)} />);
+// DESIGN-LANGUAGE §4: "groups overlapping by -8 px". The rest circle
+// belongs to the group and isn't set apart.
+test('the rest circle overlaps like the faces before it', async () => {
+  await wrap(<AvatarGroup faces={withoutImage(EIGHT)} />);
   expect(StyleSheet.flatten(screen.getByTestId('avatar-rest').props.style).marginLeft).toBe(-spacing.s);
 });
 
-// Die Kante, an der ein Off-by-one am leichtesten passiert: vier Personen
-// passten «fast» in drei Kreise.
-test('genau vier Personen ergeben drei Gesichter und einen +1-Kreis', async () => {
-  await wrap(<AvatarGroup gesichter={ohneBild(['Lea', 'Mira', 'Jonas', 'Sofia'])} />);
+// The edge where an off-by-one happens most easily: four people "almost"
+// fit into three circles.
+test('exactly four people yield three faces and a +1 circle', async () => {
+  await wrap(<AvatarGroup faces={withoutImage(['Lea', 'Mira', 'Jonas', 'Sofia'])} />);
   expect(screen.getByText('+1')).toBeTruthy();
   expect(screen.queryByText('S')).toBeNull();
 });
 
-test('drei Personen passen ohne Rest-Kreis', async () => {
-  await wrap(<AvatarGroup gesichter={ohneBild(['Lea', 'Mira', 'Jonas'])} />);
+test('three people fit without a rest circle', async () => {
+  await wrap(<AvatarGroup faces={withoutImage(['Lea', 'Mira', 'Jonas'])} />);
   expect(screen.getByText('J')).toBeTruthy();
   expect(screen.queryByTestId('avatar-rest')).toBeNull();
 });
 
-test('zwei Personen ergeben zwei Gesichter ohne Rest-Kreis', async () => {
-  await wrap(<AvatarGroup gesichter={ohneBild(['Lea', 'Jonas'])} />);
+test('two people yield two faces without a rest circle', async () => {
+  await wrap(<AvatarGroup faces={withoutImage(['Lea', 'Jonas'])} />);
   expect(screen.getByText('L')).toBeTruthy();
   expect(screen.getByText('J')).toBeTruthy();
   expect(screen.queryByTestId('avatar-rest')).toBeNull();
 });
 
-// Ein leerer Anzeigename darf keinen leeren Kreis ergeben, sondern zeigt das
-// Fragezeichen aus Avatar. Kommt vor: profiles.display_name ist in
-// fetchMembers auf '' zurückgefallen, wenn das Profil fehlt.
-test('ein Name ohne Buchstaben zeigt ein Fragezeichen', async () => {
-  await wrap(<AvatarGroup gesichter={ohneBild([''])} />);
+// An empty display name must not produce an empty circle, it shows the
+// question mark from Avatar instead. This happens: profiles.display_name
+// fell back to '' in fetchMembers when the profile is missing.
+test('a name without letters shows a question mark', async () => {
+  await wrap(<AvatarGroup faces={withoutImage([''])} />);
   expect(screen.getByText('?')).toBeTruthy();
 });
 
-test('ohne Schluessel bleibt die Initiale stehen', async () => {
+test('without a key, the initial stays', async () => {
   await wrap(<Avatar name="Lea" avatarKey={null} />);
   expect(screen.getByText('L')).toBeTruthy();
   expect(screen.queryByTestId('avatar-bild')).toBeNull();
 });
 
-test('mit Schluessel zeigt der Kreis das Bild', async () => {
-  await wrap(<Avatar name="Lea" avatarKey={SCHLUESSEL} />);
-  const bild = screen.getByTestId('avatar-bild');
-  expect(bild.props.source).toEqual({ uri: avatarUrl(SCHLUESSEL) });
+test('with a key, the circle shows the image', async () => {
+  await wrap(<Avatar name="Lea" avatarKey={KEY} />);
+  const image = screen.getByTestId('avatar-bild');
+  expect(image.props.source).toEqual({ uri: avatarUrl(KEY) });
 });
 
-// Der Kreis muss randlos gefüllt sein, sonst steht das Bild als Rechteck im
-// Rund (DESIGN-LANGUAGE §4: Avatare sind rund).
-test('das Bild fuellt den Kreis', async () => {
-  await wrap(<Avatar name="Lea" avatarKey={SCHLUESSEL} />);
+// The circle must be filled edge to edge, otherwise the image stands as a
+// rectangle in the round (DESIGN-LANGUAGE §4: avatars are round).
+test('the image fills the circle', async () => {
+  await wrap(<Avatar name="Lea" avatarKey={KEY} />);
   expect(screen.getByTestId('avatar-bild').props.contentFit).toBe('cover');
 });
 
-// Solange das Bild lädt, steht die Initiale da. Ohne sie blitzt ein leerer
-// Kreis auf, und in einer Facepile springt dabei die ganze Reihe.
-test('waehrend des Ladens traegt der Kreis weiter die Initiale', async () => {
-  await wrap(<Avatar name="Lea" avatarKey={SCHLUESSEL} />);
+// While the image is loading, the initial stays there. Without it, an
+// empty circle would flash, and in a facepile the whole row would jump.
+test('while loading, the circle keeps carrying the initial', async () => {
+  await wrap(<Avatar name="Lea" avatarKey={KEY} />);
   expect(screen.getByText('L')).toBeTruthy();
 });
 
-test('die Gruppe zeigt Bilder und Initialen nebeneinander', async () => {
+test('the group shows images and initials side by side', async () => {
   await wrap(
     <AvatarGroup
-      gesichter={[
-        { name: 'Lea', avatarKey: SCHLUESSEL },
+      faces={[
+        { name: 'Lea', avatarKey: KEY },
         { name: 'Mira', avatarKey: null },
       ]}
     />
@@ -147,47 +147,48 @@ test('die Gruppe zeigt Bilder und Initialen nebeneinander', async () => {
   expect(screen.getByText('M')).toBeTruthy();
 });
 
-// Die Kino-Variante ersetzt in Task 9/10 zwei handkopierte AvatarInitiale-
-// Komponenten. Sie muss die dunkle Palette benutzen, nicht die des Providers.
-test('die Kino-Variante nimmt die dunkle Palette', async () => {
-  await wrap(<Avatar name="Lea" avatarKey={null} kino />);
-  const kreis = screen.getByTestId('avatar-kreis');
-  expect(StyleSheet.flatten(kreis.props.style).backgroundColor).toBe(cinema['bg-1']);
+// The cinema variant replaces two hand-copied AvatarInitiale components in
+// Task 9/10. It must use the dark palette, not the provider's.
+test('the cinema variant takes the dark palette', async () => {
+  await wrap(<Avatar name="Lea" avatarKey={null} cinemaMode />);
+  const circle = screen.getByTestId('avatar-kreis');
+  expect(StyleSheet.flatten(circle.props.style).backgroundColor).toBe(cinema['bg-1']);
 });
 
-// Fix-Runde 1 (Review-Fund, Important): dieser Test prüfte bislang NUR die
-// Füllfarbe. Genau dadurch fiel unbemerkt durch, dass Ring UND Initiale-Text
-// versehentlich `cinema['bg-0']`/`cinema['text-2']` erbten (dieselbe
-// Ternary-Form wie die Fläche, aber die FALSCHE Kino-Farbe) — auf dem
-// dunklen `bg-1`-Kreis liegt ein fast-schwarzer `bg-0`-Ring praktisch
-// unsichtbar, wo DESIGN-LANGUAGE §4 wörtlich einen «2 px weisser Ring»
-// verlangt. Ring und Text müssen `cinema['text-1']` sein (die hellste
-// Kino-Farbe, der einzige verfügbare Ersatz für Weiss), NICHT `bg-0`/
-// `text-2`, damit ein künftiger Rückfall auf die falsche Ternary sofort rot
-// wird, nicht erst auf einem echten Screen auffällt.
-test('die Kino-Variante zeichnet Ring und Initiale in der hellsten Kino-Farbe, nicht im Facepile-Separator-Ton', async () => {
-  await wrap(<Avatar name="Lea" avatarKey={null} kino />);
-  const kreis = StyleSheet.flatten(screen.getByTestId('avatar-kreis').props.style);
-  expect(kreis.borderColor).toBe(cinema['text-1']);
-  expect(kreis.borderColor).not.toBe(cinema['bg-0']);
-  const initiale = StyleSheet.flatten(screen.getByText('L').props.style);
-  expect(initiale.color).toBe(cinema['text-1']);
-  expect(initiale.color).not.toBe(cinema['text-2']);
+// Fix round 1 (review finding, Important): this test previously checked
+// ONLY the fill color. Precisely because of that, it went unnoticed that
+// ring AND initial text accidentally inherited
+// `cinema['bg-0']`/`cinema['text-2']` (the same ternary shape as the
+// surface, but the WRONG cinema color): on the dark `bg-1` circle, a
+// near-black `bg-0` ring sits practically invisible, where
+// DESIGN-LANGUAGE §4 literally demands a "2 px white ring". Ring and text
+// must be `cinema['text-1']` (the lightest cinema color, the only
+// available substitute for white), NOT `bg-0`/`text-2`, so that a future
+// regression to the wrong ternary turns red immediately, instead of only
+// showing up on a real screen.
+test('the cinema variant draws the ring and initial in the lightest cinema color, not the facepile-separator tone', async () => {
+  await wrap(<Avatar name="Lea" avatarKey={null} cinemaMode />);
+  const circle = StyleSheet.flatten(screen.getByTestId('avatar-kreis').props.style);
+  expect(circle.borderColor).toBe(cinema['text-1']);
+  expect(circle.borderColor).not.toBe(cinema['bg-0']);
+  const initial = StyleSheet.flatten(screen.getByText('L').props.style);
+  expect(initial.color).toBe(cinema['text-1']);
+  expect(initial.color).not.toBe(cinema['text-2']);
 });
 
-// Merge-Fixrunde (Review-Fund, Minor): Fix-Runde 1 korrigierte nur `Avatar`,
-// der «+N»-Kreis der Gruppe behielt `cinema['bg-0']`/`cinema['text-2']`. In
-// EINER überlappenden Reihe wären das zwei verschiedene Ringe gewesen. Der
-// Test vergleicht deshalb nicht gegen einen fest notierten Token, sondern
-// gegen den Ring, den die Gesichter DANEBEN tatsächlich tragen: so bleibt er
-// gültig, falls die Kino-Gruppe irgendwann auf die Separator-Lesart umgestellt
-// wird — solange beide Stellen gemeinsam umgestellt werden, was die einzige
-// Zusicherung ist, um die es hier geht.
-test('in der Kino-Gruppe traegt der Rest-Kreis denselben Ring wie die Gesichter daneben', async () => {
-  await wrap(<AvatarGroup gesichter={ohneBild(ACHT)} kino />);
-  const gesicht = StyleSheet.flatten(screen.getAllByTestId('avatar-kreis')[0].props.style);
+// Merge fix round (review finding, minor): fix round 1 only corrected
+// `Avatar`, the group's "+N" circle kept `cinema['bg-0']`/`cinema['text-2']`.
+// In ONE overlapping row, that would have been two different rings. The
+// test therefore doesn't compare against a hardcoded token, but against
+// the ring the faces NEXT TO IT actually carry: this way it stays valid if
+// the cinema group is ever switched to the separator reading, as long as
+// both spots are switched together, which is the only guarantee this test
+// is about.
+test('in the cinema group, the rest circle carries the same ring as the faces next to it', async () => {
+  await wrap(<AvatarGroup faces={withoutImage(EIGHT)} cinemaMode />);
+  const face = StyleSheet.flatten(screen.getAllByTestId('avatar-kreis')[0].props.style);
   const rest = StyleSheet.flatten(screen.getByTestId('avatar-rest').props.style);
-  expect(rest.borderColor).toBe(gesicht.borderColor);
+  expect(rest.borderColor).toBe(face.borderColor);
   expect(StyleSheet.flatten(screen.getByText('+5').props.style).color)
     .toBe(StyleSheet.flatten(screen.getByText('L').props.style).color);
 });

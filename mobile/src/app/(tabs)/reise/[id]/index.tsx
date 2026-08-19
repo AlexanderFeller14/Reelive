@@ -8,8 +8,8 @@ import { PressScale } from '@/components/PressScale';
 import { Avatar, AvatarGroup } from '@/components/Avatar';
 import { Button } from '@/components/Button';
 import { TripCover } from '@/components/TripCover';
-import { RevealInszenierung } from '@/components/RevealInszenierung';
-import { Sheet, SHEET_SCROLL_ANTEIL } from '@/components/Sheet';
+import { RevealSequence } from '@/components/RevealSequence';
+import { Sheet, SHEET_SCROLL_RATIO } from '@/components/Sheet';
 import { useTheme } from '@/theme/ThemeProvider';
 import { radius, spacing, type } from '@/theme/tokens';
 import { useTopInset } from '@/theme/useTopInset';
@@ -629,7 +629,7 @@ export default function ReiseDetail() {
       style={{ backgroundColor: colors['bg-0'] }}
       contentContainerStyle={[styles.inhalt, { paddingTop: oberkante }]}
     >
-      <TripCover position={coverPlatz} versiegelt={laeuft} />
+      <TripCover position={coverPlatz} sealed={laeuft} />
 
       <View style={{ gap: spacing.xs }}>
         <Text style={[type.h1, { color: colors['text-1'] }]}>{trip.name}</Text>
@@ -657,7 +657,7 @@ export default function ReiseDetail() {
           >
             <View style={{ marginTop: spacing.m, alignSelf: 'flex-start' }}>
               <AvatarGroup
-                gesichter={mitglieder.map((m) => ({ name: m.display_name, avatarKey: m.avatar_key }))}
+                faces={mitglieder.map((m) => ({ name: m.display_name, avatarKey: m.avatar_key }))}
               />
             </View>
           </PressScale>
@@ -820,7 +820,7 @@ export default function ReiseDetail() {
       />
     </ScrollView>
 
-    <Sheet sichtbar={bestaetigenSichtbar} titel="Reise abschliessen?" onSchliessen={abschliessenSchliessen}>
+    <Sheet visible={bestaetigenSichtbar} title="Reise abschliessen?" onClose={abschliessenSchliessen}>
       {/* Review Important 1: «niemand mehr Momente einsenden» war sachlich
           falsch, posts_insert_member (20260803090300_sealing_rls.sql) lässt
           Nachzügler mit captured_at <= revealed_at ausdrücklich weiter zu, für
@@ -845,8 +845,8 @@ export default function ReiseDetail() {
         Reveal ist das hier eine reine Auskunft. Einladen lehnt der Server für
         nicht-aktive Reisen ohnehin ab, und wer im Recap zu sehen ist, gehört
         zur Reise. */}
-    <Sheet sichtbar={mitgliederSichtbar} titel="Wer dabei ist" onSchliessen={() => setMitgliederSichtbar(false)}>
-      <ScrollView style={{ maxHeight: fensterHoehe * SHEET_SCROLL_ANTEIL }}>
+    <Sheet visible={mitgliederSichtbar} title="Wer dabei ist" onClose={() => setMitgliederSichtbar(false)}>
+      <ScrollView style={{ maxHeight: fensterHoehe * SHEET_SCROLL_RATIO }}>
         <View style={{ gap: spacing.base }}>
           {mitglieder.map((m) => (
             <View key={m.user_id} style={styles.zeile}>
@@ -874,7 +874,7 @@ export default function ReiseDetail() {
     </Sheet>
 
     {/* Task 8, Phase 6: gleiches GESCHWISTER-Prinzip wie das Sheet oben. */}
-    <Sheet sichtbar={moderationSichtbar} titel="Gemeldete Momente" onSchliessen={moderationSchliessen}>
+    <Sheet visible={moderationSichtbar} title="Gemeldete Momente" onClose={moderationSchliessen}>
       {moderationPhase === 'laedt' ? (
         <ActivityIndicator testID="moderation-laedt" color={colors['text-1']} />
       ) : moderationPhase === 'fehler' ? (
@@ -904,7 +904,7 @@ export default function ReiseDetail() {
     {/* Wie das Sheet: GESCHWISTER der ScrollView, nicht ihr Kind, ihr
         StyleSheet.absoluteFill soll den ganzen Bildschirm decken, nicht nur
         die (potenziell höhere, scrollbare) Inhaltsfläche. */}
-    <RevealInszenierung sichtbar={inszenierungSichtbar} onFertig={inszenierungFertig} />
+    <RevealSequence visible={inszenierungSichtbar} onFinished={inszenierungFertig} />
     </>
   );
 }

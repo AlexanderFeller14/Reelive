@@ -14,8 +14,8 @@ import { useVideoPlayer, VideoView } from 'expo-video';
 import * as Haptics from 'expo-haptics';
 import { Avatar } from '@/components/Avatar';
 import { PressScale } from '@/components/PressScale';
-import { Fortschrittsbalken } from '@/components/Fortschrittsbalken';
-import { Pille } from '@/components/Pille';
+import { ProgressBar } from '@/components/ProgressBar';
+import { Pill } from '@/components/Pill';
 import { Sheet } from '@/components/Sheet';
 import { useTheme } from '@/theme/ThemeProvider';
 import { cinema, motion, radius, spacing, type } from '@/theme/tokens';
@@ -188,9 +188,9 @@ function KinoButton({ label, onPress }: { label: string; onPress: () => void }) 
 
 function LadeHinweisPille({ text }: { text: string }) {
   return (
-    <Pille style={styles.ladeHinweisPille}>
+    <Pill style={styles.ladeHinweisPille}>
       <Text style={[type.secondary, { color: cinema['text-1'] }]}>{text}</Text>
-    </Pille>
+    </Pill>
   );
 }
 
@@ -396,7 +396,7 @@ function SegmentZeile({
     // links und rechts der Pille keinen Tipp abfangen, im Player liegt
     // darunter die Tipp-Zone, auf der Karte die Karte selbst.
     <View style={[styles.segmentZeile, { top: oben }]} pointerEvents="box-none">
-      <Pille style={styles.segmentSpur}>
+      <Pill style={styles.segmentSpur}>
         <SegmentHaelfte
           label={ANSEHEN_LABEL}
           aktiv={!aufKarte}
@@ -409,7 +409,7 @@ function SegmentZeile({
           testID="teilen-segment-karte"
           onPress={onWechsel}
         />
-      </Pille>
+      </Pill>
     </View>
   );
 }
@@ -931,18 +931,18 @@ export default function GeteilterRecapScreen() {
                 hat. Ohne den zweiten Satz ergäben Nadeln plus erste Zeile
                 weniger als die Reise hat, und niemand sähe warum. */}
             {ausgelassen > 0 && (
-              <Pille testID="teilen-ausgelassen" style={styles.leistePille}>
+              <Pill testID="teilen-ausgelassen" style={styles.leistePille}>
                 <Text style={[type.secondary, { color: cinema['text-1'] }]}>
                   {ausgelassenText(ausgelassen)}
                 </Text>
-              </Pille>
+              </Pill>
             )}
             {withoutPlace.length > 0 && (
-              <Pille style={styles.leistePille}>
+              <Pill style={styles.leistePille}>
                 <Text style={[type.secondary, { color: cinema['text-1'] }]}>
                   {ohneOrtText(withoutPlace.length)}
                 </Text>
-              </Pille>
+              </Pill>
             )}
           </View>
         )}
@@ -952,13 +952,13 @@ export default function GeteilterRecapScreen() {
             ein frisch gemountetes öffnet damit jedes Mal von unten. */}
         {sheet !== null && (
           <Sheet
-            sichtbar
+            visible
             // Die Liste bekommt eine Überschrift, der einzelne Moment nicht:
             // dort ist das Bild der Kopf (Spec §5.7). Mehr als ein Punkt
             // heisst hier immer «alle auf derselben Koordinate», «an diesem
             // Ort» ist also wörtlich wahr.
-            titel={sheet.length > 1 ? `${sheet.length} Momente an diesem Ort` : undefined}
-            onSchliessen={() => setSheet(null)}
+            title={sheet.length > 1 ? `${sheet.length} Momente an diesem Ort` : undefined}
+            onClose={() => setSheet(null)}
           >
             {sheet.length === 1 ? (
               <MomentSheetContent
@@ -1039,32 +1039,32 @@ export default function GeteilterRecapScreen() {
         ]}
         pointerEvents="none"
       >
-        <Fortschrittsbalken
-          anzahl={spielliste.length}
-          aktivIndex={stand.index}
-          dauerMs={durationFor(aktivMoment)}
-          vergangenMs={stand.fortschritt}
-          pausiert={gestoppt}
+        <ProgressBar
+          count={spielliste.length}
+          activeIndex={stand.index}
+          durationMs={durationFor(aktivMoment)}
+          elapsedMs={stand.fortschritt}
+          paused={gestoppt}
         />
         <View style={styles.kopfReihe}>
-          <Pille style={styles.namePille}>
+          <Pill style={styles.namePille}>
             {/* 32 statt Avatars Default 36: unteres Ende der DESIGN-LANGUAGE-§4-
                 Spanne (32–44 px), passend zur kompakten Kopf-Pille — dieselbe
                 Grösse wie im nativen Player (player.tsx), dieselbe Grösse, die
                 die gelöschte lokale AvatarInitiale-Kopie hier trug. */}
-            <Avatar name={aktivMoment.authorName} avatarKey={aktivMoment.authorAvatarKey} kino size={32} />
+            <Avatar name={aktivMoment.authorName} avatarKey={aktivMoment.authorAvatarKey} cinemaMode size={32} />
             <Text style={[type.bodyMedium, { color: cinema['text-1'] }]}>{aktivMoment.authorName}</Text>
-          </Pille>
-          <Pille style={styles.infoPille}>
+          </Pill>
+          <Pill style={styles.infoPille}>
             <Text style={[type.secondary, { color: cinema['text-1'] }]}>{ortZeitText}</Text>
-          </Pille>
+          </Pill>
         </View>
       </View>
 
       {aktivMoment.caption && (
-        <Pille testID="teilen-caption" style={styles.captionPille} pointerEvents="none">
+        <Pill testID="teilen-caption" style={styles.captionPille} pointerEvents="none">
           <Text style={[type.body, { color: cinema['text-1'] }]}>{aktivMoment.caption}</Text>
-        </Pille>
+        </Pill>
       )}
 
       <Pressable

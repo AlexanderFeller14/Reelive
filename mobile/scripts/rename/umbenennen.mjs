@@ -1,5 +1,8 @@
-// Werkzeug für die Sprachumstellung. Vier Klassen von Änderungen, in dieser
+// Werkzeug für die Sprachumstellung. Fünf Klassen von Änderungen, in dieser
 // Reihenfolge, weil jede die nächste voraussetzt:
+//   0. Eigenschaften umbenennen (PropertySignature.rename(), erreicht auch
+//      inline typisierte Props ohne eigenen Typnamen, zieht destrukturierte
+//      Bindungen UND JSX-Attributnamen projektweit mit; Task 10)
 //   1. Symbole umbenennen (ts-morph rename, kennt Scopes, lässt Strings in Ruhe)
 //   2. Dateien verschieben (ts-morph move, zieht RELATIVE Importe nach)
 //   3. Alias-Importe nachziehen (move lässt @/... auf den alten Pfad zeigen)
@@ -26,6 +29,29 @@ const eigene = () =>
 // Schluessel ist das SourceFile-Objekt, nicht der Pfad: move() aendert den Pfad.
 const vorher = new Map(eigene().map((f) => [f, f.getFullText()]));
 const pfadVorher = new Map(eigene().map((f) => [f, f.getFilePath()]));
+
+// --- 0. Eigenschaften (Props) --------------------------------------------
+// Props sind keine Top-Level-Deklarationen (PropertySignature in einem
+// type-Literal oder Interface, oft sogar inline im Funktionsparameter statt
+// in einem benannten Typ), deshalb greift Schritt 1 hier nicht. rename() auf
+// der PropertySignature selbst nutzt denselben sprachserver-gestützten Weg
+// wie ein IDE-"Rename Symbol" und zieht sowohl die destrukturierten
+// Bindungen (`{ titel }: Props`) als auch JSX-Attributnamen
+// (`<Sheet titel="x">`) projektweit mit. Kommt ein Name mehrfach vor (z. B.
+// zwei Komponenten in derselben Datei mit je eigenem Props-Typ), werden ALLE
+// Fundstellen umbenannt.
+let eigenschaften = 0;
+for (const [datei, paare] of Object.entries(plan.eigenschaften ?? {})) {
+  const f = project.getSourceFileOrThrow(SRC + datei);
+  for (const [alt, neu] of Object.entries(paare)) {
+    const treffer = f
+      .getDescendantsOfKind(SyntaxKind.PropertySignature)
+      .filter((p) => p.getName() === alt);
+    if (treffer.length === 0) throw new Error(`Eigenschaft ${alt} nicht gefunden in ${datei}`);
+    for (const t of treffer) t.rename(neu);
+    eigenschaften += treffer.length;
+  }
+}
 
 // --- 1. Symbole ---------------------------------------------------------
 let symbole = 0;
@@ -87,7 +113,7 @@ for (const f of eigene()) {
 // --- Bericht ------------------------------------------------------------
 const geaendert = eigene().filter((f) => vorher.get(f) !== f.getFullText());
 console.log(
-  `${symbole} Symbole, ${pfadPaare.length} Dateien verschoben, ` +
+  `${eigenschaften} Eigenschaften, ${symbole} Symbole, ${pfadPaare.length} Dateien verschoben, ` +
     `${alias} Alias-Importe, ${strings} Modulpfade in Strings`
 );
 console.log(`${geaendert.length} Dateien betroffen`);

@@ -101,7 +101,7 @@ describe('W4: der Web-Player kann nichts schreiben (Modulgraph-Beweis)', () => {
     expect(dateien.some((d) => d.endsWith(path.join('sharing', 'shareApi.ts')))).toBe(true);
     expect(dateien.some((d) => d.endsWith(path.join('recap', 'playerLogic.ts')))).toBe(true);
     expect(dateien.some((d) => d.endsWith(path.join('recap', 'days.ts')))).toBe(true);
-    expect(dateien.some((d) => d.endsWith(path.join('components', 'Fortschrittsbalken.tsx')))).toBe(true);
+    expect(dateien.some((d) => d.endsWith(path.join('components', 'ProgressBar.tsx')))).toBe(true);
     expect(dateien.length).toBeGreaterThan(6);
   });
 

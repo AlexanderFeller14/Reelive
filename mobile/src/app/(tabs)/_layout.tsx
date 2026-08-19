@@ -3,7 +3,7 @@ import { StyleSheet } from 'react-native';
 import { Tabs, useSegments } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Camera, Map, Play, User } from 'lucide-react-native';
-import { Pille } from '@/components/Pille';
+import { Pill } from '@/components/Pill';
 import { useTheme } from '@/theme/ThemeProvider';
 import { cinema, type } from '@/theme/tokens';
 import * as captureLock from '@/features/camera/captureLock';
@@ -115,7 +115,7 @@ export default function TabsLayout() {
           // (rgba(19,17,16,0.55) + Blur 10) — exakt das Pille-Rezept, nur
           // ohne Rundung (§4: Tab-Bar keine Rundung).
           tabBarBackground: kino
-            ? () => <Pille style={StyleSheet.absoluteFill} pointerEvents="none" />
+            ? () => <Pill style={StyleSheet.absoluteFill} pointerEvents="none" />
             : undefined,
           tabBarLabelStyle: type.tab,
         };

@@ -1,4 +1,4 @@
-import type { Gesicht } from '@/components/Avatar';
+import type { Face } from '@/components/Avatar';
 
 export type TripStatus = 'active' | 'revealed' | 'archived';
 
@@ -9,7 +9,7 @@ export type Trip = {
   end_date: string;
   status: TripStatus;
   owner_id: string;
-  members: Gesicht[]; // faces for the overlapping avatars on the card
+  members: Face[]; // faces for the overlapping avatars on the card
   member_count: number;
   my_post_count: number;
 };

@@ -125,19 +125,19 @@ jest.mock('@/features/recap/urlPool', () => ({
   getPool: jest.fn(),
 }));
 // Die Inszenierung selbst (Haptik, Timing, prefers-reduced-motion) ist in
-// RevealInszenierung.test.tsx abgesichert. Hier steht ein steuerbarer
-// Platzhalter: sichtbar rendert einen drückbaren Testknoten, ein Druck darauf
-// simuliert «Inszenierung fertig» (onFertig), ohne echte Animated-Timer, die
+// RevealSequence.test.tsx abgesichert. Hier steht ein steuerbarer
+// Platzhalter: visible rendert einen drückbaren Testknoten, ein Druck darauf
+// simuliert «Inszenierung fertig» (onFinished), ohne echte Animated-Timer, die
 // diese Datei (keine Fake-Timer) sonst 700–900 ms lang wirklich abwarten müsste.
-jest.mock('@/components/RevealInszenierung', () => {
+jest.mock('@/components/RevealSequence', () => {
   const React = require('react');
   const { Pressable, Text } = require('react-native');
   return {
-    RevealInszenierung: ({ sichtbar, onFertig }: { sichtbar: boolean; onFertig: () => void }) =>
-      sichtbar
+    RevealSequence: ({ visible, onFinished }: { visible: boolean; onFinished: () => void }) =>
+      visible
         ? React.createElement(
             Pressable,
-            { testID: 'reveal-inszenierung-fake', onPress: onFertig },
+            { testID: 'reveal-inszenierung-fake', onPress: onFinished },
             React.createElement(Text, null, 'Inszenierung läuft')
           )
         : null,

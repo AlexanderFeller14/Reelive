@@ -1,7 +1,7 @@
 import { forwardRef, useCallback, useImperativeHandle, useLayoutEffect, useRef } from 'react';
 import { StyleSheet } from 'react-native';
 import MapView, { Polyline } from 'react-native-maps';
-import { KartenNadelMarker } from '@/components/KartenNadel';
+import { MapPinMarker } from '@/components/MapPin';
 import { useTheme } from '@/theme/ThemeProvider';
 import { motion } from '@/theme/tokens';
 import type {
@@ -112,16 +112,16 @@ export const MapSurface = forwardRef<MapSurfaceHandle, MapSurfaceProps>(
             derived from it would attach a new pin to the map every time,
             instead of redrawing the existing one. */}
         {clusters.map((g) => (
-          <KartenNadelMarker
+          <MapPinMarker
             key={g.anchor.moment.id}
-            punkt={g.anchor}
+            point={g.anchor}
             thumbUrl={thumbFor(g.anchor.moment.id)}
-            anzahl={g.points.length}
+            count={g.points.length}
             // Same information the screen uses for the tap, so the label
             // for VoiceOver names what the tap REALLY does: zoom in or
             // open the sheet. It comes from the screen instead of being
             // calculated here, the reasoning lives on the prop (types.ts).
-            oeffnetSheet={opensSheet(g)}
+            opensSheet={opensSheet(g)}
             onPress={handlePress}
           />
         ))}

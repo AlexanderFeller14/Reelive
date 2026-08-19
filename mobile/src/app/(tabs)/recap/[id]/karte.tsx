@@ -5,7 +5,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { Check, ChevronDown, ChevronLeft } from 'lucide-react-native';
 import { Button } from '@/components/Button';
-import { Pille } from '@/components/Pille';
+import { Pill } from '@/components/Pill';
 import { PressScale } from '@/components/PressScale';
 import { Sheet } from '@/components/Sheet';
 import { reportError } from '@/lib/errorReporter';
@@ -1175,9 +1175,9 @@ export default function RecapKarte() {
         onPress={zurueck}
         style={[styles.zurueck, { top: oben }]}
       >
-        <Pille style={styles.zurueckPille}>
+        <Pill style={styles.zurueckPille}>
           <ChevronLeft size={24} color={cinema['text-1']} strokeWidth={1.75} />
-        </Pille>
+        </Pill>
       </PressScale>
 
       {/* Der Tagesfilter, gegenüber dem Rückweg (Task-9-Brief: oben rechts).
@@ -1200,10 +1200,10 @@ export default function RecapKarte() {
           onPress={oeffneTagesfilter}
           style={[styles.tagesfilter, { top: oben }]}
         >
-          <Pille style={styles.tagesfilterPille}>
+          <Pill style={styles.tagesfilterPille}>
             <Text style={[type.bodyMedium, { color: cinema['text-1'] }]}>{filterStand}</Text>
             <ChevronDown size={18} color={cinema['text-1']} strokeWidth={1.75} />
-          </Pille>
+          </Pill>
         </PressScale>
       )}
 
@@ -1238,13 +1238,13 @@ export default function RecapKarte() {
               Nadeln plus «N Momente ohne Ort» ergäben weniger als die Reise
               hat, und niemand sähe warum. */}
           {fehlenGanz.length > 0 && (
-            <Pille testID="karte-fehlen-ganz" style={styles.fehlenPille} pointerEvents="none">
+            <Pill testID="karte-fehlen-ganz" style={styles.fehlenPille} pointerEvents="none">
               {fehlenGanz.map((satz) => (
                 <Text key={satz} style={[type.secondary, { color: cinema['text-1'] }]}>
                   {satz}
                 </Text>
               ))}
-            </Pille>
+            </Pill>
           )}
           {ohneOrt.length > 0 && (
             <PressScale
@@ -1255,11 +1255,11 @@ export default function RecapKarte() {
               accessibilityLabel={`${ohneOrtText(ohneOrt.length)} ansehen`}
               onPress={oeffneOhneOrt}
             >
-              <Pille style={styles.ohneOrtPille}>
+              <Pill style={styles.ohneOrtPille}>
                 <Text style={[type.bodyMedium, { color: cinema['text-1'] }]}>
                   {ohneOrtText(ohneOrt.length)}
                 </Text>
-              </Pille>
+              </Pill>
             </PressScale>
           )}
         </View>
@@ -1268,7 +1268,7 @@ export default function RecapKarte() {
       {/* Wie beim Moment-Sheet erst gemountet, wenn es offen sein soll: `Sheet`
           bringt seine Eintrittsanimation im Effekt mit. */}
       {tageOffen && (
-        <Sheet sichtbar titel="Reisetage" onSchliessen={() => setTageOffen(false)}>
+        <Sheet visible title="Reisetage" onClose={() => setTageOffen(false)}>
           {/* Scrollt und ist gedeckelt, aus demselben Grund wie die
               Gruppenliste: eine lange Reise hat viele Tage, und `Sheet`
               schnitte den Überhang hart ab (85 % Fensterhöhe, `overflow:
@@ -1306,7 +1306,7 @@ export default function RecapKarte() {
       )}
 
       {ohneOrtOffen && (
-        <Sheet sichtbar titel={ohneOrtText(ohneOrt.length)} onSchliessen={() => setOhneOrtOffen(false)}>
+        <Sheet visible title={ohneOrtText(ohneOrt.length)} onClose={() => setOhneOrtOffen(false)}>
           {/* Scrollt und ist gedeckelt, aus demselben Grund wie Gruppen- und
               Tagesliste: `Sheet` schnitte den Überhang hart ab (85 %
               Fensterhöhe, `overflow: hidden`), und die abgeschnittenen
@@ -1335,14 +1335,14 @@ export default function RecapKarte() {
           gemountetes Sheet müsste sie also trotzdem gegen `null` absichern. */}
       {sheetPunkte !== null && (
         <Sheet
-          sichtbar
+          visible
           // Die Liste bekommt eine Überschrift, der einzelne Moment nicht:
           // dort ist das Bild der Kopf (Spec §5.7). Mehr als ein Punkt heisst
           // hier immer «alle auf derselben Koordinate», «an diesem Ort» ist
           // also wörtlich wahr, anders als bei einer nach Bildschirmpunkten
           // gebildeten Gruppe.
-          titel={sheetPunkte.length > 1 ? `${sheetPunkte.length} Momente an diesem Ort` : undefined}
-          onSchliessen={() => setSheetPunkte(null)}
+          title={sheetPunkte.length > 1 ? `${sheetPunkte.length} Momente an diesem Ort` : undefined}
+          onClose={() => setSheetPunkte(null)}
         >
           {sheetPunkte.length === 1 ? (
             <MomentSheetContent

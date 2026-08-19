@@ -142,27 +142,27 @@ jest.mock('@/features/moments/placeAndTime', () => ({
 }));
 
 // Die echte Erfolgsanimation läuft ~2,5 s und ist für sich getestet
-// (MemorySubmissionAnimation.test.tsx), hier interessiert nur der Vertrag
+// (MomentSubmissionAnimation.test.tsx), hier interessiert nur der Vertrag
 // «wird sichtbar, sobald der Job eingereiht ist, und navigiert über
 // onFinished weiter». Der Mock feuert onFinished synchron, sobald er
 // sichtbar wird, damit die bestehenden Erwartungen an mockReplace/mockBack
 // ohne Timer-Steuerung auskommen.
 const mockAnimationSichtbar = jest.fn();
 const mockAnimationProps = jest.fn();
-jest.mock('@/components/MemorySubmissionAnimation', () => {
+jest.mock('@/components/MomentSubmissionAnimation', () => {
   const react = jest.requireActual('react');
   return {
-    MemorySubmissionAnimation: ({
+    MomentSubmissionAnimation: ({
       visible,
       onFinished,
-      zaehler,
+      counter,
     }: {
       visible: boolean;
       onFinished: () => void;
-      zaehler?: number | null;
+      counter?: number | null;
     }) => {
       mockAnimationSichtbar(visible);
-      mockAnimationProps({ visible, zaehler });
+      mockAnimationProps({ visible, counter });
       react.useEffect(() => {
         if (visible) onFinished();
       }, [visible, onFinished]);
@@ -360,7 +360,7 @@ test('die Erfolgsanimation bekommt den Zählerstand der Reise fürs Hochrollen',
     await fireEvent.press(screen.getByText('Einsenden'));
   });
 
-  expect(mockAnimationProps).toHaveBeenLastCalledWith({ visible: true, zaehler: 11 });
+  expect(mockAnimationProps).toHaveBeenLastCalledWith({ visible: true, counter: 11 });
 });
 
 test('scheitert der Zählerabruf, läuft die Erfolgsanimation ohne Zahl', async () => {
@@ -372,7 +372,7 @@ test('scheitert der Zählerabruf, läuft die Erfolgsanimation ohne Zahl', async 
     await fireEvent.press(screen.getByText('Einsenden'));
   });
 
-  expect(mockAnimationProps).toHaveBeenLastCalledWith({ visible: true, zaehler: null });
+  expect(mockAnimationProps).toHaveBeenLastCalledWith({ visible: true, counter: null });
 });
 
 // Gerätefund 2026-08-14: eine Übergabe ohne brauchbare uri (die iOS-Form von

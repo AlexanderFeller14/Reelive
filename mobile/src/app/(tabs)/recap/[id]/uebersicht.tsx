@@ -9,7 +9,7 @@ import { ChevronLeft, Download, Share2 } from 'lucide-react-native';
 import { PressScale } from '@/components/PressScale';
 import { Button } from '@/components/Button';
 import { Sheet } from '@/components/Sheet';
-import { SiegelAbziehen } from '@/components/SiegelAbziehen';
+import { SealPeel } from '@/components/SealPeel';
 import { useTheme } from '@/theme/ThemeProvider';
 import { useReducedMotion } from '@/theme/useReducedMotion';
 import { motion, radius, spacing, type } from '@/theme/tokens';
@@ -586,7 +586,7 @@ export default function RecapUebersicht() {
           // sagt, was zu tun ist. Kein Rahmen, kein Schatten von uns, das
           // Siegel bringt seinen eigenen mit.
           <View style={styles.siegelBuehne}>
-            <SiegelAbziehen testID="recap-siegel" groesse={buehne} onAbgezogen={entsiegeln} />
+            <SealPeel testID="recap-siegel" size={buehne} onPeeled={entsiegeln} />
             <Text style={[type.body, { color: colors['text-2'], textAlign: 'center' }]}>
               Dein Recap ist versiegelt. Tipp aufs Siegel, um ihn zu öffnen.
             </Text>
@@ -638,12 +638,12 @@ export default function RecapUebersicht() {
          , für eine Person ohne Teilen-Recht existiert damit erst gar kein
           Weg, sie zu öffnen. */}
       {kannTeilen && (
-        <Sheet sichtbar={teilenOffen} titel="Recap teilen" onSchliessen={() => setTeilenOffen(false)} kino>
+        <Sheet visible={teilenOffen} title="Recap teilen" onClose={() => setTeilenOffen(false)} cinemaMode>
           <ShareSheetContent tripId={id} />
         </Sheet>
       )}
       {kannExportieren && (
-        <Sheet sichtbar={exportOffen} titel="Momente sichern" onSchliessen={exportSchliessen}>
+        <Sheet visible={exportOffen} title="Momente sichern" onClose={exportSchliessen}>
           <ExportSheetInhalt
             stand={exportStand}
             ausgang={exportAusgang}

@@ -3,7 +3,7 @@ import { Animated, Dimensions, Easing, StyleSheet, Text } from 'react-native';
 import * as React from 'react';
 import { ThemeProvider } from '@/theme/ThemeProvider';
 import { cinema, motion, palette, radius, shadow } from '@/theme/tokens';
-import { MAX_HOEHE_ANTEIL, Sheet, wischUeberSchwelle } from '../Sheet';
+import { MAX_HEIGHT_RATIO, Sheet, swipeExceedsThreshold } from '../Sheet';
 
 const mockUseReducedMotion = jest.fn(() => false);
 jest.mock('@/theme/useReducedMotion', () => ({
@@ -12,13 +12,13 @@ jest.mock('@/theme/useReducedMotion', () => ({
 
 const wrap = (ui: React.ReactElement) => render(<ThemeProvider>{ui}</ThemeProvider>);
 
-// Der resolvierte translateY-Wert des äusseren (Schatten-)Knotens, Animated.View
-// löst seine Animated.Value-Props beim Rendern zu einfachen Zahlen auf, deshalb
-// ist das über StyleSheet.flatten direkt prüfbar, ohne Refs aus der Komponente
-// herauszureichen.
-function translateYVon(knoten: ReturnType<typeof screen.getByTestId>): number | undefined {
-  const flach = StyleSheet.flatten(knoten.props.style) as { transform?: { translateY?: number }[] };
-  return flach.transform?.find((t) => 'translateY' in t)?.translateY;
+// The resolved translateY value of the outer (shadow) node, Animated.View
+// resolves its Animated.Value props to plain numbers when rendering, so
+// this is directly checkable via StyleSheet.flatten, without passing refs
+// out of the component.
+function translateYOf(node: ReturnType<typeof screen.getByTestId>): number | undefined {
+  const flattened = StyleSheet.flatten(node.props.style) as { transform?: { translateY?: number }[] };
+  return flattened.transform?.find((t) => 'translateY' in t)?.translateY;
 }
 
 beforeEach(() => {
@@ -26,9 +26,9 @@ beforeEach(() => {
   mockUseReducedMotion.mockReturnValue(false);
 });
 
-test('unsichtbar rendert nichts', async () => {
+test('invisible renders nothing', async () => {
   await wrap(
-    <Sheet sichtbar={false} onSchliessen={jest.fn()}>
+    <Sheet visible={false} onClose={jest.fn()}>
       <Text>Inhalt</Text>
     </Sheet>
   );
@@ -36,9 +36,9 @@ test('unsichtbar rendert nichts', async () => {
   expect(screen.queryByText('Inhalt')).toBeNull();
 });
 
-test('sichtbar zeigt Titel und beliebigen Inhalt', async () => {
+test('visible shows the title and arbitrary content', async () => {
   await wrap(
-    <Sheet sichtbar titel="Kommentare" onSchliessen={jest.fn()}>
+    <Sheet visible title="Kommentare" onClose={jest.fn()}>
       <Text>Inhalt</Text>
     </Sheet>
   );
@@ -46,30 +46,30 @@ test('sichtbar zeigt Titel und beliebigen Inhalt', async () => {
   expect(screen.getByText('Inhalt')).toBeTruthy();
 });
 
-test('ohne Titel bleibt die Titelzeile weg', async () => {
+test('without a title, the title line stays away', async () => {
   await wrap(
-    <Sheet sichtbar onSchliessen={jest.fn()}>
+    <Sheet visible onClose={jest.fn()}>
       <Text>Inhalt</Text>
     </Sheet>
   );
   expect(screen.queryByText('Kommentare')).toBeNull();
 });
 
-test('Tipp auf den Hintergrund ruft onSchliessen', async () => {
-  const onSchliessen = jest.fn();
+test('a tap on the background calls onClose', async () => {
+  const onClose = jest.fn();
   await wrap(
-    <Sheet sichtbar onSchliessen={onSchliessen}>
+    <Sheet visible onClose={onClose}>
       <Text>Inhalt</Text>
     </Sheet>
   );
   await fireEvent.press(screen.getByTestId('sheet-backdrop'));
-  expect(onSchliessen).toHaveBeenCalledTimes(1);
+  expect(onClose).toHaveBeenCalledTimes(1);
 });
 
-test('öffnet per spring-ui (DESIGN-LANGUAGE §5), wenn Bewegung nicht reduziert ist', async () => {
+test('opens with spring-ui (DESIGN-LANGUAGE §5) when motion is not reduced', async () => {
   const springSpy = jest.spyOn(Animated, 'spring');
   await wrap(
-    <Sheet sichtbar onSchliessen={jest.fn()}>
+    <Sheet visible onClose={jest.fn()}>
       <Text>Inhalt</Text>
     </Sheet>
   );
@@ -80,12 +80,12 @@ test('öffnet per spring-ui (DESIGN-LANGUAGE §5), wenn Bewegung nicht reduziert
   springSpy.mockRestore();
 });
 
-test('reduzierte Bewegung: kein Spring, nur ein 200-ms-Fade', async () => {
+test('reduced motion: no spring, just a 200 ms fade', async () => {
   mockUseReducedMotion.mockReturnValue(true);
   const springSpy = jest.spyOn(Animated, 'spring');
   const timingSpy = jest.spyOn(Animated, 'timing');
   await wrap(
-    <Sheet sichtbar onSchliessen={jest.fn()}>
+    <Sheet visible onClose={jest.fn()}>
       <Text>Inhalt</Text>
     </Sheet>
   );
@@ -98,10 +98,10 @@ test('reduzierte Bewegung: kein Spring, nur ein 200-ms-Fade', async () => {
   timingSpy.mockRestore();
 });
 
-test('nicht reduzierte Bewegung faded den Hintergrund über 250 ms (duration-base)', async () => {
+test('motion that is not reduced fades the background over 250 ms (duration-base)', async () => {
   const timingSpy = jest.spyOn(Animated, 'timing');
   await wrap(
-    <Sheet sichtbar onSchliessen={jest.fn()}>
+    <Sheet visible onClose={jest.fn()}>
       <Text>Inhalt</Text>
     </Sheet>
   );
@@ -112,12 +112,13 @@ test('nicht reduzierte Bewegung faded den Hintergrund über 250 ms (duration-bas
   timingSpy.mockRestore();
 });
 
-// Review-Minor: beide Animated.timing-Aufrufe liefen ohne `easing`, RN nimmt
-// dann seine Standardkurve statt ease-smooth (Konvention siehe Input.tsx).
-test('nutzt ease-smooth für die zeitbasierten Fades, nicht die RN-Standardkurve', async () => {
+// Review minor: both Animated.timing calls ran without `easing`, RN then
+// takes its default curve instead of ease-smooth (convention, see
+// Input.tsx).
+test("uses ease-smooth for the time-based fades, not RN's default curve", async () => {
   const easingSpy = jest.spyOn(Easing, 'bezier');
   await wrap(
-    <Sheet sichtbar onSchliessen={jest.fn()}>
+    <Sheet visible onClose={jest.fn()}>
       <Text>Inhalt</Text>
     </Sheet>
   );
@@ -125,214 +126,218 @@ test('nutzt ease-smooth für die zeitbasierten Fades, nicht die RN-Standardkurve
   easingSpy.mockRestore();
 });
 
-// Review Important 3 (Mutationslücke): AUSGANGSPOSITION auf 0 setzen blieb
-// unentdeckt, weil nur Spies geprüft wurden, nie der tatsächliche Wert.
-test('öffnet von deutlich ausserhalb des sichtbaren Bereichs, nicht von der Nullposition', async () => {
+// Review Important 3 (mutation gap): setting START_POSITION to 0 went
+// undetected because only spies were checked, never the actual value.
+test('opens from clearly outside the visible area, not from the zero position', async () => {
   await wrap(
-    <Sheet sichtbar onSchliessen={jest.fn()}>
+    <Sheet visible onClose={jest.fn()}>
       <Text>Inhalt</Text>
     </Sheet>
   );
-  const schatten = screen.getByTestId('sheet-schatten');
-  expect(translateYVon(schatten)).toBeGreaterThan(100);
+  const shadowNode = screen.getByTestId('sheet-schatten');
+  expect(translateYOf(shadowNode)).toBeGreaterThan(100);
 });
 
-// Review Important 3: `translateY.setValue(0)` im reduced-motion-Zweig löschen
-// blieb bislang unentdeckt, das Sheet bliebe für reduced-motion-Nutzende
-// dauerhaft unterhalb des Bildschirms, unsichtbar.
-test('reduzierte Bewegung hält die Position bei 0, kein unsichtbares Sheet', async () => {
+// Review Important 3: deleting `translateY.setValue(0)` in the
+// reduced-motion branch went undetected so far, the sheet would stay
+// permanently below the screen for reduced-motion users, invisible.
+test('reduced motion holds the position at 0, no invisible sheet', async () => {
   mockUseReducedMotion.mockReturnValue(true);
   await wrap(
-    <Sheet sichtbar onSchliessen={jest.fn()}>
+    <Sheet visible onClose={jest.fn()}>
       <Text>Inhalt</Text>
     </Sheet>
   );
-  const schatten = screen.getByTestId('sheet-schatten');
-  expect(translateYVon(schatten)).toBe(0);
+  const shadowNode = screen.getByTestId('sheet-schatten');
+  expect(translateYOf(shadowNode)).toBe(0);
 });
 
-test('unmount räumt sauber auf', async () => {
+test('unmount cleans up properly', async () => {
   const { unmount } = await wrap(
-    <Sheet sichtbar onSchliessen={jest.fn()}>
+    <Sheet visible onClose={jest.fn()}>
       <Text>Inhalt</Text>
     </Sheet>
   );
   await unmount();
 });
 
-describe('DESIGN-LANGUAGE §4, Spec-Masse, einzeln geprüft (Mutationslücken aus dem Review)', () => {
-  test('Radius 24 oben, nicht radius.control', async () => {
+describe('DESIGN-LANGUAGE §4, spec measurements, checked individually (mutation gaps from the review)', () => {
+  test('24 px radius on top, not radius.control', async () => {
     await wrap(
-      <Sheet sichtbar onSchliessen={jest.fn()}>
+      <Sheet visible onClose={jest.fn()}>
         <Text>Inhalt</Text>
       </Sheet>
     );
     const panel = screen.getByTestId('sheet-panel');
-    const flach = StyleSheet.flatten(panel.props.style);
-    expect(flach.borderTopLeftRadius).toBe(radius.card);
-    expect(flach.borderTopRightRadius).toBe(radius.card);
+    const flattened = StyleSheet.flatten(panel.props.style);
+    expect(flattened.borderTopLeftRadius).toBe(radius.card);
+    expect(flattened.borderTopRightRadius).toBe(radius.card);
   });
 
-  test('shadow-3, nicht gelöscht, und auf dem Knoten mit der sichtbaren Fläche (iOS-Schatten braucht Content)', async () => {
+  test('shadow-3, not deleted, and on the node with the visible surface (an iOS shadow needs content)', async () => {
     await wrap(
-      <Sheet sichtbar onSchliessen={jest.fn()}>
+      <Sheet visible onClose={jest.fn()}>
         <Text>Inhalt</Text>
       </Sheet>
     );
-    const schatten = screen.getByTestId('sheet-schatten');
-    const flach = StyleSheet.flatten(schatten.props.style);
-    expect(flach.shadowOpacity).toBe(shadow.s3.shadowOpacity);
-    expect(flach.shadowRadius).toBe(shadow.s3.shadowRadius);
-    expect(flach.elevation).toBe(shadow.s3.elevation);
-    expect(flach.backgroundColor).toBe(palette['bg-0']);
+    const shadowNode = screen.getByTestId('sheet-schatten');
+    const flattened = StyleSheet.flatten(shadowNode.props.style);
+    expect(flattened.shadowOpacity).toBe(shadow.s3.shadowOpacity);
+    expect(flattened.shadowRadius).toBe(shadow.s3.shadowRadius);
+    expect(flattened.elevation).toBe(shadow.s3.elevation);
+    expect(flattened.backgroundColor).toBe(palette['bg-0']);
   });
 
-  test('der Grabber steht in Spec-Massen (36×4, Radius 999), nicht entfernt', async () => {
+  test('the grabber has the spec measurements (36x4, radius 999), not removed', async () => {
     await wrap(
-      <Sheet sichtbar onSchliessen={jest.fn()}>
+      <Sheet visible onClose={jest.fn()}>
         <Text>Inhalt</Text>
       </Sheet>
     );
-    const griff = screen.getByTestId('sheet-griff');
-    const flach = StyleSheet.flatten(griff.props.style);
-    expect(flach.width).toBe(36);
-    expect(flach.height).toBe(4);
-    expect(flach.borderRadius).toBe(radius.pill);
+    const handle = screen.getByTestId('sheet-griff');
+    const flattened = StyleSheet.flatten(handle.props.style);
+    expect(flattened.width).toBe(36);
+    expect(flattened.height).toBe(4);
+    expect(flattened.borderRadius).toBe(radius.pill);
   });
 
-  test('nur der Griffbereich trägt die Wisch-Handler, nicht das ganze Panel', async () => {
+  test('only the handle area carries the swipe handlers, not the whole panel', async () => {
     await wrap(
-      <Sheet sichtbar onSchliessen={jest.fn()}>
+      <Sheet visible onClose={jest.fn()}>
         <Text>Inhalt</Text>
       </Sheet>
     );
-    const griffBereich = screen.getByTestId('sheet-griff-bereich');
-    expect(typeof griffBereich.props.onStartShouldSetResponder).toBe('function');
+    const handleArea = screen.getByTestId('sheet-griff-bereich');
+    expect(typeof handleArea.props.onStartShouldSetResponder).toBe('function');
     const panel = screen.getByTestId('sheet-panel');
     expect(panel.props.onStartShouldSetResponder).toBeUndefined();
   });
 });
 
-// Review Important 2: eine Maximalhöhe lässt sich aus einem Kind heraus nicht
-// nachrüsten, Task 12 (Kommentarliste) braucht sie zwingend.
-describe('Review Important 2, Maximalhöhe und Kino-Variante', () => {
-  // Re-Review: `maxHeight: '85%'` war mit hoher Wahrscheinlichkeit wirkungslos,
-  // `panelClip` sitzt in `schatten`, und `schatten` ist `position:'absolute'`
-  // OHNE `top` und ohne explizite Höhe, hat also keine DEFINITE Höhe, gegen die
-  // ein Prozentwert auflösen könnte. `react-test-renderer` führt kein echtes
-  // Yoga-Layout aus, ein „ist ein Prozentstring gesetzt"-Test hätte diesen
-  // Fehler NIE sehen können, mit oder ohne Layout-Engine. Der Fix (numerisch
-  // aus useWindowDimensions() statt Prozent-String, siehe MAX_HOEHE_ANTEIL in
-  // Sheet.tsx) macht die Wirkung dagegen direkt prüfbar: eine Zahl lässt sich
-  // exakt gegen die bekannte Fenstergrösse dieser Jest-Umgebung nachrechnen,
-  // unabhängig davon, ob irgendein Elternknoten je eine definite Höhe bekommt.
-  test('das Panel ist auf einen Anteil der tatsächlichen Fensterhöhe begrenzt (nicht auf einen wirkungslosen Prozent-String) und klippt überlaufenden Inhalt', async () => {
+// Review Important 2: a maximum height can't be retrofitted from a child,
+// Task 12 (comment list) needs it unconditionally.
+describe('Review Important 2, maximum height and cinema variant', () => {
+  // Re-review: `maxHeight: '85%'` was, with high probability, ineffective:
+  // `panelClip` sits inside `shadowLayer`, and `shadowLayer` is
+  // `position:'absolute'` WITHOUT `top` and without an explicit height, so
+  // it has no DEFINITE height for a percent value to resolve against.
+  // `react-test-renderer` doesn't run a real Yoga layout, an "is a percent
+  // string set" test could NEVER have caught this bug, with or without a
+  // layout engine. The fix (numeric from useWindowDimensions() instead of
+  // a percent string, see MAX_HEIGHT_RATIO in Sheet.tsx), in contrast,
+  // makes the effect directly checkable: a number can be checked exactly
+  // against the known window size of this Jest environment, independent
+  // of whether any parent node ever gets a definite height.
+  test('the panel is limited to a fraction of the actual window height (not to an ineffective percent string) and clips overflowing content', async () => {
     await wrap(
-      <Sheet sichtbar onSchliessen={jest.fn()}>
+      <Sheet visible onClose={jest.fn()}>
         <Text>Inhalt</Text>
       </Sheet>
     );
     const panel = screen.getByTestId('sheet-panel');
-    const flach = StyleSheet.flatten(panel.props.style);
-    const erwarteteHoehe = Dimensions.get('window').height * MAX_HOEHE_ANTEIL;
-    expect(typeof flach.maxHeight).toBe('number');
-    expect(flach.maxHeight).toBeCloseTo(erwarteteHoehe);
-    expect(flach.overflow).toBe('hidden');
+    const flattened = StyleSheet.flatten(panel.props.style);
+    const expectedHeight = Dimensions.get('window').height * MAX_HEIGHT_RATIO;
+    expect(typeof flattened.maxHeight).toBe('number');
+    expect(flattened.maxHeight).toBeCloseTo(expectedHeight);
+    expect(flattened.overflow).toBe('hidden');
   });
 
-  test('ohne `kino` nutzt das Sheet die Licht-Palette', async () => {
+  test('without `cinemaMode` the sheet uses the light palette', async () => {
     await wrap(
-      <Sheet sichtbar titel="Titel" onSchliessen={jest.fn()}>
+      <Sheet visible title="Titel" onClose={jest.fn()}>
         <Text>Inhalt</Text>
       </Sheet>
     );
-    const schatten = screen.getByTestId('sheet-schatten');
-    expect(StyleSheet.flatten(schatten.props.style).backgroundColor).toBe(palette['bg-0']);
+    const shadowNode = screen.getByTestId('sheet-schatten');
+    expect(StyleSheet.flatten(shadowNode.props.style).backgroundColor).toBe(palette['bg-0']);
     expect(StyleSheet.flatten(screen.getByText('Titel').props.style).color).toBe(palette['text-1']);
   });
 
-  test('mit `kino` nutzt das Sheet die feste Kino-Palette (cinema-1) statt useTheme()', async () => {
+  test('with `cinemaMode` the sheet uses the fixed cinema palette (cinema-1) instead of useTheme()', async () => {
     await wrap(
-      <Sheet sichtbar titel="Titel" kino onSchliessen={jest.fn()}>
+      <Sheet visible title="Titel" cinemaMode onClose={jest.fn()}>
         <Text>Inhalt</Text>
       </Sheet>
     );
-    const schatten = screen.getByTestId('sheet-schatten');
-    expect(StyleSheet.flatten(schatten.props.style).backgroundColor).toBe(cinema['bg-1']);
+    const shadowNode = screen.getByTestId('sheet-schatten');
+    expect(StyleSheet.flatten(shadowNode.props.style).backgroundColor).toBe(cinema['bg-1']);
     expect(StyleSheet.flatten(screen.getByText('Titel').props.style).color).toBe(cinema['text-1']);
   });
 });
 
-// Gerätefund 2026-08-13 (Namen-ändern-Sheet im Profil-Tab): die Tastatur
-// verdeckte das Panel vollständig und liess sich scheinbar nicht mehr
-// schliessen. Die KeyboardAvoidingView setzt bei behavior="padding" nur ein
-// paddingBottom AN SICH SELBST, und Padding erreicht absolut positionierte
-// Kinder nicht — derselbe Befund steht seit dem Caption-Feld wörtlich in
-// vorschau.tsx. Das Panel muss deshalb ein normales Flex-Kind sein (Wurzel
-// justifyContent 'flex-end', Panel ohne position:'absolute'), erst dann
-// schiebt das Padding es über die Tastatur. Jest führt kein Yoga-Layout aus;
-// prüfbar ist die STRUKTUR, aus der die Geometrie folgt, wie beim
-// Baumstellungs-Test in profilTab.test.tsx.
-test('das Panel ist ein Flex-Kind am unteren Rand, nicht absolut positioniert (sonst verdeckt die Tastatur es)', async () => {
+// Device finding 2026-08-13 (the name-change sheet in the profile tab):
+// the keyboard covered the panel completely and it seemed impossible to
+// close. With behavior="padding", KeyboardAvoidingView only sets a
+// paddingBottom ON ITSELF, and padding doesn't reach absolutely positioned
+// children (the same finding has stood, word for word, in vorschau.tsx
+// since the caption field). The panel must therefore be a normal flex
+// child (root justifyContent 'flex-end', panel without
+// position:'absolute'), only then does the padding push it above the
+// keyboard. Jest doesn't run a Yoga layout; what's checkable is the
+// STRUCTURE the geometry follows from, like the tree-position test in
+// profilTab.test.tsx.
+test('the panel is a flex child at the bottom edge, not absolutely positioned (otherwise the keyboard would cover it)', async () => {
   await wrap(
-    <Sheet sichtbar onSchliessen={jest.fn()}>
+    <Sheet visible onClose={jest.fn()}>
       <Text>Inhalt</Text>
     </Sheet>
   );
-  const wurzel = StyleSheet.flatten(screen.getByTestId('sheet-root').props.style);
-  expect(wurzel.justifyContent).toBe('flex-end');
-  const schatten = StyleSheet.flatten(screen.getByTestId('sheet-schatten').props.style);
-  expect(schatten.position).toBeUndefined();
-  expect(schatten.bottom).toBeUndefined();
+  const root = StyleSheet.flatten(screen.getByTestId('sheet-root').props.style);
+  expect(root.justifyContent).toBe('flex-end');
+  const shadowNode = StyleSheet.flatten(screen.getByTestId('sheet-schatten').props.style);
+  expect(shadowNode.position).toBeUndefined();
+  expect(shadowNode.bottom).toBeUndefined();
 });
 
-// Review Important 2: ein Eingabefeld am unteren Rand (Task 12) braucht
-// Tastatur-Ausweichlogik, die sich aus einem Kind heraus ebenfalls nicht
-// nachrüsten lässt (das Sheet selbst hängt am unteren Rand).
-test('weicht der Tastatur aus (iOS: behavior="padding", gleiche Konvention wie preview.tsx)', async () => {
+// Review Important 2: an input field at the bottom (Task 12) also needs
+// keyboard-avoidance logic that can't be retrofitted from a child either
+// (the sheet itself hangs at the bottom edge).
+test('avoids the keyboard (iOS: behavior="padding", same convention as preview.tsx)', async () => {
   await wrap(
-    <Sheet sichtbar onSchliessen={jest.fn()}>
+    <Sheet visible onClose={jest.fn()}>
       <Text>Inhalt</Text>
     </Sheet>
   );
-  // `behavior` selbst ist ein Konfigurations-Prop, den KeyboardAvoidingView
-  // intern konsumiert statt ihn an den gerenderten Host-Knoten weiterzureichen
-  // (diese RNTL-Version exponiert auch keine react-test-renderer-Introspektion
-  // wie UNSAFE_getByType mehr, um die Komponente selbst statt des Host-Knotens
-  // abzufragen). Beobachtbar ist der RESOLVIERTE Effekt: mit behavior="padding"
-  // rendert KeyboardAvoidingView ein `paddingBottom` in seinem eigenen Style
-  // (0 ohne sichtbare Tastatur), ohne behavior fehlt dieser Style-Key
-  // vollständig (manuell gegengeprüft). jest-expo mockt Platform.OS als 'ios'.
-  const wurzel = screen.getByTestId('sheet-root');
-  const flach = StyleSheet.flatten(wurzel.props.style);
-  expect(flach).toHaveProperty('paddingBottom');
+  // `behavior` itself is a configuration prop that KeyboardAvoidingView
+  // consumes internally instead of passing it through to the rendered
+  // host node (this RNTL version also no longer exposes a
+  // react-test-renderer introspection like UNSAFE_getByType to query the
+  // component itself instead of the host node). What's observable is the
+  // RESOLVED effect: with behavior="padding", KeyboardAvoidingView renders
+  // a `paddingBottom` in its own style (0 without a visible keyboard),
+  // without behavior this style key is missing entirely (manually
+  // cross-checked). jest-expo mocks Platform.OS as 'ios'.
+  const root = screen.getByTestId('sheet-root');
+  const flattened = StyleSheet.flatten(root.props.style);
+  expect(flattened).toHaveProperty('paddingBottom');
 });
 
-// wischUeberSchwelle ist bewusst als reine Funktion exportiert (siehe Sheet.tsx),
-// eine echte Wisch-Geste über PanResponder lässt sich ohne native Touch-Historie
-// nicht verlässlich simulieren (im Projekt auch sonst nirgends getan, siehe
-// preview.tsx: die dortige Caption-Drag-Geste hat aus demselben Grund keinen
-// eigenen Gesten-Test). Die Entscheidung selbst ist hier trotzdem lückenlos
-// geprüft; der Reset nach einem Wisch-Schliessen (Review-Minor, Ein-Frame-Sprung)
-// ist eine direkte Folge davon und aus demselben Grund nicht separat simulierbar.
-describe('wischUeberSchwelle', () => {
-  test('kurzer, langsamer Wisch schliesst nicht', () => {
-    expect(wischUeberSchwelle(20, 0.1)).toBe(false);
+// swipeExceedsThreshold is deliberately exported as a pure function (see
+// Sheet.tsx), a real swipe gesture via PanResponder can't be reliably
+// simulated without native touch history (also done nowhere else in the
+// project, see preview.tsx: the caption-drag gesture there has no gesture
+// test of its own for the same reason). The decision itself is still
+// tested exhaustively here; the reset after a swipe-close (review minor,
+// one-frame jump) is a direct consequence of it and, for the same reason,
+// not separately simulatable.
+describe('swipeExceedsThreshold', () => {
+  test('a short, slow swipe does not close', () => {
+    expect(swipeExceedsThreshold(20, 0.1)).toBe(false);
   });
 
-  test('ein ausreichend weiter Weg schliesst', () => {
-    expect(wischUeberSchwelle(120, 0)).toBe(true);
+  test('a sufficiently long distance closes', () => {
+    expect(swipeExceedsThreshold(120, 0)).toBe(true);
   });
 
-  test('ein schneller Flick schliesst auch bei kurzem Weg', () => {
-    expect(wischUeberSchwelle(10, 0.8)).toBe(true);
+  test('a fast flick closes even over a short distance', () => {
+    expect(swipeExceedsThreshold(10, 0.8)).toBe(true);
   });
 
-  test('genau an der Weg-Schwelle schliesst noch nicht (exklusiv)', () => {
-    expect(wischUeberSchwelle(96, 0)).toBe(false);
+  test('exactly at the distance threshold does not close yet (exclusive)', () => {
+    expect(swipeExceedsThreshold(96, 0)).toBe(false);
   });
 
-  test('genau an der Geschwindigkeits-Schwelle schliesst noch nicht (exklusiv)', () => {
-    expect(wischUeberSchwelle(0, 0.5)).toBe(false);
+  test('exactly at the velocity threshold does not close yet (exclusive)', () => {
+    expect(swipeExceedsThreshold(0, 0.5)).toBe(false);
   });
 });

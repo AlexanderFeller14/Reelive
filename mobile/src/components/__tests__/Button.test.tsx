@@ -6,29 +6,29 @@ import { Button } from '../Button';
 
 const wrap = (ui: React.ReactElement) => render(<ThemeProvider>{ui}</ThemeProvider>);
 
-test('feuert onPress', async () => {
+test('fires onPress', async () => {
   const onPress = jest.fn();
   await wrap(<Button variant="primary" label="Einsenden" onPress={onPress} />);
   fireEvent.press(screen.getByText('Einsenden'));
   expect(onPress).toHaveBeenCalledTimes(1);
 });
 
-test('disabled feuert nicht', async () => {
+test('disabled does not fire', async () => {
   const onPress = jest.fn();
   await wrap(<Button variant="primary" label="Weiter" onPress={onPress} disabled />);
   fireEvent.press(screen.getByText('Weiter'));
   expect(onPress).not.toHaveBeenCalled();
 });
 
-test('disabled Button spielt Press-Scale-Animation nicht ab', async () => {
+test('a disabled button does not play the press-scale animation', async () => {
   const springSpy = jest.spyOn(Animated, 'spring');
   const onPress = jest.fn();
   await wrap(<Button variant="primary" label="Weiter" onPress={onPress} disabled />);
   const label = screen.getByText('Weiter');
 
-  // Reales Pressable-`disabled` unterdrückt den Responder-Zyklus nativ, RNTL
-  // simuliert das über `onStartShouldSetResponder`, deshalb kommt pressIn/pressOut
-  // hier gar nicht erst beim internen Handler an (echtes Verhalten, kein Mock).
+  // A real Pressable's `disabled` suppresses the responder cycle natively,
+  // RNTL simulates that via `onStartShouldSetResponder`, so pressIn/pressOut
+  // never even reach the internal handler here (real behavior, not a mock).
   await fireEvent(label, 'pressIn');
   await fireEvent(label, 'pressOut');
   await fireEvent.press(label);
@@ -39,24 +39,24 @@ test('disabled Button spielt Press-Scale-Animation nicht ab', async () => {
   springSpy.mockRestore();
 });
 
-test('secondary Variante zeigt Outline mit bg-0 im Ruhezustand', async () => {
+test('the secondary variant shows an outline with bg-0 at rest', async () => {
   await wrap(<Button variant="secondary" label="Abbrechen" onPress={() => {}} />);
   const label = screen.getByText('Abbrechen');
-  // `.parent` ist die innere View mit den Ruhezustand-Styles (Outline, bg-0).
+  // `.parent` is the inner view with the resting-state styles (outline, bg-0).
   const flattened = StyleSheet.flatten(label.parent?.props.style);
 
   expect(flattened.borderWidth).toBe(1);
   expect(flattened.backgroundColor).toBe(palette['bg-0']);
 });
 
-test('loading Button spielt Press-Scale-Animation nicht ab', async () => {
+test('a loading button does not play the press-scale animation', async () => {
   const springSpy = jest.spyOn(Animated, 'spring');
   const onPress = jest.fn();
   await wrap(<Button variant="primary" label="Weiter" onPress={onPress} loading />);
   const spinner = screen.getByTestId('button-loading');
 
-  // Wie bei disabled: reales Pressable-`disabled` unterdrückt den
-  // Responder-Zyklus, RNTL simuliert das über `onStartShouldSetResponder`.
+  // Same as disabled: a real Pressable's `disabled` suppresses the
+  // responder cycle, RNTL simulates that via `onStartShouldSetResponder`.
   await fireEvent(spinner, 'pressIn');
   await fireEvent(spinner, 'pressOut');
   await fireEvent.press(spinner);
@@ -67,7 +67,7 @@ test('loading Button spielt Press-Scale-Animation nicht ab', async () => {
   springSpy.mockRestore();
 });
 
-test('loading zeigt Spinner statt Label-Interaktion', async () => {
+test('loading shows a spinner instead of label interaction', async () => {
   const onPress = jest.fn();
   await wrap(<Button variant="primary" label="Weiter" onPress={onPress} loading />);
   expect(screen.getByTestId('button-loading')).toBeTruthy();
@@ -75,7 +75,7 @@ test('loading zeigt Spinner statt Label-Interaktion', async () => {
   expect(onPress).not.toHaveBeenCalled();
 });
 
-test('text-Variante rendert Label unterstrichen und feuert', async () => {
+test('the text variant renders the label underlined and fires', async () => {
   const onPress = jest.fn();
   await wrap(<Button variant="text" label="Code erneut senden" onPress={onPress} />);
   const label = screen.getByText('Code erneut senden');
@@ -86,13 +86,14 @@ test('text-Variante rendert Label unterstrichen und feuert', async () => {
   expect(onPress).toHaveBeenCalledTimes(1);
 });
 
-// Der Speicher-Moment im Namen-Editor: nach dem Erfolg zeigt der Knopf ein
-// Häkchen (Lucide Check, weiss auf accent — NIE grün, §1/§7 verbieten Grün
-// als Erfolgsfarbe), bevor der Screen wechselt. Er ist dabei gesperrt, aber
-// nicht ausgegraut: der Moment feiert, er deaktiviert nicht.
-test('erfolg zeigt ein Häkchen statt Label und sperrt den Knopf', async () => {
+// The save moment in the name editor: after success, the button shows a
+// checkmark (Lucide Check, white on accent, NEVER green, §1/§7 forbid
+// green as a success color), before the screen changes. It's locked
+// during that, but not grayed out: the moment celebrates, it doesn't
+// disable.
+test('success shows a checkmark instead of the label and locks the button', async () => {
   const onPress = jest.fn();
-  await wrap(<Button variant="primary" label="Speichern" onPress={onPress} erfolg />);
+  await wrap(<Button variant="primary" label="Speichern" onPress={onPress} success />);
   expect(screen.getByTestId('button-erfolg')).toBeTruthy();
   expect(screen.queryByText('Speichern')).toBeNull();
   expect(screen.queryByTestId('button-loading')).toBeNull();
@@ -100,18 +101,18 @@ test('erfolg zeigt ein Häkchen statt Label und sperrt den Knopf', async () => {
   expect(onPress).not.toHaveBeenCalled();
 });
 
-// «Smoother Übergang»: der Haken erscheint nicht hart, er blendet mit
-// Scale + Opacity ein (§5: nur transform/opacity). Animated.View löst seine
-// Werte beim Rendern zu Zahlen auf (gleiches Auslese-Muster wie
-// translateYVon in Sheet.test.tsx), prüfbar ist der STARTWERT der
-// Einblendung: 0/0 statt fertig dastehen.
-test('der Haken startet die Einblendung bei 0, statt hart zu erscheinen', async () => {
-  await wrap(<Button variant="primary" label="Speichern" onPress={jest.fn()} erfolg />);
-  const haken = screen.getByTestId('button-erfolg');
-  const flach = StyleSheet.flatten(haken.props.style) as {
+// "Smooth transition": the checkmark doesn't appear abruptly, it fades in
+// with scale + opacity (§5: only transform/opacity). Animated.View
+// resolves its values to numbers when rendering (same read-out pattern as
+// translateYOf in Sheet.test.tsx), what's checkable is the START value of
+// the fade-in: 0/0 instead of standing there already finished.
+test('the checkmark starts its fade-in at 0, instead of appearing abruptly', async () => {
+  await wrap(<Button variant="primary" label="Speichern" onPress={jest.fn()} success />);
+  const checkmark = screen.getByTestId('button-erfolg');
+  const flattened = StyleSheet.flatten(checkmark.props.style) as {
     opacity?: number;
     transform?: { scale?: number }[];
   };
-  expect(flach.opacity).toBe(0);
-  expect(flach.transform?.find((t) => 'scale' in t)?.scale).toBe(0);
+  expect(flattened.opacity).toBe(0);
+  expect(flattened.transform?.find((t) => 'scale' in t)?.scale).toBe(0);
 });

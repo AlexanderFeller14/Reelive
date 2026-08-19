@@ -128,7 +128,7 @@ jest.mock('react-native-maps', () => {
 });
 
 import RecapKarte from '../[id]/karte';
-import { SHEET_SCROLL_ANTEIL } from '@/components/Sheet';
+import { SHEET_SCROLL_RATIO } from '@/components/Sheet';
 import { fetchRecapMoments } from '@/features/recap/recapApi';
 import { getPool } from '@/features/recap/urlPool';
 import { reportError } from '@/lib/errorReporter';
@@ -1058,7 +1058,7 @@ test('die Gruppenliste scrollt, statt ihre letzten Momente abzuschneiden', async
   // Und sie braucht eine Obergrenze: ohne die wüchse sie mit ihrem Inhalt,
   // und `Sheet` schnitte den Überhang genauso ab wie vorher.
   expect(StyleSheet.flatten(liste.props.style).maxHeight).toBe(
-    Dimensions.get('window').height * SHEET_SCROLL_ANTEIL
+    Dimensions.get('window').height * SHEET_SCROLL_RATIO
   );
   expect(within(liste).getAllByTestId(/^gruppe-eintrag/)).toHaveLength(12);
 });
@@ -1534,7 +1534,7 @@ test('die Tagesliste scrollt, statt ihre letzten Tage abzuschneiden', async () =
   const liste = screen.getByTestId('tage-liste');
   expect(liste.type).toBe('RCTScrollView');
   expect(StyleSheet.flatten(liste.props.style).maxHeight).toBe(
-    Dimensions.get('window').height * SHEET_SCROLL_ANTEIL
+    Dimensions.get('window').height * SHEET_SCROLL_RATIO
   );
   // Zwölf Tage plus «Alle Tage».
   expect(within(liste).getAllByTestId(/^tag-eintrag/)).toHaveLength(13);
@@ -1897,7 +1897,7 @@ test('die Kachel-Liste scrollt, statt ihre letzten Momente abzuschneiden', async
   const liste = screen.getByTestId('ohne-ort-liste');
   expect(liste.type).toBe('RCTScrollView');
   expect(StyleSheet.flatten(liste.props.style).maxHeight).toBe(
-    Dimensions.get('window').height * SHEET_SCROLL_ANTEIL
+    Dimensions.get('window').height * SHEET_SCROLL_RATIO
   );
   expect(within(liste).getAllByTestId(/^ohne-ort-kachel/)).toHaveLength(12);
 });

@@ -11,7 +11,7 @@ import {
 import { Image } from 'expo-image';
 import { Button } from '@/components/Button';
 import { PressScale } from '@/components/PressScale';
-import { SHEET_SCROLL_ANTEIL } from '@/components/Sheet';
+import { SHEET_SCROLL_RATIO } from '@/components/Sheet';
 import { useTheme } from '@/theme/ThemeProvider';
 import { motion, radius, spacing, type } from '@/theme/tokens';
 import { useReducedMotion } from '@/theme/useReducedMotion';
@@ -105,7 +105,7 @@ export function SheetScroll({ testID, children }: { testID: string; children: Re
   return (
     <ScrollView
       testID={testID}
-      style={{ maxHeight: windowHeight * SHEET_SCROLL_ANTEIL }}
+      style={{ maxHeight: windowHeight * SHEET_SCROLL_RATIO }}
       // The gap between children is otherwise held by `Sheet` itself
       // (styles.inhalt, `gap`), inside the ScrollView it no longer
       // applies, so it's repeated here with the same value.

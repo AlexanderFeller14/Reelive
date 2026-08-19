@@ -4,78 +4,80 @@ import { useTheme } from '@/theme/ThemeProvider';
 import { cinema, radius, spacing, type } from '@/theme/tokens';
 import { avatarUrl } from '@/features/auth/avatar';
 
-// DESIGN-LANGUAGE v2 §4: rund, 32–44 px, 2 px weisser Ring, Gruppen −8 px
-// überlappend. Ohne Bild trägt der Kreis die Initiale.
+// DESIGN-LANGUAGE v2 §4: round, 32-44 px, 2 px white ring, groups
+// overlapping by -8 px. Without an image the circle carries the initial.
 //
-// Die Form steckt in `kreis()`, weil sie zweimal gebraucht wird: einmal für
-// ein Gesicht, einmal für den «+5»-Kreis der Gruppe. Beide müssen exakt
-// gleich gross und gleich gerundet sein, sonst fällt der letzte Kreis in
-// einer überlappenden Reihe sofort als Fremdkörper auf.
-function kreis(size: number, flaeche: string, ring: string): ViewStyle {
+// The shape lives in `circle()`, because it's needed twice: once for a
+// face, once for the group's "+5" circle. Both must be exactly the same
+// size and the same roundness, otherwise the last circle in an overlapping
+// row immediately stands out as a foreign body.
+function circle(size: number, surface: string, ring: string): ViewStyle {
   return {
     width: size,
     height: size,
     borderRadius: radius.pill,
-    backgroundColor: flaeche,
+    backgroundColor: surface,
     borderWidth: 2,
     borderColor: ring,
     alignItems: 'center',
     justifyContent: 'center',
-    // Das Bild ist quadratisch und würde sonst über die Rundung hinausstehen.
+    // The image is square and would otherwise stick out past the rounding.
     overflow: 'hidden',
   };
 }
 
-// Name UND Schlüssel gehören zusammen: Wer ein Gesicht zeichnet, braucht das
-// Bild, wenn es eines gibt, und sonst den Namen für die Initiale. Zwei
-// getrennte Listen (Namen hier, Schlüssel dort) liefen unweigerlich
-// auseinander.
-export type Gesicht = { name: string; avatarKey: string | null };
+// Name AND key belong together: whoever draws a face needs the image if
+// there is one, and otherwise the name for the initial. Two separate lists
+// (names here, keys there) would inevitably drift apart.
+export type Face = { name: string; avatarKey: string | null };
 
-// `kino` ist ein expliziter Schalter und nicht aus dem Theme ableitbar:
-// ThemeProvider ist light-only, im Recap-Player und im geteilten Recap gilt
-// aber die Kino-Palette. Gleiche Begründung wie bei Sheet.kino.
+// `cinemaMode` is an explicit switch and not derivable from the theme:
+// ThemeProvider is light-only, but the cinema palette applies in the
+// recap player and the shared recap. Same reasoning as with
+// Sheet.cinemaMode.
 export function Avatar({
-  name, avatarKey = null, size = 36, kino = false,
+  name, avatarKey = null, size = 36, cinemaMode = false,
 }: {
   name: string;
   avatarKey?: string | null;
   size?: number;
-  kino?: boolean;
+  cinemaMode?: boolean;
 }) {
   const { colors } = useTheme();
-  const flaeche = kino ? cinema['bg-1'] : colors['bg-1'];
-  // In der hellen Palette trennt der Ring überlappende Gesichter von der
-  // Fläche dahinter (Facepile, DESIGN-LANGUAGE §4) — deshalb dieselbe Farbe
-  // wie der Seiten-Hintergrund (`bg-0`), der Ring verschwindet dort mit
-  // Absicht optisch in die Umgebung.
+  const surface = cinemaMode ? cinema['bg-1'] : colors['bg-1'];
+  // In the light palette, the ring separates overlapping faces from the
+  // surface behind them (facepile, DESIGN-LANGUAGE §4), hence the same
+  // color as the page background (`bg-0`), the ring deliberately
+  // disappears visually into its surroundings there.
   //
-  // Im Kino gilt eine andere Lesart derselben Regel, nicht dieselbe Farbwahl:
-  // beide bisherigen Einsatzorte (Recap-Player, geteilter Recap) zeigen genau
-  // EIN Gesicht auf einem Foto, keine überlappende Gruppe, die sich vom
-  // Hintergrund abheben müsste. Dort gilt §4s WÖRTLICHES «2 px weisser Ring»
-  // direkt, `cinema['text-1']` ist die hellste Kino-Farbe und der nächste
-  // verfügbare Ersatz für Weiss innerhalb der Palette (dieselbe Wahl traf
-  // schon die gelöschte lokale AvatarInitiale-Kopie in player.tsx vor
-  // Task 9). NICHT mit der hellen Zeile oben vereinheitlichen: die beiden
-  // Ringe beantworten unterschiedliche Fragen (Facepile-Separator vs.
-  // wörtlicher weisser Ring), sie treffen nur zufällig auf denselben Namen.
-  const ring = kino ? cinema['text-1'] : colors['bg-0'];
-  const schrift = kino ? cinema['text-1'] : colors['text-2'];
+  // In the cinema, a different reading of the same rule applies, not the
+  // same color choice: both current usage sites (recap player, shared
+  // recap) show exactly ONE face on a photo, not an overlapping group that
+  // would need to stand out from the background. There, §4's LITERAL "2 px
+  // white ring" applies directly, `cinema['text-1']` is the lightest
+  // cinema color and the closest available substitute for white within the
+  // palette (the same choice was already made by the deleted local
+  // AvatarInitiale copy in player.tsx before Task 9). Do NOT unify this
+  // with the light-palette line above: the two rings answer different
+  // questions (facepile separator vs. literal white ring), they only
+  // coincidentally land on the same name.
+  const ring = cinemaMode ? cinema['text-1'] : colors['bg-0'];
+  const textColor = cinemaMode ? cinema['text-1'] : colors['text-2'];
   const url = avatarUrl(avatarKey);
-  // §4 endet bei 44 px, alles darüber ist das Hero-Kopfbild des Profil-Tabs
-  // (Bildertausch 2026-08-13). Dort wäre die 12-px-Label-Initiale verloren;
-  // das Display-Format ist die einzige Grösse der Skala (§2: keine neuen
-  // erfinden), die einen 160er-Kreis trägt.
-  const initialeStil = size > 44 ? type.display : type.label;
+  // §4 ends at 44 px, anything above that is the profile tab's hero
+  // header image (image swap 2026-08-13). There the 12 px label initial
+  // would be lost; the display format is the only size on the scale (§2:
+  // don't invent new ones) that can carry a 160 px circle.
+  const initialStyle = size > 44 ? type.display : type.label;
 
   return (
-    <View testID="avatar-kreis" style={kreis(size, flaeche, ring)}>
-      {/* Die Initiale steht IMMER im Baum, das Bild legt sich darüber. So
-          trägt der Kreis während des Ladens etwas (sonst blitzt eine leere
-          Fläche auf und die ganze Facepile springt), und ein Bild, das nicht
-          lädt, fällt auf die Initiale zurück statt auf ein Loch. */}
-      <Text style={[initialeStil, { color: schrift }]}>
+    <View testID="avatar-kreis" style={circle(size, surface, ring)}>
+      {/* The initial always stays in the tree, the image lays on top of
+          it. This way the circle carries something while loading (otherwise
+          an empty surface would flash and the whole facepile would jump),
+          and an image that fails to load falls back to the initial instead
+          of a hole. */}
+      <Text style={[initialStyle, { color: textColor }]}>
         {(name.trim()[0] ?? '?').toUpperCase()}
       </Text>
       {url && (
@@ -91,65 +93,67 @@ export function Avatar({
   );
 }
 
-// Die Facepile nach Airbnb-Vorbild: drei Gesichter, der Rest wird gezählt.
+// The facepile, Airbnb-style: three faces, the rest gets counted.
 //
-// Der Rest ist ein vierter KREIS in derselben Reihe, keine Textzeile daneben.
-// Das ist der Unterschied, an dem die Gruppe als eine Sache gelesen wird
-// («acht Leute») statt als drei Bilder mit einer Fussnote. Er überlappt
-// deshalb wie jedes Gesicht davor (§4), abgesetzt wäre er wieder eine
-// Fussnote.
+// The rest is a fourth CIRCLE in the same row, not a text line next to it.
+// That's the difference that makes the group read as one thing ("eight
+// people") instead of three pictures with a footnote. It therefore
+// overlaps like every face before it (§4), set apart it would be a
+// footnote again.
 //
-// Ohne eigenes Tap-Verhalten: wer die Gruppe drückbar braucht, legt
-// `PressScale` darum. In der Reise-Karte ist bereits die ganze Karte ein
-// Tap-Ziel, ein zweites darin liegendes würde sie zerteilen.
+// No tap behavior of its own: whoever needs the group to be pressable
+// wraps `PressScale` around it. In the trip card, the whole card is
+// already a tap target, a second one nested inside it would tear it
+// apart.
 export function AvatarGroup({
-  gesichter, max = 3, kino = false,
+  faces, max = 3, cinemaMode = false,
 }: {
-  gesichter: Gesicht[];
+  faces: Face[];
   max?: number;
-  kino?: boolean;
+  cinemaMode?: boolean;
 }) {
   const { colors } = useTheme();
-  const sichtbar = gesichter.slice(0, max);
-  const rest = gesichter.length - sichtbar.length;
-  const flaeche = kino ? cinema['bg-1'] : colors['bg-1'];
-  // Ring und Schrift folgen DERSELBEN Zeile wie in `Avatar` oben, nicht einer
-  // zweiten: der «+N»-Kreis steht in derselben überlappenden Reihe wie die
-  // Gesichter davor, gezeichnet von derselben `kreis()`-Funktion. Zwei
-  // verschiedene Ringe in einer Reihe liest niemand als Absicht, sondern als
-  // Fehler.
+  const visibleFaces = faces.slice(0, max);
+  const rest = faces.length - visibleFaces.length;
+  const surface = cinemaMode ? cinema['bg-1'] : colors['bg-1'];
+  // Ring and text color follow the SAME line as in `Avatar` above, not a
+  // second one: the "+N" circle sits in the same overlapping row as the
+  // faces before it, drawn by the same `circle()` function. Nobody reads
+  // two different rings in one row as intentional, only as a bug.
   //
-  // Bis zur Merge-Fixrunde standen hier `cinema['bg-0']`/`cinema['text-2']`,
-  // also genau die Werte, die `Avatar` VOR Fix-Runde 1 (Commit 7b95f51) trug.
-  // Die Korrektur dort liess die Gruppe absichtlich stehen, weil sie mit
-  // `kino` bis heute nirgends gerendert wird — das Ergebnis war aber ein Riss
-  // mitten durch eine einzige Komponente, und «heute unbenutzt» ist kein Grund
-  // für zwei Antworten auf dieselbe Frage.
+  // Before the merge fix round, `cinema['bg-0']`/`cinema['text-2']` stood
+  // here, exactly the values `Avatar` carried BEFORE fix round 1 (commit
+  // 7b95f51). The correction there deliberately left the group as-is,
+  // because it isn't rendered anywhere with `cinemaMode` to this day: the
+  // result, though, was a crack running right through a single component,
+  // and "unused today" is not a reason for two answers to the same
+  // question.
   //
-  // WELCHE Lesart am Ende gilt, ist damit NICHT entschieden, nur
-  // vereinheitlicht. Für eine überlappende Facepile auf dunklem Grund spricht
-  // die Separator-Lesart (Ring in `cinema['bg-0']`, der Farbe des Kino-
-  // Hintergrunds — dieselbe Logik, mit der die helle Palette `bg-0` nimmt)
-  // mehr als §4s wörtlicher «2 px weisser Ring», den `Avatar` heute umsetzt,
-  // weil seine beiden Einsatzorte einzelne Gesichter auf Fotos zeigen. Wer
-  // beim ersten echten Kino-Facepile darauf umstellt, stellt BEIDE Stellen um,
-  // Kinder UND «+N»; sonst ist der Riss nur auf die andere Seite gewandert.
-  const ring = kino ? cinema['text-1'] : colors['bg-0'];
-  const schrift = kino ? cinema['text-1'] : colors['text-2'];
+  // WHICH reading ultimately wins is thus NOT decided here, only unified.
+  // For an overlapping facepile on a dark background, the separator
+  // reading (ring in `cinema['bg-0']`, the color of the cinema background,
+  // the same logic by which the light palette takes `bg-0`) makes more
+  // sense than §4's literal "2 px white ring", which `Avatar` implements
+  // today because both of its usage sites show individual faces on
+  // photos. Whoever switches to that on the first real cinema facepile
+  // switches BOTH spots, children AND "+N"; otherwise the crack has just
+  // moved to the other side.
+  const ring = cinemaMode ? cinema['text-1'] : colors['bg-0'];
+  const textColor = cinemaMode ? cinema['text-1'] : colors['text-2'];
 
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-      {sichtbar.map((gesicht, i) => (
-        <View key={`${gesicht.name}-${i}`} style={{ marginLeft: i === 0 ? 0 : -spacing.s }}>
-          <Avatar name={gesicht.name} avatarKey={gesicht.avatarKey} kino={kino} />
+      {visibleFaces.map((face, i) => (
+        <View key={`${face.name}-${i}`} style={{ marginLeft: i === 0 ? 0 : -spacing.s }}>
+          <Avatar name={face.name} avatarKey={face.avatarKey} cinemaMode={cinemaMode} />
         </View>
       ))}
       {rest > 0 && (
         <View
           testID="avatar-rest"
-          style={[kreis(36, flaeche, ring), { marginLeft: -spacing.s }]}
+          style={[circle(36, surface, ring), { marginLeft: -spacing.s }]}
         >
-          <Text style={[type.label, { color: schrift }]}>{`+${rest}`}</Text>
+          <Text style={[type.label, { color: textColor }]}>{`+${rest}`}</Text>
         </View>
       )}
     </View>

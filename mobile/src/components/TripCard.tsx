@@ -8,51 +8,52 @@ import { radius, spacing, type } from '@/theme/tokens';
 import { formatRange } from '@/features/trips/tripDay';
 import type { Trip } from '@/features/trips/types';
 
-// Randlose Reise-Karte (DESIGN-LANGUAGE v2 §4): Cover 3:2 mit Radius 24,
-// darunter ohne Rahmen und ohne Schatten. Das Cover selbst (Platzhalter-Bild
-// und Wachssiegel) steckt in `TripCover`, es steht hier und im Reise-Detail.
+// Borderless trip card (DESIGN-LANGUAGE v2 §4): cover 3:2 with 24 px
+// radius, below it without border and without shadow. The cover itself
+// (placeholder image and wax seal) lives in `TripCover`, it's used here
+// and in the trip detail screen.
 //
-// Task 10 (Recap-Tab): zwei Kartenzustände statt einem. `active` bleibt
-// unverändert, das Wachssiegel ist reine Symbolik und hängt allein an
+// Task 10 (recap tab): two card states instead of one. `active` stays
+// unchanged, the wax seal is pure symbolism and depends solely on
 // `trip.status`,
-// unabhängig davon, wo die Karte steht. `revealed`/`archived` («entwickelt»,
-// Konzept §5.2 "Cover-Collage, «Recap ansehen»-Play-Button") zeigt an
-// derselben Stelle stattdessen eine Pille mit Play-Icon in `accent-text`,
-// aber NUR, wenn der Aufrufer das per `alsRecap` ausdrücklich anfordert
-// (Review Task 10, Important 1). Ohne dieses Flag hätte JEDE aufgedeckte
-// Reise überall, wo TripCard steht, «Recap ansehen» getragen, auch in
-// reise/index.tsx, wo ein Tipp auf die Karte in den Reise-Detail-Screen
-// führt, nicht in den Recap. Die Pille wäre dort ein Versprechen gewesen,
-// das der Tipp nicht einlöst. Der Recap-Tab (die einzige Stelle, an der ein
-// Tipp tatsächlich die Übersicht öffnet) setzt `alsRecap`, der Reise-Tab
-// lässt es weg und zeigt aufgedeckte Reisen weiterhin ohne jede Pille,
-// genau der Stand vor diesem Task.
+// independent of where the card is placed. `revealed`/`archived`
+// ("developed", concept §5.2 "cover collage, 'view recap' play button")
+// shows a pill with a play icon in `accent-text` at the same spot instead,
+// but ONLY if the caller explicitly requests it via `asRecap` (review
+// Task 10, Important 1). Without this flag, EVERY revealed trip would have
+// carried "view recap" everywhere TripCard is used, including
+// reise/index.tsx, where a tap on the card leads to the trip detail
+// screen, not the recap. The pill would have been a promise there that the
+// tap doesn't keep. The recap tab (the only place where a tap actually
+// opens the overview) sets `asRecap`, the trip tab leaves it out and keeps
+// showing revealed trips without any pill, exactly the state before this
+// task.
 //
-// `accent` statt `seal`, weil das Antippen dort, wo die Pille steht, eine
-// Interaktion ist, keine Symbolik (§1: "accent = Interaktion, seal =
-// Versiegelungs-Symbolik. Nie mischen."). Die Pille liegt unter derselben
-// PressScale wie die ganze Karte und ist kein eigenes Tap-Ziel, sie zeigt
-// nur an, was ein Tipp auf die Karte auslöst (Übersicht).
+// `accent` instead of `seal`, because tapping where the pill sits is an
+// interaction, not symbolism (§1: "accent = interaction, seal = sealing
+// symbolism. Never mix."). The pill sits under the same PressScale as the
+// whole card and isn't a tap target of its own, it only indicates what a
+// tap on the card triggers (overview).
 export function TripCard({
-  trip, onPress, alsRecap = false, position = 0,
+  trip, onPress, asRecap = false, position = 0,
 }: {
   trip: Trip;
   onPress: () => void;
-  alsRecap?: boolean;
-  // Platz der Karte in ihrer Liste, nur fürs Platzhalter-Cover (TripCover):
-  // er entscheidet, welches Bild sie zeigt, damit nicht zwei gleiche
-  // untereinander stehen.
+  asRecap?: boolean;
+  // The card's position in its list, only for the placeholder cover
+  // (TripCover): it decides which image it shows, so that two identical
+  // ones don't end up stacked.
   position?: number;
 }) {
   const { colors } = useTheme();
-  const momente = `${trip.my_post_count} ${trip.my_post_count === 1 ? 'Moment' : 'Momente'}`;
-  const aufgedeckt = alsRecap && trip.status !== 'active';
+  const momentsLabel = `${trip.my_post_count} ${trip.my_post_count === 1 ? 'Moment' : 'Momente'}`;
+  const revealed = asRecap && trip.status !== 'active';
 
   return (
     <PressScale scaleTo={0.98} accessibilityRole="button" onPress={onPress}>
       <View style={{ gap: spacing.m }}>
-        <TripCover position={position} versiegelt={trip.status === 'active'}>
-          {aufgedeckt && (
+        <TripCover position={position} sealed={trip.status === 'active'}>
+          {revealed && (
             <View
               style={{
                 flexDirection: 'row',
@@ -76,8 +77,8 @@ export function TripCard({
             {formatRange(trip.start_date, trip.end_date)}
           </Text>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.m, marginTop: spacing.xs }}>
-            <AvatarGroup gesichter={trip.members} />
-            <Text style={[type.secondary, { color: colors['text-2'] }]}>{momente}</Text>
+            <AvatarGroup faces={trip.members} />
+            <Text style={[type.secondary, { color: colors['text-2'] }]}>{momentsLabel}</Text>
           </View>
         </View>
       </View>

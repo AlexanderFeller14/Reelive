@@ -105,7 +105,7 @@ export default function RecapListe() {
                 key={t.id}
                 trip={t}
                 position={i}
-                alsRecap
+                asRecap
                 onPress={() => router.push(`/recap/${t.id}/uebersicht`)}
               />
             ))}

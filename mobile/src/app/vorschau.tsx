@@ -19,8 +19,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { setStatusBarStyle } from 'expo-status-bar';
 import { useVideoPlayer, VideoView } from 'expo-video';
-import { MemorySubmissionAnimation } from '@/components/MemorySubmissionAnimation';
-import { Pille } from '@/components/Pille';
+import { MomentSubmissionAnimation } from '@/components/MomentSubmissionAnimation';
+import { Pill } from '@/components/Pill';
 import { PressScale } from '@/components/PressScale';
 import { cinema, palette, radius, spacing, type } from '@/theme/tokens';
 import { useTopInset } from '@/theme/useTopInset';
@@ -622,9 +622,9 @@ export default function PreviewScreen() {
         />
       )}
 
-      <Pille style={[styles.kopfPille, { top: oberkante }]}>
+      <Pill style={[styles.kopfPille, { top: oberkante }]}>
         <Text style={[type.secondary, { color: cinema['text-1'] }]}>{ortZeitText}</Text>
-      </Pille>
+      </Pill>
 
       {/* Verwerfen sitzt als X in der Kopfzeile, gegenüber von Ort und Zeit:
           Es ist der Rückweg aus diesem Screen, keine gleichrangige Alternative
@@ -638,9 +638,9 @@ export default function PreviewScreen() {
         onPress={verwerfen}
         style={[styles.verwerfenWrap, { top: oberkante }]}
       >
-        <Pille style={styles.verwerfenPille}>
+        <Pill style={styles.verwerfenPille}>
           <X size={18} color={cinema['text-1']} strokeWidth={1.75} />
-        </Pille>
+        </Pill>
       </PressScale>
 
       {/* Beim Schreiben steht die Bildunterschrift über der Tastatur, in Ruhe
@@ -660,7 +660,7 @@ export default function PreviewScreen() {
         ]}
       >
         {feldOffen ? (
-          <Pille style={styles.captionPille}>
+          <Pill style={styles.captionPille}>
             <TextInput
               accessibilityLabel="Bildunterschrift"
               value={caption}
@@ -683,7 +683,7 @@ export default function PreviewScreen() {
               textAlignVertical="center"
               style={[styles.captionInput, { color: cinema['text-1'] }]}
             />
-          </Pille>
+          </Pill>
         ) : (
           <PressScale
             testID="bildunterschrift-chip"
@@ -692,7 +692,7 @@ export default function PreviewScreen() {
             onPress={() => setFeldOffen(true)}
             style={styles.chipWrap}
           >
-            <Pille style={styles.chipPille}>
+            <Pill style={styles.chipPille}>
               {/* Der Stift lädt zum Schreiben ein. Steht schon etwas da,
                   spricht der Text für sich und der Stift wäre Rauschen. */}
               {!caption && <Pencil size={14} color={cinema['text-2']} strokeWidth={1.75} />}
@@ -702,7 +702,7 @@ export default function PreviewScreen() {
               >
                 {caption || 'Schreib etwas dazu'}
               </Text>
-            </Pille>
+            </Pill>
           </PressScale>
         )}
       </Animated.View>
@@ -725,10 +725,10 @@ export default function PreviewScreen() {
       </View>
 
 
-      <MemorySubmissionAnimation
+      <MomentSubmissionAnimation
         visible={versiegelt}
         onFinished={zurueckZurKamera}
-        zaehler={zaehler}
+        counter={zaehler}
       />
     </View>
   );

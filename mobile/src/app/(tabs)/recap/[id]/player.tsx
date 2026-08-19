@@ -20,8 +20,8 @@ import * as Linking from 'expo-linking';
 import { Download, MessageCircle, X } from 'lucide-react-native';
 import { Avatar } from '@/components/Avatar';
 import { PressScale } from '@/components/PressScale';
-import { Fortschrittsbalken } from '@/components/Fortschrittsbalken';
-import { Pille } from '@/components/Pille';
+import { ProgressBar } from '@/components/ProgressBar';
+import { Pill } from '@/components/Pill';
 import { Sheet } from '@/components/Sheet';
 import { Input } from '@/components/Input';
 import { cinema, motion, palette, radius, spacing, type } from '@/theme/tokens';
@@ -227,9 +227,9 @@ function EmojiPille({
           <Text style={styles.emojiZeichen}>{emoji}</Text>
         </View>
       ) : (
-        <Pille style={styles.emojiPille}>
+        <Pill style={styles.emojiPille}>
           <Text style={styles.emojiZeichen}>{emoji}</Text>
-        </Pille>
+        </Pill>
       )}
     </PressScale>
   );
@@ -241,13 +241,13 @@ function EmojiPille({
 function AndereReaktionenPille({ emojis }: { emojis: string[] }) {
   if (emojis.length === 0) return null;
   return (
-    <Pille
+    <Pill
       testID="player-reaktionen-andere"
       style={styles.andereReaktionenPille}
       accessibilityLabel={`Weitere Reaktionen: ${emojis.join(', ')}`}
     >
       <Text style={[type.secondary, { color: cinema['text-1'] }]}>{emojis.join(' ')}</Text>
-    </Pille>
+    </Pill>
   );
 }
 
@@ -262,9 +262,9 @@ function KommentarZeile({ kommentar }: { kommentar: Comment }) {
 
 function LadeHinweisPille({ text }: { text: string }) {
   return (
-    <Pille style={styles.ladeHinweisPille}>
+    <Pill style={styles.ladeHinweisPille}>
       <Text style={[type.secondary, { color: cinema['text-1'] }]}>{text}</Text>
-    </Pille>
+    </Pill>
   );
 }
 
@@ -453,7 +453,7 @@ export default function RecapPlayer() {
   // daraus lässt sich beim Berühren (Halten-Geste) exakt zurückrechnen,
   // wie viel von diesem Moment schon "gesehen" wurde, ohne einen zweiten,
   // separat tickenden Zähler zu pflegen (dieselbe Trennung von Optik/Zeitgeber
-  // wie Versiegelung.tsx: die Animation läuft für sich, der eigentliche
+  // wie SealAnimation.tsx: die Animation läuft für sich, der eigentliche
   // Zeitpunkt kommt aus Date.now()).
   const segmentStartRef = useRef(0);
   const beruehrungStartRef = useRef(0);
@@ -576,7 +576,7 @@ export default function RecapPlayer() {
   // `[reducedMotion]` läuft der Effekt ein zweites Mal, FALLS der Hook nach
   // dem Mount tatsächlich auf `true` auflöst, und startet die Animation dann
   // mit der kürzeren Dauer neu, dasselbe akzeptierte Verhalten wie
-  // Versiegelung.tsx/RevealInszenierung.tsx (dort ebenfalls `reducedMotion`
+  // SealAnimation.tsx/RevealSequence.tsx (dort ebenfalls `reducedMotion`
   // in den Deps, siehe deren Fix-Runde-1-Kommentar). Löst der Hook (der
   // Normalfall) auf `false` auf, ändert sich der State-Wert nicht, React
   // rendert nicht neu, der Effekt läuft kein zweites Mal, keine zusätzliche
@@ -1008,7 +1008,7 @@ export default function RecapPlayer() {
     }
     setStand({ ...ergebnis, pausiert: withoutReasons(ergebnis.pausiert, MOMENTWECHSEL_GRUENDE) });
   }, [stand, spielliste.length, pruefeUndErneuereVorratImHintergrund]);
-  // Ref-Indirektion (gleiches Muster wie Versiegelung.tsx/onFertigRef): der
+  // Ref-Indirektion (gleiches Muster wie SealAnimation.tsx/onFertigRef): der
   // Auto-Vorschub-Timer und das Video-Ende-Event rufen IMMER die neueste
   // Fassung auf, ohne dass ihre eigenen Effekte bei jedem Render neu
   // aufgesetzt werden müssten.
@@ -1359,24 +1359,24 @@ export default function RecapPlayer() {
           style={[styles.kopfBereich, { top: oberkante }]}
           pointerEvents="box-none"
         >
-          <Fortschrittsbalken
-            anzahl={spielliste.length}
-            aktivIndex={stand.index}
-            dauerMs={durationFor(aktivMoment)}
-            vergangenMs={stand.fortschritt}
-            pausiert={gestoppt}
+          <ProgressBar
+            count={spielliste.length}
+            activeIndex={stand.index}
+            durationMs={durationFor(aktivMoment)}
+            elapsedMs={stand.fortschritt}
+            paused={gestoppt}
           />
           <View style={styles.kopfReihe}>
-            <Pille style={styles.namePille}>
+            <Pill style={styles.namePille}>
               {/* 32 statt Avatars Default 36: unteres Ende der DESIGN-LANGUAGE-§4-Spanne
                   (32–44 px), passend zur kompakten Kopf-Pille — dieselbe Grösse, die
                   die gelöschte lokale AvatarInitiale-Kopie vor Task 9 hier trug. */}
-              <Avatar name={aktivMoment.authorName} avatarKey={aktivMoment.authorAvatarKey} kino size={32} />
+              <Avatar name={aktivMoment.authorName} avatarKey={aktivMoment.authorAvatarKey} cinemaMode size={32} />
               <Text style={[type.bodyMedium, { color: cinema['text-1'] }]}>{aktivMoment.authorName}</Text>
-            </Pille>
-            <Pille style={styles.infoPille}>
+            </Pill>
+            <Pill style={styles.infoPille}>
               <Text style={[type.secondary, { color: cinema['text-1'] }]}>{ortZeitText}</Text>
-            </Pille>
+            </Pill>
           </View>
         </View>
 
@@ -1386,9 +1386,9 @@ export default function RecapPlayer() {
           pointerEvents="box-none"
         >
           {aktivMoment.caption && (
-            <Pille testID="player-caption" style={styles.captionPille} pointerEvents="none">
+            <Pill testID="player-caption" style={styles.captionPille} pointerEvents="none">
               <Text style={[type.body, { color: cinema['text-1'] }]}>{aktivMoment.caption}</Text>
-            </Pille>
+            </Pill>
           )}
           <AndereReaktionenPille emojis={andereEmojis} />
           <View style={styles.reaktionsReihe}>
@@ -1408,9 +1408,9 @@ export default function RecapPlayer() {
               accessibilityLabel="Kommentare öffnen"
               onPress={oeffneKommentare}
             >
-              <Pille style={styles.kommentarKnopf}>
+              <Pill style={styles.kommentarKnopf}>
                 <MessageCircle size={20} color={cinema['text-1']} strokeWidth={1.75} />
-              </Pille>
+              </Pill>
             </PressScale>
             {/* Nur sichtbar, wenn es für DIESEN Moment überhaupt eine URL
                 gibt (siehe MomentAnzeige), ein Moment, der gerade nicht
@@ -1425,25 +1425,25 @@ export default function RecapPlayer() {
                   if (!exportLaeuft) void sichereAktuellenMoment();
                 }}
               >
-                <Pille style={styles.kommentarKnopf}>
+                <Pill style={styles.kommentarKnopf}>
                   {exportLaeuft ? (
                     <ActivityIndicator testID="player-sichern-laedt" color={cinema['text-1']} size="small" />
                   ) : (
                     <Download size={20} color={cinema['text-1']} strokeWidth={1.75} />
                   )}
-                </Pille>
+                </Pill>
               </PressScale>
             )}
           </View>
           {reaktionFehler && (
-            <Pille style={styles.reaktionFehlerPille}>
+            <Pill style={styles.reaktionFehlerPille}>
               <Text style={[type.secondary, { color: cinema['text-1'] }]}>{reaktionFehler}</Text>
-            </Pille>
+            </Pill>
           )}
           {exportHinweis && (
-            <Pille testID="player-export-hinweis" style={styles.reaktionFehlerPille}>
+            <Pill testID="player-export-hinweis" style={styles.reaktionFehlerPille}>
               <Text style={[type.secondary, { color: cinema['text-1'] }]}>{exportHinweis}</Text>
-            </Pille>
+            </Pill>
           )}
         </View>
 
@@ -1489,9 +1489,9 @@ export default function RecapPlayer() {
           onPress={schliessen}
           style={[styles.schliessenWrap, { top: oberkante }]}
         >
-          <Pille style={styles.schliessenPille}>
+          <Pill style={styles.schliessenPille}>
             <X size={18} color={cinema['text-1']} strokeWidth={1.75} />
-          </Pille>
+          </Pill>
         </PressScale>
 
         {zwischenkarte && (
@@ -1511,7 +1511,7 @@ export default function RecapPlayer() {
       {/* GESCHWISTER des Animated.View mit den Pan-Handlern, nicht sein Kind
           (gleiches Muster wie reise/[id]/index.tsx), das Sheet muss über
           allem liegen, inklusive der Tipp-Zonen. */}
-      <Sheet sichtbar={kommentarOffen} titel="Kommentare" onSchliessen={schliesseKommentare} kino>
+      <Sheet visible={kommentarOffen} title="Kommentare" onClose={schliesseKommentare} cinemaMode>
         {kommentareLaden ? (
           <ActivityIndicator testID="kommentare-laedt" color={cinema['text-1']} />
         ) : kommentareFehler ? (
@@ -1539,7 +1539,7 @@ export default function RecapPlayer() {
               // Phase-5-Final-Review, Punkt 4: ohne diesen Schalter zieht
               // `Input` über `useTheme()` zwingend die Licht-Palette (siehe
               // dort), eine weisse Box mitten im Kinosaal.
-              kino
+              cinemaMode
             />
           </View>
           <PressScale
@@ -1566,7 +1566,7 @@ export default function RecapPlayer() {
 
       {/* Task 8, Phase 6: gleiches GESCHWISTER-Prinzip wie das Kommentar-
           Sheet direkt darüber, über allem, inklusive der Tipp-Zonen. */}
-      <Sheet sichtbar={meldenOffen} titel="Diesen Moment melden" onSchliessen={schliesseMelden} kino>
+      <Sheet visible={meldenOffen} title="Diesen Moment melden" onClose={schliesseMelden} cinemaMode>
         {meldenBestaetigt ? (
           <View style={{ gap: spacing.base }}>
             <Text testID="melden-bestaetigung" style={[type.body, { color: cinema['text-1'] }]}>
@@ -1591,7 +1591,7 @@ export default function RecapPlayer() {
               error={meldenSendenFehler ?? undefined}
               maxLength={REPORT_MAX_LENGTH}
               // Gleicher Grund wie beim Kommentar-Eingabefeld oben.
-              kino
+              cinemaMode
             />
             <PressScale
               testID="melden-senden"

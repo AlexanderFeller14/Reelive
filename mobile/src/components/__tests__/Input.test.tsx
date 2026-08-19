@@ -6,7 +6,7 @@ import { Input } from '../Input';
 
 const wrap = (ui: React.ReactElement) => render(<ThemeProvider>{ui}</ThemeProvider>);
 
-test('reicht Eingaben durch und zeigt Fehler', async () => {
+test('passes input through and shows an error', async () => {
   const onChangeText = jest.fn();
   await wrap(<Input label="Username" value="" onChangeText={onChangeText} error="Dieser Username ist vergeben, probier einen anderen." />);
   fireEvent.changeText(screen.getByLabelText('Username'), 'lea');
@@ -14,111 +14,117 @@ test('reicht Eingaben durch und zeigt Fehler', async () => {
   expect(screen.getByText(/vergeben/)).toBeTruthy();
 });
 
-test('placeholder erscheint erst mit Fokus (Floating Label)', async () => {
+test('the placeholder only appears on focus (floating label)', async () => {
   await wrap(
     <Input label="Handynummer" value="" onChangeText={() => {}} placeholder="+41 79 123 45 67" />
   );
   expect(screen.queryByPlaceholderText('+41 79 123 45 67')).toBeNull();
-  // await nötig: fireEvent ist in dieser RNTL-Version async und flusht den
-  // State-Update erst nach dem await (React 19 + RNTL v14).
+  // await needed: fireEvent is async in this RNTL version and only
+  // flushes the state update after the await (React 19 + RNTL v14).
   await fireEvent(screen.getByLabelText('Handynummer'), 'focus');
   expect(screen.getByPlaceholderText('+41 79 123 45 67')).toBeTruthy();
 });
 
-// Phase-5-Final-Review, Punkt 4: ohne den `kino`-Schalter zog dieses Input
-// über `useTheme()` zwingend die Licht-Palette, eine weisse Box mit
-// `#222222`-Text mitten im Kinosaal (Kommentar-Sheet des Recap-Players).
-// Gleiches Testmuster wie Sheet.test.tsx ("ohne/mit `kino`").
-test('ohne `kino` nutzt das Feld die Licht-Palette', async () => {
+// Phase-5 final review, point 4: without the `cinemaMode` switch, this
+// input unconditionally pulled the light palette via `useTheme()`, a
+// white box with `#222222` text in the middle of the cinema (the recap
+// player's comment sheet). Same test pattern as Sheet.test.tsx
+// ("without/with `cinemaMode`").
+test('without `cinemaMode` the field uses the light palette', async () => {
   await wrap(<Input label="Kommentar" value="" onChangeText={() => {}} />);
   const box = screen.getByLabelText('Kommentar').parent;
   expect(StyleSheet.flatten(box!.props.style).backgroundColor).toBe(palette['bg-0']);
   expect(StyleSheet.flatten(screen.getByLabelText('Kommentar').props.style).color).toBe(palette['text-1']);
 });
 
-test('mit `kino` nutzt das Feld die feste Kino-Palette statt useTheme()', async () => {
-  await wrap(<Input label="Kommentar" value="" onChangeText={() => {}} kino />);
+test('with `cinemaMode` the field uses the fixed cinema palette instead of useTheme()', async () => {
+  await wrap(<Input label="Kommentar" value="" onChangeText={() => {}} cinemaMode />);
   const box = screen.getByLabelText('Kommentar').parent;
   expect(StyleSheet.flatten(box!.props.style).backgroundColor).toBe(cinema['bg-1']);
   expect(StyleSheet.flatten(screen.getByLabelText('Kommentar').props.style).color).toBe(cinema['text-1']);
 });
 
-// Die Animation hing vorher nur an onFocus/onBlur. Ein programmatisch
-// gesetzter `value`, Prefill des Bearbeiten-Formulars, wiederhergestellter
-// Entwurf, Autofill, hob das Label deshalb nie an, und die Beschriftung lag
-// mitten im bereits ausgefüllten Feld.
+// The animation used to be tied only to onFocus/onBlur. A
+// programmatically set `value`, prefill of the edit form, a restored
+// draft, autofill, therefore never lifted the label, and the caption sat
+// in the middle of an already-filled field.
 //
-// Geprüft wird über den Reduced-Motion-Pfad, weil der den Zielwert synchron
-// setzt statt ihn über 150 ms zu interpolieren: die Aussage ist dieselbe
-// («das Label folgt dem Wert»), nur ohne Timer im Test.
+// Checked via the reduced-motion path, because that sets the target
+// value synchronously instead of interpolating it over 150 ms: the claim
+// is the same ("the label follows the value"), just without a timer in
+// the test.
 jest.mock('@/theme/useReducedMotion', () => ({ useReducedMotion: () => true }));
 
-// `includeHiddenElements`, weil das Label seit dem a11y-Fix bewusst nicht mehr
-// im Accessibility-Baum steht, sichtbar ist es weiterhin.
-const labelVerschiebung = (labelText: string) => {
+// `includeHiddenElements`, because since the a11y fix the label is
+// deliberately no longer in the accessibility tree, it stays visible
+// though.
+const labelShift = (labelText: string) => {
   const label = screen.getByText(labelText, { includeHiddenElements: true });
   const transform = StyleSheet.flatten(label.props.style).transform as { translateY: number }[];
   return transform[0].translateY;
 };
 
-test('ein vorbefülltes Feld hebt sein Label sofort an', async () => {
+test('a prefilled field lifts its label immediately', async () => {
   await wrap(<Input label="Name der Reise" value="Norwegen" onChangeText={() => {}} />);
-  expect(labelVerschiebung('Name der Reise')).toBe(-9);
+  expect(labelShift('Name der Reise')).toBe(-9);
 });
 
-test('ein leeres Feld lässt sein Label in der Mitte stehen', async () => {
+test('an empty field leaves its label centered', async () => {
   await wrap(<Input label="Name der Reise" value="" onChangeText={() => {}} />);
-  expect(labelVerschiebung('Name der Reise')).toBe(0);
+  expect(labelShift('Name der Reise')).toBe(0);
 });
 
-// Sichtbares Label und accessibilityLabel am Feld tragen denselben Text,
-// VoiceOver las ihn zweimal vor.
-test('das sichtbare Label bleibt für VoiceOver stumm', async () => {
+// The visible label and the field's accessibilityLabel carry the same
+// text, VoiceOver used to read it out twice.
+test('the visible label stays silent for VoiceOver', async () => {
   await wrap(<Input label="Beginn" value="" onChangeText={() => {}} />);
   expect(screen.queryByText('Beginn')).toBeNull();
   expect(screen.getByText('Beginn', { includeHiddenElements: true })).toBeTruthy();
 });
 
-// Der TextInput hatte keine eigene Höhe und sass per justifyContent 'flex-end'
-// am unteren Rand seines 56er-Rahmens. Er war damit nur rund 28 px hoch, und
-// die obere Hälfte des Feldes, genau dort wo das Label steht, gehörte zu keinem
-// Touch-Ziel: der umgebende View hat keinen Handler. Mit der Maus trifft man
-// das untere Drittel pixelgenau, mit dem Daumen landet man oft oben, und dann
-// passiert nichts. Genau dieses «das Reinklicken ist nicht direkt».
+// The TextInput had no height of its own and sat, via justifyContent
+// 'flex-end', at the bottom edge of its 56 px frame. It was thus only
+// about 28 px tall, and the top half of the field, exactly where the
+// label sits, belonged to no touch target: the surrounding view has no
+// handler. With a mouse you hit the bottom third pixel-precisely, with a
+// thumb you often land at the top, and then nothing happens. Exactly the
+// case of "tapping in isn't direct".
 //
-// Die Jest-Suite sieht das nicht, weil sie kein Layout rechnet: `fireEvent`
-// spricht das Element direkt an, unabhängig davon, wie gross es gerendert wird.
-// Deshalb prüft dieser Test die Ursache, nämlich dass das Feld den Rahmen füllt.
-test('das Eingabefeld füllt den ganzen Rahmen, damit jeder Tipp ankommt', async () => {
+// The Jest suite doesn't see this, because it doesn't compute layout:
+// `fireEvent` addresses the element directly, independent of how large it
+// is actually rendered. So this test checks the cause instead, namely
+// that the field fills the frame.
+test('the input field fills the whole frame, so every tap lands', async () => {
   await wrap(<Input label="Name der Reise" value="" onChangeText={() => {}} />);
-  const feld = StyleSheet.flatten(screen.getByLabelText('Name der Reise').props.style);
-  expect(feld.flex).toBe(1);
-  const rahmen = StyleSheet.flatten(screen.getByTestId('input-rahmen').props.style);
-  // Kein 'flex-end' mehr: das drückte das Feld an die Unterkante, statt es den
-  // Raum füllen zu lassen.
-  expect(rahmen.justifyContent).toBeUndefined();
-  expect(rahmen.height).toBe(56);
+  const field = StyleSheet.flatten(screen.getByLabelText('Name der Reise').props.style);
+  expect(field.flex).toBe(1);
+  const frame = StyleSheet.flatten(screen.getByTestId('input-rahmen').props.style);
+  // No more 'flex-end': that pushed the field to the bottom edge instead
+  // of letting it fill the space.
+  expect(frame.justifyContent).toBeUndefined();
+  expect(frame.height).toBe(56);
 });
 
-// Der Text muss unter dem angehobenen Label sitzen, nicht darauf. Das Label
-// liegt gehoben bei top 8 und misst dann 12 px, endet also bei 20.
-test('der Text beginnt unterhalb des angehobenen Labels', async () => {
+// The text must sit below the lifted label, not on top of it. The lifted
+// label sits at top 8 and then measures 12 px, so it ends at 20.
+test('the text starts below the lifted label', async () => {
   await wrap(<Input label="Name der Reise" value="Norwegen" onChangeText={() => {}} />);
-  const feld = StyleSheet.flatten(screen.getByLabelText('Name der Reise').props.style);
-  expect(feld.paddingTop).toBeGreaterThanOrEqual(20);
+  const field = StyleSheet.flatten(screen.getByLabelText('Name der Reise').props.style);
+  expect(field.paddingTop).toBeGreaterThanOrEqual(20);
 });
 
-// `type.body` bringt `lineHeight: 24` mit, sinnvoll für Fliesstext, schädlich
-// im einzeiligen TextInput: iOS legt die Glyphen an den unteren Rand der
-// Zeilenbox statt in ihre Mitte, der Text hängt dadurch sichtbar zu tief im
-// Feld. Deshalb übernimmt das Feld aus `type.body` nur Familie, Grösse und
-// Ziffernvariante, nicht die Zeilenhöhe.
-test('das Feld erbt keine lineHeight, die den Text nach unten drückt', async () => {
+// `type.body` brings `lineHeight: 24` along, sensible for flowing text,
+// harmful in the single-line TextInput: iOS places the glyphs at the
+// bottom edge of the line box instead of centering them, the text
+// visibly hangs too low in the field because of it. That's why the field
+// only takes family, size, and figure variant from `type.body`, not the
+// line height.
+test('the field does not inherit a lineHeight that pushes the text down', async () => {
   await wrap(<Input label="Name der Reise" value="Abc" onChangeText={() => {}} />);
-  const feld = StyleSheet.flatten(screen.getByLabelText('Name der Reise').props.style);
-  expect(feld.lineHeight).toBeUndefined();
-  // Familie und Grösse müssen aber ankommen, sonst fällt das Feld auf die
-  // Systemschrift zurück (DESIGN-LANGUAGE §2: eine Familie, Figtree).
-  expect(feld.fontFamily).toBe(type.body.fontFamily);
-  expect(feld.fontSize).toBe(type.body.fontSize);
+  const field = StyleSheet.flatten(screen.getByLabelText('Name der Reise').props.style);
+  expect(field.lineHeight).toBeUndefined();
+  // Family and size must still come through, otherwise the field falls
+  // back to the system font (DESIGN-LANGUAGE §2: one family, Figtree).
+  expect(field.fontFamily).toBe(type.body.fontFamily);
+  expect(field.fontSize).toBe(type.body.fontSize);
 });

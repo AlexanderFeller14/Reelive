@@ -3,7 +3,7 @@ import { KeyboardAvoidingView, Platform, Text, View, StyleSheet } from 'react-na
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Button } from '@/components/Button';
 import { Input } from '@/components/Input';
-import { Zeitraumfeld } from '@/components/Zeitraumfeld';
+import { DateRangeField } from '@/components/DateRangeField';
 import { useTheme } from '@/theme/ThemeProvider';
 import { spacing, type } from '@/theme/tokens';
 import { useTopInset } from '@/theme/useTopInset';
@@ -100,7 +100,7 @@ export default function ReiseBearbeiten() {
       <View style={[styles.screen, { paddingTop: oben }]}>
         <Text style={[type.h1, { color: colors['text-1'] }]}>Reise bearbeiten</Text>
         <Input label="Name der Reise" value={name} onChangeText={setName} error={nameFehler} />
-        <Zeitraumfeld wert={zeitraum} onAendern={setZeitraum} fehler={zeitraumFehler} />
+        <DateRangeField value={zeitraum} onChange={setZeitraum} error={zeitraumFehler} />
         {/* Wie im Anlege-Screen: Knopf ans untere Ende, Felder bleiben oben. */}
         <View style={styles.fueller} />
         {speicherFehler && <Text style={[type.body, { color: colors.danger }]}>{speicherFehler}</Text>}

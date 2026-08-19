@@ -23,11 +23,11 @@ import {
 import { createVideoPlayer, type VideoPlayer } from 'expo-video';
 import { getThumbnailAsync } from 'expo-video-thumbnails';
 import { ChevronDown, SwitchCamera, Zap, ZapOff } from 'lucide-react-native';
-import { Ausloeser } from '@/components/Ausloeser';
+import { ShutterButton } from '@/components/ShutterButton';
 import { Button } from '@/components/Button';
-import { Pille } from '@/components/Pille';
+import { Pill } from '@/components/Pill';
 import { PressScale } from '@/components/PressScale';
-import { ZoomWahl } from '@/components/ZoomWahl';
+import { ZoomSelector } from '@/components/ZoomSelector';
 import * as nativeCapture from '@/features/camera/nativeCapture';
 import * as nativeZoom from '@/features/camera/nativeZoom';
 import * as multiCamera from '@/features/camera/multiCamera';
@@ -240,7 +240,7 @@ function PillenKnopf({
 }) {
   return (
     <PressScale accessibilityRole="button" accessibilityLabel={label} onPress={onPress}>
-      <Pille style={styles.steuerPille}>{children}</Pille>
+      <Pill style={styles.steuerPille}>{children}</Pill>
     </PressScale>
   );
 }
@@ -1720,7 +1720,7 @@ export default function AufnehmenScreen() {
             accessibilityLabel={`Reise wechseln, ${reise.name}`}
             onPress={() => setWahlOffen(true)}
           >
-            <Pille style={styles.kopfPille}>
+            <Pill style={styles.kopfPille}>
               <View style={styles.kopfTexte}>
                 {/* numberOfLines: ein einzelnes langes Wort (Reisenamen sind frei
                     wählbar) würde die geschrumpfte Pille sonst überlaufen statt
@@ -1733,7 +1733,7 @@ export default function AufnehmenScreen() {
                 </Text>
               </View>
               <ChevronDown size={18} color={cinema['text-2']} strokeWidth={1.75} />
-            </Pille>
+            </Pill>
           </PressScale>
           <View style={styles.steuerung}>
             <PillenKnopf label="Kamera wechseln" onPress={kameraWechseln}>
@@ -1753,9 +1753,9 @@ export default function AufnehmenScreen() {
       </View>
       )}
       {aufnahmeFehler && (
-        <Pille style={[styles.fehlerPille, { bottom: fehlerUnten(zoomSichtbar) + leisteHoehe }]}>
+        <Pill style={[styles.fehlerPille, { bottom: fehlerUnten(zoomSichtbar) + leisteHoehe }]}>
           <Text style={[type.secondary, styles.fehlerText]}>{aufnahmeFehler}</Text>
-        </Pille>
+        </Pill>
       )}
       {zoomSichtbar && zoom && (
         <View
@@ -1764,10 +1764,10 @@ export default function AufnehmenScreen() {
             { bottom: AUSLOESER_UNTEN + AUSLOESER_GROESSE + ZOOM_ABSTAND + leisteHoehe },
           ]}
         >
-          <ZoomWahl
-            stufen={zoom.steps}
-            faktor={faktor}
-            onWahl={(stufe) => zoomSetzen(stufe, true)}
+          <ZoomSelector
+            steps={zoom.steps}
+            factor={faktor}
+            onSelect={(stufe) => zoomSetzen(stufe, true)}
           />
         </View>
       )}
@@ -1775,13 +1775,13 @@ export default function AufnehmenScreen() {
         testID="ausloeser-buehne"
         style={[styles.ausloeserWrap, { bottom: AUSLOESER_UNTEN + leisteHoehe }]}
       >
-        <Ausloeser
-          onFoto={() => void handleFoto()}
+        <ShutterButton
+          onPhoto={() => void handleFoto()}
           onVideoStart={handleVideoStart}
           onVideoStop={() => void handleVideoStop()}
-          onZoomZug={zoomZug}
-          maxSekunden={MAX_VIDEO_SEKUNDEN}
-          onSperre={setAufnahmeGesperrt}
+          onZoomDrag={zoomZug}
+          maxSeconds={MAX_VIDEO_SEKUNDEN}
+          onLockChange={setAufnahmeGesperrt}
         />
       </View>
     </View>

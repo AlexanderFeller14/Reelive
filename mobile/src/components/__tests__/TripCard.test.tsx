@@ -1,10 +1,10 @@
 import { render, screen, fireEvent } from '@testing-library/react-native';
 import { ThemeProvider } from '@/theme/ThemeProvider';
 
-// expo-image ist ein natives View, im Test reicht ein Platzhalter, der alle
-// Props durchreicht (gleiches Muster wie recap/__tests__/liste.test.tsx).
-// Nötig, seit das Cover ein Bild trägt: ohne Mock scheitert schon der Import,
-// expo-image/src/observe.ts erwartet eine native Umgebung.
+// expo-image is a native view, in the test a placeholder that passes all
+// props through is enough (same pattern as recap/__tests__/liste.test.tsx).
+// Needed since the cover carries an image: without the mock, even the
+// import fails, expo-image/src/observe.ts expects a native environment.
 jest.mock('expo-image', () => {
   const ReactActual = require('react');
   const { View } = require('react-native');
@@ -12,119 +12,118 @@ jest.mock('expo-image', () => {
 });
 
 import { TripCard } from '../TripCard';
-import type { Gesicht } from '@/components/Avatar';
+import type { Face } from '@/components/Avatar';
 import type { Trip } from '@/features/trips/types';
 
-// Die bestehenden Tests arbeiten mit Namen; diese Brücke hält sie unverändert
-// lesbar, statt jeden Aufruf mit `{ name: …, avatarKey: null }` aufzublähen.
-const ohneBild = (namen: string[]): Gesicht[] =>
-  namen.map((name) => ({ name, avatarKey: null }));
+// The existing tests work with names; this bridge keeps them readable
+// unchanged, instead of padding every call out with `{ name: ..., avatarKey: null }`.
+const withoutImage = (names: string[]): Face[] =>
+  names.map((name) => ({ name, avatarKey: null }));
 
 const trip: Trip = {
   id: 't1', name: 'Norwegen mit dem Camper',
   start_date: '2026-08-01', end_date: '2026-08-14',
   status: 'active', owner_id: 'u1',
-  members: ohneBild(['Lea', 'Mira', 'Jonas', 'Sofia']), member_count: 4, my_post_count: 7,
+  members: withoutImage(['Lea', 'Mira', 'Jonas', 'Sofia']), member_count: 4, my_post_count: 7,
 };
 
 const wrap = (ui: React.ReactElement) => render(<ThemeProvider>{ui}</ThemeProvider>);
 
-test('zeigt Name, Zeitraum und eigenen Zähler', async () => {
+test('shows name, date range, and own counter', async () => {
   await wrap(<TripCard trip={trip} onPress={jest.fn()} />);
   expect(screen.getByText('Norwegen mit dem Camper')).toBeTruthy();
   expect(screen.getByText('1.–14. Aug 2026')).toBeTruthy();
   expect(screen.getByText('7 Momente')).toBeTruthy();
 });
 
-test('zeigt die Mitreisenden als überlappende Avatare', async () => {
-  await wrap(<TripCard trip={{ ...trip, members: ohneBild(['Lea', 'Mira', 'Jonas']) }} onPress={jest.fn()} />);
-  // Avatar trägt bis zum Bild-Upload die Initiale
+test('shows fellow travelers as overlapping avatars', async () => {
+  await wrap(<TripCard trip={{ ...trip, members: withoutImage(['Lea', 'Mira', 'Jonas']) }} onPress={jest.fn()} />);
+  // Avatar carries the initial until the image upload
   expect(screen.getByText('L')).toBeTruthy();
   expect(screen.getByText('M')).toBeTruthy();
   expect(screen.getByText('J')).toBeTruthy();
   expect(screen.queryByTestId('avatar-rest')).toBeNull();
 });
 
-// Die Karte nutzt dieselbe Facepile wie der Reise-Detail (Avatar.test.tsx
-// prüft ihre Regeln im Detail): ab der vierten Person zählt ein Rest-Kreis
-// weiter, statt weitere Gesichter zu zeigen. Das Fixture hat vier
-// Mitreisende, drei davon sind zu sehen.
-test('ab der vierten Person zählt die Gruppe im Rest-Kreis weiter', async () => {
+// The card uses the same facepile as the trip detail (Avatar.test.tsx
+// checks its rules in detail): from the fourth person on, a rest circle
+// keeps counting instead of showing more faces. The fixture has four
+// fellow travelers, three of them are visible.
+test('from the fourth person on, the group keeps counting in the rest circle', async () => {
   await wrap(<TripCard trip={trip} onPress={jest.fn()} />);
   expect(screen.getByText('+1')).toBeTruthy();
   expect(screen.queryByText('S')).toBeNull();
 });
 
-// Zwei Karten untereinander sollen nicht dasselbe Cover tragen. Die Karte
-// selbst wählt es nicht aus, sie reicht nur ihren Platz durch — geprüft wird
-// hier, dass sie das überhaupt tut.
-test('die Position wählt das Platzhalter-Cover', async () => {
-  // Beide Karten in EINEM Render: ein zwischengeschobenes `unmount()` liesse
-  // die act()-Bereiche überlappen und riss die folgenden Tests dieser Datei
-  // mit.
+// Two cards stacked shouldn't carry the same cover. The card itself
+// doesn't pick it, it only passes its position through, checked here is
+// that it actually does that.
+test('the position picks the placeholder cover', async () => {
+  // Both cards in ONE render: an interspersed `unmount()` would let the
+  // act() regions overlap and drag the following tests in this file down
+  // with it.
   await wrap(
     <>
       <TripCard trip={trip} position={0} onPress={jest.fn()} />
       <TripCard trip={{ ...trip, id: 't2' }} position={1} onPress={jest.fn()} />
     </>
   );
-  const [erste, zweite] = screen.getAllByTestId('reise-cover');
-  expect(erste.props.source).not.toBe(zweite.props.source);
+  const [first, second] = screen.getAllByTestId('reise-cover');
+  expect(first.props.source).not.toBe(second.props.source);
 });
 
-// Das Siegel ist ein Bild, kein Text mehr — geprüft wird deshalb sein
-// Accessibility-Label. Es steht dort stellvertretend für das Wort, das die
-// Pille vorher trug: Screenreader müssen den Zustand weiterhin ansagen.
-test('laufende Reise trägt das Wachssiegel', async () => {
+// The seal is an image now, no longer text, so its accessibility label is
+// what gets checked. It stands in for the word the pill used to carry:
+// screen readers must still announce the state.
+test('an ongoing trip carries the wax seal', async () => {
   await wrap(<TripCard trip={trip} onPress={jest.fn()} />);
   expect(screen.getByLabelText('Versiegelt')).toBeTruthy();
 });
 
-test('aufgedeckte Reise trägt es nicht', async () => {
+test('a revealed trip does not carry it', async () => {
   await wrap(<TripCard trip={{ ...trip, status: 'revealed' }} onPress={jest.fn()} />);
   expect(screen.queryByLabelText('Versiegelt')).toBeNull();
 });
 
-// Task 10: «entwickelte» Reisen (revealed/archived) tragen statt des
-// Siegels eine Play-Einladung, aber NUR wenn der Aufrufer das per
-// `alsRecap` ausdrücklich anfordert, Gegenprobe zum Test oben, der nur
-// belegt, dass die alte Pille FEHLT, nicht dass etwas Sinnvolles an ihre
-// Stelle tritt.
-test('aufgedeckte Reise trägt mit alsRecap die Recap-Play-Pille', async () => {
-  await wrap(<TripCard trip={{ ...trip, status: 'revealed' }} alsRecap onPress={jest.fn()} />);
+// Task 10: "developed" trips (revealed/archived) carry a play invitation
+// instead of the seal, but ONLY if the caller explicitly requests it via
+// `asRecap`, the counter-proof to the test above, which only shows that
+// the old pill is MISSING, not that something meaningful takes its place.
+test('a revealed trip carries the recap play pill with asRecap', async () => {
+  await wrap(<TripCard trip={{ ...trip, status: 'revealed' }} asRecap onPress={jest.fn()} />);
   expect(screen.getByText('Recap ansehen')).toBeTruthy();
 });
 
-test('archivierte Reise trägt sie mit alsRecap ebenfalls', async () => {
-  await wrap(<TripCard trip={{ ...trip, status: 'archived' }} alsRecap onPress={jest.fn()} />);
+test('an archived trip carries it too, with asRecap', async () => {
+  await wrap(<TripCard trip={{ ...trip, status: 'archived' }} asRecap onPress={jest.fn()} />);
   expect(screen.getByText('Recap ansehen')).toBeTruthy();
 });
 
-test('laufende Reise trägt die Play-Pille nicht, selbst mit alsRecap', async () => {
-  await wrap(<TripCard trip={trip} alsRecap onPress={jest.fn()} />);
+test('an ongoing trip does not carry the play pill, even with asRecap', async () => {
+  await wrap(<TripCard trip={trip} asRecap onPress={jest.fn()} />);
   expect(screen.queryByText('Recap ansehen')).toBeNull();
 });
 
-// Review Task 10, Important 1: ohne `alsRecap` (der Reise-Tab lässt es weg,
-// siehe reise/index.tsx) bleibt eine aufgedeckte Reise ohne jede Pille, ein
-// Tipp dort führt in die Reise-Verwaltung, nicht in den Recap, «Recap
-// ansehen» wäre ein Versprechen gewesen, das der Tipp nicht einlöst.
-test('ohne alsRecap zeigt eine aufgedeckte Reise keine Pille', async () => {
+// Review Task 10, Important 1: without `asRecap` (the trip tab leaves it
+// out, see reise/index.tsx), a revealed trip stays without any pill, a tap
+// there leads into trip management, not the recap, "view recap" would
+// have been a promise the tap doesn't keep.
+test('without asRecap, a revealed trip shows no pill', async () => {
   await wrap(<TripCard trip={{ ...trip, status: 'revealed' }} onPress={jest.fn()} />);
   expect(screen.queryByText('Recap ansehen')).toBeNull();
 });
 
-test('ohne alsRecap gilt das auch für eine archivierte Reise', async () => {
+test('without asRecap, the same holds for an archived trip', async () => {
   await wrap(<TripCard trip={{ ...trip, status: 'archived' }} onPress={jest.fn()} />);
   expect(screen.queryByText('Recap ansehen')).toBeNull();
 });
 
-test('ein Moment wird im Singular gezählt', async () => {
+test('a single moment is counted in the singular', async () => {
   await wrap(<TripCard trip={{ ...trip, my_post_count: 1 }} onPress={jest.fn()} />);
   expect(screen.getByText('1 Moment')).toBeTruthy();
 });
 
-test('Antippen meldet die Reise zurück', async () => {
+test('tapping reports the trip back', async () => {
   const onPress = jest.fn();
   await wrap(<TripCard trip={trip} onPress={onPress} />);
   await fireEvent.press(screen.getByText('Norwegen mit dem Camper'));

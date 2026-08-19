@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Text, View, StyleSheet } from 'react-native';
-import { AvatarSheetInhalt, AvatarWaehler } from '@/components/AvatarWaehler';
+import { AvatarSheetContent, AvatarPicker } from '@/components/AvatarPicker';
 import { Button } from '@/components/Button';
 import { Input } from '@/components/Input';
 import { Sheet } from '@/components/Sheet';
@@ -8,7 +8,7 @@ import { useTheme } from '@/theme/ThemeProvider';
 import { spacing, type } from '@/theme/tokens';
 import { useTopInset } from '@/theme/useTopInset';
 import { useAuth } from '@/features/auth/AuthProvider';
-import { AvatarZuschnitt } from '@/components/AvatarZuschnitt';
+import { AvatarCropper } from '@/components/AvatarCropper';
 import { setzeAvatar } from '@/features/auth/avatarApi';
 import type { Crop } from '@/features/auth/crop';
 import { createProfile, validateDisplayName, validateUsername } from '@/features/auth/profileApi';
@@ -90,11 +90,11 @@ export default function ProfileSetupScreen() {
           So sehen dich deine Freunde im Recap.
         </Text>
         <View style={styles.bildZeile}>
-          <AvatarWaehler
+          <AvatarPicker
             name={displayName}
             avatarKey={null}
-            lokaleUri={bildUri}
-            onOeffnen={() => setBildSheetSichtbar(true)}
+            localUri={bildUri}
+            onOpen={() => setBildSheetSichtbar(true)}
           />
           <Text style={[type.secondary, { color: colors['text-2'] }]}>Profilbild (optional)</Text>
         </View>
@@ -120,28 +120,28 @@ export default function ProfileSetupScreen() {
         <Button variant="primary" label="Los geht's" onPress={submit} loading={loading} />
       </View>
 
-      <Sheet sichtbar={bildSheetSichtbar} titel="Profilbild" onSchliessen={() => setBildSheetSichtbar(false)}>
-        <AvatarSheetInhalt
+      <Sheet visible={bildSheetSichtbar} title="Profilbild" onClose={() => setBildSheetSichtbar(false)}>
+        <AvatarSheetContent
           avatarKey={null}
-          lokaleUri={bildUri}
-          onGewaehlt={(uri, breite, hoehe) => setZuschnitt({ uri, breite, hoehe })}
-          onEntfernen={() => {
+          localUri={bildUri}
+          onSelected={(uri, breite, hoehe) => setZuschnitt({ uri, breite, hoehe })}
+          onRemove={() => {
             setBildUri(null);
             setBildAusschnitt(null);
           }}
-          onSchliessen={() => setBildSheetSichtbar(false)}
+          onClose={() => setBildSheetSichtbar(false)}
         />
       </Sheet>
 
       {/* Wie im Profil-Tab: der Ausschnitt wird in der App gewählt, seit
           `allowsEditing` den Bildwähler an grossen Bildern scheitern liess. */}
       {zuschnitt && (
-        <AvatarZuschnitt
+        <AvatarCropper
           uri={zuschnitt.uri}
-          breite={zuschnitt.breite}
-          hoehe={zuschnitt.hoehe}
-          onAbbrechen={() => setZuschnitt(null)}
-          onFertig={(bereich) => {
+          width={zuschnitt.breite}
+          height={zuschnitt.hoehe}
+          onCancel={() => setZuschnitt(null)}
+          onDone={(bereich) => {
             setBildUri(zuschnitt.uri);
             setBildAusschnitt(bereich);
             setZuschnitt(null);

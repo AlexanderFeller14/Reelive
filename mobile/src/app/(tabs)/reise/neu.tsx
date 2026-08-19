@@ -3,7 +3,7 @@ import { KeyboardAvoidingView, Platform, Text, View, StyleSheet } from 'react-na
 import { useRouter } from 'expo-router';
 import { Button } from '@/components/Button';
 import { Input } from '@/components/Input';
-import { Zeitraumfeld } from '@/components/Zeitraumfeld';
+import { DateRangeField } from '@/components/DateRangeField';
 import { useTheme } from '@/theme/ThemeProvider';
 import { spacing, type } from '@/theme/tokens';
 import { useTopInset } from '@/theme/useTopInset';
@@ -67,7 +67,7 @@ export default function NeueReise() {
           Name und Zeitraum reichen. Freunde lädst du gleich danach ein.
         </Text>
         <Input label="Name der Reise" value={name} onChangeText={setName} error={nameFehler} placeholder="Norwegen mit dem Camper" autoFocus />
-        <Zeitraumfeld wert={zeitraum} onAendern={setZeitraum} fehler={zeitraumFehler} />
+        <DateRangeField value={zeitraum} onChange={setZeitraum} error={zeitraumFehler} />
         {/* Schiebt den Knopf ans untere Ende, in Daumenreichweite, statt ihn
             mitten im Bild kleben zu lassen. Die Felder bleiben oben, wo die
             Leseachse beginnt: bei zentriertem Inhalt spränge der ganze Block,

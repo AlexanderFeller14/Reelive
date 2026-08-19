@@ -4,7 +4,7 @@ import { Image } from 'expo-image';
 import * as Haptics from 'expo-haptics';
 import { Pencil } from 'lucide-react-native';
 import { Avatar } from '@/components/Avatar';
-import { AvatarSheetInhalt, AvatarWaehler } from '@/components/AvatarWaehler';
+import { AvatarSheetContent, AvatarPicker } from '@/components/AvatarPicker';
 import { Button } from '@/components/Button';
 import { Card } from '@/components/Card';
 import { PressScale } from '@/components/PressScale';
@@ -14,7 +14,7 @@ import { motion, radius, spacing, type } from '@/theme/tokens';
 import { useTopInset } from '@/theme/useTopInset';
 import { useReducedMotion } from '@/theme/useReducedMotion';
 import { useAuth } from '@/features/auth/AuthProvider';
-import { AvatarZuschnitt } from '@/components/AvatarZuschnitt';
+import { AvatarCropper } from '@/components/AvatarCropper';
 import { Input } from '@/components/Input';
 import { removeAvatar, setzeAvatar } from '@/features/auth/avatarApi';
 import type { Crop } from '@/features/auth/crop';
@@ -136,7 +136,7 @@ export default function ProfilScreen() {
   // Der Speicher-Moment (§5, Micro-Interaction, KEINE Inszenierung — die
   // 700–900 ms bleiben Versiegeln/Reveal vorbehalten): ein Fortschrittswert
   // treibt den Pop der Vorschau-Karte (Interpolation 1 → 1.05 → 1, dasselbe
-  // Muster wie Versiegelung.tsx), danach blendet der Editor mit duration-base
+  // Muster wie SealAnimation.tsx), danach blendet der Editor mit duration-base
   // aus. Beide als Animated.Value im State, wie PressScale und Sheet es halten.
   const [momentPop] = useState(() => new Animated.Value(0));
   const [editorDeckkraft] = useState(() => new Animated.Value(1));
@@ -344,12 +344,12 @@ export default function ProfilScreen() {
             weiterhin DAS Tap-Ziel zum Ändern — der Sheet-Zustand liegt
             unverändert beim Screen (Begründung am State oben). */}
         <View style={styles.kopfbild}>
-          <AvatarWaehler
-            gross
+          <AvatarPicker
+            large
             name={profile?.display_name ?? ''}
             avatarKey={profile?.avatar_key ?? null}
-            laeuft={bildLaeuft}
-            onOeffnen={() => setBildSheetSichtbar(true)}
+            loading={bildLaeuft}
+            onOpen={() => setBildSheetSichtbar(true)}
           />
         </View>
         {bildFehler && (
@@ -455,12 +455,12 @@ export default function ProfilScreen() {
           hing bis zur Merge-Fixrunde im Kreis-Wrapper der Karte oben und war
           dort 44 px breit — die ausführliche Begründung steht in
           AvatarWaehler.tsx. */}
-      <Sheet sichtbar={bildSheetSichtbar} titel="Profilbild" onSchliessen={() => setBildSheetSichtbar(false)}>
-        <AvatarSheetInhalt
+      <Sheet visible={bildSheetSichtbar} title="Profilbild" onClose={() => setBildSheetSichtbar(false)}>
+        <AvatarSheetContent
           avatarKey={profile?.avatar_key ?? null}
-          onGewaehlt={(uri, breite, hoehe) => setZuschnitt({ uri, breite, hoehe })}
-          onEntfernen={() => void bildEntfernen()}
-          onSchliessen={() => setBildSheetSichtbar(false)}
+          onSelected={(uri, breite, hoehe) => setZuschnitt({ uri, breite, hoehe })}
+          onRemove={() => void bildEntfernen()}
+          onClose={() => setBildSheetSichtbar(false)}
         />
       </Sheet>
 
@@ -487,7 +487,7 @@ export default function ProfilScreen() {
               </Text>
               {/* Der Pop des Speicher-Moments: 1 → 1.05 → 1 über den halben
                   Fortschritt, Interpolation statt zweier verketteter Springs
-                  (dasselbe Muster wie siegelScale in Versiegelung.tsx). */}
+                  (dasselbe Muster wie siegelScale in SealAnimation.tsx). */}
               <Animated.View
                 style={{
                   transform: [{
@@ -525,7 +525,7 @@ export default function ProfilScreen() {
               label="Speichern"
               onPress={() => void nameSpeichern()}
               loading={nameLaeuft}
-              erfolg={nameGespeichert}
+              success={nameGespeichert}
             />
             <Button
               variant="secondary"
@@ -541,12 +541,12 @@ export default function ProfilScreen() {
           `allowsEditing` musste aus dem Bildwähler raus (es liess grosse
           Bilder scheitern), also wählt man den Ausschnitt hier. */}
       {zuschnitt && (
-        <AvatarZuschnitt
+        <AvatarCropper
           uri={zuschnitt.uri}
-          breite={zuschnitt.breite}
-          hoehe={zuschnitt.hoehe}
-          onAbbrechen={() => setZuschnitt(null)}
-          onFertig={(bereich) => {
+          width={zuschnitt.breite}
+          height={zuschnitt.hoehe}
+          onCancel={() => setZuschnitt(null)}
+          onDone={(bereich) => {
             const gewaehlt = zuschnitt;
             setZuschnitt(null);
             void bildSetzen(gewaehlt.uri, bereich);
@@ -554,7 +554,7 @@ export default function ProfilScreen() {
         />
       )}
 
-      <Sheet sichtbar={loeschSheetSichtbar} titel="Konto löschen?" onSchliessen={kontoLoeschenSchliessen}>
+      <Sheet visible={loeschSheetSichtbar} title="Konto löschen?" onClose={kontoLoeschenSchliessen}>
         {zahlenPhase === 'laedt' && (
           <View style={styles.zahlenLaedt}>
             <ActivityIndicator testID="loeschen-zahlen-laedt" color={colors['text-1']} />

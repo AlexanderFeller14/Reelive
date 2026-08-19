@@ -1,34 +1,34 @@
 import { render, act } from '@testing-library/react-native';
 import * as React from 'react';
-import { MemorySubmissionAnimation } from '../MemorySubmissionAnimation';
+import { MomentSubmissionAnimation } from '../MomentSubmissionAnimation';
 
-// Reanimated treibt die Optik auf dem UI-Thread; im Test zählt nur die
-// Mechanik (Timer, Reset, A11y, Haptik). Der OFFIZIELLE Mock der Bibliothek
-// ist hier unbrauchbar: er importiert react-native-reanimated/src und damit
-// das native react-native-worklets-Modul, das es in Jest nicht gibt
-// (loadUnpackers-Absturz). Deshalb ein Hand-Mock nach dem Muster der anderen
-// nativen Fehlstellen (expo-video, react-native-maps in jest.setup.ts): die
-// with*-Helfer liefern schlicht ihren Zielwert, useAnimatedStyle rechnet die
-// Style-Fabrik einmal statisch aus.
+// Reanimated drives the visuals on the UI thread; in the test only the
+// mechanics matter (timers, reset, a11y, haptic). The OFFICIAL mock of the
+// library is unusable here: it imports react-native-reanimated/src and
+// with it the native react-native-worklets module, which doesn't exist in
+// Jest (loadUnpackers crash). Hence a hand-written mock following the
+// pattern of the other native gaps (expo-video, react-native-maps in
+// jest.setup.ts): the with*-helpers simply return their target value,
+// useAnimatedStyle evaluates the style factory once, statically.
 jest.mock('react-native-reanimated', () => {
   const ReactActual = require('react');
   const { View, Text, Image } = require('react-native');
-  const durchreichen = (props: Record<string, unknown>) =>
+  const passthrough = (props: Record<string, unknown>) =>
     ReactActual.createElement(View, props, props.children);
   return {
     __esModule: true,
     default: {
-      View: durchreichen,
+      View: passthrough,
       Text: (props: Record<string, unknown>) => ReactActual.createElement(Text, props, props.children),
       Image: (props: Record<string, unknown>) => ReactActual.createElement(Image, props),
-      createAnimatedComponent: (Komponente: unknown) => Komponente,
+      createAnimatedComponent: (Component: unknown) => Component,
     },
-    useSharedValue: (anfang: unknown) => ReactActual.useRef({ value: anfang }).current,
-    useAnimatedStyle: (fabrik: () => object) => fabrik(),
-    withTiming: (ziel: unknown) => ziel,
-    withSpring: (ziel: unknown) => ziel,
+    useSharedValue: (start: unknown) => ReactActual.useRef({ value: start }).current,
+    useAnimatedStyle: (factory: () => object) => factory(),
+    withTiming: (target: unknown) => target,
+    withSpring: (target: unknown) => target,
     withDelay: (_ms: number, animation: unknown) => animation,
-    withSequence: (...schritte: unknown[]) => schritte[schritte.length - 1],
+    withSequence: (...steps: unknown[]) => steps[steps.length - 1],
     cancelAnimation: () => {},
     Easing: { bezier: () => ({}) },
   };
@@ -45,8 +45,8 @@ jest.mock('@/theme/useReducedMotion', () => ({
   useReducedMotion: () => mockUseReducedMotion(),
 }));
 
-// expo-image ist ein natives View und lässt sich in Jest nicht laden; der
-// Platzhalter reicht die Props durch (gleiches Muster wie vorschau.test.tsx).
+// expo-image is a native view and can't be loaded in Jest; the placeholder
+// just passes the props through (same pattern as vorschau.test.tsx).
 jest.mock('expo-image', () => {
   const ReactActual = require('react');
   const { View } = require('react-native');
@@ -60,19 +60,20 @@ beforeEach(() => {
   mockUseReducedMotion.mockReturnValue(false);
 });
 
-// Zeitgerüst: 3600 ms Gesamtdauer, strikt sequenziell (Geräte-Abnahme:
-// «Polaroids, dann Gutzeichen, dann der Count — ganz clean»): die Polaroids
-// sind bei 1700 ms vollständig weg, der Pin (und mit ihm die Haptik) kommt
-// erst bei 1800 ms, der Zähler erscheint ab 2300 ms stehend und rollt genau
-// einmal, der Rest ist Lesezeit. Reduzierte Bewegung: nur Fades, 900 ms.
-const GESAMT = 3_600;
+// Timeline: 3600 ms total duration, strictly sequential (device acceptance:
+// "polaroids, then the checkmark, then the count, nice and clean"): the
+// polaroids are completely gone by 1700 ms, the pin (and with it the
+// haptic) doesn't arrive until 1800 ms, the counter appears starting at
+// 2300 ms standing still and rolls exactly once, the rest is reading time.
+// Reduced motion: fades only, 900 ms.
+const TOTAL = 3_600;
 const PIN_START = 1_800;
-const REDUZIERT_GESAMT = 900;
+const REDUCED_TOTAL = 900;
 
-test('unsichtbar rendert nichts und ruft onFinished nie', async () => {
+test('invisible renders nothing and onFinished is never called', async () => {
   const onFinished = jest.fn();
   const { queryByTestId, unmount } = await render(
-    <MemorySubmissionAnimation visible={false} onFinished={onFinished} />
+    <MomentSubmissionAnimation visible={false} onFinished={onFinished} />
   );
   expect(queryByTestId('memory-animation')).toBeNull();
   await act(async () => {
@@ -83,14 +84,14 @@ test('unsichtbar rendert nichts und ruft onFinished nie', async () => {
   await unmount();
 });
 
-test('onFinished kommt genau einmal, nach der vollen Gesamtdauer', async () => {
+test('onFinished arrives exactly once, after the full total duration', async () => {
   const onFinished = jest.fn();
   const { unmount } = await render(
-    <MemorySubmissionAnimation visible={true} onFinished={onFinished} />
+    <MomentSubmissionAnimation visible={true} onFinished={onFinished} />
   );
 
   await act(async () => {
-    jest.advanceTimersByTime(GESAMT - 1);
+    jest.advanceTimersByTime(TOTAL - 1);
   });
   expect(onFinished).not.toHaveBeenCalled();
 
@@ -99,7 +100,7 @@ test('onFinished kommt genau einmal, nach der vollen Gesamtdauer', async () => {
   });
   expect(onFinished).toHaveBeenCalledTimes(1);
 
-  // Auch lange danach bleibt es bei genau einem Aufruf.
+  // Even long after, it stays at exactly one call.
   await act(async () => {
     jest.advanceTimersByTime(10_000);
   });
@@ -107,44 +108,45 @@ test('onFinished kommt genau einmal, nach der vollen Gesamtdauer', async () => {
   await unmount();
 });
 
-test('ein erneutes Rendern bei unverändert visible feuert onFinished nicht doppelt', async () => {
+test("a rerender with visible unchanged doesn't fire onFinished twice", async () => {
   const onFinished = jest.fn();
   const { rerender, unmount } = await render(
-    <MemorySubmissionAnimation visible={true} onFinished={onFinished} />
+    <MomentSubmissionAnimation visible={true} onFinished={onFinished} />
   );
   await act(async () => {
     jest.advanceTimersByTime(1_000);
-    rerender(<MemorySubmissionAnimation visible={true} onFinished={onFinished} />);
-    jest.advanceTimersByTime(GESAMT);
+    rerender(<MomentSubmissionAnimation visible={true} onFinished={onFinished} />);
+    jest.advanceTimersByTime(TOTAL);
   });
   expect(onFinished).toHaveBeenCalledTimes(1);
   await unmount();
 });
 
-test('visible aus und wieder an startet die Animation vollständig von vorne', async () => {
+test('visible off and back on restarts the animation fully from the start', async () => {
   const onFinished = jest.fn();
   const { rerender, queryByTestId, unmount } = await render(
-    <MemorySubmissionAnimation visible={true} onFinished={onFinished} />
+    <MomentSubmissionAnimation visible={true} onFinished={onFinished} />
   );
   await act(async () => {
     jest.advanceTimersByTime(1_000);
-    rerender(<MemorySubmissionAnimation visible={false} onFinished={onFinished} />);
+    rerender(<MomentSubmissionAnimation visible={false} onFinished={onFinished} />);
   });
-  // Abgebrochen: nichts mehr im Baum, kein spätes onFinished.
+  // Aborted: nothing left in the tree, no late onFinished.
   expect(queryByTestId('memory-animation')).toBeNull();
   await act(async () => {
     jest.advanceTimersByTime(10_000);
   });
   expect(onFinished).not.toHaveBeenCalled();
 
-  // Neustart: wieder die VOLLE Dauer, nicht der Rest der ersten Runde.
-  // Rerender und Timer-Vorlauf getrennt: der Abschluss-Timer entsteht erst
-  // im Effekt, und der läuft erst am Ende des act-Blocks.
+  // Restart: the FULL duration again, not the remainder of the first
+  // round. Rerender and timer advance kept separate: the completion timer
+  // is only created in the effect, and that only runs at the end of the
+  // act block.
   await act(async () => {
-    rerender(<MemorySubmissionAnimation visible={true} onFinished={onFinished} />);
+    rerender(<MomentSubmissionAnimation visible={true} onFinished={onFinished} />);
   });
   await act(async () => {
-    jest.advanceTimersByTime(GESAMT - 1);
+    jest.advanceTimersByTime(TOTAL - 1);
   });
   expect(onFinished).not.toHaveBeenCalled();
   await act(async () => {
@@ -154,14 +156,14 @@ test('visible aus und wieder an startet die Animation vollständig von vorne', a
   await unmount();
 });
 
-test('bei reduzierter Bewegung endet die verkürzte Fassung nach 900 ms zuverlässig', async () => {
+test('with reduced motion, the shortened version reliably ends after 900 ms', async () => {
   mockUseReducedMotion.mockReturnValue(true);
   const onFinished = jest.fn();
   const { unmount } = await render(
-    <MemorySubmissionAnimation visible={true} onFinished={onFinished} />
+    <MomentSubmissionAnimation visible={true} onFinished={onFinished} />
   );
   await act(async () => {
-    jest.advanceTimersByTime(REDUZIERT_GESAMT - 1);
+    jest.advanceTimersByTime(REDUCED_TOTAL - 1);
   });
   expect(onFinished).not.toHaveBeenCalled();
   await act(async () => {
@@ -171,10 +173,10 @@ test('bei reduzierter Bewegung endet die verkürzte Fassung nach 900 ms zuverlä
   await unmount();
 });
 
-test('ein Unmount während der Animation ruft weder onFinished noch die Haptik nach', async () => {
+test("an unmount during the animation doesn't call onFinished or the haptic afterward", async () => {
   const onFinished = jest.fn();
   const { unmount } = await render(
-    <MemorySubmissionAnimation visible={true} onFinished={onFinished} />
+    <MomentSubmissionAnimation visible={true} onFinished={onFinished} />
   );
   await act(async () => {
     jest.advanceTimersByTime(500);
@@ -187,10 +189,10 @@ test('ein Unmount während der Animation ruft weder onFinished noch die Haptik n
   expect(mockNotificationAsync).not.toHaveBeenCalled();
 });
 
-test('die success-Haptik feuert genau einmal, wenn der Pin erscheint', async () => {
+test('the success haptic fires exactly once, when the pin appears', async () => {
   const onFinished = jest.fn();
   const { unmount } = await render(
-    <MemorySubmissionAnimation visible={true} onFinished={onFinished} />
+    <MomentSubmissionAnimation visible={true} onFinished={onFinished} />
   );
   await act(async () => {
     jest.advanceTimersByTime(PIN_START - 1);
@@ -202,76 +204,78 @@ test('die success-Haptik feuert genau einmal, wenn der Pin erscheint', async () 
   expect(mockNotificationAsync).toHaveBeenCalledTimes(1);
   expect(mockNotificationAsync).toHaveBeenCalledWith('success');
   await act(async () => {
-    jest.advanceTimersByTime(GESAMT);
+    jest.advanceTimersByTime(TOTAL);
   });
   expect(mockNotificationAsync).toHaveBeenCalledTimes(1);
   await unmount();
 });
 
-test('rollt den Zähler eine Stelle hoch, wenn der Stand der Reise da ist', async () => {
+test("rolls the counter up one digit when the trip's count is available", async () => {
   const { getByTestId, unmount } = await render(
-    <MemorySubmissionAnimation visible={true} onFinished={jest.fn()} zaehler={11} />
+    <MomentSubmissionAnimation visible={true} onFinished={jest.fn()} counter={11} />
   );
-  // 11 → 12: die Zehnerstelle steht fest, die Einerstelle rollt 1 → 2
-  // (Digit-Roll aus ZaehlerRoll.tsx, dort im Detail getestet).
+  // 11 → 12: the tens digit stays fixed, the ones digit rolls 1 → 2
+  // (digit roll from CounterRoll.tsx, tested in detail there).
   expect(getByTestId('memory-zaehler')).toBeTruthy();
   expect(getByTestId('zaehler-ziffer-fest-0').props.children).toBe('1');
   expect(getByTestId('zaehler-ziffer-alt-1').props.children).toBe('1');
   expect(getByTestId('zaehler-ziffer-neu-1').props.children).toBe('2');
   await act(async () => {
-    jest.advanceTimersByTime(GESAMT);
+    jest.advanceTimersByTime(TOTAL);
   });
   await unmount();
 });
 
-test('ohne Zählerstand läuft die Animation ohne Zahl', async () => {
+test('without a counter value, the animation runs without a number', async () => {
   const { queryByTestId, unmount } = await render(
-    <MemorySubmissionAnimation visible={true} onFinished={jest.fn()} zaehler={null} />
+    <MomentSubmissionAnimation visible={true} onFinished={jest.fn()} counter={null} />
   );
   expect(queryByTestId('memory-zaehler')).toBeNull();
   await act(async () => {
-    jest.advanceTimersByTime(GESAMT);
+    jest.advanceTimersByTime(TOTAL);
   });
   await unmount();
 });
 
-test('bei reduzierter Bewegung steht der neue Stand, ohne Roll', async () => {
+test('with reduced motion, the new count stands still, without a roll', async () => {
   mockUseReducedMotion.mockReturnValue(true);
   const { getByText, queryByTestId, unmount } = await render(
-    <MemorySubmissionAnimation visible={true} onFinished={jest.fn()} zaehler={11} />
+    <MomentSubmissionAnimation visible={true} onFinished={jest.fn()} counter={11} />
   );
   expect(getByText('12')).toBeTruthy();
   expect(queryByTestId('zaehler-ziffer-neu-1')).toBeNull();
   await act(async () => {
-    jest.advanceTimersByTime(REDUZIERT_GESAMT);
+    jest.advanceTimersByTime(REDUCED_TOTAL);
   });
   await unmount();
 });
 
-test('zeigt Titel, Untertitel, drei dekorative Polaroids und den Bestätigungs-Pin', async () => {
+test('shows the title, subtitle, three decorative polaroids, and the confirmation pin', async () => {
   const { getByText, getAllByTestId, getByTestId, unmount } = await render(
-    <MemorySubmissionAnimation visible={true} onFinished={jest.fn()} />
+    <MomentSubmissionAnimation visible={true} onFinished={jest.fn()} />
   );
   expect(getByText('Moment eingesendet')).toBeTruthy();
   expect(getByText('Dein Moment ist unterwegs und bleibt bis zum Recap versiegelt.')).toBeTruthy();
 
-  // includeHiddenElements: die Polaroids sind absichtlich vor der
-  // Barrierefreiheit versteckt, Standard-Queries blenden genau solche
-  // Elemente aus, hier sollen sie trotzdem gezählt werden.
+  // includeHiddenElements: the polaroids are deliberately hidden from
+  // accessibility, standard queries filter out exactly such elements, here
+  // they should still be counted.
   const polaroids = getAllByTestId('memory-polaroid', { includeHiddenElements: true });
   expect(polaroids).toHaveLength(3);
-  // Dekorativ: kein Polaroid wird vom Screenreader einzeln vorgelesen.
+  // Decorative: no polaroid gets read out individually by the screen
+  // reader.
   for (const polaroid of polaroids) {
     expect(polaroid.props.accessibilityElementsHidden).toBe(true);
   }
 
   expect(getByTestId('memory-pin')).toBeTruthy();
-  // Der ganze Zwischenschirm meldet sich als EIN Element mit klarer Aussage.
+  // The whole interstitial screen announces itself as ONE element with a
+  // clear statement.
   expect(getByTestId('memory-animation').props.accessibilityLabel).toBe(
     'Moment erfolgreich eingesendet'
   );
   await act(async () => {
-    jest.advanceTimersByTime(GESAMT);
+    jest.advanceTimersByTime(TOTAL);
   });
   await unmount();
 });

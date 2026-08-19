@@ -1,6 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { OFFLINE_HINT, istOffline } from '@/lib/networkError';
-import type { Gesicht } from '@/components/Avatar';
+import type { Face } from '@/components/Avatar';
 import type { InvitePreview, RedeemResult, Trip, TripMember } from './types';
 
 // Every read function returns data AND error separately. A bare [] or null
@@ -31,7 +31,7 @@ function toTrip(row: TripRow, counts: Map<string, number>): Trip {
   // Name and key stay together in ONE mapping (not two separate .map()
   // lists for names and keys): otherwise, at the first person without a
   // profile, a face would carry another person's image.
-  const members: Gesicht[] = (row.trip_members ?? [])
+  const members: Face[] = (row.trip_members ?? [])
     .map((m) => m.profiles)
     .filter((p): p is { display_name: string; avatar_key: string | null } => !!p?.display_name)
     .map((p) => ({ name: p.display_name, avatarKey: p.avatar_key }));

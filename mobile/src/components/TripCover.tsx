@@ -5,34 +5,36 @@ import { useTheme } from '@/theme/ThemeProvider';
 import { radius, spacing } from '@/theme/tokens';
 import { placeholderCover } from '@/features/trips/placeholderCover';
 
-// Das Cover einer Reise (DESIGN-LANGUAGE v2 §4): 3:2, Radius 24, randlos,
-// ohne Schatten. Steht an zwei Stellen — auf der Reise-Karte in den Listen
-// und ganz oben im Reise-Detail —, deshalb hier einmal statt zweimal.
+// A trip's cover (DESIGN-LANGUAGE v2 §4): 3:2, 24 px radius, borderless,
+// without shadow. Used in two places, on the trip card in the lists and
+// at the very top of the trip detail screen, hence here once instead of
+// twice.
 //
-// Echte Trip-Cover gibt es noch nicht. Bis dahin steht hier ein Platzhalter,
-// wo vorher eine leere `bg-1`-Fläche stand: `position` ist der Platz der Karte
-// in ihrer Liste und wählt das Bild (siehe `platzhalterCover`), damit nicht
-// zwei gleiche Cover untereinander stehen. Das Reise-Detail reicht denselben
-// Platz über den `cover`-Parameter seiner Route herein. Ohne Angabe bleibt es
-// beim ersten Bild.
+// Real trip covers don't exist yet. Until then a placeholder sits here,
+// where an empty `bg-1` surface used to be: `position` is the card's place
+// in its list and picks the image (see `placeholderCover`), so that two
+// identical covers don't end up stacked. The trip detail passes the same
+// position in via its route's `cover` parameter. Without one, it defaults
+// to the first image.
 //
-// `bg-1` bleibt als Grund darunter liegen, damit die Fläche beim Dekodieren
-// nicht weiss aufblitzt. Die Bilder sind 16:9 und werden auf 3:2 beschnitten
-// (`cover`), links und rechts fallen je rund 8 % weg — bei beiden steht das
-// Motiv weit genug innen, um das zu überstehen. Das Bild sagt nichts, was der
-// Titel darunter nicht schon sagt, also `accessible={false}`.
+// `bg-1` stays underneath as a base so the surface doesn't flash white
+// while decoding. The images are 16:9 and get cropped to 3:2 (`cover`),
+// about 8% falls away on each side, in both cases the subject sits far
+// enough inside to survive that. The image says nothing the title below
+// it doesn't already say, hence `accessible={false}`.
 export function TripCover({
-  position = 0, versiegelt = false, children,
+  position = 0, sealed = false, children,
 }: {
   position?: number;
-  versiegelt?: boolean;
+  sealed?: boolean;
   children?: ReactNode;
 }) {
   const { colors } = useTheme();
   return (
-    // Zwei Ebenen statt einer: Das Siegel überlappt die Cover-Ecke und muss
-    // deshalb ausserhalb des beschneidenden Containers hängen. Läge es innen,
-    // schnitte dessen `overflow: hidden` genau den überstehenden Teil ab.
+    // Two layers instead of one: the seal overlaps the cover's corner and
+    // must therefore hang outside the clipping container. If it were
+    // inside, that container's `overflow: hidden` would clip off exactly
+    // the overhanging part.
     <View>
       <View style={[styles.cover, { backgroundColor: colors['bg-1'] }]}>
         <Image
@@ -42,20 +44,19 @@ export function TripCover({
           contentFit="cover"
           accessible={false}
         />
-        <View style={styles.auflage}>{children}</View>
+        <View style={styles.overlay}>{children}</View>
       </View>
-      {versiegelt && (
-        // Die Versiegelung zeigt das Wachssiegel selbst, nicht mehr die Pille
-        // mit dem Wort «Versiegelt». Auf einem Foto hätte die helle
-        // `bg-1`-Pille ohnehin keinen verlässlichen Grund mehr gehabt (§1: auf
-        // Fotos liegt UI nur als translucente Pille), das Siegel bringt seinen
-        // eigenen mit. Für Screenreader steht das Wort weiterhin da, als Label
-        // des Bildes — das Siegel ist keine Dekoration, es trägt den Zustand
-        // der Reise.
+      {sealed && (
+        // The seal shows the wax seal image itself, no longer the pill
+        // with the word "Versiegelt". On a photo, the light `bg-1` pill
+        // wouldn't have had a reliable background anyway (§1: on photos,
+        // UI only sits as a translucent pill), the seal brings its own.
+        // For screen readers the word still stands, as the image's label,
+        // the seal is not decoration, it carries the trip's state.
         <Image
           testID="wachssiegel"
           source={require('@/assets/images/rotes-brief-wachssiegel-transparent.png')}
-          style={styles.siegel}
+          style={styles.seal}
           contentFit="contain"
           accessibilityRole="image"
           accessibilityLabel="Versiegelt"
@@ -65,26 +66,27 @@ export function TripCover({
   );
 }
 
-// Gut ein Drittel der Cover-Höhe: das Siegel ist der Zustand der Reise, kein
-// Abzeichen am Rand, und trägt sein Relief erst in dieser Grösse.
-const SIEGEL = 80;
+// A good third of the cover height: the seal is the trip's state, not a
+// badge at the edge, and only carries its relief at this size.
+const SEAL_SIZE = 80;
 
-// Wie weit es über die Ecke hinaussteht. Fester Wert statt eines Anteils der
-// Siegelgrösse, weil ihn nicht das Siegel begrenzt, sondern das, was daneben
-// liegt: links der 24-px-Screen-Rand, oben die Sektionsüberschrift mit ihren
-// 24 px Abstand. 16 lässt zu beiden hin 8 px Luft.
-const UEBERSTAND = 16;
+// How far it sticks out past the corner. A fixed value instead of a
+// fraction of the seal size, because it isn't the seal that limits it, but
+// what sits next to it: on the left the 24 px screen edge, above it the
+// section heading with its 24 px gap. 16 leaves 8 px of breathing room on
+// both sides.
+const OVERHANG = 16;
 
 const styles = StyleSheet.create({
-  // `overflow: hidden` ist hier nicht kosmetisch: ohne es stünde das absolut
-  // gefüllte Cover-Bild über die abgerundeten Ecken hinaus.
+  // `overflow: hidden` is not cosmetic here: without it, the absolutely
+  // filled cover image would stick out past the rounded corners.
   cover: { aspectRatio: 3 / 2, borderRadius: radius.card, overflow: 'hidden' },
-  auflage: { flex: 1, padding: spacing.m, alignItems: 'flex-start' },
-  siegel: {
+  overlay: { flex: 1, padding: spacing.m, alignItems: 'flex-start' },
+  seal: {
     position: 'absolute',
-    top: -UEBERSTAND,
-    left: -UEBERSTAND,
-    width: SIEGEL,
-    height: SIEGEL,
+    top: -OVERHANG,
+    left: -OVERHANG,
+    width: SEAL_SIZE,
+    height: SEAL_SIZE,
   },
 });

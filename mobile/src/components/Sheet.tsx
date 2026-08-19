@@ -15,121 +15,123 @@ import { useTheme } from '@/theme/ThemeProvider';
 import { backdrop, cinema, motion, radius, shadow, spacing, type } from '@/theme/tokens';
 import { useReducedMotion } from '@/theme/useReducedMotion';
 
-const REDUZIERTE_DAUER_MS = 200;
-// Grosszügig ausserhalb des sichtbaren Bereichs: die tatsächliche Sheet-Höhe hängt
-// vom Inhalt ab (Task 12 legt z. B. eine Kommentarliste hinein), dieser Wert muss
-// nur «sicher jenseits jeder realistischen Höhe» sein, keine echte Distanz.
-const AUSGANGSPOSITION = 640;
-// Wisch-Schwelle: entweder ein ausreichend weiter Weg oder ein schneller Flick
-// schliesst das Sheet, unabhängig von der (inhaltsabhängigen) Höhe des Panels.
-const WISCH_WEG_SCHWELLE = 96;
-const WISCH_GESCHWINDIGKEIT_SCHWELLE = 0.5;
-// Begrenzt die Höhe unabhängig vom Inhalt (Review Important 2: eine längere
-// Kommentarliste, Task 12, würde sonst unbegrenzt nach oben wachsen und oben
-// aus dem Bild laufen). Re-Review: ein Prozent-String hier wäre wirkungslos
-// gewesen, `panelClip` sitzt in `schatten`, und `schatten` ist
-// `position:'absolute'` OHNE `top` und ohne explizite Höhe, hat also keine
-// DEFINITE Höhe, gegen die ein Prozentwert auflösen könnte (Yoga verhält sich
-// darin wie CSS: eine prozentuale Höhe ohne definite Elternhöhe wird ignoriert).
-// Ein numerischer Wert aus dem tatsächlichen Fenster braucht diese Voraussetzung
-// nicht, er gilt unabhängig von der Elternhöhe, und ist ausserdem der Teil
-// dieses Fixes, den ein Test wirklich prüfen kann: react-test-renderer führt
-// kein echtes Yoga-Layout aus, ein Prozentsatz allein sagt also nichts über das
-// Ergebnis, eine berechnete Zahl schon. Exportiert, damit Sheet.test.tsx exakt
-// denselben Anteil prüft statt eine zweite, potenziell abweichende Zahl zu raten.
-export const MAX_HOEHE_ANTEIL = 0.85;
+const REDUCED_DURATION_MS = 200;
+// Generously outside the visible area: the actual sheet height depends on
+// the content (Task 12 puts e.g. a comment list in there), this value only
+// needs to be "safely beyond any realistic height", not a real distance.
+const START_POSITION = 640;
+// Swipe threshold: either a sufficiently long distance or a fast flick
+// closes the sheet, independent of the (content-dependent) height of the
+// panel.
+const SWIPE_DISTANCE_THRESHOLD = 96;
+const SWIPE_VELOCITY_THRESHOLD = 0.5;
+// Limits the height independent of the content (review Important 2: a
+// longer comment list, Task 12, would otherwise grow upward without limit
+// and run off the top of the screen). Re-review: a percent string here
+// would have been ineffective, `panelClip` sits inside `shadowLayer`, and
+// `shadowLayer` is `position:'absolute'` WITHOUT `top` and without an
+// explicit height, so it has no DEFINITE height for a percentage to resolve
+// against (Yoga behaves like CSS here: a percentage height without a
+// definite parent height is ignored). A numeric value from the actual
+// window doesn't need that precondition, it applies independent of the
+// parent height, and it's also the part of this fix that a test can
+// actually verify: react-test-renderer doesn't run a real Yoga layout, so a
+// percentage alone says nothing about the result, a computed number does.
+// Exported so Sheet.test.tsx checks exactly the same ratio instead of
+// guessing a second, potentially different number.
+export const MAX_HEIGHT_RATIO = 0.85;
 
-// Wie viel Fensterhöhe der SCROLLENDE Teil eines Sheet-Inhalts höchstens
-// einnimmt.
+// How much window height the SCROLLING part of a sheet's content occupies
+// at most.
 //
-// Der Wert steht hier und nicht bei einem der Screens, weil er aus DIESER
-// Datei folgt: das Panel oben deckelt sich bei 85 % und schneidet den Überhang
-// hart ab (`overflow: hidden`). Ein Inhalt, der ungedeckelt mitwächst, verliert
-// dadurch seine letzten Zeilen ersatzlos, bei einer Liste von Momenten auf
-// einem Fleck ausgerechnet die, die auf keinem anderen Weg erreichbar sind.
+// The value lives here rather than in one of the screens because it
+// follows from THIS file: the panel above caps itself at 85% and clips the
+// overhang hard (`overflow: hidden`). Content that keeps growing uncapped
+// loses its last lines without replacement, and for a list of moments on
+// one spot, those are exactly the ones unreachable any other way.
 //
-// Die Hälfte lässt unter der 85-%-Grenze genug für Griff, Titel, einen
-// angehefteten Knopf und das Fusspolster, auch auf dem kleinsten Gerät
-// (667 pt: 334 + 44 + 16 + 52 + 32 = 478 von 567 möglichen).
+// Half leaves enough room under the 85% limit for the handle, the title, a
+// pinned button, and the bottom padding, even on the smallest device
+// (667 pt: 334 + 44 + 16 + 52 + 32 = 478 of 567 possible).
 //
-// Benutzt von recap/[id]/karte.tsx und teilen/[token].tsx. Bis zur
-// Merge-Fixrunde stand die Zahl zweimal da; der Screen exportierte sie
-// ausdrücklich, «statt eine zweite Zahl zu raten», der geteilte Recap kann
-// ihn aber nicht importieren, ohne recapApi/urlVorrat/tripsApi in seinen
-// Modulgraph zu ziehen (teilen/__tests__/modulgraph.test.ts verbietet genau
-// das). Also dorthin, wo die Begründung ohnehin herkommt.
-export const SHEET_SCROLL_ANTEIL = 0.5;
+// Used by recap/[id]/karte.tsx and teilen/[token].tsx. Before the merge fix
+// round the number stood twice; the screen exported it explicitly,
+// "instead of guessing a second number", but the shared recap can't import
+// it without pulling recapApi/urlVorrat/tripsApi into its module graph
+// (teilen/__tests__/modulgraph.test.ts forbids exactly that). So it goes
+// where the reasoning comes from anyway.
+export const SHEET_SCROLL_RATIO = 0.5;
 
-// Reine Entscheidung, ohne PanResponder/Animated drumherum, so bleibt sie ohne
-// simulierte Touch-Events direkt testbar (gleiches Prinzip wie queueLogic.ts:
-// Entscheidung von Mechanik getrennt).
-export function wischUeberSchwelle(dy: number, vy: number): boolean {
-  return dy > WISCH_WEG_SCHWELLE || vy > WISCH_GESCHWINDIGKEIT_SCHWELLE;
+// A pure decision, without PanResponder/Animated around it, so it stays
+// directly testable without simulated touch events (same principle as
+// queueLogic.ts: decision separated from mechanics).
+export function swipeExceedsThreshold(dy: number, vy: number): boolean {
+  return dy > SWIPE_DISTANCE_THRESHOLD || vy > SWIPE_VELOCITY_THRESHOLD;
 }
 
 type Props = {
-  sichtbar: boolean;
-  titel?: string;
-  onSchliessen: () => void;
+  visible: boolean;
+  title?: string;
+  onClose: () => void;
   children: ReactNode;
-  // Review Important 2: Task 12 hängt das Kommentar-Panel als Sheet in den
-  // Recap-Player (Kino-Kontext, docs/.../design-language-v2-airbnb-design.md
-  // §7 «Kommentar-Panel als Sheet (cinema-1)»). `useTheme()` liefert per
-  // Konstruktion immer die Licht-Palette (ThemeProvider ist light-only), ein
-  // Kind kann die vom Sheet selbst gezeichneten Flächen (Panel, Grabber, Titel)
-  // nicht nachträglich umfärben. Deshalb hier als expliziter Schalter, nicht
-  // aus dem Theme ableitbar.
-  kino?: boolean;
+  // Review Important 2: Task 12 hangs the comment panel as a sheet in the
+  // recap player (cinema context, docs/.../design-language-v2-airbnb-design.md
+  // §7 "comment panel as sheet (cinema-1)"). `useTheme()` by construction
+  // always returns the light palette (ThemeProvider is light-only), a child
+  // can't recolor the surfaces the sheet draws itself (panel, grabber,
+  // title) after the fact. Hence an explicit switch here, not derivable
+  // from the theme.
+  cinemaMode?: boolean;
 };
 
-// Erste Sheet-Komponente des Projekts (DESIGN-LANGUAGE §4): von unten, Radius 24
-// oben, Grabber, shadow-3, öffnet per spring-ui. Wiederverwendet in Task 12
-// (Kommentare).
+// The project's first sheet component (DESIGN-LANGUAGE §4): from the
+// bottom, 24 px radius on top, grabber, shadow-3, opens with spring-ui.
+// Reused in Task 12 (comments).
 //
-// Schliessen läuft anders als das Öffnen OHNE eigene Austrittsanimation: ein Tipp
-// auf den Hintergrund oder ein ausreichender Wisch nach unten ruft sofort
-// `onSchliessen`. Das Sheet verschwindet, sobald die aufrufende Stelle `sichtbar`
-// auf false setzt, derselbe Kontrollfluss wie bei den Alert.alert-Dialogen in
-// reise/[id]/index.tsx: der Elternteil hält den Zustand, die Komponente selbst
-// bleibt zustandslos bezüglich «geschlossen wird gerade animiert». Ein Wisch, der
-// nicht über die Schwelle kommt, federt zurück statt zu schliessen.
+// Closing works differently from opening, WITHOUT its own exit animation: a
+// tap on the background or a sufficient downward swipe calls `onClose`
+// immediately. The sheet disappears as soon as the calling site sets
+// `visible` to false, the same control flow as the Alert.alert dialogs in
+// reise/[id]/index.tsx: the parent holds the state, the component itself
+// stays stateless regarding "is currently animating closed". A swipe that
+// doesn't cross the threshold springs back instead of closing.
 //
-// prefers-reduced-motion (§5): keine Verschiebung, nur ein 200-ms-Opacity-Fade,
-// für Panel und Hintergrund gemeinsam über denselben Animated.Value.
-export function Sheet({ sichtbar, titel, onSchliessen, children, kino }: Props) {
+// prefers-reduced-motion (§5): no translation, just a 200 ms opacity fade,
+// shared by panel and background over the same Animated.Value.
+export function Sheet({ visible, title, onClose, children, cinemaMode }: Props) {
   const { colors } = useTheme();
   const reducedMotion = useReducedMotion();
-  // useWindowDimensions statt eines Prozent-Strings in der Stylesheet, siehe
-  // Kommentar bei MAX_HOEHE_ANTEIL. Reagiert nebenbei auch auf eine Drehung des
-  // Geräts, während das Sheet offen ist.
-  const { height: fensterHoehe } = useWindowDimensions();
-  const maxHoehe = fensterHoehe * MAX_HOEHE_ANTEIL;
-  const [translateY] = useState(() => new Animated.Value(AUSGANGSPOSITION));
+  // useWindowDimensions instead of a percent string in the stylesheet, see
+  // the comment at MAX_HEIGHT_RATIO. Also reacts to a device rotation while
+  // the sheet is open.
+  const { height: windowHeight } = useWindowDimensions();
+  const maxHeight = windowHeight * MAX_HEIGHT_RATIO;
+  const [translateY] = useState(() => new Animated.Value(START_POSITION));
   const [opacity] = useState(() => new Animated.Value(0));
-  // onSchliessen kann sich zwischen zwei Renderns ändern (neue Funktionsreferenz
-  // beim Elternteil), ein Ref hält die aktuelle Version fest, ohne den
-  // PanResponder bei jedem Render neu aufzubauen (gleiches Muster wie
-  // Versiegelung.onFertigRef).
-  const onSchliessenRef = useRef(onSchliessen);
-  onSchliessenRef.current = onSchliessen;
+  // onClose can change between two renders (a new function reference at
+  // the parent), a ref holds the current version without rebuilding the
+  // PanResponder on every render (same pattern as
+  // SealAnimation.tsx/onFinishedRef).
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   useEffect(() => {
-    if (!sichtbar) return;
+    if (!visible) return;
     opacity.setValue(0);
-    // Frisch berechnet statt modulweit gecacht (gleiche Konvention wie
-    // Input.tsx animate()): Easing.bezier() bei jedem Öffnen neu aufzurufen
-    // kostet nichts Messbares und hält den Aufruf an der Stelle sichtbar, die
-    // ihn auch tatsächlich braucht.
+    // Computed fresh instead of cached at module scope (same convention as
+    // Input.tsx's animate()): calling Easing.bezier() again on every open
+    // costs nothing measurable and keeps the call visible at the spot that
+    // actually needs it.
     if (reducedMotion) {
       translateY.setValue(0);
       Animated.timing(opacity, {
         toValue: 1,
-        duration: REDUZIERTE_DAUER_MS,
+        duration: REDUCED_DURATION_MS,
         easing: Easing.bezier(...motion.easeSmooth),
         useNativeDriver: true,
       }).start();
     } else {
-      translateY.setValue(AUSGANGSPOSITION);
+      translateY.setValue(START_POSITION);
       Animated.parallel([
         Animated.spring(translateY, { toValue: 0, useNativeDriver: true, ...motion.spring }),
         Animated.timing(opacity, {
@@ -141,24 +143,24 @@ export function Sheet({ sichtbar, titel, onSchliessen, children, kino }: Props) 
       ]).start();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sichtbar, reducedMotion]);
+  }, [visible, reducedMotion]);
 
   const pan = useRef(
     PanResponder.create({
-      onMoveShouldSetPanResponder: (_evt, geste) => geste.dy > 4 && Math.abs(geste.dy) > Math.abs(geste.dx),
-      onPanResponderMove: (_evt, geste) => {
-        if (geste.dy > 0) translateY.setValue(geste.dy);
+      onMoveShouldSetPanResponder: (_evt, gesture) => gesture.dy > 4 && Math.abs(gesture.dy) > Math.abs(gesture.dx),
+      onPanResponderMove: (_evt, gesture) => {
+        if (gesture.dy > 0) translateY.setValue(gesture.dy);
       },
-      onPanResponderRelease: (_evt, geste) => {
-        if (wischUeberSchwelle(geste.dy, geste.vy)) {
-          // Die Komponente bleibt beim Schliessen gemountet (der Elternteil
-          // rendert nur `sichtbar=false`), die Animated.Value-Refs überleben
-          // also. Ohne diesen Reset bliebe translateY auf dem letzten
-          // Wisch-Offset stehen: der erste Frame des nächsten Öffnens würde an
-          // der Altposition aufblitzen, bevor der (erst NACH dem Paint
-          // laufende) Öffnen-Effekt sie korrigiert.
-          translateY.setValue(reducedMotion ? 0 : AUSGANGSPOSITION);
-          onSchliessenRef.current();
+      onPanResponderRelease: (_evt, gesture) => {
+        if (swipeExceedsThreshold(gesture.dy, gesture.vy)) {
+          // The component stays mounted while closing (the parent only
+          // renders `visible=false`), so the Animated.Value refs survive.
+          // Without this reset, translateY would stay at the last swipe
+          // offset: the first frame of the next open would flash at the old
+          // position before the open effect (which only runs AFTER the
+          // paint) corrects it.
+          translateY.setValue(reducedMotion ? 0 : START_POSITION);
+          onCloseRef.current();
           return;
         }
         if (reducedMotion) {
@@ -170,27 +172,28 @@ export function Sheet({ sichtbar, titel, onSchliessen, children, kino }: Props) 
     })
   ).current;
 
-  if (!sichtbar) return null;
+  if (!visible) return null;
 
-  const flaeche = kino ? cinema['bg-1'] : colors['bg-0'];
-  const textFarbe = kino ? cinema['text-1'] : colors['text-1'];
-  const grabberFarbe = kino ? cinema['text-2'] : colors['line-strong'];
+  const surface = cinemaMode ? cinema['bg-1'] : colors['bg-0'];
+  const textColor = cinemaMode ? cinema['text-1'] : colors['text-1'];
+  const grabberColor = cinemaMode ? cinema['text-2'] : colors['line-strong'];
 
   return (
-    // Review Important 2: ein Eingabefeld am unteren Rand (Task 12: Kommentar-
-    // Eingabe) braucht Tastatur-Ausweichlogik, das lässt sich aus einem Kind
-    // heraus nicht nachrüsten. Gleiches Muster wie reise/neu.tsx: `padding`
-    // auf iOS, Android regelt das über windowSoftInputMode am Fenster.
+    // Review Important 2: an input field at the bottom (Task 12: comment
+    // entry) needs keyboard-avoidance logic, which can't be retrofitted
+    // from a child. Same pattern as reise/neu.tsx: `padding` on iOS,
+    // Android handles it via windowSoftInputMode at the window level.
     //
-    // Gerätefund 2026-08-13 (Namen-ändern-Sheet): das Padding allein reichte
-    // NICHT, solange das Panel `position:'absolute', bottom:0` war — Padding
-    // erreicht absolut positionierte Kinder nicht (derselbe Befund wie beim
-    // Caption-Feld, ausführlich in vorschau.tsx). Deshalb ist das Panel ein
-    // normales Flex-Kind und `justifyContent:'flex-end'` hält es unten: so
-    // schiebt das Tastatur-Padding es tatsächlich hoch.
+    // Device finding 2026-08-13 (the name-change sheet): padding alone was
+    // NOT enough as long as the panel was `position:'absolute', bottom:0`,
+    // padding doesn't reach absolutely positioned children (the same
+    // finding as with the caption field, detailed in vorschau.tsx). That's
+    // why the panel is a normal flex child, and `justifyContent:'flex-end'`
+    // keeps it at the bottom: this way the keyboard padding actually pushes
+    // it up.
     <KeyboardAvoidingView
       testID="sheet-root"
-      style={[StyleSheet.absoluteFill, styles.wurzel]}
+      style={[StyleSheet.absoluteFill, styles.root]}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <Pressable
@@ -198,28 +201,28 @@ export function Sheet({ sichtbar, titel, onSchliessen, children, kino }: Props) 
         accessibilityRole="button"
         accessibilityLabel="Schliessen"
         style={StyleSheet.absoluteFill}
-        onPress={onSchliessen}
+        onPress={onClose}
       >
-        <Animated.View style={[StyleSheet.absoluteFill, styles.hintergrund, { opacity }]} />
+        <Animated.View style={[StyleSheet.absoluteFill, styles.background, { opacity }]} />
       </Pressable>
-      {/* Schatten und Fläche getrennt von der Höhenbegrenzung: ein iOS-Schatten
-          braucht eine sichtbare (nicht transparente) Fläche, auf der er liegt,
-          UND darf nicht von `overflow:'hidden'` mitgeklippt werden, deshalb
-          trägt der äussere Knoten Fläche+Schatten+Bewegung, der innere nur die
-          Begrenzung/das Clipping. */}
+      {/* Shadow and surface separated from the height limit: an iOS shadow
+          needs a visible (non-transparent) surface to sit on, AND must not
+          be clipped along with `overflow:'hidden'`, so the outer node
+          carries surface+shadow+movement, the inner one only the
+          limit/the clipping. */}
       <Animated.View
         testID="sheet-schatten"
-        style={[styles.schatten, { backgroundColor: flaeche, opacity, transform: [{ translateY }] }]}
+        style={[styles.shadowLayer, { backgroundColor: surface, opacity, transform: [{ translateY }] }]}
       >
-        <View testID="sheet-panel" style={[styles.panelClip, { maxHeight: maxHoehe }]}>
-          {/* Nur der Griffbereich ist wischbar, der Rest bleibt frei für
-              Inhalt wie Listen oder Eingabefelder (Task 12), die eigene
-              Touch-Gesten (Scroll) brauchen. */}
-          <View testID="sheet-griff-bereich" style={styles.griffBereich} {...pan.panHandlers}>
-            <View testID="sheet-griff" style={[styles.griff, { backgroundColor: grabberFarbe }]} />
-            {titel ? <Text style={[type.h3, { color: textFarbe }]}>{titel}</Text> : null}
+        <View testID="sheet-panel" style={[styles.panelClip, { maxHeight }]}>
+          {/* Only the handle area is swipeable, the rest stays free for
+              content like lists or input fields (Task 12) that need their
+              own touch gestures (scroll). */}
+          <View testID="sheet-griff-bereich" style={styles.handleArea} {...pan.panHandlers}>
+            <View testID="sheet-griff" style={[styles.handle, { backgroundColor: grabberColor }]} />
+            {title ? <Text style={[type.h3, { color: textColor }]}>{title}</Text> : null}
           </View>
-          <View style={styles.inhalt}>{children}</View>
+          <View style={styles.content}>{children}</View>
         </View>
       </Animated.View>
     </KeyboardAvoidingView>
@@ -227,34 +230,35 @@ export function Sheet({ sichtbar, titel, onSchliessen, children, kino }: Props) 
 }
 
 const styles = StyleSheet.create({
-  // Phase-5-Final-Review, Punkt 6: kein fester Hex-/rgba-Wert mehr im Code
-  // (DESIGN-LANGUAGE §9), `backdrop` (mobile/src/theme/tokens.ts) trägt
-  // denselben Wert («Scrim rgba(0,0,0,0.4) faded 250 ms», siehe dort) und
-  // gilt für beide Sheets (hell UND Kino) unverändert.
-  hintergrund: { backgroundColor: backdrop },
-  wurzel: { justifyContent: 'flex-end' },
-  schatten: {
-    // KEIN position:'absolute' (Gerätefund 2026-08-13, Kommentar im JSX): als
-    // Flex-Kind am unteren Rand (wurzel: flex-end) hebt das Tastatur-Padding
-    // der KeyboardAvoidingView das Panel an, ein absolutes bottom:0 ignorierte
-    // es. `flexShrink: 1` gehört zum selben Fix: wird der Platz über der
-    // Tastatur knapp, staucht sich das Panel, statt oben aus dem Bild zu
-    // laufen (die volle Breite bringt `alignSelf: stretch` von allein mit).
+  // Phase-5 final review, point 6: no more fixed hex/rgba value in the code
+  // (DESIGN-LANGUAGE §9), `backdrop` (mobile/src/theme/tokens.ts) carries
+  // the same value ("scrim rgba(0,0,0,0.4) faded 250 ms", see there) and
+  // applies unchanged to both sheets (light AND cinema).
+  background: { backgroundColor: backdrop },
+  root: { justifyContent: 'flex-end' },
+  shadowLayer: {
+    // NO position:'absolute' (device finding 2026-08-13, comment in the
+    // JSX): as a flex child at the bottom edge (root: flex-end), the
+    // KeyboardAvoidingView's keyboard padding lifts the panel, an absolute
+    // bottom:0 would ignore it. `flexShrink: 1` belongs to the same fix:
+    // when space above the keyboard runs short, the panel shrinks instead
+    // of running off the top of the screen (the full width comes for free
+    // from `alignSelf: stretch`).
     flexShrink: 1,
     borderTopLeftRadius: radius.card,
     borderTopRightRadius: radius.card,
     ...shadow.s3,
   },
   panelClip: {
-    // maxHeight kommt dynamisch aus useWindowDimensions() (siehe JSX), ein
-    // Prozentwert hier hätte keine definite Elternhöhe zum Auflösen (siehe
-    // Kommentar bei MAX_HOEHE_ANTEIL).
+    // maxHeight comes dynamically from useWindowDimensions() (see JSX), a
+    // percent value here would have no definite parent height to resolve
+    // against (see the comment at MAX_HEIGHT_RATIO).
     overflow: 'hidden',
     borderTopLeftRadius: radius.card,
     borderTopRightRadius: radius.card,
     paddingBottom: spacing.xl,
   },
-  griffBereich: { alignItems: 'center', paddingTop: spacing.m, paddingBottom: spacing.base, gap: spacing.base },
-  griff: { width: 36, height: 4, borderRadius: radius.pill },
-  inhalt: { paddingHorizontal: spacing.screen, gap: spacing.base },
+  handleArea: { alignItems: 'center', paddingTop: spacing.m, paddingBottom: spacing.base, gap: spacing.base },
+  handle: { width: 36, height: 4, borderRadius: radius.pill },
+  content: { paddingHorizontal: spacing.screen, gap: spacing.base },
 });

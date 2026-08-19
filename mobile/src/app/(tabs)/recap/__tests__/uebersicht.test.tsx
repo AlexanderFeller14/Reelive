@@ -77,18 +77,18 @@ jest.mock('expo-linking', () => ({ openSettings: () => mockOpenSettings() }));
 // die Siegel-Tests unten schalten das ab, um das stehende Siegel zu prüfen
 // und selbst zu tippen.
 let mockSiegelAutoPeel = true;
-jest.mock('@/components/SiegelAbziehen', () => {
+jest.mock('@/components/SealPeel', () => {
   const ReactActual = require('react');
   const { Pressable } = require('react-native');
   return {
-    SiegelAbziehen: ({ groesse, onAbgezogen, testID }: { groesse: number; onAbgezogen: () => void; testID?: string }) => {
+    SealPeel: ({ size, onPeeled, testID }: { size: number; onPeeled: () => void; testID?: string }) => {
       ReactActual.useEffect(() => {
-        if (mockSiegelAutoPeel) onAbgezogen();
+        if (mockSiegelAutoPeel) onPeeled();
         // eslint-disable-next-line react-hooks/exhaustive-deps
       }, []);
       return ReactActual.createElement(Pressable, {
         testID, accessibilityRole: 'button', accessibilityLabel: 'Siegel abziehen',
-        onPress: onAbgezogen, style: { width: groesse, height: groesse },
+        onPress: onPeeled, style: { width: size, height: size },
       });
     },
   };
