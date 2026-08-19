@@ -1078,9 +1078,6 @@ export default function AufnehmenScreen() {
   const wechselErlaubt = () => multiCam || !nimmtAuf || nativLaeuft.current;
 
   const kameraWechseln = () => {
-    // [dbg] Task-13-Messsonde (fliegt nach der Runde): Wann wurde der
-    // Wechsel angefordert? Gegenstück siehe onAvailableLensesChanged.
-    console.log('[dbg-flip] Wechsel angefordert', Date.now());
     if (multiCam) {
       // Kein Hardware-Umbau, kein Warten, und darum auch keine Blende: die
       // Session läuft weiter, das Modul legt nur die andere Verbindung auf
@@ -1606,10 +1603,6 @@ export default function AufnehmenScreen() {
           // eigenem updateZoom (addDevice, defer-Block): genau der Moment, in
           // dem unser Faktor wiederhergestellt gehört.
           onAvailableLensesChanged={() => {
-            // [dbg] Task-13-Messsonde (fliegt nach der Runde): das Ereignis
-            // feuert aus addDevices defer-Block — der Session-Umbau ist damit
-            // durch, die Differenz zur Anforderung ist die Umbau-Dauer.
-            console.log('[dbg-flip] neues Gerät liefert', Date.now());
             // Die neue Kamera liefert: die Wechsel-Blende kann weg.
             setWechselLaeuft(false);
             zoomNachsetzen();

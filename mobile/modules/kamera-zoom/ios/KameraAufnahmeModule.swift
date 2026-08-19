@@ -21,6 +21,14 @@ public class KameraAufnahmeModule: Module {
   // Genau eine Aufnahme zu jeder Zeit (Pendant zum laeuftFoto-Guard in JS).
   static var aktuelle: Aufnahme?
 
+  // Der Sucher der laufenden Aufnahme (gesetzt bei aufnahmeStarten): der
+  // Puffer-Abgriff vergleicht pro Frame die Ausrichtung seiner Verbindung
+  // mit der des Suchers — beim Kamerawechsel MITTEN in der Aufnahme
+  // (Doppeltipp) entsteht die Output-Verbindung neu und stünde sonst auf
+  // Standard-Ausrichtung statt auf der des Suchers. Weak: die View gehört
+  // expo-camera, hier wird nur hineingeschaut.
+  static weak var sucherLayer: AVCaptureVideoPreviewLayer?
+
   // Der Beobachter für Unterbrechungen (Anruf, Hintergrund, Split-View). Statisch,
   // weil die Hilfsfunktionen des Moduls statisch sind; es gibt ihn höchstens einmal,
   // OnCreate/OnDestroy halten ihn im Gleichgewicht.
@@ -80,6 +88,7 @@ public class KameraAufnahmeModule: Module {
         if let videoOutput = Self.videoOutput {
           Self.verbindungAngleichen(output: videoOutput, layer: layer)
         }
+        Self.sucherLayer = layer
         let ziel = FileManager.default.temporaryDirectory
           .appendingPathComponent("reelive-\(UUID().uuidString).mov")
         // mitTon hängt an der VERBINDUNG, nicht am Output: ein Output ohne
@@ -191,13 +200,29 @@ public class KameraAufnahmeModule: Module {
       let verbindung = output.connection(with: .video),
       let sucherVerbindung = layer.connection
     else { return }
+    verbindungAngleichen(verbindung, an: sucherVerbindung)
+  }
+
+  static func verbindungAngleichen(
+    _ verbindung: AVCaptureConnection, an sucher: AVCaptureConnection
+  ) {
     if verbindung.isVideoOrientationSupported {
-      verbindung.videoOrientation = sucherVerbindung.videoOrientation
+      verbindung.videoOrientation = sucher.videoOrientation
     }
     if verbindung.isVideoMirroringSupported {
       verbindung.automaticallyAdjustsVideoMirroring = false
-      verbindung.isVideoMirrored = sucherVerbindung.isVideoMirrored
+      verbindung.isVideoMirrored = sucher.isVideoMirrored
     }
+  }
+
+  // Ob die Output-Verbindung von der des Suchers abweicht — nach einem
+  // Kamerawechsel mitten in der Aufnahme ist sie frisch entstanden und
+  // steht noch auf Standardwerten.
+  static func verbindungWeichtAb(
+    _ verbindung: AVCaptureConnection, von sucher: AVCaptureConnection
+  ) -> Bool {
+    verbindung.videoOrientation != sucher.videoOrientation
+      || verbindung.isVideoMirrored != sucher.isVideoMirrored
   }
 
   // Gleicher Suchweg wie KameraZoomModule.sucherView(): die View, deren Layer
@@ -237,6 +262,28 @@ final class PufferAbgriff: NSObject,
     if output is AVCaptureAudioDataOutput {
       KameraAufnahmeModule.aktuelle?.schreibeTon(sampleBuffer)
     } else {
+      // Kamerawechsel WÄHREND der Aufnahme (Doppeltipp): expo-camera tauscht
+      // den Geräte-Input derselben Session, dabei entsteht diese Verbindung
+      // neu — mit Standard-Ausrichtung statt der des Suchers. Pro Frame
+      // prüfen und nachziehen; der abweichende Frame selbst trägt noch die
+      // alte Ausrichtung und bleibt draussen. Im Normalfall kostet das zwei
+      // Property-Vergleiche pro Frame.
+      if let sucher = KameraAufnahmeModule.sucherLayer?.connection,
+        KameraAufnahmeModule.verbindungWeichtAb(connection, von: sucher)
+      {
+        KameraAufnahmeModule.verbindungAngleichen(connection, an: sucher)
+        return
+      }
+      // Nachzügler des Wechsels: einzelne Frames können noch mit der ALTEN
+      // Ausrichtung unterwegs sein, obwohl die Verbindung schon stimmt —
+      // quer statt hochkant. Der Writer presste sie verzerrt in seine
+      // 1080×1920-Spur, also bleiben auch sie draussen (die App ist
+      // hochkant-gesperrt, jeder rechtmässige Frame ist höher als breit).
+      if let bild = CMSampleBufferGetImageBuffer(sampleBuffer),
+        CVPixelBufferGetWidth(bild) > CVPixelBufferGetHeight(bild)
+      {
+        return
+      }
       KameraAufnahmeModule.aktuelle?.schreibeVideo(sampleBuffer)
     }
   }
@@ -335,10 +382,89 @@ final class Aufnahme {
     }
     if videoEingang.isReadyForMoreMediaData {
       videoEingang.append(puffer)
-      if startFenster.count < STARTFENSTER_FRAMES {
-        startFenster.append(puffer)
+      if startFenster.count < STARTFENSTER_FRAMES, let kopie = Self.tiefkopie(puffer) {
+        startFenster.append(kopie)
       }
     }
+  }
+
+  // Tiefkopie eines Video-Puffers in eigenen Speicher. Warum das sein muss:
+  // die Original-Puffer gehören dem endlichen Pool des VideoDataOutput —
+  // behält man sie, verhungert die Lieferung nach ~10 Frames, und Datei wie
+  // Fenster enden bei ~0,3 s (Gerätefund 2026-08-17: 46 verworfene Frames in
+  // 2 s, bewiesen über die didDrop-Sonde). Die Kopie kostet ~3 MB memcpy pro
+  // Frame, verteilt über die erste Sekunde — der Pool bekommt seinen Puffer
+  // sofort zurück.
+  private static func tiefkopie(_ puffer: CMSampleBuffer) -> CMSampleBuffer? {
+    guard let quelle = CMSampleBufferGetImageBuffer(puffer) else { return nil }
+    CVPixelBufferLockBaseAddress(quelle, .readOnly)
+    defer { CVPixelBufferUnlockBaseAddress(quelle, .readOnly) }
+
+    var kopie: CVPixelBuffer?
+    let eigenschaften = [kCVPixelBufferIOSurfacePropertiesKey: [:] as CFDictionary] as CFDictionary
+    guard
+      CVPixelBufferCreate(
+        nil,
+        CVPixelBufferGetWidth(quelle),
+        CVPixelBufferGetHeight(quelle),
+        CVPixelBufferGetPixelFormatType(quelle),
+        eigenschaften,
+        &kopie
+      ) == kCVReturnSuccess,
+      let ziel = kopie
+    else { return nil }
+
+    CVPixelBufferLockBaseAddress(ziel, [])
+    defer { CVPixelBufferUnlockBaseAddress(ziel, []) }
+    if CVPixelBufferIsPlanar(quelle) {
+      for ebene in 0..<CVPixelBufferGetPlaneCount(quelle) {
+        guard
+          let von = CVPixelBufferGetBaseAddressOfPlane(quelle, ebene),
+          let nach = CVPixelBufferGetBaseAddressOfPlane(ziel, ebene)
+        else { return nil }
+        let vonZeile = CVPixelBufferGetBytesPerRowOfPlane(quelle, ebene)
+        let nachZeile = CVPixelBufferGetBytesPerRowOfPlane(ziel, ebene)
+        let hoehe = CVPixelBufferGetHeightOfPlane(quelle, ebene)
+        if vonZeile == nachZeile {
+          memcpy(nach, von, vonZeile * hoehe)
+        } else {
+          // Zeilenweise: die Puffer können unterschiedlich aufgerundete
+          // Zeilenbreiten haben.
+          for zeile in 0..<hoehe {
+            memcpy(nach + zeile * nachZeile, von + zeile * vonZeile, min(vonZeile, nachZeile))
+          }
+        }
+      }
+    } else {
+      guard
+        let von = CVPixelBufferGetBaseAddress(quelle),
+        let nach = CVPixelBufferGetBaseAddress(ziel)
+      else { return nil }
+      memcpy(nach, von, CVPixelBufferGetDataSize(quelle))
+    }
+
+    var beschreibung: CMVideoFormatDescription?
+    guard
+      CMVideoFormatDescriptionCreateForImageBuffer(
+        allocator: nil, imageBuffer: ziel, formatDescriptionOut: &beschreibung
+      ) == noErr,
+      let format = beschreibung
+    else { return nil }
+    var timing = CMSampleTimingInfo()
+    guard CMSampleBufferGetSampleTimingInfo(puffer, at: 0, timingInfoOut: &timing) == noErr else {
+      return nil
+    }
+    var ergebnis: CMSampleBuffer?
+    guard
+      CMSampleBufferCreateReadyWithImageBuffer(
+        allocator: nil,
+        imageBuffer: ziel,
+        formatDescription: format,
+        sampleTiming: &timing,
+        sampleBufferOut: &ergebnis
+      ) == noErr
+    else { return nil }
+    return ergebnis
   }
 
   func schreibeTon(_ puffer: CMSampleBuffer) {
