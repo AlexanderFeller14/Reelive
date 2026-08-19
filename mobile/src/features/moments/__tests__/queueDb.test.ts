@@ -52,6 +52,12 @@ jest.mock('expo-sqlite', () => ({
   openDatabaseAsync: (...a: unknown[]) => mockOpenDatabaseAsync(...a),
 }));
 
+// Fester Documents-Ort für die Pfad-Übersetzung (queuePfade.ts): die Tests
+// unten prüfen die Rückverwandlung gegen genau diesen Anker.
+jest.mock('expo-file-system', () => ({
+  Paths: { document: { uri: 'file:///container-NEU/Documents/' } },
+}));
+
 import {
   initQueue,
   jobHinzufuegen,
@@ -145,6 +151,50 @@ test('jobHinzufuegen schreibt alle Felder', async () => {
   expect(sql).toContain('insert');
   expect(werte).toContain('j1');
   expect(werte).toContain('trips/t1/p1.jpg');
+});
+
+// === Relative Pfade (Fix 2026-08-18) ===
+// Die Container-UUID im Documents-Pfad wechselt mit jedem App-Neubau; absolut
+// gespeicherte Pfade zeigten danach ins Leere, und am 2026-08-17 verwarf der
+// Worker so vier wartende Momente als «Datei fehlt». Die Datenbank hält
+// deshalb nur noch den Teil unterhalb von Documents (queuePfade.ts) und löst
+// beim Lesen gegen den aktuellen Ort auf.
+test('jobHinzufuegen legt Medium- und Thumb-Pfad relativ zu Documents ab', async () => {
+  await jobHinzufuegen({
+    ...job,
+    medium_uri: 'file:///container-NEU/Documents/momente/p1/medium.jpg',
+    thumb_uri: 'file:///container-NEU/Documents/momente/p1/thumb.jpg',
+  });
+  const [sql, werte] = mockRunAsync.mock.calls[0] as [string, unknown[]];
+  const spalten = spaltenAusInsertSql(sql);
+  expect(werte[spalten.indexOf('medium_uri')]).toBe('momente/p1/medium.jpg');
+  expect(werte[spalten.indexOf('thumb_uri')]).toBe('momente/p1/thumb.jpg');
+});
+
+test('alleJobs löst relative Pfade gegen den aktuellen Documents-Ort auf', async () => {
+  zeilen.push({
+    ...job,
+    medium_uri: 'momente/p1/medium.jpg',
+    thumb_uri: 'momente/p1/thumb.jpg',
+  });
+  const [gelesen] = await alleJobs();
+  expect(gelesen.medium_uri).toBe('file:///container-NEU/Documents/momente/p1/medium.jpg');
+  expect(gelesen.thumb_uri).toBe('file:///container-NEU/Documents/momente/p1/thumb.jpg');
+});
+
+// Alt-Zeilen von vor dem Fix tragen den absoluten Pfad der DAMALIGEN
+// Installation. Sie werden beim Lesen neu verankert — iOS nimmt die Dateien
+// unter Documents beim Update ja mit, nur die Container-UUID im Pfad stimmt
+// nicht mehr.
+test('alleJobs verankert absolute Alt-Zeilen am aktuellen Documents-Ort neu', async () => {
+  zeilen.push({
+    ...job,
+    medium_uri: 'file:///container-ALT/Documents/momente/p1/medium.jpg',
+    thumb_uri: 'file:///container-ALT/Documents/momente/p1/thumb.jpg',
+  });
+  const [gelesen] = await alleJobs();
+  expect(gelesen.medium_uri).toBe('file:///container-NEU/Documents/momente/p1/medium.jpg');
+  expect(gelesen.thumb_uri).toBe('file:///container-NEU/Documents/momente/p1/thumb.jpg');
 });
 
 // Finding 3a: Boolean-Übersetzung positionsgenau und in beide Richtungen geprüft

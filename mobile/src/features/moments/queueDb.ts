@@ -1,6 +1,7 @@
 import * as SQLite from 'expo-sqlite';
 import type { SQLiteDatabase } from 'expo-sqlite';
 
+import { fuerAblage, fuerLesen } from './queuePfade';
 import type { JobZustand, QueueJob, VerworfenerMoment } from './types';
 
 // Einzige Stelle im Projekt, die zwischen SQLite-Zeile und QueueJob übersetzt.
@@ -87,8 +88,11 @@ function zuZeile(job: QueueJob): Zeile {
     trip_id: job.trip_id,
     author_id: job.author_id,
     typ: job.typ,
-    medium_uri: job.medium_uri,
-    thumb_uri: job.thumb_uri,
+    // Nur der Teil unterhalb von Documents (queuePfade.ts): der absolute
+    // Pfad trägt die Container-UUID der Installation und stirbt mit jedem
+    // App-Neubau.
+    medium_uri: fuerAblage(job.medium_uri),
+    thumb_uri: fuerAblage(job.thumb_uri),
     storage_key: job.storage_key,
     thumb_key: job.thumb_key,
     caption: job.caption,
@@ -133,8 +137,10 @@ function zuJob(zeile: Record<string, unknown>): QueueJob | null {
     trip_id: zeile.trip_id as string,
     author_id: zeile.author_id as string,
     typ: zeile.typ as QueueJob['typ'],
-    medium_uri: zeile.medium_uri as string,
-    thumb_uri: zeile.thumb_uri as string,
+    // Gegen den AKTUELLEN Documents-Ort aufgelöst; absolute Alt-Zeilen von
+    // vor dem 2026-08-18-Fix werden dabei neu verankert (queuePfade.ts).
+    medium_uri: fuerLesen(zeile.medium_uri as string),
+    thumb_uri: fuerLesen(zeile.thumb_uri as string),
     storage_key: zeile.storage_key as string,
     thumb_key: zeile.thumb_key as string,
     caption: (zeile.caption as string | null) ?? null,

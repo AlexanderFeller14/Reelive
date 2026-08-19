@@ -3,7 +3,10 @@ import { Directory, File, Paths } from 'expo-file-system';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import { getThumbnailAsync } from 'expo-video-thumbnails';
 
-const FOTO_MAX_KANTE = 1080;
+// 1920 statt 1080 (Wunsch 2026-08-18): Fotos sollen nicht deutlich weicher
+// sein als die 1080×1920-Videos daneben. Kostet rund das Dreifache an
+// Foto-Speicher pro Moment.
+const FOTO_MAX_KANTE = 1920;
 const THUMB_MAX_KANTE = 320;
 const JPEG_QUALITAET = 0.8;
 

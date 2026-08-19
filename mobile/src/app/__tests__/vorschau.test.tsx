@@ -16,6 +16,7 @@ let mockParams: Record<string, string | undefined> = {
   tripId: 't1',
 };
 const mockStackScreenOptionen = jest.fn();
+const mockSetOptions = jest.fn();
 jest.mock('expo-router', () => ({
   useRouter: () => ({
     replace: mockReplace,
@@ -23,6 +24,7 @@ jest.mock('expo-router', () => ({
     push: jest.fn(),
     canGoBack: () => mockKannZurueck,
   }),
+  useNavigation: () => ({ setOptions: mockSetOptions }),
   useLocalSearchParams: () => mockParams,
   Stack: {
     Screen: (props: { options?: object }) => {
@@ -697,6 +699,20 @@ test('Verwerfen reiht nichts ein, räumt die Rohaufnahme weg und geht zurück zu
   expect(mockFotoAufbereiten).not.toHaveBeenCalled();
   // Critical 2: auch dieser Weg hinterliess bisher eine Datei im Cache.
   expect(mockDateiVerwerfen).toHaveBeenCalledWith('file://foto.jpg');
+  expect(mockBack).toHaveBeenCalledTimes(1);
+});
+
+// Hin- UND Rückweg sind Instant-Schnitte (Nutzer-Entscheid 2026-08-18: «man
+// sollte instant zurück sein» — ein probierter 250-ms-Fade flog wieder
+// raus). Dieser Test hält die Entscheidung fest: das Verwerfen stellt KEINE
+// Abgangs-Animation um, es geht einfach zurück.
+test('Verwerfen geht instant zurück, ohne eine Abgangs-Animation umzustellen', async () => {
+  mockOrtBestimmen.mockResolvedValue({ lat: null, lng: null, place_name: null });
+  await render(<PreviewScreen />);
+
+  await fireEvent.press(screen.getByTestId('verwerfen-knopf'));
+
+  expect(mockSetOptions).not.toHaveBeenCalled();
   expect(mockBack).toHaveBeenCalledTimes(1);
 });
 

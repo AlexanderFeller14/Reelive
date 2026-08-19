@@ -213,26 +213,28 @@ test('neuePostId liefert eine UUID', () => {
   expect(neuePostId()).toBe('uuid-fest');
 });
 
+// Lange Kante 1920 statt 1080 (Wunsch 2026-08-18): Fotos sollen nicht
+// deutlich weicher sein als die 1080×1920-Videos daneben.
 test('fotoAufbereiten skaliert bei Querformat die Breite auf die lange Kante', async () => {
   const { medium, thumb } = await fotoAufbereiten('file:///quer.jpg');
-  expect(mockResize).toHaveBeenNthCalledWith(1, { width: 1080 });
+  expect(mockResize).toHaveBeenNthCalledWith(1, { width: 1920 });
   expect(mockResize).toHaveBeenNthCalledWith(2, { width: 320 });
-  expect(medium).toBe('file:///bearbeitet-1080x810.jpg');
+  expect(medium).toBe('file:///bearbeitet-1920x1440.jpg');
   expect(thumb).toBe('file:///bearbeitet-320x240.jpg');
 });
 
 // Regressionsschutz gegen den ursprünglichen Fehler: ein Rückfall auf
-// "immer resize({ width })" würde hier die Höhe (1440 statt 1080) und damit
+// "immer resize({ width })" würde hier die Höhe (2560 statt 1920) und damit
 // die lange Kante überschreiten lassen, statt sie zu deckeln.
 test('fotoAufbereiten skaliert bei Hochformat die Höhe auf die lange Kante', async () => {
   const { medium, thumb } = await fotoAufbereiten('file:///hoch.jpg');
-  expect(mockResize).toHaveBeenNthCalledWith(1, { height: 1080 });
+  expect(mockResize).toHaveBeenNthCalledWith(1, { height: 1920 });
   expect(mockResize).toHaveBeenNthCalledWith(2, { height: 320 });
-  expect(medium).toBe('file:///bearbeitet-810x1080.jpg');
+  expect(medium).toBe('file:///bearbeitet-1440x1920.jpg');
   expect(thumb).toBe('file:///bearbeitet-240x320.jpg');
 
   const [breiteStr, hoeheStr] = medium.replace('file:///bearbeitet-', '').replace('.jpg', '').split('x');
-  expect(Math.max(Number(breiteStr), Number(hoeheStr))).toBeLessThanOrEqual(1080);
+  expect(Math.max(Number(breiteStr), Number(hoeheStr))).toBeLessThanOrEqual(1920);
 });
 
 test('fotoAufbereiten skaliert ein bereits kleineres Bild nicht hoch', async () => {

@@ -10,12 +10,12 @@ import * as React from 'react';
 // Tabs-Renderer, Icon-Layout, Safe-Area) und würde hier nur Rauschen
 // erzeugen, ohne die eigentliche Zusicherung (welcher `display`-Wert für
 // welche Route) schärfer zu machen.
-let letzteScreenOptions: { tabBarStyle?: { display?: string } } | undefined;
+let letzteScreenOptions: unknown;
 let letzteScreenListeners: { tabPress?: (e: { preventDefault: () => void }) => void } | undefined;
 const mockUseSegments = jest.fn(() => ['(tabs)'] as string[]);
 jest.mock('expo-router', () => {
   function Tabs(props: { screenOptions: unknown; screenListeners?: unknown; children: React.ReactNode }) {
-    letzteScreenOptions = props.screenOptions as typeof letzteScreenOptions;
+    letzteScreenOptions = props.screenOptions;
     letzteScreenListeners = props.screenListeners as typeof letzteScreenListeners;
     return null;
   }
@@ -26,20 +26,39 @@ jest.mock('expo-router', () => {
   };
 });
 
+// Seit die Kino-Leiste am GEWÄHLTEN Tab hängt, sind die screenOptions eine
+// Funktion der Route (der Renderer nimmt die Options des fokussierten Tabs).
+// Dieser Helfer löst beides auf, Objekt wie Funktion, und macht die Tests
+// von der Form unabhängig.
+type GeleseneOptions = {
+  tabBarStyle?: { display?: string; position?: string; backgroundColor?: string; borderTopWidth?: number };
+  tabBarBackground?: unknown;
+};
+function optionenFuer(routeName: string): GeleseneOptions | undefined {
+  if (typeof letzteScreenOptions === 'function') {
+    return (letzteScreenOptions as (ctx: { route: { name: string } }) => GeleseneOptions)({
+      route: { name: routeName },
+    });
+  }
+  return letzteScreenOptions as GeleseneOptions | undefined;
+}
+
 import TabsLayout from '../_layout';
 import * as aufnahmeSperre from '@/features/kamera/aufnahmeSperre';
+import * as kinoBuehne from '@/features/kamera/kinoBuehne';
 
 beforeEach(() => {
   letzteScreenOptions = undefined;
   letzteScreenListeners = undefined;
   mockUseSegments.mockReturnValue(['(tabs)']);
   aufnahmeSperre.sperren(false);
+  kinoBuehne.setzen(false);
 });
 
 test('auf einer beliebigen Nicht-Player-Route bleibt die Tab-Bar sichtbar', async () => {
   mockUseSegments.mockReturnValue(['(tabs)', 'recap']);
   await render(<TabsLayout />);
-  expect(letzteScreenOptions?.tabBarStyle?.display).not.toBe('none');
+  expect(optionenFuer('recap')?.tabBarStyle?.display).not.toBe('none');
 });
 
 // Der eigentliche Final-Review-Fund: der Recap-Player ist laut Spec §8.2
@@ -47,7 +66,7 @@ test('auf einer beliebigen Nicht-Player-Route bleibt die Tab-Bar sichtbar', asyn
 test('auf der Player-Route (recap/[id]/player) wird die Tab-Bar abgeschaltet', async () => {
   mockUseSegments.mockReturnValue(['(tabs)', 'recap', '[id]', 'player']);
   await render(<TabsLayout />);
-  expect(letzteScreenOptions?.tabBarStyle?.display).toBe('none');
+  expect(optionenFuer('recap')?.tabBarStyle?.display).toBe('none');
 });
 
 // Mutationsschutz: ein zu grosszügiger Vergleich (z.B. nur segments[1] ===
@@ -58,7 +77,7 @@ test('auf der Player-Route (recap/[id]/player) wird die Tab-Bar abgeschaltet', a
 test('eine andere Route im selben Tab (recap/[id]/uebersicht) behält die Tab-Bar', async () => {
   mockUseSegments.mockReturnValue(['(tabs)', 'recap', '[id]', 'uebersicht']);
   await render(<TabsLayout />);
-  expect(letzteScreenOptions?.tabBarStyle?.display).not.toBe('none');
+  expect(optionenFuer('recap')?.tabBarStyle?.display).not.toBe('none');
 });
 
 // Task 11 (Phase 7): die Karte bekommt die Ausnahme des Players ausdrücklich
@@ -80,7 +99,7 @@ test('eine andere Route im selben Tab (recap/[id]/uebersicht) behält die Tab-Ba
 test('die Karte (recap/[id]/karte) behält die Tab-Bar, sie ist kein Vollbild-Medienscreen', async () => {
   mockUseSegments.mockReturnValue(['(tabs)', 'recap', '[id]', 'karte']);
   await render(<TabsLayout />);
-  expect(letzteScreenOptions?.tabBarStyle?.display).not.toBe('none');
+  expect(optionenFuer('recap')?.tabBarStyle?.display).not.toBe('none');
 });
 
 // Gegenprobe in die andere Richtung: ein "player"-Segment ausserhalb von
@@ -90,7 +109,7 @@ test('die Karte (recap/[id]/karte) behält die Tab-Bar, sie ist kein Vollbild-Me
 test('ein "player"-Segment ausserhalb von recap/[id]/ schaltet die Tab-Bar NICHT ab', async () => {
   mockUseSegments.mockReturnValue(['(tabs)', 'aufnehmen', 'player']);
   await render(<TabsLayout />);
-  expect(letzteScreenOptions?.tabBarStyle?.display).not.toBe('none');
+  expect(optionenFuer('aufnehmen')?.tabBarStyle?.display).not.toBe('none');
 });
 
 // Der Kamera-Screen behält die Leiste: Er ist der Tab, von dem aus man in die
@@ -106,7 +125,68 @@ test('ein "player"-Segment ausserhalb von recap/[id]/ schaltet die Tab-Bar NICHT
 test('der Kamera-Screen (aufnehmen) behält die Tab-Bar', async () => {
   mockUseSegments.mockReturnValue(['(tabs)', 'aufnehmen']);
   await render(<TabsLayout />);
-  expect(letzteScreenOptions?.tabBarStyle?.display).not.toBe('none');
+  expect(optionenFuer('aufnehmen')?.tabBarStyle?.display).not.toBe('none');
+});
+
+// === Kino-Leiste über dem Sucher (Gerätefund 2026-08-18) ===
+// Sucher und Vorschau zeichnen beide mit `cover`, aber in verschieden hohe
+// Flächen: die Vorschau (Vollbild) zeigte ~10 % weniger Bildbreite als der
+// Sucher (Vollbild minus Leiste) — «mehr gecropt als bevor ich auslöse».
+// Zeigt der Kamera-Screen den Sucher (kinoBuehne), legt sich die Leiste
+// deshalb ALS durchscheinende Fläche ÜBER das Kamerabild (position
+// absolute), statt ihm Platz wegzunehmen: beide Flächen sind dann gleich
+// gross, was man sieht, ist was man bekommt.
+test('zeigt der Sucher (kinoBuehne), liegt die Leiste durchscheinend über dem Bild', async () => {
+  kinoBuehne.setzen(true);
+  mockUseSegments.mockReturnValue(['(tabs)', 'aufnehmen']);
+  await render(<TabsLayout />);
+  const optionen = optionenFuer('aufnehmen');
+  expect(optionen?.tabBarStyle?.position).toBe('absolute');
+  expect(optionen?.tabBarStyle?.backgroundColor).toBe('transparent');
+  expect(optionen?.tabBarStyle?.borderTopWidth).toBe(0);
+  // Die Tönung+Blur kommt als eigener Hintergrund (Pille-Rezept, §1).
+  expect(optionen?.tabBarBackground).toBeDefined();
+});
+
+test('ohne Sucher (helle Zustände des Tabs) bleibt die Leiste die normale helle', async () => {
+  mockUseSegments.mockReturnValue(['(tabs)', 'aufnehmen']);
+  await render(<TabsLayout />);
+  const optionen = optionenFuer('aufnehmen');
+  expect(optionen?.tabBarStyle?.position).not.toBe('absolute');
+  expect(optionen?.tabBarBackground).toBeUndefined();
+});
+
+// Der Instant-Rückweg aus der Vorschau (Nutzer-Entscheid 2026-08-18): die
+// Vorschau überdeckt den Tab, dessen Blur-Cleanup das Sucher-Zeichen früher
+// zurücknahm — die Leiste fiel unsichtbar in die helle Form und sprang beim
+// Zurückkommen im ersten Frame sichtbar um. Die Kino-Form hängt deshalb am
+// GEWÄHLTEN Tab (route.name), nicht am Fokus: solange aufnehmen der gewählte
+// Tab ist, bleibt sie stehen, auch mit einer Vorschau darüber.
+test('mit stehendem Sucher-Zeichen bleibt die Kino-Leiste, solange aufnehmen der gewählte Tab ist', async () => {
+  kinoBuehne.setzen(true);
+  // Fokus liegt auf der Vorschau (Root-Stack), nicht im Tab-Navigator.
+  mockUseSegments.mockReturnValue(['vorschau']);
+  await render(<TabsLayout />);
+  expect(optionenFuer('aufnehmen')?.tabBarStyle?.position).toBe('absolute');
+});
+
+test('auf einem ANDEREN gewählten Tab gilt trotz Sucher-Zeichen die normale Leiste', async () => {
+  kinoBuehne.setzen(true);
+  mockUseSegments.mockReturnValue(['(tabs)', 'reise']);
+  await render(<TabsLayout />);
+  const optionen = optionenFuer('reise');
+  expect(optionen?.tabBarStyle?.position).not.toBe('absolute');
+  expect(optionen?.tabBarBackground).toBeUndefined();
+});
+
+// Die Player-Ausnahme schlägt die Kino-Leiste: Vollbild heisst keine Leiste,
+// auch wenn das Sucher-Zeichen (etwa durch eine liegen gebliebene Meldung)
+// noch stünde.
+test('auf der Player-Route bleibt die Leiste auch mit gesetztem Sucher-Zeichen abgeschaltet', async () => {
+  kinoBuehne.setzen(true);
+  mockUseSegments.mockReturnValue(['(tabs)', 'recap', '[id]', 'player']);
+  await render(<TabsLayout />);
+  expect(optionenFuer('recap')?.tabBarStyle?.display).toBe('none');
 });
 
 // Während einer laufenden Aufnahme (Foto-Zyklus oder Video, der Kamera-Screen

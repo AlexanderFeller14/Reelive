@@ -1,25 +1,21 @@
+import { useSyncExternalStore } from 'react';
 import { StyleSheet } from 'react-native';
 import { Tabs, useSegments } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Camera, Map, Play, User } from 'lucide-react-native';
+import { Pille } from '@/components/Pille';
 import { useTheme } from '@/theme/ThemeProvider';
-import { spacing, type } from '@/theme/tokens';
+import { cinema, type } from '@/theme/tokens';
 import * as aufnahmeSperre from '@/features/kamera/aufnahmeSperre';
+import * as kinoBuehne from '@/features/kamera/kinoBuehne';
 
-// Die UIKit-Standardhöhe der Tab-Bar in React Navigation (49 Punkte Inhalt,
-// der Home-Indicator-Streifen kommt als Safe-Area-Inset obendrauf). Der Wert
-// steht als Konstante in expo-routers mitgeliefertem Bottom-Tabs-Renderer
-// (`TABBAR_HEIGHT_UIKIT`), wird von dort aber nicht exportiert, darum hier
-// nachgezogen. Nur portrait relevant: die App ist laut app.json auf
-// `portrait` festgelegt, die schmalere Landscape-Variante (32) kann nicht
-// auftreten.
-const TAB_BAR_INHALT = 49;
-
-// DESIGN-LANGUAGE §3 (4er-Raster): ein Rasterschritt Luft zwischen Hairline
-// und Icon. Die Items des Renderers stehen mit `justifyContent: 'flex-start'`
-// und 5 Punkten Innenabstand oben in der Leiste, am Gerät klebten Icon und
-// Label dadurch an der Trennlinie.
-const LUFT_OBEN = spacing.s;
+// Höhe und Luft der Leiste wohnen in kinoBuehne.ts (LEISTE_INHALT,
+// LEISTE_LUFT_OBEN, leisteHoehe): der Kamera-Screen hebt seine unteren
+// Bedienelemente um genau diese Höhe, sobald die Leiste als Overlay über dem
+// Sucher liegt — eine geteilte Formel statt zweier Zahlen, die
+// auseinanderlaufen können. Die Begründung der Werte (UIKit-Konstante 49,
+// ein Rasterschritt Luft über den Icons) steht dort.
+const LUFT_OBEN = kinoBuehne.LEISTE_LUFT_OBEN;
 
 // DESIGN-LANGUAGE v2 §4: Tab-Bar volle Breite, bg-0, 1 px Hairline oben,
 // keine Rundung (die schwebende v1-Pille entfällt). Aktiv accent, inaktiv text-2.
@@ -50,6 +46,21 @@ export default function TabsLayout() {
   // Renderer für `useBottomTabBarHeight()` liest, Screens rechnen also weiter
   // mit dem richtigen Wert.
   const { bottom } = useSafeAreaInsets();
+  // Zeigt der Kamera-Screen den Sucher, legt sich die Leiste durchscheinend
+  // ÜBER das Bild statt ihm Platz wegzunehmen (Gerätefund 2026-08-18): Sucher
+  // und Aufnahme-Vorschau zeichnen beide mit `cover`, aber vorher in
+  // verschieden hohe Flächen — die Vorschau zeigte dadurch ~10 % weniger
+  // Bildbreite als der Sucher («mehr gecropt als bevor ich auslöse»). Mit der
+  // Leiste als Overlay sind beide Flächen gleich, was man sieht, ist was man
+  // bekommt. Der Screen meldet über kinoBuehne nur, OB der Sucher steht (die
+  // hellen Zustände des Tabs behalten die normale Leiste); an WELCHEM Tab die
+  // Kino-Form gilt, entscheidet unten die Route der screenOptions-Funktion.
+  // Der Fokus taugt dafür nämlich nicht: die Aufnahme-Vorschau überdeckt den
+  // Tab (Blur), die Leiste fiele unsichtbar in die helle Form zurück und
+  // spränge beim Instant-Rückweg im ersten Frame sichtbar um — genau der
+  // unsaubere Übergang aus dem Gerätefund. Solange aufnehmen der GEWÄHLTE
+  // Tab ist, bleibt die Kino-Leiste deshalb stehen, Vorschau hin oder her.
+  const sucherSichtbar = useSyncExternalStore(kinoBuehne.abonnieren, kinoBuehne.lesen);
   return (
     <Tabs
       // Während einer laufenden Aufnahme (Foto-Zyklus oder Video) läuft ein
@@ -66,21 +77,48 @@ export default function TabsLayout() {
           if (aufnahmeSperre.istGesperrt()) e.preventDefault();
         },
       }}
-      screenOptions={{
-        headerShown: false,
-        sceneStyle: { backgroundColor: colors['bg-0'] },
-        tabBarActiveTintColor: colors.accent,
-        tabBarInactiveTintColor: colors['text-2'],
-        tabBarLabelStyle: type.tab,
-        tabBarStyle: aufPlayerRoute
-          ? { display: 'none' }
-          : {
-              backgroundColor: colors['bg-0'],
-              borderTopWidth: StyleSheet.hairlineWidth,
-              borderTopColor: colors.line,
-              paddingTop: LUFT_OBEN,
-              height: TAB_BAR_INHALT + LUFT_OBEN + bottom,
-            },
+      screenOptions={({ route }) => {
+        // Kino-Form nur, wenn aufnehmen der GEWÄHLTE Tab ist UND der Sucher
+        // steht. Der Renderer nimmt die Options des fokussierten Tabs — die
+        // Route hier IST die Tab-Wahl, und die ändert sich nicht, wenn die
+        // Vorschau den Navigator nur überdeckt.
+        const kino = route.name === 'aufnehmen' && sucherSichtbar;
+        return {
+          headerShown: false,
+          sceneStyle: { backgroundColor: colors['bg-0'] },
+          tabBarActiveTintColor: colors.accent,
+          // Über dem Kamerabild braucht Inaktives die Kino-Textfarbe, das
+          // helle Grau von text-2 stünde sonst auf dunklem Blur.
+          tabBarInactiveTintColor: kino ? cinema['text-2'] : colors['text-2'],
+          tabBarStyle: aufPlayerRoute
+            ? { display: 'none' as const }
+            : kino
+              ? {
+                  // Overlay statt Fläche: `absolute` nimmt die Leiste aus dem
+                  // Layout, der Sucher darunter bekommt den ganzen Bildschirm.
+                  // Hintergrund übernimmt tabBarBackground (Pille-Rezept),
+                  // keine Hairline auf dem Bild.
+                  position: 'absolute' as const,
+                  backgroundColor: 'transparent',
+                  borderTopWidth: 0,
+                  paddingTop: LUFT_OBEN,
+                  height: kinoBuehne.leisteHoehe(bottom),
+                }
+              : {
+                  backgroundColor: colors['bg-0'],
+                  borderTopWidth: StyleSheet.hairlineWidth,
+                  borderTopColor: colors.line,
+                  paddingTop: LUFT_OBEN,
+                  height: kinoBuehne.leisteHoehe(bottom),
+                },
+          // DESIGN-LANGUAGE §1: UI auf dem Bild nur translucent
+          // (rgba(19,17,16,0.55) + Blur 10) — exakt das Pille-Rezept, nur
+          // ohne Rundung (§4: Tab-Bar keine Rundung).
+          tabBarBackground: kino
+            ? () => <Pille style={StyleSheet.absoluteFill} pointerEvents="none" />
+            : undefined,
+          tabBarLabelStyle: type.tab,
+        };
       }}
     >
       <Tabs.Screen name="aufnehmen" options={{ title: 'Aufnehmen', tabBarIcon: ({ color }) => <Camera color={color} strokeWidth={1.75} /> }} />
