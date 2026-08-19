@@ -28,7 +28,7 @@ export function useTopInset(basis: number): number {
 //
 // `Math.max` again instead of addition, so devices with a home button and
 // the web keep their designed spacing (there `bottom` is simply 0).
-export function useUnterkante(basis: number): number {
+export function useBottomInset(basis: number): number {
   const { bottom } = useSafeAreaInsets();
   return Math.max(basis, bottom + spacing.base);
 }

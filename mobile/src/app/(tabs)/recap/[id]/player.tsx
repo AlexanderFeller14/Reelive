@@ -25,7 +25,7 @@ import { Pille } from '@/components/Pille';
 import { Sheet } from '@/components/Sheet';
 import { Input } from '@/components/Input';
 import { cinema, motion, palette, radius, spacing, type } from '@/theme/tokens';
-import { useTopInset, useUnterkante } from '@/theme/useTopInset';
+import { useTopInset, useBottomInset } from '@/theme/useTopInset';
 import { useReducedMotion } from '@/theme/useReducedMotion';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { fetchTrip } from '@/features/trips/tripsApi';
@@ -389,7 +389,7 @@ export default function RecapPlayer() {
   // Home-Indicator. Die gestalteten 32 aus dem StyleSheet reichten am Geraet
   // nicht: die Fortschrittssegmente lagen unter der Dynamic Island.
   const oberkante = useTopInset(spacing.xl);
-  const unterkante = useUnterkante(spacing.xl);
+  const unterkante = useBottomInset(spacing.xl);
   const { userId } = useAuth();
 
   const [phase, setPhase] = useState<LadePhase>('laedt');

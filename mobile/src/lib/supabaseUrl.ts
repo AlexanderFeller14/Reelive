@@ -19,35 +19,35 @@ import Constants from 'expo-constants';
 // Bonjour names. Everything else is a real address and never gets
 // touched: otherwise a development build would suddenly point at its own
 // machine, even though it's meant to run against the hosted instance.
-const LOKAL = /^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/;
+const LOCAL = /^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/;
 
-function istLokal(host: string): boolean {
-  return LOKAL.test(host) || host.endsWith('.local');
+function isLocal(host: string): boolean {
+  return LOCAL.test(host) || host.endsWith('.local');
 }
 
 /**
- * @param konfiguriert  Value from `EXPO_PUBLIC_SUPABASE_URL`.
+ * @param configured  Value from `EXPO_PUBLIC_SUPABASE_URL`.
  * @param metroHostUri  Sender of the bundle, in the form `192.168.1.213:8081`.
- * @param imEntwicklungsmodus  `__DEV__`.
+ * @param devMode  `__DEV__`.
  */
 export function currentBaseUrl(
-  konfiguriert: string | undefined,
+  configured: string | undefined,
   metroHostUri: string | null | undefined,
-  imEntwicklungsmodus: boolean
+  devMode: boolean
 ): string | undefined {
-  if (!konfiguriert || !imEntwicklungsmodus || !metroHostUri) return konfiguriert;
+  if (!configured || !devMode || !metroHostUri) return configured;
 
   const metroHost = metroHostUri.split(':')[0];
-  if (!metroHost) return konfiguriert;
+  if (!metroHost) return configured;
 
   // Parsed by hand instead of via `new URL`: React Native's URL polyfill is
   // incomplete, and the hostname setter is one of the parts that can't be
   // relied on.
-  const teile = konfiguriert.match(/^(\w+:\/\/)([^/:]+)(:\d+)?(.*)$/);
-  if (!teile) return konfiguriert;
+  const parts = configured.match(/^(\w+:\/\/)([^/:]+)(:\d+)?(.*)$/);
+  if (!parts) return configured;
 
-  const [, schema, host, port = '', rest] = teile;
-  if (!istLokal(host)) return konfiguriert;
+  const [, schema, host, port = '', rest] = parts;
+  if (!isLocal(host)) return configured;
   return `${schema}${metroHost}${port}${rest}`;
 }
 

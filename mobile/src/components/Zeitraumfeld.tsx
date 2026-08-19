@@ -6,7 +6,7 @@ import { Kalender } from '@/components/Kalender';
 import { PressScale } from '@/components/PressScale';
 import { useTheme } from '@/theme/ThemeProvider';
 import { palette, radius, spacing, type } from '@/theme/tokens';
-import { useTopInset, useUnterkante } from '@/theme/useTopInset';
+import { useTopInset, useBottomInset } from '@/theme/useTopInset';
 import { naechsteAuswahl, zeitraumLabel, type Auswahl } from '@/features/trips/kalender';
 import { formatRange } from '@/features/trips/tripDay';
 
@@ -27,7 +27,7 @@ export function Zeitraumfeld({ wert, onAendern, fehler, heute }: Props) {
   // Home-Indicator. Ein fester Abstand nach unten liesse «Übernehmen» darunter
   // geraten.
   const oben = useTopInset(spacing.l);
-  const unten = useUnterkante(spacing.l);
+  const unten = useBottomInset(spacing.l);
   const [offen, setOffen] = useState(false);
   // Der Entwurf lebt nur, solange das Sheet offen ist. Erst «Übernehmen» meldet
   // nach oben, ein Abbruch verwirft ihn folgenlos. Deshalb setzt ihn `oeffnen`

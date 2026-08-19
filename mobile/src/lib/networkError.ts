@@ -14,8 +14,8 @@ export const OFFLINE_HINT = 'Du bist offline. Verbinde dich und probier es nochm
 // applies on the target device. The pattern therefore checks both
 // wordings; a genuine Postgres/PostgREST error ("new row violates
 // row-level security policy ...") contains neither.
-const OFFLINE_MUSTER = /fetch|network request failed/i;
+const OFFLINE_PATTERN = /fetch|network request failed/i;
 
 export function istOffline(error: { message?: string } | null | undefined): boolean {
-  return OFFLINE_MUSTER.test(error?.message ?? '');
+  return OFFLINE_PATTERN.test(error?.message ?? '');
 }

@@ -7,7 +7,36 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const STAEMME =
-  /reise|moment[ea]|siegel|karte|kamera|konto|teilen|geteilt|fehler|zaehl|vorrat|nadel|bild|tage|uhrzeit|vorschau|uebersicht|einlad|aufnahme|aufnehm|ausloes|zuschnitt|gesehen|melden|sozial|texte|typen|einstellung|medien|verworfen|pfade|sperre|buehne|uebergabe|gruppier|ausschnitt|flaeche|inhalt|zeile|balken|fortschritt|pille|kalender|zeitraum|feld|platzhalter|gebunden|netz|adresse|entfern|loesch|anleg|laden|speicher|pruef|erstell|senden|abzieh|inszenier|versiegel|wechsel|dateien|zurueck|weiter|abbrech|oberkante|waehler|wahl|ort|zeit|anfrage|antwort|zugriff|aufloesung|benachrichtig|verwaltung|zeitplan|geheim|basis|nutzer|hole|setze|baue|rufe/i;
+  /reise|moment[ea]|siegel|karte|kamera|konto|teilen|geteilt|fehler|zaehl|vorrat|nadel|bild|tage|uhrzeit|vorschau|uebersicht|einlad|aufnahme|aufnehm|ausloes|zuschnitt|gesehen|melden|sozial|texte|typen|einstellung|medien|verworfen|pfade|sperre|buehne|uebergabe|gruppier|ausschnitt|flaeche|inhalt|zeile|balken|fortschritt|pille|kalender|zeitraum|feld|platzhalter|gebunden|netz|adresse|entfern|loesch|anleg|laden|speicher|pruef|erstell|senden|abzieh|inszenier|versiegel|wechsel|dateien|zurueck|weiter|abbrech|oberkante|waehler|wahl|ort|zeit|anfrage|antwort|zugriff|aufloesung|benachrichtig|verwaltung|zeitplan|geheim|basis|nutzer|hole|setze|baue|rufe|unterkante|kontext|muster|lade|lokal|konfigur|entwicklung|teil|anzeige|frisch|aktiv|kette|abonn|gast|leer|voll|halb|klein|gross/i;
+
+// Fix-Runde 1 (Task-3-Review): kurze Staemme wie "alt", "neu", "mit",
+// "stand", "modul", "alter", "abo" kollidieren leicht mit englischen
+// Woertern, in denen sie nur ein Praefix sind ("alternative", "neutral",
+// "understand", "NativeModules", "commit", "about"). Deshalb nur als
+// eigenstaendiges CamelCase-Wortsegment werten: Segmentanfang
+// (Identifier-Anfang, ein Nicht-Buchstabe davor, oder ein Grossbuchstabe
+// signalisiert den Anfang selbst) UND Segmentende (Identifier-Ende, ein
+// Nicht-Buchstabe, oder ein Grossbuchstabe danach, nie ein
+// Kleinbuchstabe). Loest NICHT den Fall, dass ein Segment wortgleich,
+// aber eigentlich englisch ist (z.B. "altKey", "gross") -- das bleibt
+// eine bekannte, mit Absicht in Kauf genommene Grenze, dort entscheidet
+// beim naechsten Fund ein Mensch. "teil" bleibt bewusst ein einfacher,
+// nicht eingegrenzter Stamm: die eingegrenzte Form wuerde legitime
+// deutsche Beugungen wie "teile"/"teilen" (Stamm + Kleinbuchstaben-Endung)
+// mit demselben Muster verwerfen, das englische Praefix-Kollisionen
+// vermeiden soll -- beides sieht fuer eine reine Buchstabenform gleich
+// aus, der Unterschied ist nur semantisch (welche Sprache das Ergebnis
+// ist), das kann dieses Muster nicht entscheiden.
+const ci = (s) => [...s].map((z) => `[${z.toLowerCase()}${z.toUpperCase()}]`).join("");
+const grenzstamm = (stamm) => {
+  const erster = stamm[0].toUpperCase();
+  const rest = ci(stamm.slice(1));
+  return `(?:(?<![a-zA-Z])${ci(stamm)}|${erster}${rest})(?![a-z])`;
+};
+const STAEMME_GRENZE = new RegExp(
+  ["alt", "neu", "mit", "stand", "modul", "alter", "abo"].map(grenzstamm).join("|")
+);
+const istDeutscherStamm = (n) => STAEMME.test(n) || STAEMME_GRENZE.test(n);
 
 const [, , ...dateien] = process.argv;
 const WURZEL = resolve(dirname(fileURLToPath(import.meta.url)), "../..") + "/";
@@ -19,7 +48,7 @@ for (const rel of dateien) {
   const sammle = (knoten, art) => {
     for (const k of knoten) {
       const n = k.getName?.();
-      if (n && STAEMME.test(n)) namen.add(`${art}\t${n}`);
+      if (n && istDeutscherStamm(n)) namen.add(`${art}\t${n}`);
     }
   };
   sammle(f.getFunctions(), "function");
@@ -30,7 +59,7 @@ for (const rel of dateien) {
   sammle(f.getEnums(), "enum");
   for (const p of f.getDescendantsOfKind(SyntaxKind.Parameter)) {
     const n = p.getName?.();
-    if (n && STAEMME.test(n)) namen.add(`param\t${n}`);
+    if (n && istDeutscherStamm(n)) namen.add(`param\t${n}`);
   }
   console.log(`\n=== ${rel} (${namen.size}) ===`);
   for (const z of [...namen].sort()) console.log(z);

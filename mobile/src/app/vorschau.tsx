@@ -115,7 +115,7 @@ export default function PreviewScreen() {
   // (Fuss, Fehler, Bildunterschrift) stehen in festen Abstaenden zueinander
   // und muessen deshalb GEMEINSAM ausweichen, sonst ueberlappen sie.
   const oberkante = useTopInset(spacing.xl);
-  // Der Fuss steht bewusst näher am Rand als useUnterkante() vorgibt: Auf
+  // Der Fuss steht bewusst näher am Rand als useBottomInset() vorgibt: Auf
   // diesem Screen trägt er nur EINEN Knopf, und der gehört in Daumenreichweite
   // ans untere Ende. `insets.bottom` heisst «direkt über dem Home-Indicator»,
   // nicht darauf; Geräte ohne Indicator behalten den gestalteten Mindestrand.

@@ -12,11 +12,11 @@
 // start, DSN or not, which would be demonstrably NOT the case for "today"
 // (without any Sentry code) and would literally violate W10.
 // `require()` inside initErrorReporter()/reportError() only loads the
-// package once `aktiv` is actually true (see below); without a DSN the
+// package once `active` is actually true (see below); without a DSN the
 // `@sentry/react-native` file is never executed and the timer never
 // appears.
-type SentryModul = typeof import('@sentry/react-native');
-function ladeSentry(): SentryModul {
+type SentryModule = typeof import('@sentry/react-native');
+function loadSentry(): SentryModule {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   return require('@sentry/react-native');
 }
@@ -29,9 +29,9 @@ function ladeSentry(): SentryModul {
 // warning in the plan: if reportError() blindly called captureException(),
 // no test could prove anymore that WITHOUT a DSN nothing really happens,
 // only that the third-party library currently behaves).
-let aktiv = false;
+let active = false;
 
-// Sets `aktiv = true` on the very first call with a DSN set; every further
+// Sets `active = true` on the very first call with a DSN set; every further
 // call (with or without a DSN) is then a no-op. The root layout calls this
 // function exactly once on module load (see _layout.tsx); the guard here
 // is still needed because the brief (step 4) explicitly requires "with a
@@ -68,11 +68,11 @@ let aktiv = false;
 // including the stack trace) stay unchanged; this is only about
 // automatically captured console/network breadcrumbs.
 export function initErrorReporter(): void {
-  if (aktiv) return;
+  if (active) return;
   const dsn = process.env.EXPO_PUBLIC_SENTRY_DSN;
   if (!dsn) return;
-  aktiv = true;
-  const sentry = ladeSentry();
+  active = true;
+  const sentry = loadSentry();
   sentry.init({
     dsn,
     integrations: (defaults) =>
@@ -86,10 +86,10 @@ export function initErrorReporter(): void {
 
 // `error` is deliberately `unknown`: the typical call site is a catch
 // block, and TypeScript strict types its parameter as `unknown`, not
-// `Error` (it could be anything `throw` throws). `kontext` is optional:
+// `Error` (it could be anything `throw` throws). `context` is optional:
 // extra details useful for debugging (e.g. which screen, which trip_id)
 // end up as `extra` data on the Sentry event.
-export function reportError(error: unknown, kontext?: Record<string, unknown>): void {
-  if (!aktiv) return;
-  ladeSentry().captureException(error, kontext ? { extra: kontext } : undefined);
+export function reportError(error: unknown, context?: Record<string, unknown>): void {
+  if (!active) return;
+  loadSentry().captureException(error, context ? { extra: context } : undefined);
 }
