@@ -1371,8 +1371,8 @@ export default function RecapPlayer() {
               {/* 32 statt Avatars Default 36: unteres Ende der DESIGN-LANGUAGE-§4-Spanne
                   (32–44 px), passend zur kompakten Kopf-Pille — dieselbe Grösse, die
                   die gelöschte lokale AvatarInitiale-Kopie vor Task 9 hier trug. */}
-              <Avatar name={aktivMoment.autor_name} avatarKey={aktivMoment.autor_avatar_key} kino size={32} />
-              <Text style={[type.bodyMedium, { color: cinema['text-1'] }]}>{aktivMoment.autor_name}</Text>
+              <Avatar name={aktivMoment.authorName} avatarKey={aktivMoment.authorAvatarKey} kino size={32} />
+              <Text style={[type.bodyMedium, { color: cinema['text-1'] }]}>{aktivMoment.authorName}</Text>
             </Pille>
             <Pille style={styles.infoPille}>
               <Text style={[type.secondary, { color: cinema['text-1'] }]}>{ortZeitText}</Text>

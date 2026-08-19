@@ -1,0 +1,85 @@
+{
+  "dateien": {
+    "features/karte/typen.ts": "features/map/types.ts",
+    "features/karte/ausschnitt.ts": "features/map/viewport.ts",
+    "features/karte/gruppierung.ts": "features/map/clustering.ts",
+    "features/karte/gruppenTipp.ts": "features/map/clusterTap.ts",
+    "features/karte/kartenPunkte.ts": "features/map/mapPoints.ts",
+    "features/karte/nadel.ts": "features/map/pin.ts",
+    "features/karte/KartenFlaeche.tsx": "features/map/MapSurface.tsx",
+    "features/karte/KartenFlaeche.web.tsx": "features/map/MapSurface.web.tsx",
+    "features/karte/MomentSheet.tsx": "features/map/MomentSheet.tsx",
+    "features/karte/__tests__/ausschnitt.test.ts": "features/map/__tests__/viewport.test.ts",
+    "features/karte/__tests__/gruppierung.test.ts": "features/map/__tests__/clustering.test.ts",
+    "features/karte/__tests__/gruppenTipp.test.ts": "features/map/__tests__/clusterTap.test.ts",
+    "features/karte/__tests__/kartenPunkte.test.ts": "features/map/__tests__/mapPoints.test.ts",
+    "features/karte/__tests__/KartenFlaeche.test.tsx": "features/map/__tests__/MapSurface.test.tsx",
+    "features/karte/__tests__/KartenFlaeche.web.test.tsx": "features/map/__tests__/MapSurface.web.test.tsx",
+    "features/karte/__tests__/MomentSheet.test.tsx": "features/map/__tests__/MomentSheet.test.tsx",
+    "features/karte/__tests__/webModulgraph.test.ts": "features/map/__tests__/webModuleGraph.test.ts"
+  },
+  "symbole": {
+    "features/karte/typen.ts": {
+      "KartenPunkt": "MapPoint",
+      "Ausschnitt": "Viewport",
+      "Gruppe": "Cluster",
+      "KartenFlaecheProps": "MapSurfaceProps",
+      "KartenFlaecheHandle": "MapSurfaceHandle"
+    },
+    "features/karte/ausschnitt.ts": {
+      "RAND": "PADDING",
+      "MINDESTSPANNE": "MIN_SPAN",
+      "laengenSpanne": "longitudeSpan",
+      "ausschnittFuer": "viewportFor"
+    },
+    "features/karte/gruppierung.ts": {
+      "GRUPPEN_ABSTAND_PT": "CLUSTER_DISTANCE_PT",
+      "Bildpunkt": "ScreenPoint",
+      "aufBildschirm": "toScreen",
+      "gruppiere": "cluster",
+      "aufEinemFleck": "isSameSpot"
+    },
+    "features/karte/gruppenTipp.ts": {
+      "ZoomVersuch": "ZoomAttempt",
+      "BEWEGUNGS_ANTEIL": "MOVEMENT_FRACTION",
+      "laengenAbstand": "longitudeDistance",
+      "kameraBewegt": "cameraMoved",
+      "zoomZiel": "zoomTarget",
+      "zoomAussichtslos": "zoomExhausted"
+    },
+    "features/karte/kartenPunkte.ts": {
+      "zuKartenPunkten": "toMapPoints"
+    },
+    "features/karte/nadel.ts": {
+      "nadelAbbild": "pinAppearance",
+      "nadelBeschriftung": "pinLabel"
+    },
+    "features/karte/KartenFlaeche.tsx": {
+      "KartenFlaeche": "MapSurface"
+    },
+    "features/karte/KartenFlaeche.web.tsx": {
+      "KartenFlaeche": "MapSurface",
+      "KACHEL_URL": "TILE_URL",
+      "KACHEL_NAMENSNENNUNG": "TILE_ATTRIBUTION",
+      "stile": "setStyles",
+      "ladeLeaflet": "loadLeaflet",
+      "grenzenFuer": "boundsFor",
+      "ausschnittVon": "viewportFrom",
+      "fahre": "flyCamera",
+      "nadelElement": "pinElement",
+      "nadelIcon": "pinIcon"
+    },
+    "features/karte/MomentSheet.tsx": {
+      "BildQuelle": "ImageSource",
+      "brauchbareUrl": "usableUrl",
+      "nadelBild": "pinImageUrl",
+      "sheetBild": "sheetImageUrl",
+      "autorUndZeit": "authorAndTime",
+      "Einblendung": "FadeIn",
+      "MomentSheetInhalt": "MomentSheetContent",
+      "GruppenEintrag": "ClusterEntry",
+      "GruppenSheetInhalt": "ClusterSheetContent",
+      "zeilenStile": "rowStyles"
+    }
+  }
+}

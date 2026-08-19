@@ -40,7 +40,7 @@ const COLUMNS = [
   'profiles!posts_author_id_fkey(display_name, avatar_key)',
 ].join(', ');
 
-type PostRow = Omit<RecapMoment, 'autor_name' | 'autor_avatar_key'> & {
+type PostRow = Omit<RecapMoment, 'authorName' | 'authorAvatarKey'> & {
   profiles: { display_name: string; avatar_key: string | null } | null;
 };
 
@@ -76,8 +76,8 @@ export async function fetchRecapMoments(tripId: string): Promise<Loaded<RecapMom
     lat: row.lat,
     lng: row.lng,
     upload_status: row.upload_status,
-    autor_name: row.profiles?.display_name ?? '',
-    autor_avatar_key: row.profiles?.avatar_key ?? null,
+    authorName: row.profiles?.display_name ?? '',
+    authorAvatarKey: row.profiles?.avatar_key ?? null,
   }));
   return { data: sortMoments(moments), error: null };
 }

@@ -37,24 +37,24 @@ import {
 import { groupByDays } from '@/features/recap/days';
 import type { RecapMoment, RecapDay } from '@/features/recap/types';
 import { timeInZone } from '@/features/recap/timeOfDay';
-import { ausschnittFuer } from '@/features/karte/ausschnitt';
-import { KartenFlaeche } from '@/features/karte/KartenFlaeche';
-import { gruppiere } from '@/features/karte/gruppierung';
-import { zoomAussichtslos, zoomZiel, type ZoomVersuch } from '@/features/karte/gruppenTipp';
-import { zuKartenPunkten } from '@/features/karte/kartenPunkte';
+import { viewportFor } from '@/features/map/viewport';
+import { MapSurface } from '@/features/map/MapSurface';
+import { cluster } from '@/features/map/clustering';
+import { zoomExhausted, zoomTarget, type ZoomAttempt } from '@/features/map/clusterTap';
+import { toMapPoints } from '@/features/map/mapPoints';
 import {
-  GruppenSheetInhalt,
-  MomentSheetInhalt,
-  nadelBild,
-  sheetBild,
+  ClusterSheetContent,
+  MomentSheetContent,
+  pinImageUrl,
+  sheetImageUrl,
   type SheetForm,
-} from '@/features/karte/MomentSheet';
+} from '@/features/map/MomentSheet';
 import type {
-  Ausschnitt,
-  Gruppe,
-  KartenFlaecheHandle,
-  KartenPunkt,
-} from '@/features/karte/typen';
+  Viewport,
+  Cluster,
+  MapSurfaceHandle,
+  MapPoint,
+} from '@/features/map/types';
 
 // Öffentlicher, schreibgeschützter Web-Player (Task-5-Brief, Spec §5.2):
 // zeigt dieselbe Story wie mobile/src/app/(tabs)/recap/[id]/player.tsx,
@@ -107,7 +107,7 @@ const KARTE_LABEL = 'Auf der Karte';
 // (features/karte/MomentSheet.tsx), und sonst nichts: der Knopf heisst hier
 // anders, weil es keinen Recap-Player gibt, in den gesprungen würde, sondern
 // den geteilten Player auf DIESEM Screen (Spec §5.10).
-const SHEET_FORM: SheetForm = { knopfLabel: 'Ab hier ansehen', praefix: 'teilen-' };
+const SHEET_FORM: SheetForm = { buttonLabel: 'Ab hier ansehen', prefix: 'teilen-' };
 // Höhe der Segment-Zeile (36 + 2 × 4 Polster), dieselben 44 Punkte wie jede
 // andere Pille dieses Projekts. Als Konstante, weil der Kopfbereich des
 // Players darunter rutscht, sobald es die Zeile gibt.
@@ -147,8 +147,8 @@ function zuRecapMoment(m: GeteiltesMoment): RecapMoment {
     lat: m.lat,
     lng: m.lng,
     upload_status: 'uploaded',
-    autor_name: m.autor_name,
-    autor_avatar_key: m.autor_avatar_key,
+    authorName: m.autor_name,
+    authorAvatarKey: m.autor_avatar_key,
   };
 }
 
@@ -439,13 +439,13 @@ export default function GeteilterRecapScreen() {
   // noch nichts gemeldet». Er ist die Grundlage der Gruppierung (sie rechnet
   // in Bildschirmpunkten und braucht den aktuellen Zoom), und zugleich der
   // Ausschnitt, mit dem die Karte beim nächsten Mal öffnet, siehe unten.
-  const [ausschnitt, setAusschnitt] = useState<Ausschnitt | null>(null);
+  const [ausschnitt, setAusschnitt] = useState<Viewport | null>(null);
   // Was das Moment-Sheet gerade zeigt, oder `null` für «keines offen». EIN
   // Zustand für beide Fälle, weil sie dieselbe Frage beantworten («welche
   // Momente stecken hinter dieser Nadel») und sich gegenseitig ausschliessen:
   // ein Punkt ist der einzelne Moment (Spec §5.7), mehrere sind die Liste
   // einer Gruppe, die sich nicht auseinanderzoomen lässt.
-  const [sheet, setSheet] = useState<KartenPunkt[] | null>(null);
+  const [sheet, setSheet] = useState<MapPoint[] | null>(null);
 
   const aktiv = useRef(true);
   const segmentStartRef = useRef(0);
@@ -457,12 +457,12 @@ export default function GeteilterRecapScreen() {
   // Abstand des Player-Kopfs; `useOberkante` lässt ihn stehen, wo er reicht,
   // und weicht nur dort aus, wo das Gerät mehr wegnimmt.
   const oben = useTopInset(spacing.xl);
-  const karte = useRef<KartenFlaecheHandle>(null);
+  const karte = useRef<MapSurfaceHandle>(null);
   // Der letzte Zoom-Versuch auf eine Gruppe, die Grundlage dafür, ob ein
   // weiterer noch etwas ausrichtet (features/karte/gruppenTipp.ts). Ein Ref
   // und kein State: der Wert ändert nichts am Bild, er beantwortet nur die
   // nächste Frage.
-  const letzterZoom = useRef<ZoomVersuch | null>(null);
+  const letzterZoom = useRef<ZoomAttempt | null>(null);
 
   const reducedMotion = useReducedMotion();
   // Die Fläche, auf der gruppiert wird: die Karte liegt als absoluteFill über
@@ -565,12 +565,12 @@ export default function GeteilterRecapScreen() {
   // (captured_at, id als zweites Kriterium). Zweimal angewandt kommt
   // zwangsläufig dieselbe Reihenfolge heraus, die Indizes zeigen also
   // nachweislich in die Spielliste.
-  const { punkte, ohneOrt } = useMemo(() => zuKartenPunkten(spielliste), [spielliste]);
+  const { points, withoutPlace } = useMemo(() => toMapPoints(spielliste), [spielliste]);
 
   // Der Ausschnitt, in dem ALLE Momente mit Ort zu sehen sind (Spec K2),
   // `null`, wenn keiner einen hat. Genau daran hängt, ob es die Karte
   // überhaupt gibt.
-  const startAusschnitt = useMemo(() => ausschnittFuer(punkte), [punkte]);
+  const startAusschnitt = useMemo(() => viewportFor(points), [points]);
 
   // Womit die Karte öffnet UND worauf gruppiert wird.
   //
@@ -599,29 +599,29 @@ export default function GeteilterRecapScreen() {
   // sortiert: die Linie zeigt, in welcher Reihenfolge aufgenommen wurde, nie,
   // in welcher hochgeladen wurde.
   const linie = useMemo(
-    () => punkte.map((p) => ({ latitude: p.lat, longitude: p.lng })),
-    [punkte]
+    () => points.map((p) => ({ latitude: p.lat, longitude: p.lng })),
+    [points]
   );
 
   // Nadeln, die einander sonst verdecken, teilen sich eine (Spec §5.5).
   // Gruppiert wird nach dem Abstand auf DEM GERADE SICHTBAREN Ausschnitt,
   // beim Hineinzoomen fällt eine Gruppe damit von selbst auseinander.
   const gruppen = useMemo(
-    () => (sichtbarerAusschnitt ? gruppiere(punkte, sichtbarerAusschnitt, breite, hoehe) : []),
-    [punkte, sichtbarerAusschnitt, breite, hoehe]
+    () => (sichtbarerAusschnitt ? cluster(points, sichtbarerAusschnitt, breite, hoehe) : []),
+    [points, sichtbarerAusschnitt, breite, hoehe]
   );
 
   // Das Bild einer Nadel, als Nachschlagefunktion statt als fertige Liste:
   // die Fläche fragt für den Anker jeder Gruppe nach, und welche Gruppen es
   // gibt, weiss sie selbst besser als dieser Screen.
-  const thumbFuer = useCallback((postId: string) => nadelBild(urls, postId), [urls]);
+  const thumbFuer = useCallback((postId: string) => pinImageUrl(urls, postId), [urls]);
 
-  const merkeAusschnitt = useCallback((sichtbar: Ausschnitt) => setAusschnitt(sichtbar), []);
+  const merkeAusschnitt = useCallback((sichtbar: Viewport) => setAusschnitt(sichtbar), []);
 
   // Die Kamera bewegt DIE FLÄCHE, nicht dieser Screen. Dort sitzt auch die
   // Reduced-Motion-Weiche, sie gehört zur Technik der jeweiligen Karte
   // (animateToRegion/setRegion nativ, flyTo/setView im Browser).
-  const zeige = useCallback((ziel: Ausschnitt) => karte.current?.zeige(ziel), []);
+  const zeige = useCallback((ziel: Viewport) => karte.current?.flyTo(ziel), []);
 
   // Was ein Tipp auf eine Gruppe zusätzlich wissen muss, in einem Ref statt
   // in den Abhängigkeiten von `aufGruppe`. Hinge die Funktion am Ausschnitt,
@@ -632,7 +632,7 @@ export default function GeteilterRecapScreen() {
   // dem Commit, und in dem Fenster dazwischen läse ein Tipp noch den alten
   // Stand, die Karte kommt aus einer Fahrt, und der Tipp auf die eben
   // erschienene Nadel rechnete mit dem Zoom von davor.
-  const kartenStand = useRef<Ausschnitt | null>(sichtbarerAusschnitt);
+  const kartenStand = useRef<Viewport | null>(sichtbarerAusschnitt);
   useLayoutEffect(() => {
     kartenStand.current = sichtbarerAusschnitt;
   }, [sichtbarerAusschnitt]);
@@ -643,7 +643,7 @@ export default function GeteilterRecapScreen() {
   // exakt derselben Koordinate, öffnet sich das Sheet. Wortgleich zu
   // recap/[id]/karte.tsx, samt der Begründung dort.
   const aufGruppe = useCallback(
-    (gruppe: Gruppe) => {
+    (gruppe: Cluster) => {
       const sichtbar = kartenStand.current;
 
       // Unerreichbar, aber für den Typ nötig: `gruppen` wird nur berechnet,
@@ -655,19 +655,19 @@ export default function GeteilterRecapScreen() {
       // samt der Begründung, warum bitgleiche Koordinaten dafür nicht
       // reichen: die Karte hat eine letzte Zoomstufe, und drei bis acht Meter
       // GPS-Versatz trennt sie dort nicht mehr.
-      if (zoomAussichtslos(gruppe, sichtbar, letzterZoom.current)) {
-        setSheet(gruppe.punkte);
+      if (zoomExhausted(gruppe, sichtbar, letzterZoom.current)) {
+        setSheet(gruppe.points);
         return;
       }
 
-      const ziel = zoomZiel(gruppe, sichtbar);
+      const ziel = zoomTarget(gruppe, sichtbar);
       // Unerreichbar (eine Gruppe hat mindestens einen Punkt), aber der Typ
       // von `ausschnittFuer` verlangt die Behandlung.
       if (!ziel) return;
 
       // Was diese Fahrt VERSUCHT hat, die Grundlage der Antwort beim nächsten
       // Tipp auf dieselbe Gruppe.
-      letzterZoom.current = { ankerId: gruppe.anker.moment.id, vorher: sichtbar };
+      letzterZoom.current = { anchorId: gruppe.anchor.moment.id, before: sichtbar };
 
       // DESIGN-LANGUAGE §5 nennt für «Zoom» selection-Haptik. `.catch`, weil
       // ein abgelehntes Promise aus einem nativen Modul sonst als unbehandelte
@@ -687,9 +687,9 @@ export default function GeteilterRecapScreen() {
   // hier NICHT aus `kartenStand` kommt: diese Frage wird beim Rendern
   // gestellt, das Ref zieht erst im Layout-Effekt danach nach.
   const oeffnetSheet = useCallback(
-    (gruppe: Gruppe) => {
+    (gruppe: Cluster) => {
       if (!sichtbarerAusschnitt) return false;
-      return zoomAussichtslos(gruppe, sichtbarerAusschnitt, letzterZoom.current);
+      return zoomExhausted(gruppe, sichtbarerAusschnitt, letzterZoom.current);
     },
     [sichtbarerAusschnitt]
   );
@@ -706,7 +706,7 @@ export default function GeteilterRecapScreen() {
   // Stelle innerhalb von `punkte` (die überspringt jeden Moment ohne Ort) und
   // nie die innerhalb der Gruppe: beide sässen scheinbar richtig und starteten
   // den Player beim falschen Moment.
-  const abHier = useCallback((eintrag: KartenPunkt) => {
+  const abHier = useCallback((eintrag: MapPoint) => {
     setStand({ index: eintrag.index, pausiert: new Set(), fortschritt: 0 });
     // Auch aus der Ende-Phase heraus: die Karte ist von dort erreichbar, und
     // «Ab hier ansehen» soll dann wieder abspielen, nicht auf dem Abspann
@@ -902,15 +902,15 @@ export default function GeteilterRecapScreen() {
       // bringen ihre eigenen Farben mit, sie sind Inhalt wie ein Foto, nicht
       // Interface (Entscheid R2); bindend bleibt, was DARAUF liegt.
       <View testID="teilen-karte" style={styles.flaeche}>
-        <KartenFlaeche
+        <MapSurface
           ref={karte}
-          initialerAusschnitt={sichtbarerAusschnitt}
-          gruppen={gruppen}
-          linie={linie}
-          thumbFuer={thumbFuer}
-          aufGruppe={aufGruppe}
-          oeffnetSheet={oeffnetSheet}
-          aufAusschnitt={merkeAusschnitt}
+          initialViewport={sichtbarerAusschnitt}
+          clusters={gruppen}
+          line={linie}
+          thumbFor={thumbFuer}
+          onCluster={aufGruppe}
+          opensSheet={oeffnetSheet}
+          onViewportChange={merkeAusschnitt}
           reducedMotion={reducedMotion}
         />
 
@@ -923,7 +923,7 @@ export default function GeteilterRecapScreen() {
             ihnen eine Pillenbreite daneben, «Ansehen» spielt die ganze
             Reise, diese Momente eingeschlossen. Deshalb `pointerEvents:
             none`: die Zeile sagt etwas, sie verspricht nichts. */}
-        {(ohneOrt.length > 0 || ausgelassen > 0) && (
+        {(withoutPlace.length > 0 || ausgelassen > 0) && (
           <View style={styles.leiste} pointerEvents="none">
             {/* Zwei verschiedene Lagen, deshalb zwei Sätze: «ohne Ort» sind
                 Momente, die im Recap laufen, aber keine Nadel tragen können;
@@ -937,10 +937,10 @@ export default function GeteilterRecapScreen() {
                 </Text>
               </Pille>
             )}
-            {ohneOrt.length > 0 && (
+            {withoutPlace.length > 0 && (
               <Pille style={styles.leistePille}>
                 <Text style={[type.secondary, { color: cinema['text-1'] }]}>
-                  {ohneOrtText(ohneOrt.length)}
+                  {ohneOrtText(withoutPlace.length)}
                 </Text>
               </Pille>
             )}
@@ -961,18 +961,18 @@ export default function GeteilterRecapScreen() {
             onSchliessen={() => setSheet(null)}
           >
             {sheet.length === 1 ? (
-              <MomentSheetInhalt
-                punkt={sheet[0]}
-                bildUrl={sheetBild(urls, sheet[0].moment.id)}
+              <MomentSheetContent
+                point={sheet[0]}
+                imageUrl={sheetImageUrl(urls, sheet[0].moment.id)}
                 form={SHEET_FORM}
-                onAnsehen={abHier}
+                onView={abHier}
               />
             ) : (
-              <GruppenSheetInhalt
-                punkte={sheet}
+              <ClusterSheetContent
+                points={sheet}
                 urls={urls}
                 form={SHEET_FORM}
-                onAnsehen={abHier}
+                onView={abHier}
               />
             )}
           </Sheet>
@@ -1052,8 +1052,8 @@ export default function GeteilterRecapScreen() {
                 Spanne (32–44 px), passend zur kompakten Kopf-Pille — dieselbe
                 Grösse wie im nativen Player (player.tsx), dieselbe Grösse, die
                 die gelöschte lokale AvatarInitiale-Kopie hier trug. */}
-            <Avatar name={aktivMoment.autor_name} avatarKey={aktivMoment.autor_avatar_key} kino size={32} />
-            <Text style={[type.bodyMedium, { color: cinema['text-1'] }]}>{aktivMoment.autor_name}</Text>
+            <Avatar name={aktivMoment.authorName} avatarKey={aktivMoment.authorAvatarKey} kino size={32} />
+            <Text style={[type.bodyMedium, { color: cinema['text-1'] }]}>{aktivMoment.authorName}</Text>
           </Pille>
           <Pille style={styles.infoPille}>
             <Text style={[type.secondary, { color: cinema['text-1'] }]}>{ortZeitText}</Text>

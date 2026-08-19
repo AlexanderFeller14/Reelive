@@ -8,8 +8,8 @@ import { useTheme } from '@/theme/ThemeProvider';
 import { useReducedMotion } from '@/theme/useReducedMotion';
 import { cinema, motion, radius, shadow, spacing, type } from '@/theme/tokens';
 import type { RecapMoment } from '@/features/recap/types';
-import { nadelAbbild, nadelBeschriftung } from '@/features/karte/nadel';
-import type { KartenPunkt } from '@/features/karte/typen';
+import { pinAppearance, pinLabel } from '@/features/map/pin';
+import type { MapPoint } from '@/features/map/types';
 
 // Die Nadel auf der Recap-Karte (Spec §5.4): keine Stecknadel, sondern das
 // runde Thumbnail des Moments, dieselbe Formsprache wie die Avatare
@@ -108,7 +108,7 @@ export function KartenNadel({ moment, thumbUrl, anzahl = 1, onBereit }: NadelPro
   // fest. Meldete sie sich hier nie, zeichnete der Marker sie für immer bei
   // jedem Frame neu (Fixrunde 1, Punkt 3).
   const fertig = thumbUrl === null || bildSteht;
-  const abbild = nadelAbbild(moment, thumbUrl, anzahl);
+  const abbild = pinAppearance(moment, thumbUrl, anzahl);
 
   const bildDa = useCallback(() => setGeladeneUrl(thumbUrl), [thumbUrl]);
 
@@ -176,7 +176,7 @@ export function KartenNadel({ moment, thumbUrl, anzahl = 1, onBereit }: NadelPro
 }
 
 type MarkerProps = {
-  punkt: KartenPunkt;
+  punkt: MapPoint;
   thumbUrl: string | null;
   anzahl?: number;
   /**
@@ -192,7 +192,7 @@ type MarkerProps = {
    * `() => tuWas(gruppe)` wäre bei jedem Rendern eine neue und machte das
    * `memo` unten wirkungslos.
    */
-  onPress?: (punkt: KartenPunkt) => void;
+  onPress?: (punkt: MapPoint) => void;
 };
 
 // Die Nadel auf der Karte. `tracksViewChanges` ist die Stelle, an der dieser
@@ -222,7 +222,7 @@ export const KartenNadelMarker = memo(function KartenNadelMarker({
   punkt, thumbUrl, anzahl = 1, oeffnetSheet = false, onPress,
 }: MarkerProps) {
   const { moment } = punkt;
-  const abbild = nadelAbbild(moment, thumbUrl, anzahl);
+  const abbild = pinAppearance(moment, thumbUrl, anzahl);
   const [fertigesAbbild, setFertigesAbbild] = useState<string | null>(null);
   const merkeBereit = useCallback(() => setFertigesAbbild(abbild), [abbild]);
 
@@ -234,7 +234,7 @@ export const KartenNadelMarker = memo(function KartenNadelMarker({
   return (
     <Marker
       testID={`karte-nadel-${moment.id}`}
-      accessibilityLabel={nadelBeschriftung(moment, anzahl, oeffnetSheet)}
+      accessibilityLabel={pinLabel(moment, anzahl, oeffnetSheet)}
       coordinate={{ latitude: punkt.lat, longitude: punkt.lng }}
       tracksViewChanges={fertigesAbbild !== abbild}
       onPress={angetippt}

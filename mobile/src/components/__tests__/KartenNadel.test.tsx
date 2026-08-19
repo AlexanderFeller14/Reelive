@@ -2,7 +2,7 @@ import { render, screen, fireEvent } from '@testing-library/react-native';
 import { Animated } from 'react-native';
 import { ThemeProvider } from '@/theme/ThemeProvider';
 import type { RecapMoment } from '@/features/recap/types';
-import type { KartenPunkt } from '@/features/karte/typen';
+import type { MapPoint } from '@/features/map/types';
 
 // expo-image ist ein natives View, im Test reicht ein Platzhalter, der alle
 // Props (`source`, `testID`, `onLoad`, `onError`) durchreicht. Gleiches Muster
@@ -50,7 +50,7 @@ function moment(overrides: Partial<RecapMoment> = {}): RecapMoment {
   return {
     id: 'p1', trip_id: 't1', author_id: 'u1', type: 'photo', duration_s: null, caption: null,
     captured_at: '2026-08-10T09:00:00.000Z', captured_tz: 'Europe/Lisbon', place_name: 'Lissabon',
-    lat: 38.71, lng: -9.14, upload_status: 'uploaded', autor_name: 'Lea', autor_avatar_key: null,
+    lat: 38.71, lng: -9.14, upload_status: 'uploaded', authorName: 'Lea', authorAvatarKey: null,
     ...overrides,
   };
 }
@@ -58,8 +58,8 @@ function moment(overrides: Partial<RecapMoment> = {}): RecapMoment {
 const fotoMoment = moment();
 const videoMoment = moment({ id: 'p2', type: 'video', duration_s: 12 });
 
-const punkt: KartenPunkt = { moment: fotoMoment, lat: 38.71, lng: -9.14, index: 0 };
-const videoPunkt: KartenPunkt = { moment: videoMoment, lat: 38.71, lng: -9.14, index: 0 };
+const punkt: MapPoint = { moment: fotoMoment, lat: 38.71, lng: -9.14, index: 0 };
+const videoPunkt: MapPoint = { moment: videoMoment, lat: 38.71, lng: -9.14, index: 0 };
 
 const wrap = (ui: React.ReactElement) => render(<ThemeProvider>{ui}</ThemeProvider>);
 const huelle = (ui: React.ReactElement) => <ThemeProvider>{ui}</ThemeProvider>;

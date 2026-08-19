@@ -23,10 +23,10 @@ export type RecapMoment = {
   upload_status: 'pending' | 'uploaded';
   // Comes from profiles.display_name (join, see recapApi.fetchRecapMoments),
   // so it isn't a field of posts itself.
-  autor_name: string;
+  authorName: string;
   // Like autor_name, from the profiles join (recapApi.fetchRecapMoments).
   // Null means "no picture", then the circle carries the initial.
-  autor_avatar_key: string | null;
+  authorAvatarKey: string | null;
 };
 
 // A group of moments of the same trip day (see days.ts).

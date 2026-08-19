@@ -12,7 +12,7 @@ import { ThemeProvider } from '@/theme/ThemeProvider';
 import { motion, palette } from '@/theme/tokens';
 import type { MediaUrl } from '@/features/recap/urlPool';
 import type { RecapMoment } from '@/features/recap/types';
-import type { Ausschnitt } from '@/features/karte/typen';
+import type { Viewport } from '@/features/map/types';
 
 const mockPush = jest.fn();
 const mockReplace = jest.fn();
@@ -69,9 +69,9 @@ jest.mock('expo-image', () => {
 // denselben Koordinaten, aber jeder Sprung landete beim falschen Moment.
 // Bis Task 8 den Sprung baut, ist DIESE Zusicherung der einzige Ort, an dem
 // der Fehler auffiele.
-jest.mock('@/features/karte/kartenPunkte', () => {
-  const echt = jest.requireActual('@/features/karte/kartenPunkte');
-  return { zuKartenPunkten: jest.fn(echt.zuKartenPunkten) };
+jest.mock('@/features/map/mapPoints', () => {
+  const echt = jest.requireActual('@/features/map/mapPoints');
+  return { toMapPoints: jest.fn(echt.toMapPoints) };
 });
 // Steuerbar wie mockKannZurueck: ohne das liesse sich der Sprung-Zweig von
 // `zeige` gar nicht erreichen, AccessibilityInfo meldet im Testlauf immer
@@ -133,7 +133,7 @@ import { fetchRecapMoments } from '@/features/recap/recapApi';
 import { getPool } from '@/features/recap/urlPool';
 import { reportError } from '@/lib/errorReporter';
 import { fetchTrip } from '@/features/trips/tripsApi';
-import { zuKartenPunkten } from '@/features/karte/kartenPunkte';
+import { toMapPoints } from '@/features/map/mapPoints';
 import type { Trip } from '@/features/trips/types';
 
 function moment(overrides: Partial<{
@@ -148,7 +148,7 @@ function moment(overrides: Partial<{
   upload_status: 'pending' | 'uploaded';
   // Ab Task 8 im Spiel: das Moment-Sheet zeigt Autor, Ort und Caption an
   // (Spec §5.7), und jedes der drei muss sich einzeln setzen lassen.
-  autor_name: string;
+  authorName: string;
   place_name: string | null;
   caption: string | null;
 }>) {
@@ -156,7 +156,7 @@ function moment(overrides: Partial<{
     id: 'p0', trip_id: 't1', author_id: 'u1', type: 'photo' as const, duration_s: null, caption: null,
     captured_at: '2026-08-10T09:00:00.000Z', captured_tz: 'Europe/Lisbon', place_name: 'Lissabon',
     lat: 38.71, lng: -9.14,
-    upload_status: 'uploaded' as const, autor_name: 'Lea', autor_avatar_key: null,
+    upload_status: 'uploaded' as const, authorName: 'Lea', authorAvatarKey: null,
     ...overrides,
   };
 }
@@ -477,7 +477,7 @@ test('faellt die Gruppe auseinander, wird ihre Nadel neu gezeichnet', async () =
 // (0.01°, die Mindestspanne von ausschnittFuer). Als Funktion, damit BEIDE
 // Zweige von `zeige` wirklich dieselben Zusicherungen tragen: ein Sprung, der
 // nur «irgendwohin» springt, ist kein erfüllter Reduced-Motion-Fall.
-function erwarteZielAufDerGruppe(ziel: Ausschnitt) {
+function erwarteZielAufDerGruppe(ziel: Viewport) {
   expect(ziel.latitude).toBeCloseTo(38.71005, 4);
   expect(ziel.longitude).toBeCloseTo(-9.14005, 4);
   expect(ziel.latitudeDelta).toBeLessThan(0.01);
@@ -625,7 +625,7 @@ test('zuKartenPunkten bekommt die Spielliste des Players, nicht die rohe Momente
   ladeErfolg();
   await wrap();
   await screen.findByTestId('karte-nadel-p1');
-  expect(zuKartenPunkten).toHaveBeenCalledWith([m1, m2, m3]);
+  expect(toMapPoints).toHaveBeenCalledWith([m1, m2, m3]);
 });
 
 // Gegenprobe zum Test darüber, ohne den Umweg über den Spion: rechnete der
@@ -701,7 +701,7 @@ test('ohne Rückweg im Stapel führt der Zurück-Pfeil auf die Übersicht dieser
 // in UTC). Dieselbe Formatierung wie Player und Nadel: features/recap/uhrzeit.
 const mitAllem = moment({
   id: 'p1',
-  autor_name: 'Mira',
+  authorName: 'Mira',
   captured_at: '2026-08-10T13:32:00.000Z',
   place_name: 'Miradouro da Senhora do Monte',
   caption: 'Angekommen, 28 Grad im Mai',
@@ -1286,8 +1286,8 @@ test('gefiltert wird nach zuKartenPunkten, nicht davor', async () => {
   await oeffneTagesfilter();
   await fireEvent.press(screen.getByTestId('tag-eintrag-2'));
 
-  expect(zuKartenPunkten).toHaveBeenCalledTimes(1);
-  expect(zuKartenPunkten).toHaveBeenCalledWith([ohneOrtFrueh, mitAllem, m2, tag2M]);
+  expect(toMapPoints).toHaveBeenCalledTimes(1);
+  expect(toMapPoints).toHaveBeenCalledWith([ohneOrtFrueh, mitAllem, m2, tag2M]);
 });
 
 // Der gewählte Tag ändert Nadeln UND Linie: eine Linie, die weiterhin zum

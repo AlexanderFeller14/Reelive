@@ -18,29 +18,29 @@ import { groupByDays, sortMoments } from '@/features/recap/days';
 import type { RecapMoment, RecapDay } from '@/features/recap/types';
 import { getPool, retryHelps, type MediaUrl } from '@/features/recap/urlPool';
 import { fetchTrip } from '@/features/trips/tripsApi';
-import { ausschnittFuer } from '@/features/karte/ausschnitt';
-import { KartenFlaeche } from '@/features/karte/KartenFlaeche';
-import { gruppiere } from '@/features/karte/gruppierung';
-import { zoomAussichtslos, zoomZiel, type ZoomVersuch } from '@/features/karte/gruppenTipp';
-import { zuKartenPunkten } from '@/features/karte/kartenPunkte';
+import { viewportFor } from '@/features/map/viewport';
+import { MapSurface } from '@/features/map/MapSurface';
+import { cluster } from '@/features/map/clustering';
+import { zoomExhausted, zoomTarget, type ZoomAttempt } from '@/features/map/clusterTap';
+import { toMapPoints } from '@/features/map/mapPoints';
 import { useTripBound } from '@/features/trips/useTripBound';
-import { momentLabel } from '@/features/karte/nadel';
+import { momentLabel } from '@/features/map/pin';
 import {
-  Einblendung,
-  GruppenSheetInhalt,
-  MomentSheetInhalt,
+  FadeIn,
+  ClusterSheetContent,
+  MomentSheetContent,
   SheetScroll,
-  nadelBild,
-  sheetBild,
-  zeilenStile,
+  pinImageUrl,
+  sheetImageUrl,
+  rowStyles,
   type SheetForm,
-} from '@/features/karte/MomentSheet';
+} from '@/features/map/MomentSheet';
 import type {
-  Ausschnitt,
-  Gruppe,
-  KartenFlaecheHandle,
-  KartenPunkt,
-} from '@/features/karte/typen';
+  Viewport,
+  Cluster,
+  MapSurfaceHandle,
+  MapPoint,
+} from '@/features/map/types';
 
 // Eine feste leere Map statt `new Map()` bei jedem Zurücksetzen: der Wert geht
 // als Abhängigkeit in die Nadeln, und eine jedes Mal neue Map liesse sie ohne
@@ -81,7 +81,7 @@ const LUECKEN_HINWEIS = 'Tage, an denen kein Moment einen Ort hat, stehen nicht 
 // Was die Sheets dieses Screens von denen des geteilten Recaps unterscheidet
 // (features/karte/MomentSheet.tsx): die Beschriftung des Knopfs, und sonst
 // nichts. Der leere testID-Präfix ist Absicht, siehe `SheetForm` dort.
-const SHEET_FORM: SheetForm = { knopfLabel: 'Im Recap ansehen', praefix: '' };
+const SHEET_FORM: SheetForm = { buttonLabel: 'Im Recap ansehen', prefix: '' };
 
 // Die Leiste unten UND der Titel ihres Sheets (Spec §5.8), eine Quelle für
 // beide. Singular/Plural wie überall im Projekt: die Zahl bleibt auch im
@@ -129,7 +129,7 @@ type Phase = 'laedt' | 'fehler' | 'fertig';
 type Ladestand = {
   tripId: string;
   phase: Phase;
-  punkte: KartenPunkt[];
+  punkte: MapPoint[];
   ohneOrt: OhneOrt[];
   // Momente, die diese Karte ueberhaupt nicht zeigt, weder als Nadel noch in
   // der Leiste «N Momente ohne Ort». Sie fallen im Ladeweg unten aus der
@@ -158,7 +158,7 @@ type Ladestand = {
 // KEINE_URLS oben: die Werte gehen als Abhängigkeit in `sichtbarePunkte`,
 // `linie` und `gruppen`, und ein bei jedem Rendern neues Array liesse sie
 // ohne Grund neu rechnen.
-const KEINE_PUNKTE: KartenPunkt[] = [];
+const KEINE_PUNKTE: MapPoint[] = [];
 const KEINE_OHNE_ORT: OhneOrt[] = [];
 const KEINE_MOMENTE: RecapMoment[] = [];
 
@@ -172,7 +172,7 @@ const KEINE_MOMENTE: RecapMoment[] = [];
 // Rest gerufen, zählte der Index plötzlich INNERHALB des Tages statt in die
 // Reise. Die Nadeln sässen weiterhin auf ihren Koordinaten, alles sähe richtig
 // aus, und der Sprung landete beim falschen Moment.
-function punkteAmTag(punkte: KartenPunkt[], tag: RecapDay | null): KartenPunkt[] {
+function punkteAmTag(punkte: MapPoint[], tag: RecapDay | null): MapPoint[] {
   if (!tag) return punkte;
   const ids = new Set(tag.momente.map((m) => m.id));
   return punkte.filter((p) => ids.has(p.moment.id));
@@ -193,7 +193,7 @@ function punkteAmTag(punkte: KartenPunkt[], tag: RecapDay | null): KartenPunkt[]
 // Erklärung, eine Sackgasse im Filter, aus der nur der Rückweg auf «Alle
 // Tage» hilft. Was dabei wegfällt, reisst eine Lücke in die Nummern (Tag 1,
 // Tag 3), die erklärt LUECKEN_HINWEIS im Sheet, statt sie stumm zu lassen.
-function waehlbareTage(alle: RecapDay[], punkte: KartenPunkt[]): RecapDay[] {
+function waehlbareTage(alle: RecapDay[], punkte: MapPoint[]): RecapDay[] {
   const mitOrt = new Set(punkte.map((p) => p.moment.id));
   return alle.filter((tag) => tag.momente.some((m) => mitOrt.has(m.id)));
 }
@@ -239,7 +239,7 @@ function TagEintrag({
 }) {
   const { colors } = useTheme();
   return (
-    <Einblendung stelle={stelle}>
+    <FadeIn position={stelle}>
       <PressScale
         scaleTo={0.98}
         accessibilityRole="button"
@@ -247,8 +247,8 @@ function TagEintrag({
         testID={testID}
         onPress={onWaehlen}
       >
-        <View style={zeilenStile.zeile}>
-          <View style={zeilenStile.text}>
+        <View style={rowStyles.row}>
+          <View style={rowStyles.text}>
             <Text style={[type.bodyMedium, { color: colors['text-1'] }]}>{beschriftung}</Text>
             {/* Der Ort des Tages steht nur da, wenn es einen gibt
                 (tage.ortDesTages liefert sonst null), kein erfundener
@@ -263,7 +263,7 @@ function TagEintrag({
           {aktiv && <Check size={20} color={colors.accent} strokeWidth={1.75} />}
         </View>
       </PressScale>
-    </Einblendung>
+    </FadeIn>
   );
 }
 
@@ -283,7 +283,7 @@ function OhneOrtKachel({
   const { colors } = useTheme();
   const { moment } = eintrag;
   return (
-    <Einblendung stelle={stelle}>
+    <FadeIn position={stelle}>
       <PressScale
         scaleTo={0.96}
         accessibilityRole="button"
@@ -306,7 +306,7 @@ function OhneOrtKachel({
           )}
         </View>
       </PressScale>
-    </Einblendung>
+    </FadeIn>
   );
 }
 
@@ -382,12 +382,12 @@ export default function RecapKarte() {
   // schiebt useOberkante sie ohnehin darunter.
   const oben = useTopInset(spacing.screen);
   const reducedMotion = useReducedMotion();
-  const karte = useRef<KartenFlaecheHandle>(null);
+  const karte = useRef<MapSurfaceHandle>(null);
   // Der letzte Zoom-Versuch auf eine Gruppe, die Grundlage dafür, ob ein
   // weiterer noch etwas ausrichtet (features/karte/gruppenTipp.ts). Ein Ref
   // und kein State: der Wert ändert nichts am Bild, er beantwortet nur die
   // nächste Frage.
-  const letzterZoom = useRef<ZoomVersuch | null>(null);
+  const letzterZoom = useRef<ZoomAttempt | null>(null);
   // Die Fläche, auf der gruppiert wird. Die Karte liegt als absoluteFill über
   // dem ganzen Screen, das Fenster ist also ihr Mass. In der Höhe fehlt die
   // Tab-Bar; das verschiebt die 40-Punkte-Schwelle um wenige Prozent und
@@ -426,7 +426,7 @@ export default function RecapKarte() {
   // ein Skelett auf, und niemand kann mehr lesen, was eigentlich los war.
   // Gleiches Muster wie `laedt` in uebersicht.tsx.
   const [nochmalLaeuft, setNochmalLaeuft] = useState(false);
-  const [ausschnitt, setAusschnitt] = useState<Ausschnitt | null>(null);
+  const [ausschnitt, setAusschnitt] = useState<Viewport | null>(null);
   // Die Bild-URLs bleiben liegen, weil jede Nadel ihr eigenes Thumbnail
   // trägt (Spec §5.4), nicht nur, um damit zu filtern.
   const [urls, setUrls] = useState<ReadonlyMap<string, MediaUrl>>(KEINE_URLS);
@@ -448,7 +448,7 @@ export default function RecapKarte() {
   // dieses Screens brauchen genau das, und viermal derselbe von Hand
   // geschriebene Vergleich war das Muster, an dem die Phase drei Runden
   // verloren hat.
-  const [sheetPunkte, setSheetPunkte] = useTripBound<KartenPunkt[] | null>(id, null);
+  const [sheetPunkte, setSheetPunkte] = useTripBound<MapPoint[] | null>(id, null);
   // Die beiden Hälften, aus denen die Tagesnummern entstehen, jede mit der
   // Reise, aus der sie stammt. Sie kommen aus ZWEI getrennten Abfragen (siehe
   // die Ladewege unten), und eine Mischung aus zwei Reisen ergäbe Nummern, die
@@ -602,9 +602,9 @@ export default function RecapKarte() {
       const vorratUrls = vorratErgebnis.vorrat?.urls ?? KEINE_URLS;
       const uploaded = momente.data.filter((m) => m.upload_status === 'uploaded');
       const mitBild = uploaded.filter((m) => vorratUrls.has(m.id));
-      const { punkte: p, ohneOrt: o } = zuKartenPunkten(mitBild);
+      const { points: p, withoutPlace: o } = toMapPoints(mitBild);
       setUrls(vorratUrls);
-      setAusschnitt(ausschnittFuer(p));
+      setAusschnitt(viewportFor(p));
       setSpielliste({ tripId: id, momente: mitBild });
       setLadestand({
         tripId: id,
@@ -731,7 +731,7 @@ export default function RecapKarte() {
   // Der sichtbare Ausschnitt wandert bei jeder Kartenbewegung in den State:
   // Task 7 gruppiert Nadeln nach ihrem Abstand in BILDSCHIRMpunkten und
   // braucht dafür den aktuellen Zoom, nicht den anfänglichen.
-  const merkeAusschnitt = useCallback((sichtbar: Ausschnitt) => setAusschnitt(sichtbar), []);
+  const merkeAusschnitt = useCallback((sichtbar: Viewport) => setAusschnitt(sichtbar), []);
 
   // Die wählbaren Tage, erst, wenn BEIDE Hälften zur gerade angezeigten Reise
   // gehören. Die Ladewege laufen unabhängig, es gibt also ein Fenster, in dem
@@ -802,7 +802,7 @@ export default function RecapKarte() {
   // Nadeln: die hängen an ihrem Schlüssel und ihren Props und blieben auch
   // ohne das Memo stehen.
   const gruppen = useMemo(
-    () => (ausschnitt ? gruppiere(sichtbarePunkte, ausschnitt, breite, hoehe) : []),
+    () => (ausschnitt ? cluster(sichtbarePunkte, ausschnitt, breite, hoehe) : []),
     [sichtbarePunkte, ausschnitt, breite, hoehe]
   );
 
@@ -811,7 +811,7 @@ export default function RecapKarte() {
   // gibt, weiss sie selbst besser als dieser Screen. `useCallback` bindet sie
   // an den Vorrat, nicht an jedes Rendern: der Screen rendert bei jeder
   // Kartenbewegung neu, die URLs ändern sich einmal pro Ladevorgang.
-  const thumbFuer = useCallback((postId: string) => nadelBild(urls, postId), [urls]);
+  const thumbFuer = useCallback((postId: string) => pinImageUrl(urls, postId), [urls]);
 
   // Die Kamera bewegt DIE FLÄCHE, nicht dieser Screen: `zeige` ist seit Task
   // 14 das imperative Handle von `KartenFlaeche` (features/karte/typen.ts).
@@ -824,7 +824,7 @@ export default function RecapKarte() {
   // Der Erststart geht bewusst NICHT hier durch: die Karte wird überhaupt erst
   // gemountet, wenn der Ausschnitt feststeht, und öffnet direkt dort. Es gibt
   // nichts, wovon aus gefahren würde.
-  const zeige = useCallback((ziel: Ausschnitt) => karte.current?.zeige(ziel), []);
+  const zeige = useCallback((ziel: Viewport) => karte.current?.flyTo(ziel), []);
 
   // Was ein Tipp auf eine Gruppe zusätzlich wissen muss, in einem Ref statt in
   // den Abhängigkeiten von `aufGruppe`. Hinge die Funktion an `ausschnitt`,
@@ -838,7 +838,7 @@ export default function RecapKarte() {
   // Stand. Dieselbe Überlegung steht in KartenFlaeche.tsx an dem Ref, das die
   // GRUPPEN hält, dort ist sie in karte.test.tsx festgenagelt («ein Tipp
   // unmittelbar nach dem Zerfall einer Gruppe wird nicht verschluckt»).
-  const stand = useRef<{ ausschnitt: Ausschnitt | null }>({ ausschnitt });
+  const stand = useRef<{ ausschnitt: Viewport | null }>({ ausschnitt });
   useLayoutEffect(() => {
     stand.current = { ausschnitt };
   }, [ausschnitt]);
@@ -862,11 +862,11 @@ export default function RecapKarte() {
   // kommt aus einer Closure, die den Stand von damals sähe, deshalb liest er
   // das Ref.
   const oeffnetSheet = useCallback(
-    (gruppe: Gruppe) => {
+    (gruppe: Cluster) => {
       // Ohne Ausschnitt gibt es keine Nadeln, die beschriftet werden könnten
       // (siehe `gruppen` oben). Für den Typ trotzdem nötig.
       if (!ausschnitt) return false;
-      return zoomAussichtslos(gruppe, ausschnitt, letzterZoom.current);
+      return zoomExhausted(gruppe, ausschnitt, letzterZoom.current);
     },
     [ausschnitt]
   );
@@ -880,7 +880,7 @@ export default function RecapKarte() {
   // meldet ihr den Anker, sie sucht die Gruppe in ihrem eigenen Stand
   // (KartenFlaeche.tsx). Hier steht nur noch, was daraus folgt.
   const aufGruppe = useCallback(
-    (gruppe: Gruppe) => {
+    (gruppe: Cluster) => {
       const { ausschnitt: sichtbar } = stand.current;
 
       // Unerreichbar, aber für den Typ nötig: `gruppen` wird nur berechnet,
@@ -909,7 +909,7 @@ export default function RecapKarte() {
       // Abfrage wäre vom Rest gedeckt und liesse sich ersatzlos streichen,
       // ohne dass eine Zusicherung fiele, genau die Art Bedingung, die
       // später niemand mehr prüfen kann.
-      if (zoomAussichtslos(gruppe, sichtbar, letzterZoom.current)) {
+      if (zoomExhausted(gruppe, sichtbar, letzterZoom.current)) {
         // Wie in `oeffneTagesfilter`: es ist immer höchstens EIN Sheet offen
         // (Begründung dort), und deshalb werden BEIDE anderen geräumt, nicht
         // nur das der Momente ohne Ort. Bis zur §9-Durchsicht (Task 12) fehlte
@@ -929,11 +929,11 @@ export default function RecapKarte() {
         // Trefferreihenfolge zu hängen.
         setTageOffen(false);
         setOhneOrtOffen(false);
-        setSheetPunkte(gruppe.punkte);
+        setSheetPunkte(gruppe.points);
         return;
       }
 
-      const ziel = zoomZiel(gruppe, sichtbar);
+      const ziel = zoomTarget(gruppe, sichtbar);
       // Unerreichbar (eine Gruppe hat mindestens einen Punkt), aber der Typ
       // von `ausschnittFuer` verlangt die Behandlung.
       if (!ziel) return;
@@ -941,7 +941,7 @@ export default function RecapKarte() {
       // Was diese Fahrt VERSUCHT hat, die Grundlage der Antwort beim nächsten
       // Tipp auf dieselbe Gruppe. Bleibt der sichtbare Ausschnitt danach
       // derselbe, hat die Karte ihre letzte Zoomstufe erreicht.
-      letzterZoom.current = { ankerId: gruppe.anker.moment.id, vorher: sichtbar };
+      letzterZoom.current = { anchorId: gruppe.anchor.moment.id, before: sichtbar };
 
       // DESIGN-LANGUAGE §5 nennt für «Zoom» selection-Haptik, dieselbe
       // Meldung wie beim Tab-Wechsel. Sie gehört an den Zoom selbst, nicht in
@@ -972,7 +972,7 @@ export default function RecapKarte() {
   // des Übergangs in den Player wegblitzen zu lassen, und wer zurückkommt,
   // findet die Stelle wieder, an der er war.
   const zumPlayer = useCallback(
-    (eintrag: KartenPunkt | OhneOrt) => {
+    (eintrag: MapPoint | OhneOrt) => {
       router.push({ pathname: '/recap/[id]/player', params: { id, start: String(eintrag.index) } });
     },
     [router, id]
@@ -1027,7 +1027,7 @@ export default function RecapKarte() {
     // `punkteAmTag` mit dem NEUEN Tag statt mit `sichtbarePunkte`: der State
     // steht in dieser Zeile noch auf dem alten Stand, React rendert erst
     // danach neu.
-    const ziel = ausschnittFuer(punkteAmTag(punkte, tag));
+    const ziel = viewportFor(punkteAmTag(punkte, tag));
     // Unerreichbar, solange die Liste stimmt: `waehlbareTage` bietet nur Tage
     // an, die mindestens eine Nadel haben, und «Alle Tage» gibt es nur, wenn
     // überhaupt Nadeln da sind. Ohne Ziel bleibt die Kamera stehen, ein
@@ -1151,15 +1151,15 @@ export default function RecapKarte() {
           berechnet, deren Zahl den Leer-Zustand oben abgefangen hat. Die
           Abfrage bleibt trotzdem stehen, weil der Typ sie verlangt. */}
       {ausschnitt && (
-        <KartenFlaeche
+        <MapSurface
           ref={karte}
-          initialerAusschnitt={ausschnitt}
-          gruppen={gruppen}
-          linie={linie}
-          thumbFuer={thumbFuer}
-          aufGruppe={aufGruppe}
-          oeffnetSheet={oeffnetSheet}
-          aufAusschnitt={merkeAusschnitt}
+          initialViewport={ausschnitt}
+          clusters={gruppen}
+          line={linie}
+          thumbFor={thumbFuer}
+          onCluster={aufGruppe}
+          opensSheet={oeffnetSheet}
+          onViewportChange={merkeAusschnitt}
           reducedMotion={reducedMotion}
         />
       )}
@@ -1318,7 +1318,7 @@ export default function RecapKarte() {
                 <OhneOrtKachel
                   key={eintrag.moment.id}
                   eintrag={eintrag}
-                  thumbUrl={nadelBild(urls, eintrag.moment.id)}
+                  thumbUrl={pinImageUrl(urls, eintrag.moment.id)}
                   stelle={stelle}
                   onAnsehen={zumPlayer}
                 />
@@ -1345,18 +1345,18 @@ export default function RecapKarte() {
           onSchliessen={() => setSheetPunkte(null)}
         >
           {sheetPunkte.length === 1 ? (
-            <MomentSheetInhalt
-              punkt={sheetPunkte[0]}
-              bildUrl={sheetBild(urls, sheetPunkte[0].moment.id)}
+            <MomentSheetContent
+              point={sheetPunkte[0]}
+              imageUrl={sheetImageUrl(urls, sheetPunkte[0].moment.id)}
               form={SHEET_FORM}
-              onAnsehen={zumPlayer}
+              onView={zumPlayer}
             />
           ) : (
-            <GruppenSheetInhalt
-              punkte={sheetPunkte}
+            <ClusterSheetContent
+              points={sheetPunkte}
               urls={urls}
               form={SHEET_FORM}
-              onAnsehen={zumPlayer}
+              onView={zumPlayer}
             />
           )}
         </Sheet>

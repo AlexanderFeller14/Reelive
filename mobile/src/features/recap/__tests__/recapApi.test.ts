@@ -51,8 +51,8 @@ describe('fetchRecapMoments', () => {
         id: 'p1', trip_id: 't1', author_id: 'u1', type: 'photo',
         duration_s: null, caption: null,
         captured_at: '2026-08-01T10:00:00.000Z', captured_tz: 'Europe/Zurich',
-        place_name: null, upload_status: 'uploaded', autor_name: 'Lea',
-        autor_avatar_key: null,
+        place_name: null, upload_status: 'uploaded', authorName: 'Lea',
+        authorAvatarKey: null,
       },
     ]);
     expect(mockFrom).toHaveBeenCalledWith('posts');
@@ -85,7 +85,7 @@ describe('fetchRecapMoments', () => {
       error: null,
     });
     const { data } = await fetchRecapMoments('t1');
-    expect(data[0].autor_avatar_key).toBe('profiles/u1/a.jpg');
+    expect(data[0].authorAvatarKey).toBe('profiles/u1/a.jpg');
   });
 
   // display_name falls back to '' when the profile is missing; the avatar
@@ -93,7 +93,7 @@ describe('fetchRecapMoments', () => {
   test('without a profile, the avatar key stays null', async () => {
     postsChain({ data: [row({ profiles: null })], error: null });
     const { data } = await fetchRecapMoments('t1');
-    expect(data[0].autor_avatar_key).toBeNull();
+    expect(data[0].authorAvatarKey).toBeNull();
   });
 
   test('passes lat/lng through', async () => {
@@ -121,7 +121,7 @@ describe('fetchRecapMoments', () => {
   test('a moment without a profiles match gets an empty author name instead of throwing', async () => {
     postsChain({ data: [row({ profiles: null })], error: null });
     const { data } = await fetchRecapMoments('t1');
-    expect(data[0].autor_name).toBe('');
+    expect(data[0].authorName).toBe('');
   });
 
   test('reports a load error instead of an unexplained empty list', async () => {

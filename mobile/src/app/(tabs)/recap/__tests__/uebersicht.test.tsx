@@ -112,7 +112,7 @@ function moment(overrides: Partial<{
   return {
     id: 'p0', trip_id: 't1', author_id: 'u1', type: 'photo' as const, duration_s: null, caption: null,
     captured_at: '2026-08-10T09:00:00.000Z', captured_tz: 'Europe/Lisbon', place_name: 'Lissabon',
-    upload_status: 'uploaded' as const, autor_name: 'Lea',
+    upload_status: 'uploaded' as const, authorName: 'Lea',
     ...overrides,
   };
 }
