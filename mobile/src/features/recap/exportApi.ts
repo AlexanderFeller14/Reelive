@@ -56,7 +56,7 @@
 // Bündeln selbst nicht mehr.
 import * as MediaLibrary from 'expo-media-library/legacy';
 import { Directory, File, Paths } from 'expo-file-system';
-import { medienEndung } from '@/features/moments/medien';
+import { mediaExtension } from '@/features/moments/media';
 import type { RecapMoment } from './types';
 import type { MedienUrl } from './urlVorrat';
 
@@ -144,7 +144,7 @@ export async function sichereMomentInGalerie(moment: RecapMoment, url: MedienUrl
   if (!berechtigung.erlaubt) return { ok: false, grund: 'keine_berechtigung', text: berechtigung.text };
 
   raeumeExportOrdnerAufNeu();
-  const endung = medienEndung(moment.type, url.medium_url);
+  const endung = mediaExtension(moment.type, url.medium_url);
   try {
     await ladeUndSichereEinzeln(url.medium_url, `${moment.id}.${endung}`);
     return { ok: true };
@@ -193,7 +193,7 @@ export async function sichereAlleInGalerie(
       return { status: 'fertig', gesichert, gesamt, fehlgeschlagen, abgebrochen: true };
     }
     const { moment, url } = eintraege[i];
-    const endung = medienEndung(moment.type, url.medium_url);
+    const endung = mediaExtension(moment.type, url.medium_url);
     try {
       await ladeUndSichereEinzeln(url.medium_url, `${moment.id}.${endung}`, signal);
       gesichert += 1;

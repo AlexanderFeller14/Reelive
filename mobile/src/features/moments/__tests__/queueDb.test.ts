@@ -1,44 +1,44 @@
-// In-Memory-Nachbau von expo-sqlite: prüft, dass queueDb korrekt SQL absetzt und
-// Zeilen sauber in QueueJob zurückwandelt. Die Datenbank selbst ist nicht unser
-// Testgegenstand, die Übersetzung schon.
-const zeilen: Record<string, unknown>[] = [];
-// Bildet nach, dass eine "select" auf einer noch nie angelegten SQLite-Tabelle
-// wirft ("no such table") statt eine leere Liste zu liefern, genau der
-// Zustand eines frisch installierten Geräts, bevor initQueue() je gelaufen
-// ist (Task 13). mockExecAsync steht für "create table if not exists" und
-// schaltet die Tabelle frei.
-let tabelleAngelegt = false;
-// PRAGMA table_info(upload_queue): welche Spalten die (fiktive) Tabelle schon
-// hat, BEVOR initQueue() in diesem Testlauf läuft, simuliert eine
-// Bestandsinstallation (Task-13-Fix-Runde-2, spaltenNachziehen). Standard:
-// vollständig, kein ALTER TABLE nötig; ein dedizierter Migrations-Test
-// überschreibt das gezielt.
-const ALLE_SPALTEN = [
+// In-memory rebuild of expo-sqlite: checks that queueDb issues correct SQL
+// and cleanly translates rows back into QueueJob. The database itself isn't
+// what we're testing, the translation is.
+const rows: Record<string, unknown>[] = [];
+// Mirrors that a "select" on a table that was never created throws ("no
+// such table") instead of returning an empty list, exactly the state of a
+// freshly installed device before initQueue() has ever run (Task 13).
+// mockExecAsync stands for "create table if not exists" and unlocks the
+// table.
+let tableCreated = false;
+// PRAGMA table_info(upload_queue): which columns the (fictional) table
+// already has BEFORE initQueue() runs in this test run, simulates an
+// existing install (Task-13-Fix-Runde-2, migrateColumns). Default:
+// complete, no ALTER TABLE needed; a dedicated migration test overrides
+// this deliberately.
+const ALL_COLUMNS = [
   'id', 'post_id', 'trip_id', 'author_id', 'typ', 'medium_uri', 'thumb_uri',
   'storage_key', 'thumb_key', 'caption', 'captured_at', 'captured_tz', 'lat',
   'lng', 'place_name', 'duration_s', 'zustand', 'versuche', 'naechster_versuch',
   'zeile_angelegt', 'medium_geladen', 'thumb_geladen',
 ];
-let vorhandeneSpalten: string[] = [...ALLE_SPALTEN];
-// Zweite Tabelle derselben Datenbank (Final-Review, Important 9): dauerhaft
-// verworfene Momente, damit die App sie erklären kann statt sie wortlos
-// verschwinden zu lassen.
-const verworfenZeilen: Record<string, unknown>[] = [];
+let existingColumns: string[] = [...ALL_COLUMNS];
+// Second table in the same database (Final-Review, Important 9):
+// permanently discarded moments, so the app can explain them instead of
+// letting them vanish silently.
+const discardedRows: Record<string, unknown>[] = [];
 const mockRunAsync = jest.fn(async (..._args: unknown[]) => {});
 const mockGetAllAsync = jest.fn(async (..._args: unknown[]) => {
   const sql = _args[0];
   if (typeof sql === 'string' && sql.includes('pragma table_info')) {
-    return vorhandeneSpalten.map((name) => ({ name }));
+    return existingColumns.map((name) => ({ name }));
   }
-  if (!tabelleAngelegt) throw new Error('no such table: upload_queue');
-  if (typeof sql === 'string' && sql.includes('verworfene_momente')) return verworfenZeilen;
-  return zeilen;
+  if (!tableCreated) throw new Error('no such table: upload_queue');
+  if (typeof sql === 'string' && sql.includes('verworfene_momente')) return discardedRows;
+  return rows;
 });
 const mockExecAsync = jest.fn(async (..._args: unknown[]) => {
-  tabelleAngelegt = true;
+  tableCreated = true;
 });
-// Greifbar statt inline, damit ein Öffnen (oder Nicht-Öffnen) beim Import
-// nachweisbar bleibt, siehe Test weiter unten.
+// Kept accessible instead of inline, so an opening (or not opening) on
+// import stays provable, see the test further below.
 const mockOpenDatabaseAsync = jest.fn(async (..._args: unknown[]) => ({
   execAsync: (...a: unknown[]) => mockExecAsync(...a),
   runAsync: (...a: unknown[]) => mockRunAsync(...a),
@@ -46,27 +46,27 @@ const mockOpenDatabaseAsync = jest.fn(async (..._args: unknown[]) => ({
 }));
 
 jest.mock('expo-sqlite', () => ({
-  // Verzögerter Aufruf wie bei den anderen drei Methoden: mockOpenDatabaseAsync
-  // erst beim tatsächlichen Aufruf lesen, nicht schon beim Auswerten der Factory
-  // (die läuft durch jest-hoist früh, vor der const-Initialisierung oben).
+  // Delayed call like the other three methods: only read mockOpenDatabaseAsync
+  // at the actual call, not already while evaluating the factory (which runs
+  // early via jest-hoist, before the const initialization above).
   openDatabaseAsync: (...a: unknown[]) => mockOpenDatabaseAsync(...a),
 }));
 
-// Fester Documents-Ort für die Pfad-Übersetzung (queuePfade.ts): die Tests
-// unten prüfen die Rückverwandlung gegen genau diesen Anker.
+// Fixed Documents location for the path translation (queuePaths.ts): the
+// tests below check the reverse translation against exactly this anchor.
 jest.mock('expo-file-system', () => ({
   Paths: { document: { uri: 'file:///container-NEU/Documents/' } },
 }));
 
 import {
   initQueue,
-  jobHinzufuegen,
-  alleJobs,
-  jobAktualisieren,
-  jobEntfernen,
-  verworfenenMerken,
-  verworfene,
-  verworfeneQuittieren,
+  addJob,
+  allJobs,
+  updateJob,
+  removeJob,
+  rememberDiscarded,
+  discardedMoments,
+  acknowledgeDiscarded,
 } from '../queueDb';
 import type { QueueJob } from '../types';
 
@@ -80,139 +80,141 @@ const job: QueueJob = {
   zeile_angelegt: false, medium_geladen: false, thumb_geladen: false,
 };
 
-// Liest die Spaltenliste aus einem "insert into upload_queue (a, b, c) values (...)"-
-// Statement, damit Tests die Position eines Feldes im Werte-Array nachweisen können,
-// ohne SPALTEN aus der Implementierung zu importieren.
-function spaltenAusInsertSql(sql: string): string[] {
-  const treffer = sql.match(/\(([^)]+)\)\s*values/i);
-  if (!treffer) throw new Error(`Konnte Spaltenliste nicht aus SQL lesen: ${sql}`);
-  return treffer[1].split(',').map((s) => s.trim());
+// Reads the column list from an "insert into upload_queue (a, b, c) values
+// (...)" statement, so tests can prove a field's position in the values
+// array without importing COLUMNS from the implementation.
+function columnsFromInsertSql(sql: string): string[] {
+  const match = sql.match(/\(([^)]+)\)\s*values/i);
+  if (!match) throw new Error(`Konnte Spaltenliste nicht aus SQL lesen: ${sql}`);
+  return match[1].split(',').map((s) => s.trim());
 }
 
 beforeEach(() => {
-  zeilen.length = 0;
-  verworfenZeilen.length = 0;
-  vorhandeneSpalten = [...ALLE_SPALTEN];
+  rows.length = 0;
+  discardedRows.length = 0;
+  existingColumns = [...ALL_COLUMNS];
   jest.clearAllMocks();
 });
 
-test('initQueue legt die Tabelle an', async () => {
+test('initQueue creates the table', async () => {
   await initQueue();
   expect(mockExecAsync).toHaveBeenCalledWith(expect.stringContaining('create table if not exists'));
 });
 
-// Finding 1: create table und insert/update müssen aus derselben Quelle stammen.
-// Dieser Test beisst: fehlt eine Spalte im generierten create-table-Text (weil
-// jemand wieder eine handgeschriebene, abweichende Liste einführt), schlägt er fehl.
-test('initQueue legt jedes Feld von QueueJob als Spalte an', async () => {
+// Finding 1: create table and insert/update must come from the same
+// source. This test bites: if a column is missing in the generated
+// create-table text (because someone introduces a hand-written, diverging
+// list again), it fails.
+test('initQueue creates every field of QueueJob as a column', async () => {
   await initQueue();
   const [sql] = mockExecAsync.mock.calls[0] as [string];
-  for (const feld of Object.keys(job)) {
-    expect(sql).toMatch(new RegExp(`\\b${feld}\\b`));
+  for (const field of Object.keys(job)) {
+    expect(sql).toMatch(new RegExp(`\\b${field}\\b`));
   }
 });
 
-// Task-13-Fix-Runde-2: `create table if not exists` legt nur eine NEUE
-// Tabelle mit vollem Schema an, eine Bestandsinstallation (Tabelle existiert
-// schon, ohne die neue author_id-Spalte) wandert dadurch NICHT nach.
-test('initQueue zieht eine fehlende Spalte einer Bestandsinstallation per ALTER TABLE nach, ohne "not null"', async () => {
-  vorhandeneSpalten = ALLE_SPALTEN.filter((s) => s !== 'author_id');
+// Task-13-Fix-Runde-2: `create table if not exists` only creates a NEW
+// table with the full schema, an existing install (table already exists,
+// without the new author_id column) does NOT grow along with it.
+test('initQueue carries a missing column of an existing install forward via ALTER TABLE, without "not null"', async () => {
+  existingColumns = ALL_COLUMNS.filter((s) => s !== 'author_id');
   await initQueue();
-  const alterAufrufe = mockExecAsync.mock.calls
+  const schemaChangeCalls = mockExecAsync.mock.calls
     .map(([sql]) => sql as string)
     .filter((sql) => /alter table/i.test(sql));
-  expect(alterAufrufe).toHaveLength(1);
-  expect(alterAufrufe[0]).toMatch(/alter table upload_queue add column author_id/i);
-  // Bewusst ohne "not null", obwohl author_id im Schema Pflicht ist: SQLite
-  // verweigert eine NOT-NULL-Spalte ohne DEFAULT auf einer befüllten Tabelle.
-  expect(alterAufrufe[0]).not.toMatch(/not null/i);
+  expect(schemaChangeCalls).toHaveLength(1);
+  expect(schemaChangeCalls[0]).toMatch(/alter table upload_queue add column author_id/i);
+  // Deliberately without "not null", even though author_id is required in
+  // the schema: SQLite refuses a NOT-NULL column without a DEFAULT on a
+  // populated table.
+  expect(schemaChangeCalls[0]).not.toMatch(/not null/i);
 });
 
-test('initQueue lässt eine bereits vollständige Tabelle unangetastet (kein ALTER TABLE)', async () => {
+test('initQueue leaves an already complete table untouched (no ALTER TABLE)', async () => {
   await initQueue();
-  const hatAlter = mockExecAsync.mock.calls.some(([sql]) => /alter table/i.test(sql as string));
-  expect(hatAlter).toBe(false);
+  const hasSchemaChange = mockExecAsync.mock.calls.some(([sql]) => /alter table/i.test(sql as string));
+  expect(hasSchemaChange).toBe(false);
 });
 
-// Eine per ALTER TABLE nachgezogene Spalte ist nullable, Alt-Zeilen bekommen
-// author_id: null. istVollstaendig() (Pflichtfeld-Prüfung) verwirft sie beim
-// Lesen als unvollständig, statt sie unter der aktuell angemeldeten Person zu
-// verarbeiten. Das ist Absicht, nicht ein Nebeneffekt: ein Alt-Moment ohne
-// bekannte Autoren-Kennung darf nie unter fremdem Namen landen.
-test('alleJobs verwirft eine Alt-Zeile ohne author_id (Migration von vor Task 13)', async () => {
-  zeilen.push({ ...job, id: 'alt-1', author_id: null });
-  const jobs = await alleJobs();
+// A column carried forward via ALTER TABLE is nullable, legacy rows get
+// author_id: null. isComplete() (required-field check) rejects them on read
+// as incomplete, instead of processing them under the currently signed-in
+// person. That's deliberate, not a side effect: a legacy moment without a
+// known author identity must never land under a stranger's name.
+test('allJobs rejects a legacy row without author_id (migration from before Task 13)', async () => {
+  rows.push({ ...job, id: 'alt-1', author_id: null });
+  const jobs = await allJobs();
   expect(jobs).toHaveLength(0);
 });
 
-test('jobHinzufuegen schreibt alle Felder', async () => {
-  await jobHinzufuegen(job);
-  const [sql, werte] = mockRunAsync.mock.calls[0] as [string, unknown[]];
+test('addJob writes every field', async () => {
+  await addJob(job);
+  const [sql, values] = mockRunAsync.mock.calls[0] as [string, unknown[]];
   expect(sql).toContain('insert');
-  expect(werte).toContain('j1');
-  expect(werte).toContain('trips/t1/p1.jpg');
+  expect(values).toContain('j1');
+  expect(values).toContain('trips/t1/p1.jpg');
 });
 
-// === Relative Pfade (Fix 2026-08-18) ===
-// Die Container-UUID im Documents-Pfad wechselt mit jedem App-Neubau; absolut
-// gespeicherte Pfade zeigten danach ins Leere, und am 2026-08-17 verwarf der
-// Worker so vier wartende Momente als «Datei fehlt». Die Datenbank hält
-// deshalb nur noch den Teil unterhalb von Documents (queuePfade.ts) und löst
-// beim Lesen gegen den aktuellen Ort auf.
-test('jobHinzufuegen legt Medium- und Thumb-Pfad relativ zu Documents ab', async () => {
-  await jobHinzufuegen({
+// === Relative paths (fix 2026-08-18) ===
+// The container UUID in the Documents path changes with every app rebuild;
+// absolutely stored paths pointed into nothing afterwards, and on
+// 2026-08-17 the worker discarded four pending moments this way as "file
+// missing". The database therefore only holds the part below Documents
+// (queuePaths.ts) and resolves it on read against the current location.
+test('addJob stores medium and thumb path relative to Documents', async () => {
+  await addJob({
     ...job,
     medium_uri: 'file:///container-NEU/Documents/momente/p1/medium.jpg',
     thumb_uri: 'file:///container-NEU/Documents/momente/p1/thumb.jpg',
   });
-  const [sql, werte] = mockRunAsync.mock.calls[0] as [string, unknown[]];
-  const spalten = spaltenAusInsertSql(sql);
-  expect(werte[spalten.indexOf('medium_uri')]).toBe('momente/p1/medium.jpg');
-  expect(werte[spalten.indexOf('thumb_uri')]).toBe('momente/p1/thumb.jpg');
+  const [sql, values] = mockRunAsync.mock.calls[0] as [string, unknown[]];
+  const columns = columnsFromInsertSql(sql);
+  expect(values[columns.indexOf('medium_uri')]).toBe('momente/p1/medium.jpg');
+  expect(values[columns.indexOf('thumb_uri')]).toBe('momente/p1/thumb.jpg');
 });
 
-test('alleJobs löst relative Pfade gegen den aktuellen Documents-Ort auf', async () => {
-  zeilen.push({
+test('allJobs resolves relative paths against the current Documents location', async () => {
+  rows.push({
     ...job,
     medium_uri: 'momente/p1/medium.jpg',
     thumb_uri: 'momente/p1/thumb.jpg',
   });
-  const [gelesen] = await alleJobs();
-  expect(gelesen.medium_uri).toBe('file:///container-NEU/Documents/momente/p1/medium.jpg');
-  expect(gelesen.thumb_uri).toBe('file:///container-NEU/Documents/momente/p1/thumb.jpg');
+  const [read] = await allJobs();
+  expect(read.medium_uri).toBe('file:///container-NEU/Documents/momente/p1/medium.jpg');
+  expect(read.thumb_uri).toBe('file:///container-NEU/Documents/momente/p1/thumb.jpg');
 });
 
-// Alt-Zeilen von vor dem Fix tragen den absoluten Pfad der DAMALIGEN
-// Installation. Sie werden beim Lesen neu verankert — iOS nimmt die Dateien
-// unter Documents beim Update ja mit, nur die Container-UUID im Pfad stimmt
-// nicht mehr.
-test('alleJobs verankert absolute Alt-Zeilen am aktuellen Documents-Ort neu', async () => {
-  zeilen.push({
+// Legacy rows from before the fix carry the absolute path of the THEN
+// CURRENT install. They get re-anchored on read — iOS does carry the files
+// under Documents along on update, only the container UUID in the path no
+// longer matches.
+test('allJobs re-anchors absolute legacy rows at the current Documents location', async () => {
+  rows.push({
     ...job,
     medium_uri: 'file:///container-ALT/Documents/momente/p1/medium.jpg',
     thumb_uri: 'file:///container-ALT/Documents/momente/p1/thumb.jpg',
   });
-  const [gelesen] = await alleJobs();
-  expect(gelesen.medium_uri).toBe('file:///container-NEU/Documents/momente/p1/medium.jpg');
-  expect(gelesen.thumb_uri).toBe('file:///container-NEU/Documents/momente/p1/thumb.jpg');
+  const [read] = await allJobs();
+  expect(read.medium_uri).toBe('file:///container-NEU/Documents/momente/p1/medium.jpg');
+  expect(read.thumb_uri).toBe('file:///container-NEU/Documents/momente/p1/thumb.jpg');
 });
 
-// Finding 3a: Boolean-Übersetzung positionsgenau und in beide Richtungen geprüft
-// (vorher: `toContain(1)` war positionslos und traf zufällig andere Einsen; `false → 0`
-// war gar nicht geprüft).
-test('jobHinzufuegen schreibt Booleans positionsgenau als 0/1 in beide Richtungen', async () => {
-  await jobHinzufuegen({ ...job, zeile_angelegt: true, medium_geladen: false, thumb_geladen: true });
-  const [sql, werte] = mockRunAsync.mock.calls[0] as [string, unknown[]];
-  const spalten = spaltenAusInsertSql(sql);
-  expect(werte[spalten.indexOf('zeile_angelegt')]).toBe(1);
-  expect(werte[spalten.indexOf('medium_geladen')]).toBe(0);
-  expect(werte[spalten.indexOf('thumb_geladen')]).toBe(1);
+// Finding 3a: boolean translation checked position-accurately and in both
+// directions (before: `toContain(1)` was positionless and coincidentally
+// hit other ones; `false → 0` wasn't checked at all).
+test('addJob writes booleans position-accurately as 0/1 in both directions', async () => {
+  await addJob({ ...job, zeile_angelegt: true, medium_geladen: false, thumb_geladen: true });
+  const [sql, values] = mockRunAsync.mock.calls[0] as [string, unknown[]];
+  const columns = columnsFromInsertSql(sql);
+  expect(values[columns.indexOf('zeile_angelegt')]).toBe(1);
+  expect(values[columns.indexOf('medium_geladen')]).toBe(0);
+  expect(values[columns.indexOf('thumb_geladen')]).toBe(1);
 });
 
-// Finding 3b: echter Rundreise-Test. Die tatsächlich von jobHinzufuegen geschriebenen
-// Spalten/Werte werden in eine Zeile zusammengesetzt (so, wie SQLite sie speichern
-// würde) und über alleJobs zurückgelesen, muss unversehrt herauskommen.
-test('Job übersteht eine Rundreise durch jobHinzufuegen und alleJobs unversehrt', async () => {
+// Finding 3b: genuine round-trip test. The columns/values actually written
+// by addJob are assembled into a row (the way SQLite would store it) and
+// read back via allJobs, must come out unscathed.
+test('a job survives a round trip through addJob and allJobs unscathed', async () => {
   const original: QueueJob = {
     ...job,
     id: 'rt-1',
@@ -220,147 +222,148 @@ test('Job übersteht eine Rundreise durch jobHinzufuegen und alleJobs unversehrt
     medium_geladen: false,
     thumb_geladen: true,
   };
-  await jobHinzufuegen(original);
-  const [sql, werte] = mockRunAsync.mock.calls[0] as [string, unknown[]];
-  const spalten = spaltenAusInsertSql(sql);
-  const gespeicherteZeile: Record<string, unknown> = {};
-  spalten.forEach((spalte, i) => {
-    gespeicherteZeile[spalte] = werte[i];
+  await addJob(original);
+  const [sql, values] = mockRunAsync.mock.calls[0] as [string, unknown[]];
+  const columns = columnsFromInsertSql(sql);
+  const storedRow: Record<string, unknown> = {};
+  columns.forEach((column, i) => {
+    storedRow[column] = values[i];
   });
-  zeilen.push(gespeicherteZeile);
+  rows.push(storedRow);
 
-  const [wiederhergestellt] = await alleJobs();
-  expect(wiederhergestellt).toEqual(original);
+  const [restored] = await allJobs();
+  expect(restored).toEqual(original);
 });
 
-test('alleJobs wandelt 0/1 zurück in Booleans', async () => {
-  zeilen.push({
+test('allJobs converts 0/1 back into booleans', async () => {
+  rows.push({
     ...job, zeile_angelegt: 1, medium_geladen: 0, thumb_geladen: 1,
   });
-  const [geladen] = await alleJobs();
-  expect(geladen.zeile_angelegt).toBe(true);
-  expect(geladen.medium_geladen).toBe(false);
-  expect(geladen.thumb_geladen).toBe(true);
+  const [loaded] = await allJobs();
+  expect(loaded.zeile_angelegt).toBe(true);
+  expect(loaded.medium_geladen).toBe(false);
+  expect(loaded.thumb_geladen).toBe(true);
 });
 
-// Finding 2: eine Zeile mit fehlendem Pflichtfeld darf nicht als gültiger Job
-// durchgehen, und darf die übrige Warteschlange nicht mitreissen.
-test('alleJobs überspringt eine Zeile mit fehlendem Pflichtfeld, behält die übrigen', async () => {
-  const { post_id: _weg, ...kaputt } = job;
-  zeilen.push({ ...kaputt, id: 'kaputt-1' });
-  zeilen.push({ ...job, id: 'j2' });
+// Finding 2: a row with a missing required field must not pass as a valid
+// job, and must not take the rest of the queue down with it.
+test('allJobs skips a row with a missing required field, keeps the rest', async () => {
+  const { post_id: _discarded, ...broken } = job;
+  rows.push({ ...broken, id: 'kaputt-1' });
+  rows.push({ ...job, id: 'j2' });
 
-  const jobs = await alleJobs();
+  const jobs = await allJobs();
 
   expect(jobs).toHaveLength(1);
   expect(jobs[0].id).toBe('j2');
 });
 
-// Finding 2: ein ungültiger zustand-Wert (z. B. durch eine nicht migrierte
-// Schema-Änderung) darf ebenfalls nicht als gültiger Job durchgehen.
-test('alleJobs überspringt eine Zeile mit ungültigem zustand', async () => {
-  zeilen.push({ ...job, id: 'kaputt-2', zustand: 'explodiert' });
+// Finding 2: an invalid zustand value (e.g. from an unmigrated schema
+// change) must not pass as a valid job either.
+test('allJobs skips a row with an invalid zustand', async () => {
+  rows.push({ ...job, id: 'kaputt-2', zustand: 'explodiert' });
 
-  const jobs = await alleJobs();
+  const jobs = await allJobs();
 
   expect(jobs).toHaveLength(0);
 });
 
-test('jobAktualisieren schreibt den Fortschritt zurück', async () => {
-  await jobAktualisieren({ ...job, versuche: 3, zeile_angelegt: true });
-  const [sql, werte] = mockRunAsync.mock.calls[0] as [string, unknown[]];
+test('updateJob writes the progress back', async () => {
+  await updateJob({ ...job, versuche: 3, zeile_angelegt: true });
+  const [sql, values] = mockRunAsync.mock.calls[0] as [string, unknown[]];
   expect(sql).toContain('update');
-  expect(werte).toContain(3);
-  expect(werte).toContain(1); // true → 1
+  expect(values).toContain(3);
+  expect(values).toContain(1); // true → 1
 });
 
-test('jobEntfernen löscht über die id', async () => {
-  await jobEntfernen('j1');
-  const [sql, werte] = mockRunAsync.mock.calls[0] as [string, unknown[]];
+test('removeJob deletes via the id', async () => {
+  await removeJob('j1');
+  const [sql, values] = mockRunAsync.mock.calls[0] as [string, unknown[]];
   expect(sql).toContain('delete');
-  expect(werte).toEqual(['j1']);
+  expect(values).toEqual(['j1']);
 });
 
-// Finding 3c: "nicht beim Import geöffnet" war zuvor unbelegt, mockOpenDatabaseAsync
-// war in der Mock-Factory eingeschlossen und für den Test nicht greifbar, und
-// jest.clearAllMocks() in beforeEach hätte einen Aufruf beim Import ohnehin
-// weggewischt. Fix: frisches Modul nach jest.resetModules() laden (Registry-Reset
-// invalidiert nicht die oben registrierte Mock-Factory) und die Aufrufe direkt danach
-// prüfen, bevor irgendetwas anderes den Mock zurücksetzen könnte.
-test('öffnet die Datenbank nicht beim Import, sondern erst beim ersten Zugriff', async () => {
+// Finding 3c: "not opened on import" was previously unproven,
+// mockOpenDatabaseAsync was enclosed in the mock factory and inaccessible
+// to the test, and jest.clearAllMocks() in beforeEach would have wiped a
+// call on import anyway. Fix: load a fresh module after
+// jest.resetModules() (a registry reset doesn't invalidate the mock
+// factory registered above) and check the calls right afterwards, before
+// anything else could reset the mock.
+test('does not open the database on import, only on first access', async () => {
   jest.resetModules();
-  const frischesModul: typeof import('../queueDb') = require('../queueDb');
+  const freshModule: typeof import('../queueDb') = require('../queueDb');
 
   expect(mockOpenDatabaseAsync).not.toHaveBeenCalled();
 
-  await frischesModul.initQueue();
+  await freshModule.initQueue();
 
   expect(mockOpenDatabaseAsync).toHaveBeenCalledTimes(1);
 });
 
-// Task 13: der Worker (und mit ihm initQueue()) läuft erst ab signedIn, ein
-// frisch installiertes Gerät oder eines ohne Session/Profil hat die Tabelle
-// also noch nicht. alleJobs() wird trotzdem direkt von aussen gerufen (Reise-
-// Detail, Zähler) und darf diese Aufrufer nie mit einem SQLite-Fehler
-// blockieren, sondern muss die Tabelle selbst sicherstellen.
+// Task 13: the worker (and with it initQueue()) only runs from signedIn
+// onwards, a freshly installed device or one without session/profile
+// therefore doesn't have the table yet. allJobs() still gets called
+// directly from outside (trip detail, counter) and must never block those
+// callers with an SQLite error, but has to ensure the table itself.
 //
-// Frisches Modul nach jest.resetModules() wie im Test direkt oberhalb, sonst
-// hätte ein früherer Test in dieser Datei (z.B. der erste initQueue-Aufruf)
-// `tabelleAngelegt` bereits dauerhaft auf true gesetzt und dieser Test würde
-// nichts mehr beweisen. `tabelleAngelegt` wird bewusst NICHT in beforeEach
-// zurückgesetzt (siehe oben), es bildet eine reale, für die Prozesslaufzeit
-// einmal angelegte SQLite-Tabelle nach, kein Pro-Test-Zurücksetzen.
-test('alleJobs liefert auf einer noch nie angelegten Tabelle eine leere Liste statt zu werfen', async () => {
+// Fresh module after jest.resetModules() like in the test directly above,
+// otherwise an earlier test in this file (e.g. the first initQueue call)
+// would already have permanently set `tableCreated` to true and this test
+// would no longer prove anything. `tableCreated` is deliberately NOT reset
+// in beforeEach (see above), it mirrors a real SQLite table created once
+// for the process runtime, no per-test reset.
+test('allJobs returns an empty list instead of throwing on a table that was never created', async () => {
   jest.resetModules();
-  tabelleAngelegt = false;
-  const frischesModul: typeof import('../queueDb') = require('../queueDb');
+  tableCreated = false;
+  const freshModule: typeof import('../queueDb') = require('../queueDb');
 
-  await expect(frischesModul.alleJobs()).resolves.toEqual([]);
+  await expect(freshModule.allJobs()).resolves.toEqual([]);
   expect(mockExecAsync).toHaveBeenCalledWith(expect.stringContaining('create table if not exists'));
 });
 
-// === Final-Review, Important 9: verworfene Momente ===
-// Spec §8 verspricht «mit Erklärung verworfen». Der Eintrag muss denselben
-// Neustart überleben wie die Warteschlange, deshalb dieselbe SQLite-Datei,
-// eigene Tabelle.
+// === Final-Review, Important 9: discarded moments ===
+// Spec §8 promises "discarded with an explanation". The entry has to
+// survive the same restart as the queue, hence the same SQLite file, its
+// own table.
 
-test('initQueue legt auch die Tabelle für verworfene Momente an', async () => {
+test('initQueue also creates the table for discarded moments', async () => {
   await initQueue();
   expect(mockExecAsync).toHaveBeenCalledWith(
     expect.stringContaining('create table if not exists verworfene_momente')
   );
 });
 
-// insert or replace: ein Wiederanlauf nach Absturz darf denselben Moment nicht
-// zweimal melden.
-test('verworfenenMerken schreibt idempotent', async () => {
-  await verworfenenMerken({
+// insert or replace: a restart after a crash must not report the same
+// moment twice.
+test('rememberDiscarded writes idempotently', async () => {
+  await rememberDiscarded({
     id: 'p9',
     trip_id: 't1',
     author_id: 'u1',
     grund: 'Nach dem Reveal aufgenommen.',
     verworfen_am: 1234,
   });
-  const [sql, werte] = mockRunAsync.mock.calls[0] as unknown as [string, unknown[]];
+  const [sql, values] = mockRunAsync.mock.calls[0] as unknown as [string, unknown[]];
   expect(sql).toContain('insert or replace into verworfene_momente');
-  expect(werte).toEqual(['p9', 't1', 'u1', 'Nach dem Reveal aufgenommen.', 1234]);
+  expect(values).toEqual(['p9', 't1', 'u1', 'Nach dem Reveal aufgenommen.', 1234]);
 });
 
-// Auf einem geteilten Gerät geht ein verworfener Moment niemanden ausser die
-// Person an, die ihn aufgenommen hat.
-test('verworfene liest nur die eigenen Einträge dieser Reise', async () => {
-  verworfenZeilen.push({ id: 'p9', trip_id: 't1', author_id: 'u1', grund: 'Grund', verworfen_am: 1 });
-  await expect(verworfene('t1', 'u1')).resolves.toEqual([
+// On a shared device, a discarded moment is nobody's business except the
+// person who captured it.
+test('discardedMoments only reads this trip’s own entries', async () => {
+  discardedRows.push({ id: 'p9', trip_id: 't1', author_id: 'u1', grund: 'Grund', verworfen_am: 1 });
+  await expect(discardedMoments('t1', 'u1')).resolves.toEqual([
     { id: 'p9', trip_id: 't1', author_id: 'u1', grund: 'Grund', verworfen_am: 1 },
   ]);
-  const [sql, werte] = mockGetAllAsync.mock.calls.at(-1) as unknown as [string, unknown[]];
+  const [sql, values] = mockGetAllAsync.mock.calls.at(-1) as unknown as [string, unknown[]];
   expect(sql).toContain('where trip_id = ? and author_id = ?');
-  expect(werte).toEqual(['t1', 'u1']);
+  expect(values).toEqual(['t1', 'u1']);
 });
 
-test('verworfeneQuittieren löscht nur die eigenen Einträge dieser Reise', async () => {
-  await verworfeneQuittieren('t1', 'u1');
-  const [sql, werte] = mockRunAsync.mock.calls[0] as unknown as [string, unknown[]];
+test('acknowledgeDiscarded only deletes this trip’s own entries', async () => {
+  await acknowledgeDiscarded('t1', 'u1');
+  const [sql, values] = mockRunAsync.mock.calls[0] as unknown as [string, unknown[]];
   expect(sql).toContain('delete from verworfene_momente');
-  expect(werte).toEqual(['t1', 'u1']);
+  expect(values).toEqual(['t1', 'u1']);
 });

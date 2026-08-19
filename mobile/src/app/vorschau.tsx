@@ -24,12 +24,12 @@ import { Pille } from '@/components/Pille';
 import { PressScale } from '@/components/PressScale';
 import { cinema, palette, radius, spacing, type } from '@/theme/tokens';
 import { useTopInset } from '@/theme/useTopInset';
-import * as medien from '@/features/moments/medien';
-import * as ortUndZeit from '@/features/moments/ortUndZeit';
+import * as medien from '@/features/moments/media';
+import * as ortUndZeit from '@/features/moments/placeAndTime';
 import * as uebergabe from '@/features/kamera/uebergabe';
 import * as nativeAufnahme from '@/features/kamera/nativeAufnahme';
 import * as uploadWorker from '@/features/moments/uploadWorker';
-import { eigenerZaehler } from '@/features/moments/zaehler';
+import { ownMomentCount } from '@/features/moments/counter';
 import { useAuth } from '@/features/auth/AuthProvider';
 import type { QueueJob } from '@/features/moments/types';
 
@@ -145,7 +145,7 @@ export default function PreviewScreen() {
   useEffect(() => {
     if (!tripId) return;
     let aktiv = true;
-    eigenerZaehler(tripId)
+    ownMomentCount(tripId)
       .then((stand) => {
         if (aktiv) setZaehler(stand);
       })
@@ -158,7 +158,7 @@ export default function PreviewScreen() {
   // eingefroren (lazy state init), das liegt so nah wie möglich am
   // tatsächlichen Auslöser-Moment aus Task 7 und darf sich nicht mit jedem
   // Tastenanschlag an der Caption weiterbewegen.
-  const [zeit] = useState(() => ortUndZeit.jetzt());
+  const [zeit] = useState(() => ortUndZeit.now());
 
   // Das Foto kommt seit dem Instant-Foto (Spec 2026-08-13 §4) als natives
   // Speicher-Objekt über das Übergabe-Modul, nicht als Datei-URI: EINMAL
@@ -217,7 +217,7 @@ export default function PreviewScreen() {
     const { player, poster } = vorbereiteterPlayer;
     return () => {
       player.release();
-      if (poster) medien.dateiVerwerfen(poster);
+      if (poster) medien.discardFile(poster);
     };
   }, [vorbereiteterPlayer]);
 
@@ -326,7 +326,7 @@ export default function PreviewScreen() {
   // los, der Screen wartet nicht auf sie, um zu erscheinen (Task-8-Kontext).
   useEffect(() => {
     let aktiv = true;
-    void ortUndZeit.ortBestimmen().then((ergebnis) => {
+    void ortUndZeit.determinePlace().then((ergebnis) => {
       if (aktiv) setOrt(ergebnis);
     });
     return () => {
@@ -391,9 +391,9 @@ export default function PreviewScreen() {
     // Abräumen am Promise statt an einem Wert. Scheiterte das Speichern,
     // gibt es nichts zu räumen.
     if (foto) {
-      void foto.datei.then((d) => medien.dateiVerwerfen(d.uri)).catch(() => {});
+      void foto.datei.then((d) => medien.discardFile(d.uri)).catch(() => {});
     } else if (uri) {
-      medien.dateiVerwerfen(uri);
+      medien.discardFile(uri);
     }
     zurueckZurKamera();
   };
@@ -425,7 +425,7 @@ export default function PreviewScreen() {
 
     setSendeFehler(null);
     setSendet(true);
-    const postId = medien.neuePostId();
+    const postId = medien.newMomentId();
     // Ausserhalb des try: der catch-Zweig muss wissen, was schon entstanden
     // ist, um genau das Abgeleitete freizugeben, und nichts sonst.
     let aufbereitet: { medium: string; thumb: string } | null = null;
@@ -451,7 +451,7 @@ export default function PreviewScreen() {
         throw new Error('Aufnahme ohne Quelle');
       }
       aufbereitet =
-        typ === 'video' ? await medien.videoAufbereiten(quelle) : await medien.fotoAufbereiten(quelle);
+        typ === 'video' ? await medien.prepareVideo(quelle) : await medien.preparePhoto(quelle);
 
       // Final-Review, Critical 2: Kamera, Bildbearbeitung und Video-Standbild
       // schreiben alle nach Library/Caches, ein Verzeichnis, das iOS unter
@@ -459,13 +459,13 @@ export default function PreviewScreen() {
       // tagelang halten. Deshalb entsteht HIER, vor dem Einreihen, eine
       // dauerhafte Kopie, und der Job merkt sich diese Pfade, nicht die
       // flüchtigen.
-      const { medium, thumb } = await medien.dauerhaftSichern(postId, aufbereitet);
+      const { medium, thumb } = await medien.persistDurably(postId, aufbereitet);
 
       // Final-Review, Important 5: die Endung kommt aus der TATSÄCHLICHEN
       // Aufnahme, nicht aus der Aufnahmeart, expo-camera liefert auf iOS
       // QuickTime (.mov), auf Android .mp4. Fotos gehen immer als JPEG raus,
       // weil fotoAufbereiten sie ohnehin neu kodiert.
-      const endung = medien.medienEndung(typ, aufbereitet.medium);
+      const endung = medien.mediaExtension(typ, aufbereitet.medium);
 
       const getrimmteCaption = caption.trim();
       const job: QueueJob = {
@@ -496,14 +496,14 @@ export default function PreviewScreen() {
       // Nicht verhandelbar (Task-8-Brief): der Job muss in der Warteschlange
       // stecken, BEVOR irgendeine Inszenierung läuft, die Inszenierung darf
       // nie darüber entscheiden, ob ein Moment gesichert ist.
-      await uploadWorker.jobEinreihen(job);
+      await uploadWorker.enqueueJob(job);
 
       // ERST HIER gehört der Moment der Warteschlange, und erst jetzt dürfen
       // die Quellen weg: die Rohaufnahme aus der Kamera und alles daraus
       // Abgeleitete im Cache. Vorher wäre bei einem Video die einzige Kopie
       // dran (Re-Review).
-      medien.dateiVerwerfen(quelle);
-      medien.zwischenfassungenVerwerfen(quelle, aufbereitet);
+      medien.discardFile(quelle);
+      medien.discardIntermediates(quelle, aufbereitet);
 
       // Der Moment ist ab hier bereits sicher in der Warteschlange, die
       // Erfolgsanimation (~2,5 s, DESIGN-LANGUAGE §5) kommentiert das nur
@@ -520,13 +520,13 @@ export default function PreviewScreen() {
       // Was schon im dauerhaften Ordner liegt, muss dabei weg: ohne Job in der
       // Warteschlange käme nie wieder jemand daran vorbei, der ihn aufräumt.
       // Es ist nur eine KOPIE, das Original bleibt unangetastet (Re-Review).
-      medien.momentDateienEntfernen(postId);
+      medien.removeMomentFiles(postId);
       // Die abgeleiteten Zwischenfassungen im Cache dazu; ein zweiter Versuch
       // erzeugt sie neu. Die Rohaufnahme bleibt garantiert liegen, der Screen
       // bleibt stehen und ein zweiter Versuch braucht sie noch. Bei einem Video
       // IST sie das Medium, und zwischenfassungenVerwerfen lässt genau sie in
       // Ruhe.
-      if (aufbereitet && quelle) medien.zwischenfassungenVerwerfen(quelle, aufbereitet);
+      if (aufbereitet && quelle) medien.discardIntermediates(quelle, aufbereitet);
       console.error('[preview] Einsenden fehlgeschlagen', fehler);
       setSendeFehler(SENDEN_FEHLGESCHLAGEN_MELDUNG);
       setSendet(false);

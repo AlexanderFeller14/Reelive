@@ -17,10 +17,10 @@ import { useAuth } from '@/features/auth/AuthProvider';
 import { deleteTrip, fetchMembers, fetchTrip, removeMember } from '@/features/trips/tripsApi';
 import { formatRange, heutigerKalendertag, tripDay, tripLength } from '@/features/trips/tripDay';
 import type { Trip, TripMember } from '@/features/trips/types';
-import { eigenerZaehler } from '@/features/moments/zaehler';
+import { ownMomentCount } from '@/features/moments/counter';
 import * as queueDb from '@/features/moments/queueDb';
-import { wartendeAnzahl } from '@/features/moments/queueLogic';
-import type { QueueJob, VerworfenerMoment } from '@/features/moments/types';
+import { pendingCount } from '@/features/moments/queueLogic';
+import type { QueueJob, DiscardedMoment } from '@/features/moments/types';
 import { revealTrip } from '@/features/recap/recapApi';
 import { merkeRevealGesehen, revealGesehen } from '@/features/recap/gesehen';
 import { holeVorrat } from '@/features/recap/urlVorrat';
@@ -52,7 +52,7 @@ function wartendText(anzahl: number): string {
 // Feste Referenz statt eines jedes Mal neuen Literals: `laden()` läuft bei
 // jedem Fokussieren, und ein neues Array würde setVerworfen() jedes Mal einen
 // Rerender auslösen, obwohl sich nichts geändert hat.
-const KEINE_VERWORFENEN: VerworfenerMoment[] = [];
+const KEINE_VERWORFENEN: DiscardedMoment[] = [];
 
 function verworfenTitel(anzahl: number): string {
   return anzahl === 1 ? 'Ein Moment konnte nicht mehr eingesendet werden' : `${anzahl} Momente konnten nicht mehr eingesendet werden`;
@@ -196,7 +196,7 @@ export default function ReiseDetail() {
   // die Warteschlange dieser Reise, für die dezente Zeile darunter.
   const [zaehler, setZaehler] = useState(0);
   const [wartend, setWartend] = useState(0);
-  const [verworfen, setVerworfen] = useState<VerworfenerMoment[]>([]);
+  const [verworfen, setVerworfen] = useState<DiscardedMoment[]>([]);
   // Task 8, Phase 6: Melden und Moderation. `meldungenAnzahl` ist ein weicher
   // Beiwert wie `zaehler`/`wartend` oben (RLS filtert für Nicht-Owner-Personen
   // ohnehin auf null Zeilen, ein Fehler hier degradiert still auf 0 statt den
@@ -289,13 +289,13 @@ export default function ReiseDetail() {
       // Mitglieder längst da wären (Fix-Runde 1). Fällt einer der beiden
       // aus, zeigt der Screen eben den reinen Serverstand ohne Warten-Zeile
       // statt gar nichts.
-      eigenerZaehler(id).catch(() => null),
-      queueDb.alleJobs().catch((): QueueJob[] => []),
+      ownMomentCount(id).catch(() => null),
+      queueDb.allJobs().catch((): QueueJob[] => []),
       // Gleicher Grund für das .catch() wie oben: eine beschädigte lokale
       // Datenbank darf den Screen nicht leer stehen lassen. Ohne userId gibt
       // es nichts abzufragen, verworfene Momente gehören immer einer Person.
       userId
-        ? queueDb.verworfene(id, userId).catch(() => KEINE_VERWORFENEN)
+        ? queueDb.discardedMoments(id, userId).catch(() => KEINE_VERWORFENEN)
         : Promise.resolve(KEINE_VERWORFENEN),
       // Task 8: ungefiltert nach Owner-Rolle aufgerufen, reports_select_owner
       // (RLS) liefert einer Nicht-Owner-Person ohnehin still null Zeilen,
@@ -311,7 +311,7 @@ export default function ReiseDetail() {
     setMitglieder(m.data);
     setMitgliederFehler(m.error);
     setZaehler(z ?? t.data?.my_post_count ?? 0);
-    setWartend(wartendeAnzahl(jobs.filter((job) => job.trip_id === id)));
+    setWartend(pendingCount(jobs.filter((job) => job.trip_id === id)));
     setVerworfen(abgelehnt);
     // Ein Ladefehler degradiert still auf 0 (Beiwert-Prinzip, siehe
     // Kommentar am State oben), das offene Moderation-Sheet (falls gerade
@@ -390,7 +390,7 @@ export default function ReiseDetail() {
   const verworfeneQuittieren = useCallback(() => {
     if (!userId) return;
     setVerworfen(KEINE_VERWORFENEN);
-    void queueDb.verworfeneQuittieren(id, userId).catch(() => {});
+    void queueDb.acknowledgeDiscarded(id, userId).catch(() => {});
   }, [id, userId]);
 
   // `laedt` hängt am Knopf, nicht am Fokus-Lauf: sichtbares Warten gehört nur

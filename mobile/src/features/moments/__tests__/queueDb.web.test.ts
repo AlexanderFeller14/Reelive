@@ -1,17 +1,17 @@
-// Web-Fassung von queueDb: keine echte Datenbank, also kein SQLite-Mock nötig.
-// Testet nur den Vertrag, den uploadWorker.ts, zaehler.ts und
-// reise/[id]/index.tsx über den Namespace-Import erwarten (siehe queueDb.web.ts).
+// Web version of queueDb: no real database, so no SQLite mock needed. Only
+// tests the contract that uploadWorker.ts, counter.ts, and
+// reise/[id]/index.tsx expect via the namespace import (see queueDb.web.ts).
 import {
   initQueue,
-  jobHinzufuegen,
-  alleJobs,
-  jobAktualisieren,
-  jobEntfernen,
-  verworfenenMerken,
-  verworfene,
-  verworfeneQuittieren,
+  addJob,
+  allJobs,
+  updateJob,
+  removeJob,
+  rememberDiscarded,
+  discardedMoments,
+  acknowledgeDiscarded,
 } from '../queueDb.web';
-import type { QueueJob, VerworfenerMoment } from '../types';
+import type { QueueJob, DiscardedMoment } from '../types';
 
 const job: QueueJob = {
   id: 'j1', post_id: 'p1', trip_id: 't1', author_id: 'u1', typ: 'photo',
@@ -23,25 +23,25 @@ const job: QueueJob = {
   zeile_angelegt: false, medium_geladen: false, thumb_geladen: false,
 };
 
-const verworfenerEintrag: VerworfenerMoment = {
+const discardedEntry: DiscardedMoment = {
   id: 'p1', trip_id: 't1', author_id: 'u1', grund: 'nach Reveal aufgenommen', verworfen_am: 0,
 };
 
-test('alleJobs() liefert eine leere Liste statt zu werfen, es gibt auf Web keine Warteschlange', async () => {
-  await expect(alleJobs()).resolves.toEqual([]);
+test('allJobs() returns an empty list instead of throwing, there is no queue on web', async () => {
+  await expect(allJobs()).resolves.toEqual([]);
 });
 
-test('verworfene() liefert eine leere Liste statt zu werfen', async () => {
-  await expect(verworfene('t1', 'u1')).resolves.toEqual([]);
+test('discardedMoments() returns an empty list instead of throwing', async () => {
+  await expect(discardedMoments('t1', 'u1')).resolves.toEqual([]);
 });
 
 test.each([
   ['initQueue', () => initQueue()],
-  ['jobHinzufuegen', () => jobHinzufuegen(job)],
-  ['jobAktualisieren', () => jobAktualisieren(job)],
-  ['jobEntfernen', () => jobEntfernen('j1')],
-  ['verworfenenMerken', () => verworfenenMerken(verworfenerEintrag)],
-  ['verworfeneQuittieren', () => verworfeneQuittieren('t1', 'u1')],
-])('%s wirft nie', async (_name, aufruf) => {
-  await expect(aufruf()).resolves.toBeUndefined();
+  ['addJob', () => addJob(job)],
+  ['updateJob', () => updateJob(job)],
+  ['removeJob', () => removeJob('j1')],
+  ['rememberDiscarded', () => rememberDiscarded(discardedEntry)],
+  ['acknowledgeDiscarded', () => acknowledgeDiscarded('t1', 'u1')],
+])('%s never throws', async (_name, call) => {
+  await expect(call()).resolves.toBeUndefined();
 });

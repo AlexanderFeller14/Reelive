@@ -46,7 +46,7 @@ import { useReducedMotion } from '@/theme/useReducedMotion';
 import { fetchTrips } from '@/features/trips/tripsApi';
 import * as tripsCache from '@/features/trips/tripsCache';
 import type { GemerkteReise } from '@/features/trips/tripsCache';
-import { eigenerZaehler } from '@/features/moments/zaehler';
+import { ownMomentCount } from '@/features/moments/counter';
 import { useAuth } from '@/features/auth/AuthProvider';
 import * as uebergabe from '@/features/kamera/uebergabe';
 import * as aufnahmeSperre from '@/features/kamera/aufnahmeSperre';
@@ -1059,7 +1059,7 @@ export default function AufnehmenScreen() {
   // weiter (Fix-Runde 1).
   useEffect(() => {
     if (!reise) return;
-    void eigenerZaehler(reise.id)
+    void ownMomentCount(reise.id)
       .then((n) => {
         if (aktiv.current) setZaehler(n);
       })

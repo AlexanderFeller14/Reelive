@@ -1,39 +1,39 @@
 const jobs: Record<string, unknown>[] = [];
 jest.mock('../queueDb', () => ({
   initQueue: jest.fn(async () => {}),
-  jobHinzufuegen: jest.fn(async (j: Record<string, unknown>) => { jobs.push(j); }),
-  alleJobs: jest.fn(async () => jobs),
-  jobAktualisieren: jest.fn(async (j: Record<string, unknown>) => {
+  addJob: jest.fn(async (j: Record<string, unknown>) => { jobs.push(j); }),
+  allJobs: jest.fn(async () => jobs),
+  updateJob: jest.fn(async (j: Record<string, unknown>) => {
     const i = jobs.findIndex((x) => x.id === j.id);
     if (i >= 0) jobs[i] = j;
   }),
-  jobEntfernen: jest.fn(async (id: string) => {
+  removeJob: jest.fn(async (id: string) => {
     const i = jobs.findIndex((x) => x.id === id);
     if (i >= 0) jobs.splice(i, 1);
   }),
-  // Final-Review, Important 9: ein dauerhaft verworfener Moment wird
-  // festgehalten, damit die App ihn erklären kann.
-  verworfenenMerken: jest.fn(async () => {}),
+  // Final-Review, Important 9: a permanently discarded moment gets
+  // recorded, so the app can explain it.
+  rememberDiscarded: jest.fn(async () => {}),
 }));
-jest.mock('../postsApi', () => ({
-  momentAnlegen: jest.fn(async () => ({ error: null })),
-  signierteUrls: jest.fn(async () => ({
+jest.mock('../momentsApi', () => ({
+  createMoment: jest.fn(async () => ({ error: null })),
+  signedUrls: jest.fn(async () => ({
     urls: { medium_url: 'https://s3/m', thumb_url: 'https://s3/t' },
-    dauerhaftAbgelehnt: false,
+    permanentlyRejected: false,
   })),
-  uploadBestaetigen: jest.fn(async () => ({ error: null })),
-  // Task-13-Fix-Runde-2: die gerade angemeldete Person, Standard passt zu
-  // basis.author_id, einzelne Tests überschreiben mit mockResolvedValueOnce.
-  aktuelleAutorId: jest.fn(async () => 'u1'),
+  confirmUpload: jest.fn(async () => ({ error: null })),
+  // Task-13-Fix-Runde-2: the currently signed-in person, default matches
+  // basis.author_id, individual tests override with mockResolvedValueOnce.
+  currentAuthorId: jest.fn(async () => 'u1'),
 }));
-jest.mock('../einstellungen', () => ({ nurUeberWlan: jest.fn(async () => false) }));
-// Final-Review, Critical 2: der Worker ist die einzige Stelle, an der ein Job
-// die Warteschlange regulär verlässt, auf beiden Wegen müssen die Dateien mit.
-jest.mock('../medien', () => ({
-  momentDateienEntfernen: jest.fn(),
-  // Important 5: der Content-Type des PUT kommt aus dem Speicherschlüssel,
-  // nicht aus der Aufnahmeart (iOS-Videos sind QuickTime, keine MP4).
-  contentTypeFuerSchluessel: jest.fn((key: string) =>
+jest.mock('../settings', () => ({ wifiOnly: jest.fn(async () => false) }));
+// Final-Review, Critical 2: the worker is the only place a job regularly
+// leaves the queue, the files must go along on both paths.
+jest.mock('../media', () => ({
+  removeMomentFiles: jest.fn(),
+  // Important 5: the content type of the PUT comes from the storage key,
+  // not from the capture type (iOS videos are QuickTime, not MP4).
+  contentTypeForKey: jest.fn((key: string) =>
     key.endsWith('.mov') ? 'video/quicktime' : key.endsWith('.mp4') ? 'video/mp4' : 'image/jpeg'
   ),
 }));
@@ -42,10 +42,10 @@ jest.mock('expo-network', () => ({
   addNetworkStateListener: jest.fn(() => ({ remove: jest.fn() })),
 }));
 
-import { einenJobAbarbeiten, jobEinreihen, starte, stoppe, wartende } from '../uploadWorker';
-import * as postsApi from '../postsApi';
+import { processOneJob, enqueueJob, start, stop, pending } from '../uploadWorker';
+import * as momentsApi from '../momentsApi';
 import * as queueDb from '../queueDb';
-import * as medien from '../medien';
+import * as media from '../media';
 import * as Network from 'expo-network';
 import type { QueueJob } from '../types';
 
@@ -59,28 +59,29 @@ const basis: QueueJob = {
   zeile_angelegt: false, medium_geladen: false, thumb_geladen: false,
 };
 
-// Hochgeladen wird ueber expo-file-system, nicht ueber fetch: React Native
-// 0.86 lehnt `{ uri }` als fetch-Body ab (siehe uploadWorker.teilHochladen).
-// Der frueher hier stehende fetch-Mock nahm jeden Body klaglos an und hat
-// deshalb nie bemerkt, dass der echte Weg auf dem Geraet gar nicht existiert.
+// Uploaded via expo-file-system, not via fetch: React Native 0.86 rejects
+// `{ uri }` as a fetch body (see uploadWorker.uploadPart). The fetch mock
+// that used to sit here accepted any body without complaint and therefore
+// never noticed that the real path doesn't even exist on the device.
 const mockUpload = jest.fn(async () => ({ status: 200, body: '', headers: {} }));
 const mockFileUris: string[] = [];
-// Am 2026-08-13 auf dem iPhone: fehlt die lokale Datei, wirft `File.upload()`
-// keine JS-Ausnahme, die der try/catch in verarbeiteJob fangen könnte, sondern
-// eine native ObjC-Ausnahme («Cannot read file at file:///…/medium.jpg»), und
-// die killt den Prozess mit signal 6, bevor irgendein JS wieder dran ist. Die
-// App stürzte dadurch bei JEDEM Start ab, sobald ein solcher Job in der
-// Warteschlange lag. Dieser Mock kann den nativen Absturz nicht nachstellen —
-// prüfbar ist nur, dass der Worker gar nicht erst hochlädt, wenn die Datei
-// fehlt. Genau darauf zielen die Tests unten.
-const mockDatei = { existiert: true };
+// On 2026-08-13 on the iPhone: if the local file is missing, `File.upload()`
+// doesn't throw a JS exception that the try/catch in processJob could
+// catch, but lets a native ObjC exception through ("Cannot read file at
+// file:///…/medium.jpg"), and that kills the process with signal 6 before
+// any JS gets a turn again. That's why the app crashed on EVERY start as
+// soon as such a job sat in the queue. This mock can't reproduce the native
+// crash — what's provable is only that the worker doesn't even attempt the
+// upload when the file is missing. That's exactly what the tests below
+// target.
+const mockFile = { exists: true };
 jest.mock('expo-file-system', () => ({
   File: jest.fn().mockImplementation((uri: string) => {
     mockFileUris.push(uri);
     return {
       upload: mockUpload,
       get exists() {
-        return mockDatei.existiert;
+        return mockFile.exists;
       },
     };
   }),
@@ -89,154 +90,156 @@ beforeEach(() => {
   jobs.length = 0;
   jest.clearAllMocks();
   mockFileUris.length = 0;
-  mockDatei.existiert = true;
+  mockFile.exists = true;
   mockUpload.mockResolvedValue({ status: 200, body: '', headers: {} });
-  // jest.clearAllMocks() setzt NUR Aufruf-Historie zurück, nicht eine per
-  // .mockImplementation()/.mockResolvedValue() gesetzte Implementierung,
-  // zwei Tests unten hängen momentAnlegen bewusst an ein steuerbares Promise.
-  // Ohne diese explizite Wiederherstellung würde das in JEDEN nachfolgenden
-  // Test durchsickern und dort für immer hängen (beobachtet: Timeout).
-  (postsApi.momentAnlegen as jest.Mock).mockResolvedValue({ error: null });
-  // Aus demselben Grund: die Tests zum geteilten Geraet lassen hier sonst
-  // 'person-a'/'person-b' stehen, und jeder danach folgende Test findet fuer
-  // seinen u1-Job keine passende Anmeldung mehr. Er laeuft dann nicht, ohne
-  // dass irgendetwas fehlschlaegt, das faellt nur auf, wenn man wie hier auf
-  // eine Wirkung prueft statt auf eine Ablehnung.
-  (postsApi.aktuelleAutorId as jest.Mock).mockResolvedValue('u1');
+  // jest.clearAllMocks() only resets call history, not an implementation
+  // set via .mockImplementation()/.mockResolvedValue(), two tests below
+  // deliberately hang createMoment on a controllable promise. Without this
+  // explicit restoration it would leak into EVERY following test and hang
+  // there forever (observed: timeout).
+  (momentsApi.createMoment as jest.Mock).mockResolvedValue({ error: null });
+  // Same reason: the shared-device tests would otherwise leave
+  // 'person-a'/'person-b' behind here, and every subsequent test would no
+  // longer find a matching sign-in for its u1 job. It then simply doesn't
+  // run, without anything failing, which only becomes apparent when
+  // checking for an effect like here instead of a rejection.
+  (momentsApi.currentAuthorId as jest.Mock).mockResolvedValue('u1');
 });
 
-test('ein vollständiger Durchlauf legt an, lädt beides hoch, bestätigt und räumt auf', async () => {
+test('a complete run creates it, uploads both, confirms and cleans up', async () => {
   jobs.push({ ...basis });
-  await einenJobAbarbeiten();
-  expect(postsApi.momentAnlegen).toHaveBeenCalledTimes(1);
+  await processOneJob();
+  expect(momentsApi.createMoment).toHaveBeenCalledTimes(1);
   expect(mockUpload).toHaveBeenCalledTimes(2);
-  expect(postsApi.uploadBestaetigen).toHaveBeenCalledWith('p1');
-  expect(queueDb.jobEntfernen).toHaveBeenCalledWith('j1');
-  // Critical 2: sonst blieben Medium und Thumbnail jedes hochgeladenen
-  // Moments für immer liegen, bei Video die vollen 30 Sekunden in 1080p.
-  expect(medien.momentDateienEntfernen).toHaveBeenCalledWith('p1');
+  expect(momentsApi.confirmUpload).toHaveBeenCalledWith('p1');
+  expect(queueDb.removeJob).toHaveBeenCalledWith('j1');
+  // Critical 2: otherwise the medium and thumbnail of every uploaded moment
+  // would stay behind forever, for video the full 30 seconds in 1080p.
+  expect(media.removeMomentFiles).toHaveBeenCalledWith('p1');
 });
 
-test('ein Fehlschlag lässt die Dateien liegen, der nächste Versuch braucht sie', async () => {
+test('a failure leaves the files in place, the next attempt needs them', async () => {
   mockUpload.mockResolvedValueOnce({ status: 500, body: '', headers: {} });
   jobs.push({ ...basis });
-  await einenJobAbarbeiten();
-  expect(medien.momentDateienEntfernen).not.toHaveBeenCalled();
+  await processOneJob();
+  expect(media.removeMomentFiles).not.toHaveBeenCalled();
 });
 
-// Important 5: der Bucket prüft den DEKLARIERTEN Typ. Eine iOS-Aufnahme unter
-// video/mp4 hochzuladen ergibt ein dauerhaft falsch etikettiertes Objekt.
-test('der Content-Type des Mediums folgt dem Speicherschlüssel', async () => {
+// Important 5: the bucket checks the DECLARED type. Uploading an iOS
+// capture under video/mp4 results in a permanently mislabeled object.
+test('the content type of the medium follows the storage key', async () => {
   jobs.push({ ...basis, typ: 'video', storage_key: 'trips/t1/p1.mov', duration_s: 8 });
-  await einenJobAbarbeiten();
-  const [mediumAufruf, thumbAufruf] = mockUpload.mock.calls as unknown as [
+  await processOneJob();
+  const [mediumCall, thumbCall] = mockUpload.mock.calls as unknown as [
     [string, { headers: Record<string, string> }],
     [string, { headers: Record<string, string> }],
   ];
-  expect(mediumAufruf[1].headers['Content-Type']).toBe('video/quicktime');
-  // Das Thumbnail ist immer ein JPEG.
-  expect(thumbAufruf[1].headers['Content-Type']).toBe('image/jpeg');
+  expect(mediumCall[1].headers['Content-Type']).toBe('video/quicktime');
+  // The thumbnail is always a JPEG.
+  expect(thumbCall[1].headers['Content-Type']).toBe('image/jpeg');
 });
 
-// === Final-Review, Important 4: ein unvollständiges Objekt war eine Sackgasse ===
-// medium_geladen/thumb_geladen wurden gesetzt, sobald der PUT 2xx lieferte, und
-// nie zurückgenommen. Liegt im Speicher ein 0-Byte- oder abgeschnittenes
-// Objekt, antwortet confirm korrekt mit "Upload ist noch nicht vollständig",
-// aber der nächste Durchlauf übersprang beide Uploads und rief nur wieder
-// confirm. Für immer, alle fünf Sekunden.
-test('meldet die Bestätigung Unvollständigkeit, wird beim nächsten Anlauf wirklich neu hochgeladen', async () => {
-  (postsApi.uploadBestaetigen as jest.Mock).mockResolvedValueOnce({
+// === Final-Review, Important 4: an incomplete object was a dead end ===
+// medium_geladen/thumb_geladen got set as soon as the PUT returned 2xx, and
+// never taken back. If storage holds a 0-byte or truncated object, confirm
+// correctly responds with "upload not yet complete", but the next run
+// skipped both uploads and only called confirm again. Forever, every five
+// seconds.
+test('reports the confirmation as incomplete, gets genuinely re-uploaded on the next attempt', async () => {
+  (momentsApi.confirmUpload as jest.Mock).mockResolvedValueOnce({
     error: 'Upload ist noch nicht vollständig.',
-    unvollstaendig: true,
+    incomplete: true,
   });
   jobs.push({ ...basis });
 
-  await einenJobAbarbeiten();
+  await processOneJob();
 
-  const [gespeichert] = jobs as unknown as QueueJob[];
-  expect(gespeichert.versuche).toBe(1);
-  expect(gespeichert.medium_geladen).toBe(false);
-  expect(gespeichert.thumb_geladen).toBe(false);
-  // Die posts-Zeile bleibt bestehen, nur die Uploads müssen erneut laufen.
-  expect(gespeichert.zeile_angelegt).toBe(true);
-  expect(queueDb.jobEntfernen).not.toHaveBeenCalled();
+  const [stored] = jobs as unknown as QueueJob[];
+  expect(stored.versuche).toBe(1);
+  expect(stored.medium_geladen).toBe(false);
+  expect(stored.thumb_geladen).toBe(false);
+  // The posts row stays, only the uploads need to run again.
+  expect(stored.zeile_angelegt).toBe(true);
+  expect(queueDb.removeJob).not.toHaveBeenCalled();
 
-  // Zweiter Durchlauf: beide Objekte gehen tatsächlich erneut raus.
+  // Second run: both objects genuinely go out again.
   mockUpload.mockClear();
-  gespeichert.naechster_versuch = 0;
-  await einenJobAbarbeiten();
+  stored.naechster_versuch = 0;
+  await processOneJob();
   expect(mockUpload).toHaveBeenCalledTimes(2);
 });
 
-// Jeder ANDERE Fehlschlag der Bestätigung (Netz weg, Function nicht
-// erreichbar) darf die Uploads nicht wegwerfen, sie sind ja durch.
-test('ein gewöhnlicher Fehlschlag der Bestätigung behält die erledigten Uploads', async () => {
-  (postsApi.uploadBestaetigen as jest.Mock).mockResolvedValueOnce({ error: 'Netz weg' });
+// Every OTHER failure of the confirmation (network down, Function
+// unreachable) must not throw away the uploads, they're already done after
+// all.
+test('an ordinary confirmation failure keeps the completed uploads', async () => {
+  (momentsApi.confirmUpload as jest.Mock).mockResolvedValueOnce({ error: 'Netz weg' });
   jobs.push({ ...basis });
 
-  await einenJobAbarbeiten();
+  await processOneJob();
 
-  const [gespeichert] = jobs as unknown as QueueJob[];
-  expect(gespeichert.medium_geladen).toBe(true);
-  expect(gespeichert.thumb_geladen).toBe(true);
+  const [stored] = jobs as unknown as QueueJob[];
+  expect(stored.medium_geladen).toBe(true);
+  expect(stored.thumb_geladen).toBe(true);
 });
 
-test('ein Wiederanlauf legt die Zeile nicht zweimal an', async () => {
+test('a restart does not create the row twice', async () => {
   jobs.push({ ...basis, zeile_angelegt: true, medium_geladen: true });
-  await einenJobAbarbeiten();
-  expect(postsApi.momentAnlegen).not.toHaveBeenCalled();
-  expect(mockUpload).toHaveBeenCalledTimes(1); // nur noch das Thumbnail
+  await processOneJob();
+  expect(momentsApi.createMoment).not.toHaveBeenCalled();
+  expect(mockUpload).toHaveBeenCalledTimes(1); // only the thumbnail left
 });
 
-test('ein fehlgeschlagener Upload zählt hoch statt den Job zu verlieren', async () => {
+test('a failed upload counts up instead of losing the job', async () => {
   mockUpload.mockResolvedValueOnce({ status: 500, body: '', headers: {} });
   jobs.push({ ...basis });
-  await einenJobAbarbeiten();
-  const [gespeichert] = jobs as unknown as QueueJob[];
-  expect(gespeichert.versuche).toBe(1);
-  expect(gespeichert.zustand).toBe('wartet');
-  expect(queueDb.jobEntfernen).not.toHaveBeenCalled();
+  await processOneJob();
+  const [stored] = jobs as unknown as QueueJob[];
+  expect(stored.versuche).toBe(1);
+  expect(stored.zustand).toBe('wartet');
+  expect(queueDb.removeJob).not.toHaveBeenCalled();
 });
 
-test('ohne fälligen Job passiert nichts', async () => {
+test('nothing happens without a due job', async () => {
   jobs.push({ ...basis, naechster_versuch: Number.MAX_SAFE_INTEGER });
-  await einenJobAbarbeiten();
-  expect(postsApi.momentAnlegen).not.toHaveBeenCalled();
+  await processOneJob();
+  expect(momentsApi.createMoment).not.toHaveBeenCalled();
 });
 
-// Spec §8 / Task-6-Brief «Reise wird währenddessen aufgedeckt»: liegt captured_at
-// nach dem Reveal, lehnt posts_insert_member JEDEN Versuch dauerhaft ab (Phase 1
-// erlaubt nur Nachzügler von vorher), Wiederholen hilft nie. Das ist etwas anderes
-// als ein Netzfehler: nur DIESE Ablehnung darf den Job aus der Queue werfen.
-test('eine dauerhafte Ablehnung durch die Policy wird nicht wiederholt, sondern aus der Queue entfernt', async () => {
-  (postsApi.momentAnlegen as jest.Mock).mockResolvedValueOnce({
+// Spec §8 / Task-6-Brief "trip gets revealed in the meantime": if
+// captured_at lies after the reveal, posts_insert_member permanently
+// rejects EVERY attempt (Phase 1 only allows stragglers from before),
+// retrying never helps. That's different from a network error: only THIS
+// rejection may throw the job out of the queue.
+test('a permanent rejection by the policy does not get retried, but removed from the queue', async () => {
+  (momentsApi.createMoment as jest.Mock).mockResolvedValueOnce({
     error: 'Dieser Moment wurde nach der Aufdeckung der Reise aufgenommen und kann nicht mehr eingesendet werden.',
-    dauerhaftAbgelehnt: true,
+    permanentlyRejected: true,
   });
   jobs.push({ ...basis });
-  await einenJobAbarbeiten();
-  expect(queueDb.jobEntfernen).toHaveBeenCalledWith('j1');
-  expect(postsApi.signierteUrls).not.toHaveBeenCalled();
+  await processOneJob();
+  expect(queueDb.removeJob).toHaveBeenCalledWith('j1');
+  expect(momentsApi.signedUrls).not.toHaveBeenCalled();
   expect(mockUpload).not.toHaveBeenCalled();
-  expect(queueDb.jobAktualisieren).not.toHaveBeenCalled();
-  // Zweiter Weg aus der Warteschlange, auch hier müssen die Dateien mit
+  expect(queueDb.updateJob).not.toHaveBeenCalled();
+  // Second way out of the queue, the files have to go along here too
   // (Critical 2).
-  expect(medien.momentDateienEntfernen).toHaveBeenCalledWith('p1');
+  expect(media.removeMomentFiles).toHaveBeenCalledWith('p1');
 });
 
-// Spec §8: «mit Erklärung verworfen». Bis zur Fix-Welle löschte der Worker den
-// Job und schrieb eine Konsolenzeile, die betroffene Person erfuhr nie, dass
-// ihre Aufnahme weg ist (Important 9).
-test('ein dauerhaft verworfener Moment wird mit Grund festgehalten, bevor der Job verschwindet', async () => {
-  (postsApi.momentAnlegen as jest.Mock).mockResolvedValueOnce({
+// Spec §8: "discarded with an explanation". Until the fix wave, the worker
+// deleted the job and wrote a console line, the affected person never
+// learned that their capture is gone (Important 9).
+test('a permanently discarded moment gets recorded with a reason before the job disappears', async () => {
+  (momentsApi.createMoment as jest.Mock).mockResolvedValueOnce({
     error: 'Dieser Moment wurde nach der Aufdeckung der Reise aufgenommen und kann nicht mehr eingesendet werden.',
-    dauerhaftAbgelehnt: true,
+    permanentlyRejected: true,
   });
   jobs.push({ ...basis });
 
-  await einenJobAbarbeiten();
+  await processOneJob();
 
-  expect(queueDb.verworfenenMerken).toHaveBeenCalledWith({
+  expect(queueDb.rememberDiscarded).toHaveBeenCalledWith({
     id: 'p1',
     trip_id: 't1',
     author_id: 'u1',
@@ -244,270 +247,270 @@ test('ein dauerhaft verworfener Moment wird mit Grund festgehalten, bevor der Jo
       'Dieser Moment wurde nach der Aufdeckung der Reise aufgenommen und kann nicht mehr eingesendet werden.',
     verworfen_am: expect.any(Number),
   });
-  // Reihenfolge: erst festhalten, dann verwerfen. Bricht es dazwischen ab,
-  // bleibt der Job liegen und läuft erneut hier durch, umgekehrt wäre der
-  // Moment wortlos weg.
-  const merkAufruf = (queueDb.verworfenenMerken as jest.Mock).mock.invocationCallOrder[0];
-  const entfernAufruf = (queueDb.jobEntfernen as jest.Mock).mock.invocationCallOrder[0];
-  expect(merkAufruf).toBeLessThan(entfernAufruf);
+  // Order: record first, then discard. If it breaks off in between, the job
+  // stays put and runs through here again, the other way around the moment
+  // would be silently gone.
+  const rememberCall = (queueDb.rememberDiscarded as jest.Mock).mock.invocationCallOrder[0];
+  const removeCall = (queueDb.removeJob as jest.Mock).mock.invocationCallOrder[0];
+  expect(rememberCall).toBeLessThan(removeCall);
 });
 
-// === Der serverseitig verschwundene Moment (2026-08-13) ===
-// Die lokale Warteschlange kann einen Datenbankstand überleben: Der Job trägt
-// `zeile_angelegt`, die posts-Zeile ist weg (Reset der Entwicklungs-DB,
-// gelöschter Moment). Die Function antwortet dann dauerhaft mit 404, und ohne
-// diese Unterscheidung lief der Job alle zehn Minuten erneut ins Leere — auf
-// dem Gerät gesehen, drei Stück, bis zum Deinstallieren der App.
-test('ein serverseitig verschwundener Moment wird verworfen statt ewig wiederholt', async () => {
-  (postsApi.signierteUrls as jest.Mock).mockResolvedValueOnce({
+// === The server-side vanished moment (2026-08-13) ===
+// The local queue can outlive a database state: the job carries
+// `zeile_angelegt`, the posts row is gone (reset of the development DB,
+// deleted moment). The Function then permanently responds with 404, and
+// without this distinction the job ran into nothing every ten minutes —
+// seen on the device, three of them, until the app got uninstalled.
+test('a server-side vanished moment gets discarded instead of retried forever', async () => {
+  (momentsApi.signedUrls as jest.Mock).mockResolvedValueOnce({
     urls: null,
-    dauerhaftAbgelehnt: true,
+    permanentlyRejected: true,
   });
   jobs.push({ ...basis, zeile_angelegt: true });
 
-  await einenJobAbarbeiten();
+  await processOneJob();
 
   expect(mockUpload).not.toHaveBeenCalled();
-  expect(queueDb.jobEntfernen).toHaveBeenCalledWith('j1');
-  expect(queueDb.verworfenenMerken).toHaveBeenCalledWith(
+  expect(queueDb.removeJob).toHaveBeenCalledWith('j1');
+  expect(queueDb.rememberDiscarded).toHaveBeenCalledWith(
     expect.objectContaining({ id: 'p1', grund: expect.stringContaining('nicht mehr vorhanden') })
   );
-  expect(medien.momentDateienEntfernen).toHaveBeenCalledWith('p1');
+  expect(media.removeMomentFiles).toHaveBeenCalledWith('p1');
 });
 
-// Die Abgrenzung, an der alles hängt: ein gewöhnlicher Fehlschlag beim Holen
-// der URLs (Server weg, Netz weg) ist NICHT dauerhaft und darf den Moment
-// nicht kosten.
-test('ein wiederholbarer Fehlschlag beim Holen der URLs behält den Job', async () => {
-  (postsApi.signierteUrls as jest.Mock).mockResolvedValueOnce({
+// The boundary everything hinges on: an ordinary failure fetching the URLs
+// (server down, network down) is NOT permanent and must not cost the
+// moment.
+test('a retryable failure fetching the URLs keeps the job', async () => {
+  (momentsApi.signedUrls as jest.Mock).mockResolvedValueOnce({
     urls: null,
-    dauerhaftAbgelehnt: false,
+    permanentlyRejected: false,
   });
   jobs.push({ ...basis, zeile_angelegt: true });
 
-  await einenJobAbarbeiten();
+  await processOneJob();
 
-  expect(queueDb.jobEntfernen).not.toHaveBeenCalled();
-  expect(queueDb.verworfenenMerken).not.toHaveBeenCalled();
+  expect(queueDb.removeJob).not.toHaveBeenCalled();
+  expect(queueDb.rememberDiscarded).not.toHaveBeenCalled();
   expect(jobs[0].versuche).toBe(1);
 });
 
-// === Die fehlende lokale Datei (2026-08-13, Absturz auf dem iPhone) ===
-// Ohne diese Prüfung ging der Job in `File.upload()` und riss die App mit
-// (siehe Mock oben). Wiederholen hilft nie: eine gelöschte Aufnahme kommt
-// nicht zurück, der Job liefe sonst bis zum Deinstallieren der App bei jedem
-// Start erneut in denselben Absturz.
-test('fehlt die lokale Aufnahme, wird gar nicht erst hochgeladen', async () => {
-  mockDatei.existiert = false;
+// === The missing local file (2026-08-13, crash on the iPhone) ===
+// Without this check, the job went into `File.upload()` and took the app
+// down with it (see mock above). Retrying never helps: a deleted capture
+// doesn't come back, otherwise the job would run into the same crash again
+// on every app start until the app got uninstalled.
+test('if the local capture is missing, it does not even attempt to upload', async () => {
+  mockFile.exists = false;
   jobs.push({ ...basis, zeile_angelegt: true });
 
-  await einenJobAbarbeiten();
+  await processOneJob();
 
   expect(mockUpload).not.toHaveBeenCalled();
-  expect(queueDb.jobEntfernen).toHaveBeenCalledWith('j1');
+  expect(queueDb.removeJob).toHaveBeenCalledWith('j1');
 });
 
-// Spec §8: «mit Erklärung verworfen» — dieselbe Zusage wie bei der Ablehnung
-// durch die Policy, hier gilt sie genauso: der Moment ist weg, und das darf
-// die betroffene Person nicht erst am fehlenden Beitrag im Recap merken.
-test('die fehlende Aufnahme wird mit Grund festgehalten, bevor der Job verschwindet', async () => {
-  mockDatei.existiert = false;
+// Spec §8: "discarded with an explanation" — the same promise as for the
+// rejection by the policy, it applies equally here: the moment is gone, and
+// the affected person mustn't only notice that from the missing post in
+// the recap.
+test('the missing capture gets recorded with a reason before the job disappears', async () => {
+  mockFile.exists = false;
   jobs.push({ ...basis, zeile_angelegt: true });
 
-  await einenJobAbarbeiten();
+  await processOneJob();
 
-  expect(queueDb.verworfenenMerken).toHaveBeenCalledWith({
+  expect(queueDb.rememberDiscarded).toHaveBeenCalledWith({
     id: 'p1',
     trip_id: 't1',
     author_id: 'u1',
     grund: expect.stringContaining('nicht mehr'),
     verworfen_am: expect.any(Number),
   });
-  const merkAufruf = (queueDb.verworfenenMerken as jest.Mock).mock.invocationCallOrder[0];
-  const entfernAufruf = (queueDb.jobEntfernen as jest.Mock).mock.invocationCallOrder[0];
-  expect(merkAufruf).toBeLessThan(entfernAufruf);
+  const rememberCall = (queueDb.rememberDiscarded as jest.Mock).mock.invocationCallOrder[0];
+  const removeCall = (queueDb.removeJob as jest.Mock).mock.invocationCallOrder[0];
+  expect(rememberCall).toBeLessThan(removeCall);
 });
 
-// Das Thumbnail zählt genauso: liegt das Medium noch, das Vorschaubild aber
-// nicht, scheiterte der zweite PUT an derselben nativen Ausnahme.
-test('auch ein fehlendes Vorschaubild führt zum Verwerfen statt in den Absturz', async () => {
+// The thumbnail counts just the same: if the medium is still there but the
+// preview image isn't, the second PUT failed on the same native exception.
+test('a missing preview image also leads to discarding instead of a crash', async () => {
   jobs.push({ ...basis, zeile_angelegt: true, medium_geladen: true });
-  mockDatei.existiert = false;
+  mockFile.exists = false;
 
-  await einenJobAbarbeiten();
+  await processOneJob();
 
   expect(mockUpload).not.toHaveBeenCalled();
-  expect(queueDb.jobEntfernen).toHaveBeenCalledWith('j1');
+  expect(queueDb.removeJob).toHaveBeenCalledWith('j1');
 });
 
-// Ein gewöhnlicher Fehlschlag ist keine Ablehnung, er wird wiederholt und
-// darf niemandem gemeldet werden (Spec §8: Upload-Fehler bleiben unsichtbar,
-// solange die Queue sie wiederholt).
-test('ein wiederholbarer Fehlschlag wird NICHT als verworfen gemeldet', async () => {
+// An ordinary failure is not a rejection, it gets retried and must not be
+// reported to anyone (Spec §8: upload errors stay invisible as long as the
+// queue retries them).
+test('a retryable failure does NOT get reported as discarded', async () => {
   mockUpload.mockResolvedValueOnce({ status: 500, body: '', headers: {} });
   jobs.push({ ...basis });
-  await einenJobAbarbeiten();
-  expect(queueDb.verworfenenMerken).not.toHaveBeenCalled();
+  await processOneJob();
+  expect(queueDb.rememberDiscarded).not.toHaveBeenCalled();
 });
 
-test('jobEinreihen legt den Job in der Warteschlange ab', async () => {
-  const neu: QueueJob = { ...basis, id: 'neu', post_id: 'p-neu' };
-  await jobEinreihen(neu);
-  expect(queueDb.jobHinzufuegen).toHaveBeenCalledWith(neu);
-  expect(jobs).toContainEqual(neu);
+test('enqueueJob puts the job in the queue', async () => {
+  const queued: QueueJob = { ...basis, id: 'neu', post_id: 'p-neu' };
+  await enqueueJob(queued);
+  expect(queueDb.addJob).toHaveBeenCalledWith(queued);
+  expect(jobs).toContainEqual(queued);
 });
 
-test('wartende zählt alles, was noch nicht fertig ist', async () => {
+test('pending counts everything that is not done yet', async () => {
   jobs.push({ ...basis, id: 'a', zustand: 'wartet' }, { ...basis, id: 'b', zustand: 'fertig' });
-  await expect(wartende()).resolves.toBe(1);
+  await expect(pending()).resolves.toBe(1);
 });
 
-test('starte() ist idempotent, stoppe() räumt Intervall und Netz-Listener auf', () => {
+test('start() is idempotent, stop() cleans up the interval and network listener', () => {
   jest.useFakeTimers();
   try {
-    const entfernen = jest.fn();
-    (Network.addNetworkStateListener as jest.Mock).mockReturnValue({ remove: entfernen });
+    const remove = jest.fn();
+    (Network.addNetworkStateListener as jest.Mock).mockReturnValue({ remove });
 
-    starte();
-    starte(); // zweiter Aufruf darf kein zweites Abo anlegen
+    start();
+    start(); // second call must not create a second subscription
     expect(Network.addNetworkStateListener).toHaveBeenCalledTimes(1);
 
-    stoppe();
-    stoppe(); // zweiter Aufruf darf nicht erneut abmelden
-    expect(entfernen).toHaveBeenCalledTimes(1);
+    stop();
+    stop(); // second call must not unsubscribe again
+    expect(remove).toHaveBeenCalledTimes(1);
   } finally {
     jest.useRealTimers();
   }
 });
 
-// Task-13-Fix-Runde-1: postsApi.momentAnlegen() liest die Autorenschaft erst
-// BEIM AUFRUF aus der aktuell aktiven Sitzung (nicht beim Einreihen). Meldet
-// sich A ab und B auf demselben Gerät an, während ein Job noch auf die
-// Netzwerkantwort wartet (bei einem Video leicht mehrere Sekunden), darf die
-// Aufnahme danach nicht mehr, unter wessen Sitzung auch immer, geschrieben
-// werden. Der Test stellt genau diesen Moment her: momentAnlegen hängt fest,
-// stoppe() kommt dazwischen, erst DANACH löst die Netzwerkantwort auf.
-test('ein Job, der beim Abmelden mitten im Schreiben steckt, schreibt danach nichts mehr', async () => {
+// Task-13-Fix-Runde-1: postsApi.momentAnlegen() only reads the authorship
+// from the currently active session AT CALL TIME (not when enqueuing). If A
+// signs out and B signs in on the same device while a job is still waiting
+// on the network response (for a video easily several seconds), the
+// capture must not get written afterwards, under whoever's session. The
+// test builds exactly this moment: createMoment hangs, stop() happens in
+// between, only THEN does the network response resolve.
+test('a job stuck mid-write when signing out no longer writes anything afterwards', async () => {
   jobs.push({ ...basis });
-  let aufloesenMomentAnlegen: (v: { error: string | null }) => void = () => {};
-  let momentAnlegenAufgerufen: () => void = () => {};
-  const wurdeAufgerufen = new Promise<void>((resolve) => {
-    momentAnlegenAufgerufen = resolve;
+  let resolveCreateMoment: (v: { error: string | null }) => void = () => {};
+  let createMomentCalled: () => void = () => {};
+  const wasCalled = new Promise<void>((resolve) => {
+    createMomentCalled = resolve;
   });
-  (postsApi.momentAnlegen as jest.Mock).mockImplementation(() => {
-    momentAnlegenAufgerufen();
+  (momentsApi.createMoment as jest.Mock).mockImplementation(() => {
+    createMomentCalled();
     return new Promise((resolve) => {
-      aufloesenMomentAnlegen = resolve;
+      resolveCreateMoment = resolve;
     });
   });
 
-  starte();
-  const durchlauf = einenJobAbarbeiten();
-  await wurdeAufgerufen; // haengt jetzt in momentAnlegen fest, genau der vom Review beschriebene Moment
-  stoppe(); // Abmelden waehrend des Uploads
+  start();
+  const run = processOneJob();
+  await wasCalled; // now hangs in createMoment, exactly the moment described by the review
+  stop(); // signing out during the upload
 
-  aufloesenMomentAnlegen({ error: null }); // die Netzwerkantwort kommt jetzt doch noch zurueck
-  await durchlauf;
+  resolveCreateMoment({ error: null }); // the network response does come back after all now
+  await run;
 
-  // momentAnlegen wurde noch unter der gueltigen (alten) Generation ausgeloest,
-  // das ist korrekt. Aber das Ergebnis darf danach nicht mehr persistiert
-  // werden: kein posts_angelegt-Update, kein Entfernen aus der Warteschlange.
-  expect(postsApi.momentAnlegen).toHaveBeenCalledTimes(1);
-  expect(queueDb.jobAktualisieren).not.toHaveBeenCalled();
-  expect(queueDb.jobEntfernen).not.toHaveBeenCalled();
+  // createMoment was still triggered under the valid (old) generation,
+  // that's correct. But the result must no longer get persisted after
+  // that: no posts_angelegt update, no removal from the queue.
+  expect(momentsApi.createMoment).toHaveBeenCalledTimes(1);
+  expect(queueDb.updateJob).not.toHaveBeenCalled();
+  expect(queueDb.removeJob).not.toHaveBeenCalled();
 });
 
-// Ein noch ausklingender, überholter Durchlauf darf ein sofort folgendes
-// starte() (z.B. Wechsel zu einer anderen Person auf demselben Gerät) nicht
-// blockieren, der Mutex hängt an der Generation, nicht an einem einzelnen
-// globalen Flag (Task-13-Fix-Runde-2).
-test('ein neuer Durchlauf nach stoppe() wird nicht durch einen noch ausklingenden alten (anderer Generation) blockiert', async () => {
+// A still-winding-down, outdated run must not block an immediately
+// following start() (e.g. switching to another person on the same
+// device), the mutex hangs off the generation, not off a single global
+// flag (Task-13-Fix-Runde-2).
+test('a new run after stop() is not blocked by a still-winding-down old one (different generation)', async () => {
   jobs.push({ ...basis });
-  let aufloesenMomentAnlegen: (v: { error: string | null }) => void = () => {};
-  let momentAnlegenAufgerufen: () => void = () => {};
-  const wurdeAufgerufen = new Promise<void>((resolve) => {
-    momentAnlegenAufgerufen = resolve;
+  let resolveCreateMoment: (v: { error: string | null }) => void = () => {};
+  let createMomentCalled: () => void = () => {};
+  const wasCalled = new Promise<void>((resolve) => {
+    createMomentCalled = resolve;
   });
-  (postsApi.momentAnlegen as jest.Mock).mockImplementation(() => {
-    momentAnlegenAufgerufen();
+  (momentsApi.createMoment as jest.Mock).mockImplementation(() => {
+    createMomentCalled();
     return new Promise((resolve) => {
-      aufloesenMomentAnlegen = resolve;
+      resolveCreateMoment = resolve;
     });
   });
 
-  starte();
-  const ersterDurchlauf = einenJobAbarbeiten();
-  await wurdeAufgerufen; // laeuft === true, haengt in momentAnlegen fest
-  stoppe();
+  start();
+  const firstRun = processOneJob();
+  await wasCalled; // running === true, hangs in createMoment
+  stop();
 
-  jobs.length = 0; // sonst würde der zweite Durchlauf denselben Job erneut aufgreifen
-  await einenJobAbarbeiten(); // darf NICHT als no-op durchgehen
+  jobs.length = 0; // otherwise the second run would pick up the same job again
+  await processOneJob(); // must NOT pass as a no-op
   expect(Network.getNetworkStateAsync).toHaveBeenCalledTimes(2);
 
-  aufloesenMomentAnlegen({ error: null }); // den ersten Durchlauf sauber auflösen
-  await ersterDurchlauf;
+  resolveCreateMoment({ error: null }); // cleanly resolve the first run
+  await firstRun;
 });
 
-// Task-13-Fix-Runde-2, DER ENTSCHEIDENDE FALL: kein Race, keine Gleichzeitig-
-// keit. Ein Moment liegt bloss in der Warteschlange (zustand: 'wartet',
-// längst fällig), niemand ist mitten im Schreiben. A meldet sich ab, B an,
-// und ERST DANACH läuft der nächste reguläre Tick, vollständig unter B's
-// gültiger, frischer Sitzung. Der Generationscheck aus Runde 1 geht hier
-// TRIVIAL durch (die Generation vergleicht sich mit sich selbst), nur der
-// author_id-Filter in naechsterJob (über aktuelleAutorId) verhindert, dass
-// A's Moment unter B's Namen geschrieben wird.
-test('ein Job, der bloss in der Warteschlange liegt, wird NICHT unter einer anderen, inzwischen angemeldeten Person geschrieben', async () => {
+// Task-13-Fix-Runde-2, THE DECISIVE CASE: no race, no concurrency at all. A
+// moment merely sits in the queue (zustand: 'wartet', long due), nobody is
+// mid-write. A signs out, B signs in, and ONLY AFTERWARDS does the next
+// regular tick run, entirely under B's valid, fresh session. The generation
+// check from Round 1 passes here TRIVIALLY (the generation compares itself
+// to itself), only the author_id filter in nextJob (via currentAuthorId)
+// prevents A's moment from being written under B's name.
+test('a job that merely sits in the queue does NOT get written under a different, meanwhile signed-in person', async () => {
   jobs.push({ ...basis, author_id: 'person-a' });
-  // Kein Abmelden-mitten-im-Schreiben nötig: aktuelleAutorId() liefert schon
-  // beim ersten (und einzigen) Aufruf "person-b", ein simpler, späterer Tick.
-  (postsApi.aktuelleAutorId as jest.Mock).mockResolvedValue('person-b');
+  // No signing-out-mid-write needed: currentAuthorId() already returns
+  // "person-b" on the first (and only) call, a simple, later tick.
+  (momentsApi.currentAuthorId as jest.Mock).mockResolvedValue('person-b');
 
-  await einenJobAbarbeiten();
+  await processOneJob();
 
-  expect(postsApi.momentAnlegen).not.toHaveBeenCalled();
-  expect(queueDb.jobAktualisieren).not.toHaveBeenCalled();
-  expect(queueDb.jobEntfernen).not.toHaveBeenCalled();
-  // Der Job bleibt unverändert und wartend liegen, kein Fehlschlag gezählt.
-  const [unveraendert] = jobs as unknown as QueueJob[];
-  expect(unveraendert.versuche).toBe(0);
-  expect(unveraendert.zustand).toBe('wartet');
+  expect(momentsApi.createMoment).not.toHaveBeenCalled();
+  expect(queueDb.updateJob).not.toHaveBeenCalled();
+  expect(queueDb.removeJob).not.toHaveBeenCalled();
+  // The job stays unchanged and pending, no failure counted.
+  const [unchanged] = jobs as unknown as QueueJob[];
+  expect(unchanged.versuche).toBe(0);
+  expect(unchanged.zustand).toBe('wartet');
 });
 
-test('derselbe liegen gebliebene Job läuft durch, sobald die passende Person sich wieder anmeldet', async () => {
+test('the same pending job runs through as soon as the matching person signs in again', async () => {
   jobs.push({ ...basis, author_id: 'person-a' });
-  (postsApi.aktuelleAutorId as jest.Mock).mockResolvedValue('person-a');
+  (momentsApi.currentAuthorId as jest.Mock).mockResolvedValue('person-a');
 
-  await einenJobAbarbeiten();
+  await processOneJob();
 
-  expect(postsApi.momentAnlegen).toHaveBeenCalledTimes(1);
-  expect(queueDb.jobEntfernen).toHaveBeenCalledWith('j1');
+  expect(momentsApi.createMoment).toHaveBeenCalledTimes(1);
+  expect(queueDb.removeJob).toHaveBeenCalledWith('j1');
 });
 
-// Auf einem geteilten Gerät liegen ggf. Jobs mehrerer Personen, nur der
-// zur gerade angemeldeten Person passende wird verarbeitet, der andere
-// bleibt unangetastet liegen.
-test('auf einem geteilten Gerät wird nur der Job der gerade angemeldeten Person verarbeitet', async () => {
+// On a shared device, jobs of several people may be pending, only the one
+// matching the currently signed-in person gets processed, the other stays
+// untouched.
+test('on a shared device, only the job of the currently signed-in person gets processed', async () => {
   jobs.push(
     { ...basis, id: 'von-a', post_id: 'p-a', author_id: 'person-a' },
     { ...basis, id: 'von-b', post_id: 'p-b', author_id: 'person-b' }
   );
-  (postsApi.aktuelleAutorId as jest.Mock).mockResolvedValue('person-b');
+  (momentsApi.currentAuthorId as jest.Mock).mockResolvedValue('person-b');
 
-  await einenJobAbarbeiten();
+  await processOneJob();
 
-  expect(postsApi.momentAnlegen).toHaveBeenCalledTimes(1);
-  expect(queueDb.jobEntfernen).toHaveBeenCalledWith('von-b');
-  expect(jobs.some((j) => j.id === 'von-a')).toBe(true); // unangetastet liegen geblieben
+  expect(momentsApi.createMoment).toHaveBeenCalledTimes(1);
+  expect(queueDb.removeJob).toHaveBeenCalledWith('von-b');
+  expect(jobs.some((j) => j.id === 'von-a')).toBe(true); // left untouched
 });
 
-// Welche Datei hochgeladen wird, stand bis zum Umbau nur im fetch-Body
-// (`{ uri }`) und wurde von keinem Test geprueft. Jetzt entscheidet der
-// File-Konstruktor darueber, und eine Verwechslung von Medium und Thumbnail
-// waere von aussen nicht zu sehen: beide Uploads gingen durch, der Recap
-// zeigte hinterher zwei Vorschaubilder oder zweimal das volle Bild.
-test('hochgeladen werden genau die beiden Dateien des Jobs, Medium zuerst', async () => {
+// Which file gets uploaded used to only sit in the fetch body (`{ uri }`)
+// before the rebuild and wasn't checked by any test. Now the File
+// constructor decides that, and a mix-up of medium and thumbnail wouldn't
+// be visible from outside: both uploads went through, the recap afterwards
+// showed two preview images or the full image twice.
+test('exactly the job’s two files get uploaded, medium first', async () => {
   jobs.push({ ...basis });
-  await einenJobAbarbeiten();
+  await processOneJob();
 
   expect(mockFileUris).toEqual(['file:///m.jpg', 'file:///t.jpg']);
 });

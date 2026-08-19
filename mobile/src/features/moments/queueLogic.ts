@@ -1,51 +1,53 @@
 import type { QueueJob } from './types';
 
-const BASIS_MS = 2_000;
-const DECKEL_MS = 600_000; // 10 Minuten
+const BASE_MS = 2_000;
+const CAP_MS = 600_000; // 10 minutes
 
-// Verdoppelnder Backoff. Bewusst ohne Obergrenze für die Versuchszahl: ein Moment
-// darf nie still verlorengehen, nur weil das Netz lange weg war (Spec §5).
-export function backoffMs(versuche: number): number {
-  const roh = BASIS_MS * 2 ** versuche;
-  return Number.isFinite(roh) ? Math.min(roh, DECKEL_MS) : DECKEL_MS;
+// Doubling backoff. Deliberately without an upper limit on the attempt
+// count: a moment must never quietly get lost just because the network was
+// gone for a long time (Spec §5).
+export function backoffMs(attempts: number): number {
+  const raw = BASE_MS * 2 ** attempts;
+  return Number.isFinite(raw) ? Math.min(raw, CAP_MS) : CAP_MS;
 }
 
-// aktuelleAutorId: die gerade angemeldete Person (Task-13-Fix-Runde-2). Ein
-// Job trägt seine Autoren-Kennung fest ab dem Einreihen (QueueJob.author_id),
-// nur ein Job, dessen Kennung dazu passt, ist gerade auswählbar. Kein Race
-// nötig, um das zu brauchen: liegt ein Moment bloss in der Warteschlange
-// (zustand: 'wartet'), während sich A ab- und B anmeldet, würde ohne diesen
-// Filter der nächste reguläre Tick unter B's Sitzung laufen und A's Aufnahme
-// unter B's Namen schreiben. Ein nicht passender Job wird NICHT verworfen
-// oder als Fehlschlag gezählt, er bleibt einfach liegen, bis die passende
-// Person sich wieder anmeldet (und der Filter wieder durchlässt). Ein Job
-// ohne bekannte Kennung (aktuelleAutorId === null, z.B. Sitzung nicht lesbar)
-// matcht nie.
-export function naechsterJob(
+// currentAuthorId: the currently signed-in person (Task-13-Fix-Runde-2). A
+// job carries its author identity fixed from the moment it's enqueued
+// (QueueJob.author_id), only a job whose identity matches is currently
+// selectable. No race is needed to require this: if a moment merely sits in
+// the queue (zustand: 'wartet') while A signs out and B signs in, without
+// this filter the next regular tick would run under B's session and write
+// A's capture under B's name. A non-matching job is NOT discarded or
+// counted as a failure, it simply stays put until the matching person signs
+// in again (and the filter lets it through again). A job without a known
+// identity (currentAuthorId === null, e.g. session unreadable) never
+// matches.
+export function nextJob(
   jobs: QueueJob[],
-  jetzt: number,
-  aufWlan: boolean,
-  nurWlan: boolean,
-  aktuelleAutorId: string | null
+  now: number,
+  onWifi: boolean,
+  wifiOnly: boolean,
+  currentAuthorId: string | null
 ): QueueJob | null {
-  if (nurWlan && !aufWlan) return null;
-  // aktuelleAutorId === null (Sitzung nicht lesbar) matcht bewusst NICHT gegen
-  // eine (eigentlich unmögliche, siehe istVollstaendig) author_id von null,
-  // ohne bekannte Identität wird gar nichts ausgewählt, kein Rätselraten.
-  if (aktuelleAutorId === null) return null;
-  const faellig = jobs
+  if (wifiOnly && !onWifi) return null;
+  // currentAuthorId === null (session unreadable) deliberately does NOT
+  // match against an (actually impossible, see isComplete) author_id of
+  // null, without a known identity nothing at all gets selected, no
+  // guessing.
+  if (currentAuthorId === null) return null;
+  const due = jobs
     .filter(
-      (j) => j.zustand === 'wartet' && j.naechster_versuch <= jetzt && j.author_id === aktuelleAutorId
+      (j) => j.zustand === 'wartet' && j.naechster_versuch <= now && j.author_id === currentAuthorId
     )
     .sort((a, b) => a.naechster_versuch - b.naechster_versuch);
-  return faellig[0] ?? null;
+  return due[0] ?? null;
 }
 
-export function nachFehlschlag(job: QueueJob, jetzt: number): QueueJob {
-  const versuche = job.versuche + 1;
-  return { ...job, versuche, zustand: 'wartet', naechster_versuch: jetzt + backoffMs(versuche) };
+export function afterFailure(job: QueueJob, now: number): QueueJob {
+  const attempts = job.versuche + 1;
+  return { ...job, versuche: attempts, zustand: 'wartet', naechster_versuch: now + backoffMs(attempts) };
 }
 
-export function wartendeAnzahl(jobs: QueueJob[]): number {
+export function pendingCount(jobs: QueueJob[]): number {
   return jobs.filter((j) => j.zustand !== 'fertig').length;
 }

@@ -64,8 +64,8 @@ jest.mock('@/features/trips/inviteLink', () => ({
 jest.mock('@/features/trips/tripsApi', () => ({ redeemInvite: jest.fn() }));
 
 jest.mock('@/features/moments/uploadWorker', () => ({
-  starte: jest.fn(),
-  stoppe: jest.fn(),
+  start: jest.fn(),
+  stop: jest.fn(),
 }));
 
 // pushApi.ts importiert @/lib/supabase (Task 4), das wiederum echtes
@@ -98,21 +98,21 @@ beforeEach(() => {
 // vor signedIn (loading/signedOut/needsProfile) darf er nicht anlaufen.
 test('vor signedIn läuft der Worker nicht an', async () => {
   const { unmount } = await render(<RootLayout />);
-  expect(uploadWorker.starte).not.toHaveBeenCalled();
-  expect(uploadWorker.stoppe).not.toHaveBeenCalled();
+  expect(uploadWorker.start).not.toHaveBeenCalled();
+  expect(uploadWorker.stop).not.toHaveBeenCalled();
   await unmount();
 });
 
 test('sobald Sitzung und Profil stehen (signedIn), startet der Worker', async () => {
   const { rerender, unmount } = await render(<RootLayout />);
-  expect(uploadWorker.starte).not.toHaveBeenCalled();
+  expect(uploadWorker.start).not.toHaveBeenCalled();
 
   mockAuth.status = 'signedIn';
   await act(async () => {
     rerender(<RootLayout />);
   });
 
-  expect(uploadWorker.starte).toHaveBeenCalledTimes(1);
+  expect(uploadWorker.start).toHaveBeenCalledTimes(1);
   await unmount();
 });
 
@@ -122,16 +122,16 @@ test('sobald Sitzung und Profil stehen (signedIn), startet der Worker', async ()
 test('beim Abmelden (signedIn -> signedOut) stoppt der Worker sofort', async () => {
   mockAuth.status = 'signedIn';
   const { rerender, unmount } = await render(<RootLayout />);
-  expect(uploadWorker.starte).toHaveBeenCalledTimes(1);
-  expect(uploadWorker.stoppe).not.toHaveBeenCalled();
+  expect(uploadWorker.start).toHaveBeenCalledTimes(1);
+  expect(uploadWorker.stop).not.toHaveBeenCalled();
 
   mockAuth.status = 'signedOut';
   await act(async () => {
     rerender(<RootLayout />);
   });
 
-  expect(uploadWorker.stoppe).toHaveBeenCalledTimes(1);
-  expect(uploadWorker.starte).toHaveBeenCalledTimes(1); // kein erneuter Start
+  expect(uploadWorker.stop).toHaveBeenCalledTimes(1);
+  expect(uploadWorker.start).toHaveBeenCalledTimes(1); // kein erneuter Start
   await unmount();
 });
 
@@ -140,25 +140,25 @@ test('beim Abmelden (signedIn -> signedOut) stoppt der Worker sofort', async () 
 test('bei needsProfile (Profil verloren/entfernt) stoppt der Worker ebenfalls', async () => {
   mockAuth.status = 'signedIn';
   const { rerender, unmount } = await render(<RootLayout />);
-  expect(uploadWorker.starte).toHaveBeenCalledTimes(1);
+  expect(uploadWorker.start).toHaveBeenCalledTimes(1);
 
   mockAuth.status = 'needsProfile';
   await act(async () => {
     rerender(<RootLayout />);
   });
 
-  expect(uploadWorker.stoppe).toHaveBeenCalledTimes(1);
+  expect(uploadWorker.stop).toHaveBeenCalledTimes(1);
   await unmount();
 });
 
 test('beim Unmount (z.B. App-Beenden) stoppt ein laufender Worker', async () => {
   mockAuth.status = 'signedIn';
   const { unmount } = await render(<RootLayout />);
-  expect(uploadWorker.starte).toHaveBeenCalledTimes(1);
+  expect(uploadWorker.start).toHaveBeenCalledTimes(1);
 
   await unmount();
 
-  expect(uploadWorker.stoppe).toHaveBeenCalledTimes(1);
+  expect(uploadWorker.stop).toHaveBeenCalledTimes(1);
 });
 
 // Task 4: Push-Registrierung wird wie der Upload-Worker erst bei signedIn
@@ -256,12 +256,12 @@ describe('Web-Hartsperre (istWebGesperrt)', () => {
     const { unmount } = await render(<RootLayout />);
 
     expect(mockRouter.replace).not.toHaveBeenCalled();
-    expect(uploadWorker.starte).not.toHaveBeenCalled();
+    expect(uploadWorker.start).not.toHaveBeenCalled();
     expect(pushApi.registrierePushToken).not.toHaveBeenCalled();
     expect(mockStackRender).not.toHaveBeenCalled();
 
     await unmount();
-    expect(uploadWorker.stoppe).not.toHaveBeenCalled(); // war nie gestartet
+    expect(uploadWorker.stop).not.toHaveBeenCalled(); // war nie gestartet
   });
 });
 

@@ -1,40 +1,41 @@
-import type { QueueJob, VerworfenerMoment } from './types';
+import type { QueueJob, DiscardedMoment } from './types';
 
-// Web-Fassung von queueDb.ts (Task-4-Brief, Phase 6).
+// Web version of queueDb.ts (Task-4-Brief, Phase 6).
 //
-// Es gibt im Browser keine Kamera-Aufnahme und keinen Hintergrund-Upload,
-// uploadWorker.starte() läuft auf Web nie an, weil es dort nie eine Sitzung
-// gibt (siehe secureSessionStorage.web.ts) und der Worker laut Root-Layout
-// nur bei status === 'signedIn' startet. Diese Datei existiert trotzdem,
-// weil uploadWorker.ts, zaehler.ts und reise/[id]/index.tsx queueDb per
-// Namespace-Import ("import * as queueDb") einbinden: Metro löst auf Web
-// automatisch diese *.web.ts-Fassung auf und zieht damit nie expo-sqlite in
-// den Bundle-Graphen (das native Modul lässt sich dort ohnehin nicht bündeln,
-// siehe Task-4-Brief zum baseline-Fehler von `expo-sqlite/web/worker.ts`,
-// das eine WASM-Datei importiert, die Metro nicht auflöst).
+// There's no camera capture and no background upload in the browser,
+// uploadWorker.start() never runs on web, because there's never a session
+// there (see secureSessionStorage.web.ts) and the worker, per the root
+// layout, only starts on status === 'signedIn'. This file exists anyway
+// because uploadWorker.ts, counter.ts, and reise/[id]/index.tsx pull in
+// queueDb via a namespace import ("import * as queueDb"): Metro
+// automatically resolves this *.web.ts version on web and thereby never
+// pulls expo-sqlite into the bundle graph (the native module can't be
+// bundled there anyway, see Task-4-Brief on the baseline error of
+// `expo-sqlite/web/worker.ts`, which imports a WASM file that Metro doesn't
+// resolve).
 //
-// Absichtlich eine leere In-Memory-Fassung ohne jede Ablage: Es gibt auf
-// dieser Plattform nie einen Job einzureihen (kein Aufnehmen-Screen läuft
-// hier je produktiv), also muss auch nichts persistiert werden. Jede
-// Funktion erfüllt nur die Schnittstelle der nativen Fassung 1:1, gleiche
-// Namen, gleiche Signaturen, keine geworfenen Fehler.
+// Deliberately an empty in-memory version without any storage at all: on
+// this platform there's never a job to enqueue (no capture screen ever runs
+// here in production), so nothing needs to be persisted either. Every
+// function only fulfills the native version's interface 1:1, same names,
+// same signatures, no thrown errors.
 
 export async function initQueue(): Promise<void> {}
 
-export async function jobHinzufuegen(_job: QueueJob): Promise<void> {}
+export async function addJob(_job: QueueJob): Promise<void> {}
 
-export async function alleJobs(): Promise<QueueJob[]> {
+export async function allJobs(): Promise<QueueJob[]> {
   return [];
 }
 
-export async function jobAktualisieren(_job: QueueJob): Promise<void> {}
+export async function updateJob(_job: QueueJob): Promise<void> {}
 
-export async function jobEntfernen(_id: string): Promise<void> {}
+export async function removeJob(_id: string): Promise<void> {}
 
-export async function verworfenenMerken(_eintrag: VerworfenerMoment): Promise<void> {}
+export async function rememberDiscarded(_entry: DiscardedMoment): Promise<void> {}
 
-export async function verworfene(_tripId: string, _autorId: string): Promise<VerworfenerMoment[]> {
+export async function discardedMoments(_tripId: string, _authorId: string): Promise<DiscardedMoment[]> {
   return [];
 }
 
-export async function verworfeneQuittieren(_tripId: string, _autorId: string): Promise<void> {}
+export async function acknowledgeDiscarded(_tripId: string, _authorId: string): Promise<void> {}

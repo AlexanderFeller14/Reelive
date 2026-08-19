@@ -106,8 +106,8 @@ jest.mock('@/features/auth/AuthProvider', () => ({ useAuth: () => mockAuth }));
 // Aufnahme nicht (Spec §7). Default 0, einzelne Tests überschreiben mit
 // mockResolvedValueOnce passend zum jeweiligen Trip-Fixture.
 const mockEigenerZaehler = jest.fn(async (_tripId: string) => 0);
-jest.mock('@/features/moments/zaehler', () => ({
-  eigenerZaehler: (tripId: string) => mockEigenerZaehler(tripId),
+jest.mock('@/features/moments/counter', () => ({
+  ownMomentCount: (tripId: string) => mockEigenerZaehler(tripId),
 }));
 
 const mockSetStatusBarStyle = jest.fn();

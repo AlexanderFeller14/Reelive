@@ -1,34 +1,34 @@
 export type JobZustand = 'wartet' | 'laeuft' | 'fertig';
 
-// Ein Moment, den der Worker dauerhaft verwerfen musste (Spec §8: «mit
-// Erklärung verworfen»). Bis zum Final-Review verschwand so einer wortlos,
-// der Job wurde gelöscht und eine Konsolenzeile geschrieben, die niemand
-// sieht. Der Eintrag überlebt Neustarts (SQLite, neben der Warteschlange) und
-// bleibt liegen, bis die betroffene Person ihn im Reise-Detail zur Kenntnis
-// nimmt. Er trägt bewusst keine Medien mehr: die Dateien sind zu diesem
-// Zeitpunkt aufgeräumt (Critical 2), es geht allein um die Erklärung.
-export type VerworfenerMoment = {
+// A moment the worker had to permanently discard (Spec §8: "discarded with
+// an explanation"). Until the Final-Review one of these vanished silently,
+// the job got deleted and a console line written that nobody sees. The
+// entry survives restarts (SQLite, next to the queue) and stays until the
+// affected person acknowledges it in the trip detail. It deliberately
+// carries no media anymore: the files are already cleaned up by this point
+// (Critical 2), it's only about the explanation.
+export type DiscardedMoment = {
   id: string;
   trip_id: string;
   author_id: string;
   grund: string;
-  verworfen_am: number; // ms seit Epoch
+  verworfen_am: number; // ms since epoch
 };
 
-// Ein Job trägt alles, was die posts-Zeile braucht, plus den Fortschritt.
-// post_id und die Schlüssel stehen schon beim Aufnehmen fest (Spec §5),
-// nur so legt ein Wiederanlauf nach Absturz keine zweite Zeile an.
+// A job carries everything the posts row needs, plus the progress. post_id
+// and the keys are already fixed when capturing (Spec §5), that's the only
+// way a restart after a crash doesn't create a second row.
 export type QueueJob = {
   id: string;
   post_id: string;
   trip_id: string;
-  // Beim Einreihen festgehalten (Task-13-Fix-Runde-2), NICHT beim Schreiben aus
-  // der Sitzung gelesen: sonst könnte ein Moment, der bloss in der
-  // Warteschlange liegt (zustand: 'wartet', noch nicht verarbeitet), unter dem
-  // Namen der nächsten angemeldeten Person auf demselben Gerät landen, ganz
-  // ohne Race, sobald sich A ab- und B anmeldet, bevor der Job je lief. Siehe
-  // preview.tsx (setzt es) und queueLogic.naechsterJob (wählt nur Jobs der
-  // aktuell angemeldeten Person aus).
+  // Captured when enqueuing (Task-13-Fix-Runde-2), NOT read from the session
+  // when writing: otherwise a moment that merely sits in the queue
+  // (zustand: 'wartet', not yet processed) could land under the name of the
+  // next signed-in person on the same device, without any race at all, as
+  // soon as A signs out and B signs in before the job ever ran. See
+  // preview.tsx (sets it) and queueLogic.nextJob (only selects jobs of the
+  // currently signed-in person).
   author_id: string;
   typ: 'photo' | 'video';
   medium_uri: string;
@@ -44,7 +44,7 @@ export type QueueJob = {
   duration_s: number | null;
   zustand: JobZustand;
   versuche: number;
-  naechster_versuch: number; // ms seit Epoch
+  naechster_versuch: number; // ms since epoch
   zeile_angelegt: boolean;
   medium_geladen: boolean;
   thumb_geladen: boolean;

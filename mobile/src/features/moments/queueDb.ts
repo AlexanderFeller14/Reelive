@@ -1,52 +1,51 @@
 import * as SQLite from 'expo-sqlite';
 import type { SQLiteDatabase } from 'expo-sqlite';
 
-import { fuerAblage, fuerLesen } from './queuePfade';
-import type { JobZustand, QueueJob, VerworfenerMoment } from './types';
+import { forStorage, forReading } from './queuePaths';
+import type { JobZustand, QueueJob, DiscardedMoment } from './types';
 
-// Einzige Stelle im Projekt, die zwischen SQLite-Zeile und QueueJob übersetzt.
-// Booleans liegen als 0/1, Zeiten als Zahl, siehe Task-3-Brief.
+// Only place in the project that translates between an SQLite row and
+// QueueJob. Booleans are stored as 0/1, times as numbers, see Task-3-Brief.
 
 const DB_NAME = 'upload_queue.db';
 
-// Lazy: die Datenbank wird erst beim ersten Zugriff geöffnet, nie beim Import.
-// Sonst bricht jeder Test, der dieses Modul nur lädt.
-let datenbank: Promise<SQLiteDatabase> | null = null;
+let database: Promise<SQLiteDatabase> | null = null;
 
-function holeDatenbank(): Promise<SQLiteDatabase> {
-  if (!datenbank) {
-    datenbank = SQLite.openDatabaseAsync(DB_NAME);
+function getDatabase(): Promise<SQLiteDatabase> {
+  if (!database) {
+    database = SQLite.openDatabaseAsync(DB_NAME);
   }
-  return datenbank;
+  return database;
 }
 
-// Gleiches Lazy-Muster wie holeDatenbank() oben: alleJobs() ruft dies bei
-// JEDEM Aufruf auf (auch bei jedem 5-Sekunden-Tick des Workers), `create
-// table if not exists` soll dafür aber nicht jedes Mal erneut ausgeführt
-// werden, genau die Last, die uploadWorker mit seinem eigenen
-// `sicherstellenInitialisiert` bereits bewusst vermeidet (Task-13-Fix-Runde-1,
-// Minor). Ein fehlgeschlagener Versuch wird NICHT gecacht, initQueue() wirft
-// dann beim nächsten Aufruf erneut, statt die Warteschlange nach einem
-// einmaligen Fehler für den Rest des Prozesses tot zu lassen.
-let tabelleSichergestellt = false;
-async function sicherstellenTabelle(): Promise<void> {
-  if (tabelleSichergestellt) return;
+// Same lazy pattern as getDatabase() above: allJobs() calls this on EVERY
+// call (including every 5-second tick of the worker), but `create table if
+// not exists` shouldn't have to run again every single time for that,
+// exactly the load that uploadWorker already deliberately avoids with its
+// own `ensureInitialized` (Task-13-Fix-Runde-1, Minor). A failed attempt is
+// NOT cached, initQueue() then throws again on the next call instead of
+// leaving the queue dead for the rest of the process after a single
+// failure.
+let tableEnsured = false;
+async function ensureTable(): Promise<void> {
+  if (tableEnsured) return;
   await initQueue();
-  tabelleSichergestellt = true;
+  tableEnsured = true;
 }
 
-// Einzige Quelle der Wahrheit für das Spaltenschema: Name, SQLite-Typ und ob die
-// Spalte Pflicht ist (not null). `create table`, die Spaltenreihenfolge für
-// insert/update UND die Pflichtfeld-Prüfung beim Lesen (siehe zuJob) werden alle
-// aus diesem einen Array abgeleitet, sie können dadurch nicht mehr auseinanderlaufen.
-const SPALTEN_SCHEMA = [
+// Single source of truth for the column schema: name, SQLite type, and
+// whether the column is required (not null). `create table`, the column
+// order for insert/update, AND the required-field check on read (see
+// toJob) are all derived from this one array, so they can no longer drift
+// apart.
+const COLUMN_SCHEMA = [
   { name: 'id', typ: 'text', pflicht: true },
   { name: 'post_id', typ: 'text', pflicht: true },
   { name: 'trip_id', typ: 'text', pflicht: true },
-  // Task-13-Fix-Runde-2: Pflicht wie jede andere Kern-Spalte, eine Zeile ohne
-  // author_id (z.B. eine Alt-Zeile aus einer Installation von vor diesem Feld,
-  // siehe spaltenNachziehen unten) gilt über istVollstaendig() als
-  // unvollständig und wird nie verarbeitet, statt geraten zu werden.
+  // Task-13-Fix-Runde-2: required like every other core column, a row
+  // without author_id (e.g. a legacy row from an install predating this
+  // field, see migrateColumns below) counts as incomplete via isComplete()
+  // and never gets processed, instead of being guessed.
   { name: 'author_id', typ: 'text', pflicht: true },
   { name: 'typ', typ: 'text', pflicht: true },
   { name: 'medium_uri', typ: 'text', pflicht: true },
@@ -68,31 +67,31 @@ const SPALTEN_SCHEMA = [
   { name: 'thumb_geladen', typ: 'integer', pflicht: true },
 ] as const;
 
-type Spalte = (typeof SPALTEN_SCHEMA)[number]['name'];
-type Zeile = Record<Spalte, string | number | null>;
+type Column = (typeof COLUMN_SCHEMA)[number]['name'];
+type Row = Record<Column, string | number | null>;
 
-const SPALTEN: readonly Spalte[] = SPALTEN_SCHEMA.map((s) => s.name);
+const COLUMNS: readonly Column[] = COLUMN_SCHEMA.map((s) => s.name);
 
-const ERLAUBTE_ZUSTAENDE: readonly JobZustand[] = ['wartet', 'laeuft', 'fertig'];
-const ERLAUBTE_TYPEN: readonly QueueJob['typ'][] = ['photo', 'video'];
+const ALLOWED_STATES: readonly JobZustand[] = ['wartet', 'laeuft', 'fertig'];
+const ALLOWED_TYPES: readonly QueueJob['typ'][] = ['photo', 'video'];
 
-function spaltenDefinitionSql(def: (typeof SPALTEN_SCHEMA)[number]): string {
+function columnDefinitionSql(def: (typeof COLUMN_SCHEMA)[number]): string {
   if (def.name === 'id') return `${def.name} ${def.typ} primary key`;
   return `${def.name} ${def.typ}${def.pflicht ? ' not null' : ''}`;
 }
 
-function zuZeile(job: QueueJob): Zeile {
+function toRow(job: QueueJob): Row {
   return {
     id: job.id,
     post_id: job.post_id,
     trip_id: job.trip_id,
     author_id: job.author_id,
     typ: job.typ,
-    // Nur der Teil unterhalb von Documents (queuePfade.ts): der absolute
-    // Pfad trägt die Container-UUID der Installation und stirbt mit jedem
-    // App-Neubau.
-    medium_uri: fuerAblage(job.medium_uri),
-    thumb_uri: fuerAblage(job.thumb_uri),
+    // Only the part below Documents (queuePaths.ts): the absolute path
+    // carries the installation's container UUID and dies with every app
+    // rebuild.
+    medium_uri: forStorage(job.medium_uri),
+    thumb_uri: forStorage(job.thumb_uri),
     storage_key: job.storage_key,
     thumb_key: job.thumb_key,
     caption: job.caption,
@@ -111,96 +110,95 @@ function zuZeile(job: QueueJob): Zeile {
   };
 }
 
-// Schutz gegen stillen Datenverlust: eine Zeile mit fehlendem Pflichtfeld oder
-// ungültigem zustand (z. B. nach einem Absturz mitten im Schreiben oder einer
-// `create table if not exists`, die nicht mitgewachsen ist) darf nicht als gültiger
-// QueueJob durchgehen, sonst wandert der Schaden stillschweigend in queueLogic
-// und Task 6 weiter.
-function istVollstaendig(zeile: Record<string, unknown>): boolean {
-  for (const def of SPALTEN_SCHEMA) {
-    if (def.pflicht && (zeile[def.name] === null || zeile[def.name] === undefined)) {
+// Protection against silent data loss: a row with a missing required field
+// or an invalid zustand (e.g. after a crash mid-write, or a `create table
+// if not exists` that didn't grow along) must not pass as a valid QueueJob,
+// otherwise the damage silently travels on into queueLogic and Task 6.
+function isComplete(row: Record<string, unknown>): boolean {
+  for (const def of COLUMN_SCHEMA) {
+    if (def.pflicht && (row[def.name] === null || row[def.name] === undefined)) {
       return false;
     }
   }
-  if (!ERLAUBTE_ZUSTAENDE.includes(zeile.zustand as JobZustand)) return false;
-  if (!ERLAUBTE_TYPEN.includes(zeile.typ as QueueJob['typ'])) return false;
+  if (!ALLOWED_STATES.includes(row.zustand as JobZustand)) return false;
+  if (!ALLOWED_TYPES.includes(row.typ as QueueJob['typ'])) return false;
   return true;
 }
 
-// Gibt null zurück statt zu werfen: eine einzelne kaputte Zeile darf die übrige
-// Warteschlange nicht mitreissen (siehe alleJobs).
-function zuJob(zeile: Record<string, unknown>): QueueJob | null {
-  if (!istVollstaendig(zeile)) return null;
+// Returns null instead of throwing: a single broken row must not take the
+// rest of the queue down with it (see allJobs).
+function toJob(row: Record<string, unknown>): QueueJob | null {
+  if (!isComplete(row)) return null;
   return {
-    id: zeile.id as string,
-    post_id: zeile.post_id as string,
-    trip_id: zeile.trip_id as string,
-    author_id: zeile.author_id as string,
-    typ: zeile.typ as QueueJob['typ'],
-    // Gegen den AKTUELLEN Documents-Ort aufgelöst; absolute Alt-Zeilen von
-    // vor dem 2026-08-18-Fix werden dabei neu verankert (queuePfade.ts).
-    medium_uri: fuerLesen(zeile.medium_uri as string),
-    thumb_uri: fuerLesen(zeile.thumb_uri as string),
-    storage_key: zeile.storage_key as string,
-    thumb_key: zeile.thumb_key as string,
-    caption: (zeile.caption as string | null) ?? null,
-    captured_at: zeile.captured_at as string,
-    captured_tz: zeile.captured_tz as string,
-    lat: (zeile.lat as number | null) ?? null,
-    lng: (zeile.lng as number | null) ?? null,
-    place_name: (zeile.place_name as string | null) ?? null,
-    duration_s: (zeile.duration_s as number | null) ?? null,
-    zustand: zeile.zustand as JobZustand,
-    versuche: zeile.versuche as number,
-    naechster_versuch: zeile.naechster_versuch as number,
-    zeile_angelegt: Boolean(zeile.zeile_angelegt),
-    medium_geladen: Boolean(zeile.medium_geladen),
-    thumb_geladen: Boolean(zeile.thumb_geladen),
+    id: row.id as string,
+    post_id: row.post_id as string,
+    trip_id: row.trip_id as string,
+    author_id: row.author_id as string,
+    typ: row.typ as QueueJob['typ'],
+    // Resolved against the CURRENT Documents location; absolute legacy rows
+    // from before the 2026-08-18 fix get re-anchored in the process
+    // (queuePaths.ts).
+    medium_uri: forReading(row.medium_uri as string),
+    thumb_uri: forReading(row.thumb_uri as string),
+    storage_key: row.storage_key as string,
+    thumb_key: row.thumb_key as string,
+    caption: (row.caption as string | null) ?? null,
+    captured_at: row.captured_at as string,
+    captured_tz: row.captured_tz as string,
+    lat: (row.lat as number | null) ?? null,
+    lng: (row.lng as number | null) ?? null,
+    place_name: (row.place_name as string | null) ?? null,
+    duration_s: (row.duration_s as number | null) ?? null,
+    zustand: row.zustand as JobZustand,
+    versuche: row.versuche as number,
+    naechster_versuch: row.naechster_versuch as number,
+    zeile_angelegt: Boolean(row.zeile_angelegt),
+    medium_geladen: Boolean(row.medium_geladen),
+    thumb_geladen: Boolean(row.thumb_geladen),
   };
 }
 
-function werteFuer(zeile: Zeile, spalten: readonly Spalte[]): (string | number | null)[] {
-  return spalten.map((spalte) => zeile[spalte]);
+function valuesFor(row: Row, columns: readonly Column[]): (string | number | null)[] {
+  return columns.map((column) => row[column]);
 }
 
-// Migration für Bestandsinstallationen: `create table if not exists` legt nur
-// eine NEUE Tabelle mit dem vollen, aktuellen Schema an, eine bereits
-// existierende Tabelle (z.B. von vor Task-13-Fix-Runde-2, als es author_id
-// noch nicht gab) wandert dadurch NICHT nach. PRAGMA table_info zeigt die
-// tatsächlich vorhandenen Spalten; fehlt eine, wird sie per ALTER TABLE
-// nachgezogen, bewusst OHNE "not null", selbst wenn SPALTEN_SCHEMA die
-// Spalte als Pflicht führt: SQLite verweigert eine NOT-NULL-Spalte ohne
-// DEFAULT auf einer bereits befüllten Tabelle. Bestehende Zeilen bekommen so
-// NULL, istVollstaendig() (siehe zuJob) verwirft sie beim Lesen als
-// unvollständig, statt sie unter der aktuell angemeldeten Person
-// weiterzuverarbeiten. Das ist Absicht: ein Alt-Moment ohne bekannte
-// Autoren-Kennung darf nie unter fremdem Namen landen, auch nicht, indem
-// man es einfach der Person zuschreibt, die das Gerät gerade benutzt.
-async function spaltenNachziehen(db: SQLiteDatabase): Promise<void> {
-  const vorhandeneSpalten = await db.getAllAsync<{ name: string }>('pragma table_info(upload_queue)', []);
-  const namen = new Set(vorhandeneSpalten.map((s) => s.name));
-  for (const def of SPALTEN_SCHEMA) {
-    if (!namen.has(def.name)) {
+// Migration for existing installs: `create table if not exists` only
+// creates a NEW table with the full, current schema, a table that already
+// exists (e.g. from before Task-13-Fix-Runde-2, when there was no
+// author_id yet) does NOT grow along with it. PRAGMA table_info shows the
+// columns that actually exist; if one is missing, it's carried forward via
+// ALTER TABLE, deliberately WITHOUT "not null", even though COLUMN_SCHEMA
+// lists the column as required: SQLite refuses a NOT-NULL column without a
+// DEFAULT on an already populated table. Existing rows therefore get NULL,
+// isComplete() (see toJob) rejects them on read as incomplete instead of
+// continuing to process them under the currently signed-in person. That's
+// deliberate: a legacy moment without a known author identity must never
+// land under a stranger's name, not even by simply attributing it to the
+// person currently using the device.
+async function migrateColumns(db: SQLiteDatabase): Promise<void> {
+  const existingColumns = await db.getAllAsync<{ name: string }>('pragma table_info(upload_queue)', []);
+  const names = new Set(existingColumns.map((s) => s.name));
+  for (const def of COLUMN_SCHEMA) {
+    if (!names.has(def.name)) {
       await db.execAsync(`alter table upload_queue add column ${def.name} ${def.typ}`);
     }
   }
 }
 
 export async function initQueue(): Promise<void> {
-  const db = await holeDatenbank();
-  const spalten = SPALTEN_SCHEMA.map(spaltenDefinitionSql).join(',\n        ');
+  const db = await getDatabase();
+  const columns = COLUMN_SCHEMA.map(columnDefinitionSql).join(',\n        ');
   try {
     await db.execAsync(`
       create table if not exists upload_queue (
-        ${spalten}
+        ${columns}
       );
     `);
-    // Zweite Tabelle, gleiche Datenbank (Final-Review, Important 9): ein
-    // dauerhaft verworfener Moment ist die einzige Nachricht, die die App über
-    // ihn je senden wird, sie muss denselben Neustart überleben wie die
-    // Warteschlange selbst. `id` ist die post_id des verworfenen Moments,
-    // damit ein zweiter Anlauf (Wiederanlauf nach Absturz) keinen doppelten
-    // Eintrag erzeugt.
+    // Second table, same database (Final-Review, Important 9): a
+    // permanently discarded moment is the only message the app will ever
+    // send about it, it has to survive the same restart as the queue
+    // itself. `id` is the post_id of the discarded moment, so a second
+    // attempt (restart after a crash) doesn't create a duplicate entry.
     await db.execAsync(`
       create table if not exists verworfene_momente (
         id text primary key,
@@ -210,140 +208,140 @@ export async function initQueue(): Promise<void> {
         verworfen_am integer not null
       );
     `);
-    await spaltenNachziehen(db);
-  } catch (fehler) {
-    console.error('[queueDb] initQueue fehlgeschlagen', fehler);
-    throw fehler;
+    await migrateColumns(db);
+  } catch (error) {
+    console.error('[queueDb] initQueue fehlgeschlagen', error);
+    throw error;
   }
 }
 
-export async function jobHinzufuegen(job: QueueJob): Promise<void> {
-  const db = await holeDatenbank();
-  const zeile = zuZeile(job);
-  const platzhalter = SPALTEN.map(() => '?').join(', ');
+export async function addJob(job: QueueJob): Promise<void> {
+  const db = await getDatabase();
+  const row = toRow(job);
+  const placeholders = COLUMNS.map(() => '?').join(', ');
   try {
     await db.runAsync(
-      `insert into upload_queue (${SPALTEN.join(', ')}) values (${platzhalter})`,
-      werteFuer(zeile, SPALTEN)
+      `insert into upload_queue (${COLUMNS.join(', ')}) values (${placeholders})`,
+      valuesFor(row, COLUMNS)
     );
-  } catch (fehler) {
-    console.error('[queueDb] jobHinzufuegen fehlgeschlagen', fehler);
-    throw fehler;
+  } catch (error) {
+    console.error('[queueDb] jobHinzufuegen fehlgeschlagen', error);
+    throw error;
   }
 }
 
-// Ein frisch installiertes Gerät (oder eines, auf dem der Worker noch nie
-// gestartet ist, weil Sitzung/Profil fehlen, siehe uploadWorker/_layout.tsx)
-// hat die Tabelle noch nicht angelegt. Lesen darf davon nie einen Screen mit
-// einem SQLite-Fehler ("no such table") blockieren, deshalb stellt alleJobs
-// die Tabelle selbst sicher (`create table if not exists` ist billig genug),
-// statt jeden Aufrufer (Reise-Detail, Zähler, ...) einzeln defensiv zu machen.
-export async function alleJobs(): Promise<QueueJob[]> {
-  await sicherstellenTabelle();
-  const db = await holeDatenbank();
+// A freshly installed device (or one where the worker has never started,
+// because session/profile are missing, see uploadWorker/_layout.tsx) hasn't
+// created the table yet. Reading must never block a screen with an SQLite
+// error ("no such table") because of that, so allJobs ensures the table
+// itself (`create table if not exists` is cheap enough), instead of making
+// every caller (trip detail, counter, ...) defensive individually.
+export async function allJobs(): Promise<QueueJob[]> {
+  await ensureTable();
+  const db = await getDatabase();
   try {
-    const zeilen = await db.getAllAsync<Record<string, unknown>>('select * from upload_queue', []);
+    const rows = await db.getAllAsync<Record<string, unknown>>('select * from upload_queue', []);
     const jobs: QueueJob[] = [];
-    for (const zeile of zeilen) {
-      const job = zuJob(zeile);
+    for (const row of rows) {
+      const job = toJob(row);
       if (job) {
         jobs.push(job);
       } else {
-        // NUR die id (Final-Review Punkt 3): `zeile` ist die volle
-        // SQLite-Zeile inkl. `caption`/`lat`/`lng`/`place_name`, das
-        // gehört nicht in einen Diagnose-Log, den Sentrys
-        // Konsolen-Breadcrumb (ohne DSN: gar niemand; siehe fehlermelder.ts)
-        // im Fehlerfall mitschneiden würde. Die id reicht, um die defekte
-        // Zeile in `upload_queue` gezielt nachzuschlagen.
-        console.error('[queueDb] beschädigte Zeile übersprungen', { id: zeile.id });
+        // ONLY the id (Final-Review point 3): `row` is the full SQLite row
+        // including `caption`/`lat`/`lng`/`place_name`, which doesn't
+        // belong in a diagnostic log that Sentry's console breadcrumb
+        // (without a DSN: nobody at all; see errorReporter.ts) would pick
+        // up in case of an error. The id is enough to look up the broken
+        // row in `upload_queue` specifically.
+        console.error('[queueDb] beschädigte Zeile übersprungen', { id: row.id });
       }
     }
     return jobs;
-  } catch (fehler) {
-    console.error('[queueDb] alleJobs fehlgeschlagen', fehler);
-    throw fehler;
+  } catch (error) {
+    console.error('[queueDb] alleJobs fehlgeschlagen', error);
+    throw error;
   }
 }
 
-// Schreibt den vollständigen Job zurück (kein Teil-Update), einfacher und ohne
-// Race, solange nur der Worker schreibt (siehe Task-3-Brief).
-export async function jobAktualisieren(job: QueueJob): Promise<void> {
-  const db = await holeDatenbank();
-  const zeile = zuZeile(job);
-  const setSpalten = SPALTEN.filter((spalte) => spalte !== 'id');
-  const setClause = setSpalten.map((spalte) => `${spalte} = ?`).join(', ');
+// Writes the complete job back (no partial update), simpler and without a
+// race as long as only the worker writes (see Task-3-Brief).
+export async function updateJob(job: QueueJob): Promise<void> {
+  const db = await getDatabase();
+  const row = toRow(job);
+  const setColumns = COLUMNS.filter((column) => column !== 'id');
+  const setClause = setColumns.map((column) => `${column} = ?`).join(', ');
   try {
     await db.runAsync(`update upload_queue set ${setClause} where id = ?`, [
-      ...werteFuer(zeile, setSpalten),
-      zeile.id,
+      ...valuesFor(row, setColumns),
+      row.id,
     ]);
-  } catch (fehler) {
-    console.error('[queueDb] jobAktualisieren fehlgeschlagen', fehler);
-    throw fehler;
+  } catch (error) {
+    console.error('[queueDb] jobAktualisieren fehlgeschlagen', error);
+    throw error;
   }
 }
 
-export async function jobEntfernen(id: string): Promise<void> {
-  const db = await holeDatenbank();
+export async function removeJob(id: string): Promise<void> {
+  const db = await getDatabase();
   try {
     await db.runAsync('delete from upload_queue where id = ?', [id]);
-  } catch (fehler) {
-    console.error('[queueDb] jobEntfernen fehlgeschlagen', fehler);
-    throw fehler;
+  } catch (error) {
+    console.error('[queueDb] jobEntfernen fehlgeschlagen', error);
+    throw error;
   }
 }
 
-// === Verworfene Momente (Final-Review, Important 9) ===
-// Spec §8 verspricht, ein nach dem Reveal aufgenommener Moment werde «mit
-// Erklärung verworfen». Tatsächlich löschte der Worker den Job und schrieb
-// eine Konsolenzeile, die betroffene Person erfuhr nie, dass ihre Aufnahme
-// weg ist. Derselbe Pfad greift auch, wenn jemandem mitten im Upload die
-// Mitgliedschaft entzogen wird.
+// === Discarded moments (Final-Review, Important 9) ===
+// Spec §8 promises that a moment captured after the reveal gets "discarded
+// with an explanation". In practice the worker deleted the job and wrote a
+// console line, the affected person never learned that their capture is
+// gone. The same path also applies when someone's membership gets revoked
+// mid-upload.
 
-// `insert or replace`: ein Wiederanlauf nach Absturz darf denselben Moment
-// nicht zweimal melden.
-export async function verworfenenMerken(eintrag: VerworfenerMoment): Promise<void> {
-  await sicherstellenTabelle();
-  const db = await holeDatenbank();
+// `insert or replace`: a restart after a crash must not report the same
+// moment twice.
+export async function rememberDiscarded(entry: DiscardedMoment): Promise<void> {
+  await ensureTable();
+  const db = await getDatabase();
   try {
     await db.runAsync(
       'insert or replace into verworfene_momente (id, trip_id, author_id, grund, verworfen_am) values (?, ?, ?, ?, ?)',
-      [eintrag.id, eintrag.trip_id, eintrag.author_id, eintrag.grund, eintrag.verworfen_am]
+      [entry.id, entry.trip_id, entry.author_id, entry.grund, entry.verworfen_am]
     );
-  } catch (fehler) {
-    console.error('[queueDb] verworfenenMerken fehlgeschlagen', fehler);
-    throw fehler;
+  } catch (error) {
+    console.error('[queueDb] verworfenenMerken fehlgeschlagen', error);
+    throw error;
   }
 }
 
-// Nur die eigenen: auf einem geteilten Gerät geht ein verworfener Moment
-// niemanden ausser die Person an, die ihn aufgenommen hat.
-export async function verworfene(tripId: string, autorId: string): Promise<VerworfenerMoment[]> {
-  await sicherstellenTabelle();
-  const db = await holeDatenbank();
+// Only your own: on a shared device, a discarded moment is nobody's
+// business except the person who captured it.
+export async function discardedMoments(tripId: string, authorId: string): Promise<DiscardedMoment[]> {
+  await ensureTable();
+  const db = await getDatabase();
   try {
-    const zeilen = await db.getAllAsync<VerworfenerMoment>(
+    const rows = await db.getAllAsync<DiscardedMoment>(
       'select id, trip_id, author_id, grund, verworfen_am from verworfene_momente where trip_id = ? and author_id = ? order by verworfen_am',
-      [tripId, autorId]
+      [tripId, authorId]
     );
-    return zeilen;
-  } catch (fehler) {
-    console.error('[queueDb] verworfene fehlgeschlagen', fehler);
-    throw fehler;
+    return rows;
+  } catch (error) {
+    console.error('[queueDb] verworfene fehlgeschlagen', error);
+    throw error;
   }
 }
 
-// Erst wenn jemand die Erklärung tatsächlich gesehen und bestätigt hat.
-export async function verworfeneQuittieren(tripId: string, autorId: string): Promise<void> {
-  await sicherstellenTabelle();
-  const db = await holeDatenbank();
+// Only once someone has actually seen and acknowledged the explanation.
+export async function acknowledgeDiscarded(tripId: string, authorId: string): Promise<void> {
+  await ensureTable();
+  const db = await getDatabase();
   try {
     await db.runAsync('delete from verworfene_momente where trip_id = ? and author_id = ?', [
       tripId,
-      autorId,
+      authorId,
     ]);
-  } catch (fehler) {
-    console.error('[queueDb] verworfeneQuittieren fehlgeschlagen', fehler);
-    throw fehler;
+  } catch (error) {
+    console.error('[queueDb] verworfeneQuittieren fehlgeschlagen', error);
+    throw error;
   }
 }

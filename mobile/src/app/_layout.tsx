@@ -125,8 +125,8 @@ function Guarded() {
   // Wechsel weg von signedIn als auch das Unmounten (App-Beenden).
   useEffect(() => {
     if (webGesperrt || status !== 'signedIn') return;
-    uploadWorker.starte();
-    return () => uploadWorker.stoppe();
+    uploadWorker.start();
+    return () => uploadWorker.stop();
   }, [status, webGesperrt]);
 
   // Push-Registrierung: einmal pro signedIn-Wechsel anstossen, ohne auf das

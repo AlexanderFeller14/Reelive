@@ -86,9 +86,9 @@ jest.mock('@/features/konto/kontoApi', () => ({
 // Default "aus", passend zum dokumentierten Standard in einstellungen.ts.
 const mockNurUeberWlan = jest.fn(async () => false);
 const mockSetzeNurUeberWlan = jest.fn(async (_wert: boolean) => {});
-jest.mock('@/features/moments/einstellungen', () => ({
-  nurUeberWlan: () => mockNurUeberWlan(),
-  setzeNurUeberWlan: (wert: boolean) => mockSetzeNurUeberWlan(wert),
+jest.mock('@/features/moments/settings', () => ({
+  wifiOnly: () => mockNurUeberWlan(),
+  setWifiOnly: (wert: boolean) => mockSetzeNurUeberWlan(wert),
 }));
 
 // Der Benachrichtigungs-Schalter: Einstellung (Default AN, siehe

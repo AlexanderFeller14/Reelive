@@ -107,26 +107,26 @@ const mockDauerhaftSichern = jest.fn();
 const mockMomentDateienEntfernen = jest.fn();
 const mockDateiVerwerfen = jest.fn();
 const mockZwischenfassungenVerwerfen = jest.fn();
-jest.mock('@/features/moments/medien', () => ({
-  neuePostId: () => mockNeuePostId(),
-  fotoAufbereiten: (uri: string) => mockFotoAufbereiten(uri),
-  videoAufbereiten: (uri: string) => mockVideoAufbereiten(uri),
-  dauerhaftSichern: (postId: string, dateien: unknown) => mockDauerhaftSichern(postId, dateien),
-  momentDateienEntfernen: (postId: string) => mockMomentDateienEntfernen(postId),
-  dateiVerwerfen: (uri: string) => mockDateiVerwerfen(uri),
-  zwischenfassungenVerwerfen: (roh: string, aufbereitet: unknown) =>
+jest.mock('@/features/moments/media', () => ({
+  newMomentId: () => mockNeuePostId(),
+  preparePhoto: (uri: string) => mockFotoAufbereiten(uri),
+  prepareVideo: (uri: string) => mockVideoAufbereiten(uri),
+  persistDurably: (postId: string, dateien: unknown) => mockDauerhaftSichern(postId, dateien),
+  removeMomentFiles: (postId: string) => mockMomentDateienEntfernen(postId),
+  discardFile: (uri: string) => mockDateiVerwerfen(uri),
+  discardIntermediates: (roh: string, aufbereitet: unknown) =>
     mockZwischenfassungenVerwerfen(roh, aufbereitet),
   storageKey: (tripId: string, postId: string, endung: string) =>
     `trips/${tripId}/${postId}.${endung}`,
   // Important 5: die Endung kommt aus der tatsächlichen Aufnahme.
-  medienEndung: (typ: string, uri: string) =>
+  mediaExtension: (typ: string, uri: string) =>
     typ === 'video' ? (uri.endsWith('.mov') ? 'mov' : 'mp4') : 'jpg',
   thumbKey: (tripId: string, postId: string) => `trips/${tripId}/${postId}_t.jpg`,
 }));
 
 const mockJobEinreihen = jest.fn();
 jest.mock('@/features/moments/uploadWorker', () => ({
-  jobEinreihen: (job: unknown) => mockJobEinreihen(job),
+  enqueueJob: (job: unknown) => mockJobEinreihen(job),
 }));
 
 // Task-13-Fix-Runde-2: die Autoren-Kennung wird beim Einreihen aus useAuth()
@@ -136,9 +136,9 @@ jest.mock('@/features/auth/AuthProvider', () => ({ useAuth: () => mockAuth }));
 
 const mockJetzt = jest.fn();
 const mockOrtBestimmen = jest.fn();
-jest.mock('@/features/moments/ortUndZeit', () => ({
-  jetzt: () => mockJetzt(),
-  ortBestimmen: () => mockOrtBestimmen(),
+jest.mock('@/features/moments/placeAndTime', () => ({
+  now: () => mockJetzt(),
+  determinePlace: () => mockOrtBestimmen(),
 }));
 
 // Die echte Erfolgsanimation läuft ~2,5 s und ist für sich getestet
@@ -175,8 +175,8 @@ jest.mock('@/components/MemorySubmissionAnimation', () => {
 // Animation rollt darauf +1 hoch. Der Abruf darf scheitern, dann entfällt
 // nur die Zahl.
 const mockEigenerZaehler = jest.fn();
-jest.mock('@/features/moments/zaehler', () => ({
-  eigenerZaehler: (tripId: string) => mockEigenerZaehler(tripId),
+jest.mock('@/features/moments/counter', () => ({
+  ownMomentCount: (tripId: string) => mockEigenerZaehler(tripId),
 }));
 
 import * as uebergabe from '@/features/kamera/uebergabe';

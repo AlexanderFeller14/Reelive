@@ -22,7 +22,7 @@ import {
   fetchOwnProfile, updateProfile, validateDisplayName, type Profile,
 } from '@/features/auth/profileApi';
 import { signOut } from '@/features/auth/authApi';
-import { nurUeberWlan, setzeNurUeberWlan } from '@/features/moments/einstellungen';
+import { wifiOnly, setWifiOnly } from '@/features/moments/settings';
 import { benachrichtigungenAktiv, setzeBenachrichtigungen } from '@/features/push/einstellungen';
 import { deregistrierePushToken, registrierePushToken } from '@/features/push/pushApi';
 import { holeLoeschZahlen, loescheKonto, zahlenText, type LoeschZahlen } from '@/features/konto/kontoApi';
@@ -151,7 +151,7 @@ export default function ProfilScreen() {
   // ausserhalb der App selbst den Wert verändern kann. Gilt für beide
   // Schalter gleichermassen.
   useEffect(() => {
-    void nurUeberWlan().then(setNurWlan);
+    void wifiOnly().then(setNurWlan);
     void benachrichtigungenAktiv().then(setBenachrichtigungen);
   }, []);
 
@@ -160,7 +160,7 @@ export default function ProfilScreen() {
   // zurückspringen lassen, siehe einstellungen.ts.
   const umschalten = (wert: boolean) => {
     setNurWlan(wert);
-    void setzeNurUeberWlan(wert);
+    void setWifiOnly(wert);
   };
 
   // Der Schalter steuert die Geräte-Registrierung: aus löscht den eigenen
