@@ -1,7 +1,7 @@
 export type AuthStatus = 'loading' | 'signedOut' | 'needsProfile' | 'signedIn';
 
-// Reine Routing-Entscheidung, getrennt gehalten, damit sie ohne
-// React/Supabase testbar ist. null = noch nicht umleiten (Splash steht).
+// Pure routing decision, kept separate so it is testable without
+// React/Supabase. null = do not redirect yet (splash stands).
 export function resolveRoute(status: AuthStatus): '/welcome' | '/profile-setup' | '/aufnehmen' | null {
   switch (status) {
     case 'loading': return null;
@@ -11,70 +11,69 @@ export function resolveRoute(status: AuthStatus): '/welcome' | '/profile-setup' 
   }
 }
 
-// Der Beitritts-Screen muss auch ohne Session stehenbleiben dürfen: er zeigt die
-// Vorschau und schickt erst beim Antippen in den Login. Ohne diese Ausnahme
-// würde der Guard einen frisch angetippten Einladungslink sofort wegleiten.
-//
-// 'teilen' (Phase 6, Web-Player) genauso: ein geteilter Recap-Link zeigt sich
-// über share-link/aufloesen ausschliesslich Aussenstehenden OHNE Konto (Spec-
-// Versprechen W5), secureSessionStorage.web.ts liefert auf dieser Plattform
-// nie eine Sitzung, der Guard würde sonst jeden Aufruf sofort nach /welcome
-// umleiten, bevor der Screen überhaupt rendert.
+// The join screen must be allowed to stand even without a session: it shows
+// the preview and only sends into login once tapped. Without this
+// exception, the guard would immediately redirect a freshly tapped invite
+// link away.
+
+// 'teilen' (Phase 6, web player) likewise: a shared recap link shows itself
+// via share-link/aufloesen exclusively to outsiders WITHOUT an account (Spec
+// promise W5), secureSessionStorage.web.ts never returns a session on this
+// platform, otherwise the guard would redirect every call to /welcome
+// immediately, before the screen even renders.
 export function isPublicArea(area: string | undefined): boolean {
   return area === 'join' || area === 'teilen';
 }
 
-// Wo eine angemeldete Person stehen bleiben darf, ohne nach /aufnehmen
-// zurückgeschickt zu werden. Lange war das genau '(tabs)'; die Aufnahme-
-// Vorschau (app/vorschau.tsx) ist die erste Fläche daneben.
+// Where a signed-in person is allowed to stand without being sent back to
+// /aufnehmen. For a long time that was exactly '(tabs)'; the capture preview
+// (app/vorschau.tsx) is the first area next to it.
 //
-// Sie liegt bewusst NICHT im Tab-Navigator: Dessen Szene endet an der
-// Oberkante der Tab-Bar, jedes `bottom` im Screen mass dadurch ab dieser Kante
-// statt ab dem Bildschirmrand (das Eingabefeld sass eine Tab-Bar-Höhe zu
-// hoch), und die Leiste blieb nach dem Auslösen noch einen Wimpernschlag
-// stehen, weil sie erst nach dem Routenwechsel neu gerendert wird. Als
-// Nachbarin des Tab-Navigators deckt die Vorschau sie sofort ab.
+// It deliberately sits OUTSIDE the tab navigator: its scene ends at the top
+// edge of the tab bar, so every `bottom` in the screen would measure from
+// that edge instead of the screen edge (the input field sat one tab-bar
+// height too high), and the bar kept standing for one more blink after
+// triggering, because it only re-renders after the route change. As a
+// neighbor of the tab navigator, the preview covers it immediately.
 //
-// Die Web-Hartsperre bleibt davon unberührt: istWebGesperrt() lässt weiterhin
-// nur 'teilen' durch, die Vorschau wird auf Web also gar nicht erst gemountet.
-export function istFlaecheFuerAngemeldete(area: string | undefined): boolean {
+// The web hard lock stays unaffected by this: isWebLocked() still only lets
+// 'teilen' through, so the preview never even gets mounted on web.
+export function isAreaForSignedIn(area: string | undefined): boolean {
   return area === '(tabs)' || area === 'vorschau';
 }
 
-// Web-Hartsperre (Koordinator-Entscheid, Task 5, aus einem Fund von Task 4):
-// der Web-Export bündelt die GANZE App als SPA, (auth)/phone, (auth)/otp
-// und alle (tabs)-Routen sind einzeln abrufbar. isPublicArea() oben schützt
-// NUR die Redirect-Entscheidung in _layout.tsx (welches Ziel bei welchem
-// AuthStatus), sie sperrt keine Route. Ein echter Phone/OTP-Login im Browser
-// wäre damit möglich gewesen, secureSessionStorage.web.ts verhindert zwar
-// PERSISTENZ über den Seitenaufruf hinaus, aber nicht rein technisch eine
-// Sitzung INNERHALB eines Tabs, sobald irgendein Web-Screen tatsächlich
-// signInWith(...) aufruft (Task-4-Bericht). Das bricht Versprechen W5
-// («wer kein Konto hat, kommt an nichts anderes») im Geiste.
+// Web hard lock (coordinator decision, Task 5, from a finding in Task 4):
+// the web export bundles the WHOLE app as an SPA, (auth)/phone, (auth)/otp
+// and all (tabs) routes are individually reachable. isPublicArea() above
+// only guards the redirect decision in _layout.tsx (which target for which
+// AuthStatus), it locks no route. A real phone/OTP login in the browser
+// would therefore have been possible, secureSessionStorage.web.ts does
+// prevent PERSISTENCE beyond the page visit, but not, in purely technical
+// terms, a session WITHIN a tab, as soon as any web screen actually calls
+// signInWith(...) (Task-4 report). That breaks promise W5 ("whoever has no
+// account gets to nothing else") in spirit.
 //
-// Bewusst eine ZWEITE, unabhängige Funktion statt isPublicArea() zu erweitern
-// oder zu ersetzen: isPublicArea() beantwortet "darf diese Fläche OHNE
-// Session stehen bleiben" (gilt auf JEDER Plattform, inkl. nativ, 'join'
-// bleibt auf iOS/Android z.B. ausdrücklich ERREICHBAR). Diese Funktion hier
-// beantwortet eine andere Frage: "darf diese Fläche auf WEB überhaupt
-// GEMOUNTET werden", unabhängig vom AuthStatus (gilt auch während
-// 'loading', bevor resolveRoute() überhaupt greift) und unabhängig davon, ob
-// die Fläche isPublicArea() ist: 'join' ist zwar public (natives Verhalten
-// bleibt unverändert), bekommt auf Web aber TROTZDEM die Sperre, weil auch
-// der Beitritts-Screen ohne Session in den Login-Flow verzweigt
-// (`beitreten()` in join/[code].tsx ruft bei !signedIn `router.replace(
-// '/welcome')`), also selbst ein indirekter Weg zum selben, auf Web
-// unerwünschten Login-Pfad wäre. `platformOS` als Parameter statt eines
-// Imports von `react-native`.`Platform` hier drin: bleibt reine, ohne
-// React-Native-Laufzeit testbare Funktion (gleiches Prinzip wie
-// resolveRoute/isPublicArea), der Aufrufer (_layout.tsx) hat Platform.OS
-// bereits zur Hand.
+// Deliberately a SECOND, independent function instead of extending or
+// replacing isPublicArea(): isPublicArea() answers "may this area stand
+// WITHOUT a session" (holds on EVERY platform, including native, 'join'
+// stays explicitly REACHABLE on iOS/Android for instance). This function
+// here answers a different question: "may this area even be MOUNTED on
+// WEB at all", independent of AuthStatus (holds even during 'loading',
+// before resolveRoute() even kicks in) and independent of whether the area
+// is isPublicArea(): 'join' is public (native behavior stays unchanged),
+// but gets the lock on web ANYWAY, because the join screen also branches
+// into the login flow without a session (`beitreten()` in join/[code].tsx
+// calls `router.replace('/welcome')` when !signedIn), so it would itself be
+// an indirect path to the same login path that is unwanted on web.
+// `platformOS` as a parameter instead of an import of `react-native`'s
+// `Platform` here: stays a pure function testable without the React Native
+// runtime (same principle as resolveRoute/isPublicArea), the caller
+// (_layout.tsx) already has Platform.OS at hand.
 //
-// _layout.tsx rendert bei `true` GAR KEINEN <Stack/>, nicht nur einen
-// Redirect: alle anderen Routen-Screens werden auf Web dadurch nie
-// gemountet, ihre Effekte laufen nie an (schliesst auch den in Task 4
-// gemeldeten stillen Job-Verlust über jobEinreihen() ein, weil
-// vorschau.tsx dafür erst gemountet werden müsste).
-export function istWebGesperrt(platformOS: string, area: string | undefined): boolean {
+// _layout.tsx renders NO <Stack/> AT ALL on `true`, not just a redirect: all
+// other route screens therefore never get mounted on web, their effects
+// never run (this also closes the silent job loss via enqueueJob() reported
+// in Task 4, because vorschau.tsx would have to be mounted for that first).
+export function isWebLocked(platformOS: string, area: string | undefined): boolean {
   return platformOS === 'web' && area !== 'teilen';
 }

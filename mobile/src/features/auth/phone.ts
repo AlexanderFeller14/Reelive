@@ -1,5 +1,5 @@
-// Normalisiert Eingaben zu E.164. Schweizer Konvention als Default:
-// 07x… und 0041… werden zu +41…; alles mit + bleibt wie eingegeben.
+// Normalizes input to E.164. Swiss convention as the default: 07x… and
+// 0041… become +41…; anything with a + stays as entered.
 export function normalizePhone(input: string): string | null {
   let digits = input.replace(/[\s\-()./]/g, '');
   if (digits.startsWith('00')) digits = `+${digits.slice(2)}`;

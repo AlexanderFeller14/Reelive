@@ -1,11 +1,11 @@
 import type { TripStatus } from './types';
 
-const MONATE = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
-const MS_PRO_TAG = 86_400_000;
+const MONTHS = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
+const MS_PER_DAY = 86_400_000;
 
-// Datumsangaben sind reine Kalendertage ohne Zeitzone. Deshalb überall UTC
-// rechnen: Date.UTC vermeidet, dass eine Sommerzeit-Umstellung einen Tag
-// verschluckt oder doppelt zählt.
+// Dates are pure calendar days without a timezone. That is why everything is
+// calculated in UTC: Date.UTC avoids a daylight-saving change swallowing or
+// double-counting a day.
 function toUtc(iso: string): number {
   const [y, m, d] = iso.split('-').map(Number);
   return Date.UTC(y, m - 1, d);
@@ -17,41 +17,41 @@ export function validateDateRange(startIso: string | null, endIso: string | null
   return null;
 }
 
-// Der heutige Kalendertag am Ort des Geraets, als 'YYYY-MM-DD'.
+// Today's calendar day at the device's location, as 'YYYY-MM-DD'.
 //
-// `new Date().toISOString().slice(0, 10)` liefert den Kalendertag in UTC und
-// war damit in Mitteleuropa jede Nacht zwischen 00:00 und 02:00 einen Tag zu
-// frueh: der Reisetag zaehlte zu niedrig und «Reise abschliessen» rueckte
-// einen Tag zu spaet nach oben. Die uebrigen Funktionen dieser Datei rechnen
-// bewusst in UTC, weil sie reine Kalendertage OHNE Zeitzone vergleichen,
-// dieser Wert dagegen ist die Frage «welchen Tag hat der Nutzer gerade», und
-// die beantwortet nur die lokale Uhr.
-export function heutigerKalendertag(jetzt: Date = new Date()): string {
-  const monat = String(jetzt.getMonth() + 1).padStart(2, '0');
-  const tag = String(jetzt.getDate()).padStart(2, '0');
-  return `${jetzt.getFullYear()}-${monat}-${tag}`;
+// `new Date().toISOString().slice(0, 10)` returns the calendar day in UTC,
+// which in Central Europe was a day too early every night between 00:00 and
+// 02:00: the trip day counted too low and "finish trip" moved up a day too
+// late. The other functions in this file deliberately calculate in UTC
+// because they compare pure calendar days WITHOUT a timezone, whereas this
+// value answers the question "what day does the user currently have", and
+// only the local clock answers that.
+export function todaysCalendarDay(now: Date = new Date()): string {
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${now.getFullYear()}-${month}-${day}`;
 }
 
 export function tripDay(startIso: string, todayIso: string): number {
-  const diff = Math.round((toUtc(todayIso) - toUtc(startIso)) / MS_PRO_TAG);
+  const diff = Math.round((toUtc(todayIso) - toUtc(startIso)) / MS_PER_DAY);
   return diff < 0 ? 0 : diff + 1;
 }
 
 export function tripLength(startIso: string, endIso: string): number {
-  return Math.round((toUtc(endIso) - toUtc(startIso)) / MS_PRO_TAG) + 1;
+  return Math.round((toUtc(endIso) - toUtc(startIso)) / MS_PER_DAY) + 1;
 }
 
 export function formatRange(startIso: string, endIso: string): string {
   const [sy, sm, sd] = startIso.split('-').map(Number);
   const [ey, em, ed] = endIso.split('-').map(Number);
-  if (sy !== ey) return `${sd}. ${MONATE[sm - 1]} ${sy} – ${ed}. ${MONATE[em - 1]} ${ey}`;
-  if (sm !== em) return `${sd}. ${MONATE[sm - 1]} – ${ed}. ${MONATE[em - 1]} ${ey}`;
-  return `${sd}.–${ed}. ${MONATE[sm - 1]} ${sy}`;
+  if (sy !== ey) return `${sd}. ${MONTHS[sm - 1]} ${sy} – ${ed}. ${MONTHS[em - 1]} ${ey}`;
+  if (sm !== em) return `${sd}. ${MONTHS[sm - 1]} – ${ed}. ${MONTHS[em - 1]} ${ey}`;
+  return `${sd}.–${ed}. ${MONTHS[sm - 1]} ${sy}`;
 }
 
-export function groupTrips<T extends { status: TripStatus }>(trips: T[]): { laufend: T[]; recaps: T[] } {
+export function groupTrips<T extends { status: TripStatus }>(trips: T[]): { ongoing: T[]; recaps: T[] } {
   return {
-    laufend: trips.filter((t) => t.status === 'active'),
+    ongoing: trips.filter((t) => t.status === 'active'),
     recaps: trips.filter((t) => t.status !== 'active'),
   };
 }

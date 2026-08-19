@@ -2,13 +2,13 @@
 // moments at all (see Task-9-Auftrag), it must never jump backwards after
 // an offline capture.
 jest.mock('@/features/trips/tripsApi', () => ({
-  eigeneZaehler: jest.fn(async () => ({ data: { t1: 5 }, error: null })),
+  fetchOwnPostCounts: jest.fn(async () => ({ data: { t1: 5 }, error: null })),
 }));
 jest.mock('../queueDb', () => ({ allJobs: jest.fn(async () => []) }));
 jest.mock('../momentsApi', () => ({ currentAuthorId: jest.fn(async () => 'u1') }));
 jest.mock('@/features/trips/tripsCache', () => ({
-  gemerkteZaehler: jest.fn(async () => ({})),
-  zaehlerMerken: jest.fn(async () => {}),
+  rememberedCounts: jest.fn(async () => ({})),
+  rememberCounts: jest.fn(async () => {}),
 }));
 
 import { ownMomentCount } from '../counter';
@@ -20,8 +20,8 @@ beforeEach(() => {
   jest.clearAllMocks();
   // clearAllMocks only clears the call history, not the implementation set
   // via mockResolvedValue, restore the default values here.
-  (tripsApi.eigeneZaehler as jest.Mock).mockResolvedValue({ data: { t1: 5 }, error: null });
-  (tripsCache.gemerkteZaehler as jest.Mock).mockResolvedValue({});
+  (tripsApi.fetchOwnPostCounts as jest.Mock).mockResolvedValue({ data: { t1: 5 }, error: null });
+  (tripsCache.rememberedCounts as jest.Mock).mockResolvedValue({});
 });
 
 test('without pending moments, only the server count is counted', async () => {
@@ -74,7 +74,7 @@ test('a mix of both only counts in the jobs without a created row', async () => 
 });
 
 test('the number stays monotonic across the whole flow: enqueued, row created, job removed', async () => {
-  const mockServerCounter = tripsApi.eigeneZaehler as jest.Mock;
+  const mockServerCounter = tripsApi.fetchOwnPostCounts as jest.Mock;
   const mockAllJobs = queueDb.allJobs as jest.Mock;
 
   // Before submitting: server knows 5, the queue is empty for this trip.
@@ -107,14 +107,14 @@ test('the number stays monotonic across the whole flow: enqueued, row created, j
 // the offline case this phase exists for.
 
 test('a successful fetch writes the server count forward', async () => {
-  (tripsApi.eigeneZaehler as jest.Mock).mockResolvedValueOnce({ data: { t1: 40 }, error: null });
+  (tripsApi.fetchOwnPostCounts as jest.Mock).mockResolvedValueOnce({ data: { t1: 40 }, error: null });
   await expect(ownMomentCount('t1')).resolves.toBe(40);
-  expect(tripsCache.zaehlerMerken).toHaveBeenCalledWith('u1', { t1: 40 });
+  expect(tripsCache.rememberCounts).toHaveBeenCalledWith('u1', { t1: 40 });
 });
 
 test('a failed fetch falls back to the last known count instead of 0', async () => {
-  (tripsApi.eigeneZaehler as jest.Mock).mockResolvedValueOnce({ data: {}, error: 'Offline' });
-  (tripsCache.gemerkteZaehler as jest.Mock).mockResolvedValueOnce({ t1: 40 });
+  (tripsApi.fetchOwnPostCounts as jest.Mock).mockResolvedValueOnce({ data: {}, error: 'Offline' });
+  (tripsCache.rememberedCounts as jest.Mock).mockResolvedValueOnce({ t1: 40 });
   (queueDb.allJobs as jest.Mock).mockResolvedValueOnce([
     { trip_id: 't1', zustand: 'wartet', zeile_angelegt: false },
   ]);
@@ -123,12 +123,12 @@ test('a failed fetch falls back to the last known count instead of 0', async () 
   // Before the fix, this used to be 1.
   await expect(ownMomentCount('t1')).resolves.toBe(41);
   // A failure must never overwrite the held-back count.
-  expect(tripsCache.zaehlerMerken).not.toHaveBeenCalled();
+  expect(tripsCache.rememberCounts).not.toHaveBeenCalled();
 });
 
 test('without a held-back count, it stays at the pure queue share', async () => {
-  (tripsApi.eigeneZaehler as jest.Mock).mockResolvedValueOnce({ data: {}, error: 'Offline' });
-  (tripsCache.gemerkteZaehler as jest.Mock).mockResolvedValueOnce({});
+  (tripsApi.fetchOwnPostCounts as jest.Mock).mockResolvedValueOnce({ data: {}, error: 'Offline' });
+  (tripsCache.rememberedCounts as jest.Mock).mockResolvedValueOnce({});
   (queueDb.allJobs as jest.Mock).mockResolvedValueOnce([
     { trip_id: 't1', zustand: 'wartet', zeile_angelegt: false },
   ]);

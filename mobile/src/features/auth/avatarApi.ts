@@ -2,8 +2,8 @@ import { File } from 'expo-file-system';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import { supabase } from '@/lib/supabase';
 import { supabaseBaseUrl } from '@/lib/supabaseUrl';
-import { AVATAR_BUCKET, neuerAvatarSchluessel } from './avatar';
-import type { Ausschnitt } from './zuschnitt';
+import { AVATAR_BUCKET, newAvatarKey } from './avatar';
+import type { Crop } from './crop';
 
 // Grösster Anzeigeort ist der 44-px-Kreis, das trägt 512 auch auf einem
 // 3x-Display mit Reserve. Bei Qualität 0.8 sind das rund 50 KB.
@@ -24,8 +24,8 @@ const JPEG_QUALITAET = 0.8;
 //
 // Dasselbe kontextbasierte Muster wie features/moments/medien.ts, inklusive
 // release() im finally: die SharedObjects werden auch im Fehlerfall frei.
-async function alsQuadratJpeg(uri: string, gewaehlt?: Ausschnitt): Promise<string> {
-  let bereich: Ausschnitt;
+async function alsQuadratJpeg(uri: string, gewaehlt?: Crop): Promise<string> {
+  let bereich: Crop;
   if (gewaehlt) {
     // Die Person hat den Ausschnitt selbst gewählt (AvatarZuschnitt). Dann
     // entfällt das Messen: die Masse kennt der Zuschnitt-Screen bereits, und
@@ -132,9 +132,9 @@ export async function setzeAvatar(
   // Optional, weil nicht jeder Weg einen gewählten Ausschnitt hat: aus der
   // Galerie kommt einer (AvatarZuschnitt), ein Kamera-Selfie ist bereits
   // aufnahmefertig und wird mittig beschnitten.
-  ausschnitt?: Ausschnitt,
+  ausschnitt?: Crop,
 ): Promise<{ avatarKey: string | null; error: string | null }> {
-  const schluessel = neuerAvatarSchluessel(userId);
+  const schluessel = newAvatarKey(userId);
 
   try {
     const fertig = await alsQuadratJpeg(lokaleUri, ausschnitt);

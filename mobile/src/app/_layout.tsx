@@ -17,8 +17,8 @@ import { AuthProvider, useAuth } from '@/features/auth/AuthProvider';
 import {
   resolveRoute,
   isPublicArea,
-  istWebGesperrt,
-  istFlaecheFuerAngemeldete,
+  isWebLocked,
+  isAreaForSignedIn,
 } from '@/features/auth/guard';
 import { spacing, type } from '@/theme/tokens';
 import { peekRememberedInvite, discardRememberedInvite } from '@/features/trips/inviteLink';
@@ -69,7 +69,7 @@ function Guarded() {
   const router = useRouter();
   const { colors } = useTheme();
   const area = segments[0]; // '(auth)' | '(tabs)' | 'vorschau' | 'join' | 'teilen' | undefined
-  const webGesperrt = istWebGesperrt(Platform.OS, area);
+  const webGesperrt = isWebLocked(Platform.OS, area);
 
   useEffect(() => {
     // Auf Web ausserhalb von 'teilen': kein <Stack/> (siehe Return unten),
@@ -81,7 +81,7 @@ function Guarded() {
     void SplashScreen.hideAsync();
     // Der Beitritts-Screen bleibt in jedem Status stehen.
     if (isPublicArea(area)) return;
-    if (status === 'signedIn' && !istFlaecheFuerAngemeldete(area)) router.replace(target);
+    if (status === 'signedIn' && !isAreaForSignedIn(area)) router.replace(target);
     if (status !== 'signedIn' && area !== '(auth)') router.replace(target);
     if (status === 'needsProfile' && segments[1] !== 'profile-setup') router.replace(target);
   }, [status, segments, router, webGesperrt, area]);
@@ -105,7 +105,7 @@ function Guarded() {
       peekRememberedInvite,
       redeemInvite,
       discardRememberedInvite,
-      istAktiv: () => aktiv,
+      isActive: () => aktiv,
     }).then((zielPfad) => {
       if (zielPfad) router.replace(zielPfad);
     });

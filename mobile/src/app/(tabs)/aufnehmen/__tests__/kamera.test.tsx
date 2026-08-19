@@ -329,13 +329,13 @@ const reise = (over: Partial<Trip> = {}): Trip => ({
   end_date: '2026-08-14',
   status: 'active',
   owner_id: 'u1',
-  mitglieder: [{ name: 'Lea', avatarKey: null }],
+  members: [{ name: 'Lea', avatarKey: null }],
   member_count: 1,
   my_post_count: 4,
   ...over,
 });
 
-const geladen = (data: Trip[]) => ({ data, error: null, zaehlerFehler: null });
+const geladen = (data: Trip[]) => ({ data, error: null, countsError: null });
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -418,7 +418,7 @@ test('sind alle Reisen bereits versiegelt, gilt das ebenfalls als „keine laufe
 // offline» (Spec §1) an seinem allerersten Screen bricht. Die Fehlerseite
 // gehört nur noch dorthin, wo es auch nichts Vorgehaltenes gibt.
 test('ohne je geladenen Bestand zeigt ein Ladefehler die Ursache mit einer Wiederholen-Möglichkeit', async () => {
-  (fetchTrips as jest.Mock).mockResolvedValue({ data: [], error: 'Offline, ohne Netz keine aktuellen Daten.', zaehlerFehler: 'Offline' });
+  (fetchTrips as jest.Mock).mockResolvedValue({ data: [], error: 'Offline, ohne Netz keine aktuellen Daten.', countsError: 'Offline' });
   await render(<AufnehmenScreen />);
   expect(await screen.findByText('Offline, ohne Netz keine aktuellen Daten.')).toBeTruthy();
 
@@ -435,7 +435,7 @@ test('im Flugmodus erscheint der Sucher aus dem vorgehaltenen Bestand statt eine
   await ersteSitzung.unmount();
 
   // Zweiter Lauf ohne Netz: fetchTrips liefert nur noch den Fehler.
-  (fetchTrips as jest.Mock).mockResolvedValue({ data: [], error: 'Offline, ohne Netz keine aktuellen Daten.', zaehlerFehler: 'Offline' });
+  (fetchTrips as jest.Mock).mockResolvedValue({ data: [], error: 'Offline, ohne Netz keine aktuellen Daten.', countsError: 'Offline' });
   await render(<AufnehmenScreen />);
 
   expect(await screen.findByLabelText('Auslöser')).toBeTruthy();
@@ -453,7 +453,7 @@ test('der vorgehaltene Bestand einer anderen Person wird nicht angezeigt', async
   await ersteSitzung.unmount();
 
   mockAuth.userId = 'person-b';
-  (fetchTrips as jest.Mock).mockResolvedValue({ data: [], error: 'Offline, ohne Netz keine aktuellen Daten.', zaehlerFehler: 'Offline' });
+  (fetchTrips as jest.Mock).mockResolvedValue({ data: [], error: 'Offline, ohne Netz keine aktuellen Daten.', countsError: 'Offline' });
   await render(<AufnehmenScreen />);
 
   expect(await screen.findByText('Offline, ohne Netz keine aktuellen Daten.')).toBeTruthy();
@@ -469,7 +469,7 @@ test('ein vorgehaltener leerer Bestand führt offline auf «Keine laufende Reise
   await screen.findByText('Keine laufende Reise');
   await ersteSitzung.unmount();
 
-  (fetchTrips as jest.Mock).mockResolvedValue({ data: [], error: 'Offline, ohne Netz keine aktuellen Daten.', zaehlerFehler: 'Offline' });
+  (fetchTrips as jest.Mock).mockResolvedValue({ data: [], error: 'Offline, ohne Netz keine aktuellen Daten.', countsError: 'Offline' });
   await render(<AufnehmenScreen />);
 
   expect(await screen.findByText('Keine laufende Reise')).toBeTruthy();
@@ -1153,7 +1153,7 @@ test('scheitert nur der Zähler-Abruf, greift der zuletzt bekannte Stand statt e
       { ...b, my_post_count: 0 },
     ],
     error: null,
-    zaehlerFehler: 'Du bist offline. Verbinde dich und probier es nochmal.',
+    countsError: 'Du bist offline. Verbinde dich und probier es nochmal.',
   });
   await render(<AufnehmenScreen />);
 
@@ -1224,7 +1224,7 @@ test('auch der Zugriffs-Hinweis liegt hell', async () => {
 });
 
 test('auch der Ladefehler liegt hell', async () => {
-  (fetchTrips as jest.Mock).mockResolvedValue({ data: [], error: 'Offline, ohne Netz keine aktuellen Daten.', zaehlerFehler: 'Offline' });
+  (fetchTrips as jest.Mock).mockResolvedValue({ data: [], error: 'Offline, ohne Netz keine aktuellen Daten.', countsError: 'Offline' });
   await render(<AufnehmenScreen />);
   await screen.findByText('Das hat nicht geklappt');
 

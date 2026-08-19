@@ -1,34 +1,35 @@
 import * as Crypto from 'expo-crypto';
 import { supabaseBaseUrl } from '@/lib/supabaseUrl';
 
-// Der Bucket heisst lokal und produktiv gleich (angelegt in
-// 20260812130000_avatar_bild.sql, deklariert in supabase/config.toml), deshalb
-// eine Konstante und keine Umgebungsvariable: eine Variable mehr ist eine
-// Fehlerquelle mehr, und diese hier hätte nie zwei verschiedene Werte.
+// The bucket is named the same locally and in production (created in
+// 20260812130000_avatar_bild.sql, declared in supabase/config.toml), hence a
+// constant and not an environment variable: one more variable is one more
+// source of error, and this one here should never have had two different
+// values.
 export const AVATAR_BUCKET = 'avatare';
 
 // ---------------------------------------------------------------------------
-// ACHTUNG: Das Präfix ist ABGESPROCHEN, nicht frei wählbar.
+// WARNING: the prefix is AGREED UPON, not freely chosen.
 // ---------------------------------------------------------------------------
-// konto-loeschen/index.ts baut seine erlaubten Präfixe als
-// `profiles/${anfragendeId}/` und löscht nur, was darauf passt (der Wächter
-// pfadGehoertUns in konto-loeschen/ablauf.ts, mit ausführlicher Begründung
-// dort). Ein Schlüssel nach einem anderen Schema bliebe beim Kontolöschen für
-// immer im Speicher liegen, ohne dass jemand seinen Pfad noch kennt.
+// konto-loeschen/index.ts builds its allowed prefixes as
+// `profiles/${anfragendeId}/` and only deletes what matches that (the guard
+// pfadGehoertUns in konto-loeschen/ablauf.ts, with a detailed rationale
+// there). A key following a different scheme would stay in storage forever
+// on account deletion, without anyone still knowing its path.
 //
-// Der Zufallsanteil leistet zweierlei: Die URL ist nicht aus einer bekannten
-// user_id ableitbar, und jedes neue Bild bekommt eine neue URL. Damit löst sich
-// der Bildcache von selbst auf, ohne Cache-Buster-Parameter.
-export function neuerAvatarSchluessel(userId: string): string {
-  const zufall = Crypto.randomUUID().replace(/-/g, '');
-  return `profiles/${userId}/${zufall}.jpg`;
+// The random part achieves two things: the URL is not derivable from a known
+// user_id, and every new image gets a new URL. That way the image cache
+// resolves itself without a cache-buster parameter.
+export function newAvatarKey(userId: string): string {
+  const random = Crypto.randomUUID().replace(/-/g, '');
+  return `profiles/${userId}/${random}.jpg`;
 }
 
-// Die EINZIGE Stelle, die weiss, wie eine Avatar-URL aussieht. Auch die Edge
-// Function gibt nur den Schlüssel heraus, nie eine fertige URL.
+// The ONE place that knows what an avatar URL looks like. Even the edge
+// function only hands out the key, never a finished URL.
 export function avatarUrl(avatarKey: string | null | undefined): string | null {
   if (!avatarKey) return null;
-  const basis = supabaseBaseUrl;
-  if (!basis) return null;
-  return `${basis}/storage/v1/object/public/${AVATAR_BUCKET}/${avatarKey}`;
+  const base = supabaseBaseUrl;
+  if (!base) return null;
+  return `${base}/storage/v1/object/public/${AVATAR_BUCKET}/${avatarKey}`;
 }

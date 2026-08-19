@@ -18,45 +18,44 @@ export function validateDisplayName(displayName: string): string | null {
   return len >= 1 && len <= 40 ? null : 'Sag uns, wie du heissen willst (1–40 Zeichen).';
 }
 
-// `feld` sagt dem Screen, WO die Meldung hingehoert. Vorher gab es nur einen
-// Fehlerstring, und der landete pauschal unter dem Username-Feld, auch «Das
-// Profil konnte nicht gespeichert werden», was mit dem Username nichts zu tun
-// hat. DESIGN-LANGUAGE §4 verlangt feldgenaue Zuordnung, und die kann nur
-// treffen, wer weiss, welches Feld gemeint ist.
-// `avatarKey` ist das vierte, optionale Argument (Default `null`): im
-// Onboarding existiert die Zeile noch nicht, wenn ein Bild gewählt wird
-// (siehe profile-setup.tsx), der Screen lädt es deshalb VOR diesem Aufruf
-// hoch und reicht den fertigen Schlüssel direkt mit, statt ihn per
-// separatem Update nachzutragen — ein zweiter Schreibvorgang könnte
-// scheitern, nachdem die Zeile schon steht. Default `null`, NIE `''`: die
-// RLS-Policy auf `profiles.avatar_key` lehnt einen Leerstring mit 42501 ab
-// (Task 1), nur `NULL` gilt als „kein Bild".
+// `field` tells the screen WHERE the message belongs. Previously there was
+// only one error string, and it landed under the username field across the
+// board, even "the profile could not be saved", which has nothing to do
+// with the username. DESIGN-LANGUAGE §4 requires field-precise assignment,
+// and only someone who knows which field is meant can hit that.
+// `avatarKey` is the fourth, optional argument (default `null`): during
+// onboarding the row does not exist yet when an image is chosen (see
+// profile-setup.tsx), the screen therefore uploads it BEFORE this call and
+// passes the finished key along directly, instead of adding it later via a
+// separate update, a second write could fail after the row already stands.
+// Default `null`, NEVER `''`: the RLS policy on `profiles.avatar_key`
+// rejects an empty string with 42501 (Task 1), only `NULL` counts as "no
+// image".
 export async function createProfile(
   userId: string,
   username: string,
   displayName: string,
   avatarKey: string | null = null
-): Promise<{ error: string | null; feld: 'username' | null }> {
+): Promise<{ error: string | null; field: 'username' | null }> {
   const { error } = await supabase
     .from('profiles')
     .insert({ id: userId, username, display_name: displayName.trim(), avatar_key: avatarKey });
-  if (!error) return { error: null, feld: null };
+  if (!error) return { error: null, field: null };
   if (error.code === '23505') {
-    return { error: 'Dieser Username ist vergeben, probier einen anderen.', feld: 'username' };
+    return { error: 'Dieser Username ist vergeben, probier einen anderen.', field: 'username' };
   }
-  return { error: 'Das Profil konnte nicht gespeichert werden. Probier es gleich nochmal.', feld: null };
+  return { error: 'Das Profil konnte nicht gespeichert werden. Probier es gleich nochmal.', field: null };
 }
 
-// «Anzeigename ändern» im Profil-Tab, als UPDATE auf die eigene Zeile
-// (profiles_update_own bindet es an die eigene id). Der USERNAME ist bewusst
-// nicht dabei (Entscheid 2026-08-13): er soll später möglicherweise ein
-// Login-Identifikator werden, und ein freigewordener alter Name wäre dann
-// ein Verwechslungs-Risiko. Änderbar wird er erst wieder mit einer
-// SERVERSEITIGEN Bremse (Cooldown, Sperrfrist für alte Namen) — eine reine
-// UI-Sperre wie diese hält einen gebastelten API-Aufruf nicht auf, die
-// Spalten-Grants (20260808150000) erlauben das Update technisch weiterhin.
-// avatar_key gehört ebenfalls nicht hierher, das Bild läuft über avatarApi
-// (Upload und Aufräumen hängen dort dran).
+// "Change display name" in the profile tab, as an UPDATE on the own row
+// (profiles_update_own ties it to the own id). The USERNAME is deliberately
+// not part of this (decision 2026-08-13): it may later become a login
+// identifier, and a freed-up old name would then be a confusion risk.
+// Changeable again only once there is a SERVER-SIDE brake (cooldown, lock
+// period for old names); a pure UI lock like this one does not stop a
+// crafted API call, the column grants (20260808150000) still technically
+// allow the update. avatar_key does not belong here either, the image goes
+// through avatarApi (upload and cleanup are attached there).
 export async function updateProfile(
   userId: string,
   displayName: string,

@@ -1,13 +1,13 @@
 import type { Href } from 'expo-router';
 import type { RedeemResult } from './types';
 
-// Reine Entscheidung, unabhängig von der Quelle des Ergebnisses, Root-Layout
-// UND Beitritts-Screen nutzen dieselbe Regel, statt sie je einmal zu wiederholen:
-// `already_member` ist kein Fehler, ein doppelt eingelöster Link führt genauso
-// in die Reise wie ein frischer Beitritt.
-export function ermittleZielPfad(ergebnis: RedeemResult): Href | null {
-  if (ergebnis.trip_id && (ergebnis.status === 'joined' || ergebnis.status === 'already_member')) {
-    return `/reise/${ergebnis.trip_id}`;
+// Pure decision, independent of where the result comes from, both the root
+// layout AND the join screen use this same rule instead of each repeating
+// it: `already_member` is not an error, a link redeemed a second time leads
+// into the trip just like a fresh join.
+export function resolveTargetPath(result: RedeemResult): Href | null {
+  if (result.trip_id && (result.status === 'joined' || result.status === 'already_member')) {
+    return `/reise/${result.trip_id}`;
   }
   return null;
 }
@@ -16,29 +16,30 @@ export type PendingInviteDeps = {
   peekRememberedInvite: () => Promise<string | null>;
   redeemInvite: (code: string) => Promise<RedeemResult>;
   discardRememberedInvite: () => Promise<void>;
-  // Liefert, ob der aufrufende Effect noch aktiv ist (nicht abgeräumt). Als
-  // Funktion statt Bool injiziert, damit der aktuelle Wert zum Zeitpunkt der
-  // Abfrage zählt, nicht der Wert beim Start des Aufrufs.
-  istAktiv: () => boolean;
+  // Reports whether the calling effect is still active (not torn down). Injected
+  // as a function rather than a bool so the current value at the moment of the
+  // check counts, not the value at the start of the call.
+  isActive: () => boolean;
 };
 
-// Orchestriert das Einlösen eines vor dem Login gemerkten Codes, getrennt vom
-// Root-Layout-Effect testbar, weil alle IO-Abhängigkeiten injiziert werden.
-// Liefert den Zielpfad, falls navigiert werden soll, sonst null.
+// Orchestrates redeeming a code remembered before login, kept separate from
+// the root-layout effect so it is testable, since every IO dependency is
+// injected. Returns the target path if a navigation should happen, null
+// otherwise.
 //
-// Replay-Sicherheit: der Code wird NICHT beim Lesen gelöscht (peek statt take),
-// sonst geht er verloren, wenn der Effect zwischen Lesen und dem eigentlichen
-// Einlöseversuch abgeräumt wird (z.B. weil `status` durch eine
-// hasProfile-Neubewertung kurz wegkippt und zurückkommt). Erst wenn
-// redeemInvite() wirklich aufgerufen wurde, gilt der Versuch als stattgefunden,
-// dann wird IMMER verworfen, auch bei einem Fehlschlag: sonst würde ein
-// dauerhaft ungültiger Code bei jedem künftigen signedIn erneut versucht.
+// Replay safety: the code is NOT deleted on read (peek instead of take),
+// otherwise it would get lost if the effect is torn down between reading and
+// the actual redemption attempt (e.g. because `status` briefly flips away
+// and back due to a hasProfile re-evaluation). Only once redeemInvite() has
+// actually been called does the attempt count as having happened, and then
+// it is ALWAYS discarded, even on failure: otherwise a permanently invalid
+// code would be retried on every future signedIn.
 export async function redeemPendingInvite(deps: PendingInviteDeps): Promise<Href | null> {
   const code = await deps.peekRememberedInvite();
   if (!code) return null;
-  if (!deps.istAktiv()) return null; // vor dem Versuch abgeräumt: Code bleibt liegen
-  const ergebnis = await deps.redeemInvite(code);
-  await deps.discardRememberedInvite(); // Versuch fand statt: immer verwerfen
-  if (!deps.istAktiv()) return null; // Effect ist weg: nicht mehr navigieren
-  return ermittleZielPfad(ergebnis);
+  if (!deps.isActive()) return null; // torn down before the attempt: code stays put
+  const result = await deps.redeemInvite(code);
+  await deps.discardRememberedInvite(); // attempt happened: always discard
+  if (!deps.isActive()) return null; // effect is gone: no longer navigate
+  return resolveTargetPath(result);
 }

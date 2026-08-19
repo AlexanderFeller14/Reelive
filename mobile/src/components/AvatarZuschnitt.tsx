@@ -10,12 +10,12 @@ import { Image } from 'expo-image';
 import { PressScale } from '@/components/PressScale';
 import { cinema, radius, spacing, type } from '@/theme/tokens';
 import {
-  ausschnittFuer,
-  begrenze,
-  grundfaktor,
-  type Ausschnitt,
-  type Blick,
-} from '@/features/auth/zuschnitt';
+  cropFor,
+  clamp,
+  baseFactor,
+  type Crop,
+  type Framing,
+} from '@/features/auth/crop';
 
 // Der Ersatz für den System-Zuschnitt, den `allowsEditing` mitbrachte. Diese
 // Option musste raus (siehe AvatarWaehler): sie erzwingt auf iOS den alten
@@ -38,7 +38,7 @@ const { width: FENSTER_BREITE } = Dimensions.get('window');
 // Screen-Ränder ein.
 const RAHMEN = FENSTER_BREITE - spacing.screen * 2;
 
-const START: Blick = { zoom: 1, versatzX: 0, versatzY: 0 };
+const START: Framing = { zoom: 1, offsetX: 0, offsetY: 0 };
 
 function abstand(punkte: { pageX: number; pageY: number }[]): number {
   const dx = punkte[0].pageX - punkte[1].pageX;
@@ -53,15 +53,15 @@ export function AvatarZuschnitt({
   breite: number;
   hoehe: number;
   onAbbrechen: () => void;
-  onFertig: (ausschnitt: Ausschnitt) => void;
+  onFertig: (ausschnitt: Crop) => void;
 }) {
-  const quelle = { breite, hoehe };
-  const [blick, setBlick] = useState<Blick>(START);
+  const quelle = { width: breite, height: hoehe };
+  const [blick, setBlick] = useState<Framing>(START);
 
   // Der Stand beim Beginn einer Geste. Als State und nicht als Ref, weil das
   // Projekt seine Animated-/Gestenwerte seit dem Lint-Durchgang so hält; für
   // die Geste selbst zählt nur, dass der Wert zwischen zwei Ereignissen steht.
-  const [start, setStart] = useState<{ blick: Blick; spanne: number | null }>({
+  const [start, setStart] = useState<{ blick: Framing; spanne: number | null }>({
     blick: START,
     spanne: null,
   });
@@ -90,7 +90,7 @@ export function AvatarZuschnitt({
             const jetztSpanne = abstand(beruehrungen);
             if (s.spanne === null) return { blick: s.blick, spanne: jetztSpanne };
             setBlick(
-              begrenze(
+              clamp(
                 { ...s.blick, zoom: s.blick.zoom * (jetztSpanne / s.spanne) },
                 quelle,
                 RAHMEN,
@@ -99,11 +99,11 @@ export function AvatarZuschnitt({
             return s;
           }
           setBlick(
-            begrenze(
+            clamp(
               {
                 zoom: s.blick.zoom,
-                versatzX: s.blick.versatzX + geste.dx,
-                versatzY: s.blick.versatzY + geste.dy,
+                offsetX: s.blick.offsetX + geste.dx,
+                offsetY: s.blick.offsetY + geste.dy,
               },
               quelle,
               RAHMEN,
@@ -118,7 +118,7 @@ export function AvatarZuschnitt({
   // Die Darstellung spiegelt exakt das Modell aus zuschnitt.ts: Grundfaktor
   // mal Zoom, dann verschoben. Weicht das hier ab, zeigt der Rahmen etwas
   // anderes als am Ende herauskommt.
-  const faktor = grundfaktor(quelle, RAHMEN) * blick.zoom;
+  const faktor = baseFactor(quelle, RAHMEN) * blick.zoom;
 
   return (
     <View style={styles.flaeche}>
@@ -131,8 +131,8 @@ export function AvatarZuschnitt({
               width: breite * faktor,
               height: hoehe * faktor,
               transform: [
-                { translateX: blick.versatzX },
-                { translateY: blick.versatzY },
+                { translateX: blick.offsetX },
+                { translateY: blick.offsetY },
               ],
             }}
             contentFit="fill"
@@ -150,7 +150,7 @@ export function AvatarZuschnitt({
         <PressScale
           testID="zuschnitt-uebernehmen"
           accessibilityRole="button"
-          onPress={() => onFertig(ausschnittFuer(blick, quelle, RAHMEN))}
+          onPress={() => onFertig(cropFor(blick, quelle, RAHMEN))}
         >
           <Text style={[type.bodyMedium, styles.knopfTextStark]}>Übernehmen</Text>
         </PressScale>

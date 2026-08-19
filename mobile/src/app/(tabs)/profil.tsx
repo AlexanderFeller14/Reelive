@@ -17,7 +17,7 @@ import { useAuth } from '@/features/auth/AuthProvider';
 import { AvatarZuschnitt } from '@/components/AvatarZuschnitt';
 import { Input } from '@/components/Input';
 import { entferneAvatar, setzeAvatar } from '@/features/auth/avatarApi';
-import type { Ausschnitt } from '@/features/auth/zuschnitt';
+import type { Crop } from '@/features/auth/crop';
 import {
   fetchOwnProfile, updateProfile, validateDisplayName, type Profile,
 } from '@/features/auth/profileApi';
@@ -233,7 +233,7 @@ export default function ProfilScreen() {
   // Der neue Schlüssel wird lokal in den State geschrieben, statt das Profil
   // neu zu laden: die Antwort von setzeAvatar IST der neue Stand, ein zweiter
   // Rundgang zur Datenbank brächte dasselbe Ergebnis eine Netzlatenz später.
-  const bildSetzen = async (uri: string, ausschnitt: Ausschnitt) => {
+  const bildSetzen = async (uri: string, ausschnitt: Crop) => {
     if (!userId) return;
     setBildLaeuft(true);
     setBildFehler(null);

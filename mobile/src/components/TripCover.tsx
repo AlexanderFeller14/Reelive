@@ -3,7 +3,7 @@ import { StyleSheet, View } from 'react-native';
 import { Image } from 'expo-image';
 import { useTheme } from '@/theme/ThemeProvider';
 import { radius, spacing } from '@/theme/tokens';
-import { platzhalterCover } from '@/features/trips/platzhalterCover';
+import { placeholderCover } from '@/features/trips/placeholderCover';
 
 // Das Cover einer Reise (DESIGN-LANGUAGE v2 §4): 3:2, Radius 24, randlos,
 // ohne Schatten. Steht an zwei Stellen — auf der Reise-Karte in den Listen
@@ -37,7 +37,7 @@ export function TripCover({
       <View style={[styles.cover, { backgroundColor: colors['bg-1'] }]}>
         <Image
           testID="reise-cover"
-          source={platzhalterCover(position)}
+          source={placeholderCover(position)}
           style={StyleSheet.absoluteFill}
           contentFit="cover"
           accessible={false}

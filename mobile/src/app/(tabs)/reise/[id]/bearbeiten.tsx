@@ -9,7 +9,7 @@ import { spacing, type } from '@/theme/tokens';
 import { useTopInset } from '@/theme/useTopInset';
 import { fetchTrip, updateTrip } from '@/features/trips/tripsApi';
 import { validateDateRange } from '@/features/trips/tripDay';
-import type { Auswahl } from '@/features/trips/kalender';
+import type { Selection } from '@/features/trips/calendar';
 
 export default function ReiseBearbeiten() {
   const { colors } = useTheme();
@@ -17,7 +17,7 @@ export default function ReiseBearbeiten() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
   const [name, setName] = useState('');
-  const [zeitraum, setZeitraum] = useState<Auswahl>({ start: null, end: null });
+  const [zeitraum, setZeitraum] = useState<Selection>({ start: null, end: null });
   const [nameFehler, setNameFehler] = useState<string | undefined>();
   const [zeitraumFehler, setZeitraumFehler] = useState<string | undefined>();
   const [laedt, setLaedt] = useState(false);

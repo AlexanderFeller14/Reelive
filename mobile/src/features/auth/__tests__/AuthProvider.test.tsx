@@ -1,7 +1,7 @@
 import { renderHook, waitFor } from '@testing-library/react-native';
 import type { Session } from '@supabase/supabase-js';
 
-// Jest-Hoisting: Variablen in jest.mock-Factories MÜSSEN mit "mock" beginnen
+// Jest hoisting: variables in jest.mock factories MUST start with "mock".
 const mockGetSession = jest.fn();
 const mockOnAuthStateChange = jest.fn();
 const mockUnsubscribe = jest.fn();
@@ -27,12 +27,13 @@ const fakeSession = { user: { id: 'uid-1' } } as unknown as Session;
 
 beforeEach(() => {
   jest.clearAllMocks();
-  // Standard: onAuthStateChange liefert eine abbestellbare Subscription,
-  // feuert in diesen Tests aber nicht von selbst (Verhalten wird über getSession gesteuert).
+  // Default: onAuthStateChange returns an unsubscribable subscription, but
+  // does not fire on its own in these tests (behavior is steered via
+  // getSession).
   mockOnAuthStateChange.mockReturnValue({ data: { subscription: { unsubscribe: mockUnsubscribe } } });
 });
 
-test('Session + Profil-Zeile vorhanden → signedIn', async () => {
+test('session + profile row present → signedIn', async () => {
   mockGetSession.mockResolvedValue({ data: { session: fakeSession } });
   mockMaybeSingle.mockResolvedValue({ data: { id: 'uid-1' }, error: null });
 
@@ -41,7 +42,7 @@ test('Session + Profil-Zeile vorhanden → signedIn', async () => {
   await waitFor(() => expect(result.current.status).toBe('signedIn'));
 });
 
-test('Session + keine Zeile (kein Fehler) → needsProfile', async () => {
+test('session + no row (no error) → needsProfile', async () => {
   mockGetSession.mockResolvedValue({ data: { session: fakeSession } });
   mockMaybeSingle.mockResolvedValue({ data: null, error: null });
 
@@ -50,7 +51,7 @@ test('Session + keine Zeile (kein Fehler) → needsProfile', async () => {
   await waitFor(() => expect(result.current.status).toBe('needsProfile'));
 });
 
-test('Session + Query-Fehler (z.B. RLS) → signedIn, NICHT needsProfile', async () => {
+test('session + query error (e.g. RLS) → signedIn, NOT needsProfile', async () => {
   mockGetSession.mockResolvedValue({ data: { session: fakeSession } });
   mockMaybeSingle.mockResolvedValue({ data: null, error: { message: 'RLS-Verletzung' } });
 
@@ -60,7 +61,7 @@ test('Session + Query-Fehler (z.B. RLS) → signedIn, NICHT needsProfile', async
   expect(result.current.status).not.toBe('needsProfile');
 });
 
-test('getSession() rejected → Status bleibt nicht auf loading hängen (signedOut ohne Session)', async () => {
+test('getSession() rejected → status does not stay stuck on loading (signedOut without a session)', async () => {
   mockGetSession.mockRejectedValue(new Error('Netzwerkfehler'));
 
   const { result } = await renderHook(() => useAuth(), { wrapper: AuthProvider });

@@ -76,7 +76,7 @@ export function TripCard({
             {formatRange(trip.start_date, trip.end_date)}
           </Text>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.m, marginTop: spacing.xs }}>
-            <AvatarGroup gesichter={trip.mitglieder} />
+            <AvatarGroup gesichter={trip.members} />
             <Text style={[type.secondary, { color: colors['text-2'] }]}>{momente}</Text>
           </View>
         </View>

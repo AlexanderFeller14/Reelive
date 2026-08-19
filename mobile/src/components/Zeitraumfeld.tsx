@@ -7,12 +7,12 @@ import { PressScale } from '@/components/PressScale';
 import { useTheme } from '@/theme/ThemeProvider';
 import { palette, radius, spacing, type } from '@/theme/tokens';
 import { useTopInset, useBottomInset } from '@/theme/useTopInset';
-import { naechsteAuswahl, zeitraumLabel, type Auswahl } from '@/features/trips/kalender';
+import { nextSelection, rangeLabel, type Selection } from '@/features/trips/calendar';
 import { formatRange } from '@/features/trips/tripDay';
 
 type Props = {
-  wert: Auswahl;
-  onAendern: (auswahl: Auswahl) => void;
+  wert: Selection;
+  onAendern: (auswahl: Selection) => void;
   fehler?: string;
   heute?: string;
 };
@@ -33,7 +33,7 @@ export function Zeitraumfeld({ wert, onAendern, fehler, heute }: Props) {
   // nach oben, ein Abbruch verwirft ihn folgenlos. Deshalb setzt ihn `oeffnen`
   // jedes Mal neu aus `wert`, statt sich auf den Stand vom letzten Mal zu
   // verlassen.
-  const [entwurf, setEntwurf] = useState<Auswahl>(wert);
+  const [entwurf, setEntwurf] = useState<Selection>(wert);
 
   const vollstaendig = !!entwurf.start && !!entwurf.end;
   const anzeige = wert.start && wert.end ? formatRange(wert.start, wert.end) : '';
@@ -53,7 +53,7 @@ export function Zeitraumfeld({ wert, onAendern, fehler, heute }: Props) {
     <View style={{ gap: spacing.xs }}>
       <PressScale
         accessibilityRole="button"
-        accessibilityLabel={zeitraumLabel(wert)}
+        accessibilityLabel={rangeLabel(wert)}
         onPress={oeffnen}
         style={{
           height: 56,
@@ -108,7 +108,7 @@ export function Zeitraumfeld({ wert, onAendern, fehler, heute }: Props) {
           </View>
           <Kalender
             auswahl={entwurf}
-            onTag={(tag) => setEntwurf((bisher) => naechsteAuswahl(bisher, tag))}
+            onTag={(tag) => setEntwurf((bisher) => nextSelection(bisher, tag))}
             heute={heute}
           />
           <Button

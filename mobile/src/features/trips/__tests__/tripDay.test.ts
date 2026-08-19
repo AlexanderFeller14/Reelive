@@ -1,4 +1,4 @@
-import { heutigerKalendertag, validateDateRange,
+import { todaysCalendarDay, validateDateRange,
   tripDay, tripLength, formatRange, groupTrips,
 } from '../tripDay';
 
@@ -15,16 +15,16 @@ test.each([
 test.each([
   ['2026-08-01', '2026-08-06', 6],
   ['2026-08-01', '2026-08-01', 1],
-  ['2026-08-01', '2026-07-30', 0], // Reise hat noch nicht begonnen
+  ['2026-08-01', '2026-07-30', 0], // trip has not started yet
 ])('tripDay(%s, %s) → %s', (start, today, expected) => {
   expect(tripDay(start, today)).toBe(expected);
 });
 
-test('tripDay zählt über einen Monatswechsel korrekt', () => {
+test('tripDay counts correctly across a month change', () => {
   expect(tripDay('2026-07-30', '2026-08-02')).toBe(4);
 });
 
-test('tripLength zählt beide Randtage mit', () => {
+test('tripLength counts both boundary days', () => {
   expect(tripLength('2026-08-01', '2026-08-14')).toBe(14);
 });
 
@@ -36,34 +36,34 @@ test.each([
   expect(formatRange(start, end)).toBe(expected);
 });
 
-test('groupTrips trennt laufende Reisen von Recaps', () => {
+test('groupTrips splits ongoing trips from recaps', () => {
   const trips = [
     { id: 'a', status: 'active' as const },
     { id: 'b', status: 'revealed' as const },
     { id: 'c', status: 'archived' as const },
   ];
-  const { laufend, recaps } = groupTrips(trips);
-  expect(laufend.map((t) => t.id)).toEqual(['a']);
+  const { ongoing, recaps } = groupTrips(trips);
+  expect(ongoing.map((t) => t.id)).toEqual(['a']);
   expect(recaps.map((t) => t.id)).toEqual(['b', 'c']);
 });
 
-// `new Date().toISOString().slice(0, 10)` lieferte den Kalendertag in UTC,
-// in Mitteleuropa also jede Nacht zwischen 00:00 und 02:00 einen Tag zu früh.
-// Der Reisetag zählte dann zu niedrig und «Reise abschliessen» rückte einen
-// Tag zu spät nach oben.
-test('heutigerKalendertag nimmt die lokale Uhr, nicht UTC', () => {
-  // 00:30 Ortszeit, egal in welcher Zone die Suite läuft.
-  const nachts = new Date(2026, 7, 9, 0, 30, 0);
-  expect(heutigerKalendertag(nachts)).toBe('2026-08-09');
-  // Der eigentliche Unterschied zeigt sich nur östlich von Greenwich (dort ist
-  // getTimezoneOffset negativ), genau dort lag die alte UTC-Rechnung daneben.
-  // Läuft die Suite in UTC oder westlich davon, gibt es um 00:30 nichts zu
-  // unterscheiden, und die Zeile hätte nichts zu sagen.
-  if (nachts.getTimezoneOffset() < 0) {
-    expect(nachts.toISOString().slice(0, 10)).toBe('2026-08-08');
+// `new Date().toISOString().slice(0, 10)` returned the calendar day in UTC,
+// which in Central Europe was a day too early every night between 00:00 and
+// 02:00. The trip day then counted too low and "finish trip" moved up a day
+// too late.
+test('todaysCalendarDay takes the local clock, not UTC', () => {
+  // 00:30 local time, whatever zone the suite runs in.
+  const atNight = new Date(2026, 7, 9, 0, 30, 0);
+  expect(todaysCalendarDay(atNight)).toBe('2026-08-09');
+  // The actual difference only shows east of Greenwich (where
+  // getTimezoneOffset is negative), exactly where the old UTC calculation was
+  // off. If the suite runs in UTC or west of it, there is nothing to tell
+  // apart at 00:30, and this line has nothing to say.
+  if (atNight.getTimezoneOffset() < 0) {
+    expect(atNight.toISOString().slice(0, 10)).toBe('2026-08-08');
   }
 });
 
-test('heutigerKalendertag füllt Monat und Tag auf zwei Stellen', () => {
-  expect(heutigerKalendertag(new Date(2026, 0, 5, 12, 0, 0))).toBe('2026-01-05');
+test('todaysCalendarDay pads month and day to two digits', () => {
+  expect(todaysCalendarDay(new Date(2026, 0, 5, 12, 0, 0))).toBe('2026-01-05');
 });

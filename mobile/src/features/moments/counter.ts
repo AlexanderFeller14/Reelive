@@ -19,17 +19,17 @@ import * as queueDb from './queueDb';
 // 1.
 export async function ownMomentCount(tripId: string): Promise<number> {
   const [read, jobs, userId] = await Promise.all([
-    tripsApi.eigeneZaehler(),
+    tripsApi.fetchOwnPostCounts(),
     queueDb.allJobs(),
     momentsApi.currentAuthorId(),
   ]);
 
   let counts: Record<string, number>;
   if (read.error) {
-    counts = await tripsCache.gemerkteZaehler(userId);
+    counts = await tripsCache.rememberedCounts(userId);
   } else {
     counts = read.data;
-    await tripsCache.zaehlerMerken(userId, counts);
+    await tripsCache.rememberCounts(userId, counts);
   }
 
   const serverCount = counts[tripId] ?? 0;

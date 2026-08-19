@@ -7,7 +7,7 @@ import { spacing, type } from '@/theme/tokens';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { peekInvite, redeemInvite } from '@/features/trips/tripsApi';
 import { rememberInvite } from '@/features/trips/inviteLink';
-import { ermittleZielPfad } from '@/features/trips/joinFlow';
+import { resolveTargetPath } from '@/features/trips/joinFlow';
 import { formatRange } from '@/features/trips/tripDay';
 import type { InvitePreview } from '@/features/trips/types';
 
@@ -50,7 +50,7 @@ export default function JoinScreen() {
     setLaedt(true);
     const ergebnis = await redeemInvite(code);
     setLaedt(false);
-    const zielPfad = ermittleZielPfad(ergebnis);
+    const zielPfad = resolveTargetPath(ergebnis);
     if (zielPfad) {
       router.replace(zielPfad);
       return;

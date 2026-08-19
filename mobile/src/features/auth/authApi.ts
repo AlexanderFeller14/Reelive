@@ -18,26 +18,26 @@ export async function verifyOtp(phone: string, code: string): Promise<{ error: s
 }
 
 export async function signOut(): Promise<void> {
-  // VOR supabase.auth.signOut(), nicht danach, und zwingend sequenziell,
-  // nicht nur aus Vorsicht: die Löschung läuft über die RLS-Policy
-  // push_tokens_delete_own (user_id = auth.uid()). Nach dem Abmelden gibt es
-  // kein auth.uid() mehr, der Löschversuch träfe dann auf gar keine Zeile
-  // mehr (RLS blendet sie aus, kein Fehler, aber wirkungslos), die Session
-  // muss beim Löschen also noch gültig sein.
-  // deregistrierePushToken() wirft selbst nie (siehe pushApi.ts), verzögert
-  // das Abmelden aber sehr wohl, wenn sie hängt: getExpoPushTokenAsync()
-  // macht intern ein fetch() ohne erkennbaren Timeout. Das nehmen wir bewusst
-  // in Kauf, parallel zu supabase.auth.signOut() aufzuräumen würde an
-  // genau der RLS-Lücke oben scheitern.
+  // BEFORE supabase.auth.signOut(), not after, and strictly sequential, not
+  // just out of caution: the deletion runs through the RLS policy
+  // push_tokens_delete_own (user_id = auth.uid()). After signing out there
+  // is no auth.uid() anymore, the deletion attempt would then hit no row at
+  // all (RLS hides it, no error, but no effect), the session therefore
+  // still has to be valid at delete time.
+  // deregistrierePushToken() itself never throws (see pushApi.ts), but it
+  // does delay the sign-out if it hangs: getExpoPushTokenAsync() internally
+  // does a fetch() with no discernible timeout. We deliberately accept
+  // that; cleaning up in parallel with supabase.auth.signOut() would fail
+  // on exactly the RLS gap above.
   await deregistrierePushToken();
   await supabase.auth.signOut();
 }
 
 export type OAuthProvider = 'apple' | 'google';
 
-// Vorbereitete Abstraktion (Spec §4): wird erst mit Dev-Build + Credentials
-// aktiviert. Die Flags EXPO_PUBLIC_AUTH_* halten die Buttons bis dahin
-// unsichtbar, dieser Fallback greift nur, falls ein Flag versehentlich an ist.
+// Prepared abstraction (Spec §4): only gets activated with a dev build +
+// credentials. The EXPO_PUBLIC_AUTH_* flags keep the buttons invisible until
+// then, this fallback only kicks in if a flag is accidentally on.
 export async function signInWith(provider: OAuthProvider): Promise<{ error: string | null }> {
   return {
     error: `Anmeldung mit ${provider === 'apple' ? 'Apple' : 'Google'} ist noch nicht verfügbar. Nutze deine Handynummer.`,

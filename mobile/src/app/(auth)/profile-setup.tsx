@@ -10,7 +10,7 @@ import { useTopInset } from '@/theme/useTopInset';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { AvatarZuschnitt } from '@/components/AvatarZuschnitt';
 import { setzeAvatar } from '@/features/auth/avatarApi';
-import type { Ausschnitt } from '@/features/auth/zuschnitt';
+import type { Crop } from '@/features/auth/crop';
 import { createProfile, validateDisplayName, validateUsername } from '@/features/auth/profileApi';
 
 export default function ProfileSetupScreen() {
@@ -30,7 +30,7 @@ export default function ProfileSetupScreen() {
   // Der gewählte Ausschnitt gehört zum gewählten Bild und muss deshalb bis zum
   // Absenden mitwandern: hochgeladen wird hier erst in `submit`, weil die
   // Profilzeile vorher noch nicht existiert.
-  const [bildAusschnitt, setBildAusschnitt] = useState<Ausschnitt | null>(null);
+  const [bildAusschnitt, setBildAusschnitt] = useState<Crop | null>(null);
   // Das eben gewählte Bild, solange sein Ausschnitt noch bestimmt wird.
   const [zuschnitt, setZuschnitt] = useState<
     { uri: string; breite: number; hoehe: number } | null
@@ -68,10 +68,10 @@ export default function ProfileSetupScreen() {
     // gebildet wird (neuerAvatarSchluessel). Der Wert landet erst über
     // createProfile unten tatsächlich in der Zeile.
 
-    const { error, feld } = await createProfile(userId, username, displayName, avatarKey);
+    const { error, field } = await createProfile(userId, username, displayName, avatarKey);
     setLoading(false);
     if (error) {
-      if (feld === 'username') return setUsernameError(error);
+      if (field === 'username') return setUsernameError(error);
       return setFormularFehler(error);
     }
     await refreshProfile(); // Guard leitet zu den Tabs weiter

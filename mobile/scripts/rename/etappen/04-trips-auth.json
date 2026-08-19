@@ -1,0 +1,91 @@
+{
+  "dateien": {
+    "features/trips/kalender.ts": "features/trips/calendar.ts",
+    "features/trips/platzhalterCover.ts": "features/trips/placeholderCover.ts",
+    "features/trips/useReiseGebunden.ts": "features/trips/useTripBound.ts",
+    "features/auth/zuschnitt.ts": "features/auth/crop.ts",
+    "features/trips/__tests__/kalender.test.ts": "features/trips/__tests__/calendar.test.ts",
+    "features/trips/__tests__/platzhalterCover.test.ts": "features/trips/__tests__/placeholderCover.test.ts",
+    "features/trips/__tests__/useReiseGebunden.test.tsx": "features/trips/__tests__/useTripBound.test.tsx",
+    "features/auth/__tests__/zuschnitt.test.ts": "features/auth/__tests__/crop.test.ts"
+  },
+  "symbole": {
+    "features/trips/kalender.ts": {
+      "MONATE": "MONTHS",
+      "MONATE_ZURUECK": "MONTHS_BACK",
+      "MONATE_VORWAERTS": "MONTHS_FORWARD",
+      "ZEILE_HOEHE": "ROW_HEIGHT",
+      "MONAT_KOPF_HOEHE": "MONTH_HEADER_HEIGHT",
+      "MONAT_ABSTAND": "MONTH_GAP",
+      "Auswahl": "Selection",
+      "Zellrolle": "CellRole",
+      "Monat": "Month",
+      "alsIso": "toIso",
+      "tageImMonat": "daysInMonth",
+      "versatzDesErsten": "offsetOfFirstDay",
+      "monatRaster": "monthGrid",
+      "monateImBereich": "monthsInRange",
+      "naechsteAuswahl": "nextSelection",
+      "zellrolle": "cellRole",
+      "monatHoehe": "monthHeight",
+      "monatVersatz": "monthOffset",
+      "monatIndexFuer": "monthIndexFor",
+      "tagLabel": "dayLabel",
+      "zeitraumLabel": "rangeLabel",
+      "heuteOderDefault": "todayOrDefault"
+    },
+    "features/trips/platzhalterCover.ts": {
+      "platzhalterCover": "placeholderCover"
+    },
+    "features/trips/useReiseGebunden.ts": {
+      "useReiseGebunden": "useTripBound"
+    },
+    "features/trips/joinFlow.ts": {
+      "ermittleZielPfad": "resolveTargetPath"
+    },
+    "features/trips/tripDay.ts": {
+      "heutigerKalendertag": "todaysCalendarDay"
+    },
+    "features/trips/tripsApi.ts": {
+      "Gelesen": "Loaded",
+      "meldung": "message",
+      "SPALTEN": "COLUMNS",
+      "MIT_MITGLIEDERN": "WITH_MEMBERS",
+      "zaehlerLesen": "readCounts",
+      "eigeneZaehler": "fetchOwnPostCounts"
+    },
+    "features/trips/tripsCache.ts": {
+      "REISEN_PRAEFIX": "TRIPS_PREFIX",
+      "ZAEHLER_PRAEFIX": "COUNTS_PREFIX",
+      "GemerkteReise": "CachedTrip",
+      "ERLAUBTE_STATUS": "ALLOWED_STATUSES",
+      "zuGemerkt": "toCached",
+      "istGemerkteReise": "isCachedTrip",
+      "reisenMerken": "rememberTrips",
+      "gemerkteReisen": "rememberedTrips",
+      "zaehlerMerken": "rememberCounts",
+      "gemerkteZaehler": "rememberedCounts"
+    },
+    "features/auth/zuschnitt.ts": {
+      "Quellmass": "SourceSize",
+      "Blick": "Framing",
+      "Ausschnitt": "Crop",
+      "grundfaktor": "baseFactor",
+      "grenzen": "bounds",
+      "begrenze": "clamp",
+      "ausschnittFuer": "cropFor"
+    },
+    "features/auth/avatar.ts": {
+      "neuerAvatarSchluessel": "newAvatarKey"
+    },
+    "features/auth/guard.ts": {
+      "istFlaecheFuerAngemeldete": "isAreaForSignedIn",
+      "istWebGesperrt": "isWebLocked"
+    },
+    "features/trips/__tests__/tripsApi.test.ts": {
+      "Antwort": "Result",
+      "tripKette": "tripChain",
+      "mitgliedKette": "memberChain"
+    }
+  }
+}

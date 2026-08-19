@@ -16,14 +16,14 @@ const AuthContext = createContext<AuthContextValue>({
   refreshProfile: async () => {},
 });
 
-// Token-Refresh nur im Vordergrund (offizielles Supabase-RN-Muster)
+// Token refresh only in the foreground (official Supabase RN pattern)
 AppState.addEventListener('change', (state) => {
   if (state === 'active') supabase.auth.startAutoRefresh();
   else supabase.auth.stopAutoRefresh();
 });
 
-// null = Query fehlgeschlagen (RLS/Netzwerk), bewusst getrennt von "kein Profil",
-// damit evaluate() einen Fehler nie fälschlich als needsProfile interpretiert.
+// null = query failed (RLS/network), deliberately kept separate from "no
+// profile" so evaluate() never misinterprets an error as needsProfile.
 async function hasProfile(userId: string): Promise<boolean | null> {
   const { data, error } = await supabase.from('profiles').select('id').eq('id', userId).maybeSingle();
   if (error) return null;
@@ -38,14 +38,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       if (!s) return setStatus('signedOut');
       const found = await hasProfile(s.user.id);
-      // found === false: Query erfolgreich, kein Profil ⇒ needsProfile.
-      // found === true ODER null (Query-Fehler): signedIn, bei einem Fehler
-      // bleibt der Nutzer angemeldet statt fälschlich ins Profil-Setup zu
-      // geraten; profilabhängige UI degradiert bis zur nächsten evaluate()-Runde.
+      // found === false: query succeeded, no profile => needsProfile.
+      // found === true OR null (query error): signedIn, on an error the user
+      // stays signed in instead of falsely landing in profile setup;
+      // profile-dependent UI degrades until the next evaluate() round.
       setStatus(found === false ? 'needsProfile' : 'signedIn');
     } catch {
-      // Unerwarteter Reject (z.B. Netzwerk-Exception statt {error}-Rückgabe)
-      // darf den Status nie dauerhaft auf "loading" stehen lassen.
+      // An unexpected reject (e.g. a network exception instead of an
+      // {error} return) must never leave the status stuck on "loading"
+      // permanently.
       setStatus(s ? 'signedIn' : 'signedOut');
     }
   }, []);
@@ -58,8 +59,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         void evaluate(data.session);
       })
       .catch(() => {
-        // getSession() selbst kann rejecten (z.B. Storage-Fehler), ohne
-        // Fallback bliebe der Status für immer auf "loading" (endloser Splash).
+        // getSession() itself can reject (e.g. a storage error), without a
+        // fallback the status would stay on "loading" forever (endless
+        // splash).
         setStatus('signedOut');
       });
     const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => {
@@ -69,11 +71,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => sub.subscription.unsubscribe();
   }, [evaluate]);
 
-  // Ohne useMemo entsteht bei JEDEM Render dieses Providers ein neues
-  // Context-Objekt, und React weckt daraufhin jeden Consumer, hier also
-  // praktisch jeden Screen der App, denn der Provider sitzt an der Wurzel.
-  // Die enthaltenen Werte aendern sich dagegen selten.
-  const wert = useMemo<AuthContextValue>(
+  // Without useMemo, EVERY render of this provider creates a new context
+  // object, and React then wakes every consumer, here practically every
+  // screen of the app, since the provider sits at the root. The values it
+  // holds change rarely by comparison.
+  const value = useMemo<AuthContextValue>(
     () => ({
       status,
       userId: session?.user.id ?? null,
@@ -82,7 +84,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [status, session, evaluate]
   );
 
-  return <AuthContext.Provider value={wert}>{children}</AuthContext.Provider>;
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 export const useAuth = () => useContext(AuthContext);

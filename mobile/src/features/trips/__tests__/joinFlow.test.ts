@@ -1,98 +1,98 @@
-import { redeemPendingInvite, ermittleZielPfad, type PendingInviteDeps } from '../joinFlow';
+import { redeemPendingInvite, resolveTargetPath, type PendingInviteDeps } from '../joinFlow';
 import type { RedeemResult } from '../types';
 
-// Baut Fake-Deps für redeemPendingInvite: `aktiv` startet bei true und kann
-// per redeemInvite-Aufruf umgeschaltet werden, um einen Effect zu simulieren,
-// der genau während des Einlöseversuchs abgeräumt wird.
-function machDeps(opts: {
+// Builds fake deps for redeemPendingInvite: `active` starts at true and can
+// be flipped via the redeemInvite call to simulate an effect that is torn
+// down exactly during the redemption attempt.
+function makeDeps(opts: {
   code?: string | null;
-  ergebnis?: RedeemResult;
-  aktivVorVersuch?: boolean;
-  aktivNachVersuch?: boolean;
+  result?: RedeemResult;
+  activeBeforeAttempt?: boolean;
+  activeAfterAttempt?: boolean;
 }) {
   const {
     code = 'abc123',
-    ergebnis = { status: 'joined', trip_id: 't1' },
-    aktivVorVersuch = true,
-    aktivNachVersuch = true,
+    result = { status: 'joined', trip_id: 't1' },
+    activeBeforeAttempt = true,
+    activeAfterAttempt = true,
   } = opts;
-  let aktiv = aktivVorVersuch;
+  let active = activeBeforeAttempt;
   const peekRememberedInvite = jest.fn(async () => code);
   const redeemInvite = jest.fn(async (_code: string) => {
-    aktiv = aktivNachVersuch;
-    return ergebnis;
+    active = activeAfterAttempt;
+    return result;
   });
   const discardRememberedInvite = jest.fn(async () => {});
   const deps: PendingInviteDeps = {
     peekRememberedInvite,
     redeemInvite,
     discardRememberedInvite,
-    istAktiv: () => aktiv,
+    isActive: () => active,
   };
   return { deps, peekRememberedInvite, redeemInvite, discardRememberedInvite };
 }
 
-test('erfolgreicher Beitritt führt in die Reise und verwirft den Code', async () => {
-  const { deps, redeemInvite, discardRememberedInvite } = machDeps({
-    ergebnis: { status: 'joined', trip_id: 't1' },
+test('a successful join leads into the trip and discards the code', async () => {
+  const { deps, redeemInvite, discardRememberedInvite } = makeDeps({
+    result: { status: 'joined', trip_id: 't1' },
   });
   await expect(redeemPendingInvite(deps)).resolves.toBe('/reise/t1');
   expect(redeemInvite).toHaveBeenCalledWith('abc123');
   expect(discardRememberedInvite).toHaveBeenCalledTimes(1);
 });
 
-test('already_member führt ebenfalls in die Reise', async () => {
-  const { deps, discardRememberedInvite } = machDeps({
-    ergebnis: { status: 'already_member', trip_id: 't1' },
+test('already_member also leads into the trip', async () => {
+  const { deps, discardRememberedInvite } = makeDeps({
+    result: { status: 'already_member', trip_id: 't1' },
   });
   await expect(redeemPendingInvite(deps)).resolves.toBe('/reise/t1');
   expect(discardRememberedInvite).toHaveBeenCalledTimes(1);
 });
 
-test('fehlgeschlagener Versuch verwirft den Code trotzdem', async () => {
-  const { deps, redeemInvite, discardRememberedInvite } = machDeps({
-    ergebnis: { status: 'not_found', trip_id: null },
+test('a failed attempt discards the code anyway', async () => {
+  const { deps, redeemInvite, discardRememberedInvite } = makeDeps({
+    result: { status: 'not_found', trip_id: null },
   });
   await expect(redeemPendingInvite(deps)).resolves.toBeNull();
   expect(redeemInvite).toHaveBeenCalledTimes(1);
   expect(discardRememberedInvite).toHaveBeenCalledTimes(1);
 });
 
-test('abgebrochener Versuch (Effect vor dem Einlösen abgeräumt) lässt den Code liegen', async () => {
-  const { deps, redeemInvite, discardRememberedInvite } = machDeps({ aktivVorVersuch: false });
+test('an aborted attempt (effect torn down before redeeming) leaves the code in place', async () => {
+  const { deps, redeemInvite, discardRememberedInvite } = makeDeps({ activeBeforeAttempt: false });
   await expect(redeemPendingInvite(deps)).resolves.toBeNull();
   expect(redeemInvite).not.toHaveBeenCalled();
   expect(discardRememberedInvite).not.toHaveBeenCalled();
 });
 
-test('kein gemerkter Code: weder Einlösung noch Verwerfen', async () => {
-  const { deps, redeemInvite, discardRememberedInvite } = machDeps({ code: null });
+test('no remembered code: neither redemption nor discarding', async () => {
+  const { deps, redeemInvite, discardRememberedInvite } = makeDeps({ code: null });
   await expect(redeemPendingInvite(deps)).resolves.toBeNull();
   expect(redeemInvite).not.toHaveBeenCalled();
   expect(discardRememberedInvite).not.toHaveBeenCalled();
 });
 
-test('Effect während des Versuchs abgeräumt: Code wird verworfen, aber nicht mehr navigiert', async () => {
-  const { deps, discardRememberedInvite } = machDeps({
-    ergebnis: { status: 'joined', trip_id: 't1' },
-    aktivNachVersuch: false,
+test('effect torn down during the attempt: code is discarded, but no longer navigated', async () => {
+  const { deps, discardRememberedInvite } = makeDeps({
+    result: { status: 'joined', trip_id: 't1' },
+    activeAfterAttempt: false,
   });
   await expect(redeemPendingInvite(deps)).resolves.toBeNull();
   expect(discardRememberedInvite).toHaveBeenCalledTimes(1);
 });
 
-test('ermittleZielPfad: joined → Reise', () => {
-  expect(ermittleZielPfad({ status: 'joined', trip_id: 't1' })).toBe('/reise/t1');
+test('resolveTargetPath: joined → trip', () => {
+  expect(resolveTargetPath({ status: 'joined', trip_id: 't1' })).toBe('/reise/t1');
 });
 
-test('ermittleZielPfad: already_member → Reise', () => {
-  expect(ermittleZielPfad({ status: 'already_member', trip_id: 't1' })).toBe('/reise/t1');
+test('resolveTargetPath: already_member → trip', () => {
+  expect(resolveTargetPath({ status: 'already_member', trip_id: 't1' })).toBe('/reise/t1');
 });
 
-test('ermittleZielPfad: not_found → kein Ziel', () => {
-  expect(ermittleZielPfad({ status: 'not_found', trip_id: null })).toBeNull();
+test('resolveTargetPath: not_found → no target', () => {
+  expect(resolveTargetPath({ status: 'not_found', trip_id: null })).toBeNull();
 });
 
-test('ermittleZielPfad: not_active → kein Ziel', () => {
-  expect(ermittleZielPfad({ status: 'not_active', trip_id: null })).toBeNull();
+test('resolveTargetPath: not_active → no target', () => {
+  expect(resolveTargetPath({ status: 'not_active', trip_id: null })).toBeNull();
 });

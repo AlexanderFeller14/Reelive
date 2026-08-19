@@ -9,7 +9,7 @@ export type Trip = {
   end_date: string;
   status: TripStatus;
   owner_id: string;
-  mitglieder: Gesicht[]; // Gesichter für die überlappenden Avatare auf der Karte
+  members: Gesicht[]; // faces for the overlapping avatars on the card
   member_count: number;
   my_post_count: number;
 };

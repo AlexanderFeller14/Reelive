@@ -4,10 +4,10 @@ import { PressScale } from '@/components/PressScale';
 import { useTheme } from '@/theme/ThemeProvider';
 import { radius, spacing, type } from '@/theme/tokens';
 import {
-  heuteOderDefault, monatHoehe, monatIndexFuer, monatVersatz, monateImBereich,
-  tagLabel, zellrolle, MONAT_ABSTAND, MONAT_KOPF_HOEHE, ZEILE_HOEHE,
-  type Auswahl, type Monat, type Zellrolle,
-} from '@/features/trips/kalender';
+  todayOrDefault, monthHeight, monthIndexFor, monthOffset, monthsInRange,
+  dayLabel, cellRole, MONTH_GAP, MONTH_HEADER_HEIGHT, ROW_HEIGHT,
+  type Selection, type Month, type CellRole,
+} from '@/features/trips/calendar';
 
 const WOCHENTAGE = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
 
@@ -18,7 +18,7 @@ const WOCHENTAGE = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
 const KREIS = 40;
 
 type Props = {
-  auswahl: Auswahl;
+  auswahl: Selection;
   onTag: (tag: string) => void;
   // Ohne diesen Einstieg hinge jeder Test am echten Systemdatum und bräche im
   // Folgemonat (gleiches Muster wie heutigerKalendertag(jetzt = new Date())).
@@ -27,15 +27,15 @@ type Props = {
 
 export function Kalender({ auswahl, onTag, heute }: Props) {
   const { colors } = useTheme();
-  const tagHeute = heuteOderDefault(heute);
-  const monate = useMemo(() => monateImBereich(tagHeute), [tagHeute]);
-  const ersterTag = monate[0].wochen.flat().find(Boolean) as string;
-  const letzterTag = monate[monate.length - 1].wochen.flat().filter(Boolean).pop() as string;
+  const tagHeute = todayOrDefault(heute);
+  const monate = useMemo(() => monthsInRange(tagHeute), [tagHeute]);
+  const ersterTag = monate[0].weeks.flat().find(Boolean) as string;
+  const letzterTag = monate[monate.length - 1].weeks.flat().filter(Boolean).pop() as string;
 
   // Nur der erste Rendervorgang springt, danach scrollt der Nutzer selbst.
   // Als Lazy-Initializer statt als Ref: der Wert wird genau einmal berechnet
   // und bleibt danach konstant, ohne dass währenddessen ein Ref gelesen wird.
-  const [startIndex] = useState(() => monatIndexFuer(monate, auswahl.start ?? tagHeute));
+  const [startIndex] = useState(() => monthIndexFor(monate, auswahl.start ?? tagHeute));
 
   return (
     // Füllt den Elternteil, statt sich selbst eine Höhe zu geben. Das setzt
@@ -57,12 +57,12 @@ export function Kalender({ auswahl, onTag, heute }: Props) {
         testID="kalender-monate"
         style={{ flex: 1 }}
         data={monate}
-        keyExtractor={(m) => `${m.jahr}-${m.monat}`}
+        keyExtractor={(m) => `${m.year}-${m.month}`}
         initialScrollIndex={startIndex}
         initialNumToRender={3}
         getItemLayout={(_, index) => ({
-          length: monatHoehe(monate[index]),
-          offset: monatVersatz(monate, index),
+          length: monthHeight(monate[index]),
+          offset: monthOffset(monate, index),
           index,
         })}
         renderItem={({ item }) => (
@@ -83,8 +83,8 @@ export function Kalender({ auswahl, onTag, heute }: Props) {
 function MonatsBlock({
   monat, auswahl, onTag, heute, ersterTag, letzterTag,
 }: {
-  monat: Monat;
-  auswahl: Auswahl;
+  monat: Month;
+  auswahl: Selection;
   onTag: (tag: string) => void;
   heute: string;
   ersterTag: string;
@@ -92,12 +92,12 @@ function MonatsBlock({
 }) {
   const { colors } = useTheme();
   return (
-    <View style={{ marginBottom: MONAT_ABSTAND }}>
-      <View style={{ height: MONAT_KOPF_HOEHE, justifyContent: 'center' }}>
-        <Text style={[type.h3, { color: colors['text-1'] }]}>{monat.titel}</Text>
+    <View style={{ marginBottom: MONTH_GAP }}>
+      <View style={{ height: MONTH_HEADER_HEIGHT, justifyContent: 'center' }}>
+        <Text style={[type.h3, { color: colors['text-1'] }]}>{monat.title}</Text>
       </View>
-      {monat.wochen.map((woche, i) => (
-        <View key={i} style={{ flexDirection: 'row', height: ZEILE_HOEHE }}>
+      {monat.weeks.map((woche, i) => (
+        <View key={i} style={{ flexDirection: 'row', height: ROW_HEIGHT }}>
           {woche.map((tag, j) =>
             tag === null ? (
               <View key={`leer-${j}`} style={{ flex: 1 }} />
@@ -105,7 +105,7 @@ function MonatsBlock({
               <Tageszelle
                 key={tag}
                 tag={tag}
-                rolle={zellrolle(tag, auswahl, ersterTag, letzterTag)}
+                rolle={cellRole(tag, auswahl, ersterTag, letzterTag)}
                 istHeute={tag === heute}
                 onTag={onTag}
               />
@@ -121,7 +121,7 @@ function Tageszelle({
   tag, rolle, istHeute, onTag,
 }: {
   tag: string;
-  rolle: Zellrolle;
+  rolle: CellRole;
   istHeute: boolean;
   onTag: (tag: string) => void;
 }) {
@@ -153,7 +153,7 @@ function Tageszelle({
           testID={`spanne-${tag}`}
           style={{
             position: 'absolute',
-            top: (ZEILE_HOEHE - KREIS) / 2,
+            top: (ROW_HEIGHT - KREIS) / 2,
             height: KREIS,
             backgroundColor: colors['bg-1'],
             ...spanne,
@@ -163,7 +163,7 @@ function Tageszelle({
       <PressScale
         style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}
         accessibilityRole="button"
-        accessibilityLabel={tagLabel(tag)}
+        accessibilityLabel={dayLabel(tag)}
         accessibilityState={{ selected: gefuellt || rolle === 'dazwischen', disabled: gesperrt }}
         disabled={gesperrt}
         onPress={() => onTag(tag)}

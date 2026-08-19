@@ -1,7 +1,7 @@
-// Jest-Hoisting: jest.mock wandert über die Importe, die Factory läuft also
-// VOR den const-Zuweisungen. Die Mocks dürfen deshalb nicht als direkte Werte
-// im Objektliteral stehen (sie wären dort für immer undefined), der Zugriff
-// muss erst zur Aufrufzeit passieren. Gleiches Prinzip wie in
+// Jest hoisting: jest.mock moves above the imports, the factory therefore
+// runs BEFORE the const assignments. The mocks must therefore not be direct
+// values in the object literal (they would be undefined forever there),
+// access has to happen only at call time. Same principle as in
 // mobile/src/lib/__tests__/secureSessionStorage.test.ts.
 const mockRpc = jest.fn();
 const mockFrom = jest.fn();
@@ -15,35 +15,35 @@ jest.mock('@/lib/supabase', () => ({
 import {
   fetchTrips, fetchTrip, fetchMembers, fetchInviteCode,
   createTrip, updateTrip, deleteTrip, removeMember,
-  redeemInvite, peekInvite, eigeneZaehler,
+  redeemInvite, peekInvite, fetchOwnPostCounts,
 } from '../tripsApi';
 import { OFFLINE_HINT } from '@/lib/networkError';
 
 beforeEach(() => jest.clearAllMocks());
 
-// Schreib-Ketten enden seit dem Zeilen-Nachweis auf .select(...): PostgREST
-// meldet einen von der Policy verworfenen Schreibvorgang nicht als Fehler,
-// sondern als leeres Ergebnis.
-type Antwort = { data: unknown; error: unknown };
+// Write chains have ended on .select(...) ever since the row-proof: PostgREST
+// does not report a write rejected by a policy as an error, only as an empty
+// result.
+type Result = { data: unknown; error: unknown };
 
 // trips: .update(...)/.delete().eq('id', …).select('id')
-const tripKette = (verb: 'update' | 'delete', ergebnis: Antwort) => {
-  const select = jest.fn(async () => ergebnis);
+const tripChain = (verb: 'update' | 'delete', result: Result) => {
+  const select = jest.fn(async () => result);
   const eq = jest.fn(() => ({ select }));
   mockFrom.mockReturnValue({ [verb]: () => ({ eq }) });
   return { eq, select };
 };
 
 // trip_members: .delete().eq('trip_id', …).eq('user_id', …).select('user_id')
-const mitgliedKette = (ergebnis: Antwort) => {
-  const select = jest.fn(async () => ergebnis);
+const memberChain = (result: Result) => {
+  const select = jest.fn(async () => result);
   const eqUser = jest.fn(() => ({ select }));
   const eqTrip = jest.fn(() => ({ eq: eqUser }));
   mockFrom.mockReturnValue({ delete: () => ({ eq: eqTrip }) });
   return { eqTrip, eqUser, select };
 };
 
-test('fetchTrips führt Mitglieder und eigenen Zähler zusammen', async () => {
+test('fetchTrips merges members and the own counter', async () => {
   mockFrom.mockReturnValue({
     select: () => ({
       order: async () => ({
@@ -51,12 +51,12 @@ test('fetchTrips führt Mitglieder und eigenen Zähler zusammen', async () => {
           {
             id: 't1', name: 'Norwegen', start_date: '2026-08-01', end_date: '2026-08-14',
             status: 'active', owner_id: 'u1',
-            // avatar_key steht hier explizit auf null statt zu fehlen: das
-            // Feld ist eine echte Spalte, PostgREST liefert sie immer mit
-            // (auch ohne Bild als null), nie als fehlenden Schlüssel. Ein
-            // fehlender Schlüssel im Mock würde `p.avatar_key` zu `undefined`
-            // statt zu `null` machen, und `toEqual` unten unterscheidet
-            // `undefined` von `null`.
+            // avatar_key is explicitly null here rather than missing: the
+            // field is a real column, PostgREST always includes it (as null
+            // even without an image), never as a missing key. A missing key
+            // in the mock would turn `p.avatar_key` into `undefined` instead
+            // of `null`, and the `toEqual` below tells `undefined` and
+            // `null` apart.
             trip_members: [
               { profiles: { display_name: 'Lea', avatar_key: null } },
               { profiles: { display_name: 'Jonas', avatar_key: null } },
@@ -75,7 +75,7 @@ test('fetchTrips führt Mitglieder und eigenen Zähler zusammen', async () => {
     {
       id: 't1', name: 'Norwegen', start_date: '2026-08-01', end_date: '2026-08-14',
       status: 'active', owner_id: 'u1',
-      mitglieder: [
+      members: [
         { name: 'Lea', avatarKey: null },
         { name: 'Jonas', avatarKey: null },
       ],
@@ -84,11 +84,11 @@ test('fetchTrips führt Mitglieder und eigenen Zähler zusammen', async () => {
   ]);
 });
 
-// Name und Schlüssel gehören zusammen. Zwei getrennte Listen (Namen hier,
-// Schlüssel dort) liefen bei der ersten Person ohne Profil auseinander, und
-// dann trüge ein Gesicht das Bild eines anderen. Lea traegt hier einen
-// Schluessel, Ben keinen: beide Faelle stehen in derselben Zusicherung.
-test('die Reise-Karte bekommt Gesichter samt Bildschluessel', async () => {
+// Name and key belong together. Two separate lists (names here, keys there)
+// would drift apart at the first person without a profile, and then a face
+// would carry someone else's image. Lea carries a key here, Ben does not:
+// both cases sit in the same assertion.
+test('the trip card gets faces along with their avatar key', async () => {
   mockFrom.mockReturnValue({
     select: () => ({
       order: async () => ({
@@ -109,13 +109,13 @@ test('die Reise-Karte bekommt Gesichter samt Bildschluessel', async () => {
   mockRpc.mockResolvedValueOnce({ data: [], error: null });
 
   const { data } = await fetchTrips();
-  expect(data[0].mitglieder).toEqual([
+  expect(data[0].members).toEqual([
     { name: 'Lea', avatarKey: 'profiles/u1/a.jpg' },
     { name: 'Ben', avatarKey: null },
   ]);
 });
 
-test('fetchTrips setzt den Zähler auf 0, wenn die Reise nicht in my_post_counts steht', async () => {
+test('fetchTrips sets the counter to 0 when the trip is not in my_post_counts', async () => {
   mockFrom.mockReturnValue({
     select: () => ({
       order: async () => ({
@@ -133,18 +133,18 @@ test('fetchTrips setzt den Zähler auf 0, wenn die Reise nicht in my_post_counts
   expect(data[0].my_post_count).toBe(0);
 });
 
-test('fetchTrips unterscheidet einen Ladefehler von einer leeren Liste', async () => {
+test('fetchTrips tells a load error apart from an empty list', async () => {
   mockFrom.mockReturnValue({
     select: () => ({ order: async () => ({ data: null, error: { message: 'kaputt' } }) }),
   });
   const { data, error } = await fetchTrips();
   expect(data).toEqual([]);
-  // Ohne diese Meldung behauptet die Liste «Noch keine Reise», eine falsche
-  // Aussage über die Daten des Nutzers.
+  // Without this message, the list claims "no trip yet", a false statement
+  // about the user's data.
   expect(error).toBe('Deine Reisen konnten nicht geladen werden. Probier es gleich nochmal.');
 });
 
-test('fetchTrips benennt den Offline-Fall statt nur «probier es nochmal»', async () => {
+test('fetchTrips names the offline case instead of just "try again"', async () => {
   mockFrom.mockReturnValue({
     select: () => ({
       order: async () => ({ data: null, error: { message: 'TypeError: Network request failed' } }),
@@ -154,11 +154,11 @@ test('fetchTrips benennt den Offline-Fall statt nur «probier es nochmal»', asy
   expect(error).toBe('Du bist offline. Verbinde dich und probier es nochmal.');
 });
 
-// Re-Review, Minor 2: die beiden Abfragen in fetchTrips können unabhängig
-// scheitern. Gelingen die Reisen und nur die Zähler-rpc nicht, trägt jede Reise
-// `my_post_count: 0`, der Aufrufer muss unterscheiden können, ob diese 0
-// gemessen oder bloss ausgefallen ist.
-test('fetchTrips meldet einen ausgefallenen Zähler getrennt vom Reise-Fehler', async () => {
+// Re-review, Minor 2: the two queries in fetchTrips can fail independently.
+// If the trips succeed and only the counts rpc fails, every trip carries
+// `my_post_count: 0`, the caller must be able to tell whether this 0 was
+// measured or merely failed to load.
+test('fetchTrips reports a failed counter separately from the trip error', async () => {
   mockFrom.mockReturnValue({
     select: () => ({
       order: async () => ({
@@ -174,25 +174,25 @@ test('fetchTrips meldet einen ausgefallenen Zähler getrennt vom Reise-Fehler', 
   });
   mockRpc.mockResolvedValueOnce({ data: null, error: { message: 'Network request failed' } });
 
-  const { data, error, zaehlerFehler } = await fetchTrips();
+  const { data, error, countsError } = await fetchTrips();
   expect(error).toBeNull();
   expect(data[0].my_post_count).toBe(0);
-  expect(zaehlerFehler).toBe('Du bist offline. Verbinde dich und probier es nochmal.');
+  expect(countsError).toBe('Du bist offline. Verbinde dich und probier es nochmal.');
 });
 
-test('fetchTrips meldet keinen Zähler-Fehler, wenn die rpc durchkommt', async () => {
+test('fetchTrips reports no counter error when the rpc succeeds', async () => {
   mockFrom.mockReturnValue({
     select: () => ({ order: async () => ({ data: [], error: null }) }),
   });
   mockRpc.mockResolvedValueOnce({ data: [], error: null });
-  await expect(fetchTrips()).resolves.toEqual({ data: [], error: null, zaehlerFehler: null });
+  await expect(fetchTrips()).resolves.toEqual({ data: [], error: null, countsError: null });
 });
 
-// Fix-Runde 1 (Task 9): eigeneZaehler() hatte bisher keinen eigenen Test,
-// nur tsc prüfte die Object.fromEntries(...)-Umwandlung. Der Momente-Zähler
-// (zaehler.ts) braucht bracket-Zugriff (zaehler[tripId]), darum die
-// Zuordnung Reise-id -> Zahl als reines Objekt statt als Map.
-test('eigeneZaehler liefert die rpc-Zuordnung als reines Objekt (bracket-lesbar)', async () => {
+// Fix round 1 (Task 9): fetchOwnPostCounts() had no test of its own so far,
+// only tsc checked the Object.fromEntries(...) conversion. The moments
+// counter (counter.ts) needs bracket access (counts[tripId]), hence the
+// mapping trip id -> number as a plain object rather than a Map.
+test('fetchOwnPostCounts returns the rpc mapping as a plain object (bracket-readable)', async () => {
   mockRpc.mockResolvedValueOnce({
     data: [
       { trip_id: 't1', count: 7 },
@@ -200,28 +200,28 @@ test('eigeneZaehler liefert die rpc-Zuordnung als reines Objekt (bracket-lesbar)
     ],
     error: null,
   });
-  await expect(eigeneZaehler()).resolves.toEqual({ data: { t1: 7, t2: 0 }, error: null });
+  await expect(fetchOwnPostCounts()).resolves.toEqual({ data: { t1: 7, t2: 0 }, error: null });
   expect(mockRpc).toHaveBeenCalledWith('my_post_counts');
 });
 
-// Final-Review, Important 6: der Fehler MUSS mitkommen. Vorher lieferte
-// eigeneZaehler bei einem Fehlschlag ein leeres Objekt, ununterscheidbar von
-// «du hast wirklich noch keinen Moment», der Momente-Zähler rechnete daraufhin
-// offline mit 0 statt mit dem letzten bekannten Stand (siehe zaehler.ts).
-test('eigeneZaehler meldet einen rpc-Fehlschlag, statt ihn als leeren Stand auszugeben', async () => {
+// Final review, Important 6: the error MUST come along. Previously
+// fetchOwnPostCounts returned an empty object on failure, indistinguishable
+// from "you really have no moments yet", the moments counter then calculated
+// offline with 0 instead of the last known state (see counter.ts).
+test('fetchOwnPostCounts reports an rpc failure instead of emitting it as an empty state', async () => {
   mockRpc.mockResolvedValueOnce({ data: null, error: { message: 'kaputt' } });
-  const { data, error } = await eigeneZaehler();
+  const { data, error } = await fetchOwnPostCounts();
   expect(data).toEqual({});
   expect(error).toBe('Dein Momente-Zähler konnte nicht geladen werden. Probier es gleich nochmal.');
 });
 
-test('eigeneZaehler benennt Offline als Ursache', async () => {
+test('fetchOwnPostCounts names offline as the cause', async () => {
   mockRpc.mockResolvedValueOnce({ data: null, error: { message: 'Network request failed' } });
-  const { error } = await eigeneZaehler();
+  const { error } = await fetchOwnPostCounts();
   expect(error).toBe('Du bist offline. Verbinde dich und probier es nochmal.');
 });
 
-test('fetchTrip trennt «gibt es nicht» von «konnte nicht geladen werden»', async () => {
+test('fetchTrip tells "does not exist" apart from "could not be loaded"', async () => {
   mockFrom.mockReturnValue({
     select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }) }),
   });
@@ -234,7 +234,7 @@ test('fetchTrip trennt «gibt es nicht» von «konnte nicht geladen werden»', a
   expect(error).toBe('Diese Reise konnte nicht geladen werden. Probier es gleich nochmal.');
 });
 
-test('fetchMembers meldet einen Lesefehler statt einer leeren Liste', async () => {
+test('fetchMembers reports a read error instead of an empty list', async () => {
   mockFrom.mockReturnValue({
     select: () => ({ eq: () => ({ order: async () => ({ data: null, error: { message: 'kaputt' } }) }) }),
   });
@@ -243,7 +243,7 @@ test('fetchMembers meldet einen Lesefehler statt einer leeren Liste', async () =
   expect(error).toBe('Die Mitglieder konnten nicht geladen werden. Probier es gleich nochmal.');
 });
 
-test('fetchMembers liefert den Bildschluessel mit', async () => {
+test('fetchMembers includes the avatar key', async () => {
   mockFrom.mockReturnValue({
     select: () => ({
       eq: () => ({
@@ -263,7 +263,7 @@ test('fetchMembers liefert den Bildschluessel mit', async () => {
   expect(data[0].avatar_key).toBe('profiles/u1/a.jpg');
 });
 
-test('fetchInviteCode meldet einen Lesefehler und liefert sonst den Code', async () => {
+test('fetchInviteCode reports a read error and otherwise returns the code', async () => {
   mockFrom.mockReturnValue({
     select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { invite_code: 'abc' }, error: null }) }) }),
   });
@@ -276,7 +276,7 @@ test('fetchInviteCode meldet einen Lesefehler und liefert sonst den Code', async
   expect(error).toBe('Der Einladungslink konnte nicht geladen werden. Probier es gleich nochmal.');
 });
 
-test('createTrip gibt die neue id zurück', async () => {
+test('createTrip returns the new id', async () => {
   mockFrom.mockReturnValue({
     insert: () => ({ select: () => ({ single: async () => ({ data: { id: 'neu-1' }, error: null }) }) }),
   });
@@ -287,7 +287,7 @@ test('createTrip gibt die neue id zurück', async () => {
   expect(error).toBeNull();
 });
 
-test('createTrip meldet einen Fehler in deutscher Sprache', async () => {
+test('createTrip reports an error in German', async () => {
   mockFrom.mockReturnValue({
     insert: () => ({ select: () => ({ single: async () => ({ data: null, error: { message: 'x' } }) }) }),
   });
@@ -298,7 +298,7 @@ test('createTrip meldet einen Fehler in deutscher Sprache', async () => {
   expect(error).toBe('Die Reise konnte nicht angelegt werden. Probier es gleich nochmal.');
 });
 
-test('peekInvite liefert die Vorschau', async () => {
+test('peekInvite returns the preview', async () => {
   mockRpc.mockResolvedValueOnce({
     data: [{
       trip_id: 't1', name: 'Norwegen', start_date: '2026-08-01', end_date: '2026-08-14',
@@ -312,43 +312,43 @@ test('peekInvite liefert die Vorschau', async () => {
   expect(mockRpc).toHaveBeenCalledWith('peek_invite', { p_code: 'abc' });
 });
 
-test('peekInvite: unbekannter Code ist kein Fehler, nur keine Daten', async () => {
+test('peekInvite: an unknown code is not an error, just no data', async () => {
   mockRpc.mockResolvedValueOnce({ data: [], error: null });
   await expect(peekInvite('weg')).resolves.toEqual({ data: null, error: null });
 });
 
-// Der Unterschied, um den es geht: «gibt es nicht» und «konnte nicht nachsehen»
-// duerfen im Beitritts-Screen nie denselben Satz ausloesen.
-test('peekInvite meldet einen Lesefehler als Fehler, nicht als fehlende Reise', async () => {
+// The distinction this is about: "does not exist" and "could not check"
+// must never trigger the same sentence in the join screen.
+test('peekInvite reports a read error as an error, not as a missing trip', async () => {
   mockRpc.mockResolvedValueOnce({ data: null, error: { message: 'boom' } });
   const { data, error } = await peekInvite('abc');
   expect(data).toBeNull();
   expect(error).toBe('Die Einladung konnte nicht geladen werden. Probier es gleich nochmal.');
 });
 
-test('peekInvite nennt bei Funkloch die Ursache', async () => {
+test('peekInvite names the cause in a dead zone', async () => {
   mockRpc.mockResolvedValueOnce({ data: null, error: { message: 'Network request failed' } });
   const { error } = await peekInvite('abc');
   expect(error).toBe(OFFLINE_HINT);
 });
 
-test('redeemInvite reicht den Status durch', async () => {
+test('redeemInvite passes the status through', async () => {
   mockRpc.mockResolvedValueOnce({ data: [{ status: 'joined', trip_id: 't1' }], error: null });
   await expect(redeemInvite('abc')).resolves.toEqual({ status: 'joined', trip_id: 't1' });
 });
 
-test('redeemInvite wertet einen Netzwerkfehler als not_found', async () => {
+test('redeemInvite treats a network error as not_found', async () => {
   mockRpc.mockResolvedValueOnce({ data: null, error: { message: 'offline' } });
   await expect(redeemInvite('abc')).resolves.toEqual({ status: 'not_found', trip_id: null });
 });
 
-// === Vertrag «0 betroffene Zeilen = Fehlschlag» ===
-// Verwirft eine RLS-Policy den Schreibvorgang, liefert Postgres keinen Fehler,
-// sondern UPDATE 0 / DELETE 0. Ohne diesen Vertrag meldeten die Funktionen
-// Erfolg und der Detailscreen navigierte weg, als wäre die Reise gelöscht.
+// === Contract "0 affected rows = failure" ===
+// If an RLS policy rejects the write, Postgres returns no error, just
+// UPDATE 0 / DELETE 0. Without this contract, the functions reported success
+// and the detail screen navigated away as if the trip had been deleted.
 
-test('updateTrip meldet Erfolg, wenn eine Zeile betroffen war', async () => {
-  const { eq, select } = tripKette('update', { data: [{ id: 't1' }], error: null });
+test('updateTrip reports success when one row was affected', async () => {
+  const { eq, select } = tripChain('update', { data: [{ id: 't1' }], error: null });
   await expect(
     updateTrip('t1', { name: 'Norwegen', startDate: '2026-08-01', endDate: '2026-08-14' })
   ).resolves.toEqual({ error: null });
@@ -356,37 +356,37 @@ test('updateTrip meldet Erfolg, wenn eine Zeile betroffen war', async () => {
   expect(select).toHaveBeenCalledWith('id');
 });
 
-test('updateTrip wertet null betroffene Zeilen als Fehlschlag', async () => {
-  tripKette('update', { data: [], error: null });
+test('updateTrip treats zero affected rows as a failure', async () => {
+  tripChain('update', { data: [], error: null });
   const { error } = await updateTrip('t1', {
     name: 'Norwegen', startDate: '2026-08-01', endDate: '2026-08-14',
   });
   expect(error).toBe('Die Änderung wurde nicht gespeichert. Die Reise gibt es nicht mehr, oder sie gehört dir nicht.');
 });
 
-test('updateTrip benennt den Offline-Fall', async () => {
-  tripKette('update', { data: null, error: { message: 'TypeError: Network request failed' } });
+test('updateTrip names the offline case', async () => {
+  tripChain('update', { data: null, error: { message: 'TypeError: Network request failed' } });
   const { error } = await updateTrip('t1', {
     name: 'Norwegen', startDate: '2026-08-01', endDate: '2026-08-14',
   });
   expect(error).toBe('Du bist offline. Verbinde dich und probier es nochmal.');
 });
 
-test('deleteTrip meldet Erfolg, wenn eine Zeile betroffen war', async () => {
-  const { eq, select } = tripKette('delete', { data: [{ id: 't1' }], error: null });
+test('deleteTrip reports success when one row was affected', async () => {
+  const { eq, select } = tripChain('delete', { data: [{ id: 't1' }], error: null });
   await expect(deleteTrip('t1')).resolves.toEqual({ error: null });
   expect(eq).toHaveBeenCalledWith('id', 't1');
   expect(select).toHaveBeenCalledWith('id');
 });
 
-test('deleteTrip wertet null betroffene Zeilen als Fehlschlag', async () => {
-  tripKette('delete', { data: [], error: null });
+test('deleteTrip treats zero affected rows as a failure', async () => {
+  tripChain('delete', { data: [], error: null });
   const { error } = await deleteTrip('t1');
   expect(error).toBe('Die Reise wurde nicht gelöscht. Es gibt sie nicht mehr, oder sie gehört dir nicht.');
 });
 
-test('removeMember löscht genau eine Mitgliedschaft', async () => {
-  const { eqTrip, eqUser, select } = mitgliedKette({ data: [{ user_id: 'u2' }], error: null });
+test('removeMember deletes exactly one membership', async () => {
+  const { eqTrip, eqUser, select } = memberChain({ data: [{ user_id: 'u2' }], error: null });
 
   const { error } = await removeMember('t1', 'u2');
   expect(error).toBeNull();
@@ -395,8 +395,8 @@ test('removeMember löscht genau eine Mitgliedschaft', async () => {
   expect(select).toHaveBeenCalledWith('user_id');
 });
 
-test('removeMember wertet null betroffene Zeilen als Fehlschlag', async () => {
-  mitgliedKette({ data: [], error: null });
+test('removeMember treats zero affected rows as a failure', async () => {
+  memberChain({ data: [], error: null });
   const { error } = await removeMember('t1', 'u2');
   expect(error).toBe('Das hat nicht geklappt. Die Mitgliedschaft gibt es nicht mehr, oder du darfst sie nicht beenden.');
 });

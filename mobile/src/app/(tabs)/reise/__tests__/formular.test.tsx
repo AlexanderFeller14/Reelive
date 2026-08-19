@@ -26,7 +26,7 @@ jest.mock('@/features/trips/tripsApi', () => ({
 // Fake Timers griffen in Animated ein, und Sheet wie PressScale animieren.
 jest.mock('@/features/trips/tripDay', () => ({
   ...jest.requireActual('@/features/trips/tripDay'),
-  heutigerKalendertag: () => '2026-08-12',
+  todaysCalendarDay: () => '2026-08-12',
 }));
 
 import NeueReise from '../neu';

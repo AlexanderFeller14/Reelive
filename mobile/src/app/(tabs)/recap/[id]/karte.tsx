@@ -23,7 +23,7 @@ import { KartenFlaeche } from '@/features/karte/KartenFlaeche';
 import { gruppiere } from '@/features/karte/gruppierung';
 import { zoomAussichtslos, zoomZiel, type ZoomVersuch } from '@/features/karte/gruppenTipp';
 import { zuKartenPunkten } from '@/features/karte/kartenPunkte';
-import { useReiseGebunden } from '@/features/trips/useReiseGebunden';
+import { useTripBound } from '@/features/trips/useTripBound';
 import { momentLabel } from '@/features/karte/nadel';
 import {
   Einblendung,
@@ -448,7 +448,7 @@ export default function RecapKarte() {
   // dieses Screens brauchen genau das, und viermal derselbe von Hand
   // geschriebene Vergleich war das Muster, an dem die Phase drei Runden
   // verloren hat.
-  const [sheetPunkte, setSheetPunkte] = useReiseGebunden<KartenPunkt[] | null>(id, null);
+  const [sheetPunkte, setSheetPunkte] = useTripBound<KartenPunkt[] | null>(id, null);
   // Die beiden Hälften, aus denen die Tagesnummern entstehen, jede mit der
   // Reise, aus der sie stammt. Sie kommen aus ZWEI getrennten Abfragen (siehe
   // die Ladewege unten), und eine Mischung aus zwei Reisen ergäbe Nummern, die
@@ -464,17 +464,17 @@ export default function RecapKarte() {
   // Grund wie beim Sheet oben: der Screen bleibt bei einem Wechsel der id
   // gemountet, und ein stehen gebliebener Filterstand öffnete die NÄCHSTE
   // Reise vorgefiltert auf einen Tag, den niemand gewählt hat.
-  const [tagWahl, setTagWahl] = useReiseGebunden<number | null>(id, null);
+  const [tagWahl, setTagWahl] = useTripBound<number | null>(id, null);
   // Das offene Tages-Sheet trägt seine Reise aus demselben Grund wie `sheet`,
   // und aus einem eigenen, schärferen: es listet die Tage DER REISE, aus der
   // es geöffnet wurde. Bliebe es bei einem Wechsel stehen, würde ein Tipp auf
   // «Tag 3» die neue Reise auf einen Tag filtern, den niemand in ihr gewählt
   // hat, und `waehleTag` schriebe dabei die NEUE id in die Wahl, der Wächter
   // unten käme also nie zum Zug.
-  const [tageOffen, setTageOffen] = useReiseGebunden(id, false);
+  const [tageOffen, setTageOffen] = useTripBound(id, false);
   // Und das Sheet der Momente ohne Ort, aus genau denselben Gründen: seine
   // Kacheln tragen Indizes der Reise, aus der es geöffnet wurde.
-  const [ohneOrtOffen, setOhneOrtOffen] = useReiseGebunden(id, false);
+  const [ohneOrtOffen, setOhneOrtOffen] = useTripBound(id, false);
 
 
   // Der Ladestand wird ABGELEITET statt beim Rendern zurückgesetzt, anders

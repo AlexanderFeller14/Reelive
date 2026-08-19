@@ -1,4 +1,4 @@
-// Jest-Hoisting: Variablen in jest.mock-Factories MÜSSEN mit "mock" beginnen
+// Jest hoisting: variables in jest.mock factories MUST start with "mock".
 const mockGetItem = jest.fn();
 const mockSetItem = jest.fn();
 const mockRemoveItem = jest.fn();
@@ -16,7 +16,7 @@ import { createInviteUrl, extractInviteCode, rememberInvite, peekRememberedInvit
 
 beforeEach(() => jest.clearAllMocks());
 
-test('createInviteUrl baut den Link über expo-linking', () => {
+test('createInviteUrl builds the link via expo-linking', () => {
   expect(createInviteUrl('abc123')).toBe('reelive://join/abc123');
 });
 
@@ -24,6 +24,7 @@ test.each([
   ['reelive://join/abc123', 'abc123'],
   ['exp://192.168.1.5:8081/--/join/abc123', 'abc123'],
   ['exp://192.168.1.5:8081/--/join/abc123?x=1', 'abc123'],
+  ['reelive://join/abc123#fragment', 'abc123'],
   ['reelive://join/', null],
   ['reelive://reise/abc123', null],
   ['', null],
@@ -31,33 +32,33 @@ test.each([
   expect(extractInviteCode(url)).toBe(expected);
 });
 
-test('rememberInvite legt den Code ab', async () => {
+test('rememberInvite stores the code', async () => {
   await rememberInvite('abc123');
   expect(mockSetItem).toHaveBeenCalledWith('reelive.pendingInvite', 'abc123');
 });
 
-test('peekRememberedInvite liefert den Code, ohne ihn zu löschen', async () => {
+test('peekRememberedInvite returns the code without deleting it', async () => {
   mockGetItem.mockResolvedValueOnce('abc123');
   await expect(peekRememberedInvite()).resolves.toBe('abc123');
   expect(mockRemoveItem).not.toHaveBeenCalled();
 });
 
-test('peekRememberedInvite ohne gemerkten Code liefert null', async () => {
+test('peekRememberedInvite without a remembered code returns null', async () => {
   mockGetItem.mockResolvedValueOnce(null);
   await expect(peekRememberedInvite()).resolves.toBeNull();
 });
 
-test('peekRememberedInvite verschluckt Storage-Fehler', async () => {
+test('peekRememberedInvite swallows storage errors', async () => {
   mockGetItem.mockRejectedValueOnce(new Error('kaputt'));
   await expect(peekRememberedInvite()).resolves.toBeNull();
 });
 
-test('discardRememberedInvite löscht den Code', async () => {
+test('discardRememberedInvite deletes the code', async () => {
   await discardRememberedInvite();
   expect(mockRemoveItem).toHaveBeenCalledWith('reelive.pendingInvite');
 });
 
-test('discardRememberedInvite verschluckt Storage-Fehler', async () => {
+test('discardRememberedInvite swallows storage errors', async () => {
   mockRemoveItem.mockRejectedValueOnce(new Error('kaputt'));
   await expect(discardRememberedInvite()).resolves.toBeUndefined();
 });

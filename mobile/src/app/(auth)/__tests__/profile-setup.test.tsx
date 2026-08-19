@@ -59,7 +59,7 @@ const anzeigenameFeld = () => screen.getByLabelText('Anzeigename');
 const wrap = (ui: React.ReactElement) => render(<ThemeProvider>{ui}</ThemeProvider>);
 
 beforeEach(() => {
-  (createProfile as jest.Mock).mockResolvedValue({ error: null, feld: null });
+  (createProfile as jest.Mock).mockResolvedValue({ error: null, field: null });
   (setzeAvatar as jest.Mock).mockResolvedValue({ avatarKey: 'profiles/u1/neu.jpg', error: null });
 });
 

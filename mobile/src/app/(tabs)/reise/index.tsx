@@ -61,7 +61,7 @@ export default function ReiseListe() {
     }, [laden])
   );
 
-  const { laufend, recaps } = groupTrips(trips);
+  const { ongoing, recaps } = groupTrips(trips);
   // Zwei ehrliche Leerzustände statt einem: «noch nie eine Reise» und «alle
   // Reisen sind abgeschlossen». Abgeschlossene Reisen stehen NUR im Recap-Tab
   // (dort führt der Tipp in die Übersicht); hier stünden sie doppelt. Ohne den
@@ -69,7 +69,7 @@ export default function ReiseListe() {
   // keine Reise» wäre eine falsche Aussage über die Daten (§6).
   const fertig = geladen && !fehler;
   const keineReise = fertig && trips.length === 0;
-  const nurRecaps = fertig && laufend.length === 0 && recaps.length > 0;
+  const nurRecaps = fertig && ongoing.length === 0 && recaps.length > 0;
 
   return (
     <View style={{ flex: 1, backgroundColor: colors['bg-0'] }}>
@@ -114,14 +114,14 @@ export default function ReiseListe() {
           </View>
         )}
 
-        {laufend.length > 0 && (
+        {ongoing.length > 0 && (
           <View style={{ gap: spacing.l }}>
             {/* `cover` reicht den Platz der Karte ans Detail weiter, damit es
                 dasselbe Platzhalter-Bild zeigt wie die Karte, auf die getippt
                 wurde (platzhalterCover.ts). Ein reiner Darstellungs-Parameter:
                 wer ohne ihn im Detail landet (Deep Link, frisch angelegte
                 Reise), sieht das erste Bild. */}
-            {laufend.map((t, i) => (
+            {ongoing.map((t, i) => (
               <TripCard
                 key={t.id}
                 trip={t}

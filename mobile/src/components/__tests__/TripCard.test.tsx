@@ -24,7 +24,7 @@ const trip: Trip = {
   id: 't1', name: 'Norwegen mit dem Camper',
   start_date: '2026-08-01', end_date: '2026-08-14',
   status: 'active', owner_id: 'u1',
-  mitglieder: ohneBild(['Lea', 'Mira', 'Jonas', 'Sofia']), member_count: 4, my_post_count: 7,
+  members: ohneBild(['Lea', 'Mira', 'Jonas', 'Sofia']), member_count: 4, my_post_count: 7,
 };
 
 const wrap = (ui: React.ReactElement) => render(<ThemeProvider>{ui}</ThemeProvider>);
@@ -37,7 +37,7 @@ test('zeigt Name, Zeitraum und eigenen Zähler', async () => {
 });
 
 test('zeigt die Mitreisenden als überlappende Avatare', async () => {
-  await wrap(<TripCard trip={{ ...trip, mitglieder: ohneBild(['Lea', 'Mira', 'Jonas']) }} onPress={jest.fn()} />);
+  await wrap(<TripCard trip={{ ...trip, members: ohneBild(['Lea', 'Mira', 'Jonas']) }} onPress={jest.fn()} />);
   // Avatar trägt bis zum Bild-Upload die Initiale
   expect(screen.getByText('L')).toBeTruthy();
   expect(screen.getByText('M')).toBeTruthy();

@@ -3,35 +3,35 @@ import { OFFLINE_HINT, istOffline } from '@/lib/networkError';
 import type { Gesicht } from '@/components/Avatar';
 import type { InvitePreview, RedeemResult, Trip, TripMember } from './types';
 
-// Jede Lesefunktion liefert Daten UND Fehler getrennt. Ein nacktes [] bzw. null
-// konnte der Screen nicht von «wirklich leer» unterscheiden und behauptete
-// dann Dinge über die Daten des Nutzers, die nicht stimmen («Noch keine
-// Reise»). DESIGN-LANGUAGE §6: Fehler erklären Ursache und Lösung.
-type Gelesen<T> = { data: T; error: string | null };
+// Every read function returns data AND error separately. A bare [] or null
+// could not be told apart by the screen from "genuinely empty" and would
+// then claim things about the user's data that are not true ("no trip yet").
+// DESIGN-LANGUAGE §6: errors explain cause and fix.
+type Loaded<T> = { data: T; error: string | null };
 
-// Übersetzt einen Supabase-Fehler in eine Meldung nach §6: Offline ist die
-// eine Ursache, die der Nutzer selbst beheben kann, und wird deshalb benannt.
-function meldung(error: { message?: string } | null, sonst: string): string {
-  return istOffline(error) ? OFFLINE_HINT : sonst;
+// Translates a Supabase error into a message per §6: offline is the one
+// cause the user can fix themselves, and is therefore named.
+function message(error: { message?: string } | null, fallback: string): string {
+  return istOffline(error) ? OFFLINE_HINT : fallback;
 }
 
-const SPALTEN = 'id, name, start_date, end_date, status, owner_id';
-// Die Karte zeigt überlappende Avatare (DESIGN-LANGUAGE §4), also werden die
-// Anzeigenamen gleich mitgeladen, die Mitgliederzahl fällt dabei ab und
-// braucht keine eigene Aggregation. avatar_key reist ab hier mit: Name UND
-// Schlüssel kommen aus DERSELBEN Zeile, nie aus zwei getrennten Abfragen, die
-// bei der ersten Person ohne Profil auseinanderlaufen könnten.
-const MIT_MITGLIEDERN = `${SPALTEN}, trip_members(profiles(display_name, avatar_key))`;
+const COLUMNS = 'id, name, start_date, end_date, status, owner_id';
+// The card shows overlapping avatars (DESIGN-LANGUAGE §4), so the display
+// names get loaded along with it, the member count falls out of that and
+// needs no separate aggregation. avatar_key travels along from here: name
+// AND key come from the SAME row, never from two separate queries that
+// could drift apart at the first person without a profile.
+const WITH_MEMBERS = `${COLUMNS}, trip_members(profiles(display_name, avatar_key))`;
 
-type TripRow = Omit<Trip, 'mitglieder' | 'member_count' | 'my_post_count'> & {
+type TripRow = Omit<Trip, 'members' | 'member_count' | 'my_post_count'> & {
   trip_members: { profiles: { display_name: string; avatar_key: string | null } | null }[] | null;
 };
 
 function toTrip(row: TripRow, counts: Map<string, number>): Trip {
-  // Name und Schlüssel bleiben in EINER Abbildung zusammen (nicht zwei
-  // getrennte .map()-Listen für Namen und Schlüssel): sonst trüge bei der
-  // ersten Person ohne Profil ein Gesicht das Bild einer anderen Person.
-  const mitglieder: Gesicht[] = (row.trip_members ?? [])
+  // Name and key stay together in ONE mapping (not two separate .map()
+  // lists for names and keys): otherwise, at the first person without a
+  // profile, a face would carry another person's image.
+  const members: Gesicht[] = (row.trip_members ?? [])
     .map((m) => m.profiles)
     .filter((p): p is { display_name: string; avatar_key: string | null } => !!p?.display_name)
     .map((p) => ({ name: p.display_name, avatarKey: p.avatar_key }));
@@ -42,32 +42,32 @@ function toTrip(row: TripRow, counts: Map<string, number>): Trip {
     end_date: row.end_date,
     status: row.status,
     owner_id: row.owner_id,
-    mitglieder,
-    member_count: mitglieder.length,
+    members,
+    member_count: members.length,
     my_post_count: counts.get(row.id) ?? 0,
   };
 }
 
-// Liest die rpc EINMAL und liefert Stand UND Fehler getrennt, wie jede andere
-// Lesefunktion hier oben. Das war bis zum Final-Review nicht so: der Fehler
-// wurde verschluckt und ein Fehlschlag als leere Zuordnung ausgegeben. Für die
-// Reise-Karte ist das harmlos (siehe loadCounts), für den Momente-Zähler war es
-// der Bug aus Important 6: wer 40 versiegelte Momente hat und im Flugmodus
-// einen aufnimmt, sah 0 + 1 = 1, genau der Rückwärtssprung, den Spec §7
-// ausschliesst, und ausgerechnet im Offline-Fall, für den diese Phase existiert.
-async function zaehlerLesen(): Promise<{ counts: Map<string, number>; error: string | null }> {
-  // Absichtlich kein direktes `const { data, error } = await supabase.rpc(...)`:
-  // in den Fehlertests bleibt der rpc-Mock unkonfiguriert und liefert
-  // `undefined` zurück. Im echten Betrieb löst supabase.rpc() immer zu
-  // { data, error } auf (nie zu undefined), dieser Guard ist rein defensiv
-  // gegen den Test-Doppelgänger.
+// Reads the rpc ONCE and returns state AND error separately, like every
+// other read function above. That was not the case until the final review:
+// the error was swallowed and a failure emitted as an empty mapping. For the
+// trip card that is harmless (see loadCounts), for the moments counter it
+// was the bug from Important 6: whoever has 40 sealed moments and captures
+// one in flight mode saw 0 + 1 = 1, exactly the backwards jump that Spec §7
+// rules out, and of all things in the offline case this phase exists for.
+async function readCounts(): Promise<{ counts: Map<string, number>; error: string | null }> {
+  // Deliberately not a direct `const { data, error } = await supabase.rpc(...)`:
+  // in the error tests the rpc mock is left unconfigured and returns
+  // `undefined`. In real operation supabase.rpc() always resolves to
+  // { data, error } (never to undefined), this guard is purely defensive
+  // against the test double.
   const result = await supabase.rpc('my_post_counts');
   const data = result?.data;
   const error = result?.error;
   if (error || !data) {
     return {
       counts: new Map(),
-      error: meldung(error ?? null, 'Dein Momente-Zähler konnte nicht geladen werden. Probier es gleich nochmal.'),
+      error: message(error ?? null, 'Dein Momente-Zähler konnte nicht geladen werden. Probier es gleich nochmal.'),
     };
   }
   return {
@@ -76,67 +76,68 @@ async function zaehlerLesen(): Promise<{ counts: Map<string, number>; error: str
   };
 }
 
-// Bewusst ohne Fehler-Weitergabe: der eigene Momente-Zähler ist Beiwerk auf der
-// Karte. Fällt nur er aus, steht dort eine 0 statt gar keiner Reise, fällt das
-// Netz aus, meldet ohnehin die Reise-Abfrage daneben den Fehler.
+// Deliberately without passing on the error: the own moments counter is
+// decoration on the card. If only it fails, a 0 shows there instead of no
+// trip at all; if the network fails, the trip query reports the error right
+// next to it anyway.
 async function loadCounts(): Promise<Map<string, number>> {
-  return (await zaehlerLesen()).counts;
+  return (await readCounts()).counts;
 }
 
-// Öffentliche Fassung für Aufrufer ausserhalb dieser Datei (Task 9: der
-// Momente-Zähler zieht den Serverstand als Zuordnung Reise-id -> Zahl aus
-// derselben rpc, ergänzt um noch nicht hochgeladene Momente aus der
-// Warteschlange). Baut auf derselben zaehlerLesen() auf wie loadCounts,
-// eine Zuordnung, eine Quelle, gibt den Fehler aber weiter, weil der
-// Zähler ihn NICHT als «null» werten darf (siehe zaehler.ts).
-export async function eigeneZaehler(): Promise<Gelesen<Record<string, number>>> {
-  const { counts, error } = await zaehlerLesen();
+// Public version for callers outside this file (Task 9: the moments counter
+// pulls the server state as a mapping trip id -> number from the same rpc,
+// adding moments not yet uploaded from the queue). Builds on the same
+// readCounts() as loadCounts, one mapping, one source, but passes the error
+// along because the counter must NOT treat it as "null" (see counter.ts).
+export async function fetchOwnPostCounts(): Promise<Loaded<Record<string, number>>> {
+  const { counts, error } = await readCounts();
   return { data: Object.fromEntries(counts), error };
 }
 
-// `zaehlerFehler` getrennt vom `error` der Reisen (Re-Review, Minor 2): die
-// beiden Abfragen können unabhängig scheitern. Gelingen die Reisen und nur die
-// Zähler-rpc nicht, stünde sonst überall `my_post_count: 0`, für die Karte
-// Beiwerk (siehe loadCounts), für alles, was diesen Stand weiterreicht oder
-// vorhält, aber dieselbe Klasse von Fehler wie Important 6, eine Ebene weiter.
-// Wer den Stand braucht, muss unterscheiden können, ob die 0 gemessen oder
-// bloss ausgefallen ist.
-export async function fetchTrips(): Promise<Gelesen<Trip[]> & { zaehlerFehler: string | null }> {
-  const [{ data, error }, zaehler] = await Promise.all([
-    supabase.from('trips').select(MIT_MITGLIEDERN).order('start_date', { ascending: false }),
-    zaehlerLesen(),
+// `countsError` kept separate from the trips' `error` (re-review, Minor 2):
+// the two queries can fail independently. If the trips succeed and only the
+// counts rpc fails, every trip would otherwise carry `my_post_count: 0`,
+// decoration for the card (see loadCounts), but for anything that passes
+// this state along or holds onto it, the same class of bug as Important 6,
+// one level further out. Whoever needs the state must be able to tell
+// whether the 0 was measured or merely failed to load.
+export async function fetchTrips(): Promise<Loaded<Trip[]> & { countsError: string | null }> {
+  const [{ data, error }, countsResult] = await Promise.all([
+    supabase.from('trips').select(WITH_MEMBERS).order('start_date', { ascending: false }),
+    readCounts(),
   ]);
-  const counts = zaehler.counts;
+  const counts = countsResult.counts;
   if (error || !data) {
     return {
       data: [],
-      error: meldung(error, 'Deine Reisen konnten nicht geladen werden. Probier es gleich nochmal.'),
-      zaehlerFehler: zaehler.error,
+      error: message(error, 'Deine Reisen konnten nicht geladen werden. Probier es gleich nochmal.'),
+      countsError: countsResult.error,
     };
   }
-  // `unknown` als Zwischenschritt: Ohne generischen Database-Typ am Client
-  // parst postgrest-js MIT_MITGLIEDERN selbst auf Typ-Ebene und nimmt für
-  // trip_members(profiles(...)) Array-Kardinalität an, obwohl profiles hier
-  // ein Einzelobjekt ist (siehe TripRow oben). Laufzeit unverändert.
+  // `unknown` as an intermediate step: without a generic Database type on the
+  // client, postgrest-js infers WITH_MEMBERS itself at the type level and
+  // assumes array cardinality for trip_members(profiles(...)), even though
+  // profiles is a single object here (see TripRow above). Runtime behavior
+  // unchanged.
   return {
     data: (data as unknown as TripRow[]).map((row) => toTrip(row, counts)),
     error: null,
-    zaehlerFehler: zaehler.error,
+    countsError: countsResult.error,
   };
 }
 
-// data === null bei error === null heisst «gibt es (für dich) nicht mehr»,
-// gelöscht, verlassen oder nie sichtbar gewesen. Der Screen unterscheidet das
-// von einem Ladefehler, weil nur Letzterer einen Wiederholversuch lohnt.
-export async function fetchTrip(id: string): Promise<Gelesen<Trip | null>> {
+// data === null with error === null means "no longer exists (for you)":
+// deleted, left, or never visible. The screen tells this apart from a load
+// error, because only the latter is worth retrying.
+export async function fetchTrip(id: string): Promise<Loaded<Trip | null>> {
   const [{ data, error }, counts] = await Promise.all([
-    supabase.from('trips').select(MIT_MITGLIEDERN).eq('id', id).maybeSingle(),
+    supabase.from('trips').select(WITH_MEMBERS).eq('id', id).maybeSingle(),
     loadCounts(),
   ]);
   if (error) {
     return {
       data: null,
-      error: meldung(error, 'Diese Reise konnte nicht geladen werden. Probier es gleich nochmal.'),
+      error: message(error, 'Diese Reise konnte nicht geladen werden. Probier es gleich nochmal.'),
     };
   }
   return { data: data ? toTrip(data as unknown as TripRow, counts) : null, error: null };
@@ -158,20 +159,20 @@ export async function createTrip(input: {
   if (error || !data) {
     return {
       id: null,
-      error: meldung(error, 'Die Reise konnte nicht angelegt werden. Probier es gleich nochmal.'),
+      error: message(error, 'Die Reise konnte nicht angelegt werden. Probier es gleich nochmal.'),
     };
   }
   return { id: data.id, error: null };
 }
 
-// Verwirft eine RLS-Policy den Schreibvorgang, liefert Postgres KEINEN Fehler,
-// sondern «UPDATE 0» bzw. «DELETE 0». Ohne die angehängte Auswahl meldeten
-// diese drei Funktionen Erfolg, und der Detailscreen navigierte weg, als wäre
-// die Reise gelöscht, obwohl sie weiter existiert. `.select(...)` macht die
-// betroffenen Zeilen sichtbar: leeres Ergebnis = nichts passiert = Fehlschlag.
-// (RETURNING läuft dabei über die Select-Policy auf der Zeile VOR dem Schreiben,
-// also sehen Owner bzw. Mitglied ihre eigene Zeile, lokal gegen die Policies
-// verifiziert.)
+// If an RLS policy rejects the write, Postgres returns NO error, just
+// "UPDATE 0" resp. "DELETE 0". Without the attached select, these three
+// functions reported success and the detail screen navigated away as if the
+// trip had been deleted, even though it still exists. `.select(...)` makes
+// the affected rows visible: empty result = nothing happened = failure.
+// (RETURNING runs through the select policy on the row BEFORE the write, so
+// the owner resp. member sees their own row, verified locally against the
+// policies.)
 export async function updateTrip(
   id: string,
   input: { name: string; startDate: string; endDate: string }
@@ -182,7 +183,7 @@ export async function updateTrip(
     .eq('id', id)
     .select('id');
   if (error) {
-    return { error: meldung(error, 'Die Änderung konnte nicht gespeichert werden. Probier es gleich nochmal.') };
+    return { error: message(error, 'Die Änderung konnte nicht gespeichert werden. Probier es gleich nochmal.') };
   }
   if (!data || data.length === 0) {
     return { error: 'Die Änderung wurde nicht gespeichert. Die Reise gibt es nicht mehr, oder sie gehört dir nicht.' };
@@ -193,7 +194,7 @@ export async function updateTrip(
 export async function deleteTrip(id: string): Promise<{ error: string | null }> {
   const { data, error } = await supabase.from('trips').delete().eq('id', id).select('id');
   if (error) {
-    return { error: meldung(error, 'Die Reise konnte nicht gelöscht werden. Probier es gleich nochmal.') };
+    return { error: message(error, 'Die Reise konnte nicht gelöscht werden. Probier es gleich nochmal.') };
   }
   if (!data || data.length === 0) {
     return { error: 'Die Reise wurde nicht gelöscht. Es gibt sie nicht mehr, oder sie gehört dir nicht.' };
@@ -201,7 +202,7 @@ export async function deleteTrip(id: string): Promise<{ error: string | null }> 
   return { error: null };
 }
 
-export async function fetchMembers(tripId: string): Promise<Gelesen<TripMember[]>> {
+export async function fetchMembers(tripId: string): Promise<Loaded<TripMember[]>> {
   const { data, error } = await supabase
     .from('trip_members')
     .select('user_id, role, profiles(username, display_name, avatar_key)')
@@ -210,7 +211,7 @@ export async function fetchMembers(tripId: string): Promise<Gelesen<TripMember[]
   if (error || !data) {
     return {
       data: [],
-      error: meldung(error, 'Die Mitglieder konnten nicht geladen werden. Probier es gleich nochmal.'),
+      error: message(error, 'Die Mitglieder konnten nicht geladen werden. Probier es gleich nochmal.'),
     };
   }
   type Row = {
@@ -218,9 +219,9 @@ export async function fetchMembers(tripId: string): Promise<Gelesen<TripMember[]
     role: 'owner' | 'member';
     profiles: { username: string; display_name: string; avatar_key: string | null } | null;
   };
-  // Gleicher Grund wie oben: postgrest-js inferiert profiles(...) ohne
-  // Database-Typ als Array; unknown als Zwischenschritt behebt nur die
-  // statische Typprüfung, Laufzeitverhalten bleibt unverändert.
+  // Same reason as above: postgrest-js infers profiles(...) as an array
+  // without a Database type; unknown as an intermediate step only fixes the
+  // static type check, runtime behavior is unchanged.
   return {
     data: (data as unknown as Row[]).map((r) => ({
       user_id: r.user_id,
@@ -233,8 +234,9 @@ export async function fetchMembers(tripId: string): Promise<Gelesen<TripMember[]
   };
 }
 
-// Deckt beide Fälle ab: Owner entfernt ein Mitglied, Mitglied verlässt selbst.
-// Welcher Fall erlaubt ist, entscheidet die Policy trip_members_delete (Phase 1).
+// Covers both cases: an owner removes a member, a member leaves by
+// themselves. Which case is allowed is decided by the trip_members_delete
+// policy (Phase 1).
 export async function removeMember(tripId: string, userId: string): Promise<{ error: string | null }> {
   const { data, error } = await supabase
     .from('trip_members')
@@ -243,7 +245,7 @@ export async function removeMember(tripId: string, userId: string): Promise<{ er
     .eq('user_id', userId)
     .select('user_id');
   if (error) {
-    return { error: meldung(error, 'Das hat nicht geklappt. Probier es gleich nochmal.') };
+    return { error: message(error, 'Das hat nicht geklappt. Probier es gleich nochmal.') };
   }
   if (!data || data.length === 0) {
     return { error: 'Das hat nicht geklappt. Die Mitgliedschaft gibt es nicht mehr, oder du darfst sie nicht beenden.' };
@@ -251,32 +253,32 @@ export async function removeMember(tripId: string, userId: string): Promise<{ er
   return { error: null };
 }
 
-export async function fetchInviteCode(tripId: string): Promise<Gelesen<string | null>> {
+export async function fetchInviteCode(tripId: string): Promise<Loaded<string | null>> {
   const { data, error } = await supabase.from('trips').select('invite_code').eq('id', tripId).maybeSingle();
   if (error) {
     return {
       data: null,
-      error: meldung(error, 'Der Einladungslink konnte nicht geladen werden. Probier es gleich nochmal.'),
+      error: message(error, 'Der Einladungslink konnte nicht geladen werden. Probier es gleich nochmal.'),
     };
   }
   return { data: data?.invite_code ?? null, error: null };
 }
 
-// Liefert `Gelesen<…>` wie jede andere Lesefunktion dieser Datei. Vorher gab
-// sie nur `InvitePreview | null` zurueck und faltete damit zwei voellig
-// verschiedene Lagen in denselben Wert: «diesen Code gibt es nicht» und «ich
-// konnte gerade nicht nachsehen». Der Beitritts-Screen behauptete im Funkloch
-// deshalb, der Einladungslink sei erloschen, die eine Aussage, die niemand
-// nachpruefen kann und die den Gast endgueltig wegschickt.
+// Returns `Loaded<…>` like every other read function in this file. It used
+// to return only `InvitePreview | null` and thereby folded two completely
+// different situations into the same value: "this code doesn't exist" and
+// "I couldn't check right now". In a dead zone, the join screen therefore
+// claimed the invite link had expired, the one statement nobody can verify
+// and that sends the guest away for good.
 //
-// Unbekannter Code bleibt bewusst KEIN Fehler: peek_invite liefert dafuer
-// null Zeilen, und `data: null, error: null` ist genau diese Aussage.
-export async function peekInvite(code: string): Promise<Gelesen<InvitePreview | null>> {
+// An unknown code deliberately stays NO error: peek_invite returns zero rows
+// for that, and `data: null, error: null` is exactly that statement.
+export async function peekInvite(code: string): Promise<Loaded<InvitePreview | null>> {
   const { data, error } = await supabase.rpc('peek_invite', { p_code: code });
   if (error) {
     return {
       data: null,
-      error: meldung(error, 'Die Einladung konnte nicht geladen werden. Probier es gleich nochmal.'),
+      error: message(error, 'Die Einladung konnte nicht geladen werden. Probier es gleich nochmal.'),
     };
   }
   return { data: ((data ?? []) as InvitePreview[])[0] ?? null, error: null };

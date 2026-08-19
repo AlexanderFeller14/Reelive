@@ -1,7 +1,7 @@
-// expo-crypto wird in der echten Umgebung verwendet, der Mock hier liefert
-// unterschiedliche UUIDs auf jeden Aufruf (damit der Test auf unterschiedliche
-// Schlüssel vertrauen kann). Das Format muss ein echtes UUID sein, damit beim
-// replace(/-/g, '') genau 32 Hex-Zeichen übrig bleiben.
+// expo-crypto is used in the real environment, the mock here returns a
+// different UUID on every call (so the test can rely on distinct keys). The
+// format has to be a real UUID so that replace(/-/g, '') leaves exactly 32
+// hex characters.
 let mockUuidCounter = 0;
 jest.mock('expo-crypto', () => ({
   randomUUID: jest.fn(() => {
@@ -12,33 +12,33 @@ jest.mock('expo-crypto', () => ({
   }),
 }));
 
-import { avatarUrl, neuerAvatarSchluessel } from '../avatar';
+import { avatarUrl, newAvatarKey } from '../avatar';
 
 const UID = '11111111-2222-3333-4444-555555555555';
 
-// Das Präfix ist nicht Geschmackssache: konto-loeschen/index.ts führt genau
-// `profiles/<user_id>/` als erlaubtes Präfix, und was nicht darauf passt,
-// bleibt beim Kontolöschen für immer im Speicher liegen.
-test('der Schluessel liegt im eigenen profiles-Ordner', () => {
-  expect(neuerAvatarSchluessel(UID)).toMatch(
+// The prefix is not a matter of taste: konto-loeschen/index.ts allows
+// exactly `profiles/<user_id>/` as its allowed prefix, and whatever does not
+// match that stays in storage forever on account deletion.
+test('the key lives in its own profiles folder', () => {
+  expect(newAvatarKey(UID)).toMatch(
     new RegExp(`^profiles/${UID}/[0-9a-f]{32}\\.jpg$`)
   );
 });
 
-test('zwei Schluessel derselben Person unterscheiden sich', () => {
-  expect(neuerAvatarSchluessel(UID)).not.toBe(neuerAvatarSchluessel(UID));
+test('two keys of the same person differ', () => {
+  expect(newAvatarKey(UID)).not.toBe(newAvatarKey(UID));
 });
 
-test('avatarUrl haengt den Schluessel an den oeffentlichen Pfad', () => {
+test('avatarUrl appends the key to the public path', () => {
   expect(avatarUrl(`profiles/${UID}/abc.jpg`)).toBe(
     `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/public/avatare/profiles/${UID}/abc.jpg`
   );
 });
 
-// Ohne Bild gibt es keine URL, und der Aufrufer zeigt die Initiale. `null`
-// statt einer URL auf ein Objekt, das es nicht gibt: eine kaputte Kachel wäre
-// schlimmer als eine ehrliche Lücke.
-test('ohne Schluessel gibt es keine URL', () => {
+// Without an image there is no URL, and the caller shows the initial. `null`
+// instead of a URL to an object that does not exist: a broken tile would be
+// worse than an honest gap.
+test('without a key there is no URL', () => {
   expect(avatarUrl(null)).toBeNull();
   expect(avatarUrl(undefined)).toBeNull();
   expect(avatarUrl('')).toBeNull();

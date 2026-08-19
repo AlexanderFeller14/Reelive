@@ -10,7 +10,7 @@ import { useTopInset } from '@/theme/useTopInset';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { createTrip } from '@/features/trips/tripsApi';
 import { validateDateRange } from '@/features/trips/tripDay';
-import type { Auswahl } from '@/features/trips/kalender';
+import type { Selection } from '@/features/trips/calendar';
 
 export default function NeueReise() {
   const { colors } = useTheme();
@@ -18,7 +18,7 @@ export default function NeueReise() {
   const router = useRouter();
   const { userId } = useAuth();
   const [name, setName] = useState('');
-  const [zeitraum, setZeitraum] = useState<Auswahl>({ start: null, end: null });
+  const [zeitraum, setZeitraum] = useState<Selection>({ start: null, end: null });
   const [nameFehler, setNameFehler] = useState<string | undefined>();
   const [zeitraumFehler, setZeitraumFehler] = useState<string | undefined>();
   const [laedt, setLaedt] = useState(false);

@@ -45,7 +45,7 @@ import { useTopInset } from '@/theme/useTopInset';
 import { useReducedMotion } from '@/theme/useReducedMotion';
 import { fetchTrips } from '@/features/trips/tripsApi';
 import * as tripsCache from '@/features/trips/tripsCache';
-import type { GemerkteReise } from '@/features/trips/tripsCache';
+import type { CachedTrip } from '@/features/trips/tripsCache';
 import { ownMomentCount } from '@/features/moments/counter';
 import { useAuth } from '@/features/auth/AuthProvider';
 import * as uebergabe from '@/features/kamera/uebergabe';
@@ -457,7 +457,7 @@ function BerechtigungScreen() {
   );
 }
 
-function ReiseWahlScreen({ reisen, onWahl }: { reisen: GemerkteReise[]; onWahl: (id: string) => void }) {
+function ReiseWahlScreen({ reisen, onWahl }: { reisen: CachedTrip[]; onWahl: (id: string) => void }) {
   // Wird von oben nach unten gelesen und braucht darum die geschonte
   // Oberkante. Der Sucher braucht sie inzwischen ebenso: randlos ist dort das
   // Kamerabild (§3, «Fotos randlos in Medien-Screens»), nicht die Bedienung,
@@ -486,7 +486,7 @@ export default function AufnehmenScreen() {
   const { userId } = useAuth();
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [micPermission, requestMicPermission] = useMicrophonePermissions();
-  const [trips, setTrips] = useState<GemerkteReise[] | null>(null);
+  const [trips, setTrips] = useState<CachedTrip[] | null>(null);
   const [fehler, setFehler] = useState<string | null>(null);
   const [ausgewaehlteReiseId, setAusgewaehlteReiseId] = useState<string | null>(null);
   // Der Trip-Umschalter aus dem Produktkonzept («Oben dezent: aktiver
@@ -666,8 +666,8 @@ export default function AufnehmenScreen() {
   // es beim gelieferten Wert, eine 0, die dann wirklich nur «noch nichts
   // eingesendet» heissen kann.
   const mitGemerktenZaehlern = useCallback(
-    async (reisen: GemerkteReise[]): Promise<GemerkteReise[]> => {
-      const gemerkt = await tripsCache.gemerkteReisen(userId);
+    async (reisen: CachedTrip[]): Promise<CachedTrip[]> => {
+      const gemerkt = await tripsCache.rememberedTrips(userId);
       if (gemerkt === null) return reisen;
       const stand = new Map(gemerkt.map((r) => [r.id, r.my_post_count]));
       return reisen.map((r) => ({ ...r, my_post_count: stand.get(r.id) ?? r.my_post_count }));
@@ -676,7 +676,7 @@ export default function AufnehmenScreen() {
   );
 
   const laden = useCallback(async () => {
-    const { data, error, zaehlerFehler } = await fetchTrips();
+    const { data, error, countsError } = await fetchTrips();
     if (!error) {
       // Re-Review, Minor 2: gelingen die Reisen und scheitert nur die
       // Zähler-rpc, trägt jede Reise `my_post_count: 0`. Die Kopf-Pille fängt
@@ -685,16 +685,16 @@ export default function AufnehmenScreen() {
       // wanderten die Nullen ebenfalls. Also: ein ausgefallener Zähler-Abruf
       // greift auf den zuletzt bekannten Stand zurück, genau wie in
       // zaehler.ts. Dieselbe Klasse wie Important 6, eine Ebene weiter.
-      const reisen = zaehlerFehler ? await mitGemerktenZaehlern(data) : data;
+      const reisen = countsError ? await mitGemerktenZaehlern(data) : data;
       // Fortschreiben passiert vor dem aktiv-Guard: der Bestand soll auch
       // dann aktuell werden, wenn der Screen inzwischen verlassen wurde.
-      await tripsCache.reisenMerken(userId, reisen);
+      await tripsCache.rememberTrips(userId, reisen);
       if (!aktiv.current) return;
       setTrips(reisen);
       setFehler(null);
       return;
     }
-    const gemerkt = await tripsCache.gemerkteReisen(userId);
+    const gemerkt = await tripsCache.rememberedTrips(userId);
     if (!aktiv.current) return;
     if (gemerkt !== null) {
       setTrips(gemerkt);

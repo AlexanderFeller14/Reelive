@@ -24,7 +24,7 @@ import { fetchTrips } from '@/features/trips/tripsApi';
 const trip = {
   id: 't1', name: 'Norwegen mit dem Camper', start_date: '2026-08-01', end_date: '2026-08-14',
   status: 'active' as const, owner_id: 'u1',
-  mitglieder: [
+  members: [
     { name: 'Lea', avatarKey: null },
     { name: 'Jonas', avatarKey: null },
   ],

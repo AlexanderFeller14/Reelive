@@ -15,7 +15,7 @@ import { radius, spacing, type } from '@/theme/tokens';
 import { useTopInset } from '@/theme/useTopInset';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { deleteTrip, fetchMembers, fetchTrip, removeMember } from '@/features/trips/tripsApi';
-import { formatRange, heutigerKalendertag, tripDay, tripLength } from '@/features/trips/tripDay';
+import { formatRange, todaysCalendarDay, tripDay, tripLength } from '@/features/trips/tripDay';
 import type { Trip, TripMember } from '@/features/trips/types';
 import { ownMomentCount } from '@/features/moments/counter';
 import * as queueDb from '@/features/moments/queueDb';
@@ -463,7 +463,7 @@ export default function ReiseDetail() {
 
   const istOwner = trip.owner_id === userId;
   const laeuft = trip.status === 'active';
-  const heute = heutigerKalendertag();
+  const heute = todaysCalendarDay();
   const tag = tripDay(trip.start_date, heute);
   const laenge = tripLength(trip.start_date, trip.end_date);
   // Task-8-Brief §Wo der Knopf sitzt: ab dem Enddatum (inklusive) rückt

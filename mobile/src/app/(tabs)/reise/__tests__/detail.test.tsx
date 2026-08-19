@@ -153,12 +153,12 @@ import { revealTrip } from '@/features/recap/recapApi';
 import { hasSeenReveal, markRevealSeen } from '@/features/recap/seen';
 import { fetchReports, dismissReport, removeMoment } from '@/features/recap/reportApi';
 import { getPool } from '@/features/recap/urlPool';
-import { platzhalterCover } from '@/features/trips/platzhalterCover';
+import { placeholderCover } from '@/features/trips/placeholderCover';
 
 const trip = {
   id: 't1', name: 'Norwegen mit dem Camper', start_date: '2026-08-01', end_date: '2026-08-14',
   status: 'active' as const, owner_id: 'u1',
-  mitglieder: [
+  members: [
     { name: 'Lea', avatarKey: null },
     { name: 'Jonas', avatarKey: null },
   ],
@@ -245,7 +245,7 @@ test('zeigt das Cover der angetippten Karte', async () => {
   mockRouteCover = '1';
   await wrap();
   await screen.findByText('Norwegen mit dem Camper');
-  expect(screen.getByTestId('reise-cover').props.source).toBe(platzhalterCover(1));
+  expect(screen.getByTestId('reise-cover').props.source).toBe(placeholderCover(1));
 });
 
 // Deep Link oder gerade angelegte Reise: ohne den Parameter darf nichts
@@ -253,7 +253,7 @@ test('zeigt das Cover der angetippten Karte', async () => {
 test('ohne cover-Parameter steht das erste Bild', async () => {
   await wrap();
   await screen.findByText('Norwegen mit dem Camper');
-  expect(screen.getByTestId('reise-cover').props.source).toBe(platzhalterCover(0));
+  expect(screen.getByTestId('reise-cover').props.source).toBe(placeholderCover(0));
 });
 
 test('zeigt Name und Zeitraum', async () => {
