@@ -34,7 +34,12 @@ einmaliges Entwicklungswerkzeug.
   `DESIGN-LANGUAGE.md`, `README.md`, `TODO.md`.
 - **Datenbankschema unverändert**: die Tabelle heisst weiter `posts`, die
   Spalte `post_id`. Nur an der Query-Grenze erscheinen diese Namen.
-- Jede Etappe endet grün: `npx tsc --noEmit`, `npx jest`, `npx expo lint`.
+- Jede Etappe endet grün. Für Etappen in `mobile/` heisst das
+  `npx tsc --noEmit`, `npx jest` und `npx expo lint`. Für Etappen ausserhalb
+  von `mobile/src` gilt die in der Task genannte Prüfung stattdessen:
+  `deno check` und `deno test` für die Edge Functions (Task 13),
+  `supabase test db` für die Datenbank (Task 14), der Skriptlauf für die
+  Hilfsskripte (Task 16). Eine Task ist nie ohne ihre eigene Prüfung fertig.
 
 ## Das Etappenrezept
 

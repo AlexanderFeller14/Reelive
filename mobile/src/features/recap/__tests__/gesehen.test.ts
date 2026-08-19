@@ -74,3 +74,4 @@ test('ein Lesefehler zählt als "noch nicht gesehen", nicht als Ausnahme', async
   mockGetItem.mockRejectedValueOnce(new Error('Speicher kaputt'));
   await expect(revealGesehen('t1')).resolves.toBe(false);
 });
+

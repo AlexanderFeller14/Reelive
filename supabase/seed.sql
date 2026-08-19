@@ -53,7 +53,8 @@ on conflict (provider, provider_id) do nothing;
 -- ===========================================================================
 -- Profile
 -- ===========================================================================
--- Ben (2222…) bekommt bewusst KEIN Profil: er zeigt beim Login das Onboarding.
+-- 2222… ist lx1405 (eigenes Konto, nach Datenverlust neu aufgebaut). Sein
+-- Profil und seine Reisen stehen im lx1405-Block am Dateiende.
 insert into public.profiles (id, username, display_name, created_at) values
   ('11111111-1111-4111-8111-111111111111', 'lea',   'Lea',   '2026-04-02 09:12:00+02'),
   ('33333333-3333-4333-8333-333333333333', 'mira',  'Mira',  '2026-04-02 09:31:00+02'),
@@ -221,3 +222,46 @@ on conflict do nothing;
 insert into public.share_links (token, trip_id, expires_at, revoked, created_at) values
   ('7f3c1a9e2b4d6058a1c3e5f70921b8d4', 'aaaaaaaa-0000-4000-8000-000000000002', '2026-11-13 19:00:00+02', false, '2026-05-13 19:40:00+02')
 on conflict (token) do nothing;
+
+-- ===========================================================================
+-- lx1405: eigenes Konto mit eigenen Reisen (neu aufgebaut nach Datenverlust).
+-- Nutzt das schon vorhandene Seed-Konto 2222… (Test-Nummer 41790000002,
+-- Login-Code 123456), das bisher bewusst profillos war. Alle Schlüssel direkt
+-- im echten Ablageschema 'trips/<trip_id>/<post_id>.<ext>', damit `lesen` sie
+-- ausliefert (kein nachträgliches UPDATE nötig). Idempotent: on conflict.
+-- ===========================================================================
+insert into public.profiles (id, username, display_name, created_at) values
+  ('22222222-2222-4222-8222-222222222222', 'lx1405', 'lx1405', '2026-06-01 10:00:00+02')
+on conflict (id) do update set username = excluded.username, display_name = excluded.display_name;
+
+insert into public.trips (id, name, cover_key, start_date, end_date, status, revealed_at, invite_code, owner_id, plan, created_at) values
+  ('eeeeeeee-0000-4000-8000-000000000001', 'Wochenende in Wien', 'covers/wien.jpg',
+   '2026-07-10', '2026-07-13', 'revealed', '2026-07-14 19:00:00+02', 'lx14051wien1',
+   '22222222-2222-4222-8222-222222222222', 'free', '2026-06-20 18:00:00+02'),
+  ('eeeeeeee-0000-4000-8000-000000000002', 'Schottland Roadtrip', 'covers/schottland.jpg',
+   '2026-08-15', '2026-08-24', 'active', null, 'lx1405schott',
+   '22222222-2222-4222-8222-222222222222', 'free', '2026-08-01 09:00:00+02')
+on conflict (id) do nothing;
+
+insert into public.trip_members (trip_id, user_id, role, joined_at) values
+  ('eeeeeeee-0000-4000-8000-000000000001', '22222222-2222-4222-8222-222222222222', 'owner',  '2026-06-20 18:00:00+02'),
+  ('eeeeeeee-0000-4000-8000-000000000001', '11111111-1111-4111-8111-111111111111', 'member', '2026-06-20 19:30:00+02'),
+  ('eeeeeeee-0000-4000-8000-000000000002', '22222222-2222-4222-8222-222222222222', 'owner',  '2026-08-01 09:00:00+02'),
+  ('eeeeeeee-0000-4000-8000-000000000002', '55555555-5555-4555-8555-555555555555', 'member', '2026-08-01 10:15:00+02')
+on conflict (trip_id, user_id) do nothing;
+
+-- Wien (revealed): sichtbarer Recap, hier greift das Siegel beim Öffnen.
+insert into public.posts (id, trip_id, author_id, type, media_ext, storage_key, thumb_key, duration_s, caption, captured_at, captured_tz, lat, lng, place_name, upload_status, created_at) values
+  ('ffffffff-0000-4000-8000-000000000001', 'eeeeeeee-0000-4000-8000-000000000001', '22222222-2222-4222-8222-222222222222', 'photo', 'jpg', 'trips/eeeeeeee-0000-4000-8000-000000000001/ffffffff-0000-4000-8000-000000000001.jpg', 'trips/eeeeeeee-0000-4000-8000-000000000001/ffffffff-0000-4000-8000-000000000001_t.jpg', null, 'Angekommen am Westbahnhof', '2026-07-10 11:20:00+02', 'Europe/Vienna', 48.1965, 16.3383, 'Wien Westbahnhof', 'uploaded', '2026-07-10 11:25:00+02'),
+  ('ffffffff-0000-4000-8000-000000000002', 'eeeeeeee-0000-4000-8000-000000000001', '11111111-1111-4111-8111-111111111111', 'photo', 'jpg', 'trips/eeeeeeee-0000-4000-8000-000000000001/ffffffff-0000-4000-8000-000000000002.jpg', 'trips/eeeeeeee-0000-4000-8000-000000000001/ffffffff-0000-4000-8000-000000000002_t.jpg', null, 'Kaffee im Café Central', '2026-07-10 15:40:00+02', 'Europe/Vienna', 48.2108, 16.3656, 'Café Central', 'uploaded', '2026-07-10 18:02:00+02'),
+  ('ffffffff-0000-4000-8000-000000000003', 'eeeeeeee-0000-4000-8000-000000000001', '22222222-2222-4222-8222-222222222222', 'photo', 'jpg', 'trips/eeeeeeee-0000-4000-8000-000000000001/ffffffff-0000-4000-8000-000000000003.jpg', 'trips/eeeeeeee-0000-4000-8000-000000000001/ffffffff-0000-4000-8000-000000000003_t.jpg', null, 'Schönbrunn, viel zu heiss', '2026-07-11 12:10:00+02', 'Europe/Vienna', 48.1858, 16.3122, 'Schloss Schönbrunn', 'uploaded', '2026-07-11 14:30:00+02'),
+  ('ffffffff-0000-4000-8000-000000000004', 'eeeeeeee-0000-4000-8000-000000000001', '11111111-1111-4111-8111-111111111111', 'video', 'mp4', 'trips/eeeeeeee-0000-4000-8000-000000000001/ffffffff-0000-4000-8000-000000000004.mp4', 'trips/eeeeeeee-0000-4000-8000-000000000001/ffffffff-0000-4000-8000-000000000004_t.jpg', 10.5, 'Riesenrad im Prater', '2026-07-11 20:05:00+02', 'Europe/Vienna', 48.2166, 16.3958, 'Wiener Prater', 'uploaded', '2026-07-12 08:00:00+02'),
+  ('ffffffff-0000-4000-8000-000000000005', 'eeeeeeee-0000-4000-8000-000000000001', '22222222-2222-4222-8222-222222222222', 'photo', 'jpg', 'trips/eeeeeeee-0000-4000-8000-000000000001/ffffffff-0000-4000-8000-000000000005.jpg', 'trips/eeeeeeee-0000-4000-8000-000000000001/ffffffff-0000-4000-8000-000000000005_t.jpg', null, 'Sachertorte, letzter Tag', '2026-07-13 10:30:00+02', 'Europe/Vienna', 48.2040, 16.3690, 'Hotel Sacher', 'uploaded', '2026-07-13 10:35:00+02')
+on conflict do nothing;
+
+-- Schottland (active/versiegelt): steht in der Reise-Liste, Momente bleiben bis zum Reveal verborgen.
+insert into public.posts (id, trip_id, author_id, type, media_ext, storage_key, thumb_key, duration_s, caption, captured_at, captured_tz, lat, lng, place_name, upload_status, created_at) values
+  ('ffffffff-0000-4000-8000-000000000101', 'eeeeeeee-0000-4000-8000-000000000002', '22222222-2222-4222-8222-222222222222', 'photo', 'jpg', 'trips/eeeeeeee-0000-4000-8000-000000000002/ffffffff-0000-4000-8000-000000000101.jpg', 'trips/eeeeeeee-0000-4000-8000-000000000002/ffffffff-0000-4000-8000-000000000101_t.jpg', null, 'Edinburgh, erster Regen', '2026-08-15 13:00:00+01', 'Europe/London', 55.9533, -3.1883, 'Edinburgh', 'uploaded', '2026-08-15 13:05:00+01'),
+  ('ffffffff-0000-4000-8000-000000000102', 'eeeeeeee-0000-4000-8000-000000000002', '55555555-5555-4555-8555-555555555555', 'photo', 'jpg', 'trips/eeeeeeee-0000-4000-8000-000000000002/ffffffff-0000-4000-8000-000000000102.jpg', 'trips/eeeeeeee-0000-4000-8000-000000000002/ffffffff-0000-4000-8000-000000000102_t.jpg', null, 'Loch Ness, keine Ungeheuer', '2026-08-16 11:30:00+01', 'Europe/London', 57.3229, -4.4244, 'Loch Ness', 'uploaded', '2026-08-16 18:40:00+01'),
+  ('ffffffff-0000-4000-8000-000000000103', 'eeeeeeee-0000-4000-8000-000000000002', '22222222-2222-4222-8222-222222222222', 'video', 'mp4', 'trips/eeeeeeee-0000-4000-8000-000000000002/ffffffff-0000-4000-8000-000000000103.mp4', 'trips/eeeeeeee-0000-4000-8000-000000000002/ffffffff-0000-4000-8000-000000000103_t.jpg', 14.0, 'Glenfinnan, der Zug kommt', '2026-08-17 14:15:00+01', 'Europe/London', 56.8721, -5.4331, 'Glenfinnan Viaduct', 'uploaded', '2026-08-17 20:00:00+01')
+on conflict do nothing;
