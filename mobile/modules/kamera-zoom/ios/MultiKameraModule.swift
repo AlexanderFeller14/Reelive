@@ -55,12 +55,17 @@ public class MultiKameraModule: Module {
 
   private static var session: AVCaptureMultiCamSession?
   // Geräte, Inputs, Outputs und Verbindungen werden AUSSCHLIESSLICH auf der
-  // Session-Queue geschrieben: beim Aufbau (der noch vor dem Auflösen von
-  // `starten` durch ist, also bevor der erste Frame oder der erste JS-Aufruf
-  // kommt) und beim Abbau. Gelesen wird von überall, der Verteiler tut es pro
-  // Frame auf der Video-Queue und der Fokus auf Main. Auf dieser Regel beruht
-  // der Verzicht auf ein Lock für diese Felder: kein Schreibzugriff darf an der
-  // Session-Queue vorbei laufen.
+  // Session-Queue geschrieben: beim Aufbau und beim Abbau. Innerhalb der
+  // Session-Queue wird frei gelesen, der Verteiler tut es pro Frame auf der
+  // Video-Queue — er läuft erst, wenn der Aufbau committet ist, und der Abbau
+  // drainiert seine Queue, bevor er leert. NICHT verlassen darf sich darauf,
+  // wer von Main oder vom JS-Thread hereinschaut: der Sucher nimmt Gesten
+  // sofort an, der erste Aufbau braucht 300-400 ms, ein Doppeltipp oder Zoom
+  // in diesem Fenster träfe die Dictionaries mitten in der Mutation
+  // (Final-Review 2026-08-19, Important 1). Für diese Aufrufer gilt darum:
+  // `geraete` und `session` nur über geraetFuer()/laufendeSession() lesen —
+  // beide prüfen unter dem zustandLock das bereit-Zeichen, und die
+  // Schreibstellen der beiden Felder nehmen dasselbe Lock.
   private static var geraete: [String: AVCaptureDevice] = [:]
   private static var inputs: [String: AVCaptureDeviceInput] = [:]
   private static var videoOutputs: [String: AVCaptureVideoDataOutput] = [:]
@@ -119,10 +124,43 @@ public class MultiKameraModule: Module {
   private static var _fotoWunsch: ((CMSampleBuffer) -> Void)?
   private static var _fotoWunschNummer: UInt64 = 0
 
+  // Ob die Session fertig gebaut und veröffentlicht ist. Gesetzt am Ende von
+  // sessionSicherstellen, genommen beim Abbau und bei einem gescheiterten
+  // Aufbau. Solange es fehlt, lehnen die Einstiege von Main und vom JS-Thread
+  // ab (wechsleKamera) oder verpuffen still (Zoom, Fokus), statt halbgebauten
+  // Zustand zu lesen.
+  private static var _bereit = false
+
+  private static var bereit: Bool {
+    zustandLock.lock()
+    defer { zustandLock.unlock() }
+    return _bereit
+  }
+
   static var aktiveKamera: String {
     zustandLock.lock()
     defer { zustandLock.unlock() }
     return _aktiveKamera
+  }
+
+  // Das Gerät einer Ebene für Aufrufer AUSSERHALB der Session-Queue (Zoom vom
+  // JS-Thread, Fokus auf Main): unter dem Lock und nur bei fertiger Session —
+  // deren unbewachter Blick in `geraete` liefe sonst in die Mutation des
+  // Aufbaus. Die Session-Queue selbst liest weiterhin direkt.
+  private static func geraetFuer(_ name: String) -> AVCaptureDevice? {
+    zustandLock.lock()
+    defer { zustandLock.unlock() }
+    guard _bereit else { return nil }
+    return geraete[name]
+  }
+
+  // Die veröffentlichte Session für Blicke von ausserhalb der Session-Queue,
+  // nach derselben Regel wie geraetFuer.
+  private static func laufendeSession() -> AVCaptureMultiCamSession? {
+    zustandLock.lock()
+    defer { zustandLock.unlock() }
+    guard _bereit else { return nil }
+    return session
   }
 
   private static var blitzGewuenscht: Bool {
@@ -210,6 +248,17 @@ public class MultiKameraModule: Module {
     // Sichtbarkeit und Verteiler-Ziel. Auf Main, weil die Sichtbarkeit der
     // Preview-Ebenen dorthin gehört.
     AsyncFunction("wechsleKamera") { (promise: Promise) in
+      // Im Aufbau-Fenster (der Sucher nimmt Gesten sofort an, der erste
+      // Aufbau braucht 300-400 ms) gibt es nichts zu wechseln: ablehnen,
+      // statt eine Zielrichtung zu versprechen, die die Session nie
+      // angewandt hat — der Screen glaubte der Antwort und stünde danach
+      // dauerhaft verkehrt zur Session, jeder weitere Doppeltipp hielte die
+      // Vertauschung aufrecht. Die JS-Seite macht aus der Ablehnung ein
+      // null und rollt ihre optimistische Umstellung zurück.
+      guard Self.bereit else {
+        promise.reject("keine_session", "Die MultiCam-Session steht noch nicht")
+        return
+      }
       let ziel = Self.wechselZiel()
       Self.aktiveKameraSetzen(ziel)
       promise.resolve(ziel == "front" ? "front" : "back")
@@ -232,7 +281,7 @@ public class MultiKameraModule: Module {
     AsyncFunction("fokussiere") { (x: Double, y: Double) in
       let name = Self.aktiveKamera
       guard
-        let geraet = Self.geraete[name],
+        let geraet = Self.geraetFuer(name),
         let sucher = Self.sucher,
         let ebene = sucher.ebene(fuer: name)
       else {
@@ -293,7 +342,7 @@ public class MultiKameraModule: Module {
         promise.reject("laeuft_schon", "Es läuft bereits eine Aufnahme")
         return
       }
-      guard let session = Self.session, session.isRunning else {
+      guard let session = Self.laufendeSession(), session.isRunning else {
         promise.reject("keine_session", "Die MultiCam-Session läuft nicht")
         return
       }
@@ -392,7 +441,12 @@ public class MultiKameraModule: Module {
     guard gefunden["front"] != nil, gefunden["weit"] != nil else {
       throw MultiKameraFehler(grund: "Front- oder Weitwinkel-Kamera fehlt")
     }
+    // Unter dem Lock, obwohl wir auf der Session-Queue sind: geraetFuer liest
+    // dasselbe Feld von Main und vom JS-Thread unter genau diesem Lock, ein
+    // ungesperrtes Schreiben hier liefe an diesen Lesern vorbei.
+    zustandLock.lock()
     geraete = gefunden
+    zustandLock.unlock()
     verteiler = MultiKameraVerteiler()
 
     let neue = AVCaptureMultiCamSession()
@@ -404,9 +458,16 @@ public class MultiKameraModule: Module {
       zustandLeeren()
       throw error
     }
+    zustandLock.lock()
     session = neue
+    zustandLock.unlock()
     beobachterAnhaengen(neue)
     zustandAnwenden(aktiv: aktiveKamera)
+    // Erst jetzt, mit fertig committeter Session und angehängten Beobachtern,
+    // öffnet das bereit-Zeichen die Einstiege von Main und vom JS-Thread.
+    zustandLock.lock()
+    _bereit = true
+    zustandLock.unlock()
     return neue
   }
 
@@ -429,7 +490,9 @@ public class MultiKameraModule: Module {
         try anschliessen(ultraweit, an: session, als: "ultraweit")
       } catch {
         loesen("ultraweit", aus: session)
+        zustandLock.lock()
         geraete["ultraweit"] = nil
+        zustandLock.unlock()
       }
     }
 
@@ -744,12 +807,14 @@ public class MultiKameraModule: Module {
     var ziel = faktor
     // Ohne Ultraweitwinkel (Spec §9) und solange die Schutzschaltung ihn
     // abgeschaltet hat (Spec §8) fällt das Ziel still auf den Weitwinkel bei
-    // Faktor 1 zurück, also auf die 1x-Grenze.
-    if name == "ultraweit", geraete["ultraweit"] == nil || druckStufe != .nominal {
+    // Faktor 1 zurück, also auf die 1x-Grenze. geraetFuer statt des direkten
+    // Blicks in `geraete`: der Aufruf kommt vom JS-Thread (oder von der
+    // Druck-Schaltung auf der Session-Queue) und verpufft im Aufbau-Fenster.
+    if name == "ultraweit", geraetFuer("ultraweit") == nil || druckStufe != .nominal {
       name = "weit"
       ziel = 1.0
     }
-    guard let geraet = geraete[name] else { return }
+    guard let geraet = geraetFuer(name) else { return }
 
     // Zoomen über die 1x-Grenze wechselt die BACK-Ebene gleich mit. Zwischen
     // den Blickrichtungen wechselt nur der Doppeltipp: ein Zoom auf der
@@ -1095,8 +1160,13 @@ public class MultiKameraModule: Module {
         unterbrechungsEndeBeobachter = nil
       }
 
+      // Zeichen zuerst: ab hier antworten geraetFuer/laufendeSession mit nil,
+      // kein neuer Blick von Main oder JS trifft mehr in den Abbau hinein.
+      zustandLock.lock()
+      _bereit = false
       let alte = session
       session = nil
+      zustandLock.unlock()
       sollLaufen = false
       // stopRunning blockiert, bis die Ströme stehen: nach dem Anhalten kann
       // kein NEUER captureOutput-Aufruf mehr beginnen.
@@ -1135,7 +1205,6 @@ public class MultiKameraModule: Module {
   // Nur von der Session-Queue aus rufen (Aufbau-Fehlschlag und Abbau): leert
   // genau die Felder, die anderswo ohne Lock gelesen werden.
   private static func zustandLeeren() {
-    geraete = [:]
     inputs = [:]
     videoOutputs = [:]
     ausgabeNamen = [:]
@@ -1145,6 +1214,11 @@ public class MultiKameraModule: Module {
     audioOutput = nil
     verteiler = nil
     zustandLock.lock()
+    // Im Lock-Teil, weil geraetFuer dieses Feld von fremden Threads unter
+    // demselben Lock liest; das bereit-Zeichen fällt mit (der Abbau hat es
+    // schon genommen, der gescheiterte Aufbau kommt allein hierüber).
+    _bereit = false
+    geraete = [:]
     _aktiveKamera = "weit"
     _letzteBack = "weit"
     _druckStufe = .nominal

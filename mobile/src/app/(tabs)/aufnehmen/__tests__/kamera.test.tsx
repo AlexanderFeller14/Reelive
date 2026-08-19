@@ -2613,39 +2613,148 @@ test('der Doppeltipp wechselt auch während der gehaltenen Aufnahme', async () =
 });
 
 // Der Wechsel hat zwei Aufgaben, nicht eine: die Kamera tauschen UND den
-// nativen Zoom auf die neue Richtung nachziehen. Die Anzeige geht beim Wechsel
-// auf 1×, das Modul merkt sich zu jeder Richtung aber ihre zuletzt gewählte
-// Kamera samt stehendem Zoomfaktor. Ohne das Nachziehen stünde nach einem
-// Rundlauf (Back auf 0,5×, hinüber zur Front, zurück) in der Reihe 1× und im
-// Bild der Ultraweitwinkel, und der nächste Pinch spränge, weil er ab dem
-// angezeigten 1× rechnet. Im expo-camera-Zweig erledigt das zoomNachsetzen
-// über onAvailableLensesChanged.
-test('nach dem Wechsel zieht der Screen den nativen Zoom auf die neue Richtung nach', async () => {
+// nativen Zoom auf die neue Richtung nachziehen. Der Faktor gilt dabei JE
+// RICHTUNG weiter (Nutzer-Befund 2026-08-19): wer auf 0,5× filmt, kurz zur
+// Front wechselt und zurückkommt, will wieder seine 0,5× sehen — nicht 1×.
+// Das Nachziehen stellt die Session auf genau diesen gemerkten Stand; das
+// Modul merkt sich je Richtung nur die KAMERA, nicht die Anzeige.
+test('nach dem Wechsel gilt der gemerkte Faktor der neuen Richtung', async () => {
   await multiCamSucher();
   await fireEvent.press(screen.getByText('0,5×'));
   mockMultiKamera.zoomSetzen.mockClear();
 
-  // Hinüber zur Frontkamera.
+  // Hinüber zur Frontkamera: dort galt zuletzt der Startwert 1×.
   mockMultiKamera.wechsleKamera.mockResolvedValue('front');
   await tippen();
   await tippen();
   expect(mockMultiKamera.zoomSetzen).toHaveBeenLastCalledWith({ kamera: 'front', faktor: 1 }, false);
 
-  // Und zurück: nativ stünde die Rückseite sonst weiter auf dem
-  // Ultraweitwinkel, den der Rundlauf oben gewählt hatte.
+  // Und zurück: die Rückseite steht wieder auf ihren gemerkten 0,5× — als
+  // native Linse (Ultraweitwinkel auf dessen 1,0) UND in der Reihe.
   mockMultiKamera.wechsleKamera.mockResolvedValue('back');
   mockMultiKamera.zoomSetzen.mockClear();
   await tippen();
   await tippen();
-  expect(mockMultiKamera.zoomSetzen).toHaveBeenLastCalledWith({ kamera: 'weit', faktor: 1 }, false);
+  expect(mockMultiKamera.zoomSetzen).toHaveBeenLastCalledWith({ kamera: 'ultraweit', faktor: 1 }, false);
+  expect(screen.getByLabelText('Zoom 0,5×').props.accessibilityState.selected).toBe(true);
 
-  // Lehnt das Modul den Wechsel ab (oder gibt es keines), behält es seine
-  // bisherige Ansicht: dann gibt es auch nichts nachzuziehen.
+  // Lehnt das Modul den Wechsel ab (kein Modul, Aufbau-Fenster), hat nativ
+  // NICHTS gewechselt: die optimistisch umgestellte Ansicht rollt zurück,
+  // statt dauerhaft verkehrt zur Session zu stehen, und nachzuziehen gibt
+  // es nichts.
   mockMultiKamera.wechsleKamera.mockResolvedValue(null);
   mockMultiKamera.zoomSetzen.mockClear();
   await tippen();
   await tippen();
   expect(mockMultiKamera.zoomSetzen).not.toHaveBeenCalled();
+  expect(screen.getByLabelText('Zoom 0,5×').props.accessibilityState.selected).toBe(true);
+});
+
+// Der Sucher nimmt Gesten sofort an, der erste Session-Aufbau braucht
+// 300-400 ms: ein Doppeltipp in diesem Fenster wird nativ abgelehnt
+// (keine_session → null im Adapter), gewechselt hat dann NIEMAND. Der Screen
+// stellt die Richtung optimistisch um und muss sie bei dieser Antwort
+// zurückrollen — sonst stünde er dauerhaft verkehrt zur Session, und jeder
+// weitere Doppeltipp hielte die Vertauschung aufrecht (Final-Review
+// 2026-08-19, Important 1).
+test('ein Doppeltipp im Aufbau-Fenster rollt die Ansicht zur Session zurück', async () => {
+  await multiCamSucher();
+  mockMultiKamera.wechsleKamera.mockResolvedValue(null);
+  mockMultiKamera.zoomSetzen.mockClear();
+
+  await tippen();
+  await tippen();
+
+  // Die Rückseite blieb aktiv: ihre Stufen-Reihe steht wieder im Bild (die
+  // Front hätte keine), und nachzuziehen gab es nichts.
+  expect(screen.getByTestId('zoom-wahl')).toBeTruthy();
+  expect(mockMultiKamera.zoomSetzen).not.toHaveBeenCalled();
+});
+
+// Die Front hat eine einzige Linse, also keine Stufen-Reihe — zoomen kann die
+// MultiCam-Session sie trotzdem, digital über videoZoomFactor (Nutzer-Befund
+// 2026-08-19: «in der Innenkamera nicht zoomen»). Im expo-camera-Zweig bleibt
+// die Front bewusst ohne Zoom, dort führt der Weg nur übers virtuelle
+// Mehrfach-Gerät.
+test('die Frontkamera zoomt digital über den Pinch', async () => {
+  await multiCamSucher();
+  mockMultiKamera.wechsleKamera.mockResolvedValue('front');
+  await tippen();
+  await tippen();
+  mockMultiKamera.zoomSetzen.mockClear();
+
+  // Ohne Stufen-Reihe muss die Fläche die Zwei-Finger-Bewegung trotzdem
+  // ergreifen — das Gate hing bisher an der Reihe (zoomSichtbar).
+  const flaeche = sucherFlaeche() as unknown as {
+    props: { onMoveShouldSetResponder: (e: object) => boolean };
+  };
+  expect(
+    flaeche.props.onMoveShouldSetResponder({
+      nativeEvent: { touches: [{ pageX: 0, pageY: 0 }, { pageX: 0, pageY: 100 }] },
+    })
+  ).toBe(true);
+
+  // Die Finger stehen doppelt so weit auseinander: aus 1× wird 2×.
+  await pinch(100, 200);
+  expect(mockMultiKamera.zoomSetzen).toHaveBeenLastCalledWith({ kamera: 'front', faktor: 2 }, false);
+});
+
+// Der Zug-Zoom mitten in der Aufnahme, über den Wechsel hinweg (Nutzer-Befund
+// 2026-08-19: nach dem Doppeltipp liess sich gar nicht mehr zoomen). Der
+// Anker wird beim Wechsel auf die NEUE Richtung umgeschrieben — Faktor aus
+// dem Richtungs-Gedächtnis, Grenzen der neuen Kamera; vorher blieb er auf
+// den alten Grenzen stehen (Back→Front) oder fiel ganz weg (Front→Back, die
+// Front hat kein virtuelles Mehrfach-Gerät).
+test('der Zug-Zoom funktioniert nach dem Wechsel mitten in der Aufnahme weiter', async () => {
+  await multiCamSucher();
+
+  jest.useFakeTimers();
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressIn', {
+    nativeEvent: { pageX: 100, pageY: 600, identifier: 1 },
+  });
+  await act(async () => {
+    jest.advanceTimersByTime(600);
+  });
+  jest.useRealTimers();
+
+  // Doppeltipp des zweiten Fingers: hinüber zur Front.
+  mockMultiKamera.wechsleKamera.mockResolvedValue('front');
+  const flaeche = sucherFlaeche();
+  for (const id of [7, 8]) {
+    await act(async () => {
+      flaeche.props.onTouchStart({ nativeEvent: { identifier: id, pageX: 210, pageY: 380 } });
+    });
+    await act(async () => {
+      flaeche.props.onTouchEnd({ nativeEvent: { identifier: id, pageX: 211, pageY: 381 } });
+    });
+  }
+
+  // Der Zug zoomt jetzt die FRONT: voller Weg nach oben, geklemmt auf deren
+  // Gerätemaximum (zoomGrenzen-Mock: 120, Basis der Front ist 1). Der
+  // identifier ist der HALTENDE Finger vom pressIn — der Auslöser hört nur
+  // auf ihn.
+  mockMultiKamera.zoomSetzen.mockClear();
+  await fireEvent(screen.getByLabelText('Auslöser'), 'touchMove', {
+    nativeEvent: { pageX: 100, pageY: -1000, identifier: 1 },
+  });
+  expect(mockMultiKamera.zoomSetzen).toHaveBeenLastCalledWith({ kamera: 'front', faktor: 120 }, false);
+
+  // Zurück zur Rückseite: der Anker steht auf deren gemerktem 1×, und der
+  // volle Weg endet an DEREN Anzeige-Maximum (nativ 120 × Basis 0,5 = 60×).
+  mockMultiKamera.wechsleKamera.mockResolvedValue('back');
+  for (const id of [9, 10]) {
+    await act(async () => {
+      flaeche.props.onTouchStart({ nativeEvent: { identifier: id, pageX: 210, pageY: 380 } });
+    });
+    await act(async () => {
+      flaeche.props.onTouchEnd({ nativeEvent: { identifier: id, pageX: 211, pageY: 381 } });
+    });
+  }
+  mockMultiKamera.zoomSetzen.mockClear();
+  await fireEvent(screen.getByLabelText('Auslöser'), 'touchMove', {
+    nativeEvent: { pageX: 100, pageY: -1000, identifier: 1 },
+  });
+  expect(mockMultiKamera.zoomSetzen).toHaveBeenLastCalledWith({ kamera: 'weit', faktor: 60 }, false);
 });
 
 test('zoomSetzen geht als MultiCamZiel ans Modul', async () => {

@@ -38,6 +38,7 @@ import {
   nativerFaktor,
   zoomGeraet,
   zugFaktor,
+  type Linse,
 } from '@/features/kamera/zoom';
 import { cinema, motion, palette, radius, spacing, type } from '@/theme/tokens';
 import { useOberkante } from '@/theme/useOberkante';
@@ -194,6 +195,15 @@ function fehlerUnten(mitZoomReihe: boolean): number {
 
 function momenteText(anzahl: number): string {
   return `${anzahl} ${anzahl === 1 ? 'Moment' : 'Momente'}`;
+}
+
+// Ob unter diesen Linsen ein Ultraweitwinkel ist — als eigene Linse oder als
+// Bestandteil eines virtuellen Geräts. Daran entscheidet multiCamZiel, ob
+// 0,5× eine eigene Linse ist oder nur auf 1× klemmt. Als freie Funktion,
+// weil der Kamerawechsel sie für die NEUE Richtung braucht, bevor React die
+// abgeleiteten Werte der alten ersetzt hat.
+function hatUltraweitIn(linsen: Linse[]): boolean {
+  return linsen.some((l) => l.typ === 'ultraWide' || l.bestandteile.includes('ultraWide'));
 }
 
 // Kino gilt in diesem Tab NUR dem Sucher (DESIGN-LANGUAGE v2 §1: die feste
@@ -584,6 +594,11 @@ export default function AufnehmenScreen() {
   // Pinch-Geste brauchen ihn ausserhalb des Renderns, wo ein State-Wert noch
   // der alte wäre.
   const faktorRef = useRef(1);
+  // Der zuletzt gewählte Anzeige-Faktor JE BLICKRICHTUNG (Nutzer-Befund
+  // 2026-08-19): wer auf 0,5× filmt, kurz zur Front wechselt und zurückkommt,
+  // will wieder seine 0,5× sehen — nicht 1×. Geschrieben und gelesen wird nur
+  // beim Kamerawechsel (richtungAnwenden), dazwischen führt faktorRef.
+  const faktorJeRichtung = useRef<{ back: number; front: number }>({ back: 1, front: 1 });
   // Dieselben Werte wie `nimmtAuf` und `inVorschau`, ebenfalls nur synchron
   // lesbar: das Blur-Cleanup des MultiCam-Lebenszyklus (siehe unten) muss
   // ihren Stand im Moment des Blurs kennen, darf aber nicht an ihnen HÄNGEN:
@@ -856,25 +871,31 @@ export default function AufnehmenScreen() {
   // (siehe multiCamZiel in zoom.ts). Die Quelle sind dieselben ENUMERIERTEN
   // Linsen, aus denen auch die Stufen entstehen: aufzählen darf man das
   // virtuelle Gerät weiterhin, es soll nur nicht in der Session laufen.
-  const hatUltraweit = useMemo(
-    () => linsen.some((l) => l.typ === 'ultraWide' || l.bestandteile.includes('ultraWide')),
-    [linsen]
-  );
+  const hatUltraweit = useMemo(() => hatUltraweitIn(linsen), [linsen]);
+
+  // Die Basis der aktiven Blickrichtung: 0,5 auf einem Ultraweitwinkel-Gerät,
+  // sonst 1 — auch für die einlinsige Front, deren Anzeige und Gerätefaktor
+  // dasselbe sind (sie hat kein virtuelles Mehrfach-Gerät, `zoom` ist null).
+  const zoomBasis = zoom?.basis ?? 1;
 
   const zoomSetzen = useCallback(
     (neu: number, sanft: boolean) => {
-      if (!zoom) return;
-      faktorRef.current = neu;
-      setFaktor(neu);
       // Nur der SETZ-Weg wechselt: Stufen, Grenzen, Pinch und Zug rechnen in
       // beiden Zweigen dieselbe Anzeige aus. Die MultiCam-Session kennt aber
       // keine virtuelle Mehrfach-Kamera, sie führt die Linsen einzeln, der
       // Anzeige-Faktor wird darum in Linse plus deren eigenen Faktor
-      // übersetzt.
+      // übersetzt. Ein Stufen-Gerät braucht sie dafür nicht: die einlinsige
+      // Front zoomt digital (Nutzer-Befund 2026-08-19), multiCamZiel klemmt
+      // unter 1× selbst, und das Modul klemmt an den Gerätegrenzen.
       if (multiCam) {
+        faktorRef.current = neu;
+        setFaktor(neu);
         multiKamera.zoomSetzen(multiCamZiel(neu, richtung, hatUltraweit), sanft);
         return;
       }
+      if (!zoom) return;
+      faktorRef.current = neu;
+      setFaktor(neu);
       nativeZoom.setzeZoom(zoom.name, nativerFaktor(neu, zoom.basis), sanft);
     },
     [zoom, multiCam, richtung, hatUltraweit]
@@ -924,18 +945,34 @@ export default function AufnehmenScreen() {
     nativeZoom.setzeZoom(zoom.name, nativerFaktor(faktorRef.current, zoom.basis), false);
   }, [zoom, multiCam]);
 
-  // Die Grenzen des aktiven Formats, mit demselben Fallback, den bisher nur
-  // der Pinch kannte: kennt das Modul keine Grenzen, dient die oberste
-  // Stufe als Maximum. Von Pinch UND Zug-Zoom benutzt.
-  const zoomGrenzenAktuell = useCallback(() => {
-    if (!zoom) return null;
-    return (
-      nativeZoom.zoomGrenzen(zoom.name) ?? {
-        min: 1,
-        max: nativerFaktor(zoom.stufen[zoom.stufen.length - 1], zoom.basis),
-      }
-    );
-  }, [zoom]);
+  // Die Zoom-Grenzen einer Blickrichtung, in der Zählung des Geräts, mit
+  // demselben Fallback, den bisher nur der Pinch kannte: kennt das Modul
+  // keine Grenzen, dient die oberste Stufe als Maximum. Von Pinch UND
+  // Zug-Zoom benutzt. Richtungs-parametrisiert statt an den aktuellen
+  // Zustand gebunden: der Kamerawechsel braucht die Grenzen der NEUEN
+  // Richtung, bevor React die abgeleiteten Werte der alten ersetzt hat —
+  // genau daran starb der Zug-Zoom nach dem Wechsel mitten in der Aufnahme
+  // (Nutzer-Befund 2026-08-19: Front→Back verlor den Anker ganz, Back→Front
+  // behielt die falschen Grenzen).
+  //
+  // Eine Richtung ohne virtuelles Mehrfach-Gerät (jede Front) hat im
+  // expo-camera-Zweig keine Grenzen und damit keinen Zoom — dort führt der
+  // Weg nur über das virtuelle Gerät. Die MultiCam-Session zoomt sie
+  // dagegen digital, ihre Grenzen kommen von der Linse selbst.
+  const zoomGrenzenFuer = (r: 'back' | 'front') => {
+    const linsenDort = nativeZoom.linsen(r);
+    const geraet = zoomGeraet(linsenDort);
+    if (geraet) {
+      return (
+        nativeZoom.zoomGrenzen(geraet.name) ?? {
+          min: 1,
+          max: nativerFaktor(geraet.stufen[geraet.stufen.length - 1], geraet.basis),
+        }
+      );
+    }
+    if (!multiCam || linsenDort.length === 0) return null;
+    return nativeZoom.zoomGrenzen(linsenDort[0].name);
+  };
 
   // Läuft, sobald die Mehrfach-Kamera bekannt ist. Der Wechsel des GERÄTS
   // meldet sich dagegen von selbst, siehe onAvailableLensesChanged an der
@@ -1056,6 +1093,10 @@ export default function AufnehmenScreen() {
   // Aufnahme endete mitten im Zoomen. Ist sie dagegen gesperrt, ist die Hand
   // frei — dann bleibt der Zoom bedienbar, wie in der Kamera-App.
   const zoomBedienbar = !nimmtAuf || aufnahmeGesperrt;
+  // Zoomen können und Stufen zeigen sind zwei Fragen: die einlinsige Front
+  // hat keine Reihe, zoomt im MultiCam-Zweig aber digital — der Pinch muss
+  // dort greifen, obwohl keine Stufen im Bild stehen.
+  const zoomMoeglich = multiCam || zoom !== null;
   const zoomSichtbar = zoom !== null && zoomBedienbar;
 
   // Der Pinch, von Hand statt über einen Gesten-Erkenner: gebraucht wird der
@@ -1077,57 +1118,74 @@ export default function AufnehmenScreen() {
   // bleibt allein dem expo-camera-Weg.
   const wechselErlaubt = () => multiCam || !nimmtAuf || nativLaeuft.current;
 
+  // Stellt den Screen auf eine Blickrichtung um: merkt sich den Faktor der
+  // alten Richtung, stellt den gemerkten der neuen wieder her und verankert
+  // einen laufenden Zug-Zoom neu — Faktor aus dem Gedächtnis, Grenzen der
+  // neuen Kamera (vorher blieb der Anker auf den alten Grenzen stehen oder
+  // fiel beim Wechsel auf die geräte-lose Front ganz weg, und der Zug war
+  // für den Rest der Aufnahme tot). Im expo-camera-Zweig bleibt es beim
+  // Zurücksetzen auf 1×: expo stellt den Zoom beim Gerätewechsel selbst
+  // zurück, und die abgenommene Fallback-Mechanik (zoomNachsetzen über
+  // onAvailableLensesChanged) rechnet ab genau diesem Stand.
+  const richtungAnwenden = (von: 'back' | 'front', nach: 'back' | 'front') => {
+    faktorJeRichtung.current[von] = faktorRef.current;
+    const wieder = multiCam ? faktorJeRichtung.current[nach] : 1;
+    setRichtung(nach);
+    faktorRef.current = wieder;
+    setFaktor(wieder);
+    if (zugStart.current) {
+      const grenzen = zoomGrenzenFuer(nach);
+      zugStart.current = grenzen ? { faktor: wieder, grenzen } : null;
+    }
+  };
+
   const kameraWechseln = () => {
+    const alt = richtung;
+    const neu = alt === 'back' ? 'front' : 'back';
     if (multiCam) {
       // Kein Hardware-Umbau, kein Warten, und darum auch keine Blende: die
       // Session läuft weiter, das Modul legt nur die andere Verbindung auf
       // den Sucher. Auf die Antwort wartet der Screen nicht, die Richtung
       // stellt er sofort um, damit Stufen, Grenzen und Zoom-Ziel im selben
       // Bild zur neuen Kamera passen.
-      //
-      // Sobald die Antwort da ist, wird der NATIVE Zoom nachgezogen. Ohne das
-      // liefen Anzeige und Session auseinander: die Anzeige geht beim Wechsel
-      // auf 1×, das Modul merkt sich zu jeder Richtung aber ihre zuletzt
-      // gewählte Kamera samt stehendem Zoomfaktor. Nach einem Rundlauf (Back
-      // auf 0,5×, hinüber zur Front, zurück) stünde in der Reihe 1× und im
-      // Bild der Ultraweitwinkel, und der nächste Pinch spränge, weil er ab
-      // dem angezeigten 1× rechnet. Im expo-camera-Zweig erledigt genau das
-      // zoomNachsetzen über onAvailableLensesChanged; diese zweite Aufgabe
-      // des Wechsels fehlte hier. Der Ultraweitwinkel ist bei Anzeige 1× nie
-      // im Spiel, deshalb `false` statt `hatUltraweit`. Antwortet das Modul
-      // mit null (kein Modul, Wechsel abgelehnt), bleibt es bei seiner
-      // bisherigen Ansicht, und nachzuziehen gibt es nichts.
-      void multiKamera.wechsleKamera().then((neueRichtung) => {
-        if (!neueRichtung) return;
-        multiKamera.zoomSetzen(multiCamZiel(1, neueRichtung, false), false);
+      richtungAnwenden(alt, neu);
+      // Sobald die Antwort da ist, wird der NATIVE Zoom nachgezogen. Ohne
+      // das liefen Anzeige und Session auseinander: das Modul merkt sich je
+      // Richtung ihre zuletzt gewählte Kamera samt stehendem Zoomfaktor,
+      // der Screen ihren Anzeige-Faktor — erst das Nachziehen bringt beide
+      // auf denselben gemerkten Stand (im expo-camera-Zweig erledigt das
+      // zoomNachsetzen über onAvailableLensesChanged). Antwortet das Modul
+      // mit null (kein Modul, Aufbau-Fenster, Wechsel abgelehnt), hat nativ
+      // NICHTS gewechselt: die optimistische Umstellung rollt zurück, sonst
+      // stünde der Screen dauerhaft verkehrt zur Session, und jeder weitere
+      // Doppeltipp hielte die Vertauschung aufrecht (Final-Review
+      // 2026-08-19, Important 1).
+      void multiKamera.wechsleKamera().then((antwort) => {
+        const wirklich = antwort ?? alt;
+        if (wirklich !== neu) richtungAnwenden(neu, wirklich);
+        if (!antwort) return;
+        multiKamera.zoomSetzen(
+          multiCamZiel(faktorRef.current, antwort, hatUltraweitIn(nativeZoom.linsen(antwort))),
+          false
+        );
       });
-    } else {
-      setWechselLaeuft(true);
+      return;
     }
-    setRichtung((r) => (r === 'back' ? 'front' : 'back'));
-    // Die andere Seite hat andere Linsen — der Faktor der einen bedeutet auf
-    // der anderen etwas anderes, also zurück auf 1×.
-    faktorRef.current = 1;
-    setFaktor(1);
-    // Wechsel mitten in der GEHALTENEN Aufnahme: der Zug-Zoom rechnet
-    // relativ zum Aufnahmestart, und dieser Anker galt für die alte Kamera —
-    // neu verankern bei 1×. Die Grenzen der neuen Kamera kennt das Modul
-    // erst nach dem nativen Umbau; bis dahin klemmt der Zug schlimmstenfalls
-    // einen Augenblick an den alten.
-    if (zugStart.current) {
-      const grenzen = zoomGrenzenAktuell();
-      zugStart.current = grenzen ? { faktor: 1, grenzen } : null;
-    }
+    setWechselLaeuft(true);
+    richtungAnwenden(alt, neu);
   };
 
   // Der Zug-Zoom (Spec 2026-08-13 §7): Hochziehen ab Aufnahmestart zoomt
   // rein, zurück nach unten wieder raus. Hart gesetzt wie der Pinch — der
   // Zoom folgt dem Finger, nicht hinterher.
   const zoomZug = (hub: number) => {
+    // Der Anker existiert nur, wo es Grenzen gab (zoomGrenzenFuer) — die
+    // Frage «hat diese Richtung überhaupt Zoom?» ist damit schon beantwortet,
+    // auch für die geräte-lose Front im MultiCam-Zweig.
     const start = zugStart.current;
-    if (!zoom || !start) return;
+    if (!start) return;
     zoomSetzen(
-      zugFaktor(hub, start.faktor, start.grenzen, zoom.basis, {
+      zugFaktor(hub, start.faktor, start.grenzen, zoomBasis, {
         hoch: Dimensions.get('window').height * ZUG_WEG_HOCH_ANTEIL,
         runter: ZUG_WEG_RUNTER,
       }),
@@ -1167,25 +1225,24 @@ export default function AufnehmenScreen() {
     // ihn an sich, endete die Aufnahme.
     onStartShouldSetResponder: () => !nimmtAuf || aufnahmeGesperrt,
     onMoveShouldSetResponder: (e?: GestureResponderEvent) =>
-      zoomSichtbar && (e?.nativeEvent?.touches?.length ?? 0) >= 2,
+      zoomMoeglich && zoomBedienbar && (e?.nativeEvent?.touches?.length ?? 0) >= 2,
     onResponderGrant: (e?: GestureResponderEvent) => {
       tippStart.current = {
         pageX: e?.nativeEvent?.pageX ?? 0,
         pageY: e?.nativeEvent?.pageY ?? 0,
       };
       const abstand = fingerAbstand(e?.nativeEvent?.touches ?? []);
-      if (!zoom || abstand === null) return;
+      if (abstand === null) return;
       // Die Grenzen erst jetzt erfragen: sie hängen am aktiven Kameraformat
-      // und damit daran, ob gerade ein Foto oder ein Video ansteht.
-      pinchStart.current = {
-        abstand,
-        faktor: faktorRef.current,
-        grenzen: zoomGrenzenAktuell()!,
-      };
+      // und damit daran, ob gerade ein Foto oder ein Video ansteht. Ohne
+      // Grenzen (Front im expo-Zweig) gibt es keinen Anker und keinen Pinch.
+      const grenzen = zoomGrenzenFuer(richtung);
+      if (!grenzen) return;
+      pinchStart.current = { abstand, faktor: faktorRef.current, grenzen };
     },
     onResponderMove: (e?: GestureResponderEvent) => {
       const abstand = fingerAbstand(e?.nativeEvent?.touches ?? []);
-      if (!zoom || abstand === null) return;
+      if (abstand === null) return;
       // Am Gerät setzen zwei Finger fast nie im selben Ereignis auf: der
       // erste ergreift die Fläche allein (onResponderGrant sieht EINE
       // Berührung, kein Anker), der zweite kommt ein Ereignis später nach.
@@ -1194,18 +1251,16 @@ export default function AufnehmenScreen() {
       // nur, wenn beide Finger zufällig gleichzeitig landeten (Gerätefund
       // 2026-08-14, «erkennt den Zoom nur teilweise»).
       if (pinchStart.current === null) {
-        pinchStart.current = {
-          abstand,
-          faktor: faktorRef.current,
-          grenzen: zoomGrenzenAktuell()!,
-        };
+        const grenzen = zoomGrenzenFuer(richtung);
+        if (!grenzen) return;
+        pinchStart.current = { abstand, faktor: faktorRef.current, grenzen };
         return;
       }
       const start = pinchStart.current;
       if (start.abstand === 0) return;
       // Hart gesetzt, nicht sanft: der Zoom soll dem Finger folgen, nicht
       // hinterherfahren.
-      zoomSetzen(begrenzen((start.faktor * abstand) / start.abstand, start.grenzen, zoom.basis), false);
+      zoomSetzen(begrenzen((start.faktor * abstand) / start.abstand, start.grenzen, zoomBasis), false);
     },
     onResponderRelease: (e?: GestureResponderEvent) => {
       const warPinch = pinchStart.current !== null;
@@ -1383,8 +1438,9 @@ export default function AufnehmenScreen() {
     aufnahmeSperre.sperren(true);
     // Anker des Zug-Zooms: Faktor und Grenzen beim Aufnahmestart. Grenzen
     // erst jetzt erfragen, nicht beim Rendern — sie hängen am aktiven Format.
-    const grenzen = zoomGrenzenAktuell();
-    zugStart.current = zoom && grenzen ? { faktor: faktorRef.current, grenzen } : null;
+    // Ohne Grenzen (Front im expo-Zweig) gibt es keinen Zug.
+    const grenzen = zoomGrenzenFuer(richtung);
+    zugStart.current = grenzen ? { faktor: faktorRef.current, grenzen } : null;
     // Direkt starten statt über einen Effekt am Modus: die Session ist im
     // dauerhaften Video-Modus längst bereit, es gibt nichts zu committen.
     // Wiederholt wird trotzdem (siehe VIDEO_START_VERSUCHE oben) — und am
