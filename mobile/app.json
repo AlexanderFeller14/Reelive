@@ -8,7 +8,13 @@
     "scheme": "reelive",
     "userInterfaceStyle": "light",
     "ios": {
-      "bundleIdentifier": "com.reelive.app"
+      "bundleIdentifier": "com.reelive.app",
+      "infoPlist": {
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": true,
+          "NSAllowsLocalNetworking": true
+        }
+      }
     },
     "android": {
       "package": "com.reelive.app",
