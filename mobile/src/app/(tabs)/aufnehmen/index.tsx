@@ -1538,8 +1538,6 @@ export default function AufnehmenScreen() {
     const nativGestartet = nativStart.current ? await nativStart.current : false;
     nativStart.current = null;
     if (nativGestartet) {
-      // [dbg] Task-13-Messsonde, fliegt nach der Runde.
-      const tLoslassen = Date.now();
       // Gestoppt wird dort, wo gestartet wurde. Alles danach ist für beide
       // Pipelines dasselbe: die Datei, das Verwerfen und die Sofort-Vorschau
       // hängen nativ an derselben laufenden Aufnahme, egal welche Session sie
@@ -1547,7 +1545,6 @@ export default function AufnehmenScreen() {
       const ergebnis = await (multiCam
         ? multiKamera.aufnahmeStoppen()
         : nativeAufnahme.aufnahmeStoppen());
-      console.log('[dbg-stop] nativ gestoppt nach', Date.now() - tLoslassen, 'ms', ergebnis);
       setNimmtAuf(false);
       aufnahmeSperre.sperren(false);
       if (!ergebnis) {

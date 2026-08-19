@@ -173,6 +173,7 @@ export default function PreviewScreen() {
   // beim Erscheinen abgeholt; ohne Übergabe (Deep Link, gescheitertes
   // Vorwärmen) lädt der Hook darunter selbst über die uri.
   const [vorbereitet] = useState(() => (typ === 'video' ? uebergabe.videoAbholen() : null));
+
   // `vorbereiteterPlayer` ist NUR für die Player-Form gesetzt (Task 12: die
   // native Form hat ihr eigenes Verhalten, direkt an `vorbereitet?.art` in
   // Render, `absenden` und `verwerfen`). Ein art-bewusster Blick genügt hier,
@@ -361,6 +362,13 @@ export default function PreviewScreen() {
   //
   // canGoBack(): der Screen ist auch per Deep Link erreichbar, dann gibt es
   // nichts zurückzunehmen, nur DORT ist replace richtig.
+  // Auch der Rückweg ist ein Instant-Schnitt (Nutzer-Entscheid 2026-08-18:
+  // «man sollte instant zurück sein» — ein probierter 250-ms-Fade flog
+  // wieder raus). Was den Rückweg tatsächlich unsauber machte, war die
+  // Tab-Leiste, die unter der Vorschau kurz in die helle Form zurückfiel
+  // und beim Zurückkommen sichtbar umsprang; seit die Kino-Leiste am
+  // GEWÄHLTEN Tab hängt statt am Fokus, steht das Layout schon beim
+  // ersten Frame (kinoBuehne.ts / _layout.tsx).
   const zurueckZurKamera = () => {
     if (router.canGoBack()) router.back();
     else router.replace('/aufnehmen');
