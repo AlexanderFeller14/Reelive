@@ -1060,10 +1060,26 @@ export default function AufnehmenScreen() {
     if (multiCam) {
       // Kein Hardware-Umbau, kein Warten, und darum auch keine Blende: die
       // Session läuft weiter, das Modul legt nur die andere Verbindung auf
-      // den Sucher. Die Antwort wird nicht abgewartet, die Richtung stellt
-      // der Screen sofort um, damit Stufen, Grenzen und Zoom-Ziel im selben
+      // den Sucher. Auf die Antwort wartet der Screen nicht, die Richtung
+      // stellt er sofort um, damit Stufen, Grenzen und Zoom-Ziel im selben
       // Bild zur neuen Kamera passen.
-      void multiKamera.wechsleKamera();
+      //
+      // Sobald die Antwort da ist, wird der NATIVE Zoom nachgezogen. Ohne das
+      // liefen Anzeige und Session auseinander: die Anzeige geht beim Wechsel
+      // auf 1×, das Modul merkt sich zu jeder Richtung aber ihre zuletzt
+      // gewählte Kamera samt stehendem Zoomfaktor. Nach einem Rundlauf (Back
+      // auf 0,5×, hinüber zur Front, zurück) stünde in der Reihe 1× und im
+      // Bild der Ultraweitwinkel, und der nächste Pinch spränge, weil er ab
+      // dem angezeigten 1× rechnet. Im expo-camera-Zweig erledigt genau das
+      // zoomNachsetzen über onAvailableLensesChanged; diese zweite Aufgabe
+      // des Wechsels fehlte hier. Der Ultraweitwinkel ist bei Anzeige 1× nie
+      // im Spiel, deshalb `false` statt `hatUltraweit`. Antwortet das Modul
+      // mit null (kein Modul, Wechsel abgelehnt), bleibt es bei seiner
+      // bisherigen Ansicht, und nachzuziehen gibt es nichts.
+      void multiKamera.wechsleKamera().then((neueRichtung) => {
+        if (!neueRichtung) return;
+        multiKamera.zoomSetzen(multiCamZiel(1, neueRichtung, false), false);
+      });
     } else {
       setWechselLaeuft(true);
     }

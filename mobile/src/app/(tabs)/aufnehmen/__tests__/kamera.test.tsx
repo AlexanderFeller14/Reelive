@@ -2567,6 +2567,42 @@ test('der Doppeltipp wechselt auch während der gehaltenen Aufnahme', async () =
   expect(mockMultiKamera.wechsleKamera).toHaveBeenCalledTimes(1);
 });
 
+// Der Wechsel hat zwei Aufgaben, nicht eine: die Kamera tauschen UND den
+// nativen Zoom auf die neue Richtung nachziehen. Die Anzeige geht beim Wechsel
+// auf 1×, das Modul merkt sich zu jeder Richtung aber ihre zuletzt gewählte
+// Kamera samt stehendem Zoomfaktor. Ohne das Nachziehen stünde nach einem
+// Rundlauf (Back auf 0,5×, hinüber zur Front, zurück) in der Reihe 1× und im
+// Bild der Ultraweitwinkel, und der nächste Pinch spränge, weil er ab dem
+// angezeigten 1× rechnet. Im expo-camera-Zweig erledigt das zoomNachsetzen
+// über onAvailableLensesChanged.
+test('nach dem Wechsel zieht der Screen den nativen Zoom auf die neue Richtung nach', async () => {
+  await multiCamSucher();
+  await fireEvent.press(screen.getByText('0,5×'));
+  mockMultiKamera.zoomSetzen.mockClear();
+
+  // Hinüber zur Frontkamera.
+  mockMultiKamera.wechsleKamera.mockResolvedValue('front');
+  await tippen();
+  await tippen();
+  expect(mockMultiKamera.zoomSetzen).toHaveBeenLastCalledWith({ kamera: 'front', faktor: 1 }, false);
+
+  // Und zurück: nativ stünde die Rückseite sonst weiter auf dem
+  // Ultraweitwinkel, den der Rundlauf oben gewählt hatte.
+  mockMultiKamera.wechsleKamera.mockResolvedValue('back');
+  mockMultiKamera.zoomSetzen.mockClear();
+  await tippen();
+  await tippen();
+  expect(mockMultiKamera.zoomSetzen).toHaveBeenLastCalledWith({ kamera: 'weit', faktor: 1 }, false);
+
+  // Lehnt das Modul den Wechsel ab (oder gibt es keines), behält es seine
+  // bisherige Ansicht: dann gibt es auch nichts nachzuziehen.
+  mockMultiKamera.wechsleKamera.mockResolvedValue(null);
+  mockMultiKamera.zoomSetzen.mockClear();
+  await tippen();
+  await tippen();
+  expect(mockMultiKamera.zoomSetzen).not.toHaveBeenCalled();
+});
+
 test('zoomSetzen geht als MultiCamZiel ans Modul', async () => {
   await multiCamSucher();
 
@@ -2624,6 +2660,25 @@ test('ein Blur ohne Vorschau stoppt die Session', async () => {
   await fokusVerlieren();
 
   expect(mockMultiKamera.stoppen).toHaveBeenCalledTimes(1);
+});
+
+// Die zweite Hälfte derselben Bedingung: ein Tab-Wechsel mitten in der
+// Aufnahme (die Tab-Sperre lässt ihn nicht zu, ein Deep Link schon) darf die
+// Session nicht unter der laufenden Aufnahme wegziehen.
+test('ein Blur während laufender Aufnahme stoppt die Session nicht', async () => {
+  await multiCamSucher();
+
+  jest.useFakeTimers();
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressIn', { nativeEvent: { pageX: 100 } });
+  await act(async () => {
+    jest.advanceTimersByTime(600);
+  });
+  jest.useRealTimers();
+
+  // Kein Loslassen: die Aufnahme läuft noch, während der Fokus geht.
+  await fokusVerlieren();
+
+  expect(mockMultiKamera.stoppen).not.toHaveBeenCalled();
 });
 
 test('liegt die Vorschau über dem Tab, läuft die Session weiter', async () => {
