@@ -2805,3 +2805,32 @@ test('der Blitz leuchtet im MultiCam-Zweig während der Aufnahme und geht beim L
   });
   expect(mockMultiKamera.blitz).toHaveBeenLastCalledWith(false);
 });
+
+// Nagelt das Abhängigkeits-Array des Blitz-Effekts fest: die Lampe hängt an
+// einem Gerät, ein Wechsel mitten in der Aufnahme muss sie also neu setzen.
+// (Nativ führt das Modul den gewünschten Zustand beim Wechsel selbst nach, weil
+// dieser Aufruf hier das Rennen gegen die Main-Queue verlieren kann; der Effekt
+// bleibt die Doppelung, die den Wunsch überhaupt erst dorthin bringt.)
+test('ein Kamerawechsel während der Aufnahme setzt den Blitz neu', async () => {
+  await multiCamSucher();
+  await fireEvent.press(screen.getByLabelText('Blitz einschalten'));
+  await aufnahmeHalten();
+  expect(mockMultiKamera.blitz).toHaveBeenLastCalledWith(true);
+  mockMultiKamera.blitz.mockClear();
+
+  // Der Doppeltipp des zweiten Fingers wechselt auch während der gehaltenen
+  // Aufnahme (der Responder gehört dem Auslöser, siehe oben).
+  const flaeche = sucherFlaeche();
+  for (const id of [7, 8]) {
+    await act(async () => {
+      flaeche.props.onTouchStart({ nativeEvent: { identifier: id, pageX: 210, pageY: 380 } });
+    });
+    await act(async () => {
+      flaeche.props.onTouchEnd({ nativeEvent: { identifier: id, pageX: 211, pageY: 381 } });
+    });
+  }
+
+  expect(mockMultiKamera.wechsleKamera).toHaveBeenCalledTimes(1);
+  expect(mockMultiKamera.blitz).toHaveBeenCalled();
+  expect(mockMultiKamera.blitz).toHaveBeenLastCalledWith(true);
+});

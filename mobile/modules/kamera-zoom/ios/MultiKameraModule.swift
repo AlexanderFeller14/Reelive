@@ -82,11 +82,29 @@ public class MultiKameraModule: Module {
   private static var _aktiveKamera = "weit"
   private static var _letzteBack = "weit"
   private static var _druckStufe = Druckstufe.nominal
+  // Ob das Dauerlicht brennen SOLL. Der Wunsch wird getrennt vom Schalten
+  // gehalten, weil beide zu verschiedenen Zeiten und auf verschiedenen Queues
+  // eintreffen: der Wunsch kommt vom JS-Thread, die Lage der Kameras ändert
+  // sich vom Wechsel her (siehe blitzAnwenden).
+  private static var _blitzGewuenscht = false
 
   static var aktiveKamera: String {
     zustandLock.lock()
     defer { zustandLock.unlock() }
     return _aktiveKamera
+  }
+
+  private static var blitzGewuenscht: Bool {
+    get {
+      zustandLock.lock()
+      defer { zustandLock.unlock() }
+      return _blitzGewuenscht
+    }
+    set {
+      zustandLock.lock()
+      _blitzGewuenscht = newValue
+      zustandLock.unlock()
+    }
   }
 
   private static var druckStufe: Druckstufe {
@@ -282,11 +300,11 @@ public class MultiKameraModule: Module {
     }.runOnQueue(.main)
 
     // Das Dauerlicht fürs Video (im expo-camera-Zweig das Prop `enableTorch`).
-    // Synchron wie `zoomSetzen`, und wie dort auf dem aufrufenden Thread: der
-    // Zugriff ist ein `lockForConfiguration` auf einem Gerät, kein
-    // Session-Umbau.
+    // Synchron wie `zoomSetzen`: der Aufruf merkt nur den WUNSCH, geschaltet
+    // wird auf der Session-Queue (siehe blitzAnwenden).
     Function("blitz") { (an: Bool) in
-      Self.blitzSetzen(an)
+      Self.blitzGewuenscht = an
+      Self.blitzAnwenden()
     }
 
     View(MultiKameraSucherView.self) {
@@ -654,6 +672,11 @@ public class MultiKameraModule: Module {
     _aktiveKamera = name
     zustandLock.unlock()
     zustandAnwenden(aktiv: name)
+    // Das Dauerlicht zieht mit: es hängt an einem GERÄT, die neue Lage kennt
+    // aber erst dieser Moment. Ohne das Nachführen bliebe die Lampe nach einem
+    // Wechsel an der alten Ebene brennen (Front filmt, Rückseite leuchtet) oder
+    // nach dem Rückweg aus, bis jemand den Schalter erneut anfasst.
+    blitzAnwenden()
   }
 
   // Sichtbarkeit auf Main, Verbindungs-Schaltung auf der Session-Queue: beides
@@ -722,23 +745,50 @@ public class MultiKameraModule: Module {
   // Die LED sitzt physisch an der Rückseite, ihr Schalter hängt aber am
   // einzelnen Gerät. Eingeschaltet wird darum am AKTIVEN Back-Gerät; steht die
   // Front im Bild, gibt es nichts einzuschalten (das Licht fiele nach hinten
-  // weg), der Aufruf bleibt dort wirkungslos.
+  // weg), der Wunsch bleibt dann bloss gemerkt.
   //
   // Ausgeschaltet wird dagegen an ALLEN Back-Geräten: der Wechsel auf die Front
   // und der Übertritt über die 0,5-Grenze verschieben die aktive Kamera,
   // während das Licht noch am zuvor aktiven Gerät hängt. Ein Schalter, der nur
   // das jetzt aktive Gerät fände, liesse die Lampe brennen.
-  private static func blitzSetzen(_ an: Bool) {
-    let aktiv = aktiveKamera
-    let zuenden = an && aktiv != "front"
-    // Erst löschen, dann zünden: die Rückseiten-Geräte teilen sich EINE Lampe,
-    // ein nachlaufendes Ausschalten am inaktiven Gerät nähme dem aktiven sonst
-    // das Licht wieder weg (die Reihenfolge eines Dictionary steht nicht fest).
-    for (name, geraet) in geraete where name != "front" && !(zuenden && name == aktiv) {
-      torchSetzen(geraet, .off)
-    }
-    if zuenden, let geraet = geraete[aktiv] {
-      torchSetzen(geraet, .on)
+  //
+  // Warum das nicht am Aufruf aus JS hängen darf: `blitz` kommt synchron auf
+  // dem JS-Thread an, der Wechsel läuft auf Main (`wechsleKamera`) oder auf der
+  // Session-Queue (`druckAnwenden`). Der Screen-Effekt feuert nach dem
+  // React-Commit und kann hier ankommen, BEVOR `aktiveKameraSetzen` die neue
+  // Kamera eingetragen hat: Back zu Front sähe dann noch «weit» und liesse die
+  // Lampe brennen, während die Front filmt, Front zu Back sähe noch «front»
+  // und liesse sie aus, ohne dass je ein zweiter Auslöser käme. Deshalb hält
+  // das Modul den WUNSCH und führt ihn bei jedem Wechsel selbst nach
+  // (aktiveKameraSetzen, druckAnwenden).
+  //
+  // Gearbeitet wird auf der Session-Queue, dem Muster von `zustandAnwenden`
+  // folgend: dort werden `geraete` und der übrige Session-Zustand geschrieben,
+  // ein Zugriff von einem fremden Thread entfällt damit ganz. Anders als dort
+  // wird die aktive Kamera ERST IM BLOCK gelesen, nicht als Parameter
+  // hereingereicht: die Lampe hat keine eigene Reihenfolge, sie soll am Ende
+  // zur zuletzt eingetragenen Lage passen, und der zuletzt eingereihte Block
+  // sieht genau die. Jede Änderung (Wunsch wie Wechsel) reiht selbst einen
+  // Block ein, nachdem sie ihren Zustand geschrieben hat.
+  private static func blitzAnwenden() {
+    sessionQueue.async {
+      let aktiv = aktiveKamera
+      let zuenden = blitzGewuenscht && aktiv != "front"
+      // Feste Namensliste mit Subscript-Zugriff statt einer Iteration über das
+      // Dictionary: über `kameraNamen` läuft nichts, was `zustandLeeren`
+      // gleichzeitig umbauen könnte (dieselbe Regel wie im Kopf der Datei).
+      //
+      // Erst löschen, dann zünden: die Rückseiten-Geräte teilen sich EINE
+      // Lampe, ein nachlaufendes Ausschalten am inaktiven Gerät nähme dem
+      // aktiven sonst das Licht wieder weg.
+      for name in kameraNamen where name != "front" && !(zuenden && name == aktiv) {
+        if let geraet = geraete[name] {
+          torchSetzen(geraet, .off)
+        }
+      }
+      if zuenden, let geraet = geraete[aktiv] {
+        torchSetzen(geraet, .on)
+      }
     }
   }
 
@@ -807,6 +857,11 @@ public class MultiKameraModule: Module {
     if stufe != .nominal, aktiveKamera == "ultraweit" {
       aktiveKameraSetzen("weit")
       zoomSetzen(kamera: "weit", faktor: 1.0, sanft: false)
+      // Zweite Linie und ohne Kosten (torchSetzen schaltet nur bei echtem
+      // Unterschied): das Nachführen steckt schon in aktiveKameraSetzen, das
+      // aber an seinem Guard aussteigen kann. Dann hinge die Lampe weiter an
+      // der Ebene, die diese Stufe gerade abschaltet.
+      blitzAnwenden()
     }
     verbindungenAnwenden(aktiv: aktiveKamera)
     aufMain { instanz?.sendEvent("druckGeaendert", ["stufe": stufe.rawValue]) }
@@ -904,6 +959,9 @@ public class MultiKameraModule: Module {
     _aktiveKamera = "weit"
     _letzteBack = "weit"
     _druckStufe = .nominal
+    // Auch der Blitz-Wunsch beginnt neu: eine frisch aufgebaute Session soll
+    // nicht die Lampe einer längst beendeten Aufnahme erben.
+    _blitzGewuenscht = false
     zustandLock.unlock()
   }
 
