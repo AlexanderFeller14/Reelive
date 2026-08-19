@@ -25,7 +25,7 @@ import { Pille } from '@/components/Pille';
 import { Sheet } from '@/components/Sheet';
 import { Input } from '@/components/Input';
 import { cinema, motion, palette, radius, spacing, type } from '@/theme/tokens';
-import { useOberkante, useUnterkante } from '@/theme/useOberkante';
+import { useTopInset, useUnterkante } from '@/theme/useTopInset';
 import { useReducedMotion } from '@/theme/useReducedMotion';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { fetchTrip } from '@/features/trips/tripsApi';
@@ -388,7 +388,7 @@ export default function RecapPlayer() {
   // Der Player zeigt keinen Header und liegt randlos hinter Insel und
   // Home-Indicator. Die gestalteten 32 aus dem StyleSheet reichten am Geraet
   // nicht: die Fortschrittssegmente lagen unter der Dynamic Island.
-  const oberkante = useOberkante(spacing.xl);
+  const oberkante = useTopInset(spacing.xl);
   const unterkante = useUnterkante(spacing.xl);
   const { userId } = useAuth();
 

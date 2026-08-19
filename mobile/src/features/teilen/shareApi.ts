@@ -12,7 +12,7 @@
 // und für den GANZEN Screen zusätzlich statisch über den Modulgraph
 // (mobile/src/app/teilen/__tests__/modulgraph.test.ts), nicht nur behauptet.
 import { supabase } from '@/lib/supabase';
-import { OFFLINE_HINT, istOffline } from '@/lib/netzfehler';
+import { OFFLINE_HINT, istOffline } from '@/lib/networkError';
 
 export type GeteiltesMoment = {
   post_id: string;

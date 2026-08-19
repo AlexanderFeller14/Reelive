@@ -8,10 +8,10 @@ import { Button } from '@/components/Button';
 import { Pille } from '@/components/Pille';
 import { PressScale } from '@/components/PressScale';
 import { Sheet } from '@/components/Sheet';
-import { meldeFehler } from '@/lib/fehlermelder';
+import { reportError } from '@/lib/errorReporter';
 import { useTheme } from '@/theme/ThemeProvider';
 import { cinema, motion, radius, spacing, type } from '@/theme/tokens';
-import { useOberkante } from '@/theme/useOberkante';
+import { useTopInset } from '@/theme/useTopInset';
 import { useReducedMotion } from '@/theme/useReducedMotion';
 import { fetchRecapMomente } from '@/features/recap/recapApi';
 import { gruppiereNachTagen, sortiereMomente } from '@/features/recap/tage';
@@ -380,7 +380,7 @@ export default function RecapKarte() {
   // Screen-Rand 24 (DESIGN-LANGUAGE §3) als Basis, damit die Zurück-Pille
   // oben denselben Abstand hält wie links, auf Geräten mit Dynamic Island
   // schiebt useOberkante sie ohnehin darunter.
-  const oben = useOberkante(spacing.screen);
+  const oben = useTopInset(spacing.screen);
   const reducedMotion = useReducedMotion();
   const karte = useRef<KartenFlaecheHandle>(null);
   // Der letzte Zoom-Versuch auf eine Gruppe, die Grundlage dafür, ob ein
@@ -628,7 +628,7 @@ export default function RecapKarte() {
       // geht zusätzlich an den Fehlermelder (ohne DSN ein No-Op, siehe
       // lib/fehlermelder.ts), weil nur er die technische Ursache kennt.
       if (!meiner.gilt) return;
-      meldeFehler(wurf, { screen: 'recap/karte', tripId: id, ladeweg: 'momente' });
+      reportError(wurf, { screen: 'recap/karte', tripId: id, ladeweg: 'momente' });
       leereKarte();
       setLadestand({
         tripId: id,
@@ -709,7 +709,7 @@ export default function RecapKarte() {
         // Tag mit Nadeln» zu unterscheiden ist, von aussen sehen beide
         // gleich aus.
         if (error !== null) {
-          meldeFehler(new Error(error), { screen: 'recap/karte', tripId: id, ladeweg: 'reise' });
+          reportError(new Error(error), { screen: 'recap/karte', tripId: id, ladeweg: 'reise' });
         }
         setReiseStart(reise ? { tripId: id, startDate: reise.start_date } : null);
       })
@@ -720,7 +720,7 @@ export default function RecapKarte() {
         // Mit `ladeweg` wie der Wert-Pfad darüber: ohne ihn wäre ein
         // werfendes `fetchTrip` im Fehlermelder nicht von einem werfenden
         // `fetchRecapMomente` zu unterscheiden.
-        meldeFehler(fehler, { screen: 'recap/karte', tripId: id, ladeweg: 'reise' });
+        reportError(fehler, { screen: 'recap/karte', tripId: id, ladeweg: 'reise' });
         setReiseStart(null);
       });
     return () => {

@@ -12,7 +12,7 @@ import { RevealInszenierung } from '@/components/RevealInszenierung';
 import { Sheet, SHEET_SCROLL_ANTEIL } from '@/components/Sheet';
 import { useTheme } from '@/theme/ThemeProvider';
 import { radius, spacing, type } from '@/theme/tokens';
-import { useOberkante } from '@/theme/useOberkante';
+import { useTopInset } from '@/theme/useTopInset';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { deleteTrip, fetchMembers, fetchTrip, removeMember } from '@/features/trips/tripsApi';
 import { formatRange, heutigerKalendertag, tripDay, tripLength } from '@/features/trips/tripDay';
@@ -165,7 +165,7 @@ export default function ReiseDetail() {
   const router = useRouter();
   // Kein Header ueber diesem Screen: der Scroll-Inhalt begann bei den
   // gestalteten 24 und lag damit hinter Statusleiste und Insel.
-  const oberkante = useOberkante(spacing.screen);
+  const oberkante = useTopInset(spacing.screen);
   // Deckelt die Mitreisenden-Liste im Sheet. Ohne Grenze wüchse sie bis an den
   // 85-%-Deckel des Panels und verlöre ihre letzten Zeilen ersatzlos, bei
   // einer grossen Reise ausgerechnet die zuletzt Beigetretenen (siehe

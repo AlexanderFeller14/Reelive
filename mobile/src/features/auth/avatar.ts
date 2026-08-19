@@ -1,5 +1,5 @@
 import * as Crypto from 'expo-crypto';
-import { supabaseBasis } from '@/lib/supabaseAdresse';
+import { supabaseBaseUrl } from '@/lib/supabaseUrl';
 
 // Der Bucket heisst lokal und produktiv gleich (angelegt in
 // 20260812130000_avatar_bild.sql, deklariert in supabase/config.toml), deshalb
@@ -28,7 +28,7 @@ export function neuerAvatarSchluessel(userId: string): string {
 // Function gibt nur den Schlüssel heraus, nie eine fertige URL.
 export function avatarUrl(avatarKey: string | null | undefined): string | null {
   if (!avatarKey) return null;
-  const basis = supabaseBasis;
+  const basis = supabaseBaseUrl;
   if (!basis) return null;
   return `${basis}/storage/v1/object/public/${AVATAR_BUCKET}/${avatarKey}`;
 }

@@ -1,7 +1,7 @@
 import { File } from 'expo-file-system';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import { supabase } from '@/lib/supabase';
-import { supabaseBasis } from '@/lib/supabaseAdresse';
+import { supabaseBaseUrl } from '@/lib/supabaseUrl';
 import { AVATAR_BUCKET, neuerAvatarSchluessel } from './avatar';
 import type { Ausschnitt } from './zuschnitt';
 
@@ -92,7 +92,7 @@ async function hochladen(schluessel: string, uri: string): Promise<void> {
   const { data } = await supabase.auth.getSession();
   const token = data.session?.access_token;
   if (!token) throw new Error('Nicht angemeldet.');
-  const basis = supabaseBasis;
+  const basis = supabaseBaseUrl;
   if (!basis) throw new Error('Supabase-URL fehlt.');
 
   const antwort = await new File(uri).upload(

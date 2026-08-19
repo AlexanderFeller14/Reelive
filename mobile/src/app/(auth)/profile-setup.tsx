@@ -6,7 +6,7 @@ import { Input } from '@/components/Input';
 import { Sheet } from '@/components/Sheet';
 import { useTheme } from '@/theme/ThemeProvider';
 import { spacing, type } from '@/theme/tokens';
-import { useOberkante } from '@/theme/useOberkante';
+import { useTopInset } from '@/theme/useTopInset';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { AvatarZuschnitt } from '@/components/AvatarZuschnitt';
 import { setzeAvatar } from '@/features/auth/avatarApi';
@@ -15,7 +15,7 @@ import { createProfile, validateDisplayName, validateUsername } from '@/features
 
 export default function ProfileSetupScreen() {
   const { colors } = useTheme();
-  const oben = useOberkante(spacing.xxl);
+  const oben = useTopInset(spacing.xxl);
   const { userId, refreshProfile } = useAuth();
   const [username, setUsername] = useState('');
   const [displayName, setDisplayName] = useState('');

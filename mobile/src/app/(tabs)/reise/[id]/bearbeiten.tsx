@@ -6,14 +6,14 @@ import { Input } from '@/components/Input';
 import { Zeitraumfeld } from '@/components/Zeitraumfeld';
 import { useTheme } from '@/theme/ThemeProvider';
 import { spacing, type } from '@/theme/tokens';
-import { useOberkante } from '@/theme/useOberkante';
+import { useTopInset } from '@/theme/useTopInset';
 import { fetchTrip, updateTrip } from '@/features/trips/tripsApi';
 import { validateDateRange } from '@/features/trips/tripDay';
 import type { Auswahl } from '@/features/trips/kalender';
 
 export default function ReiseBearbeiten() {
   const { colors } = useTheme();
-  const oben = useOberkante(spacing.xxl);
+  const oben = useTopInset(spacing.xxl);
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
   const [name, setName] = useState('');

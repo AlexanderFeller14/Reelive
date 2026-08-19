@@ -5,13 +5,13 @@ import QRCode from 'react-native-qrcode-svg';
 import { Button } from '@/components/Button';
 import { useTheme } from '@/theme/ThemeProvider';
 import { palette, radius, spacing, type } from '@/theme/tokens';
-import { useOberkante } from '@/theme/useOberkante';
+import { useTopInset } from '@/theme/useTopInset';
 import { fetchInviteCode } from '@/features/trips/tripsApi';
 import { createInviteUrl } from '@/features/trips/inviteLink';
 
 export default function Einladen() {
   const { colors } = useTheme();
-  const oben = useOberkante(spacing.xxl);
+  const oben = useTopInset(spacing.xxl);
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
   const [url, setUrl] = useState<string | null>(null);

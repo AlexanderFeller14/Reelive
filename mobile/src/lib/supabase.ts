@@ -1,10 +1,10 @@
 import { createClient } from '@supabase/supabase-js';
 import { secureSessionStorage } from './secureSessionStorage';
-import { supabaseBasis } from './supabaseAdresse';
+import { supabaseBaseUrl } from './supabaseUrl';
 
 // Nicht direkt aus der Umgebung: in der Entwicklung gilt der Rechner, von dem
 // das Bundle kam, weil die LAN-IP in der .env veraltet sein kann (siehe dort).
-const url = supabaseBasis;
+const url = supabaseBaseUrl;
 const anonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
 
 if (!url || !anonKey) {

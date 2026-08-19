@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabase';
-import { OFFLINE_HINT, istOffline } from '@/lib/netzfehler';
+import { OFFLINE_HINT, istOffline } from '@/lib/networkError';
 import { sortiereMomente } from './tage';
 import type { RecapMoment } from './types';
 

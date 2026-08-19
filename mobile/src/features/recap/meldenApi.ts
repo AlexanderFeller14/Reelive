@@ -21,7 +21,7 @@
 //                             automatisch mit, ohne dass diese Datei sie
 //                             separat quittieren müsste.
 import { supabase } from '@/lib/supabase';
-import { OFFLINE_HINT, istOffline } from '@/lib/netzfehler';
+import { OFFLINE_HINT, istOffline } from '@/lib/networkError';
 
 type Gelesen<T> = { data: T; error: string | null };
 

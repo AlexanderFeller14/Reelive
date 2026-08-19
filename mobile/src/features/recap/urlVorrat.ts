@@ -11,7 +11,7 @@
 // FunctionsHttpError mit deutschem Klartext im JSON-Body, oder als
 // Netzwerkfehler, der über istOffline erkannt wird.
 import { supabase } from '@/lib/supabase';
-import { OFFLINE_HINT, istOffline } from '@/lib/netzfehler';
+import { OFFLINE_HINT, istOffline } from '@/lib/networkError';
 
 export type MedienUrl = { post_id: string; medium_url: string; thumb_url: string | null };
 // ausgelassen: Anzahl Momente, für die es keine URL gab, Task 11 zeigt

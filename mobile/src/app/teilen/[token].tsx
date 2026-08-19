@@ -19,7 +19,7 @@ import { Pille } from '@/components/Pille';
 import { Sheet } from '@/components/Sheet';
 import { useTheme } from '@/theme/ThemeProvider';
 import { cinema, motion, radius, spacing, type } from '@/theme/tokens';
-import { useOberkante } from '@/theme/useOberkante';
+import { useTopInset } from '@/theme/useTopInset';
 import { useReducedMotion } from '@/theme/useReducedMotion';
 import { loeseTokenAuf, LINK_TOT_TEXT, type GeteiltesMoment } from '@/features/teilen/shareApi';
 import { sortiereMomente } from '@/features/recap/tage';
@@ -456,7 +456,7 @@ export default function GeteilterRecapScreen() {
   // als erstes die Dynamic Island. `spacing.xl` war der bisherige feste
   // Abstand des Player-Kopfs; `useOberkante` lässt ihn stehen, wo er reicht,
   // und weicht nur dort aus, wo das Gerät mehr wegnimmt.
-  const oben = useOberkante(spacing.xl);
+  const oben = useTopInset(spacing.xl);
   const karte = useRef<KartenFlaecheHandle>(null);
   // Der letzte Zoom-Versuch auf eine Gruppe, die Grundlage dafür, ob ein
   // weiterer noch etwas ausrichtet (features/karte/gruppenTipp.ts). Ein Ref

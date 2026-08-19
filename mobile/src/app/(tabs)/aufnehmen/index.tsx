@@ -41,7 +41,7 @@ import {
   type Linse,
 } from '@/features/kamera/zoom';
 import { cinema, motion, palette, radius, spacing, type } from '@/theme/tokens';
-import { useOberkante } from '@/theme/useOberkante';
+import { useTopInset } from '@/theme/useTopInset';
 import { useReducedMotion } from '@/theme/useReducedMotion';
 import { fetchTrips } from '@/features/trips/tripsApi';
 import * as tripsCache from '@/features/trips/tripsCache';
@@ -463,7 +463,7 @@ function ReiseWahlScreen({ reisen, onWahl }: { reisen: GemerkteReise[]; onWahl: 
   // Kamerabild (§3, «Fotos randlos in Medien-Screens»), nicht die Bedienung,
   // die darauf liegt. Solange hier «der Sucher hat oben nichts zu schonen»
   // stand, klebte die Reise-Pille auf Geräten mit Dynamic Island an der Uhr.
-  const oben = useOberkante(spacing.xl);
+  const oben = useTopInset(spacing.xl);
   return (
     <View style={styles.hell}>
       <ScrollView contentContainerStyle={[styles.wahlInhalt, { paddingTop: oben }]}>
@@ -857,7 +857,7 @@ export default function AufnehmenScreen() {
   // Steht bei den Hooks, weil die frühen Returns weiter unten dazwischenliegen.
   // Was oben auf dem Sucher liegt, schont dieselbe Oberkante wie jeder andere
   // Screen: randlos ist das Kamerabild, nicht die Pille darauf.
-  const sucherOben = useOberkante(spacing.xl);
+  const sucherOben = useTopInset(spacing.xl);
 
   // ——— Zoom (Spec 2026-08-12-kamera-zoom-design.md) ———
   //

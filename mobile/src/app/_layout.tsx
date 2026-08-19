@@ -27,7 +27,7 @@ import { redeemPendingInvite } from '@/features/trips/joinFlow';
 import * as uploadWorker from '@/features/moments/uploadWorker';
 import { registrierePushToken } from '@/features/push/pushApi';
 import { benachrichtigungenAktiv } from '@/features/push/einstellungen';
-import { initFehlermelder } from '@/lib/fehlermelder';
+import { initErrorReporter } from '@/lib/errorReporter';
 
 void SplashScreen.preventAutoHideAsync();
 
@@ -36,7 +36,7 @@ void SplashScreen.preventAutoHideAsync();
 // ersten Render liefe. Blockiert den Start nicht: initFehlermelder() ist
 // synchron und ohne DSN (Alltag, siehe fehlermelder.ts) ein reiner
 // No-Op-Return, kein I/O.
-initFehlermelder();
+initErrorReporter();
 
 // Web-Hartsperre (siehe istWebGesperrt in guard.ts für die volle Begründung):
 // «Reelive gibt es als App», freundlich, mit dem Wortzug-Platzhalter

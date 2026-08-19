@@ -43,9 +43,9 @@ jest.mock('@/features/recap/urlVorrat', () => ({
 // Ab Task 10 im Spiel: der Ladeweg der Reise gibt seinen Fehler als WERT
 // zurück und hat ihn bisher fallen lassen. Sichtbar wird er auf diesem Screen
 // nicht (der Filter ist Beiwerk, siehe karte.tsx), dass er den Fehlermelder
-// erreicht, ist deshalb die einzige prüfbare Spur. Ohne DSN ist `meldeFehler`
-// ein No-Op (lib/fehlermelder.ts), ein Spion muss also her.
-jest.mock('@/lib/fehlermelder', () => ({ meldeFehler: jest.fn() }));
+// erreicht, ist deshalb die einzige prüfbare Spur. Ohne DSN ist `reportError`
+// ein No-Op (lib/errorReporter.ts), ein Spion muss also her.
+jest.mock('@/lib/errorReporter', () => ({ reportError: jest.fn() }));
 // Ab Task 9 im Spiel: der Tagesfilter braucht `trips.start_date`, weil die
 // Tagesnummern ab DEM zählen (tage.ts), dieselbe Quelle wie in uebersicht.tsx
 // und player.tsx. Ohne den Mock ginge die Abfrage an den echten Supabase-Client.
@@ -131,7 +131,7 @@ import RecapKarte from '../[id]/karte';
 import { SHEET_SCROLL_ANTEIL } from '@/components/Sheet';
 import { fetchRecapMomente } from '@/features/recap/recapApi';
 import { holeVorrat } from '@/features/recap/urlVorrat';
-import { meldeFehler } from '@/lib/fehlermelder';
+import { reportError } from '@/lib/errorReporter';
 import { fetchTrip } from '@/features/trips/tripsApi';
 import { zuKartenPunkten } from '@/features/karte/kartenPunkte';
 import type { Trip } from '@/features/trips/types';
@@ -2202,7 +2202,7 @@ test('faellt die Reise-Abfrage aus, hinterlaesst sie wenigstens eine Spur', asyn
   await wrap();
   await screen.findAllByTestId(/^karte-nadel/);
 
-  expect(meldeFehler).toHaveBeenCalledWith(
+  expect(reportError).toHaveBeenCalledWith(
     expect.objectContaining({ message: 'Diese Reise konnte nicht geladen werden.' }),
     { screen: 'recap/karte', tripId: 't1', ladeweg: 'reise' }
   );
@@ -2212,7 +2212,7 @@ test('eine geglueckte Reise-Abfrage meldet nichts', async () => {
   ladeErfolg(MIT_TAGEN, VORRAT_TAGE);
   await wrap();
   await screen.findByTestId('karte-tagesfilter');
-  expect(meldeFehler).not.toHaveBeenCalled();
+  expect(reportError).not.toHaveBeenCalled();
 });
 
 // Die Nummernlücke: OHNE_ORT_DAZWISCHEN hat an Tag 2 nur Momente ohne Ort.

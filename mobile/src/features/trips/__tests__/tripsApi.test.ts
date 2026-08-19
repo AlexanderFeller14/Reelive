@@ -17,7 +17,7 @@ import {
   createTrip, updateTrip, deleteTrip, removeMember,
   redeemInvite, peekInvite, eigeneZaehler,
 } from '../tripsApi';
-import { OFFLINE_HINT } from '@/lib/netzfehler';
+import { OFFLINE_HINT } from '@/lib/networkError';
 
 beforeEach(() => jest.clearAllMocks());
 

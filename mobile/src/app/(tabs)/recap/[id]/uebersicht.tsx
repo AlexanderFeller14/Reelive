@@ -13,7 +13,7 @@ import { SiegelAbziehen } from '@/components/SiegelAbziehen';
 import { useTheme } from '@/theme/ThemeProvider';
 import { useReducedMotion } from '@/theme/useReducedMotion';
 import { motion, radius, spacing, type } from '@/theme/tokens';
-import { useOberkante } from '@/theme/useOberkante';
+import { useTopInset } from '@/theme/useTopInset';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { fetchTrip } from '@/features/trips/tripsApi';
 import type { Trip } from '@/features/trips/types';
@@ -125,7 +125,7 @@ function SkelettBlock({ style }: { style: object }) {
 
 function SkelettScreen() {
   const { colors } = useTheme();
-  const oben = useOberkante(spacing.xl);
+  const oben = useTopInset(spacing.xl);
   return (
     <View testID="recap-skeleton" style={{ flex: 1, backgroundColor: colors['bg-0'] }}>
       <View style={[styles.inhalt, { paddingTop: oben }]}>
@@ -238,7 +238,7 @@ function ExportSheetInhalt({
 
 export default function RecapUebersicht() {
   const { colors } = useTheme();
-  const oben = useOberkante(spacing.xl);
+  const oben = useTopInset(spacing.xl);
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { userId } = useAuth();

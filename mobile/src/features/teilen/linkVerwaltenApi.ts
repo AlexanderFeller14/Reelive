@@ -22,7 +22,7 @@
 // sondern die einzige Option, die die bestehende W4-Zusicherung nicht
 // aufweicht.
 import { supabase } from '@/lib/supabase';
-import { OFFLINE_HINT, istOffline } from '@/lib/netzfehler';
+import { OFFLINE_HINT, istOffline } from '@/lib/networkError';
 
 type Gelesen<T> = { data: T; error: string | null };
 

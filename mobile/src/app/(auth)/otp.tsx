@@ -5,12 +5,12 @@ import { Button } from '@/components/Button';
 import { Input } from '@/components/Input';
 import { useTheme } from '@/theme/ThemeProvider';
 import { spacing, type } from '@/theme/tokens';
-import { useOberkante } from '@/theme/useOberkante';
+import { useTopInset } from '@/theme/useTopInset';
 import { requestOtp, verifyOtp } from '@/features/auth/authApi';
 
 export default function OtpScreen() {
   const { colors } = useTheme();
-  const oben = useOberkante(spacing.xxl);
+  const oben = useTopInset(spacing.xxl);
   const { phone } = useLocalSearchParams<{ phone: string }>();
   const [code, setCode] = useState('');
   const [error, setError] = useState<string | undefined>();

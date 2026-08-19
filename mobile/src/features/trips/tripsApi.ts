@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabase';
-import { OFFLINE_HINT, istOffline } from '@/lib/netzfehler';
+import { OFFLINE_HINT, istOffline } from '@/lib/networkError';
 import type { Gesicht } from '@/components/Avatar';
 import type { InvitePreview, RedeemResult, Trip, TripMember } from './types';
 

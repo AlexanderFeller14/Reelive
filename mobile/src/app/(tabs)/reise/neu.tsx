@@ -6,7 +6,7 @@ import { Input } from '@/components/Input';
 import { Zeitraumfeld } from '@/components/Zeitraumfeld';
 import { useTheme } from '@/theme/ThemeProvider';
 import { spacing, type } from '@/theme/tokens';
-import { useOberkante } from '@/theme/useOberkante';
+import { useTopInset } from '@/theme/useTopInset';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { createTrip } from '@/features/trips/tripsApi';
 import { validateDateRange } from '@/features/trips/tripDay';
@@ -14,7 +14,7 @@ import type { Auswahl } from '@/features/trips/kalender';
 
 export default function NeueReise() {
   const { colors } = useTheme();
-  const oben = useOberkante(spacing.xxl);
+  const oben = useTopInset(spacing.xxl);
   const router = useRouter();
   const { userId } = useAuth();
   const [name, setName] = useState('');

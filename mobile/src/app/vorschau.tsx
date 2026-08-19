@@ -23,7 +23,7 @@ import { MemorySubmissionAnimation } from '@/components/MemorySubmissionAnimatio
 import { Pille } from '@/components/Pille';
 import { PressScale } from '@/components/PressScale';
 import { cinema, palette, radius, spacing, type } from '@/theme/tokens';
-import { useOberkante } from '@/theme/useOberkante';
+import { useTopInset } from '@/theme/useTopInset';
 import * as medien from '@/features/moments/medien';
 import * as ortUndZeit from '@/features/moments/ortUndZeit';
 import * as uebergabe from '@/features/kamera/uebergabe';
@@ -114,7 +114,7 @@ export default function PreviewScreen() {
   // der Einsenden-Knopf unten auf dem Home-Indicator. Die drei unteren Ebenen
   // (Fuss, Fehler, Bildunterschrift) stehen in festen Abstaenden zueinander
   // und muessen deshalb GEMEINSAM ausweichen, sonst ueberlappen sie.
-  const oberkante = useOberkante(spacing.xl);
+  const oberkante = useTopInset(spacing.xl);
   // Der Fuss steht bewusst näher am Rand als useUnterkante() vorgibt: Auf
   // diesem Screen trägt er nur EINEN Knopf, und der gehört in Daumenreichweite
   // ans untere Ende. `insets.bottom` heisst «direkt über dem Home-Indicator»,

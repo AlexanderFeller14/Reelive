@@ -11,7 +11,7 @@ import { PressScale } from '@/components/PressScale';
 import { Sheet } from '@/components/Sheet';
 import { useTheme } from '@/theme/ThemeProvider';
 import { motion, radius, spacing, type } from '@/theme/tokens';
-import { useOberkante } from '@/theme/useOberkante';
+import { useTopInset } from '@/theme/useTopInset';
 import { useReducedMotion } from '@/theme/useReducedMotion';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { AvatarZuschnitt } from '@/components/AvatarZuschnitt';
@@ -74,7 +74,7 @@ export default function ProfilScreen() {
   // nimmt das Maximum aus Basis und Systembereich, und der ist auf Geräten mit
   // Insel ohnehin schon grösser (59 + 16), eine Basis von 48 statt 32 bliebe dort
   // also wirkungslos.
-  const oben = useOberkante(spacing.xl) + spacing.l;
+  const oben = useTopInset(spacing.xl) + spacing.l;
   const { userId } = useAuth();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [nurWlan, setNurWlan] = useState(false);

@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabase';
-import { OFFLINE_HINT, istOffline } from '@/lib/netzfehler';
+import { OFFLINE_HINT, istOffline } from '@/lib/networkError';
 import { deregistrierePushToken } from '@/features/push/pushApi';
 
 export async function requestOtp(phone: string): Promise<{ error: string | null }> {

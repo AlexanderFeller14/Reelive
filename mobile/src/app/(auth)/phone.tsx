@@ -5,13 +5,13 @@ import { Button } from '@/components/Button';
 import { Input } from '@/components/Input';
 import { useTheme } from '@/theme/ThemeProvider';
 import { spacing, type } from '@/theme/tokens';
-import { useOberkante } from '@/theme/useOberkante';
+import { useTopInset } from '@/theme/useTopInset';
 import { normalizePhone } from '@/features/auth/phone';
 import { requestOtp } from '@/features/auth/authApi';
 
 export default function PhoneScreen() {
   const { colors } = useTheme();
-  const oben = useOberkante(spacing.xxl);
+  const oben = useTopInset(spacing.xxl);
   const router = useRouter();
   const [input, setInput] = useState('');
   const [error, setError] = useState<string | undefined>();

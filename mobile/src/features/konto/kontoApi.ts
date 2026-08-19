@@ -5,7 +5,7 @@
 // kommen entweder als FunctionsHttpError mit deutschem Klartext im
 // JSON-Body, oder als Netzwerkfehler, der über istOffline erkannt wird.
 import { supabase } from '@/lib/supabase';
-import { OFFLINE_HINT, istOffline } from '@/lib/netzfehler';
+import { OFFLINE_HINT, istOffline } from '@/lib/networkError';
 
 type Gelesen<T> = { data: T; error: string | null };
 

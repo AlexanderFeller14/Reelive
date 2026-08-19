@@ -5,7 +5,7 @@
 // urlVorrat.ts: `Gelesen<T>` lokal (nicht exportiert, siehe dortiger
 // Kommentar), Fehler als deutsche Klartexte über `meldung()`.
 import { supabase } from '@/lib/supabase';
-import { OFFLINE_HINT, istOffline } from '@/lib/netzfehler';
+import { OFFLINE_HINT, istOffline } from '@/lib/networkError';
 import type { Kommentar, Reaktion } from './types';
 
 type Gelesen<T> = { data: T; error: string | null };
