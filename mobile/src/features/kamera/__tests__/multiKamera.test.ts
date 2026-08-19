@@ -12,6 +12,11 @@ const mockModul = {
   fokussiere: jest.fn(async (_x: number, _y: number) => {}),
   aufnahmeStarten: jest.fn(async (_maxSekunden: number) => {}),
   aufnahmeStoppen: jest.fn(async () => ({ uri: 'file://multicam.mov', dauerS: 5.6 })),
+  fotoAufnehmen: jest.fn(async (_blitz: boolean) => ({
+    uri: 'file:///tmp/reelive-foto-1.jpg',
+    breite: 1080,
+    hoehe: 1920,
+  })),
   blitz: jest.fn((_an: boolean) => {}),
   addListener: jest.fn((_ereignis: string, _hoerer: (nutzlast: unknown) => void) => ({
     remove: mockRemove,
@@ -60,6 +65,11 @@ beforeEach(() => {
   mockModul.fokussiere.mockResolvedValue(undefined);
   mockModul.aufnahmeStarten.mockResolvedValue(undefined);
   mockModul.aufnahmeStoppen.mockResolvedValue({ uri: 'file://multicam.mov', dauerS: 5.6 });
+  mockModul.fotoAufnehmen.mockResolvedValue({
+    uri: 'file:///tmp/reelive-foto-1.jpg',
+    breite: 1080,
+    hoehe: 1920,
+  });
   mockModul.blitz.mockImplementation(() => {});
   mockModul.addListener.mockImplementation(() => ({ remove: mockRemove }));
 });
@@ -188,6 +198,31 @@ describe('multiKamera: der Zugang zum MultiCam-Modul', () => {
     jest.resetModules();
     mockVorhanden = false;
     await expect(multiKamera().aufnahmeStoppen()).resolves.toBeNull();
+  });
+
+  // Das Foto des MultiCam-Pfads (Task 6). Es entsteht nativ als Griff in den
+  // laufenden Strom (kein zweiter Foto-Ausgang, Spec §6): der nächste Frame
+  // der aktiven Kamera wird JPEG und landet im tmp. Hier oben ist davon allein
+  // die Durchreichung zu sehen, samt Blitz-Wunsch.
+  it('fotoAufnehmen reicht den Blitz-Wunsch durch und liefert Datei und Masse', async () => {
+    await expect(multiKamera().fotoAufnehmen(true)).resolves.toEqual({
+      uri: 'file:///tmp/reelive-foto-1.jpg',
+      breite: 1080,
+      hoehe: 1920,
+    });
+    expect(mockModul.fotoAufnehmen).toHaveBeenCalledWith(true);
+  });
+
+  it('fotoAufnehmen liefert null bei Ablehnung und ohne Modul', async () => {
+    // «kein_frame» (die Session liefert nichts mehr) oder «keine_session»:
+    // der Screen soll seine Fehlerpille zeigen, nicht an einer Ablehnung
+    // zerbrechen.
+    mockModul.fotoAufnehmen.mockRejectedValueOnce(new Error('kein_frame'));
+    await expect(multiKamera().fotoAufnehmen(false)).resolves.toBeNull();
+
+    jest.resetModules();
+    mockVorhanden = false;
+    await expect(multiKamera().fotoAufnehmen(false)).resolves.toBeNull();
   });
 
   it('blitz reicht den Schalter durch; ohne Modul passiert schlicht nichts', () => {

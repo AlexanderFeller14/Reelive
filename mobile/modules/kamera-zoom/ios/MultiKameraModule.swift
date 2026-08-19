@@ -1,4 +1,5 @@
 import AVFoundation
+import CoreImage
 import ExpoModulesCore
 import UIKit
 
@@ -33,6 +34,24 @@ public class MultiKameraModule: Module {
   // Ströme gleichzeitig in denselben Writer schieben.
   private static let videoQueue = DispatchQueue(label: "reelive.multikamera.video")
   private static let audioQueue = DispatchQueue(label: "reelive.multikamera.ton")
+  // Kodieren und Schreiben des Fotos laufen HIER, nie auf der videoQueue: dort
+  // kostet jede Millisekunde Frames aus allen drei Strömen. `userInitiated`,
+  // weil am anderen Ende ein gedrückter Auslöser wartet.
+  private static let fotoQueue = DispatchQueue(
+    label: "reelive.multikamera.foto", qos: .userInitiated
+  )
+  // Ein einziger Kontext für alle Fotos: sein Aufbau ist teuer (Shader,
+  // Puffer), und er ist laut Apple thread-sicher.
+  private static let fotoKontext = CIContext()
+
+  // Wie lange nach dem Zünden gewartet wird, bevor gegriffen wird: die
+  // Belichtung zieht dem Licht hinterher, ein sofort gegriffener Frame wäre so
+  // dunkel wie einer ohne Blitz.
+  private static let blitzVorlaufMs = 150
+  // Frist für den Griff. Kommt binnen dieser Zeit kein Frame (unterbrochene
+  // Session, abgeschaltete Verbindung), lehnt das Versprechen ab, statt den
+  // Auslöser für immer im laufenden Zyklus stehen zu lassen.
+  private static let fotoFristMs = 1000
 
   private static var session: AVCaptureMultiCamSession?
   // Geräte, Inputs, Outputs und Verbindungen werden AUSSCHLIESSLICH auf der
@@ -87,6 +106,18 @@ public class MultiKameraModule: Module {
   // eintreffen: der Wunsch kommt vom JS-Thread, die Lage der Kameras ändert
   // sich vom Wechsel her (siehe blitzAnwenden).
   private static var _blitzGewuenscht = false
+  // Der offene Foto-Wunsch (Spec §6). Er wird vom JS-Aufruf gestellt und vom
+  // Verteiler auf der Video-Queue eingelöst, liegt also zwischen zwei Threads:
+  // deshalb unter demselben zustandLock wie die übrigen kleinen geteilten
+  // Werte. Ein eigenes Schloss wäre ein zweites ohne zweiten Zweck; gehalten
+  // wird es nur für die Zuweisung, nie über den Aufruf des Wunsches hinweg.
+  //
+  // Warum am Modul und nicht am Verteiler: der Verteiler entsteht bei jedem
+  // Session-Aufbau neu, ein dort geparkter Wunsch ginge beim Neuaufbau still
+  // verloren. Die Nummer unterscheidet zwei Wünsche voneinander, damit eine
+  // verspätete Frist nicht den Wunsch des NÄCHSTEN Auslösers wegräumt.
+  private static var _fotoWunsch: ((CMSampleBuffer) -> Void)?
+  private static var _fotoWunschNummer: UInt64 = 0
 
   static var aktiveKamera: String {
     zustandLock.lock()
@@ -298,6 +329,16 @@ public class MultiKameraModule: Module {
         "dauerS": aufnahme.dauerS,
       ])
     }.runOnQueue(.main)
+
+    // Das Foto dieses Pfads (Spec §6): ein Griff in den laufenden Strom. Die
+    // Session bekommt KEINEN zweiten Ausgang dafür: ein AVCapturePhotoOutput
+    // wäre bei drei laufenden Strömen zusätzliche Hardware-Last, und seine
+    // Aufnahme brächte genau die Wartezeit zurück, die dieser Pfad gerade
+    // abgeschafft hat. Das Bild ist darum der nächste Frame der aktiven
+    // Kamera, den der Verteiler an den hinterlegten Wunsch weiterreicht.
+    AsyncFunction("fotoAufnehmen") { (blitz: Bool, promise: Promise) in
+      Self.fotoAufnehmen(blitz: blitz, promise: promise)
+    }
 
     // Das Dauerlicht fürs Video (im expo-camera-Zweig das Prop `enableTorch`).
     // Synchron wie `zoomSetzen`: der Aufruf merkt nur den WUNSCH, geschaltet
@@ -806,6 +847,134 @@ public class MultiKameraModule: Module {
     }
   }
 
+  // MARK: - Foto
+
+  // Der Griff in den laufenden Strom. Er läuft über drei Queues, und jeder
+  // Schritt liegt dort, wo sein Zustand hingehört:
+  //   Session-Queue: Lampe, Session-Zustand und die Wartezeit fürs Licht
+  //     (dieselbe Regel wie im Kopf der Datei).
+  //   Video-Queue (im Wunsch): NUR den Puffer übernehmen, nichts sonst.
+  //   Foto-Queue: kodieren und schreiben, beides zweistellige Millisekunden.
+  private static func fotoAufnehmen(blitz: Bool, promise: Promise) {
+    sessionQueue.async {
+      guard let session = session, session.isRunning else {
+        promise.reject("keine_session", "Die MultiCam-Session läuft nicht")
+        return
+      }
+      let aktiv = aktiveKamera
+      // Die LED sitzt an der Rückseite: vor der Front gibt es nichts zu zünden
+      // (der helle Screen ist bewusst nicht Teil dieses Pfads). Ohne Licht
+      // gibt es auch nichts abzuwarten, der Griff beginnt dann sofort.
+      guard blitz, aktiv != "front", let geraet = geraete[aktiv], geraet.hasTorch else {
+        fotoWunschStellen(mitLicht: false, promise: promise)
+        return
+      }
+      torchSetzen(geraet, .on)
+      sessionQueue.asyncAfter(deadline: .now() + .milliseconds(blitzVorlaufMs)) {
+        fotoWunschStellen(mitLicht: true, promise: promise)
+      }
+    }
+  }
+
+  // Stellt den Wunsch und die Frist. Beide rennen gegeneinander, `auftrag`
+  // sorgt dafür, dass genau EINE Antwort ans Versprechen geht.
+  private static func fotoWunschStellen(mitLicht: Bool, promise: Promise) {
+    let auftrag = FotoAuftrag()
+    let nummer = fotoWunschSetzen { puffer in
+      guard auftrag.uebernehmen() else { return }
+      guard let bild = CMSampleBufferGetImageBuffer(puffer) else {
+        fotoLichtZurueck(mitLicht)
+        promise.reject("kein_bild", "Der Frame trug kein Bild")
+        return
+      }
+      // Auf der Video-Queue wird nur ÜBERNOMMEN: die CIImage-Referenz hält den
+      // Puffer fest, er geht also nicht in den Pool zurück, bevor die
+      // Foto-Queue ihn gelesen hat. Die Masse gleich mit, danach ist hier
+      // Schluss, jede weitere Zeile hier fehlte allen drei Strömen.
+      let quelle = CIImage(cvPixelBuffer: bild)
+      let breite = CVPixelBufferGetWidth(bild)
+      let hoehe = CVPixelBufferGetHeight(bild)
+      fotoQueue.async {
+        fotoSichern(quelle, breite: breite, hoehe: hoehe, promise: promise)
+        fotoLichtZurueck(mitLicht)
+      }
+    }
+    // Die Frist: eine unterbrochene Session (Anruf, andere App) oder eine
+    // abgeschaltete Verbindung (Druckstufe 'kritisch') liefert nie einen
+    // Frame. Ohne sie bliebe der Auslöser für immer im laufenden Zyklus
+    // stehen (laeuftFoto im Screen), mit ihr bekommt er die Fehlerpille.
+    fotoQueue.asyncAfter(deadline: .now() + .milliseconds(fotoFristMs)) {
+      guard auftrag.uebernehmen() else { return }
+      fotoWunschRaeumen(nummer)
+      fotoLichtZurueck(mitLicht)
+      promise.reject("kein_frame", "Die Kamera lieferte kein Bild")
+    }
+  }
+
+  // Nach dem Griff steht das Licht wieder auf dem GEWÜNSCHTEN Stand, nicht
+  // hart aus: läuft gerade ein Video mit Dauerlicht, nähme ein hartes Aus ihm
+  // mitten in der Aufnahme die Lampe weg. `blitzAnwenden` stellt genau den
+  // Zustand her, den der Screen zuletzt bestellt hat, und zwar für die dann
+  // aktive Kamera, ein Wechsel zwischendrin ist damit gleich mit erledigt.
+  private static func fotoLichtZurueck(_ mitLicht: Bool) {
+    guard mitLicht else { return }
+    blitzAnwenden()
+  }
+
+  // Kodieren und schreiben, auf der Foto-Queue.
+  private static func fotoSichern(
+    _ quelle: CIImage, breite: Int, hoehe: Int, promise: Promise
+  ) {
+    // Keine zweite Spiegelung und keine Drehung: Hochkant und die Spiegelung
+    // der Front stehen fest an der Verbindung (siehe `ausrichten`), der Puffer
+    // kommt also schon so an, wie das Bild aussehen soll.
+    guard
+      let bild = fotoKontext.createCGImage(quelle, from: quelle.extent),
+      let daten = UIImage(cgImage: bild).jpegData(compressionQuality: 0.9)
+    else {
+      promise.reject("kein_jpeg", "Der Frame liess sich nicht als JPEG kodieren")
+      return
+    }
+    let ziel = FileManager.default.temporaryDirectory
+      .appendingPathComponent("reelive-foto-\(UUID().uuidString).jpg")
+    do {
+      try daten.write(to: ziel, options: .atomic)
+      // absoluteString wie bei der Video-Aufnahme: die JS-Seite bekommt
+      // durchgehend file://-URIs, keine nackten Pfade.
+      promise.resolve(["uri": ziel.absoluteString, "breite": breite, "hoehe": hoehe])
+    } catch {
+      promise.reject("nicht_gespeichert", error.localizedDescription)
+    }
+  }
+
+  private static func fotoWunschSetzen(_ wunsch: @escaping (CMSampleBuffer) -> Void) -> UInt64 {
+    zustandLock.lock()
+    defer { zustandLock.unlock() }
+    _fotoWunschNummer &+= 1
+    _fotoWunsch = wunsch
+    return _fotoWunschNummer
+  }
+
+  // Räumt den Wunsch, aber nur wenn es noch DIESER ist: eine verspätete Frist
+  // darf den Wunsch des nächsten Auslösers nicht mitnehmen.
+  private static func fotoWunschRaeumen(_ nummer: UInt64) {
+    zustandLock.lock()
+    defer { zustandLock.unlock() }
+    guard _fotoWunschNummer == nummer else { return }
+    _fotoWunsch = nil
+  }
+
+  // Vom Verteiler pro Frame der AKTIVEN Kamera gerufen: steht ein Wunsch,
+  // bekommt er genau diesen Frame und ist damit erledigt. Gerufen wird er
+  // ausserhalb des Locks, das Schloss trägt allein die Zuweisung.
+  static func fotoWunschEinloesen(_ puffer: CMSampleBuffer) {
+    zustandLock.lock()
+    let wunsch = _fotoWunsch
+    _fotoWunsch = nil
+    zustandLock.unlock()
+    wunsch?(puffer)
+  }
+
   // MARK: - Beobachter
 
   private static func beobachterAnhaengen(_ neue: AVCaptureMultiCamSession) {
@@ -962,6 +1131,10 @@ public class MultiKameraModule: Module {
     // Auch der Blitz-Wunsch beginnt neu: eine frisch aufgebaute Session soll
     // nicht die Lampe einer längst beendeten Aufnahme erben.
     _blitzGewuenscht = false
+    // Ein offener Foto-Wunsch stirbt mit der Session: er wartet auf einen
+    // Frame, der nicht mehr kommt. Sein Versprechen löst die Frist auf
+    // («kein_frame»), es bleibt also niemand hängen.
+    _fotoWunsch = nil
     zustandLock.unlock()
   }
 
@@ -1011,6 +1184,27 @@ final class MultiKameraVerteiler: NSObject,
     {
       return
     }
+    // Der Foto-Griff (Spec §6) bekommt den Frame ZUERST und ist damit
+    // erledigt; die laufende Aufnahme bekommt denselben Frame gleich danach.
+    // Foto und Video schliessen einander also nicht aus: ein Foto mitten in
+    // einer Aufnahme reisst keine Lücke ins Video. Steht kein Wunsch, ist der
+    // Aufruf ein Schloss und ein nil-Vergleich, sonst nichts.
+    MultiKameraModule.fotoWunschEinloesen(sampleBuffer)
     KameraAufnahmeModule.aktuelle?.schreibeVideo(sampleBuffer)
+  }
+}
+
+// Wer zuerst kommt, antwortet: der gegriffene Frame und die Frist rennen
+// gegeneinander, ein Versprechen verträgt aber genau EINE Antwort.
+private final class FotoAuftrag {
+  private let lock = NSLock()
+  private var offen = true
+
+  func uebernehmen() -> Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    guard offen else { return false }
+    offen = false
+    return true
   }
 }

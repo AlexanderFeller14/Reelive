@@ -21,6 +21,7 @@ type NativesMultiKameraModul = {
   fokussiere(x: number, y: number): Promise<void>;
   aufnahmeStarten(maxSekunden: number): Promise<void>;
   aufnahmeStoppen(): Promise<{ uri: string; dauerS: number }>;
+  fotoAufnehmen(blitz: boolean): Promise<{ uri: string; breite: number; hoehe: number }>;
   blitz(an: boolean): void;
   addListener(
     eventName: 'druckGeaendert',
@@ -117,6 +118,24 @@ export async function aufnahmeStoppen(): Promise<{ uri: string; dauerS: number }
   if (!m) return null;
   try {
     return await m.aufnahmeStoppen();
+  } catch {
+    return null;
+  }
+}
+
+// Das Foto aus der eigenen Session (Spec §6). Die MultiCam-Session hat keinen
+// Foto-Ausgang: das Bild ist der nächste Frame des laufenden Stroms, den das
+// Modul als JPEG ins tmp legt. `blitz` reist mit hinein, weil erst das Modul
+// weiss, WANN nach dem Zünden gegriffen werden darf (die Belichtung zieht
+// nach). Ablehnungen («kein_frame», «keine_session») werden wie überall in
+// dieser Datei zu null: der Screen zeigt dann seine Fehlerpille.
+export async function fotoAufnehmen(
+  blitz: boolean
+): Promise<{ uri: string; breite: number; hoehe: number } | null> {
+  const m = nativesModul();
+  if (!m) return null;
+  try {
+    return await m.fotoAufnehmen(blitz);
   } catch {
     return null;
   }

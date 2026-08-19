@@ -14,7 +14,12 @@ import { useFocusEffect, useRouter, type Href } from 'expo-router';
 import { setStatusBarStyle } from 'expo-status-bar';
 import * as Linking from 'expo-linking';
 import { BlurView } from 'expo-blur';
-import { CameraView, useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
+import {
+  CameraView,
+  useCameraPermissions,
+  useMicrophonePermissions,
+  type PictureRef,
+} from 'expo-camera';
 import { createVideoPlayer, type VideoPlayer } from 'expo-video';
 import { getThumbnailAsync } from 'expo-video-thumbnails';
 import { ChevronDown, SwitchCamera, Zap, ZapOff } from 'lucide-react-native';
@@ -1293,6 +1298,30 @@ export default function AufnehmenScreen() {
     // liesse die Übergabe verwaisen und die Vorschau von fremden Tabs starten.
     aufnahmeSperre.sperren(true);
     try {
+      // Der MultiCam-Zweig greift in den laufenden Strom (Spec §6): das Modul
+      // nimmt den nächsten Frame der aktiven Kamera und legt ihn als JPEG ins
+      // tmp: kein takePictureAsync, kein zweiter Foto-Ausgang. Der Blitz
+      // reist als Argument mit, weil erst das Modul weiss, wann nach dem
+      // Zünden gegriffen werden darf. KEIN pausePreview: die eigene Session
+      // kennt keine Vorschau-Pause, der Sucher läuft unter der Vorschau
+      // weiter, und der Rückweg trifft dadurch auf ein laufendes Bild.
+      if (multiCam) {
+        const foto = await multiKamera.fotoAufnehmen(blitz === 'on');
+        if (!foto) throw new Error('kein Frame');
+        // Dieselbe Übergabe wie unten, nur mit einer FERTIGEN Datei statt
+        // eines Refs samt Hintergrund-Speichern: der Griff hat das JPEG schon
+        // geschrieben, `datei` ist deshalb sofort eingelöst. Der Holder trägt
+        // fürs Anzeigen einen expo-camera-PictureRef; expo-image nimmt eine
+        // Quelle in der Form `{ uri }` genauso an (die Vorschau reicht sie im
+        // Deep-Link-Fall längst so durch), der Holder-Typ kennt diese zweite
+        // Form nur noch nicht. Die Umdeutung steht darum hier an genau EINER
+        // Stelle, statt den Typ zu ändern und die Vorschau mitzuziehen.
+        // breite/hoehe braucht auf diesem Weg niemand: sie stehen im JPEG.
+        const quelle = { uri: foto.uri } as unknown as PictureRef;
+        uebergabe.uebergeben({ ref: quelle, datei: Promise.resolve({ uri: foto.uri }) });
+        zurPreview({ typ: 'photo', dauer: '0', tripId: reise.id });
+        return;
+      }
       // Erst die Aufnahme anstossen, DANN die Vorschau einfrieren: die
       // SDK-Doku rät von takePictureAsync bei pausierter Vorschau ab, und
       // der Reihenfolge sieht man den Unterschied nicht an, beides läuft im
@@ -1330,7 +1359,9 @@ export default function AufnehmenScreen() {
     } catch (fehler) {
       console.error('[aufnehmen] Foto kam nicht zustande', fehler);
       // Ohne das Auftauen bliebe der Sucher eingefroren stehen: pausePreview
-      // ist gelaufen, und niemand navigiert weg.
+      // ist gelaufen, und niemand navigiert weg. Im MultiCam-Zweig ist der
+      // Aufruf ein Leerlauf (dort gibt es keine CameraView, cameraRef bleibt
+      // null), eingefroren war da ohnehin nichts.
       void cameraRef.current?.resumePreview();
       setAufnahmeFehler(FOTO_FEHLER_TEXT);
     } finally {

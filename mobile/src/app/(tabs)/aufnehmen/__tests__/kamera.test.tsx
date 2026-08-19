@@ -284,6 +284,16 @@ const mockMultiKamera = {
   aufnahmeStoppen: jest.fn(
     async () => ({ uri: 'file://multicam.mov', dauerS: 5.6 }) as { uri: string; dauerS: number } | null
   ),
+  // Das Foto der eigenen Session (Task 6): ein Griff in den laufenden Strom,
+  // fertig als JPEG im tmp: kein PictureRef, kein zweiter Foto-Ausgang.
+  fotoAufnehmen: jest.fn(
+    async (_blitz: boolean) =>
+      ({ uri: 'file:///tmp/reelive-foto-1.jpg', breite: 1080, hoehe: 1920 }) as {
+        uri: string;
+        breite: number;
+        hoehe: number;
+      } | null
+  ),
   blitz: jest.fn((_an: boolean) => {}),
 };
 jest.mock('@/features/kamera/multiKamera', () => {
@@ -299,6 +309,7 @@ jest.mock('@/features/kamera/multiKamera', () => {
     aufDruck: (hoerer: (stufe: Druckstufe) => void) => mockMultiKamera.aufDruck(hoerer),
     aufnahmeStarten: (maxSekunden: number) => mockMultiKamera.aufnahmeStarten(maxSekunden),
     aufnahmeStoppen: () => mockMultiKamera.aufnahmeStoppen(),
+    fotoAufnehmen: (blitz: boolean) => mockMultiKamera.fotoAufnehmen(blitz),
     blitz: (an: boolean) => mockMultiKamera.blitz(an),
     // Der Sucher des MultiCam-Pfads: am Gerät eine native View, hier eine
     // schlichte, die ihre Props (und damit die testID) durchreicht.
@@ -371,6 +382,11 @@ beforeEach(() => {
   // realistischer Ausgangszustand, sondern ein Dauerfehler.
   mockMultiKamera.aufnahmeStarten.mockResolvedValue(true);
   mockMultiKamera.aufnahmeStoppen.mockResolvedValue({ uri: 'file://multicam.mov', dauerS: 5.6 });
+  mockMultiKamera.fotoAufnehmen.mockResolvedValue({
+    uri: 'file:///tmp/reelive-foto-1.jpg',
+    breite: 1080,
+    hoehe: 1920,
+  });
   mockMultiKamera.blitz.mockImplementation(() => {});
 });
 
@@ -2833,4 +2849,107 @@ test('ein Kamerawechsel während der Aufnahme setzt den Blitz neu', async () => 
   expect(mockMultiKamera.wechsleKamera).toHaveBeenCalledTimes(1);
   expect(mockMultiKamera.blitz).toHaveBeenCalled();
   expect(mockMultiKamera.blitz).toHaveBeenLastCalledWith(true);
+});
+
+// === Foto im MultiCam-Pfad (Task 6) ===
+//
+// Kein zweiter Foto-Ausgang und kein takePictureAsync: das Bild ist der
+// nächste Frame des laufenden Stroms, den das Modul als JPEG ins tmp legt
+// (Spec §6). Es reist auf demselben Weg zur Vorschau wie das Bild des
+// expo-camera-Zweigs, über den Übergabe-Holder, damit «Einsenden» dort
+// unverändert auf `datei` wartet.
+test('der Auslöser holt das Foto vom MultiKamera-Modul und geht zur Vorschau', async () => {
+  await multiCamSucher();
+
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressIn');
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressOut');
+
+  expect(mockMultiKamera.fotoAufnehmen).toHaveBeenCalledTimes(1);
+  expect(mockTakePictureAsync).not.toHaveBeenCalled();
+  expect(mockPush).toHaveBeenCalledWith({
+    pathname: '/vorschau',
+    params: { typ: 'photo', dauer: '0', tripId: 't1' },
+  });
+  // Die Übergabe trägt die fertige Datei: die Vorschau zeigt sie und sendet
+  // genau sie ein (im anderen Zweig steckt hier das Hintergrund-Speichern).
+  const abgeholt = uebergabe.abholen();
+  expect(abgeholt).not.toBeNull();
+  await expect(abgeholt!.datei).resolves.toEqual({ uri: 'file:///tmp/reelive-foto-1.jpg' });
+});
+
+// Der Sucher läuft unter der Vorschau weiter (Spec §6): es gibt hier nichts
+// einzufrieren, die MultiCam-Session hat keine Vorschau-Pause, und der Weg
+// zurück soll auf ein laufendes Bild treffen.
+test('der Sucher wird im MultiCam-Pfad nicht pausiert', async () => {
+  await multiCamSucher();
+
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressIn');
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressOut');
+
+  // Der Griff ist gelaufen (sonst prüfte der Rest die Abwesenheit von
+  // nichts), und trotzdem hat niemand eingefroren oder aufgetaut.
+  expect(mockMultiKamera.fotoAufnehmen).toHaveBeenCalledTimes(1);
+  expect(mockPausePreview).not.toHaveBeenCalled();
+  expect(mockResumePreview).not.toHaveBeenCalled();
+});
+
+// Der Blitz ist im MultiCam-Pfad kein Prop und keine Foto-Einstellung der
+// CameraView, sondern ein Argument des Griffs: das Modul zündet die Lampe,
+// wartet die Belichtung ab und greift dann.
+test('die Blitz-Einstellung wandert in fotoAufnehmen', async () => {
+  await multiCamSucher();
+
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressIn');
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressOut');
+  expect(mockMultiKamera.fotoAufnehmen).toHaveBeenLastCalledWith(false);
+
+  await fireEvent.press(screen.getByLabelText('Blitz einschalten'));
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressIn');
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressOut');
+  expect(mockMultiKamera.fotoAufnehmen).toHaveBeenLastCalledWith(true);
+});
+
+// «kein_frame» (die Session liefert nichts mehr) oder «keine_session»: es
+// gibt hier keinen Rückweg über takePictureAsync (die CameraView existiert
+// nicht). Die Pille sagt es, und die Tab-Bar ist danach wieder frei.
+test('scheitert das Foto im MultiCam-Zweig, sagt es die Pille und die Tab-Bar ist frei', async () => {
+  await multiCamSucher();
+  mockMultiKamera.fotoAufnehmen.mockResolvedValue(null);
+
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressIn');
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressOut');
+
+  // Die Ablehnung kommt vom Modul, nicht von einer fehlenden CameraView.
+  expect(mockMultiKamera.fotoAufnehmen).toHaveBeenCalledTimes(1);
+  expect(await screen.findByText('Das Foto hat nicht geklappt. Versuch es nochmal.')).toBeTruthy();
+  expect(mockPush).not.toHaveBeenCalled();
+  expect(aufnahmeSperre.istGesperrt()).toBe(false);
+});
+
+// Derselbe Re-Entry-Schutz wie im expo-camera-Zweig: zwischen `pressOut` und
+// dem Navigations-Commit bleibt der Auslöser bedienbar, ein zweiter Tipp
+// stiesse ohne Sperre einen zweiten Griff an und überschriebe den Holder.
+test('ein zweiter, schneller Tipp löst im MultiCam-Zweig kein zweites Foto aus', async () => {
+  await multiCamSucher();
+  let aufloesen: (v: { uri: string; breite: number; hoehe: number }) => void = () => {};
+  mockMultiKamera.fotoAufnehmen.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        aufloesen = resolve;
+      })
+  );
+
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressIn');
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressOut');
+  expect(aufnahmeSperre.istGesperrt()).toBe(true);
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressIn');
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressOut');
+
+  await act(async () => {
+    aufloesen({ uri: 'file:///tmp/reelive-foto-1.jpg', breite: 1080, hoehe: 1920 });
+  });
+
+  expect(mockMultiKamera.fotoAufnehmen).toHaveBeenCalledTimes(1);
+  expect(mockPush).toHaveBeenCalledTimes(1);
+  expect(aufnahmeSperre.istGesperrt()).toBe(false);
 });
