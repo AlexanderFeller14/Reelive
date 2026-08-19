@@ -276,6 +276,15 @@ const mockMultiKamera = {
   zoomSetzen: jest.fn((_ziel: MultiCamZielMock, _sanft: boolean) => {}),
   fokussiere: jest.fn((_x: number, _y: number) => {}),
   aufDruck: jest.fn((_hoerer: (stufe: Druckstufe) => void) => () => {}),
+  // Die Video-Aufnahme der eigenen Session (Task 5): sie erzeugt nativ
+  // dieselbe Aufnahme wie die KameraAufnahme-Pipeline und hängt sie in deren
+  // `aktuelle`: deshalb bleibt alles Nachgelagerte (dateiFertig, verwerfen,
+  // Sofort-Vorschau) unverändert bei nativeAufnahme.
+  aufnahmeStarten: jest.fn(async (_maxSekunden: number) => true),
+  aufnahmeStoppen: jest.fn(
+    async () => ({ uri: 'file://multicam.mov', dauerS: 5.6 }) as { uri: string; dauerS: number } | null
+  ),
+  blitz: jest.fn((_an: boolean) => {}),
 };
 jest.mock('@/features/kamera/multiKamera', () => {
   const ReactActual = require('react');
@@ -288,6 +297,9 @@ jest.mock('@/features/kamera/multiKamera', () => {
     zoomSetzen: (ziel: MultiCamZielMock, sanft: boolean) => mockMultiKamera.zoomSetzen(ziel, sanft),
     fokussiere: (x: number, y: number) => mockMultiKamera.fokussiere(x, y),
     aufDruck: (hoerer: (stufe: Druckstufe) => void) => mockMultiKamera.aufDruck(hoerer),
+    aufnahmeStarten: (maxSekunden: number) => mockMultiKamera.aufnahmeStarten(maxSekunden),
+    aufnahmeStoppen: () => mockMultiKamera.aufnahmeStoppen(),
+    blitz: (an: boolean) => mockMultiKamera.blitz(an),
     // Der Sucher des MultiCam-Pfads: am Gerät eine native View, hier eine
     // schlichte, die ihre Props (und damit die testID) durchreicht.
     MultiKameraSucher: (props: object) => ReactActual.createElement(View, props),
@@ -353,6 +365,13 @@ beforeEach(() => {
   mockMultiKamera.starten.mockResolvedValue(true);
   mockMultiKamera.wechsleKamera.mockResolvedValue('front');
   mockMultiKamera.aufDruck.mockImplementation(() => () => {});
+  // Anders als bei der nativen Aufnahme oben ist hier der ERFOLG der
+  // Standard: im MultiCam-Zweig gibt es keinen recordAsync-Rückweg (es gibt
+  // keine CameraView), ein dauerhaft ablehnender Start wäre also kein
+  // realistischer Ausgangszustand, sondern ein Dauerfehler.
+  mockMultiKamera.aufnahmeStarten.mockResolvedValue(true);
+  mockMultiKamera.aufnahmeStoppen.mockResolvedValue({ uri: 'file://multicam.mov', dauerS: 5.6 });
+  mockMultiKamera.blitz.mockImplementation(() => {});
 });
 
 afterEach(() => {
@@ -2496,6 +2515,16 @@ async function multiCamSucher() {
   await screen.findByLabelText('Auslöser');
 }
 
+// Hält den Auslöser über die Haltezeit hinaus: ab hier läuft ein Video.
+async function aufnahmeHalten() {
+  jest.useFakeTimers();
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressIn', { nativeEvent: { pageX: 100 } });
+  await act(async () => {
+    jest.advanceTimersByTime(600);
+  });
+  jest.useRealTimers();
+}
+
 test('der Sucher ist die MultiKamera-View, keine CameraView', async () => {
   await multiCamSucher();
 
@@ -2682,15 +2711,9 @@ test('ein Blur während laufender Aufnahme stoppt die Session nicht', async () =
 });
 
 test('liegt die Vorschau über dem Tab, läuft die Session weiter', async () => {
-  mockNativeAufnahme.aufnahmeStarten.mockResolvedValue(true);
   await multiCamSucher();
 
-  jest.useFakeTimers();
-  await fireEvent(screen.getByLabelText('Auslöser'), 'pressIn', { nativeEvent: { pageX: 100 } });
-  await act(async () => {
-    jest.advanceTimersByTime(600);
-  });
-  jest.useRealTimers();
+  await aufnahmeHalten();
   await act(async () => {
     await fireEvent(screen.getByLabelText('Auslöser'), 'pressOut');
   });
@@ -2701,4 +2724,84 @@ test('liegt die Vorschau über dem Tab, läuft die Session weiter', async () => 
   await fokusVerlieren();
 
   expect(mockMultiKamera.stoppen).not.toHaveBeenCalled();
+});
+
+// === Video-Aufnahme im MultiCam-Pfad (Task 5) ===
+//
+// Die Aufnahme entsteht nativ in der EIGENEN Session: derselbe Writer wie in
+// der KameraAufnahme-Pipeline, nur gefüllt vom Verteiler der MultiCam-Session.
+// Deshalb wechselt hier allein der Start- und Stopp-Aufruf; alles Nachgelagerte
+// (dateiFertig, Verwerfen, Sofort-Vorschau, Übergabe) hängt weiterhin an
+// nativeAufnahme, denn es greift nativ auf dieselbe laufende Aufnahme zu.
+test('der Video-Start geht im MultiCam-Zweig ans MultiKamera-Modul', async () => {
+  await multiCamSucher();
+
+  await aufnahmeHalten();
+
+  expect(mockMultiKamera.aufnahmeStarten).toHaveBeenCalledWith(90);
+  // Die andere Pipeline sucht sich den expo-camera-Sucher, den es hier nicht
+  // gibt; und recordAsync gehört einer CameraView, die gar nicht entstanden ist.
+  expect(mockNativeAufnahme.aufnahmeStarten).not.toHaveBeenCalled();
+  expect(mockRecordAsync).not.toHaveBeenCalled();
+});
+
+test('der Stopp holt Datei und Dauer vom MultiKamera-Modul', async () => {
+  await multiCamSucher();
+
+  await aufnahmeHalten();
+  await act(async () => {
+    await fireEvent(screen.getByLabelText('Auslöser'), 'pressOut');
+  });
+
+  expect(mockMultiKamera.aufnahmeStoppen).toHaveBeenCalledTimes(1);
+  expect(mockNativeAufnahme.aufnahmeStoppen).not.toHaveBeenCalled();
+  // Kein Vorwärm-Player: die Datei ist schon da, die Sofort-Vorschau spielt
+  // sie nativ (derselbe Weg wie bei der KameraAufnahme-Pipeline).
+  expect(mockCreateVideoPlayer).not.toHaveBeenCalled();
+  expect(mockPush).toHaveBeenCalledWith({
+    pathname: '/vorschau',
+    params: { uri: 'file://multicam.mov', typ: 'video', dauer: '6', tripId: 't1' },
+  });
+  // Die Übergabe bleibt wörtlich dieselbe: das Warten auf die fertige Datei
+  // läuft über nativeAufnahme, weil dort dieselbe Aufnahme hängt.
+  expect(uebergabe.videoAbholen()?.art).toBe('nativ');
+  expect(mockNativeAufnahme.dateiFertig).toHaveBeenCalled();
+});
+
+test('scheitert der Start im MultiCam-Zweig, erscheint die Fehlerpille statt recordAsync', async () => {
+  await multiCamSucher();
+  // «laeuft_schon» oder «keine_session»: es gibt hier keinen Rückweg über
+  // recordAsync (die CameraView existiert nicht, cameraRef ist null).
+  mockMultiKamera.aufnahmeStarten.mockResolvedValue(false);
+
+  await aufnahmeHalten();
+  await act(async () => {
+    await fireEvent(screen.getByLabelText('Auslöser'), 'pressOut');
+  });
+
+  expect(mockMultiKamera.aufnahmeStarten).toHaveBeenCalledWith(90);
+  expect(await screen.findByText(FEHLERTEXT)).toBeTruthy();
+  expect(mockRecordAsync).not.toHaveBeenCalled();
+  expect(mockMultiKamera.aufnahmeStoppen).not.toHaveBeenCalled();
+  expect(mockPush).not.toHaveBeenCalled();
+  // Und die Tab-Bar ist wieder frei: der Versuch ist vorbei.
+  expect(aufnahmeSperre.istGesperrt()).toBe(false);
+});
+
+// Das Dauerlicht: im expo-camera-Zweig ein Prop (enableTorch), hier ein
+// Aufruf ans Modul, weil die eigene Session keine Props kennt.
+test('der Blitz leuchtet im MultiCam-Zweig während der Aufnahme und geht beim Loslassen aus', async () => {
+  await multiCamSucher();
+
+  await fireEvent.press(screen.getByLabelText('Blitz einschalten'));
+  // Eingeschaltet, aber noch keine Aufnahme: das Dauerlicht bleibt aus.
+  expect(mockMultiKamera.blitz).toHaveBeenLastCalledWith(false);
+
+  await aufnahmeHalten();
+  expect(mockMultiKamera.blitz).toHaveBeenLastCalledWith(true);
+
+  await act(async () => {
+    await fireEvent(screen.getByLabelText('Auslöser'), 'pressOut');
+  });
+  expect(mockMultiKamera.blitz).toHaveBeenLastCalledWith(false);
 });

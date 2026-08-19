@@ -10,6 +10,9 @@ const mockModul = {
   wechsleKamera: jest.fn(async () => 'front' as 'front' | 'back'),
   zoomSetzen: jest.fn((_kamera: string, _faktor: number, _sanft: boolean) => {}),
   fokussiere: jest.fn(async (_x: number, _y: number) => {}),
+  aufnahmeStarten: jest.fn(async (_maxSekunden: number) => {}),
+  aufnahmeStoppen: jest.fn(async () => ({ uri: 'file://multicam.mov', dauerS: 5.6 })),
+  blitz: jest.fn((_an: boolean) => {}),
   addListener: jest.fn((_ereignis: string, _hoerer: (nutzlast: unknown) => void) => ({
     remove: mockRemove,
   })),
@@ -55,6 +58,9 @@ beforeEach(() => {
   mockModul.wechsleKamera.mockResolvedValue('front');
   mockModul.zoomSetzen.mockImplementation(() => {});
   mockModul.fokussiere.mockResolvedValue(undefined);
+  mockModul.aufnahmeStarten.mockResolvedValue(undefined);
+  mockModul.aufnahmeStoppen.mockResolvedValue({ uri: 'file://multicam.mov', dauerS: 5.6 });
+  mockModul.blitz.mockImplementation(() => {});
   mockModul.addListener.mockImplementation(() => ({ remove: mockRemove }));
 });
 
@@ -148,6 +154,53 @@ describe('multiKamera: der Zugang zum MultiCam-Modul', () => {
 
     expect(() => abmelden()).not.toThrow();
     expect(mockModul.addListener).not.toHaveBeenCalled();
+  });
+
+  // Die Video-Aufnahme des MultiCam-Pfads (Task 5). Sie erzeugt nativ dieselbe
+  // Aufnahme wie das KameraAufnahme-Modul, nur ohne dessen Suche nach dem
+  // expo-camera-Sucher; hier oben ist davon allein die Durchreichung zu sehen.
+  it('aufnahmeStarten reicht die Höchstdauer durch und meldet Erfolg', async () => {
+    await expect(multiKamera().aufnahmeStarten(90)).resolves.toBe(true);
+    expect(mockModul.aufnahmeStarten).toHaveBeenCalledWith(90);
+  });
+
+  it('aufnahmeStarten liefert false bei Ablehnung und ohne Modul', async () => {
+    // «laeuft_schon» oder «keine_session»: der Screen soll die Fehlerpille
+    // zeigen, nicht an einer Ablehnung zerbrechen.
+    mockModul.aufnahmeStarten.mockRejectedValueOnce(new Error('keine_session'));
+    await expect(multiKamera().aufnahmeStarten(90)).resolves.toBe(false);
+
+    jest.resetModules();
+    mockVorhanden = false;
+    await expect(multiKamera().aufnahmeStarten(90)).resolves.toBe(false);
+  });
+
+  it('aufnahmeStoppen liefert Datei und Dauer, null bei Ablehnung und ohne Modul', async () => {
+    const mk = multiKamera();
+    await expect(mk.aufnahmeStoppen()).resolves.toEqual({
+      uri: 'file://multicam.mov',
+      dauerS: 5.6,
+    });
+
+    mockModul.aufnahmeStoppen.mockRejectedValueOnce(new Error('keine_aufnahme'));
+    await expect(mk.aufnahmeStoppen()).resolves.toBeNull();
+
+    jest.resetModules();
+    mockVorhanden = false;
+    await expect(multiKamera().aufnahmeStoppen()).resolves.toBeNull();
+  });
+
+  it('blitz reicht den Schalter durch; ohne Modul passiert schlicht nichts', () => {
+    const mk = multiKamera();
+    mk.blitz(true);
+    expect(mockModul.blitz).toHaveBeenCalledWith(true);
+    mk.blitz(false);
+    expect(mockModul.blitz).toHaveBeenLastCalledWith(false);
+
+    jest.resetModules();
+    mockVorhanden = false;
+    expect(() => multiKamera().blitz(true)).not.toThrow();
+    expect(mockModul.blitz).toHaveBeenCalledTimes(2);
   });
 
   it('MultiKameraSucher ist ohne Modul die leere Fallback-View, requireNativeViewManager wird nie gerufen', () => {

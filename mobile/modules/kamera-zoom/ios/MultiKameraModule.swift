@@ -220,6 +220,75 @@ public class MultiKameraModule: Module {
       }
     }.runOnQueue(.main)
 
+    // Die Video-Aufnahme aus DIESER Session. Erzeugt wird dieselbe `Aufnahme`
+    // wie in KameraAufnahmeModule.aufnahmeStarten (gleiches Ziel im tmp,
+    // gleicher Writer) und in dessen `aktuelle` gehängt: der Verteiler oben
+    // füllt sie ab dem nächsten Frame, und `dateiAbwarten`, `verwerfen` sowie
+    // die SofortVorschau-View bleiben unverändert, weil sie alle an genau
+    // dieser Referenz hängen. Was hier gegenüber dem Vorbild fehlt, ist allein
+    // die Suche nach dem expo-camera-Sucher: Session, Outputs und
+    // Verbindungen gehören diesem Modul.
+    //
+    // Auf Main wie das Vorbild, und aus demselben Grund: `aktuelle` wird von
+    // den beiden Delegate-Queues pro Frame GELESEN und darf deshalb nur von
+    // einer einzigen Stelle geschrieben werden: sonst schrieben zwei Module
+    // von zwei Queues aus auf dieselbe Objektreferenz. Die Session wird hier
+    // nur gelesen (`isRunning`), nicht umgebaut; dafür braucht es die
+    // Session-Queue nicht, und Lesen von überall ist für diese Felder die
+    // Regel der Datei (siehe oben bei `geraete`).
+    AsyncFunction("aufnahmeStarten") { (maxSekunden: Double, promise: Promise) in
+      // Lehnt NUR ab, wenn eine Aufnahme läuft, die noch nicht gestoppt ist:
+      // eine gestoppte bleibt absichtlich stehen (die Vorschau spielt noch aus
+      // ihrem Startfenster) und wird hier einfach ersetzt.
+      if let vorhandene = KameraAufnahmeModule.aktuelle, !vorhandene.istGestoppt {
+        promise.reject("laeuft_schon", "Es läuft bereits eine Aufnahme")
+        return
+      }
+      guard let session = Self.session, session.isRunning else {
+        promise.reject("keine_session", "Die MultiCam-Session läuft nicht")
+        return
+      }
+      do {
+        let ziel = FileManager.default.temporaryDirectory
+          .appendingPathComponent("reelive-\(UUID().uuidString).mov")
+        // mitTon hängt an der VERBINDUNG, nicht am Output (Muster
+        // KameraAufnahmeModule): ohne Mikrofon-Berechtigung bleibt der Output
+        // angehängt, liefert aber nie einen Puffer, und ein leerer Ton-Eingang
+        // beschriebe die Datei falsch.
+        let aufnahme = try Aufnahme(
+          ziel: ziel, maxSekunden: maxSekunden,
+          mitTon: Self.audioOutput?.connection(with: .audio) != nil
+        )
+        KameraAufnahmeModule.aktuelle = aufnahme
+        promise.resolve()
+      } catch {
+        promise.reject("start_gescheitert", error.localizedDescription)
+      }
+    }.runOnQueue(.main)
+
+    // Gestoppt wird dieselbe Aufnahme, egal wer sie gestartet hat: es gibt im
+    // Prozess nur eine (`KameraAufnahmeModule.aktuelle`). Ebenfalls auf Main,
+    // aus dem Grund oben.
+    AsyncFunction("aufnahmeStoppen") { (promise: Promise) in
+      guard let aufnahme = KameraAufnahmeModule.aktuelle else {
+        promise.reject("keine_aufnahme", "Es läuft keine Aufnahme")
+        return
+      }
+      aufnahme.stoppen()
+      promise.resolve([
+        "uri": aufnahme.ziel.absoluteString,
+        "dauerS": aufnahme.dauerS,
+      ])
+    }.runOnQueue(.main)
+
+    // Das Dauerlicht fürs Video (im expo-camera-Zweig das Prop `enableTorch`).
+    // Synchron wie `zoomSetzen`, und wie dort auf dem aufrufenden Thread: der
+    // Zugriff ist ein `lockForConfiguration` auf einem Gerät, kein
+    // Session-Umbau.
+    Function("blitz") { (an: Bool) in
+      Self.blitzSetzen(an)
+    }
+
     View(MultiKameraSucherView.self) {
       ViewName("MultiKameraSucher")
     }
@@ -645,6 +714,45 @@ public class MultiKameraModule: Module {
     } catch {
       // Die Kamera gehört gerade jemand anderem (Anruf, andere App). Ein
       // stehengebliebener Zoom ist harmloser als ein Absturz.
+    }
+  }
+
+  // MARK: - Blitz
+
+  // Die LED sitzt physisch an der Rückseite, ihr Schalter hängt aber am
+  // einzelnen Gerät. Eingeschaltet wird darum am AKTIVEN Back-Gerät; steht die
+  // Front im Bild, gibt es nichts einzuschalten (das Licht fiele nach hinten
+  // weg), der Aufruf bleibt dort wirkungslos.
+  //
+  // Ausgeschaltet wird dagegen an ALLEN Back-Geräten: der Wechsel auf die Front
+  // und der Übertritt über die 0,5-Grenze verschieben die aktive Kamera,
+  // während das Licht noch am zuvor aktiven Gerät hängt. Ein Schalter, der nur
+  // das jetzt aktive Gerät fände, liesse die Lampe brennen.
+  private static func blitzSetzen(_ an: Bool) {
+    let aktiv = aktiveKamera
+    let zuenden = an && aktiv != "front"
+    // Erst löschen, dann zünden: die Rückseiten-Geräte teilen sich EINE Lampe,
+    // ein nachlaufendes Ausschalten am inaktiven Gerät nähme dem aktiven sonst
+    // das Licht wieder weg (die Reihenfolge eines Dictionary steht nicht fest).
+    for (name, geraet) in geraete where name != "front" && !(zuenden && name == aktiv) {
+      torchSetzen(geraet, .off)
+    }
+    if zuenden, let geraet = geraete[aktiv] {
+      torchSetzen(geraet, .on)
+    }
+  }
+
+  private static func torchSetzen(_ geraet: AVCaptureDevice, _ modus: AVCaptureDevice.TorchMode) {
+    guard geraet.hasTorch, geraet.isTorchModeSupported(modus), geraet.torchMode != modus else {
+      return
+    }
+    do {
+      try geraet.lockForConfiguration()
+      defer { geraet.unlockForConfiguration() }
+      geraet.torchMode = modus
+    } catch {
+      // Wie beim Zoom: die Kamera gehört gerade jemand anderem (Anruf, andere
+      // App). Eine nicht geschaltete Lampe ist harmloser als ein Absturz.
     }
   }
 

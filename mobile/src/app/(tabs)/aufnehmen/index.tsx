@@ -802,6 +802,25 @@ export default function AufnehmenScreen() {
     }, [multiCam])
   );
 
+  // Das Dauerlicht im MultiCam-Zweig. Im anderen Zweig macht das ein Prop
+  // (`enableTorch={blitz === 'on' && nimmtAuf}` an der CameraView); die eigene
+  // Session kennt keine Props, sie bekommt denselben Schalter als Aufruf.
+  //
+  // `richtung` hängt in den Abhängigkeiten, obwohl der Ausdruck sie nicht
+  // liest: die LED sitzt an der Rückseite, ein Wechsel auf die Front während
+  // der Aufnahme muss sie also löschen (und der Rückweg sie wieder anzünden).
+  // Das Aufräumen schaltet aus, weil ein Unmount oder ein Rückfall auf
+  // expo-camera sonst eine brennende Lampe zurückliesse, aber nur wenn sie
+  // überhaupt brannte, sonst wäre jede Änderung ein kurzes Flackern.
+  useEffect(() => {
+    if (!multiCam) return;
+    const an = blitz === 'on' && nimmtAuf;
+    multiKamera.blitz(an);
+    return () => {
+      if (an) multiKamera.blitz(false);
+    };
+  }, [multiCam, blitz, nimmtAuf, richtung]);
+
   // Liegt die Leiste über dem Bild, nimmt sie dem Screen keinen Platz mehr
   // weg — die unten verankerten Bedienelemente (Auslöser, Zoom-Reihe,
   // Fehler-Pille) heben sich deshalb um ihre Höhe, sonst lägen sie dahinter.
@@ -1370,10 +1389,21 @@ export default function AufnehmenScreen() {
     // Ergebnis — handleVideoStop wartet später auf dasselbe Promise, statt
     // auf einen Boolean, der bei einem Blitz-Stopp noch den alten Stand
     // zeigen könnte.
-    nativStart.current = nativeAufnahme.aufnahmeStarten(MAX_VIDEO_SEKUNDEN);
+    //
+    // Trägt die eigene MultiCam-Session den Sucher, erzeugt SIE die Aufnahme:
+    // dieselbe native Aufnahme wie sonst, nur gefüllt vom Verteiler ihrer
+    // Session statt vom Abgriff an der expo-camera-Session (Spec §4). Der
+    // Kamerawechsel mitten drin kostet dort keine Lücke, die Zeitachse ist die
+    // gemeinsame Session-Clock.
+    nativStart.current = multiCam
+      ? multiKamera.aufnahmeStarten(MAX_VIDEO_SEKUNDEN)
+      : nativeAufnahme.aufnahmeStarten(MAX_VIDEO_SEKUNDEN);
     void nativStart.current.then((ok) => {
       nativLaeuft.current = ok;
-      if (!ok) videoPromise.current = starten();
+      // Der recordAsync-Weg gehört der CameraView, im MultiCam-Zweig gibt es
+      // keine (cameraRef bleibt null), ein Rückfall liefe also ins Leere.
+      // Scheitert der Start dort, sagt es der Stopp über die Fehlerpille.
+      if (!ok && !multiCam) videoPromise.current = starten();
     });
   };
 
@@ -1398,7 +1428,13 @@ export default function AufnehmenScreen() {
     if (nativGestartet) {
       // [dbg] Task-13-Messsonde, fliegt nach der Runde.
       const tLoslassen = Date.now();
-      const ergebnis = await nativeAufnahme.aufnahmeStoppen();
+      // Gestoppt wird dort, wo gestartet wurde. Alles danach ist für beide
+      // Pipelines dasselbe: die Datei, das Verwerfen und die Sofort-Vorschau
+      // hängen nativ an derselben laufenden Aufnahme, egal welche Session sie
+      // gefüllt hat.
+      const ergebnis = await (multiCam
+        ? multiKamera.aufnahmeStoppen()
+        : nativeAufnahme.aufnahmeStoppen());
       console.log('[dbg-stop] nativ gestoppt nach', Date.now() - tLoslassen, 'ms', ergebnis);
       setNimmtAuf(false);
       aufnahmeSperre.sperren(false);
@@ -1413,6 +1449,17 @@ export default function AufnehmenScreen() {
         dauer: String(Math.round(ergebnis.dauerS)),
         tripId: reise.id,
       });
+      return;
+    }
+
+    // Hier endet der MultiCam-Zweig: der Start hat abgelehnt, und einen
+    // zweiten Weg gibt es nicht (recordAsync gehört der CameraView, die in
+    // diesem Zweig gar nicht entsteht). Die Pille sagt es, statt dass der
+    // Ablauf unten stumm ins Leere liefe.
+    if (multiCam) {
+      setNimmtAuf(false);
+      aufnahmeSperre.sperren(false);
+      setAufnahmeFehler(FEHLER_TEXT);
       return;
     }
 

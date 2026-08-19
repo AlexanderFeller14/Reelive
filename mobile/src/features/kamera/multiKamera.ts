@@ -19,6 +19,9 @@ type NativesMultiKameraModul = {
   wechsleKamera(): Promise<'front' | 'back'>;
   zoomSetzen(kamera: string, faktor: number, sanft: boolean): void;
   fokussiere(x: number, y: number): Promise<void>;
+  aufnahmeStarten(maxSekunden: number): Promise<void>;
+  aufnahmeStoppen(): Promise<{ uri: string; dauerS: number }>;
+  blitz(an: boolean): void;
   addListener(
     eventName: 'druckGeaendert',
     hoerer: (ereignis: { stufe: Druckstufe }) => void
@@ -89,6 +92,41 @@ export function fokussiere(x: number, y: number): void {
   void nativesModul()
     ?.fokussiere(x, y)
     .catch(() => {});
+}
+
+// Die Video-Aufnahme aus der eigenen Session. Nativ entsteht dieselbe
+// Aufnahme wie in der KameraAufnahme-Pipeline (gleiches Ziel-Muster, gleicher
+// Writer) und wird in deren `aktuelle` gehängt: alles Nachgelagerte
+// (dateiFertig, verwerfen, Sofort-Vorschau) läuft darum unverändert über
+// nativeAufnahme.ts weiter, hier wechselt nur, WER die Aufnahme erzeugt.
+// Ablehnungen («laeuft_schon», «keine_session») werden wie überall in dieser
+// Datei zu false: der Screen zeigt dann seine Fehlerpille.
+export async function aufnahmeStarten(maxSekunden: number): Promise<boolean> {
+  const m = nativesModul();
+  if (!m) return false;
+  try {
+    await m.aufnahmeStarten(maxSekunden);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function aufnahmeStoppen(): Promise<{ uri: string; dauerS: number } | null> {
+  const m = nativesModul();
+  if (!m) return null;
+  try {
+    return await m.aufnahmeStoppen();
+  } catch {
+    return null;
+  }
+}
+
+// Das Dauerlicht (im expo-camera-Zweig das Prop `enableTorch`). Synchron wie
+// zoomSetzen: die eigene Session kennt keine Props, sie bekommt den Schalter
+// als Aufruf, und eine Antwort gibt es nicht abzuwarten.
+export function blitz(an: boolean): void {
+  nativesModul()?.blitz(an);
 }
 
 // Liefert die Abmeldung; ohne Modul ein No-op, das nichts abzumelden hat.
