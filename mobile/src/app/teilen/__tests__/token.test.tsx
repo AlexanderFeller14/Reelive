@@ -57,9 +57,9 @@ jest.mock('expo-video', () => ({
   },
 }));
 
-jest.mock('@/features/teilen/shareApi', () => ({
-  loeseTokenAuf: jest.fn(),
-  LINK_TOT_TEXT: 'Dieser Link funktioniert nicht mehr.',
+jest.mock('@/features/sharing/shareApi', () => ({
+  resolveToken: jest.fn(),
+  DEAD_LINK_TEXT: 'Dieser Link funktioniert nicht mehr.',
 }));
 
 // DESIGN-LANGUAGE §5: «Haptik: selection (Tabs, Zoom)», der Gruppen-Zoom der
@@ -74,10 +74,10 @@ let mockReduziert = false;
 jest.mock('@/theme/useReducedMotion', () => ({ useReducedMotion: () => mockReduziert }));
 
 import GeteilterRecapScreen from '../[token]';
-import { loeseTokenAuf } from '@/features/teilen/shareApi';
-import type { GeteilterRecap } from '@/features/teilen/shareApi';
+import { resolveToken } from '@/features/sharing/shareApi';
+import type { SharedRecap } from '@/features/sharing/shareApi';
 
-const mockLoeseTokenAuf = loeseTokenAuf as jest.MockedFunction<typeof loeseTokenAuf>;
+const mockLoeseTokenAuf = resolveToken as jest.MockedFunction<typeof resolveToken>;
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -87,16 +87,16 @@ beforeEach(() => {
   mockLastSource = undefined;
 });
 
-function reise(overrides: Partial<GeteilterRecap['reise']> = {}) {
+function reise(overrides: Partial<SharedRecap['reise']> = {}) {
   return { name: 'Lissabon Städtetrip', start_date: '2026-08-10', end_date: '2026-08-14', ...overrides };
 }
 
 // Ohne Koordinaten als Vorgabe: die Momente der bestehenden Blöcke prüfen den
 // Player, und ein Recap ohne einen einzigen Ort hat keinen Karten-Einstieg
 // (Spec K9), sie bleiben damit genau die Story, die sie vorher waren.
-function moment(overrides: Partial<GeteilterRecap['medien'][number]> = {}): GeteilterRecap['medien'][number] {
+function moment(overrides: Partial<SharedRecap['medien'][number]> = {}): SharedRecap['medien'][number] {
   return {
-    post_id: 'p0', autor_name: 'Lea', autor_avatar_key: null, type: 'photo', duration_s: null, caption: null,
+    post_id: 'p0', authorName: 'Lea', authorAvatarKey: null, type: 'photo', duration_s: null, caption: null,
     captured_at: '2026-08-10T09:00:00.000Z', captured_tz: 'Europe/Zurich', place_name: 'Lissabon',
     lat: null, lng: null,
     medium_url: 'https://s3/p0', thumb_url: null,
@@ -116,12 +116,12 @@ const p3 = moment({
 });
 
 function erfolg(
-  medien: GeteilterRecap['medien'],
-  reiseOverrides: Partial<GeteilterRecap['reise']> = {},
+  medien: SharedRecap['medien'],
+  reiseOverrides: Partial<SharedRecap['reise']> = {},
   ausgelassen = 0
 ) {
   return {
-    data: { reise: reise(reiseOverrides), medien, gueltigBis: Date.now() + 3600_000, ausgelassen },
+    data: { reise: reise(reiseOverrides), medien, validUntil: Date.now() + 3600_000, ausgelassen },
     error: null,
   };
 }
@@ -194,7 +194,7 @@ describe('Story-Anzeige', () => {
   // nicht bloss das gemappte Feld tragen.
   test('zeigt das Profilbild der Autorin, wenn der Moment einen Bild-Schlüssel trägt', async () => {
     mockLoeseTokenAuf.mockResolvedValueOnce(
-      erfolg([moment({ post_id: 'p1', autor_avatar_key: 'profiles/u1/a.jpg' })])
+      erfolg([moment({ post_id: 'p1', authorAvatarKey: 'profiles/u1/a.jpg' })])
     );
     await bereit();
     expect(await screen.findByTestId('avatar-bild')).toBeTruthy();
@@ -204,7 +204,7 @@ describe('Story-Anzeige', () => {
   // Baum, sonst wäre der Test oben kein Beweis, sondern zeigte ein <Image>,
   // das immer da ist.
   test('ohne Bild-Schlüssel steht nur die Initiale, kein Profilbild', async () => {
-    mockLoeseTokenAuf.mockResolvedValueOnce(erfolg([moment({ post_id: 'p1', autor_avatar_key: null })]));
+    mockLoeseTokenAuf.mockResolvedValueOnce(erfolg([moment({ post_id: 'p1', authorAvatarKey: null })]));
     await bereit();
     expect(screen.getByText('L')).toBeTruthy();
     expect(screen.queryByTestId('avatar-bild')).toBeNull();
@@ -393,15 +393,15 @@ describe('Die Karte im geteilten Recap (Spec §5.10)', () => {
   // der Stelle innerhalb der NADELN startet, landet bei q3 also auf Index 1,
   // und damit auf q2. Genau diesen Fehler nagelt der Sprung-Test unten fest.
   const q1 = moment({
-    post_id: 'q1', autor_name: 'Lea', captured_at: '2026-08-10T09:00:00.000Z',
+    post_id: 'q1', authorName: 'Lea', captured_at: '2026-08-10T09:00:00.000Z',
     place_name: 'Alfama', lat: 38.7139, lng: -9.1301, thumb_url: 'https://s3/q1-thumb',
   });
   const q2 = moment({
-    post_id: 'q2', autor_name: 'Jonas', captured_at: '2026-08-10T10:00:00.000Z',
+    post_id: 'q2', authorName: 'Jonas', captured_at: '2026-08-10T10:00:00.000Z',
     place_name: null, caption: 'Im Zug',
   });
   const q3 = moment({
-    post_id: 'q3', autor_name: 'Mira', captured_at: '2026-08-10T11:00:00.000Z',
+    post_id: 'q3', authorName: 'Mira', captured_at: '2026-08-10T11:00:00.000Z',
     place_name: 'Bairro Alto', caption: 'Fado im Hinterhof', lat: 38.75, lng: -9.16,
   });
 
@@ -548,15 +548,15 @@ describe('Die Karte im geteilten Recap (Spec §5.10)', () => {
     // s1 und s2 liegen bitgleich aufeinander, keine Zoomstufe trennt sie
     // (features/karte/gruppierung.ts), sie teilen sich eine Nadel.
     const s1 = moment({
-      post_id: 's1', autor_name: 'Lea', captured_at: '2026-08-10T09:00:00.000Z',
+      post_id: 's1', authorName: 'Lea', captured_at: '2026-08-10T09:00:00.000Z',
       place_name: 'Alfama', lat: 38.7139, lng: -9.1301,
     });
     const s2 = moment({
-      post_id: 's2', autor_name: 'Jonas', captured_at: '2026-08-10T10:00:00.000Z',
+      post_id: 's2', authorName: 'Jonas', captured_at: '2026-08-10T10:00:00.000Z',
       place_name: 'Alfama', caption: 'Direkt daneben', lat: 38.7139, lng: -9.1301,
     });
     const s3 = moment({
-      post_id: 's3', autor_name: 'Mira', captured_at: '2026-08-10T11:00:00.000Z', place_name: null,
+      post_id: 's3', authorName: 'Mira', captured_at: '2026-08-10T11:00:00.000Z', place_name: null,
     });
     await aufDerKarte([s1, s2, s3]);
 
@@ -659,11 +659,11 @@ describe('Die Karte im geteilten Recap (Spec §5.10)', () => {
   // neuen Ausschnitt; sie steht also genau so still wie am Anschlag.
   test('bewegt ein Gruppen-Tipp die Kamera nicht, öffnet der nächste das Sheet', async () => {
     const g1 = moment({
-      post_id: 'g1', autor_name: 'Lea', captured_at: '2026-08-10T09:00:00.000Z',
+      post_id: 'g1', authorName: 'Lea', captured_at: '2026-08-10T09:00:00.000Z',
       place_name: 'Alfama', lat: 38.7139, lng: -9.1301,
     });
     const g2 = moment({
-      post_id: 'g2', autor_name: 'Jonas', captured_at: '2026-08-10T10:00:00.000Z',
+      post_id: 'g2', authorName: 'Jonas', captured_at: '2026-08-10T10:00:00.000Z',
       place_name: 'Alfama', caption: 'Fünf Meter weiter', lat: 38.71408, lng: -9.1301,
     });
     const g3 = moment({

@@ -16,16 +16,16 @@ import { useReducedMotion } from '@/theme/useReducedMotion';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { AvatarZuschnitt } from '@/components/AvatarZuschnitt';
 import { Input } from '@/components/Input';
-import { entferneAvatar, setzeAvatar } from '@/features/auth/avatarApi';
+import { removeAvatar, setzeAvatar } from '@/features/auth/avatarApi';
 import type { Crop } from '@/features/auth/crop';
 import {
   fetchOwnProfile, updateProfile, validateDisplayName, type Profile,
 } from '@/features/auth/profileApi';
 import { signOut } from '@/features/auth/authApi';
 import { wifiOnly, setWifiOnly } from '@/features/moments/settings';
-import { benachrichtigungenAktiv, setzeBenachrichtigungen } from '@/features/push/einstellungen';
-import { deregistrierePushToken, registrierePushToken } from '@/features/push/pushApi';
-import { holeLoeschZahlen, loescheKonto, zahlenText, type LoeschZahlen } from '@/features/konto/kontoApi';
+import { notificationsActive, setNotificationsActive } from '@/features/push/settings';
+import { deregisterPushToken, registerPushToken } from '@/features/push/pushApi';
+import { fetchDeletionCounts, deleteAccount, deletionSummaryText, type DeletionCounts } from '@/features/account/accountApi';
 
 // Task 9, Phase 6: der destruktive Bestätigungsknopf im Löschdialog. Kein
 // Filled-Button (DESIGN-LANGUAGE §4 kennt nur `accent` als Fläche für einen
@@ -92,7 +92,7 @@ export default function ProfilScreen() {
   // JSX (siehe Sheet unten).
   const [loeschSheetSichtbar, setLoeschSheetSichtbar] = useState(false);
   const [zahlenPhase, setZahlenPhase] = useState<'laedt' | 'bereit' | 'fehler'>('laedt');
-  const [zahlen, setZahlen] = useState<LoeschZahlen | null>(null);
+  const [zahlen, setZahlen] = useState<DeletionCounts | null>(null);
   const [zahlenFehler, setZahlenFehler] = useState<string | null>(null);
   const [loeschtLaeuft, setLoeschtLaeuft] = useState(false);
   const [loeschFehler, setLoeschFehler] = useState<string | null>(null);
@@ -152,7 +152,7 @@ export default function ProfilScreen() {
   // Schalter gleichermassen.
   useEffect(() => {
     void wifiOnly().then(setNurWlan);
-    void benachrichtigungenAktiv().then(setBenachrichtigungen);
+    void notificationsActive().then(setBenachrichtigungen);
   }, []);
 
   // Sofort sichtbar (kein Warten auf den Schreibvorgang), ein liegen-
@@ -175,16 +175,16 @@ export default function ProfilScreen() {
   const benachrichtigungenUmschalten = async (wert: boolean) => {
     setBenachrichtigungen(wert);
     setPushHinweis(null);
-    await setzeBenachrichtigungen(wert);
+    await setNotificationsActive(wert);
     if (!wert) {
-      void deregistrierePushToken();
+      void deregisterPushToken();
       return;
     }
     if (!userId) return;
-    const ergebnis = await registrierePushToken(userId);
+    const ergebnis = await registerPushToken(userId);
     if (ergebnis === 'keine-berechtigung') {
       setBenachrichtigungen(false);
-      await setzeBenachrichtigungen(false);
+      await setNotificationsActive(false);
       setPushHinweis('Ohne Zugriff auf Mitteilungen geht es nicht. Du kannst das in den Einstellungen ändern.');
     }
   };
@@ -198,7 +198,7 @@ export default function ProfilScreen() {
     setZahlen(null);
     setZahlenFehler(null);
     setLoeschFehler(null);
-    void holeLoeschZahlen().then(({ data, error }) => {
+    void fetchDeletionCounts().then(({ data, error }) => {
       if (error || !data) {
         setZahlenFehler(error ?? 'Die Zahlen konnten nicht ermittelt werden. Probier es gleich nochmal.');
         setZahlenPhase('fehler');
@@ -221,7 +221,7 @@ export default function ProfilScreen() {
   const kontoLoeschen = async () => {
     setLoeschtLaeuft(true);
     setLoeschFehler(null);
-    const { error } = await loescheKonto();
+    const { error } = await deleteAccount();
     if (error) {
       setLoeschtLaeuft(false);
       setLoeschFehler(error);
@@ -252,7 +252,7 @@ export default function ProfilScreen() {
     if (!userId) return;
     setBildLaeuft(true);
     setBildFehler(null);
-    const { error } = await entferneAvatar(userId, profile?.avatar_key ?? null);
+    const { error } = await removeAvatar(userId, profile?.avatar_key ?? null);
     setBildLaeuft(false);
     if (error) return setBildFehler(error);
     setProfile((vorher) => (vorher ? { ...vorher, avatar_key: null } : vorher));
@@ -571,7 +571,7 @@ export default function ProfilScreen() {
             schlicht nicht (Brief, siehe Kommentar am State oben). */}
         {zahlenPhase === 'bereit' && zahlen && (
           <View style={{ gap: spacing.base }}>
-            <Text style={[type.body, { color: colors['text-2'] }]}>{zahlenText(zahlen)}</Text>
+            <Text style={[type.body, { color: colors['text-2'] }]}>{deletionSummaryText(zahlen)}</Text>
             {loeschFehler && <Text style={[type.body, { color: colors.danger }]}>{loeschFehler}</Text>}
             <GefahrKnopf
               label="Konto endgültig löschen"

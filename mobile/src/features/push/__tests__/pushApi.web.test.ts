@@ -1,12 +1,12 @@
-// Web-Fassung von pushApi: kein expo-notifications/expo-device im Spiel, also
-// auch kein Mock dafür nötig, genau das ist der Punkt dieser Datei.
-import { registrierePushToken, deregistrierePushToken } from '../pushApi.web';
+// Web version of pushApi: no expo-notifications/expo-device involved, so
+// no mock needed for them either, that's exactly the point of this file.
+import { registerPushToken, deregisterPushToken } from '../pushApi.web';
 
-test("registrierePushToken() liefert immer 'nicht-unterstuetzt' und wirft nie", async () => {
-  await expect(registrierePushToken('user-1')).resolves.toBe('nicht-unterstuetzt');
-  await expect(registrierePushToken('')).resolves.toBe('nicht-unterstuetzt');
+test("registerPushToken() always returns 'nicht-unterstuetzt' and never throws", async () => {
+  await expect(registerPushToken('user-1')).resolves.toBe('nicht-unterstuetzt');
+  await expect(registerPushToken('')).resolves.toBe('nicht-unterstuetzt');
 });
 
-test('deregistrierePushToken() wirft nie und liefert nichts', async () => {
-  await expect(deregistrierePushToken()).resolves.toBeUndefined();
+test('deregisterPushToken() never throws and returns nothing', async () => {
+  await expect(deregisterPushToken()).resolves.toBeUndefined();
 });

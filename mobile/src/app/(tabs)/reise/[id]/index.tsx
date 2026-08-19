@@ -25,8 +25,8 @@ import { revealTrip } from '@/features/recap/recapApi';
 import { markRevealSeen, hasSeenReveal } from '@/features/recap/seen';
 import { getPool } from '@/features/recap/urlPool';
 import { removeMoment, fetchReports, dismissReport, type Report } from '@/features/recap/reportApi';
-import { istRecapGeteilt } from '@/features/teilen/linkVerwaltenApi';
-import { LINK_REICHWEITE } from '@/features/teilen/texte';
+import { isRecapShared } from '@/features/sharing/linkManagementApi';
+import { LINK_REACH_TEXT } from '@/features/sharing/texts';
 
 // DESIGN-LANGUAGE §5: destruktive Dialoge kündigen sich haptisch an (warning).
 // Sparsam eingesetzt, nur die drei Dialoge dieses Screens. Ein fehlender
@@ -325,7 +325,7 @@ export default function ReiseDetail() {
     // deshalb bewusst nicht im Promise.all darueber, das fuer jede laufende
     // Reise eine Abfrage mehr bedeutete, die nie etwas sagt.
     if (t.data && t.data.status !== 'active') {
-      const geteiltErgebnis = await istRecapGeteilt(id);
+      const geteiltErgebnis = await isRecapShared(id);
       if (!aktiv.current) return;
       setGeteilt(geteiltErgebnis.data);
     } else {
@@ -706,7 +706,7 @@ export default function ReiseDetail() {
           <Share2 size={20} color={colors['text-1']} strokeWidth={1.75} />
           <View style={styles.geteiltText}>
             <Text style={[type.bodyMedium, { color: colors['text-1'] }]}>Dieser Recap ist geteilt</Text>
-            <Text style={[type.secondary, { color: colors['text-2'] }]}>{LINK_REICHWEITE}</Text>
+            <Text style={[type.secondary, { color: colors['text-2'] }]}>{LINK_REACH_TEXT}</Text>
           </View>
         </View>
       )}

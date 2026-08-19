@@ -40,7 +40,7 @@ jest.mock('../authApi', () => ({ signOut: () => mockSignOut() }));
 // ansprechen, ohne einen zusätzlichen Umweg über eine eigene Variable.
 jest.mock('@/features/auth/avatarApi', () => ({
   setzeAvatar: jest.fn(),
-  entferneAvatar: jest.fn(),
+  removeAvatar: jest.fn(),
 }));
 
 // profil.tsx rendert jetzt AvatarWaehler (Task 5), und die importiert
@@ -74,12 +74,12 @@ jest.mock('expo-image', () => {
 // (Singular/Plural, "3 Reisen mit insgesamt 128 Momenten…") ist bereits in
 // features/konto/__tests__/kontoApi.test.ts vollständig abgedeckt; hier
 // zählt nur, DASS profil.tsx das Ergebnis von zahlenText tatsächlich anzeigt.
-const mockHoleLoeschZahlen = jest.fn();
-const mockLoescheKonto = jest.fn();
-jest.mock('@/features/konto/kontoApi', () => ({
-  holeLoeschZahlen: () => mockHoleLoeschZahlen(),
-  loescheKonto: () => mockLoescheKonto(),
-  zahlenText: (z: { eigene_reisen: number }) => `ZAHLEN-TEXT (${z.eigene_reisen} Reisen)`,
+const mockFetchDeletionCounts = jest.fn();
+const mockDeleteAccount = jest.fn();
+jest.mock('@/features/account/accountApi', () => ({
+  fetchDeletionCounts: () => mockFetchDeletionCounts(),
+  deleteAccount: () => mockDeleteAccount(),
+  deletionSummaryText: (z: { eigene_reisen: number }) => `ZAHLEN-TEXT (${z.eigene_reisen} Reisen)`,
 }));
 
 // Task 10: der WLAN-Schalter liest/schreibt über das Einstellungen-Modul.
@@ -95,17 +95,17 @@ jest.mock('@/features/moments/settings', () => ({
 // push/einstellungen.ts) und pushApi. Letztere als Factory-Mock aus demselben
 // Grund wie kontoApi unten: das echte Modul zieht @/lib/supabase,
 // expo-notifications und expo-device mit.
-const mockBenachrichtigungenAktiv = jest.fn(async () => true);
+const mockNotificationsActive = jest.fn(async () => true);
 const mockSetzeBenachrichtigungen = jest.fn(async (_wert: boolean) => {});
-jest.mock('@/features/push/einstellungen', () => ({
-  benachrichtigungenAktiv: () => mockBenachrichtigungenAktiv(),
-  setzeBenachrichtigungen: (wert: boolean) => mockSetzeBenachrichtigungen(wert),
+jest.mock('@/features/push/settings', () => ({
+  notificationsActive: () => mockNotificationsActive(),
+  setNotificationsActive: (wert: boolean) => mockSetzeBenachrichtigungen(wert),
 }));
 const mockRegistrierePush = jest.fn(async (_userId: string) => 'ok');
 const mockDeregistrierePush = jest.fn(async () => {});
 jest.mock('@/features/push/pushApi', () => ({
-  registrierePushToken: (userId: string) => mockRegistrierePush(userId),
-  deregistrierePushToken: () => mockDeregistrierePush(),
+  registerPushToken: (userId: string) => mockRegistrierePush(userId),
+  deregisterPushToken: () => mockDeregistrierePush(),
 }));
 
 // Der Speicher-Moment im Namen-Editor feiert mit Haptik light (§5: light für
@@ -132,7 +132,7 @@ const PROFIL_OHNE_BILD = { id: 'uid-1', username: 'lea', display_name: 'Lea', av
 beforeEach(() => {
   jest.clearAllMocks();
   mockNurUeberWlan.mockResolvedValue(false);
-  mockBenachrichtigungenAktiv.mockResolvedValue(true);
+  mockNotificationsActive.mockResolvedValue(true);
   mockRegistrierePush.mockResolvedValue('ok');
   mockGalerieRecht.mockResolvedValue({ granted: true });
   mockAusGalerie.mockResolvedValue({
@@ -294,7 +294,7 @@ describe('Benachrichtigungen', () => {
   });
 
   test('ein gespeichertes AUS zeigt sich beim Öffnen', async () => {
-    mockBenachrichtigungenAktiv.mockResolvedValue(false);
+    mockNotificationsActive.mockResolvedValue(false);
     await wrap(<ProfilScreen />);
     await waitFor(() =>
       expect(screen.getByLabelText('Benachrichtigungen').props.value).toBe(false)
@@ -312,7 +312,7 @@ describe('Benachrichtigungen', () => {
   });
 
   test('Einschalten speichert die Wahl und registriert das Gerät', async () => {
-    mockBenachrichtigungenAktiv.mockResolvedValue(false);
+    mockNotificationsActive.mockResolvedValue(false);
     await wrap(<ProfilScreen />);
     const schalter = await screen.findByLabelText('Benachrichtigungen');
     await fireEvent(schalter, 'valueChange', true);
@@ -322,7 +322,7 @@ describe('Benachrichtigungen', () => {
   });
 
   test('eine abgelehnte Berechtigung springt zurück und erklärt sich', async () => {
-    mockBenachrichtigungenAktiv.mockResolvedValue(false);
+    mockNotificationsActive.mockResolvedValue(false);
     mockRegistrierePush.mockResolvedValue('keine-berechtigung');
     await wrap(<ProfilScreen />);
     const schalter = await screen.findByLabelText('Benachrichtigungen');
@@ -339,7 +339,7 @@ describe('Benachrichtigungen', () => {
   });
 
   test("ein stiller Fehlschlag ('fehler') lässt den Schalter an und zeigt nichts", async () => {
-    mockBenachrichtigungenAktiv.mockResolvedValue(false);
+    mockNotificationsActive.mockResolvedValue(false);
     mockRegistrierePush.mockResolvedValue('fehler');
     await wrap(<ProfilScreen />);
     const schalter = await screen.findByLabelText('Benachrichtigungen');
@@ -365,8 +365,8 @@ describe('Anzeigename ändern', () => {
   test('die Namens-Karte trägt einen Stift als Bearbeiten-Hinweis', async () => {
     await wrap(<ProfilScreen />);
     await screen.findByText('Lea');
-    const karte = screen.getByTestId('name-bearbeiten-oeffnen');
-    expect(within(karte).getByTestId('name-bearbeiten-stift')).toBeTruthy();
+    const card = screen.getByTestId('name-bearbeiten-oeffnen');
+    expect(within(card).getByTestId('name-bearbeiten-stift')).toBeTruthy();
   });
 
   test('die Namens-Karte öffnet den Vollbild-Editor: Anzeigename vorbefüllt, KEIN Username-Feld', async () => {
@@ -388,9 +388,9 @@ describe('Anzeigename ändern', () => {
     // Freunde einen sehen (Kreis, Name, Handle), mit dem GETIPPTEN Stand.
     // Sie steht ÜBER dem Eingabefeld (und damit vor den Knöpfen im Baum):
     // erst sehen, was man ändert, dann ändern.
-    const vorschau = within(screen.getByTestId('name-editor')).getByTestId('name-vorschau');
-    expect(within(vorschau).getByText('Lea')).toBeTruthy();
-    expect(within(vorschau).getByText('@lea')).toBeTruthy();
+    const preview = within(screen.getByTestId('name-editor')).getByTestId('name-vorschau');
+    expect(within(preview).getByText('Lea')).toBeTruthy();
+    expect(within(preview).getByText('@lea')).toBeTruthy();
     const baum = JSON.stringify(screen.toJSON());
     expect(baum.indexOf('name-vorschau')).toBeLessThan(baum.indexOf('Speichern'));
   });
@@ -400,8 +400,8 @@ describe('Anzeigename ändern', () => {
     await screen.findByText('Lea');
     await fireEvent.press(screen.getByTestId('name-bearbeiten-oeffnen'));
     await fireEvent.changeText(screen.getByDisplayValue('Lea'), 'Lea Neu');
-    const vorschau = within(screen.getByTestId('name-editor')).getByTestId('name-vorschau');
-    expect(within(vorschau).getByText('Lea Neu')).toBeTruthy();
+    const preview = within(screen.getByTestId('name-editor')).getByTestId('name-vorschau');
+    expect(within(preview).getByText('Lea Neu')).toBeTruthy();
     // Nur die Vorschau, nicht der Screen dahinter: gespeichert ist nichts.
     expect(updateProfile).not.toHaveBeenCalled();
   });
@@ -476,11 +476,11 @@ describe('Anzeigename ändern', () => {
 
 // Task 9: Konto-Löschung. Fixzahlen, deckungsgleich mit dem Brief-Beispiel
 // ("3 Reisen mit insgesamt 128 Momenten von 5 Personen").
-const ZAHLEN_OK = {
+const COUNTS_OK = {
   data: { eigene_reisen: 3, momente_in_eigenen_reisen: 128, betroffene_personen: 5, eigene_momente_anderswo: 0 },
   error: null,
 };
-const ZAHLEN_LEER = {
+const EMPTY_COUNTS = {
   data: { eigene_reisen: 0, momente_in_eigenen_reisen: 0, betroffene_personen: 0, eigene_momente_anderswo: 0 },
   error: null,
 };
@@ -494,10 +494,10 @@ describe('Konto löschen (Task 9)', () => {
   });
 
   test('Tippen öffnet den Dialog und lädt sofort die Zahlen', async () => {
-    mockHoleLoeschZahlen.mockResolvedValue(ZAHLEN_OK);
+    mockFetchDeletionCounts.mockResolvedValue(COUNTS_OK);
     await render(<ThemeProvider><ProfilScreen /></ThemeProvider>);
     await fireEvent.press(await screen.findByTestId('konto-loeschen-oeffnen'));
-    expect(mockHoleLoeschZahlen).toHaveBeenCalledTimes(1);
+    expect(mockFetchDeletionCounts).toHaveBeenCalledTimes(1);
     expect(await screen.findByText('ZAHLEN-TEXT (3 Reisen)')).toBeTruthy();
   });
 
@@ -505,7 +505,7 @@ describe('Konto löschen (Task 9)', () => {
   // können.", solange holeLoeschZahlen noch nicht geantwortet hat, gibt es
   // den Bestätigungsknopf im Baum schlicht nicht (kein blosses `disabled`).
   test('ohne geladene Zahlen gibt es KEINEN Bestätigungsknopf, nur einen Ladeindikator', async () => {
-    mockHoleLoeschZahlen.mockReturnValue(new Promise(() => {})); // hängt absichtlich
+    mockFetchDeletionCounts.mockReturnValue(new Promise(() => {})); // hängt absichtlich
     await render(<ThemeProvider><ProfilScreen /></ThemeProvider>);
     await fireEvent.press(await screen.findByTestId('konto-loeschen-oeffnen'));
     expect(await screen.findByTestId('loeschen-zahlen-laedt')).toBeTruthy();
@@ -513,7 +513,7 @@ describe('Konto löschen (Task 9)', () => {
   });
 
   test('ein Fehler beim Laden zeigt die Ursache mit Retry, keinen Bestätigungsknopf', async () => {
-    mockHoleLoeschZahlen.mockResolvedValue({ data: null, error: 'kaputt' });
+    mockFetchDeletionCounts.mockResolvedValue({ data: null, error: 'kaputt' });
     await render(<ThemeProvider><ProfilScreen /></ThemeProvider>);
     await fireEvent.press(await screen.findByTestId('konto-loeschen-oeffnen'));
     expect(await screen.findByText('kaputt')).toBeTruthy();
@@ -522,30 +522,30 @@ describe('Konto löschen (Task 9)', () => {
   });
 
   test('«Nochmal versuchen» lädt die Zahlen erneut, danach erscheint der Bestätigungsknopf', async () => {
-    mockHoleLoeschZahlen
+    mockFetchDeletionCounts
       .mockResolvedValueOnce({ data: null, error: 'kaputt' })
-      .mockResolvedValueOnce(ZAHLEN_LEER);
+      .mockResolvedValueOnce(EMPTY_COUNTS);
     await render(<ThemeProvider><ProfilScreen /></ThemeProvider>);
     await fireEvent.press(await screen.findByTestId('konto-loeschen-oeffnen'));
     await screen.findByText('kaputt');
     await fireEvent.press(screen.getByText('Nochmal versuchen'));
     expect(await screen.findByTestId('konto-endgueltig-loeschen')).toBeTruthy();
-    expect(mockHoleLoeschZahlen).toHaveBeenCalledTimes(2);
+    expect(mockFetchDeletionCounts).toHaveBeenCalledTimes(2);
   });
 
   test('Erfolg: löscht das Konto und meldet danach ab', async () => {
-    mockHoleLoeschZahlen.mockResolvedValue(ZAHLEN_LEER);
-    mockLoescheKonto.mockResolvedValue({ error: null });
+    mockFetchDeletionCounts.mockResolvedValue(EMPTY_COUNTS);
+    mockDeleteAccount.mockResolvedValue({ error: null });
     await render(<ThemeProvider><ProfilScreen /></ThemeProvider>);
     await fireEvent.press(await screen.findByTestId('konto-loeschen-oeffnen'));
     await fireEvent.press(await screen.findByTestId('konto-endgueltig-loeschen'));
-    await waitFor(() => expect(mockLoescheKonto).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mockDeleteAccount).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(mockSignOut).toHaveBeenCalledTimes(1));
   });
 
   test('ein Fehlschlag beim Löschen zeigt die Ursache, meldet NICHT ab, der Dialog bleibt bedienbar', async () => {
-    mockHoleLoeschZahlen.mockResolvedValue(ZAHLEN_LEER);
-    mockLoescheKonto.mockResolvedValue({
+    mockFetchDeletionCounts.mockResolvedValue(EMPTY_COUNTS);
+    mockDeleteAccount.mockResolvedValue({
       error: 'Dein Konto konnte nicht vollständig gelöscht werden. Probier es später noch einmal.',
     });
     await render(<ThemeProvider><ProfilScreen /></ThemeProvider>);
@@ -559,9 +559,9 @@ describe('Konto löschen (Task 9)', () => {
   });
 
   test('ein zweiter Tipp, während die Löschung noch läuft, löst KEINEN zweiten Aufruf aus', async () => {
-    mockHoleLoeschZahlen.mockResolvedValue(ZAHLEN_LEER);
+    mockFetchDeletionCounts.mockResolvedValue(EMPTY_COUNTS);
     let aufloesen!: (wert: { error: null }) => void;
-    mockLoescheKonto.mockReturnValue(new Promise((resolve) => { aufloesen = resolve; }));
+    mockDeleteAccount.mockReturnValue(new Promise((resolve) => { aufloesen = resolve; }));
     await render(<ThemeProvider><ProfilScreen /></ThemeProvider>);
     await fireEvent.press(await screen.findByTestId('konto-loeschen-oeffnen'));
     await fireEvent.press(await screen.findByTestId('konto-endgueltig-loeschen'));
@@ -570,17 +570,17 @@ describe('Konto löschen (Task 9)', () => {
     await act(async () => {
       aufloesen({ error: null });
     });
-    expect(mockLoescheKonto).toHaveBeenCalledTimes(1);
+    expect(mockDeleteAccount).toHaveBeenCalledTimes(1);
   });
 
   test('«Abbrechen» schliesst den Dialog, ohne zu löschen oder abzumelden', async () => {
-    mockHoleLoeschZahlen.mockResolvedValue(ZAHLEN_LEER);
+    mockFetchDeletionCounts.mockResolvedValue(EMPTY_COUNTS);
     await render(<ThemeProvider><ProfilScreen /></ThemeProvider>);
     await fireEvent.press(await screen.findByTestId('konto-loeschen-oeffnen'));
     await screen.findByTestId('konto-endgueltig-loeschen');
     await fireEvent.press(screen.getByText('Abbrechen'));
     expect(screen.queryByTestId('konto-endgueltig-loeschen')).toBeNull();
-    expect(mockLoescheKonto).not.toHaveBeenCalled();
+    expect(mockDeleteAccount).not.toHaveBeenCalled();
     expect(mockSignOut).not.toHaveBeenCalled();
   });
 });

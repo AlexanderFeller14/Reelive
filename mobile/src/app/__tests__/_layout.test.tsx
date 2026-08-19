@@ -71,14 +71,14 @@ jest.mock('@/features/moments/uploadWorker', () => ({
 // pushApi.ts importiert @/lib/supabase (Task 4), das wiederum echtes
 // AsyncStorage lädt, unter Jest genau wie uploadWorker oben nie ungemockt.
 jest.mock('@/features/push/pushApi', () => ({
-  registrierePushToken: jest.fn(async () => 'ok'),
+  registerPushToken: jest.fn(async () => 'ok'),
 }));
 
 // Der Benachrichtigungs-Schalter (Profil-Tab): das Layout registriert nur,
-// wenn die Einstellung AN ist. Default AN wie in push/einstellungen.ts.
+// wenn die Einstellung AN ist. Default AN wie in push/settings.ts.
 const mockBenachrichtigungenAktiv = jest.fn(async () => true);
-jest.mock('@/features/push/einstellungen', () => ({
-  benachrichtigungenAktiv: () => mockBenachrichtigungenAktiv(),
+jest.mock('@/features/push/settings', () => ({
+  notificationsActive: () => mockBenachrichtigungenAktiv(),
 }));
 
 import RootLayout from '../_layout';
@@ -165,7 +165,7 @@ test('beim Unmount (z.B. App-Beenden) stoppt ein laufender Worker', async () => 
 // angestossen, vorher gibt es weder eine gültige Sitzung noch eine userId.
 test('vor signedIn wird keine Push-Registrierung angestossen', async () => {
   const { unmount } = await render(<RootLayout />);
-  expect(pushApi.registrierePushToken).not.toHaveBeenCalled();
+  expect(pushApi.registerPushToken).not.toHaveBeenCalled();
   await unmount();
 });
 
@@ -178,7 +178,7 @@ test('sobald Sitzung und Profil stehen (signedIn), wird die Push-Registrierung m
     rerender(<RootLayout />);
   });
 
-  expect(pushApi.registrierePushToken).toHaveBeenCalledWith('u1');
+  expect(pushApi.registerPushToken).toHaveBeenCalledWith('u1');
   await unmount();
 });
 
@@ -195,7 +195,7 @@ test('mit ausgeschalteten Benachrichtigungen registriert das Layout NICHT', asyn
     rerender(<RootLayout />);
   });
 
-  expect(pushApi.registrierePushToken).not.toHaveBeenCalled();
+  expect(pushApi.registerPushToken).not.toHaveBeenCalled();
   await unmount();
 });
 
@@ -257,7 +257,7 @@ describe('Web-Hartsperre (istWebGesperrt)', () => {
 
     expect(mockRouter.replace).not.toHaveBeenCalled();
     expect(uploadWorker.start).not.toHaveBeenCalled();
-    expect(pushApi.registrierePushToken).not.toHaveBeenCalled();
+    expect(pushApi.registerPushToken).not.toHaveBeenCalled();
     expect(mockStackRender).not.toHaveBeenCalled();
 
     await unmount();

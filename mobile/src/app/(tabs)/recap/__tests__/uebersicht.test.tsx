@@ -44,17 +44,17 @@ jest.mock('@/features/recap/urlPool', () => ({
 // (gleiches Muster wie reise/__tests__/detail.test.tsx, mockAuth.userId).
 const mockAuth = { userId: 'u1' };
 jest.mock('@/features/auth/AuthProvider', () => ({ useAuth: () => mockAuth }));
-// TeilenSheetInhalt hat ihre eigene, vollständige Testdatei
-// (features/teilen/__tests__/TeilenSheetInhalt.test.tsx), hier nur ein
+// ShareSheetContent hat ihre eigene, vollständige Testdatei
+// (features/sharing/__tests__/ShareSheetContent.test.tsx), hier nur ein
 // Platzhalter, der belegt, DASS und MIT WELCHER tripId sie gemountet wird,
 // ohne die Supabase-Aufrufkette dieser Datei über den Import-Graph
 // mitzuziehen (sie ist hier ungemockt und würde beim Modul-Load werfen,
 // siehe @/lib/supabase).
-jest.mock('@/features/teilen/TeilenSheetInhalt', () => {
+jest.mock('@/features/sharing/ShareSheetContent', () => {
   const ReactActual = require('react');
   const { Text } = require('react-native');
   return {
-    TeilenSheetInhalt: ({ tripId }: { tripId: string }) =>
+    ShareSheetContent: ({ tripId }: { tripId: string }) =>
       ReactActual.createElement(Text, { testID: 'mock-teilen-sheet-inhalt' }, tripId),
   };
 });

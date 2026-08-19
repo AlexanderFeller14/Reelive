@@ -3,53 +3,54 @@ import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 import { supabase } from '@/lib/supabase';
 
-export type PushRegistrierungsErgebnis = 'ok' | 'keine-berechtigung' | 'nicht-unterstuetzt' | 'fehler';
+export type PushRegistrationResult = 'ok' | 'keine-berechtigung' | 'nicht-unterstuetzt' | 'fehler';
 
 // ----------------------------------------------------------------------------
-// Jeder Fehlschlag hier ist ein NORMALFALL, kein Fehler (Task-4-Brief): keine
-// Berechtigung, Simulator, Web, Expo Go. Die App wird bislang ausschliesslich
-// in Expo Go entwickelt, laut Expo-Doku kann Expo Go seit SDK 53 GAR KEINE
-// Remote-Pushes mehr empfangen ("You must use a development build to use push
-// notifications since the capability is not built into Expo Go"). Dieser Pfad
-// ist also der ALLTAG, nicht die Ausnahme. Die Funktion darf deshalb NIE
-// werfen und der Person NIE etwas anzeigen, sie gibt nur den passenden Wert
-// zurück. Das try/catch um den gesamten Ablauf ist damit kein Sicherheitsnetz
-// für Randfälle, sondern trägt den Regelfall.
+// Every failure here is a NORMAL CASE, not an error (Task-4-brief): no
+// permission, simulator, web, Expo Go. The app has so far been developed
+// exclusively in Expo Go, and per the Expo docs, Expo Go can receive NO
+// remote pushes at all since SDK 53 ("You must use a development build to
+// use push notifications since the capability is not built into Expo
+// Go"). This path is therefore the EVERYDAY case, not the exception. The
+// function must therefore NEVER throw and NEVER show the person anything,
+// it only returns the matching value. The try/catch around the whole flow
+// is therefore not a safety net for edge cases, but carries the normal
+// case.
 //
-// Konkret beobachtetes Verhalten von expo-notifications in Expo Go (Quelle:
+// Concretely observed behavior of expo-notifications in Expo Go (source:
 // node_modules/expo-notifications/build/warnOfExpoGoPushUsage.js):
-// - Der blosse Import von `expo-notifications` warnt/wirft NICHT. Das native
-//   Modul für Berechtigungen ist in Expo Go weiterhin eingebaut; nur der
-//   Zugriff auf den PUSH-TOKEN ist betroffen (siehe unten). getPermissionsAsync
-//   und requestPermissionsAsync laufen in Expo Go normal durch.
-// - Erst beim Token-Abruf (Notifications.getExpoPushTokenAsync, ruft intern
-//   getDevicePushTokenAsync auf) greift die Expo-Go-Sperre: auf ANDROID wirft
-//   sie synchron eine Error, auf iOS nur ein console.warn, dort scheitert der
-//   Abruf danach ohnehin am fehlenden EAS-Projekt (kein eas.json in diesem
-//   Repo → ERR_NOTIFICATIONS_NO_EXPERIENCE_ID) oder am fehlenden nativen
-//   Push-Setup von Expo Go. Beide Enden landen im catch unten und werden zu
-//   'fehler', nie zu einem Wurf nach aussen.
+// - The mere import of `expo-notifications` does NOT warn/throw. The
+//   native module for permissions is still built into Expo Go; only
+//   access to the PUSH TOKEN is affected (see below). getPermissionsAsync
+//   and requestPermissionsAsync run through normally in Expo Go.
+// - Only on the token fetch (Notifications.getExpoPushTokenAsync, calls
+//   getDevicePushTokenAsync internally) does the Expo Go lock kick in: on
+//   ANDROID it throws a synchronous Error, on iOS only a console.warn,
+//   where the fetch then fails anyway on the missing EAS project (no
+//   eas.json in this repo → ERR_NOTIFICATIONS_NO_EXPERIENCE_ID) or on the
+//   missing native push setup of Expo Go. Both ends land in the catch
+//   below and become 'fehler', never a throw to the outside.
 // ----------------------------------------------------------------------------
-export async function registrierePushToken(userId: string): Promise<PushRegistrierungsErgebnis> {
+export async function registerPushToken(userId: string): Promise<PushRegistrationResult> {
   try {
-    // push_tokens.platform erlaubt per CHECK-Constraint nur 'ios'|'android'
-    // (Migration 20260808090000_push_tokens.sql). Web oder künftige
-    // Plattformen sind "nicht unterstützt", kein Fehler.
+    // push_tokens.platform only allows 'ios'|'android' via a CHECK
+    // constraint (migration 20260808090000_push_tokens.sql). Web or
+    // future platforms are "not supported", not an error.
     if (Platform.OS !== 'ios' && Platform.OS !== 'android') return 'nicht-unterstuetzt';
 
-    // Simulator/Emulator bekommt nie einen echten Push-Token, expo-device
-    // ist dafür da (Brief Step 2).
+    // A simulator/emulator never gets a real push token, expo-device
+    // exists for that (brief step 2).
     if (!Device.isDevice) return 'nicht-unterstuetzt';
 
-    // Android 13+ (laut versionsgenauer SDK-57-Doku, s. AGENTS.md): Der
-    // System-Berechtigungsdialog erscheint erst, NACHDEM mindestens ein
-    // Notification-Channel existiert, ohne diesen Aufruf bliebe
-    // requestPermissionsAsync() unten wirkungslos (kein Dialog, Status bleibt
-    // 'undetermined'), was aber ohnehin sauber in 'keine-berechtigung'
-    // mündet. Auf iOS/Web ist der Aufruf ein dokumentierter No-Op
-    // (console.debug + null), auf Android best-effort: schlägt er fehl (z.B.
-    // Expo Go), macht das den Rest des Ablaufs nicht kaputt, er läuft
-    // einfach in dieselbe 'keine-berechtigung'/'fehler'-Bahn wie ohne Channel.
+    // Android 13+ (per version-exact SDK-57 docs, see AGENTS.md): the
+    // system permission dialog only appears AFTER at least one
+    // notification channel exists, without this call requestPermissionsAsync()
+    // below would be ineffective (no dialog, status stays 'undetermined'),
+    // which cleanly leads into 'keine-berechtigung' anyway. On iOS/web
+    // this call is a documented no-op (console.debug + null), on Android
+    // best-effort: if it fails (e.g. Expo Go), that doesn't break the rest
+    // of the flow, it simply runs the same 'keine-berechtigung'/'fehler'
+    // path as without a channel.
     if (Platform.OS === 'android') {
       try {
         await Notifications.setNotificationChannelAsync('default', {
@@ -57,19 +58,18 @@ export async function registrierePushToken(userId: string): Promise<PushRegistri
           importance: Notifications.AndroidImportance.DEFAULT,
         });
       } catch {
-        // Best effort, siehe Kommentar oben.
+        // Best effort, see comment above.
       }
     }
 
-    let berechtigung = await Notifications.getPermissionsAsync();
-    if (berechtigung.status !== 'granted') {
-      // Nur erfragen, wenn noch nicht entschieden bzw. abgelehnt, die
-      // native Anfrage selbst zeigt der Person den System-Dialog, das ist
-      // hier korrekt (kein eigener Dialog davor, DESIGN-LANGUAGE verlangt
-      // keinen).
-      berechtigung = await Notifications.requestPermissionsAsync();
+    let permission = await Notifications.getPermissionsAsync();
+    if (permission.status !== 'granted') {
+      // Only ask if not yet decided or declined, the native request
+      // itself shows the person the system dialog, which is correct here
+      // (no own dialog before it, DESIGN-LANGUAGE doesn't call for one).
+      permission = await Notifications.requestPermissionsAsync();
     }
-    if (berechtigung.status !== 'granted') return 'keine-berechtigung';
+    if (permission.status !== 'granted') return 'keine-berechtigung';
 
     const { data: token } = await Notifications.getExpoPushTokenAsync();
     if (!token) return 'fehler';
@@ -79,12 +79,12 @@ export async function registrierePushToken(userId: string): Promise<PushRegistri
         token,
         user_id: userId,
         platform: Platform.OS,
-        // Ausdrücklich mitsenden: PostgREST baut aus .upsert() ein
-        // "on conflict do update set" nur über die GESENDETEN Spalten. Ohne
-        // dieses Feld bliebe updated_at beim Wert des Erst-Inserts stehen,
-        // obwohl sich dasselbe Gerät danach jahrelang erneut registriert,
-        // wer später nach updated_at aufräumt, räumt dann falsch auf
-        // (Review aus Task 1).
+        // Sent explicitly: PostgREST builds an "on conflict do update
+        // set" from .upsert() only over the SENT columns. Without this
+        // field, updated_at would stay at the value of the first insert,
+        // even though the same device registers again for years
+        // afterward, whoever later cleans up by updated_at would then
+        // clean up wrongly (review from Task 1).
         updated_at: new Date().toISOString(),
       },
       { onConflict: 'token' }
@@ -98,37 +98,37 @@ export async function registrierePushToken(userId: string): Promise<PushRegistri
 }
 
 // ----------------------------------------------------------------------------
-// Aufgerufen von authApi.signOut() (siehe dort), NICHT über die
-// Push-Registrierung selbst, kein Teil des Task-4-Interface-Vertrags, aber
-// aus dem Review von Task 1 nötig: ohne das bleibt die Registrierung der
-// vorigen Person auf dem Gerät liegen, und der Übernahmepfad des
-// SECURITY-DEFINER-Triggers aus Task 1 (push_tokens_take_over) wird zum
-// Normalfall statt zur Ausnahme.
+// Called from authApi.signOut() (see there), NOT via push registration
+// itself, not part of the Task-4 interface contract, but needed from the
+// Task 1 review: without this, the previous person's registration stays
+// on the device, and the takeover path of the Task 1 SECURITY-DEFINER
+// trigger (push_tokens_take_over) becomes the normal case instead of the
+// exception.
 //
-// Ermittelt bewusst denselben Token erneut, statt einen zuvor registrierten
-// Token lokal zwischenzuspeichern, es gibt in dieser App noch keine solche
-// Ablage, und ein zweiter Speicherort für denselben Wert wäre eine weitere
-// Quelle, die veralten kann. Die Berechtigung wird VORHER geprüft (reines
-// Lesen, kein Dialog, keine native Registrierung): ohne 'granted' hat
-// registrierePushToken() nie eine Zeile geschrieben, also gibt es nichts zu
-// löschen, und getExpoPushTokenAsync() wird erst gar nicht aufgerufen, was
-// sonst bei jedem Abmelden eine echte native Push-Registrierung anstiesse,
-// selbst für Personen, die nie gefragt wurden. Ist die Berechtigung erteilt,
-// liefert getExpoPushTokenAsync() denselben Token ohne erneuten Dialog;
-// schlägt der Abruf trotzdem fehl (Expo Go, kein EAS-Projekt, Alltag, siehe
-// oben), gibt es ebenfalls nichts zu löschen. Löscht darum NUR die eigene
-// Zeile über die RLS-Policy push_tokens_delete_own (user_id = auth.uid());
-// andere Geräte derselben Person bleiben registriert.
-export async function deregistrierePushToken(): Promise<void> {
+// Deliberately determines the same token again instead of caching a
+// previously registered token locally, this app has no such storage yet,
+// and a second storage location for the same value would be another
+// source that can go stale. Permission is checked FIRST (pure read, no
+// dialog, no native registration): without 'granted', registerPushToken()
+// never wrote a row, so there's nothing to delete, and
+// getExpoPushTokenAsync() isn't even called, which would otherwise
+// trigger a real native push registration on every sign-out, even for
+// people who were never asked. If permission is granted,
+// getExpoPushTokenAsync() returns the same token without another dialog;
+// if the fetch still fails (Expo Go, no EAS project, everyday case, see
+// above), there's likewise nothing to delete. Therefore deletes ONLY its
+// own row via the RLS policy push_tokens_delete_own (user_id = auth.uid());
+// other devices of the same person stay registered.
+export async function deregisterPushToken(): Promise<void> {
   try {
-    const berechtigung = await Notifications.getPermissionsAsync();
-    if (berechtigung.status !== 'granted') return;
+    const permission = await Notifications.getPermissionsAsync();
+    if (permission.status !== 'granted') return;
 
     const { data: token } = await Notifications.getExpoPushTokenAsync();
     if (!token) return;
     await supabase.from('push_tokens').delete().eq('token', token);
   } catch {
-    // Nichts zu löschen oder kein Zugriff möglich, beim Abmelden darf das
-    // nie den Vorgang aufhalten oder der Person etwas anzeigen.
+    // Nothing to delete or no access possible, on sign-out this must
+    // never hold up the process or show the person anything.
   }
 }

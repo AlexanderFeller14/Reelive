@@ -1,20 +1,20 @@
-export type PushRegistrierungsErgebnis = 'ok' | 'keine-berechtigung' | 'nicht-unterstuetzt' | 'fehler';
+export type PushRegistrationResult = 'ok' | 'keine-berechtigung' | 'nicht-unterstuetzt' | 'fehler';
 
-// Web-Fassung von pushApi.ts (Task-4-Brief, Phase 6).
+// Web version of pushApi.ts (Task-4-brief, phase 6).
 //
-// Kein Import von expo-notifications oder expo-device: beide ziehen native
-// Module, die Metro auf Web nicht bündeln kann bzw. deren Push-Funktionen im
-// Browser ohnehin nicht existieren. Die native Fassung würde für
-// Platform.OS === 'web' sofort 'nicht-unterstuetzt' liefern, noch bevor sie
-// eine der beiden Bibliotheken tatsächlich benutzt, dieser Web-Shim macht
-// diesen Kurzschluss nur explizit und vermeidet dabei den Import selbst.
+// No import of expo-notifications or expo-device: both pull in native
+// modules that Metro can't bundle for web, and whose push functions don't
+// exist in the browser anyway. The native version would return
+// 'nicht-unterstuetzt' immediately for Platform.OS === 'web', before it
+// actually uses either library, this web shim just makes that shortcut
+// explicit while avoiding the import itself.
 //
-// Wirft nie, wie im Brief für die native Fassung verlangt (jeder
-// Fehlschlag ist hier erst recht ein Normalfall, kein Fehler): das
-// Root-Layout ruft registrierePushToken() bei jedem signedIn-Wechsel ohne
-// Fehlerbehandlung auf.
-export async function registrierePushToken(_userId: string): Promise<PushRegistrierungsErgebnis> {
+// Never throws, as required in the brief for the native version too
+// (every failure here is even more so a normal case, not an error): the
+// root layout calls registerPushToken() on every signedIn change without
+// error handling.
+export async function registerPushToken(_userId: string): Promise<PushRegistrationResult> {
   return 'nicht-unterstuetzt';
 }
 
-export async function deregistrierePushToken(): Promise<void> {}
+export async function deregisterPushToken(): Promise<void> {}

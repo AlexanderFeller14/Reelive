@@ -21,7 +21,7 @@ import { useTheme } from '@/theme/ThemeProvider';
 import { cinema, motion, radius, spacing, type } from '@/theme/tokens';
 import { useTopInset } from '@/theme/useTopInset';
 import { useReducedMotion } from '@/theme/useReducedMotion';
-import { loeseTokenAuf, LINK_TOT_TEXT, type GeteiltesMoment } from '@/features/teilen/shareApi';
+import { resolveToken, DEAD_LINK_TEXT, type SharedMoment } from '@/features/sharing/shareApi';
 import { sortMoments } from '@/features/recap/days';
 import {
   blocksAutoAdvance,
@@ -133,7 +133,7 @@ type MedienLink = { medium_url: string; thumb_url: string | null };
 // null, GeteiltesMoment trug damals noch keinen Bildschlüssel): der
 // SCHLÜSSEL, nie eine fertige URL, `<Avatar>` baut die URL selbst über
 // avatarUrl() (features/auth/avatar.ts).
-function zuRecapMoment(m: GeteiltesMoment): RecapMoment {
+function zuRecapMoment(m: SharedMoment): RecapMoment {
   return {
     id: m.post_id,
     trip_id: '',
@@ -147,8 +147,8 @@ function zuRecapMoment(m: GeteiltesMoment): RecapMoment {
     lat: m.lat,
     lng: m.lng,
     upload_status: 'uploaded',
-    authorName: m.autor_name,
-    authorAvatarKey: m.autor_avatar_key,
+    authorName: m.authorName,
+    authorAvatarKey: m.authorAvatarKey,
   };
 }
 
@@ -486,11 +486,11 @@ export default function GeteilterRecapScreen() {
     setAusschnitt(null);
     setAusgelassen(0);
     letzterZoom.current = null;
-    const { data, error } = await loeseTokenAuf(token);
+    const { data, error } = await resolveToken(token);
     if (!aktiv.current) return;
 
     if (error || !data) {
-      setFehlerText(error ?? LINK_TOT_TEXT);
+      setFehlerText(error ?? DEAD_LINK_TEXT);
       setPhase('fehler');
       return;
     }

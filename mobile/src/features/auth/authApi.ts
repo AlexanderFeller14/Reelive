@@ -1,6 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { OFFLINE_HINT, istOffline } from '@/lib/networkError';
-import { deregistrierePushToken } from '@/features/push/pushApi';
+import { deregisterPushToken } from '@/features/push/pushApi';
 
 export async function requestOtp(phone: string): Promise<{ error: string | null }> {
   const { error } = await supabase.auth.signInWithOtp({ phone });
@@ -29,7 +29,7 @@ export async function signOut(): Promise<void> {
   // does a fetch() with no discernible timeout. We deliberately accept
   // that; cleaning up in parallel with supabase.auth.signOut() would fail
   // on exactly the RLS gap above.
-  await deregistrierePushToken();
+  await deregisterPushToken();
   await supabase.auth.signOut();
 }
 

@@ -98,7 +98,7 @@ describe('W4: der Web-Player kann nichts schreiben (Modulgraph-Beweis)', () => {
   // auftauchen, sonst hat die Sammlung nicht funktioniert.
   test('Testaufbau: der Modulgraph enthält tatsächlich die erwarteten, wiederverwendeten Dateien', () => {
     const dateien = [...graph.keys()];
-    expect(dateien.some((d) => d.endsWith(path.join('teilen', 'shareApi.ts')))).toBe(true);
+    expect(dateien.some((d) => d.endsWith(path.join('sharing', 'shareApi.ts')))).toBe(true);
     expect(dateien.some((d) => d.endsWith(path.join('recap', 'playerLogic.ts')))).toBe(true);
     expect(dateien.some((d) => d.endsWith(path.join('recap', 'days.ts')))).toBe(true);
     expect(dateien.some((d) => d.endsWith(path.join('components', 'Fortschrittsbalken.tsx')))).toBe(true);
@@ -157,7 +157,7 @@ describe('W4: der Web-Player kann nichts schreiben (Modulgraph-Beweis)', () => {
     }
 
     expect(dateienMitAufruf).toHaveLength(1);
-    expect(dateienMitAufruf[0].endsWith(path.join('teilen', 'shareApi.ts'))).toBe(true);
+    expect(dateienMitAufruf[0].endsWith(path.join('sharing', 'shareApi.ts'))).toBe(true);
     expect([...funktionsNamen]).toEqual(['share-link']);
     expect([...aktionen]).toEqual(['aufloesen']);
   });

@@ -36,11 +36,11 @@ async function alsQuadratJpeg(uri: string, gewaehlt?: Crop): Promise<string> {
     // Die Masse kennt die kontextbasierte API erst nach renderAsync(), also
     // einmal unverändert laden — gleiches Vorgehen wie quellmasseErmitteln()
     // in medien.ts.
-    const messkontext = ImageManipulator.manipulate(uri);
+    const measureContext = ImageManipulator.manipulate(uri);
     let breite: number;
     let hoehe: number;
     try {
-      const original = await messkontext.renderAsync();
+      const original = await measureContext.renderAsync();
       try {
         breite = original.width;
         hoehe = original.height;
@@ -48,7 +48,7 @@ async function alsQuadratJpeg(uri: string, gewaehlt?: Crop): Promise<string> {
         original.release();
       }
     } finally {
-      messkontext.release();
+      measureContext.release();
     }
     const seite = Math.min(breite, hoehe);
     bereich = {
@@ -62,14 +62,14 @@ async function alsQuadratJpeg(uri: string, gewaehlt?: Crop): Promise<string> {
   const { originX, originY } = bereich;
   const seite = bereich.width;
 
-  const kontext = ImageManipulator.manipulate(uri);
+  const context = ImageManipulator.manipulate(uri);
   try {
     // Erst beschneiden, dann skalieren: andersherum würde auf dem vollen,
     // ungeschnittenen Bild skaliert und der Ausschnitt danach nicht mehr
     // passen.
-    kontext.crop({ originX, originY, width: seite, height: seite });
-    kontext.resize({ width: KANTE, height: KANTE });
-    const gerendert = await kontext.renderAsync();
+    context.crop({ originX, originY, width: seite, height: seite });
+    context.resize({ width: KANTE, height: KANTE });
+    const gerendert = await context.renderAsync();
     try {
       const ergebnis = await gerendert.saveAsync({
         format: SaveFormat.JPEG,
@@ -80,7 +80,7 @@ async function alsQuadratJpeg(uri: string, gewaehlt?: Crop): Promise<string> {
       gerendert.release();
     }
   } finally {
-    kontext.release();
+    context.release();
   }
 }
 
@@ -88,7 +88,7 @@ async function alsQuadratJpeg(uri: string, gewaehlt?: Crop): Promise<string> {
 // und `fetch(uri).blob()` ist unter React Native unzuverlässig. Stattdessen
 // dasselbe File.upload()-Muster wie features/moments/uploadWorker.ts, das im
 // Projekt erprobt ist.
-async function hochladen(schluessel: string, uri: string): Promise<void> {
+async function upload(schluessel: string, uri: string): Promise<void> {
   const { data } = await supabase.auth.getSession();
   const token = data.session?.access_token;
   if (!token) throw new Error('Nicht angemeldet.');
@@ -113,13 +113,13 @@ async function hochladen(schluessel: string, uri: string): Promise<void> {
 // Räumt ein altes Objekt weg. Bewusst OHNE Fehlerrückgabe: ein liegen-
 // gebliebenes Objekt kostet ~50 KB, ein zurückgenommenes Bild kostet die
 // Person ihre gerade getroffene Wahl. Die harmlosere Fehlerrichtung gewinnt.
-async function altesWegraeumen(alterKey: string | null): Promise<void> {
-  if (!alterKey) return;
+async function altesWegraeumen(oldKey: string | null): Promise<void> {
+  if (!oldKey) return;
   try {
-    const { error } = await supabase.storage.from(AVATAR_BUCKET).remove([alterKey]);
+    const { error } = await supabase.storage.from(AVATAR_BUCKET).remove([oldKey]);
     if (error) console.error('[avatarApi] altes Bild blieb liegen', error);
-  } catch (fehler) {
-    console.error('[avatarApi] altes Bild blieb liegen', fehler);
+  } catch (error) {
+    console.error('[avatarApi] altes Bild blieb liegen', error);
   }
 }
 
@@ -127,20 +127,20 @@ async function altesWegraeumen(alterKey: string | null): Promise<void> {
 // So zeigt die Zeile nie auf etwas, das noch nicht oder nicht mehr da ist.
 export async function setzeAvatar(
   userId: string,
-  lokaleUri: string,
-  alterKey: string | null,
+  localUri: string,
+  oldKey: string | null,
   // Optional, weil nicht jeder Weg einen gewählten Ausschnitt hat: aus der
   // Galerie kommt einer (AvatarZuschnitt), ein Kamera-Selfie ist bereits
   // aufnahmefertig und wird mittig beschnitten.
-  ausschnitt?: Crop,
+  crop?: Crop,
 ): Promise<{ avatarKey: string | null; error: string | null }> {
   const schluessel = newAvatarKey(userId);
 
   try {
-    const fertig = await alsQuadratJpeg(lokaleUri, ausschnitt);
-    await hochladen(schluessel, fertig);
-  } catch (fehler) {
-    console.error('[avatarApi] Hochladen fehlgeschlagen', fehler);
+    const fertig = await alsQuadratJpeg(localUri, crop);
+    await upload(schluessel, fertig);
+  } catch (error) {
+    console.error('[avatarApi] Hochladen fehlgeschlagen', error);
     return {
       avatarKey: null,
       error: 'Das Bild konnte nicht hochgeladen werden. Probier es gleich nochmal.',
@@ -163,15 +163,15 @@ export async function setzeAvatar(
     };
   }
 
-  await altesWegraeumen(alterKey);
+  await altesWegraeumen(oldKey);
   return { avatarKey: schluessel, error: null };
 }
 
 // Umgekehrte Reihenfolge: erst die Spalte leeren, dann das Objekt. Andersherum
 // zeigte die Zeile auf etwas, das es nicht mehr gibt.
-export async function entferneAvatar(
+export async function removeAvatar(
   userId: string,
-  alterKey: string | null,
+  oldKey: string | null,
 ): Promise<{ error: string | null }> {
   const { error } = await supabase
     .from('profiles')
@@ -181,6 +181,6 @@ export async function entferneAvatar(
     console.error('[avatarApi] avatar_key leeren fehlgeschlagen', error);
     return { error: 'Das Bild konnte nicht entfernt werden. Probier es gleich nochmal.' };
   }
-  await altesWegraeumen(alterKey);
+  await altesWegraeumen(oldKey);
   return { error: null };
 }

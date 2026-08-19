@@ -27,7 +27,7 @@ import {
   type MediaUrl,
   type Pool,
 } from '@/features/recap/urlPool';
-import { TeilenSheetInhalt } from '@/features/teilen/TeilenSheetInhalt';
+import { ShareSheetContent } from '@/features/sharing/ShareSheetContent';
 
 // Nur der Tag selbst, nicht der Wochentag, den will hier niemand wissen.
 const MONATE_LANG = [
@@ -639,7 +639,7 @@ export default function RecapUebersicht() {
           Weg, sie zu öffnen. */}
       {kannTeilen && (
         <Sheet sichtbar={teilenOffen} titel="Recap teilen" onSchliessen={() => setTeilenOffen(false)} kino>
-          <TeilenSheetInhalt tripId={id} />
+          <ShareSheetContent tripId={id} />
         </Sheet>
       )}
       {kannExportieren && (

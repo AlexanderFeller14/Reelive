@@ -1,7 +1,7 @@
-import { entferneAvatar, setzeAvatar } from '../avatarApi';
+import { removeAvatar, setzeAvatar } from '../avatarApi';
 
 const UID = '11111111-2222-3333-4444-555555555555';
-const ALT = `profiles/${UID}/alt.jpg`;
+const OLD = `profiles/${UID}/alt.jpg`;
 
 // "mock"-Präfix ist hier keine Geschmacksfrage: babel-plugin-jest-hoist hebt
 // jest.mock()-Aufrufe vor alle anderen Anweisungen (auch vor `const X =
@@ -11,8 +11,8 @@ const ALT = `profiles/${UID}/alt.jpg`;
 // beginnt (case-insensitive), das hebt es gleich mit an. Ohne das Präfix
 // bricht schon der Testlauf mit "not allowed to reference any out-of-scope
 // variables" ab, siehe medien.test.ts für dieselbe Falle bei Typ-Aliassen.
-const mockHochgeladen = jest.fn();
-const mockEntfernt = jest.fn();
+const mockUploaded = jest.fn();
+const mockRemoved = jest.fn();
 const mockAktualisiert = jest.fn();
 const mockCrop = jest.fn();
 const mockResize = jest.fn();
@@ -81,7 +81,7 @@ jest.mock('expo-file-system', () => ({
       this.uri = uri;
     }
     upload = (...args: unknown[]) => {
-      mockHochgeladen(...args);
+      mockUploaded(...args);
       return Promise.resolve({ status: mockUploadStatus });
     };
   },
@@ -98,7 +98,7 @@ jest.mock('@/lib/supabase', () => ({
         },
       }),
     }),
-    storage: { from: () => ({ remove: async (keys: string[]) => { mockEntfernt(keys); return { error: null }; } }) },
+    storage: { from: () => ({ remove: async (keys: string[]) => { mockRemoved(keys); return { error: null }; } }) },
   },
 }));
 
@@ -107,8 +107,8 @@ jest.mock('@/lib/supabase', () => ({
 // Aufrufliste und liesse sie in den nächsten Test überlaufen — ein Test, der
 // dann aus dem falschen Grund grün oder rot wird.
 beforeEach(() => {
-  mockHochgeladen.mockReset();
-  mockEntfernt.mockReset();
+  mockUploaded.mockReset();
+  mockRemoved.mockReset();
   mockAktualisiert.mockReset();
   mockCrop.mockReset();
   mockResize.mockReset();
@@ -154,11 +154,11 @@ test('beschnitten wird vor dem Skalieren', async () => {
 });
 
 test('setzeAvatar laedt hoch, setzt die Spalte und raeumt das alte Objekt weg', async () => {
-  const { avatarKey, error } = await setzeAvatar(UID, 'file:///gewaehlt.jpg', ALT);
+  const { avatarKey, error } = await setzeAvatar(UID, 'file:///gewaehlt.jpg', OLD);
   expect(error).toBeNull();
   expect(avatarKey).toMatch(new RegExp(`^profiles/${UID}/[0-9a-f]{32}\\.jpg$`));
   expect(mockAktualisiert).toHaveBeenCalledWith({ avatar_key: avatarKey });
-  expect(mockEntfernt).toHaveBeenCalledWith([ALT]);
+  expect(mockRemoved).toHaveBeenCalledWith([OLD]);
 });
 
 // Die Reihenfolge ist die eigentliche Zusicherung: erst das Objekt, dann die
@@ -166,7 +166,7 @@ test('setzeAvatar laedt hoch, setzt die Spalte und raeumt das alte Objekt weg', 
 // alle Mitreisenden sähen eine kaputte Kachel.
 test('die Spalte wird erst nach dem Hochladen gesetzt', async () => {
   const reihenfolge: string[] = [];
-  mockHochgeladen.mockImplementation(() => reihenfolge.push('upload'));
+  mockUploaded.mockImplementation(() => reihenfolge.push('upload'));
   mockAktualisiert.mockImplementation(() => reihenfolge.push('update'));
   await setzeAvatar(UID, 'file:///gewaehlt.jpg', null);
   expect(reihenfolge).toEqual(['upload', 'update']);
@@ -175,14 +175,14 @@ test('die Spalte wird erst nach dem Hochladen gesetzt', async () => {
 // Ein liegengebliebenes altes Objekt kostet ~50 KB. Ein Fehlschlag hier darf
 // das neue, bereits gesetzte Bild nicht zurücknehmen.
 test('ein gescheitertes Aufraeumen laesst das neue Bild stehen', async () => {
-  mockEntfernt.mockImplementation(() => { throw new Error('weg ist weg'); });
-  const { avatarKey, error } = await setzeAvatar(UID, 'file:///gewaehlt.jpg', ALT);
+  mockRemoved.mockImplementation(() => { throw new Error('weg ist weg'); });
+  const { avatarKey, error } = await setzeAvatar(UID, 'file:///gewaehlt.jpg', OLD);
   expect(error).toBeNull();
   expect(avatarKey).not.toBeNull();
 });
 
 test('ein gescheiterter Upload setzt die Spalte nicht', async () => {
-  mockHochgeladen.mockImplementation(() => { throw new Error('kein Netz'); });
+  mockUploaded.mockImplementation(() => { throw new Error('kein Netz'); });
   const { avatarKey, error } = await setzeAvatar(UID, 'file:///gewaehlt.jpg', null);
   expect(avatarKey).toBeNull();
   expect(error).toBe('Das Bild konnte nicht hochgeladen werden. Probier es gleich nochmal.');
@@ -200,7 +200,7 @@ test('ein mit 4xx abgelehnter Upload setzt die Spalte nicht', async () => {
   const { avatarKey, error } = await setzeAvatar(UID, 'file:///zu-gross.jpg', null);
   // Der Versuch fand statt — sonst prüfte dieser Test nur, dass gar nichts
   // passierte, und wäre auch bei einem kaputten Mock grün.
-  expect(mockHochgeladen).toHaveBeenCalledTimes(1);
+  expect(mockUploaded).toHaveBeenCalledTimes(1);
   expect(avatarKey).toBeNull();
   expect(error).toBe('Das Bild konnte nicht hochgeladen werden. Probier es gleich nochmal.');
   expect(mockAktualisiert).not.toHaveBeenCalled();
@@ -208,11 +208,11 @@ test('ein mit 4xx abgelehnter Upload setzt die Spalte nicht', async () => {
 
 // Beim Entfernen umgekehrt: erst die Spalte, dann das Objekt. Sonst zeigte die
 // Zeile auf etwas, das schon weg ist.
-test('entferneAvatar leert die Spalte vor dem Objekt', async () => {
+test('removeAvatar leert die Spalte vor dem Objekt', async () => {
   const reihenfolge: string[] = [];
   mockAktualisiert.mockImplementation(() => reihenfolge.push('update'));
-  mockEntfernt.mockImplementation(() => reihenfolge.push('remove'));
-  const { error } = await entferneAvatar(UID, ALT);
+  mockRemoved.mockImplementation(() => reihenfolge.push('remove'));
+  const { error } = await removeAvatar(UID, OLD);
   expect(error).toBeNull();
   expect(reihenfolge).toEqual(['update', 'remove']);
   expect(mockAktualisiert).toHaveBeenCalledWith({ avatar_key: null });

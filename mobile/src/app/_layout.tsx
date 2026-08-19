@@ -25,8 +25,8 @@ import { peekRememberedInvite, discardRememberedInvite } from '@/features/trips/
 import { redeemInvite } from '@/features/trips/tripsApi';
 import { redeemPendingInvite } from '@/features/trips/joinFlow';
 import * as uploadWorker from '@/features/moments/uploadWorker';
-import { registrierePushToken } from '@/features/push/pushApi';
-import { benachrichtigungenAktiv } from '@/features/push/einstellungen';
+import { registerPushToken } from '@/features/push/pushApi';
+import { notificationsActive } from '@/features/push/settings';
 import { initErrorReporter } from '@/lib/errorReporter';
 
 void SplashScreen.preventAutoHideAsync();
@@ -143,8 +143,8 @@ function Guarded() {
   // Wieder-Anlegen verhindert.
   useEffect(() => {
     if (webGesperrt || status !== 'signedIn' || !userId) return;
-    void benachrichtigungenAktiv().then((aktiv) => {
-      if (aktiv) void registrierePushToken(userId);
+    void notificationsActive().then((aktiv) => {
+      if (aktiv) void registerPushToken(userId);
     });
   }, [status, userId, webGesperrt]);
 
