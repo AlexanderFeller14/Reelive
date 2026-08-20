@@ -56,7 +56,7 @@ const stackReady = Boolean(statusEnv && SERVICE_ROLE_KEY && (await restReachable
 
 if (!stackReady) {
   console.warn(
-    'zeitplanStore_integration_test: übersprungen, braucht `supabase start`.',
+    'scheduleStore_integration_test: skipped, needs `supabase start`.',
   );
 }
 
@@ -98,7 +98,7 @@ async function deleteTrip(tripId: string): Promise<void> {
 }
 
 Deno.test({
-  name: 'fetchDueTrips: end_date streng kleiner heute, active only',
+  name: 'fetchDueTrips: end_date strictly less than today, active only',
   ignore: !stackReady,
   fn: async () => {
     const store = createScheduleStore(createAdminClient(SUPABASE_URL, SERVICE_ROLE_KEY));
@@ -106,7 +106,7 @@ Deno.test({
     try {
       const due = await store.fetchDueTrips('2026-01-03');
       assert(due.data !== null, String(due.error));
-      assert(due.data.some((t) => t.id === tripId), 'Reise mit end_date < heute ist fällig');
+      assert(due.data.some((t) => t.id === tripId), 'a trip with end_date < today is due');
 
       // On the end date itself (until 23:59) NOT yet due.
       const notYet = await store.fetchDueTrips('2026-01-02');
@@ -125,7 +125,7 @@ Deno.test({
 });
 
 Deno.test({
-  name: 'markReminder: CAS im echten Update, zweiter Aufruf 0 Zeilen',
+  name: 'markReminder: CAS in the real update, second call 0 rows',
   ignore: !stackReady,
   fn: async () => {
     const store = createScheduleStore(createAdminClient(SUPABASE_URL, SERVICE_ROLE_KEY));
@@ -153,7 +153,7 @@ Deno.test({
 });
 
 Deno.test({
-  name: 'fetchReminderTrips: end_date = heute und Marker leer',
+  name: 'fetchReminderTrips: end_date = today and marker empty',
   ignore: !stackReady,
   fn: async () => {
     const store = createScheduleStore(createAdminClient(SUPABASE_URL, SERVICE_ROLE_KEY));
@@ -161,7 +161,7 @@ Deno.test({
     try {
       const due = await store.fetchReminderTrips('2026-01-02');
       assert(due.data !== null, String(due.error));
-      assert(due.data.some((t) => t.id === tripId), 'Reise mit end_date = heute braucht die Erinnerung');
+      assert(due.data.some((t) => t.id === tripId), 'a trip with end_date = today needs the reminder');
 
       const otherDate = await store.fetchReminderTrips('2026-01-01');
       assert(otherDate.data !== null, String(otherDate.error));

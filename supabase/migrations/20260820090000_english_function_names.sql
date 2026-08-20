@@ -29,9 +29,16 @@ grant execute on function public.recap_is_shared(uuid) to authenticated, service
 
 -- --- rufe_reveal_zeitplan -> call_reveal_schedule -----------------------
 -- Erst die Jobs abhaengen, sonst zeigt der Scheduler auf eine Funktion, die
--- es zwischen drop und schedule nicht gibt.
-select cron.unschedule('reveal-zeitplan-reveal');
-select cron.unschedule('reveal-zeitplan-erinnerung');
+-- es zwischen drop und schedule nicht gibt. In do-Bloecke gewickelt und
+-- Fehler geschluckt: cron.unschedule wirft hart, wenn der Job nicht
+-- existiert (z. B. bei einem Wiederholungslauf nach einem Fehlschlag oder
+-- nach migration repair), das darf diese Migration nicht abbrechen.
+do $$ begin
+  perform cron.unschedule('reveal-zeitplan-reveal');
+exception when others then null; end $$;
+do $$ begin
+  perform cron.unschedule('reveal-zeitplan-erinnerung');
+exception when others then null; end $$;
 
 drop function if exists public.rufe_reveal_zeitplan(text);
 

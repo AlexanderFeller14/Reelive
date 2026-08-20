@@ -30,7 +30,7 @@ beforeEach(() => {
 // computes anything against the clock: what "carries" means has lived in
 // the view since migration 20260810120000. The assertions about it haven't
 // disappeared, they moved and now live in
-// supabase/tests/18_recap_ist_geteilt_test.sql, where they run against real
+// supabase/tests/18_recap_is_shared_test.sql, where they run against real
 // Postgres instead of against a mock that dictates the answer anyway.
 function activeLinksChain(result: { data: unknown; error: unknown }) {
   const maybeSingle = jest.fn(async () => result);
