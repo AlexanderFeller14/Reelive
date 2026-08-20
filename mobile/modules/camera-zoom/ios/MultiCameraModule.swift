@@ -119,6 +119,11 @@ public class MultiCameraModule: Module {
   // on different queues: the wish comes from the JS thread, the cameras'
   // arrangement changes from the switch (see applyFlash).
   private static var _flashWanted = false
+  // Whether the streams SHOULD be stabilized. Kept as a wish for the same
+  // reason as _flashWanted: the call arrives on the JS thread, the
+  // connections change on the session queue (attach), so the module holds
+  // the wish and re-applies it on every session build.
+  private static var _stabilizationWanted = true
   // The open photo request (spec §6). It's placed by the JS call and
   // fulfilled by the distributor on the video queue, so it sits between two
   // threads: hence under the same stateLock as the other small shared
@@ -190,6 +195,19 @@ public class MultiCameraModule: Module {
     set {
       stateLock.lock()
       _flashWanted = newValue
+      stateLock.unlock()
+    }
+  }
+
+  private static var stabilizationWanted: Bool {
+    get {
+      stateLock.lock()
+      defer { stateLock.unlock() }
+      return _stabilizationWanted
+    }
+    set {
+      stateLock.lock()
+      _stabilizationWanted = newValue
       stateLock.unlock()
     }
   }
@@ -422,6 +440,15 @@ public class MultiCameraModule: Module {
       Self.applyFlash()
     }
 
+    // Video stabilization for all output connections; the photo path
+    // inherits it, its image is a grab from the same stream. Synchronous
+    // like `flash`: the call only notes the WISH, the switching happens on
+    // the session queue (see applyStabilization).
+    Function("stabilization") { (on: Bool) in
+      Self.stabilizationWanted = on
+      Self.applyStabilization()
+    }
+
     View(MultiCameraViewfinderView.self) {
       ViewName("MultiCameraViewfinder")
     }
@@ -589,6 +616,14 @@ public class MultiCameraModule: Module {
     // Attach first, then orient: on a connection that hasn't been added
     // yet, orientation and mirroring report "not supported".
     orient(connection, front: name == "front")
+    // The current wish lands on the fresh connection right away: a session
+    // rebuild (Metro reload, tab switch) must not lose it. AVFoundation's
+    // default is .off, so only the ON case needs writing.
+    if stabilizationWanted, connection.isVideoStabilizationSupported,
+      device.activeFormat.isVideoStabilizationModeSupported(.standard)
+    {
+      connection.preferredVideoStabilizationMode = .standard
+    }
     outputConnections[name] = connection
   }
 
@@ -947,6 +982,34 @@ public class MultiCameraModule: Module {
       // As with zoom: the camera currently belongs to someone else (a call,
       // another app). A lamp that didn't switch is more harmless than a
       // crash.
+    }
+  }
+
+  // MARK: - Stabilization
+
+  // `.standard` only, never `.auto`: auto may pick a cinematic mode, and
+  // those buffer frames up to about a second. Poison for this path, whose
+  // photo is the NEXT frame of the stream and whose flash lead is
+  // calibrated to 150 ms (takePhoto). `.standard` stabilizes in hardware
+  // with minimal latency.
+  //
+  // All output connections are treated alike (the flash pattern, no case
+  // per active camera). The preview connections stay untouched on
+  // purpose: stabilizing them would cost extra budget, and Apple's own
+  // camera app shows the same viewfinder-versus-recording discrepancy.
+  // Work happens on the session queue, where the connections are written;
+  // fixed name list with subscript access, the same rule as applyFlash.
+  private static func applyStabilization() {
+    sessionQueue.async {
+      let wanted = stabilizationWanted
+      for name in cameraNames {
+        guard let connection = outputConnections[name],
+          connection.isVideoStabilizationSupported,
+          let device = devices[name],
+          device.activeFormat.isVideoStabilizationModeSupported(.standard)
+        else { continue }
+        connection.preferredVideoStabilizationMode = wanted ? .standard : .off
+      }
     }
   }
 
