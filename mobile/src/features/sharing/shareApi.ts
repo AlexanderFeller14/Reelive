@@ -53,7 +53,7 @@ export type SharedRecap = {
   // from `medien`; without this count they'd be missing WITHOUT A TRACE, and
   // the shared page would claim to show the whole trip. It's always present
   // in the response, even as 0 (share-link/resolution.ts,
-  // `baueAufloesungsAntwort`).
+  // `buildResolveResponse`).
   ausgelassen: number;
 };
 

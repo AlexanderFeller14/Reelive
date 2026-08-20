@@ -297,7 +297,7 @@ function MomentView({
 // ---------------------------------------------------------------------------
 
 // Moments this page never received at all: the function could hand out no URL
-// for them (`ausgelassen`, share-link/aufloesung.ts). Worded exactly as in
+// for them (`ausgelassen`, share-link/resolution.ts). Worded exactly as in
 // overview.tsx and recap/[id]/map.tsx: the same situation says the same thing
 // everywhere.
 function skippedText(count: number): string {

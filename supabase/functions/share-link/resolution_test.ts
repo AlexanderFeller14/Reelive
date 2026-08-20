@@ -318,7 +318,7 @@ Deno.test('collectMoments: a page made entirely of duplicates does not lead to a
     });
   });
   assertEquals(rows.map((r) => r.id), ['a']);
-  assert(fetches <= 6, `sammleMomente hat ${fetches} Abrufe gebraucht`);
+  assert(fetches <= 6, `collectMoments hat ${fetches} Abrufe gebraucht`);
 });
 
 Deno.test('collectMoments: an error aborts and is passed through', async () => {

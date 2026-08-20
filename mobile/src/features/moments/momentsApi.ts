@@ -193,7 +193,7 @@ export async function signedUrls(
 }
 
 // If the Function responds with 409, the storage has no complete object (0
-// bytes or truncated, see objektGroesse in the Function). That's the only
+// bytes or truncated, see objectSize in the Function). That's the only
 // failure where RE-UPLOADING helps instead of just re-confirming, the
 // worker has to be able to tell them apart (Important 4).
 const INCOMPLETE_STATUS = 409;

@@ -317,7 +317,7 @@ Deno.test('collectAll: a page made entirely of duplicates does not lead to an in
     return Promise.resolve({ rows: [{ id: 'a' }, { id: 'a' }], count: withCount ? 99 : null, error: null });
   });
   assertEquals(rows.map((r) => r.id), ['a']);
-  assert(fetches <= 6, `sammleAlle hat ${fetches} Abrufe gebraucht`);
+  assert(fetches <= 6, `collectAll hat ${fetches} Abrufe gebraucht`);
 });
 
 Deno.test('collectAll: an error aborts and is passed through', async () => {

@@ -483,7 +483,7 @@ entrypoint = "./functions/reveal-trip/index.ts"
 [functions.share-link]
 enabled = true
 # ACHTUNG: verify_jwt = false. Lange war share-link die einzige Function
-# ohne JWT-Pflicht; inzwischen steht auch reveal-zeitplan (unten) auf false,
+# ohne JWT-Pflicht; inzwischen steht auch reveal-schedule (unten) auf false,
 # dort trägt ein Cron-Secret statt des Tokens. Warum hier, und was daran
 # hängt:
 # media-urls und reveal-trip stehen oben mit verify_jwt = true, dort ist das
@@ -507,14 +507,14 @@ enabled = true
 #
 # Was den öffentlichen Zweig trägt, ist stattdessen der Token selbst
 # (32 Hex-Zeichen aus gen_random_bytes(16), also 2^128 Möglichkeiten) plus die
-# Prüfkette in functions/share-link/aufloesung.ts. Deren vier Ablehnungen sind
+# Prüfkette in functions/share-link/resolution.ts. Deren vier Ablehnungen sind
 # byte-gleich, damit die Function kein Orakel wird.
 verify_jwt = false
 import_map = "./functions/share-link/deno.json"
 entrypoint = "./functions/share-link/index.ts"
 
-# konto-loeschen (Phase 6), Store-Pflicht und Datenschutz-Zusage.
-[functions.konto-loeschen]
+# delete-account (Phase 6), Store-Pflicht und Datenschutz-Zusage.
+[functions.delete-account]
 enabled = true
 # Zurück auf true, anders als bei share-link direkt darüber: Diese Function hat
 # keinen anonymen Pfad. Ein Konto kann ausschliesslich sich selbst löschen, die
@@ -524,35 +524,35 @@ enabled = true
 # (supabaseAdmin.auth.getUser), denn der Anon-Key allein ist ein gültiges JWT
 # ohne dahinterstehende Person.
 verify_jwt = true
-import_map = "./functions/konto-loeschen/deno.json"
-entrypoint = "./functions/konto-loeschen/index.ts"
+import_map = "./functions/delete-account/deno.json"
+entrypoint = "./functions/delete-account/index.ts"
 
-# moment-entfernen (Nacharbeit nach Phase 7): einen Moment loeschen, MITSAMT
+# remove-moment (Nacharbeit nach Phase 7): einen Moment loeschen, MITSAMT
 # seinen Medien im Speicher. Vorher loeschte der Client nur die posts-Zeile,
 # und die beiden Objekte blieben fuer immer im Bucket liegen, unauffindbar.
-[functions.moment-entfernen]
+[functions.remove-moment]
 enabled = true
-# Wie konto-loeschen: kein anonymer Pfad. Die Identitaet kommt aus dem JWT, der
-# Body traegt nur die post_id. Wer entfernen darf, entscheidet zugriff.ts,
+# Wie delete-account: kein anonymer Pfad. Die Identitaet kommt aus dem JWT, der
+# Body traegt nur die post_id. Wer entfernen darf, entscheidet access.ts,
 # wortgleich zur RLS-Policy posts_delete_after_reveal, und zwar VOR dem
 # Speicherschritt: sonst liesse sich mit einer fremden post_id ein fremder
 # Moment unbrauchbar machen.
 verify_jwt = true
-import_map = "./functions/moment-entfernen/deno.json"
-entrypoint = "./functions/moment-entfernen/index.ts"
+import_map = "./functions/remove-moment/deno.json"
+entrypoint = "./functions/remove-moment/index.ts"
 
-# reveal-zeitplan (Auto-Reveal, Spec 2026-08-18): das zeitgesteuerte
+# reveal-schedule (Auto-Reveal, Spec 2026-08-18): das zeitgesteuerte
 # Gegenstück zu reveal-trip. Aufrufer ist pg_cron im eigenen Postgres
 # (Migration 20260818100000), nie die App.
-[functions.reveal-zeitplan]
+[functions.reveal-schedule]
 enabled = true
 # verify_jwt = false wie bei share-link, aber aus einem anderen Grund: der
 # Aufrufer ist kein Mensch und hat kein JWT, er ist die eigene Datenbank.
 # Was die Function stattdessen trägt, ist das Cron-Secret: der Header
 # x-cron-geheimnis muss der Umgebungsvariable CRON_GEHEIMNIS entsprechen
-# (pruefeZeitplanAnfrage in zeitplan.ts, ein leeres konfiguriertes Secret
+# (checkScheduleRequest in schedule.ts, ein leeres konfiguriertes Secret
 # ergibt 500, nie Durchlass). Wer diese Prüfung entfernt, macht Reveal-Läufe
 # für jeden Anonymen auslösbar.
 verify_jwt = false
-import_map = "./functions/reveal-zeitplan/deno.json"
-entrypoint = "./functions/reveal-zeitplan/index.ts"
+import_map = "./functions/reveal-schedule/deno.json"
+entrypoint = "./functions/reveal-schedule/index.ts"

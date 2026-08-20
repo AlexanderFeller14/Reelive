@@ -2,7 +2,7 @@
 // I/O: no Deno.serve, no Supabase client, no network.
 //
 // Pattern like media-urls/readAccess.ts, reveal-trip/reveal.ts, and
-// share-link/{aufloesung,verwaltung}.ts: the decision something hangs on
+// share-link/{resolution,management}.ts: the decision something hangs on
 // stands as a pure function and is checked with no Docker (process_test.ts).
 // The integration test is the second layer, never the only one.
 //
@@ -21,8 +21,8 @@
 // touched AT ALL. An account that still exists is better than one whose
 // media sits orphaned in storage; and because deleting is idempotent in
 // both places (an already-deleted key is not an error, verified against
-// S3-compatible object storage APIs, see store.ts/erstelleS3Loescher, and
-// documented for the storage API in store.ts/loescheAvatar), a second
+// S3-compatible object storage APIs, see store.ts/createS3Deleter, and
+// documented for the storage API in store.ts/deleteAvatar), a second
 // attempt cleanly finishes the deletion instead of leaving a remainder.
 
 import { expectedKeys } from '../media-urls/keys.ts';

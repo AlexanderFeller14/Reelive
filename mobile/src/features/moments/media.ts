@@ -44,7 +44,7 @@ export function mediaExtension(type: 'photo' | 'video', uri: string): string {
 }
 
 // Key logic deliberately exists twice: here and in the Edge Function
-// supabase/functions/media-urls/keys.ts (erwarteteSchluessel). The client
+// supabase/functions/media-urls/keys.ts (expectedKeys). The client
 // needs the keys before the insert already; the Function doesn't trust the
 // client and re-derives them server-side from the posts row (Spec §6),
 // including the extension, which is written for that purpose as

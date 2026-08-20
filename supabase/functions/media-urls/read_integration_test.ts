@@ -508,7 +508,7 @@ Deno.test({
       const secondsLeft = (Date.parse(response.valid_until) - beforeTimestamp) / 1000;
       assert(
         secondsLeft > 3000 && secondsLeft <= 3601,
-        `gueltig_bis liegt ${secondsLeft}s in der Zukunft, erwartet ~3600s`,
+        `valid_until liegt ${secondsLeft}s in der Zukunft, erwartet ~3600s`,
       );
 
       // The GET really returns the uploaded bytes, not just a status code

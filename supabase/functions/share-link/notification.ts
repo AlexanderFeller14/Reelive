@@ -106,7 +106,7 @@ export type SendFn = (messages: PushMessage[]) => Promise<string[]>;
 // must not fail either the create or the revoke. This weighs heaviest for
 // the revoke, it is the only lever that gets a link back out of the world,
 // and it must not hang on a third-party service. Same stance as
-// `versendeRevealPush`, including the decision to NOT wire up the error
+// `sendRevealPush`, including the decision to NOT wire up the error
 // reporter here.
 export async function sendSharePush(
   store: NotificationStore,
