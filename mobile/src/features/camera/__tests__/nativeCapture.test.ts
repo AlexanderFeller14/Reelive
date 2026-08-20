@@ -1,5 +1,5 @@
 // The access point wraps the native module: if it's missing (Android,
-// Simulator, old build), it answers with false/null instead of throwing —
+// Simulator, old build), it answers with false/null instead of throwing,
 // the camera then falls back to the recordAsync path (spec: fallback).
 // Native contract (Task 12): this mock stands in for the real native
 // module, so its keys mirror CameraCaptureModule.swift's AsyncFunction

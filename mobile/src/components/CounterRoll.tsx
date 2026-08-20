@@ -62,7 +62,7 @@ export function CounterRoll({ from, to, progress, progressWindow }: Props) {
         const oldDigit = old[i];
         if (oldDigit === nextDigit) {
           return (
-            <Text key={i} testID={`zaehler-ziffer-fest-${i}`} style={styles.digit}>
+            <Text key={i} testID={`counter-digit-fixed-${i}`} style={styles.digit}>
               {nextDigit}
             </Text>
           );
@@ -70,7 +70,7 @@ export function CounterRoll({ from, to, progress, progressWindow }: Props) {
         return (
           <View key={i}>
             <Animated.Text
-              testID={`zaehler-ziffer-neu-${i}`}
+              testID={`counter-digit-new-${i}`}
               style={[styles.digit, { opacity: nextOpacity, transform: [{ translateY: nextY }] }]}
             >
               {nextDigit}
@@ -81,7 +81,7 @@ export function CounterRoll({ from, to, progress, progressWindow }: Props) {
                 number. */}
             {oldDigit !== ' ' && (
               <Animated.Text
-                testID={`zaehler-ziffer-alt-${i}`}
+                testID={`counter-digit-old-${i}`}
                 style={[
                   styles.digit,
                   styles.oldOverlay,

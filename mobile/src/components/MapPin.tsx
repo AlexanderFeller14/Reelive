@@ -87,7 +87,7 @@ function SkeletonCircle({ pulse }: { pulse: boolean }) {
 
   return (
     <Animated.View
-      testID="nadel-skelett"
+      testID="pin-skeleton"
       style={[StyleSheet.absoluteFill, { backgroundColor: colors['bg-1'], opacity }]}
     />
   );
@@ -146,7 +146,7 @@ export function MapPin({ moment, thumbUrl, count = 1, onReady }: MapPinProps) {
             // uebersicht.tsx): a running fade-in would freeze half
             // transparent on the last draw.
             <Image
-              testID="nadel-bild"
+              testID="pin-image"
               source={{ uri: thumbUrl }}
               style={StyleSheet.absoluteFill}
               contentFit="cover"
@@ -157,7 +157,7 @@ export function MapPin({ moment, thumbUrl, count = 1, onReady }: MapPinProps) {
 
           {moment.type === 'video' && (
             <View style={[StyleSheet.absoluteFill, styles.videoCenter]} pointerEvents="none">
-              <Pill testID="nadel-video" style={styles.videoPill}>
+              <Pill testID="pin-video" style={styles.videoPill}>
                 <Play size={12} color={cinema['text-1']} strokeWidth={1.75} />
               </Pill>
             </View>
@@ -233,7 +233,7 @@ export const MapPinMarker = memo(function MapPinMarker({
 
   return (
     <Marker
-      testID={`karte-nadel-${moment.id}`}
+      testID={`map-pin-${moment.id}`}
       accessibilityLabel={pinLabel(moment, count, opensSheet)}
       coordinate={{ latitude: point.lat, longitude: point.lng }}
       tracksViewChanges={renderedAppearance !== appearance}

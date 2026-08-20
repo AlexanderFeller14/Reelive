@@ -23,7 +23,7 @@ jest.mock('expo-image', () => {
 });
 
 const FORM: SheetForm = { buttonLabel: 'Im Recap ansehen', prefix: '' };
-const SHARED_FORM: SheetForm = { buttonLabel: 'Ab hier ansehen', prefix: 'teilen-' };
+const SHARED_FORM: SheetForm = { buttonLabel: 'Ab hier ansehen', prefix: 'share-' };
 
 function moment(overrides: Partial<RecapMoment> = {}): RecapMoment {
   return {
@@ -126,9 +126,9 @@ describe('what the two screens make differently at the sheet', () => {
         />
       </ThemeProvider>
     );
-    expect(screen.getByTestId('teilen-moment-inhalt')).toBeTruthy();
-    expect(screen.getByTestId('teilen-sheet-bild')).toBeTruthy();
-    expect(screen.queryByTestId('moment-inhalt')).toBeNull();
+    expect(screen.getByTestId('share-moment-content')).toBeTruthy();
+    expect(screen.getByTestId('share-sheet-image')).toBeTruthy();
+    expect(screen.queryByTestId('moment-content')).toBeNull();
   });
 
   test('an empty prefix leaves the IDs unchanged', async () => {
@@ -142,9 +142,9 @@ describe('what the two screens make differently at the sheet', () => {
         />
       </ThemeProvider>
     );
-    expect(screen.getByTestId('gruppe-liste')).toBeTruthy();
-    expect(screen.getByTestId('gruppe-eintrag-m1')).toBeTruthy();
-    expect(screen.getByTestId('gruppe-eintrag-m2')).toBeTruthy();
+    expect(screen.getByTestId('group-list')).toBeTruthy();
+    expect(screen.getByTestId('group-entry-m1')).toBeTruthy();
+    expect(screen.getByTestId('group-entry-m2')).toBeTruthy();
   });
 });
 
@@ -167,7 +167,7 @@ describe('what a tap in the sheet returns', () => {
         />
       </ThemeProvider>
     );
-    await fireEvent.press(screen.getByTestId('gruppe-eintrag-m2'));
+    await fireEvent.press(screen.getByTestId('group-entry-m2'));
     expect(viewed).toHaveBeenCalledWith(secondPoint);
     expect(viewed.mock.calls[0][0].index).toBe(9);
   });

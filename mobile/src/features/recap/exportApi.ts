@@ -73,7 +73,7 @@ function resetExportFolder(): void {
   try {
     if (folder.exists) folder.delete();
   } catch (error) {
-    console.error('[exportApi] Export-Ordner konnte nicht geräumt werden', error);
+    console.error('[exportApi] export folder could not be cleared', error);
   }
   folder.create({ intermediates: true, idempotent: true });
 }
@@ -115,7 +115,7 @@ async function downloadAndSaveOne(url: string, filename: string, signal?: AbortS
         // A failed cleanup must not override the success/failure of the
         // save itself (same principle as media.ts), only logged, never
         // thrown.
-        console.error('[exportApi] Zwischendatei konnte nicht gelöscht werden', filename, error);
+        console.error('[exportApi] intermediate file could not be deleted', filename, error);
       }
     }
   }

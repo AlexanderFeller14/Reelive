@@ -31,7 +31,7 @@ function SuccessCheck({ color }: { color: string }) {
 
   return (
     <Animated.View
-      testID="button-erfolg"
+      testID="button-success"
       style={{
         opacity: fadeIn,
         // With reduced motion, just the fade, no growing out of nothing.

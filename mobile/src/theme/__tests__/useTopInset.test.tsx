@@ -8,7 +8,7 @@ import { useTopInset, useBottomInset } from '../useTopInset';
 // device without a Dynamic Island. The interesting case is the other one,
 // and this file checks it by giving the provider real metrics.
 function Display({ basis }: { basis: number }) {
-  return <Text testID="wert">{String(useTopInset(basis))}</Text>;
+  return <Text testID="value">{String(useTopInset(basis))}</Text>;
 }
 
 const withInsets = async (top: number, basis: number) => {
@@ -22,7 +22,7 @@ const withInsets = async (top: number, basis: number) => {
       <Display basis={basis} />
     </SafeAreaProvider>
   );
-  return Number(screen.getByTestId('wert').props.children);
+  return Number(screen.getByTestId('value').props.children);
 };
 
 test('without an inset the designed spacing stays unchanged', async () => {
@@ -50,7 +50,7 @@ test('the smaller list spacing gives way earlier', async () => {
 // --- useBottomInset ---
 
 function BottomDisplay({ basis }: { basis: number }) {
-  return <Text testID="wert">{String(useBottomInset(basis))}</Text>;
+  return <Text testID="value">{String(useBottomInset(basis))}</Text>;
 }
 
 const withBottomInset = async (bottom: number, basis: number) => {
@@ -64,7 +64,7 @@ const withBottomInset = async (bottom: number, basis: number) => {
       <BottomDisplay basis={basis} />
     </SafeAreaProvider>
   );
-  return Number(screen.getByTestId('wert').props.children);
+  return Number(screen.getByTestId('value').props.children);
 };
 
 // Devices with a home button and the web export report 0 at the bottom;

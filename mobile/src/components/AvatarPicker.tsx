@@ -11,7 +11,7 @@ import { radius, spacing, type } from '@/theme/tokens';
 // The avatar picker consists of TWO parts that have to hang in different
 // spots in the tree, that's exactly why it's split this way:
 //
-//   `AvatarPicker`      , the 44 px circle with the camera badge, a tap
+//   `AvatarPicker`,       the 44 px circle with the camera badge, a tap
 //                          target. It sits wherever the profile picture
 //                          belongs (profile card, onboarding row), and
 //                          reports the tap upward via `onOpen`.
@@ -142,7 +142,7 @@ export function AvatarPicker({
 
   return (
     <PressScale
-      testID="avatar-waehler"
+      testID="avatar-picker"
       accessibilityRole="button"
       accessibilityLabel={hasImage ? 'Profilbild ändern' : 'Profilbild hinzufügen'}
       onPress={onOpen}
@@ -150,13 +150,13 @@ export function AvatarPicker({
       <View>
         {localUri ? (
           <View
-            testID="avatar-waehler-lokal"
+            testID="avatar-picker-local"
             style={[styles.localCircle, {
               width: size, height: size,
               borderColor: colors['bg-0'], backgroundColor: colors['bg-1'],
             }]}
           >
-            <Image testID="avatar-bild" source={{ uri: localUri }} style={styles.localImage} contentFit="cover" />
+            <Image testID="avatar-image" source={{ uri: localUri }} style={styles.localImage} contentFit="cover" />
           </View>
         ) : (
           <Avatar name={name} avatarKey={avatarKey} size={size} />
@@ -165,7 +165,7 @@ export function AvatarPicker({
             "something here can be changed", without a second line of text.
             The icon size follows the badge in the ratio of the 18 version. */}
         <View
-          testID="avatar-waehler-badge"
+          testID="avatar-picker-badge"
           style={[styles.badge, {
             width: badge, height: badge, right: offset, bottom: offset,
             backgroundColor: colors.accent, borderColor: colors['bg-0'],
@@ -175,7 +175,7 @@ export function AvatarPicker({
         </View>
         {loading && (
           <View style={[styles.spinner, { backgroundColor: colors['bg-0'] }]}>
-            <ActivityIndicator testID="avatar-laeuft" size="small" color={colors['text-1']} />
+            <ActivityIndicator testID="avatar-loading" size="small" color={colors['text-1']} />
           </View>
         )}
       </View>
@@ -280,7 +280,7 @@ export function AvatarSheetContent({
         </PressScale>
       )}
       {error && (
-        <Text testID="avatar-waehler-fehler" style={[type.secondary, { color: colors.danger }]}>
+        <Text testID="avatar-picker-error" style={[type.secondary, { color: colors.danger }]}>
           {error}
         </Text>
       )}

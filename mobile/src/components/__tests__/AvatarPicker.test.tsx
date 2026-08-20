@@ -106,7 +106,7 @@ function Stage({
 test('a tap on the circle reports upward and renders no sheet of its own', async () => {
   const onOpen = jest.fn();
   await wrap(<AvatarPicker name="Lea" avatarKey={null} onOpen={onOpen} />);
-  await fireEvent.press(screen.getByTestId('avatar-waehler'));
+  await fireEvent.press(screen.getByTestId('avatar-picker'));
   expect(onOpen).toHaveBeenCalledTimes(1);
   expect(screen.queryByTestId('sheet-root')).toBeNull();
   expect(screen.queryByText('Foto auswählen')).toBeNull();
@@ -118,8 +118,8 @@ test('a tap on the circle reports upward and renders no sheet of its own', async
 // can be changed".
 test('large draws the hero circle with a badge that grows along with it', async () => {
   await wrap(<AvatarPicker name="Lea" avatarKey={null} onOpen={jest.fn()} large />);
-  expect(StyleSheet.flatten(screen.getByTestId('avatar-kreis').props.style).width).toBe(160);
-  const badge = StyleSheet.flatten(screen.getByTestId('avatar-waehler-badge').props.style);
+  expect(StyleSheet.flatten(screen.getByTestId('avatar-circle').props.style).width).toBe(160);
+  const badge = StyleSheet.flatten(screen.getByTestId('avatar-picker-badge').props.style);
   expect(badge.width).toBe(32);
   expect(badge.height).toBe(32);
 });
@@ -128,8 +128,8 @@ test('large draws the hero circle with a badge that grows along with it', async 
 // 44 still applies.
 test('without large the circle stays at 44', async () => {
   await wrap(<AvatarPicker name="Lea" avatarKey={null} onOpen={jest.fn()} />);
-  expect(StyleSheet.flatten(screen.getByTestId('avatar-kreis').props.style).width).toBe(44);
-  expect(StyleSheet.flatten(screen.getByTestId('avatar-waehler-badge').props.style).width).toBe(18);
+  expect(StyleSheet.flatten(screen.getByTestId('avatar-circle').props.style).width).toBe(44);
+  expect(StyleSheet.flatten(screen.getByTestId('avatar-picker-badge').props.style).width).toBe(18);
 });
 
 // The local-URI branch (the onboarding path) must scale along too, otherwise
@@ -140,13 +140,13 @@ test('large also applies to the local-URI circle', async () => {
   );
   // The image node fills its circle by percentage, so the wrapper carries the
   // size: measure it there instead.
-  const wrapper = screen.getByTestId('avatar-waehler-lokal');
+  const wrapper = screen.getByTestId('avatar-picker-local');
   expect(StyleSheet.flatten(wrapper.props.style).width).toBe(160);
 });
 
 test("a tap on the circle opens the screen's sheet", async () => {
   await wrap(<Stage />);
-  await fireEvent.press(screen.getByTestId('avatar-waehler'));
+  await fireEvent.press(screen.getByTestId('avatar-picker'));
   expect(screen.getByText('Foto auswählen')).toBeTruthy();
   expect(screen.getByText('Selfie aufnehmen')).toBeTruthy();
 });
@@ -154,13 +154,13 @@ test("a tap on the circle opens the screen's sheet", async () => {
 // "Bild entfernen" must not appear when there's nothing to remove.
 test('without an image the remove entry is missing', async () => {
   await wrap(<Stage />);
-  await fireEvent.press(screen.getByTestId('avatar-waehler'));
+  await fireEvent.press(screen.getByTestId('avatar-picker'));
   expect(screen.queryByText('Bild entfernen')).toBeNull();
 });
 
 test('with an image the remove entry is there', async () => {
   await wrap(<Stage avatarKey="profiles/u/a.jpg" />);
-  await fireEvent.press(screen.getByTestId('avatar-waehler'));
+  await fireEvent.press(screen.getByTestId('avatar-picker'));
   expect(screen.getByText('Bild entfernen')).toBeTruthy();
 });
 
@@ -168,7 +168,7 @@ test('with an image the remove entry is there', async () => {
 // image only exists as a local URI. Even then it must be removable.
 test('a bare local URI counts as an image too', async () => {
   await wrap(<Stage localUri="file:///gewaehlt.jpg" />);
-  await fireEvent.press(screen.getByTestId('avatar-waehler'));
+  await fireEvent.press(screen.getByTestId('avatar-picker'));
   expect(screen.getByText('Bild entfernen')).toBeTruthy();
 });
 
@@ -178,7 +178,7 @@ test('a bare local URI counts as an image too', async () => {
 test('the gallery delivers URI and dimensions to onSelected and closes the sheet', async () => {
   const onSelected = jest.fn();
   await wrap(<Stage onSelected={onSelected} />);
-  await fireEvent.press(screen.getByTestId('avatar-waehler'));
+  await fireEvent.press(screen.getByTestId('avatar-picker'));
   await fireEvent.press(screen.getByText('Foto auswählen'));
   await waitFor(() =>
     expect(onSelected).toHaveBeenCalledWith('file:///gewaehlt.jpg', 4000, 3000)
@@ -200,7 +200,7 @@ test('the gallery delivers URI and dimensions to onSelected and closes the sheet
 // does NOT come back.
 test('the selection does not request a system crop', async () => {
   await wrap(<Stage />);
-  await fireEvent.press(screen.getByTestId('avatar-waehler'));
+  await fireEvent.press(screen.getByTestId('avatar-picker'));
   await fireEvent.press(screen.getByText('Foto auswählen'));
   await waitFor(() => expect(mockFromGallery).toHaveBeenCalled());
   const options = mockFromGallery.mock.calls[0][0];
@@ -214,7 +214,7 @@ test('the selection does not request a system crop', async () => {
 test('when the image picker throws, the message shows up in the sheet', async () => {
   mockFromGallery.mockRejectedValueOnce(new Error('kaputt'));
   await wrap(<Stage />);
-  await fireEvent.press(screen.getByTestId('avatar-waehler'));
+  await fireEvent.press(screen.getByTestId('avatar-picker'));
   await fireEvent.press(screen.getByText('Foto auswählen'));
   const panel = await screen.findByTestId('sheet-panel');
   await waitFor(() =>
@@ -228,7 +228,7 @@ test('a cancel in the image picker reports nothing upward', async () => {
   const onSelected = jest.fn();
   mockFromGallery.mockResolvedValue({ canceled: true, assets: null });
   await wrap(<Stage onSelected={onSelected} />);
-  await fireEvent.press(screen.getByTestId('avatar-waehler'));
+  await fireEvent.press(screen.getByTestId('avatar-picker'));
   await fireEvent.press(screen.getByText('Foto auswählen'));
   await waitFor(() => expect(mockFromGallery).toHaveBeenCalled());
   expect(onSelected).not.toHaveBeenCalled();
@@ -245,7 +245,7 @@ test('a cancel in the image picker reports nothing upward', async () => {
 test('a denied permission shows the message IN the sheet, which stays open', async () => {
   mockGalleryPermission.mockResolvedValue({ granted: false });
   await wrap(<Stage />);
-  await fireEvent.press(screen.getByTestId('avatar-waehler'));
+  await fireEvent.press(screen.getByTestId('avatar-picker'));
   await fireEvent.press(screen.getByText('Foto auswählen'));
 
   const panel = await screen.findByTestId('sheet-panel');
@@ -267,7 +267,7 @@ test('a denied permission shows the message IN the sheet, which stays open', asy
 test('a denied camera permission names the camera, not the photos', async () => {
   mockCameraPermission.mockResolvedValue({ granted: false });
   await wrap(<Stage />);
-  await fireEvent.press(screen.getByTestId('avatar-waehler'));
+  await fireEvent.press(screen.getByTestId('avatar-picker'));
   await fireEvent.press(screen.getByText('Selfie aufnehmen'));
   const panel = await screen.findByTestId('sheet-panel');
   await waitFor(() =>

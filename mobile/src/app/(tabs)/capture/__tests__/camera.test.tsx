@@ -1113,7 +1113,7 @@ test('the no running trip screen shows the flight ticket', async () => {
   await render(<CaptureScreen />);
   await screen.findByText('Keine laufende Reise');
 
-  expect(screen.getByTestId('leerzustand-flugticket')).toBeTruthy();
+  expect(screen.getByTestId('empty-state-flight-ticket')).toBeTruthy();
 });
 
 test('over the viewfinder no flight ticket stands', async () => {
@@ -1121,13 +1121,13 @@ test('over the viewfinder no flight ticket stands', async () => {
   await render(<CaptureScreen />);
   await screen.findByLabelText('Auslöser');
 
-  expect(screen.queryByTestId('leerzustand-flugticket')).toBeNull();
+  expect(screen.queryByTestId('empty-state-flight-ticket')).toBeNull();
 });
 
 test('the flight ticket stays out of the accessibility tree, so VoiceOver announces no useless image', async () => {
   (fetchTrips as jest.Mock).mockResolvedValue(loaded([]));
   await render(<CaptureScreen />);
-  const image = await screen.findByTestId('leerzustand-flugticket');
+  const image = await screen.findByTestId('empty-state-flight-ticket');
 
   expect(image.props.accessible).toBe(false);
 });
@@ -1137,7 +1137,7 @@ test('the flight ticket floats', async () => {
   const timingSpy = jest.spyOn(Animated, 'timing');
   (fetchTrips as jest.Mock).mockResolvedValue(loaded([]));
   await render(<CaptureScreen />);
-  await screen.findByTestId('leerzustand-flugticket');
+  await screen.findByTestId('empty-state-flight-ticket');
 
   expect(loopSpy).toHaveBeenCalled();
   expect(timingSpy).toHaveBeenCalledWith(
@@ -1152,7 +1152,7 @@ test('the floating does not run linear', async () => {
   const timingSpy = jest.spyOn(Animated, 'timing');
   (fetchTrips as jest.Mock).mockResolvedValue(loaded([]));
   await render(<CaptureScreen />);
-  await screen.findByTestId('leerzustand-flugticket');
+  await screen.findByTestId('empty-state-flight-ticket');
 
   const configs = timingSpy.mock.calls.map(([, c]) => c);
   expect(configs.length).toBeGreaterThan(0);
@@ -1168,10 +1168,10 @@ test('with reduced motion the flight ticket does not float', async () => {
   const loopSpy = jest.spyOn(Animated, 'loop');
   (fetchTrips as jest.Mock).mockResolvedValue(loaded([]));
   await render(<CaptureScreen />);
-  await screen.findByTestId('leerzustand-flugticket');
+  await screen.findByTestId('empty-state-flight-ticket');
 
   expect(loopSpy).not.toHaveBeenCalled();
-  expect(screen.getByTestId('leerzustand-flugticket')).toBeTruthy();
+  expect(screen.getByTestId('empty-state-flight-ticket')).toBeTruthy();
   loopSpy.mockRestore();
 });
 
@@ -1186,7 +1186,7 @@ test('the header row gets out of the way of the Dynamic Island', async () => {
   await render(<CaptureScreen />);
   await screen.findByLabelText('Auslöser');
 
-  const style = StyleSheet.flatten(screen.getByTestId('sucher-kopfzeile').props.style) as ViewStyle;
+  const style = StyleSheet.flatten(screen.getByTestId('viewfinder-header').props.style) as ViewStyle;
   expect(style.top).toBe(59 + spacing.base);
 });
 
@@ -1195,7 +1195,7 @@ test('without an inset the header row keeps the distance it was designed with', 
   await render(<CaptureScreen />);
   await screen.findByLabelText('Auslöser');
 
-  const style = StyleSheet.flatten(screen.getByTestId('sucher-kopfzeile').props.style) as ViewStyle;
+  const style = StyleSheet.flatten(screen.getByTestId('viewfinder-header').props.style) as ViewStyle;
   expect(style.top).toBe(spacing.xl);
 });
 
@@ -1559,7 +1559,7 @@ test('after a device change the viewfinder sets the zoom again', async () => {
 // passes the event on to the parents. These props ARE the interface to React
 // Native's responder system.
 async function pinch(distanceBefore: number, distanceAfter: number) {
-  const surface = screen.getByTestId('sucher-zoomflaeche') as unknown as {
+  const surface = screen.getByTestId('viewfinder-zoom-area') as unknown as {
     props: {
       onResponderGrant: (e: object) => void;
       onResponderMove: (e: object) => void;
@@ -1647,7 +1647,7 @@ test('without a multi camera no zoom row stands in the picture', async () => {
   await render(<CaptureScreen />);
   await screen.findByLabelText('Auslöser');
 
-  expect(screen.queryByTestId('zoom-wahl')).toBeNull();
+  expect(screen.queryByTestId('zoom-selector')).toBeNull();
   mockLenses.mockImplementation((position: string) =>
     position === 'back' ? [TRIPLE_CAMERA] : [SINGLE_CAMERA]
   );
@@ -1657,11 +1657,11 @@ test('the front camera has no zoom row', async () => {
   (fetchTrips as jest.Mock).mockResolvedValue(loaded([trip()]));
   await render(<CaptureScreen />);
   await screen.findByLabelText('Auslöser');
-  expect(screen.getByTestId('zoom-wahl')).toBeTruthy();
+  expect(screen.getByTestId('zoom-selector')).toBeTruthy();
 
   await fireEvent.press(screen.getByLabelText('Kamera wechseln'));
 
-  expect(screen.queryByTestId('zoom-wahl')).toBeNull();
+  expect(screen.queryByTestId('zoom-selector')).toBeNull();
 });
 
 test('during a held capture the zoom row disappears', async () => {
@@ -1680,7 +1680,7 @@ test('during a held capture the zoom row disappears', async () => {
   });
   jest.useRealTimers();
 
-  expect(screen.queryByTestId('zoom-wahl')).toBeNull();
+  expect(screen.queryByTestId('zoom-selector')).toBeNull();
 });
 
 test('once the capture is locked the hand is free and the zoom row is back', async () => {
@@ -1699,7 +1699,7 @@ test('once the capture is locked the hand is free and the zoom row is back', asy
   await fireEvent(screen.getByLabelText('Auslöser'), 'pressOut');
   jest.useRealTimers();
 
-  expect(screen.getByTestId('zoom-wahl')).toBeTruthy();
+  expect(screen.getByTestId('zoom-selector')).toBeTruthy();
 });
 
 // === Cinema bar over the viewfinder (device finding 2026-08-18) ===
@@ -1727,7 +1727,7 @@ test('the controls lift by the height of the overlaid bar', async () => {
   await render(<CaptureScreen />);
   await screen.findByLabelText('Auslöser');
   const style = StyleSheet.flatten(
-    screen.getByTestId('ausloeser-buehne').props.style
+    screen.getByTestId('shutter-stage').props.style
   ) as { bottom: number };
   expect(style.bottom).toBe(spacing.base + cinemaStage.barHeight(34));
 });
@@ -1742,18 +1742,18 @@ test('the double tap switch lays a blur fade over the viewfinder until the new c
   (fetchTrips as jest.Mock).mockResolvedValue(loaded([trip()]));
   await render(<CaptureScreen />);
   await screen.findByLabelText('Auslöser');
-  expect(screen.queryByTestId('wechsel-blende')).toBeNull();
+  expect(screen.queryByTestId('switch-blur')).toBeNull();
 
   await tap();
   await tap();
-  expect(screen.getByTestId('wechsel-blende')).toBeTruthy();
+  expect(screen.getByTestId('switch-blur')).toBeTruthy();
 
   await act(async () => {
     (lastCameraProps().onAvailableLensesChanged as (e: { lenses: string[] }) => void)({
       lenses: [],
     });
   });
-  expect(screen.queryByTestId('wechsel-blende')).toBeNull();
+  expect(screen.queryByTestId('switch-blur')).toBeNull();
 });
 
 // Two animation attempts (3D rotation, scale dip) flew out again on the device
@@ -1778,13 +1778,13 @@ test('the switch fade clears itself away if no device event arrives', async () =
   jest.useFakeTimers();
   await tap();
   await tap();
-  expect(screen.getByTestId('wechsel-blende')).toBeTruthy();
+  expect(screen.getByTestId('switch-blur')).toBeTruthy();
 
   await act(async () => {
     jest.advanceTimersByTime(2000);
   });
   jest.useRealTimers();
-  expect(screen.queryByTestId('wechsel-blende')).toBeNull();
+  expect(screen.queryByTestId('switch-blur')).toBeNull();
 });
 
 // === Instant way back from the preview (user finding 2026-08-18) ===
@@ -1847,7 +1847,7 @@ test('as the preview covers it the frozen viewfinder is already running again', 
 // Same way as with the pinch: the props ARE the interface to the responder
 // system (see the reasoning at pinch() above).
 function viewfinderSurface() {
-  return screen.getByTestId('sucher-zoomflaeche') as unknown as {
+  return screen.getByTestId('viewfinder-zoom-area') as unknown as {
     props: {
       onStartShouldSetResponder: () => boolean;
       onResponderGrant: (e: object) => void;
@@ -2174,7 +2174,7 @@ test('the focus ring stands at the tap point and clears itself away', async () =
   jest.useFakeTimers();
   await tap(140, 420, { x: 140, y: 420 });
 
-  const ring = screen.getByTestId('fokus-ring');
+  const ring = screen.getByTestId('focus-ring');
   const style = StyleSheet.flatten(ring.props.style) as { left: number; top: number };
   // Centred over the point, not with its corner on it.
   expect(style.left).toBeLessThan(140);
@@ -2184,7 +2184,7 @@ test('the focus ring stands at the tap point and clears itself away', async () =
     jest.advanceTimersByTime(5000);
   });
   jest.useRealTimers();
-  expect(screen.queryByTestId('fokus-ring')).toBeNull();
+  expect(screen.queryByTestId('focus-ring')).toBeNull();
 });
 
 // === Permanent video mode (spec 2026-08-13-aufnahme-tempo-design.md §3) ===
@@ -2265,7 +2265,7 @@ async function holdCapture() {
 test('the viewfinder is the multi camera view, not a CameraView', async () => {
   await multiCamViewfinder();
 
-  expect(screen.getByTestId('multikamera-sucher')).toBeTruthy();
+  expect(screen.getByTestId('multicam-viewfinder')).toBeTruthy();
   expect(screen.queryByTestId('kameraview-attrappe')).toBeNull();
   // The CameraView is not merely hidden, it never comes into being: two camera
   // sessions on the same devices would exclude each other anyway.
@@ -2281,21 +2281,21 @@ test('the focus starts the session, and a failed start falls back to expo-camera
 
   expect(mockMultiCamera.start).toHaveBeenCalled();
   expect(await screen.findByTestId('kameraview-attrappe')).toBeTruthy();
-  expect(screen.queryByTestId('multikamera-sucher')).toBeNull();
+  expect(screen.queryByTestId('multicam-viewfinder')).toBeNull();
 });
 
 test('the double tap calls switchCamera and shows no switch fade', async () => {
   await multiCamViewfinder();
-  expect(screen.getByTestId('zoom-wahl')).toBeTruthy();
+  expect(screen.getByTestId('zoom-selector')).toBeTruthy();
 
   await tap();
   await tap();
 
   expect(mockMultiCamera.switchCamera).toHaveBeenCalledTimes(1);
-  expect(screen.queryByTestId('wechsel-blende')).toBeNull();
+  expect(screen.queryByTestId('switch-blur')).toBeNull();
   // The front has only one lens: the row disappearing proves the facing switched
   // at once (there is no CameraView prop here).
-  expect(screen.queryByTestId('zoom-wahl')).toBeNull();
+  expect(screen.queryByTestId('zoom-selector')).toBeNull();
 });
 
 test('the double tap switches during a held capture as well', async () => {
@@ -2399,7 +2399,7 @@ test('an outdated switch answer is discarded', async () => {
     firstAnswer('front');
   });
   expect(mockMultiCamera.setZoom).not.toHaveBeenCalled();
-  expect(screen.getByTestId('zoom-wahl')).toBeTruthy();
+  expect(screen.getByTestId('zoom-selector')).toBeTruthy();
 });
 
 // The viewfinder takes gestures at once, the first session setup needs 300-400
@@ -2417,7 +2417,7 @@ test('a double tap in the setup window rolls the view back to the session', asyn
 
   // The back side stayed active: its step row stands in the picture again (the
   // front would have none), and there was nothing to move.
-  expect(screen.getByTestId('zoom-wahl')).toBeTruthy();
+  expect(screen.getByTestId('zoom-selector')).toBeTruthy();
   expect(mockMultiCamera.setZoom).not.toHaveBeenCalled();
 });
 
@@ -2549,7 +2549,7 @@ test('a tap focuses through the multi camera module', async () => {
 
   expect(mockMultiCamera.focus).toHaveBeenCalledWith(140, 420);
   expect(mockFocus).not.toHaveBeenCalled();
-  expect(screen.getByTestId('fokus-ring')).toBeTruthy();
+  expect(screen.getByTestId('focus-ring')).toBeTruthy();
 });
 
 test('a blur without a preview stops the session', async () => {
@@ -2780,7 +2780,7 @@ test('focus ring and switch fade take no touch and say nothing to VoiceOver', as
 
   jest.useFakeTimers();
   await tap(140, 420, { x: 140, y: 420 });
-  const ring = screen.getByTestId('fokus-ring');
+  const ring = screen.getByTestId('focus-ring');
   expect(ring.props.pointerEvents).toBe('none');
   expect(ring.props.accessible).toBe(false);
   await act(async () => {
@@ -2790,7 +2790,7 @@ test('focus ring and switch fade take no touch and say nothing to VoiceOver', as
 
   await tap();
   await tap();
-  const fade = screen.getByTestId('wechsel-blende').parent;
+  const fade = screen.getByTestId('switch-blur').parent;
   expect(fade?.props.pointerEvents).toBe('none');
   expect(fade?.props.accessible).toBe(false);
 });

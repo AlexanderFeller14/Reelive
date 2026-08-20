@@ -54,7 +54,7 @@ export async function stopCapture(): Promise<{ uri: string; durationS: number } 
   }
 }
 
-// Resolves once finishWriting is done — the counterpart to photo.file for
+// Resolves once finishWriting is done, the counterpart to photo.file for
 // the instant photo. Rejections (storage full) reach the caller unchanged,
 // the submit catch surfaces them.
 export function fileReady(): Promise<void> {

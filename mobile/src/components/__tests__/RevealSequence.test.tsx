@@ -144,7 +144,7 @@ test('invisible renders nothing (no overlay in the tree)', async () => {
   const { queryByTestId, unmount } = await render(
     <RevealSequence visible={false} onFinished={onFinished} />
   );
-  expect(queryByTestId('reveal-inszenierung')).toBeNull();
+  expect(queryByTestId('reveal-sequence')).toBeNull();
   await unmount();
 });
 
@@ -153,7 +153,7 @@ test('visible renders the sequence overlay', async () => {
   const { queryByTestId, unmount } = await render(
     <RevealSequence visible={true} onFinished={onFinished} />
   );
-  expect(queryByTestId('reveal-inszenierung')).toBeTruthy();
+  expect(queryByTestId('reveal-sequence')).toBeTruthy();
   await act(async () => {
     jest.advanceTimersByTime(900);
   });
@@ -291,7 +291,7 @@ test('blocks taps on underlying surfaces while it is running (pointerEvents)', a
   const onFinished = jest.fn();
   const { unmount } = await render(<RevealSequence visible={true} onFinished={onFinished} />);
 
-  expect(screen.getByTestId('reveal-inszenierung').props.pointerEvents).toBe('auto');
+  expect(screen.getByTestId('reveal-sequence').props.pointerEvents).toBe('auto');
 
   await act(async () => {
     jest.advanceTimersByTime(900);

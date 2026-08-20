@@ -4,14 +4,14 @@
 // the call path. Same pattern as recapApi.revealTrip/urlPool.holeVorrat:
 // supabase.functions.invoke, errors arrive either as a FunctionsHttpError
 // with German plain text in the JSON body, or as a network error detected
-// via istOffline.
+// via isOffline.
 import { supabase } from '@/lib/supabase';
-import { OFFLINE_HINT, istOffline } from '@/lib/networkError';
+import { OFFLINE_HINT, isOffline } from '@/lib/networkError';
 
 type Loaded<T> = { data: T; error: string | null };
 
 function message(error: { message?: string } | null, fallback: string): string {
-  return istOffline(error) ? OFFLINE_HINT : fallback;
+  return isOffline(error) ? OFFLINE_HINT : fallback;
 }
 
 // functions-js replaces a genuine network error with a fixed English
@@ -20,7 +20,7 @@ function message(error: { message?: string } | null, fallback: string): string {
 // (same pattern as recapApi.ts/urlPool.ts).
 function functionMessage(error: unknown, fallback: string): string {
   const err = error as { message?: string; context?: { message?: string } } | null;
-  if (istOffline({ message: err?.context?.message })) return OFFLINE_HINT;
+  if (isOffline({ message: err?.context?.message })) return OFFLINE_HINT;
   return message(err ?? null, fallback);
 }
 

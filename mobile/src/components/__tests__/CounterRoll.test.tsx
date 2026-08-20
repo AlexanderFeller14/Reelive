@@ -26,11 +26,11 @@ test('unchanged digits stand still, only the changed one rolls', async () => {
     <CounterRoll from={12} to={13} progress={sequence()} progressWindow={[0.7, 0.95]} />
   );
   // The tens digit "1" doesn't change: a fixed text, no roll pair.
-  expect(getByTestId('zaehler-ziffer-fest-0').props.children).toBe('1');
-  expect(queryByTestId('zaehler-ziffer-alt-0')).toBeNull();
+  expect(getByTestId('counter-digit-fixed-0').props.children).toBe('1');
+  expect(queryByTestId('counter-digit-old-0')).toBeNull();
   // The ones digit rolls: 2 out, 3 in.
-  expect(getByTestId('zaehler-ziffer-alt-1').props.children).toBe('2');
-  expect(getByTestId('zaehler-ziffer-neu-1').props.children).toBe('3');
+  expect(getByTestId('counter-digit-old-1').props.children).toBe('2');
+  expect(getByTestId('counter-digit-new-1').props.children).toBe('3');
 });
 
 test('on the digit-count change 9 → 10 the new tens digit rolls in without an old counterpart', async () => {
@@ -39,10 +39,10 @@ test('on the digit-count change 9 → 10 the new tens digit rolls in without an 
   );
   // There was no tens digit before: no old character, and certainly no
   // rendered space, the "1" rolls in alone.
-  expect(queryByTestId('zaehler-ziffer-alt-0')).toBeNull();
-  expect(queryByTestId('zaehler-ziffer-fest-0')).toBeNull();
-  expect(getByTestId('zaehler-ziffer-neu-0').props.children).toBe('1');
+  expect(queryByTestId('counter-digit-old-0')).toBeNull();
+  expect(queryByTestId('counter-digit-fixed-0')).toBeNull();
+  expect(getByTestId('counter-digit-new-0').props.children).toBe('1');
   // The ones digit rolls normally: 9 out, 0 in.
-  expect(getByTestId('zaehler-ziffer-alt-1').props.children).toBe('9');
-  expect(getByTestId('zaehler-ziffer-neu-1').props.children).toBe('0');
+  expect(getByTestId('counter-digit-old-1').props.children).toBe('9');
+  expect(getByTestId('counter-digit-new-1').props.children).toBe('0');
 });

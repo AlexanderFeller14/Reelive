@@ -97,7 +97,7 @@ test('a whole run through the page (load, tap, hold, auto advance, video end, cl
 
   await render(<SharedRecapScreen />);
   await act(async () => {});
-  expect(screen.getByTestId('teilen-bereit')).toBeTruthy();
+  expect(screen.getByTestId('share-ready')).toBeTruthy();
 
   // Wait out the interstitial of the first moment.
   await act(async () => {
@@ -105,27 +105,27 @@ test('a whole run through the page (load, tap, hold, auto advance, video end, cl
   });
 
   // A short tap on the right leads to p2 (the video).
-  await fireEvent(screen.getByTestId('teilen-rechts'), 'pressIn');
-  await fireEvent(screen.getByTestId('teilen-rechts'), 'pressOut');
-  expect(screen.getByTestId('teilen-video')).toBeTruthy();
+  await fireEvent(screen.getByTestId('share-right'), 'pressIn');
+  await fireEvent(screen.getByTestId('share-right'), 'pressOut');
+  expect(screen.getByTestId('share-video')).toBeTruthy();
 
   // Hold, then let go (stays on p2, no jump).
-  await fireEvent(screen.getByTestId('teilen-rechts'), 'pressIn');
+  await fireEvent(screen.getByTestId('share-right'), 'pressIn');
   await act(async () => {
     jest.advanceTimersByTime(300);
   });
-  await fireEvent(screen.getByTestId('teilen-rechts'), 'pressOut');
-  expect(screen.getByTestId('teilen-video')).toBeTruthy();
+  await fireEvent(screen.getByTestId('share-right'), 'pressOut');
+  expect(screen.getByTestId('share-video')).toBeTruthy();
 
   // The video end event leads into the closing titles (last moment).
   await act(async () => {
     for (const cb of mockListeners.playToEnd ?? []) cb();
   });
-  expect(screen.getByTestId('teilen-ende')).toBeTruthy();
+  expect(screen.getByTestId('share-end')).toBeTruthy();
 
   // "Nochmal ansehen", a purely local state reset, NO new network call.
   await fireEvent.press(screen.getByText('Nochmal ansehen'));
-  expect(screen.getByTestId('teilen-bereit')).toBeTruthy();
+  expect(screen.getByTestId('share-ready')).toBeTruthy();
 
   expect(mockInvoke).toHaveBeenCalledTimes(1);
   expect(mockInvoke).toHaveBeenCalledWith('share-link', { body: { action: 'resolve', token: 'tok123' } });
@@ -145,7 +145,7 @@ test('after a rejected token, "Nochmal versuchen" reaches for functions.invoke o
   });
   await render(<SharedRecapScreen />);
   await act(async () => {});
-  expect(screen.getByTestId('teilen-fehler')).toBeTruthy();
+  expect(screen.getByTestId('share-error')).toBeTruthy();
   // A byte-identical rejection (see shareApi.test.ts), the screen does NOT
   // show the raw function text "Unbekannter Token." but the fixed sentence.
   expect(screen.getByText('Dieser Link funktioniert nicht mehr.')).toBeTruthy();
@@ -153,7 +153,7 @@ test('after a rejected token, "Nochmal versuchen" reaches for functions.invoke o
   mockInvoke.mockResolvedValueOnce({ data: validResponse, error: null });
   await fireEvent.press(screen.getByText('Nochmal versuchen'));
   await act(async () => {});
-  expect(screen.getByTestId('teilen-bereit')).toBeTruthy();
+  expect(screen.getByTestId('share-ready')).toBeTruthy();
 
   expect(mockInvoke).toHaveBeenCalledTimes(2);
   expect(mockFrom).not.toHaveBeenCalled();

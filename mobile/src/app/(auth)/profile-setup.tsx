@@ -69,7 +69,7 @@ export default function ProfileSetupScreen() {
     // the parent that `StyleSheet.absoluteFill` in the sheet refers to. Same
     // split as in profile.tsx, there with a ScrollView instead of the form.
     <View style={[styles.frame, { backgroundColor: colors['bg-0'] }]}>
-      <View testID="onboarding-formular" style={[styles.form, { paddingTop: topInset }]}>
+      <View testID="onboarding-form" style={[styles.form, { paddingTop: topInset }]}>
         <Text style={[type.h1, { color: colors['text-1'] }]}>Fast geschafft</Text>
         <Text style={[type.secondary, { color: colors['text-2'] }]}>
           So sehen dich deine Freunde im Recap.

@@ -192,7 +192,7 @@ export function removeMomentFiles(momentId: string): void {
     const folder = momentFolder(momentId);
     if (folder.exists) folder.delete();
   } catch (error) {
-    console.error('[medien] Moment-Ordner konnte nicht entfernt werden', momentId, error);
+    console.error('[media] moment folder could not be removed', momentId, error);
   }
 }
 
@@ -205,7 +205,7 @@ export function discardFile(uri: string): void {
     const file = new File(uri);
     if (file.exists) file.delete();
   } catch (error) {
-    console.error('[medien] Datei konnte nicht entfernt werden', uri, error);
+    console.error('[media] file could not be removed', uri, error);
   }
 }
 

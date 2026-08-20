@@ -38,7 +38,7 @@ export function TripCover({
     <View>
       <View style={[styles.cover, { backgroundColor: colors['bg-1'] }]}>
         <Image
-          testID="reise-cover"
+          testID="trip-cover"
           source={placeholderCover(position)}
           style={StyleSheet.absoluteFill}
           contentFit="cover"
@@ -54,7 +54,7 @@ export function TripCover({
         // For screen readers the word still stands, as the image's label,
         // the seal is not decoration, it carries the trip's state.
         <Image
-          testID="wachssiegel"
+          testID="wax-seal"
           source={require('@/assets/images/rotes-brief-wachssiegel-transparent.png')}
           style={styles.seal}
           contentFit="contain"

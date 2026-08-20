@@ -19,7 +19,7 @@ afterEach(() => {
 
 test('renders exactly one segment per moment (count)', async () => {
   await render(<ProgressBar count={7} activeIndex={0} durationMs={5000} elapsedMs={0} paused={false} />);
-  expect(screen.getAllByTestId(/^fortschritt-segment-/)).toHaveLength(7);
+  expect(screen.getAllByTestId(/^progress-segment-/)).toHaveLength(7);
 });
 
 test('segments before the active index are full, the active one carries the animation, none after it', async () => {
@@ -27,18 +27,18 @@ test('segments before the active index are full, the active one carries the anim
   // Exactly segments 0 and 1 are "full", not 2 (that's "active"), not 3/4
   // (not their turn yet). A mutant that replaces `<` with `<=` would
   // wrongly mark segment 2 as "full" too.
-  expect(screen.getByTestId('fortschritt-voll-0')).toBeTruthy();
-  expect(screen.getByTestId('fortschritt-voll-1')).toBeTruthy();
-  expect(screen.queryByTestId('fortschritt-voll-2')).toBeNull();
-  expect(screen.queryByTestId('fortschritt-voll-3')).toBeNull();
-  expect(screen.queryByTestId('fortschritt-voll-4')).toBeNull();
-  expect(screen.getByTestId('fortschritt-aktiv')).toBeTruthy();
+  expect(screen.getByTestId('progress-full-0')).toBeTruthy();
+  expect(screen.getByTestId('progress-full-1')).toBeTruthy();
+  expect(screen.queryByTestId('progress-full-2')).toBeNull();
+  expect(screen.queryByTestId('progress-full-3')).toBeNull();
+  expect(screen.queryByTestId('progress-full-4')).toBeNull();
+  expect(screen.getByTestId('progress-active')).toBeTruthy();
 });
 
 test('at the very first moment (index 0) no segment is "full"', async () => {
   await render(<ProgressBar count={3} activeIndex={0} durationMs={5000} elapsedMs={0} paused={false} />);
-  expect(screen.queryByTestId(/^fortschritt-voll-/)).toBeNull();
-  expect(screen.getByTestId('fortschritt-aktiv')).toBeTruthy();
+  expect(screen.queryByTestId(/^progress-full-/)).toBeNull();
+  expect(screen.getByTestId('progress-active')).toBeTruthy();
 });
 
 test('animates the active segment with Easing.linear (DESIGN-LANGUAGE §5, the allowed exception)', async () => {
@@ -82,7 +82,7 @@ test('a change of the active index starts a new animation for the new segment', 
   await rerender(<ProgressBar count={3} activeIndex={1} durationMs={5000} elapsedMs={0} paused={false} />);
   expect(timingSpy).toHaveBeenCalledTimes(2);
   // After the switch, segment 0 is "full", no longer active.
-  expect(screen.getByTestId('fortschritt-voll-0')).toBeTruthy();
+  expect(screen.getByTestId('progress-full-0')).toBeTruthy();
 });
 
 // M8 (review finding): neither the animation's starting value nor the fill
@@ -104,6 +104,6 @@ test('a starting share outside [0,1] (defensive case) gets clamped', async () =>
 
 test('the active segment fills from the left (transformOrigin: left), not centered or from the right', async () => {
   await render(<ProgressBar count={2} activeIndex={0} durationMs={4000} elapsedMs={0} paused={false} />);
-  const style = StyleSheet.flatten(screen.getByTestId('fortschritt-aktiv').props.style);
+  const style = StyleSheet.flatten(screen.getByTestId('progress-active').props.style);
   expect(style.transformOrigin).toBe('left');
 });

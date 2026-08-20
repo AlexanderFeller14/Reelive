@@ -85,7 +85,7 @@ export function DateRangeField({ value, onChange, error, today }: Props) {
         onRequestClose={() => setOpen(false)}
       >
         <View
-          testID="zeitraum-modal"
+          testID="date-range-modal"
           style={{
             flex: 1,
             backgroundColor: colors['bg-0'],

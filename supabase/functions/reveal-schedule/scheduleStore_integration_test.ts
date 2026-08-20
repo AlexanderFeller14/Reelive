@@ -80,7 +80,7 @@ async function newTrip(endDate: string): Promise<string> {
     method: 'POST',
     headers: restHeaders({ Prefer: 'return=representation' }),
     body: JSON.stringify({
-      name: 'Integrationstest zeitplanStore',
+      name: 'integration test scheduleStore',
       start_date: '2026-01-01',
       end_date: endDate,
       owner_id: LEA_ID,

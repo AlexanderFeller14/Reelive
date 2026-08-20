@@ -71,7 +71,7 @@ const mockFileUris: string[] = [];
 // file:///…/medium.jpg"), and that kills the process with signal 6 before
 // any JS gets a turn again. That's why the app crashed on EVERY start as
 // soon as such a job sat in the queue. This mock can't reproduce the native
-// crash — what's provable is only that the worker doesn't even attempt the
+// crash: what's provable is only that the worker doesn't even attempt the
 // upload when the file is missing. That's exactly what the tests below
 // target.
 const mockFile = { exists: true };
@@ -256,7 +256,7 @@ test('a permanently discarded moment gets recorded with a reason before the job 
 // The local queue can outlive a database state: the job carries
 // `zeile_angelegt`, the posts row is gone (reset of the development DB,
 // deleted moment). The Function then permanently responds with 404, and
-// without this distinction the job ran into nothing every ten minutes —
+// without this distinction the job ran into nothing every ten minutes,
 // seen on the device, three of them, until the app got uninstalled.
 test('a server-side vanished moment gets discarded instead of retried forever', async () => {
   (momentsApi.signedUrls as jest.Mock).mockResolvedValueOnce({
@@ -304,7 +304,7 @@ test('if the local capture is missing, it does not even attempt to upload', asyn
   expect(queueDb.removeJob).toHaveBeenCalledWith('j1');
 });
 
-// Spec §8: "discarded with an explanation" — the same promise as for the
+// Spec §8: "discarded with an explanation", the same promise as for the
 // rejection by the policy, it applies equally here: the moment is gone, and
 // the affected person mustn't only notice that from the missing post in
 // the recap.

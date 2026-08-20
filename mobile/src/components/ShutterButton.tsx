@@ -313,7 +313,7 @@ export function ShutterButton({ onPhoto, onVideoStart, onVideoStop, maxSeconds, 
     <View style={styles.stage} pointerEvents="box-none">
       {recording && !locked && (
         <Pill
-          testID="ausloeser-schloss"
+          testID="shutter-lock"
           accessibilityLabel="Aufnahme sperren"
           style={styles.lock}
           // The gesture's target, not its own tap target: it's reached via
@@ -398,7 +398,7 @@ export function ShutterButton({ onPhoto, onVideoStart, onVideoStop, maxSeconds, 
           )}
         </Svg>
           <View
-            testID="ausloeser-kern"
+            testID="shutter-core"
             style={[styles.core, recording && styles.coreActive, locked && styles.coreLocked]}
           />
         </View>

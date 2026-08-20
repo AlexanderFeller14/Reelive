@@ -41,10 +41,10 @@ beforeEach(() => {
 
 test('stands as a «Siegel abziehen» button and draws the shadow and mesh at stage size', async () => {
   const { getByRole, getByTestId } = await render(
-    <SealPeel size={300} onPeeled={() => {}} testID="siegel" />
+    <SealPeel size={300} onPeeled={() => {}} testID="seal" />
   );
   expect(getByRole('button', { name: 'Siegel abziehen' })).toBeTruthy();
-  expect(getByTestId('siegel-buehne').props.style).toEqual({ width: 300, height: 300 });
+  expect(getByTestId('seal-stage').props.style).toEqual({ width: 300, height: 300 });
   // The shadow sits there as an ellipse, the mesh carries two triangles per
   // cell and a texture coordinate for every node.
   expect(getByTestId('skia-oval')).toBeTruthy();

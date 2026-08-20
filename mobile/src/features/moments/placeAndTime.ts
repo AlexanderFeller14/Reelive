@@ -34,7 +34,7 @@ export async function determinePlace(): Promise<Place> {
   try {
     permission = await Location.requestForegroundPermissionsAsync();
   } catch (error) {
-    console.error('[ortUndZeit] Berechtigungsabfrage fehlgeschlagen', error);
+    console.error('[placeAndTime] permission request failed', error);
     return NO_PLACE;
   }
   if (permission.status !== 'granted') return NO_PLACE;
@@ -45,7 +45,7 @@ export async function determinePlace(): Promise<Place> {
     latitude = position.coords.latitude;
     longitude = position.coords.longitude;
   } catch (error) {
-    console.error('[ortUndZeit] Positionsbestimmung fehlgeschlagen', error);
+    console.error('[placeAndTime] location fix failed', error);
     return NO_PLACE;
   }
 
@@ -54,7 +54,7 @@ export async function determinePlace(): Promise<Place> {
     const [geocoded] = await withTimeout(Location.reverseGeocodeAsync({ latitude, longitude }), TIMEOUT_MS);
     place_name = geocoded?.city ?? null;
   } catch (error) {
-    console.error('[ortUndZeit] Geocoding fehlgeschlagen', error);
+    console.error('[placeAndTime] geocoding failed', error);
   }
 
   return { lat: latitude, lng: longitude, place_name };

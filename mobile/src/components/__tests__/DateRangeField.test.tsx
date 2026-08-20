@@ -13,7 +13,7 @@ const EMPTY = { start: null, end: null };
 test('shows only the label when the selection is empty', async () => {
   await wrap(<DateRangeField value={EMPTY} onChange={jest.fn()} today={TODAY} />);
   expect(screen.getByText('Zeitraum')).toBeTruthy();
-  expect(screen.queryByTestId('zeitraum-modal')).toBeNull();
+  expect(screen.queryByTestId('date-range-modal')).toBeNull();
 });
 
 test('shows a set date range in short form', async () => {
@@ -36,7 +36,7 @@ test('reads aloud with months spelled out', async () => {
 test('a tap opens the modal covering the whole page', async () => {
   await wrap(<DateRangeField value={EMPTY} onChange={jest.fn()} today={TODAY} />);
   await fireEvent.press(screen.getByLabelText('Zeitraum, noch nichts gewählt'));
-  const modal = screen.getByTestId('zeitraum-modal');
+  const modal = screen.getByTestId('date-range-modal');
   expect(modal).toBeTruthy();
   expect(StyleSheet.flatten(modal.props.style).flex).toBe(1);
 });
@@ -61,7 +61,7 @@ test('the modal keeps both system edges clear', async () => {
     </SafeAreaProvider>
   );
   await fireEvent.press(screen.getByLabelText('Zeitraum, noch nichts gewählt'));
-  const flat = StyleSheet.flatten(screen.getByTestId('zeitraum-modal').props.style);
+  const flat = StyleSheet.flatten(screen.getByTestId('date-range-modal').props.style);
   expect(flat.paddingTop).toBe(59 + spacing.base);
   expect(flat.paddingBottom).toBe(34 + spacing.base);
 });
@@ -69,7 +69,7 @@ test('the modal keeps both system edges clear', async () => {
 test('on a device without system edges the designed spacing stays in place', async () => {
   await wrap(<DateRangeField value={EMPTY} onChange={jest.fn()} today={TODAY} />);
   await fireEvent.press(screen.getByLabelText('Zeitraum, noch nichts gewählt'));
-  const flat = StyleSheet.flatten(screen.getByTestId('zeitraum-modal').props.style);
+  const flat = StyleSheet.flatten(screen.getByTestId('date-range-modal').props.style);
   expect(flat.paddingTop).toBe(spacing.l);
   expect(flat.paddingBottom).toBe(spacing.l);
 });

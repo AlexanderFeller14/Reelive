@@ -43,8 +43,8 @@ export function Calendar({ selection, onDayPress, today }: Props) {
     // parent to HAVE a definite height: inside `Sheet`, whose content has none,
     // the calendar stood zero tall in the tree and was invisible. That's why
     // `DateRangeField` puts it in a full-screen modal instead.
-    <View testID="kalender" style={{ flex: 1 }}>
-      <View testID="kalender-wochentage" style={{ flexDirection: 'row', paddingBottom: spacing.s }}>
+    <View testID="calendar" style={{ flex: 1 }}>
+      <View testID="calendar-weekdays" style={{ flexDirection: 'row', paddingBottom: spacing.s }}>
         {WEEKDAYS.map((day) => (
           <Text
             key={day}
@@ -55,7 +55,7 @@ export function Calendar({ selection, onDayPress, today }: Props) {
         ))}
       </View>
       <FlatList
-        testID="kalender-monate"
+        testID="calendar-months"
         style={{ flex: 1 }}
         data={months}
         keyExtractor={(m) => `${m.year}-${m.month}`}
@@ -152,7 +152,7 @@ function DayCell({
     <View style={{ flex: 1 }}>
       {span ? (
         <View
-          testID={`spanne-${day}`}
+          testID={`span-${day}`}
           style={{
             position: 'absolute',
             top: (ROW_HEIGHT - CIRCLE) / 2,

@@ -98,7 +98,7 @@ test('the input field fills the whole frame, so every tap lands', async () => {
   await wrap(<Input label="Name der Reise" value="" onChangeText={() => {}} />);
   const field = StyleSheet.flatten(screen.getByLabelText('Name der Reise').props.style);
   expect(field.flex).toBe(1);
-  const frame = StyleSheet.flatten(screen.getByTestId('input-rahmen').props.style);
+  const frame = StyleSheet.flatten(screen.getByTestId('input-frame').props.style);
   // No more 'flex-end': that pushed the field to the bottom edge instead
   // of letting it fill the space.
   expect(frame.justifyContent).toBeUndefined();

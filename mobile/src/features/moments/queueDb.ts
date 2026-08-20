@@ -183,7 +183,7 @@ export async function initQueue(): Promise<void> {
     `);
     await migrateColumns(db);
   } catch (error) {
-    console.error('[queueDb] initQueue fehlgeschlagen', error);
+    console.error('[queueDb] initQueue failed', error);
     throw error;
   }
 }
@@ -198,7 +198,7 @@ export async function addJob(job: QueueJob): Promise<void> {
       valuesFor(row, COLUMNS)
     );
   } catch (error) {
-    console.error('[queueDb] jobHinzufuegen fehlgeschlagen', error);
+    console.error('[queueDb] addJob failed', error);
     throw error;
   }
 }
@@ -222,12 +222,12 @@ export async function allJobs(): Promise<QueueJob[]> {
         // (without a DSN: nobody at all; see errorReporter.ts) would pick
         // up in case of an error. The id is enough to look up the broken
         // row in `upload_queue` specifically.
-        console.error('[queueDb] beschädigte Zeile übersprungen', { id: row.id });
+        console.error('[queueDb] corrupted row skipped', { id: row.id });
       }
     }
     return jobs;
   } catch (error) {
-    console.error('[queueDb] alleJobs fehlgeschlagen', error);
+    console.error('[queueDb] allJobs failed', error);
     throw error;
   }
 }
@@ -245,7 +245,7 @@ export async function updateJob(job: QueueJob): Promise<void> {
       row.id,
     ]);
   } catch (error) {
-    console.error('[queueDb] jobAktualisieren fehlgeschlagen', error);
+    console.error('[queueDb] updateJob failed', error);
     throw error;
   }
 }
@@ -255,7 +255,7 @@ export async function removeJob(id: string): Promise<void> {
   try {
     await db.runAsync('delete from upload_queue where id = ?', [id]);
   } catch (error) {
-    console.error('[queueDb] jobEntfernen fehlgeschlagen', error);
+    console.error('[queueDb] removeJob failed', error);
     throw error;
   }
 }
@@ -276,7 +276,7 @@ export async function rememberDiscarded(entry: DiscardedMoment): Promise<void> {
       [entry.id, entry.trip_id, entry.author_id, entry.grund, entry.verworfen_am]
     );
   } catch (error) {
-    console.error('[queueDb] verworfenenMerken fehlgeschlagen', error);
+    console.error('[queueDb] rememberDiscarded failed', error);
     throw error;
   }
 }
@@ -291,7 +291,7 @@ export async function discardedMoments(tripId: string, authorId: string): Promis
     );
     return rows;
   } catch (error) {
-    console.error('[queueDb] verworfene fehlgeschlagen', error);
+    console.error('[queueDb] discardedMoments failed', error);
     throw error;
   }
 }
@@ -306,7 +306,7 @@ export async function acknowledgeDiscarded(tripId: string, authorId: string): Pr
       authorId,
     ]);
   } catch (error) {
-    console.error('[queueDb] verworfeneQuittieren fehlgeschlagen', error);
+    console.error('[queueDb] acknowledgeDiscarded failed', error);
     throw error;
   }
 }

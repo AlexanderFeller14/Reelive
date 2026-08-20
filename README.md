@@ -240,8 +240,8 @@ diese Reihenfolge einhalten, jeder Schritt setzt den vorigen voraus:
      danach entweder hier eintragen oder interaktiv beim ersten `eas submit` angeben.
 4. **R2-Zugangsdaten in die Function-Umgebung.** Der Code spricht seit Phase 4 S3-kompatibel —
    seit dem Abschluss-Review von Phase 6 gilt das für **alle drei** speicherberührenden
-   Functions (`media-urls`, `share-link` **und** `konto-loeschen`; zuvor löschte Letztere
-   noch über die Supabase-Storage-API statt über S3, siehe `konto-loeschen/store.ts`). Für
+   Functions (`media-urls`, `share-link` **und** `delete-account`; zuvor löschte Letztere
+   noch über die Supabase-Storage-API statt über S3, siehe `delete-account/store.ts`). Für
    ein echtes Deployment wechseln darum wirklich nur Endpoint und Zugangsdaten. Ein
    Cloudflare-R2-Bucket anlegen, dann `S3_ENDPOINT`/`S3_REGION`/`S3_ACCESS_KEY`/
    `S3_SECRET_KEY`/`S3_BUCKET` **nicht** in `supabase/functions/.env` (nur lokal, Docker),

@@ -199,7 +199,7 @@ function expectedTime(iso: string): string {
 // into being with the tap on it (and fetches the keyboard via autoFocus).
 // Whoever wants to write in a test has to open it first.
 async function openCaption() {
-  await fireEvent.press(screen.getByTestId('bildunterschrift-chip'));
+  await fireEvent.press(screen.getByTestId('caption-chip'));
 }
 
 beforeEach(() => {
@@ -428,7 +428,7 @@ test('the capture time freezes when the screen appears instead of moving with ev
   await fireEvent.changeText(screen.getByLabelText('Bildunterschrift'), 'abc');
 
   await act(async () => {
-    await fireEvent.press(screen.getByTestId('einsenden-knopf'));
+    await fireEvent.press(screen.getByTestId('submit-button'));
   });
 
   expect(mockNow).toHaveBeenCalledTimes(1);
@@ -491,7 +491,7 @@ test('a video is shown as a muted, endlessly looping preview without controls', 
   // 2026-08-14).
   expect(mockVideoPlayer.audioMixingMode).toBe('mixWithOthers');
   expect(mockVideoPlayer.play).toHaveBeenCalled();
-  expect(screen.getByTestId('video-vorschau')).toBeTruthy();
+  expect(screen.getByTestId('video-preview')).toBeTruthy();
 });
 
 // Device finding 2026-08-14: on leaving, the camera screen under this preview
@@ -577,7 +577,7 @@ test('a prewarmed player from the handoff goes straight to the VideoView', async
   handoff.setVideo({ kind: 'player', player: player as unknown as VideoPlayer, poster: null });
   await render(<PreviewScreen />);
 
-  expect(screen.getByTestId('video-vorschau').props.player).toBe(player);
+  expect(screen.getByTestId('video-preview').props.player).toBe(player);
   // No second load of the same file: the own hook gets no source.
   expect(mockUseVideoPlayer).toHaveBeenCalledWith(null, expect.any(Function));
 });
@@ -600,7 +600,7 @@ test('the poster stands over the video at once and gives way to the first drawn 
   expect(screen.getByTestId('video-poster').props.source).toEqual({ uri: 'file://poster.jpg' });
 
   await act(async () => {
-    screen.getByTestId('video-vorschau').props.onFirstFrameRender();
+    screen.getByTestId('video-preview').props.onFirstFrameRender();
   });
   expect(screen.queryByTestId('video-poster')).toBeNull();
 });
@@ -648,8 +648,8 @@ test('a native handoff shows the instant preview instead of the VideoView', asyn
   mockDeterminePlace.mockResolvedValue({ lat: null, lng: null, place_name: null });
   handoff.setVideo({ kind: 'native', fileReady: Promise.resolve() });
   await render(<PreviewScreen />);
-  expect(screen.getByTestId('sofort-vorschau')).toBeTruthy();
-  expect(screen.queryByTestId('video-vorschau')).toBeNull();
+  expect(screen.getByTestId('instant-preview')).toBeTruthy();
+  expect(screen.queryByTestId('video-preview')).toBeNull();
 });
 
 test('on a native handoff submitting waits for fileReady', async () => {
@@ -691,7 +691,7 @@ test('discarding a native handoff cleans up through the module', async () => {
   mockDeterminePlace.mockResolvedValue({ lat: null, lng: null, place_name: null });
   handoff.setVideo({ kind: 'native', fileReady: Promise.resolve() });
   await render(<PreviewScreen />);
-  await fireEvent.press(screen.getByTestId('verwerfen-knopf'));
+  await fireEvent.press(screen.getByTestId('discard-button'));
   expect(mockNativeDiscard).toHaveBeenCalled();
   expect(mockDiscardFile).not.toHaveBeenCalled();
 });
@@ -701,7 +701,7 @@ test('no video player is created for a photo', async () => {
   await render(<PreviewScreen />);
 
   expect(mockUseVideoPlayer).toHaveBeenCalledWith(null, expect.any(Function));
-  expect(screen.queryByTestId('video-vorschau')).toBeNull();
+  expect(screen.queryByTestId('video-preview')).toBeNull();
 });
 
 test('discarding enqueues nothing, clears the raw capture away and goes back to the camera', async () => {
@@ -710,7 +710,7 @@ test('discarding enqueues nothing, clears the raw capture away and goes back to 
 
   // Discarding is the X in the header, no longer a text button next to the
   // submit: it is the way back, not an equal alternative.
-  await fireEvent.press(screen.getByTestId('verwerfen-knopf'));
+  await fireEvent.press(screen.getByTestId('discard-button'));
 
   expect(mockEnqueueJob).not.toHaveBeenCalled();
   expect(mockPreparePhoto).not.toHaveBeenCalled();
@@ -726,7 +726,7 @@ test('discarding goes back instantly, without switching an exit animation', asyn
   mockDeterminePlace.mockResolvedValue({ lat: null, lng: null, place_name: null });
   await render(<PreviewScreen />);
 
-  await fireEvent.press(screen.getByTestId('verwerfen-knopf'));
+  await fireEvent.press(screen.getByTestId('discard-button'));
 
   expect(mockSetOptions).not.toHaveBeenCalled();
   expect(mockBack).toHaveBeenCalledTimes(1);
@@ -921,7 +921,7 @@ test('a second tap on submit while sending enqueues no second job', async () => 
       })
   );
   await render(<PreviewScreen />);
-  const button = screen.getByTestId('einsenden-knopf');
+  const button = screen.getByTestId('submit-button');
 
   await fireEvent.press(button);
   await fireEvent.press(button);
@@ -991,7 +991,7 @@ describe('standing keyboard', () => {
   }
 
   function captionBottom(): number {
-    const field = screen.getByTestId('bildunterschrift-feld');
+    const field = screen.getByTestId('caption-field');
     return StyleSheet.flatten(field.props.style).bottom as number;
   }
 
@@ -1050,11 +1050,11 @@ describe('standing keyboard', () => {
     await render(<PreviewScreen />);
     await openCaption();
     await showKeyboard();
-    expect(screen.queryByTestId('bildunterschrift-chip')).toBeNull();
+    expect(screen.queryByTestId('caption-chip')).toBeNull();
 
     await hideKeyboard();
 
-    expect(screen.getByTestId('bildunterschrift-chip')).toBeTruthy();
+    expect(screen.getByTestId('caption-chip')).toBeTruthy();
   });
 
   // The way out of the field that the keyboard itself offers: on a SINGLE LINE
@@ -1108,7 +1108,7 @@ test('the caption hangs on the measured height of the footer, not on a fixed num
 
   // In the test there is no layout phase, so the height comes by hand.
   await act(async () => {
-    fireEvent(screen.getByTestId('fuss'), 'layout', {
+    fireEvent(screen.getByTestId('footer'), 'layout', {
       nativeEvent: { layout: { x: 0, y: 0, width: 320, height: 52 } },
     });
   });
@@ -1116,7 +1116,7 @@ test('the caption hangs on the measured height of the footer, not on a fixed num
   // Insets are 0 in the test (see jest.setup.ts). Without a home indicator the
   // designed minimum margin spacing.base remains of the footer distance.
   const bottomInset = spacing.base;
-  const field = screen.getByTestId('bildunterschrift-feld');
+  const field = screen.getByTestId('caption-field');
   expect(StyleSheet.flatten(field.props.style).bottom).toBe(bottomInset + 52 + spacing.base);
 });
 
@@ -1133,7 +1133,7 @@ test('at rest only a chip stands there, the input field comes with the tap on it
   await openCaption();
 
   expect(screen.getByLabelText('Bildunterschrift')).toBeTruthy();
-  expect(screen.queryByTestId('bildunterschrift-chip')).toBeNull();
+  expect(screen.queryByTestId('caption-chip')).toBeNull();
 });
 
 // On iOS a set line height in the input field lays a paragraph style over the
@@ -1162,7 +1162,7 @@ test('a handed over photo is shown straight from memory', async () => {
   mockParams = { typ: 'photo', dauer: '0', tripId: 't1' };
   handoff.setPhoto({ ref: fakeRef, file: Promise.resolve({ uri: 'file://gespeichert.jpg' }) });
   await render(<PreviewScreen />);
-  expect(screen.getByTestId('foto-vorschau').props.source).toBe(fakeRef);
+  expect(screen.getByTestId('photo-preview').props.source).toBe(fakeRef);
 });
 
 test('submitting waits for the file saved in the background', async () => {
@@ -1175,7 +1175,7 @@ test('submitting waits for the file saved in the background', async () => {
     }),
   });
   await render(<PreviewScreen />);
-  await fireEvent.press(screen.getByTestId('einsenden-knopf'));
+  await fireEvent.press(screen.getByTestId('submit-button'));
 
   // Before the file nothing may be prepared.
   expect(mockPreparePhoto).not.toHaveBeenCalled();
@@ -1190,7 +1190,7 @@ test('when the background save fails, the existing error path says so', async ()
   mockParams = { typ: 'photo', dauer: '0', tripId: 't1' };
   handoff.setPhoto({ ref: fakeRef, file: Promise.reject(new Error('full')) });
   await render(<PreviewScreen />);
-  await fireEvent.press(screen.getByTestId('einsenden-knopf'));
+  await fireEvent.press(screen.getByTestId('submit-button'));
   expect(
     await screen.findByText(
       'Der Moment konnte nicht gesichert werden, oft weil kein Speicherplatz mehr frei ist. Räum etwas Platz frei und versuch es nochmal.'
@@ -1203,7 +1203,7 @@ test('discarding also clears away the file created in the background', async () 
   mockParams = { typ: 'photo', dauer: '0', tripId: 't1' };
   handoff.setPhoto({ ref: fakeRef, file: Promise.resolve({ uri: 'file://gespeichert.jpg' }) });
   await render(<PreviewScreen />);
-  await fireEvent.press(screen.getByTestId('verwerfen-knopf'));
+  await fireEvent.press(screen.getByTestId('discard-button'));
   await waitFor(() => expect(mockDiscardFile).toHaveBeenCalledWith('file://gespeichert.jpg'));
   expect(mockBack).toHaveBeenCalled();
 });

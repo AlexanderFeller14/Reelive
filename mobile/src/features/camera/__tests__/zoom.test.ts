@@ -49,7 +49,7 @@ test('a device with only one lens has nothing to choose', () => {
   expect(zoomDevice([lens()])).toBeNull();
 });
 
-test('without lenses — Android, Simulator — there is no row', () => {
+test('without lenses (Android, Simulator), there is no row', () => {
   expect(zoomDevice([])).toBeNull();
 });
 
@@ -131,7 +131,7 @@ test('with more than two fingers down, the first two count', () => {
   ).toBe(8);
 });
 
-// ——— Drag zoom (spec 2026-08-13-aufnahme-tempo-design.md §7) ———
+// --- Drag zoom (spec 2026-08-13-aufnahme-tempo-design.md §7) ---
 //
 // The pull is the vertical finger movement since touch-down, positive
 // upward. The mapping is exponential (zoom is multiplicative, a linear path
@@ -173,7 +173,7 @@ describe('dragFactor', () => {
 
   test('the reference is the start factor, not 1×', () => {
     // Someone starting at 4× and pulling the full path also lands at the
-    // maximum — the path always covers the stretch from the start factor to
+    // maximum: the path always covers the stretch from the start factor to
     // the bound.
     expect(dragFactor(500, 4, BOUNDS, BASE, DISTANCES)).toBeCloseTo(60);
     expect(dragFactor(-100, 4, BOUNDS, BASE, DISTANCES)).toBeCloseTo(0.5);

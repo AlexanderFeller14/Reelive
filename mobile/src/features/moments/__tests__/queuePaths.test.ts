@@ -1,4 +1,4 @@
-// Four pending moments were lost this way on 2026-08-17 — the worker
+// Four pending moments were lost this way on 2026-08-17, the worker
 // couldn't find the files after a container rebuild.
 jest.mock('expo-file-system', () => ({
   Paths: { document: { uri: 'file:///container-NEU/Documents/' } },

@@ -58,27 +58,27 @@ test('with only finished trips the empty state points to the recap tab instead o
   await wrap();
   expect(await screen.findByText('Gerade keine Reise unterwegs')).toBeTruthy();
   expect(screen.getByText(/Recap-Tab/)).toBeTruthy();
-  expect(screen.getByTestId('leerzustand-camper')).toBeTruthy();
+  expect(screen.getByTestId('empty-state-camper')).toBeTruthy();
   expect(screen.queryByText('Noch keine Reise')).toBeNull();
 });
 
 test('the empty state shows the camper', async () => {
   (fetchTrips as jest.Mock).mockResolvedValue(loaded([]));
   await wrap();
-  expect(await screen.findByTestId('leerzustand-camper')).toBeTruthy();
+  expect(await screen.findByTestId('empty-state-camper')).toBeTruthy();
 });
 
 test('next to real trips no camper stands, it would be mere decoration there', async () => {
   (fetchTrips as jest.Mock).mockResolvedValue(loaded([trip]));
   await wrap();
   await screen.findByText('Norwegen mit dem Camper');
-  expect(screen.queryByTestId('leerzustand-camper')).toBeNull();
+  expect(screen.queryByTestId('empty-state-camper')).toBeNull();
 });
 
 test('the camper stays invisible to VoiceOver, the text below already says it', async () => {
   (fetchTrips as jest.Mock).mockResolvedValue(loaded([]));
   await wrap();
-  const image = await screen.findByTestId('leerzustand-camper');
+  const image = await screen.findByTestId('empty-state-camper');
   expect(image.props.accessible).toBe(false);
 });
 

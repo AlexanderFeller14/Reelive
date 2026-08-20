@@ -62,7 +62,7 @@ async function ensureInitialized(): Promise<void> {
 // EVERY start as soon as such a job sat in the queue). `File.upload()`
 // doesn't throw to JavaScript in this case, but lets a native exception
 // through ("Cannot read file at file:///…/medium.jpg"), which ends the
-// process with signal 6 — the try/catch below never gets a chance. That's
+// process with signal 6, the try/catch below never gets a chance. That's
 // why it's checked beforehand. A dedicated error type, because this case is
 // permanent like a rejection by the policy: a deleted file doesn't come
 // back, retrying only leads into the same crash again.
@@ -116,7 +116,7 @@ async function processJob(job: QueueJob, now: number, myGeneration: number): Pro
           if (!belongsToCurrentGeneration(myGeneration)) return;
           await discardJob(current, created.error, myGeneration);
           console.error(
-            '[uploadWorker] Moment dauerhaft von der Policy abgelehnt, Job verworfen',
+            '[uploadWorker] moment permanently rejected by policy, job discarded',
             current.id,
             created.error
           );
@@ -133,7 +133,7 @@ async function processJob(job: QueueJob, now: number, myGeneration: number): Pro
     if (!urls) {
       // Third permanent case (404, see momentsApi.signedUrls): the posts
       // row no longer exists server-side. Creating it again would be
-      // wrong — the moment belongs to a state that no longer exists.
+      // wrong, the moment belongs to a state that no longer exists.
       if (permanentlyRejected) {
         if (!belongsToCurrentGeneration(myGeneration)) return;
         await discardJob(
@@ -141,7 +141,7 @@ async function processJob(job: QueueJob, now: number, myGeneration: number): Pro
           'Dieser Moment ist auf dem Server nicht mehr vorhanden.',
           myGeneration
         );
-        console.error('[uploadWorker] Moment serverseitig verschwunden, Job verworfen', current.id);
+        console.error('[uploadWorker] moment vanished server-side, job discarded', current.id);
         return;
       }
       throw new Error('Signierte URLs konnten nicht geholt werden.');
@@ -203,7 +203,7 @@ async function processJob(job: QueueJob, now: number, myGeneration: number): Pro
     if (error instanceof LocalFileMissing) {
       await discardJob(current, error.message, myGeneration);
       console.error(
-        '[uploadWorker] lokale Aufnahme fehlt, Job verworfen',
+        '[uploadWorker] local capture missing, job discarded',
         current.id,
         error.uri
       );
@@ -211,7 +211,7 @@ async function processJob(job: QueueJob, now: number, myGeneration: number): Pro
     }
     const updated = queueLogic.afterFailure(current, now);
     await queueDb.updateJob(updated);
-    console.error('[uploadWorker] Job fehlgeschlagen, wird erneut versucht', current.id, error);
+    console.error('[uploadWorker] job failed, will retry', current.id, error);
   }
 }
 
@@ -245,7 +245,7 @@ export async function processOneJob(): Promise<void> {
   } catch (error) {
     // Protection against a broken run (e.g. SQLite/network exception
     // BEFORE job selection): must never bring the interval loop to a halt.
-    console.error('[uploadWorker] Durchlauf fehlgeschlagen', error);
+    console.error('[uploadWorker] run failed', error);
   } finally {
     if (runningGeneration === myGeneration) runningGeneration = null;
   }

@@ -71,20 +71,20 @@ test('without a single trip the empty state stands there just the same', async (
 test('the empty state shows the film reel', async () => {
   (fetchTrips as jest.Mock).mockResolvedValue(loaded([]));
   await wrap();
-  expect(await screen.findByTestId('leerzustand-filmrolle')).toBeTruthy();
+  expect(await screen.findByTestId('empty-state-film-reel')).toBeTruthy();
 });
 
 test('beside real recaps no film reel stands', async () => {
   (fetchTrips as jest.Mock).mockResolvedValue(loaded([recap]));
   await wrap();
   await screen.findByText('Lissabon Städtetrip');
-  expect(screen.queryByTestId('leerzustand-filmrolle')).toBeNull();
+  expect(screen.queryByTestId('empty-state-film-reel')).toBeNull();
 });
 
 test('the film reel stays invisible to VoiceOver', async () => {
   (fetchTrips as jest.Mock).mockResolvedValue(loaded([]));
   await wrap();
-  const image = await screen.findByTestId('leerzustand-filmrolle');
+  const image = await screen.findByTestId('empty-state-film-reel');
   expect(image.props.accessible).toBe(false);
 });
 

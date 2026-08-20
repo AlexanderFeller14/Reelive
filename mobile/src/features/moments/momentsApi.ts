@@ -1,23 +1,23 @@
 import { supabase } from '@/lib/supabase';
-import { OFFLINE_HINT, istOffline } from '@/lib/networkError';
+import { OFFLINE_HINT, isOffline } from '@/lib/networkError';
 import * as media from './media';
 import type { QueueJob } from './types';
 
 // Translates a postgrest error into a German plain-text message (DESIGN-LANGUAGE
 // §6: errors explain cause and remedy). Same pattern as tripsApi/profileApi.
 function message(error: { message?: string } | null, fallback: string): string {
-  return istOffline(error) ? OFFLINE_HINT : fallback;
+  return isOffline(error) ? OFFLINE_HINT : fallback;
 }
 
 // functions-js wraps a genuine network error in FunctionsFetchError and
 // replaces the message with a fixed English sentence ("Failed to send a
-// request to the Edge Function"), istOffline() would never match that. The
+// request to the Edge Function"), isOffline() would never match that. The
 // original fetch error message sits in the `context` of the exception
 // though, see node_modules/@supabase/functions-js FunctionsClient. Both
 // places are checked before falling back to the generic message.
 function functionMessage(error: unknown, fallback: string): string {
   const err = error as { message?: string; context?: { message?: string } } | null;
-  if (istOffline({ message: err?.context?.message })) return OFFLINE_HINT;
+  if (isOffline({ message: err?.context?.message })) return OFFLINE_HINT;
   return message(err ?? null, fallback);
 }
 
@@ -121,7 +121,7 @@ export async function createMoment(
 // under Hermes not the same class as the global `Response`, the check
 // silently failed and every HTTP error landed in the generic branch. It
 // never showed up in the Jest run, because both sides use the same
-// `Response` from jsdom there — the test was green, the device wasn't. What
+// `Response` from jsdom there, the test was green, the device wasn't. What
 // gets checked instead is what's actually needed: a status and a readable
 // body.
 type ResponseLike = {
@@ -156,7 +156,7 @@ async function functionPlainText(error: unknown): Promise<string> {
       if (typeof body?.error === 'string') return `${response.status} ${body.error}`;
     }
   } catch {
-    // Not JSON — the raw text does the job too.
+    // Not JSON, the raw text does the job too.
   }
   try {
     const raw = typeof response.clone === 'function' ? response.clone() : response;
@@ -168,7 +168,7 @@ async function functionPlainText(error: unknown): Promise<string> {
 }
 
 // 404 "moment not found": the Function reads the posts row itself and finds
-// none. That's final — a row that doesn't exist doesn't spontaneously
+// none. That's final, a row that doesn't exist doesn't spontaneously
 // reappear. In practice this happens when the local queue outlives a
 // database state (reset of the development DB, deleted moment): the job
 // carries `zeile_angelegt`, server-side there's nothing there. Without this
@@ -185,7 +185,7 @@ export async function signedUrls(
     body: { action: 'sign', post_id: momentId },
   });
   if (error || !data) {
-    console.error('[postsApi] signierteUrls fehlgeschlagen', momentId, await functionPlainText(error));
+    console.error('[momentsApi] signedUrls failed', momentId, await functionPlainText(error));
     const response = asResponse((error as { context?: unknown })?.context);
     return { urls: null, permanentlyRejected: response?.status === NOT_FOUND_STATUS };
   }
@@ -208,7 +208,7 @@ export async function confirmUpload(
     // On an HTTP error the Function sends its German plain text along in the
     // response body, which arrives via FunctionsHttpError in the `context`.
     // The response is recognized by its shape, not via `instanceof
-    // Response` — see asResponse() above, the class check silently failed
+    // Response`, see asResponse() above, the class check silently failed
     // on the device and made this whole branch unreachable.
     const response = asResponse((error as { context?: unknown })?.context);
     if (response) {

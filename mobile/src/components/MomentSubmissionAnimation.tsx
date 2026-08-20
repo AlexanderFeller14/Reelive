@@ -414,7 +414,7 @@ export function MomentSubmissionAnimation({
     // touch on the screen underneath during the animation, including a
     // second tap on the submit button.
     <View
-      testID="memory-animation"
+      testID="moment-animation"
       accessible
       accessibilityLabel="Moment erfolgreich eingesendet"
       style={[
@@ -429,7 +429,7 @@ export function MomentSubmissionAnimation({
           {POLAROIDS.map((p, i) => (
             <Animated.View key={i} style={[styles.polaroidLayer, polaroidStyles[i]]}>
               <Image
-                testID="memory-polaroid"
+                testID="moment-polaroid"
                 accessible={false}
                 accessibilityElementsHidden
                 importantForAccessibility="no"
@@ -440,7 +440,7 @@ export function MomentSubmissionAnimation({
             </Animated.View>
           ))}
         </Animated.View>
-        <Animated.View testID="memory-pin" style={[styles.centerLayer, pinStyle]}>
+        <Animated.View testID="moment-pin" style={[styles.centerLayer, pinStyle]}>
           {/* Location pin without SVG: three full corners, one pointed,
               rotated 45°, the checkmark rotates back to level in the
               middle. */}
@@ -454,7 +454,7 @@ export function MomentSubmissionAnimation({
             appears right below the pin (device acceptance 2026-08-14), not
             in the text block. */}
         {counter != null && (
-          <Animated.View testID="memory-zaehler" style={[styles.counterLayer, counterStyle]}>
+          <Animated.View testID="moment-counter" style={[styles.counterLayer, counterStyle]}>
             {reducedMotion ? (
               <Text style={styles.staticNumber}>{String(counter + 1)}</Text>
             ) : (

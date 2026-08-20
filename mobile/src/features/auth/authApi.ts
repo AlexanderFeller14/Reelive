@@ -1,11 +1,11 @@
 import { supabase } from '@/lib/supabase';
-import { OFFLINE_HINT, istOffline } from '@/lib/networkError';
+import { OFFLINE_HINT, isOffline } from '@/lib/networkError';
 import { deregisterPushToken } from '@/features/push/pushApi';
 
 export async function requestOtp(phone: string): Promise<{ error: string | null }> {
   const { error } = await supabase.auth.signInWithOtp({ phone });
   if (!error) return { error: null };
-  if (istOffline(error)) return { error: OFFLINE_HINT };
+  if (isOffline(error)) return { error: OFFLINE_HINT };
   if (error.status === 429) return { error: 'Zu viele Versuche. Warte kurz und fordere dann einen neuen Code an.' };
   return { error: 'Der Code konnte nicht gesendet werden. Prüf die Nummer und probier es nochmal.' };
 }
@@ -13,7 +13,7 @@ export async function requestOtp(phone: string): Promise<{ error: string | null 
 export async function verifyOtp(phone: string, code: string): Promise<{ error: string | null }> {
   const { error } = await supabase.auth.verifyOtp({ phone, token: code, type: 'sms' });
   if (!error) return { error: null };
-  if (istOffline(error)) return { error: OFFLINE_HINT };
+  if (isOffline(error)) return { error: OFFLINE_HINT };
   return { error: 'Der Code stimmt nicht oder ist abgelaufen. Fordere einen neuen an.' };
 }
 

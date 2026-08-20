@@ -144,12 +144,12 @@ function DaySection({
               scaleTo={0.96}
               accessibilityRole="button"
               accessibilityLabel={`Moment ${index + 1} öffnen`}
-              testID={`recap-kachel-${m.id}`}
+              testID={`recap-tile-${m.id}`}
               onPress={() => onTap(index)}
             >
               <View style={[styles.tile, { backgroundColor: colors['bg-1'] }]}>
                 <Image
-                  testID={`recap-bild-${m.id}`}
+                  testID={`recap-image-${m.id}`}
                   source={{ uri: url.thumb_url ?? url.medium_url }}
                   style={StyleSheet.absoluteFill}
                   contentFit="cover"
@@ -180,7 +180,7 @@ function ExportSheetContent({
     return (
       <View style={{ gap: spacing.base }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.s }}>
-          <ActivityIndicator testID="export-laedt" color={colors['text-1']} />
+          <ActivityIndicator testID="export-loading" color={colors['text-1']} />
           <Text style={[type.body, { color: colors['text-1'] }]}>
             {state.done} von {state.total} gesichert
           </Text>
@@ -202,7 +202,7 @@ function ExportSheetContent({
 
   return (
     <View style={{ gap: spacing.base }}>
-      <Text testID="export-bilanz" style={[type.body, { color: colors['text-1'] }]}>
+      <Text testID="export-outcome" style={[type.body, { color: colors['text-1'] }]}>
         {summaryText(outcome)}
       </Text>
       <Button variant="primary" label="Fertig" onPress={onDone} />
@@ -355,7 +355,7 @@ export default function RecapOverview() {
       <View style={styles.headerActions}>
         {canExport && (
           <PressScale
-            testID="uebersicht-alle-sichern-oeffnen"
+            testID="overview-save-all-open"
             accessibilityRole="button"
             accessibilityLabel="Alle sichern"
             onPress={saveAll}
@@ -365,7 +365,7 @@ export default function RecapOverview() {
         )}
         {canShare && (
           <PressScale
-            testID="uebersicht-teilen-oeffnen"
+            testID="overview-share-open"
             accessibilityRole="button"
             accessibilityLabel="Recap teilen"
             onPress={() => setShareOpen(true)}
@@ -432,14 +432,14 @@ export default function RecapOverview() {
               accessible
               accessibilityRole="text"
               accessibilityLabel="Nach Tagen, aktuelle Ansicht"
-              testID="uebersicht-segment-tage"
+              testID="overview-segment-days"
               style={[styles.segmentPill, { backgroundColor: colors['bg-1'] }]}
             >
               <Text style={[type.bodyMedium, { color: colors['text-1'] }]}>Nach Tagen</Text>
             </View>
             <PressScale
               accessibilityRole="button"
-              testID="uebersicht-segment-karte"
+              testID="overview-segment-map"
               onPress={toMap}
             >
               <View
@@ -475,7 +475,7 @@ export default function RecapOverview() {
           // centred): the seal in the middle, a line below it saying what to
           // do. No frame, no shadow from us, the seal brings its own.
           <View style={styles.sealStage}>
-            <SealPeel testID="recap-siegel" size={stage} onPeeled={unseal} />
+            <SealPeel testID="recap-seal" size={stage} onPeeled={unseal} />
             <Text style={[type.body, { color: colors['text-2'], textAlign: 'center' }]}>
               Dein Recap ist versiegelt. Tipp aufs Siegel, um ihn zu öffnen.
             </Text>

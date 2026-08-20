@@ -73,7 +73,7 @@ export default function RecapList() {
                 also without frame, radius and shadow: the PNG is cut out and
                 stands free on `bg-0`. */}
             <Image
-              testID="leerzustand-filmrolle"
+              testID="empty-state-film-reel"
               source={require('@/assets/images/filmrolle-freigestellt.png')}
               style={styles.filmReel}
               contentFit="contain"

@@ -112,7 +112,7 @@ jest.mock('@/components/RevealSequence', () => {
       visible
         ? React.createElement(
             Pressable,
-            { testID: 'reveal-inszenierung-fake', onPress: onFinished },
+            { testID: 'reveal-sequence-fake', onPress: onFinished },
             React.createElement(Text, null, 'Inszenierung läuft')
           )
         : null,
@@ -209,13 +209,13 @@ test('the detail wears the same cover as the card that was tapped', async () => 
   mockRouteCover = '1';
   await wrap();
   await screen.findByText('Norwegen mit dem Camper');
-  expect(screen.getByTestId('reise-cover').props.source).toBe(placeholderCover(1));
+  expect(screen.getByTestId('trip-cover').props.source).toBe(placeholderCover(1));
 });
 
 test('without a cover parameter the first image stands in', async () => {
   await wrap();
   await screen.findByText('Norwegen mit dem Camper');
-  expect(screen.getByTestId('reise-cover').props.source).toBe(placeholderCover(0));
+  expect(screen.getByTestId('trip-cover').props.source).toBe(placeholderCover(0));
 });
 
 test('shows the trip name and its date range', async () => {
@@ -229,7 +229,7 @@ test('shows the trip name and its date range', async () => {
 test('the travellers appear as a facepile, not as a list on the screen', async () => {
   await wrap();
   await screen.findByText('Norwegen mit dem Camper');
-  expect(screen.getByTestId('mitreisende-oeffnen')).toBeTruthy();
+  expect(screen.getByTestId('members-open')).toBeTruthy();
   expect(screen.getByText('L')).toBeTruthy();
   expect(screen.getByText('J')).toBeTruthy();
   expect(screen.queryByText('Lea')).toBeNull();
@@ -249,7 +249,7 @@ test('with a single traveller the label counts in the singular', async () => {
 
 test('tapping the facepile opens the list of travellers', async () => {
   await wrap();
-  await fireEvent.press(await screen.findByTestId('mitreisende-oeffnen'));
+  await fireEvent.press(await screen.findByTestId('members-open'));
   expect(await screen.findByText('Lea')).toBeTruthy();
   expect(screen.getByText('Jonas')).toBeTruthy();
   expect(screen.getByText('Hat die Reise angelegt')).toBeTruthy();
@@ -263,7 +263,7 @@ test('the traveller sheet shows the profile pictures that exist', async () => {
   await wrap();
   await openTravellers();
   const sheet = within(screen.getByTestId('sheet-panel'));
-  expect(await sheet.findByTestId('avatar-bild')).toBeTruthy();
+  expect(await sheet.findByTestId('avatar-image')).toBeTruthy();
 });
 
 test('with many travellers the facepile keeps counting while the sheet still lists everybody', async () => {
@@ -277,7 +277,7 @@ test('with many travellers the facepile keeps counting while the sheet still lis
   await wrap();
   expect(await screen.findByText('+2')).toBeTruthy();
 
-  await fireEvent.press(screen.getByTestId('mitreisende-oeffnen'));
+  await fireEvent.press(screen.getByTestId('members-open'));
   expect(await screen.findByText('Ben')).toBeTruthy();
   expect(screen.getByText('Sofia')).toBeTruthy();
 });
@@ -297,7 +297,7 @@ test('the owner can invite straight from the screen', async () => {
 // Shorthand for the tests below: the management sits behind the facepile, so
 // every test that needs it has to open it first.
 async function openTravellers() {
-  await fireEvent.press(await screen.findByTestId('mitreisende-oeffnen'));
+  await fireEvent.press(await screen.findByTestId('members-open'));
   await screen.findByText('Lea');
 }
 
@@ -428,7 +428,7 @@ test('an error while loading the travellers takes the place of the facepile', as
   (fetchMembers as jest.Mock).mockResolvedValue({ data: [], error: message });
   await wrap();
   expect(await screen.findByText(message)).toBeTruthy();
-  expect(screen.queryByTestId('mitreisende-oeffnen')).toBeNull();
+  expect(screen.queryByTestId('members-open')).toBeNull();
   expect(screen.getByText('Norwegen mit dem Camper')).toBeTruthy();
 });
 
@@ -770,7 +770,7 @@ test('a running trip never even asks whether the reveal was seen', async () => {
   await wrap();
   await screen.findByText('Norwegen mit dem Camper');
   expect(hasSeenReveal).not.toHaveBeenCalled();
-  expect(screen.queryByTestId('reveal-inszenierung-fake')).toBeNull();
+  expect(screen.queryByTestId('reveal-sequence-fake')).toBeNull();
   expect(screen.queryByText('Recap starten')).toBeNull();
 });
 
@@ -779,7 +779,7 @@ test('an already seen revealed trip shows «Recap starten» at once, without the
   (hasSeenReveal as jest.Mock).mockResolvedValue(true);
   await wrap();
   expect(await screen.findByText('Recap starten')).toBeTruthy();
-  expect(screen.queryByTestId('reveal-inszenierung-fake')).toBeNull();
+  expect(screen.queryByTestId('reveal-sequence-fake')).toBeNull();
   expect(hasSeenReveal).toHaveBeenCalledWith('t1');
   expect(markRevealSeen).not.toHaveBeenCalled();
 });
@@ -789,7 +789,7 @@ test('a freshly revealed, never seen trip plays the sequence first and only then
   (hasSeenReveal as jest.Mock).mockResolvedValue(false);
   await wrap();
 
-  await screen.findByTestId('reveal-inszenierung-fake');
+  await screen.findByTestId('reveal-sequence-fake');
   // While the sequence runs the primary button is NOT there yet: "shows
   // AFTERWARDS" is an order, not mere coexistence.
   expect(screen.queryByText('Recap starten')).toBeNull();
@@ -797,9 +797,9 @@ test('a freshly revealed, never seen trip plays the sequence first and only then
 
   // Simulates the end of the sequence (onFinished); the real look and timing
   // are covered by RevealSequence.test.tsx.
-  await fireEvent.press(screen.getByTestId('reveal-inszenierung-fake'));
+  await fireEvent.press(screen.getByTestId('reveal-sequence-fake'));
 
-  await waitFor(() => expect(screen.queryByTestId('reveal-inszenierung-fake')).toBeNull());
+  await waitFor(() => expect(screen.queryByTestId('reveal-sequence-fake')).toBeNull());
   expect(await screen.findByText('Recap starten')).toBeTruthy();
   expect(markRevealSeen).toHaveBeenCalledWith('t1');
 });
@@ -833,7 +833,7 @@ test('a second load after the decision was made never asks again, even when reme
   (hasSeenReveal as jest.Mock).mockResolvedValue(false);
   await wrap();
 
-  await fireEvent.press(await screen.findByTestId('reveal-inszenierung-fake'));
+  await fireEvent.press(await screen.findByTestId('reveal-sequence-fake'));
   await screen.findByText('Recap starten');
   expect(hasSeenReveal).toHaveBeenCalledTimes(1);
 
@@ -843,7 +843,7 @@ test('a second load after the decision was made never asks again, even when reme
   await waitFor(() => expect((fetchTrip as jest.Mock).mock.calls.length).toBeGreaterThan(1));
 
   expect(hasSeenReveal).toHaveBeenCalledTimes(1);
-  expect(screen.queryByTestId('reveal-inszenierung-fake')).toBeNull();
+  expect(screen.queryByTestId('reveal-sequence-fake')).toBeNull();
   expect(screen.getByText('Recap starten')).toBeTruthy();
 });
 
@@ -867,7 +867,7 @@ test('two overlapping load() calls ask about the seen reveal only once, guarding
   expect(hasSeenReveal).toHaveBeenCalledTimes(1);
 
   release(false);
-  await screen.findByTestId('reveal-inszenierung-fake');
+  await screen.findByTestId('reveal-sequence-fake');
 });
 
 test('with the sheet open only its own «Abschliessen» stays primary, the screen button behind it steps back', async () => {
@@ -946,7 +946,7 @@ describe('moderation of reported moments', () => {
   test('without open reports the screen shows no entry point at all', async () => {
     await wrap();
     await screen.findByText('Norwegen mit dem Camper');
-    expect(screen.queryByTestId('moderation-oeffnen')).toBeNull();
+    expect(screen.queryByTestId('moderation-open')).toBeNull();
   });
 
   test('the owner sees the reported moments, a member without the owner role does NOT, even on the same data', async () => {
@@ -957,7 +957,7 @@ describe('moderation of reported moments', () => {
     mockAuth.userId = 'u2'; // Jonas, not the owner
     await wrap();
     await screen.findByText('Norwegen mit dem Camper');
-    expect(screen.queryByTestId('moderation-oeffnen')).toBeNull();
+    expect(screen.queryByTestId('moderation-open')).toBeNull();
   });
 
   test('the singular and plural wording follows the number of reports', async () => {
@@ -982,11 +982,11 @@ describe('moderation of reported moments', () => {
     });
     await wrap();
     await fireEvent.press(await screen.findByText('Ein gemeldeter Moment'));
-    await screen.findByTestId('meldung-r1');
+    await screen.findByTestId('report-r1');
 
     expect(screen.getByText('Unpassend')).toBeTruthy();
     expect(screen.getByText(expectedTime)).toBeTruthy();
-    expect(screen.getByTestId('meldung-vorschau-r1').props.source).toEqual({
+    expect(screen.getByTestId('report-preview-r1').props.source).toEqual({
       uri: 'https://cdn.example/p1-thumb.jpg',
     });
   });
@@ -1000,8 +1000,8 @@ describe('moderation of reported moments', () => {
     });
     await wrap();
     await fireEvent.press(await screen.findByText('Ein gemeldeter Moment'));
-    await screen.findByTestId('meldung-r1');
-    expect(screen.queryByTestId('meldung-vorschau-r1')).toBeNull();
+    await screen.findByTestId('report-r1');
+    expect(screen.queryByTestId('report-preview-r1')).toBeNull();
   });
 
   test('a report with an unreadable timestamp shows no time rather than tearing down the list', async () => {
@@ -1012,7 +1012,7 @@ describe('moderation of reported moments', () => {
     await wrap();
     await fireEvent.press(await screen.findByText('Ein gemeldeter Moment'));
 
-    const row = within(await screen.findByTestId('meldung-r1'));
+    const row = within(await screen.findByTestId('report-r1'));
     expect(row.getByText(reportFixture.reason)).toBeTruthy();
     expect(screen.queryByText(expectedTime)).toBeNull();
     expect(screen.queryByText(/not-a-timestamp/)).toBeNull();
@@ -1027,7 +1027,7 @@ describe('moderation of reported moments', () => {
     expect(
       await screen.findByText('Die Meldungen konnten nicht geladen werden. Probier es gleich nochmal.')
     ).toBeTruthy();
-    expect(screen.queryByTestId('meldung-r1')).toBeNull();
+    expect(screen.queryByTestId('report-r1')).toBeNull();
   });
 
   // The marker below is deliberately not a real German error text: if the
@@ -1040,7 +1040,7 @@ describe('moderation of reported moments', () => {
     });
     await wrap();
     expect(await screen.findByText('Norwegen mit dem Camper')).toBeTruthy();
-    expect(screen.queryByTestId('moderation-oeffnen')).toBeNull();
+    expect(screen.queryByTestId('moderation-open')).toBeNull();
     expect(screen.queryByText('report count unavailable')).toBeNull();
   });
 
@@ -1049,15 +1049,15 @@ describe('moderation of reported moments', () => {
     (dismissReport as jest.Mock).mockResolvedValue({ error: null });
     await wrap();
     await fireEvent.press(await screen.findByText('Ein gemeldeter Moment'));
-    await screen.findByTestId('meldung-r1');
+    await screen.findByTestId('report-r1');
 
     await fireEvent.press(screen.getByText('Meldung verwerfen'));
     expect(dismissReport).toHaveBeenCalledWith('r1');
     expect(removeMoment).not.toHaveBeenCalled();
-    await waitFor(() => expect(screen.queryByTestId('meldung-r1')).toBeNull());
+    await waitFor(() => expect(screen.queryByTestId('report-r1')).toBeNull());
     expect(screen.getByText('Keine offenen Meldungen mehr.')).toBeTruthy();
     // The entry point disappears because the count is 0 now.
-    expect(screen.queryByTestId('moderation-oeffnen')).toBeNull();
+    expect(screen.queryByTestId('moderation-open')).toBeNull();
   });
 
   test('while an action runs, that row swaps both of its buttons for a single loading indicator', async () => {
@@ -1065,11 +1065,11 @@ describe('moderation of reported moments', () => {
     (dismissReport as jest.Mock).mockImplementation(() => new Promise(() => {}));
     await wrap();
     await fireEvent.press(await screen.findByText('Ein gemeldeter Moment'));
-    await screen.findByTestId('meldung-r1');
+    await screen.findByTestId('report-r1');
 
     await fireEvent.press(screen.getByText('Meldung verwerfen'));
 
-    expect(await screen.findByTestId('meldung-laedt-r1')).toBeTruthy();
+    expect(await screen.findByTestId('report-loading-r1')).toBeTruthy();
     expect(screen.queryByText('Meldung verwerfen')).toBeNull();
     expect(screen.queryByText('Moment entfernen')).toBeNull();
   });
@@ -1081,12 +1081,12 @@ describe('moderation of reported moments', () => {
     });
     await wrap();
     await fireEvent.press(await screen.findByText('Ein gemeldeter Moment'));
-    await screen.findByTestId('meldung-r1');
+    await screen.findByTestId('report-r1');
     await fireEvent.press(screen.getByText('Meldung verwerfen'));
     expect(
       await screen.findByText('Die Meldung konnte nicht verworfen werden. Probier es gleich nochmal.')
     ).toBeTruthy();
-    expect(screen.getByTestId('meldung-r1')).toBeTruthy();
+    expect(screen.getByTestId('report-r1')).toBeTruthy();
   });
 
   // Alert.alert is mocked globally (see the head of this file) and calls the
@@ -1097,12 +1097,12 @@ describe('moderation of reported moments', () => {
     (removeMoment as jest.Mock).mockResolvedValue({ error: null });
     await wrap();
     await fireEvent.press(await screen.findByText('Ein gemeldeter Moment'));
-    await screen.findByTestId('meldung-r1');
+    await screen.findByTestId('report-r1');
 
     await fireEvent.press(screen.getByText('Moment entfernen'));
     expect(Haptics.notificationAsync).toHaveBeenCalledWith('warning');
     expect(removeMoment).toHaveBeenCalledWith('p1');
-    await waitFor(() => expect(screen.queryByTestId('meldung-r1')).toBeNull());
+    await waitFor(() => expect(screen.queryByTestId('report-r1')).toBeNull());
     expect(screen.getByText('Keine offenen Meldungen mehr.')).toBeTruthy();
   });
 
@@ -1113,12 +1113,12 @@ describe('moderation of reported moments', () => {
     });
     await wrap();
     await fireEvent.press(await screen.findByText('Ein gemeldeter Moment'));
-    await screen.findByTestId('meldung-r1');
+    await screen.findByTestId('report-r1');
     await fireEvent.press(screen.getByText('Moment entfernen'));
     expect(
       await screen.findByText('Der Moment konnte nicht entfernt werden. Probier es gleich nochmal.')
     ).toBeTruthy();
-    expect(screen.getByTestId('meldung-r1')).toBeTruthy();
+    expect(screen.getByTestId('report-r1')).toBeTruthy();
   });
 
   test('opening loads the list FRESH instead of the state seen on the first load', async () => {
@@ -1147,7 +1147,7 @@ describe('the notice about an existing share link', () => {
     mockRpc.mockResolvedValue({ data: true, error: null });
     await wrap();
 
-    expect(await screen.findByTestId('geteilt-hinweis')).toBeTruthy();
+    expect(await screen.findByTestId('shared-hint')).toBeTruthy();
     expect(screen.getByText('Dieser Recap ist geteilt')).toBeTruthy();
     // The places are the reason this notice exists at all.
     expect(screen.getByText(/samt den Orten/)).toBeTruthy();
@@ -1159,7 +1159,7 @@ describe('the notice about an existing share link', () => {
     mockRpc.mockResolvedValue({ data: true, error: null });
     await wrap();
 
-    expect(await screen.findByTestId('geteilt-hinweis')).toBeTruthy();
+    expect(await screen.findByTestId('shared-hint')).toBeTruthy();
   });
 
   test('without a link nothing stands there, no not-shared noise', async () => {
@@ -1170,8 +1170,8 @@ describe('the notice about an existing share link', () => {
     // screen shows nothing while loading and would be green on `data: true`.
     await waitFor(() => expect(mockRpc).toHaveBeenCalled());
 
-    expect(screen.queryByTestId('geteilt-hinweis')).toBeNull();
-    expect(screen.queryByTestId('geteilt-unbekannt')).toBeNull();
+    expect(screen.queryByTestId('shared-hint')).toBeNull();
+    expect(screen.queryByTestId('shared-unknown')).toBeNull();
   });
 
   test('when the query fails the screen says so instead of handing out an all clear', async () => {
@@ -1179,8 +1179,8 @@ describe('the notice about an existing share link', () => {
     mockRpc.mockResolvedValue({ data: null, error: { message: 'Network request failed' } });
     await wrap();
 
-    expect(await screen.findByTestId('geteilt-unbekannt')).toBeTruthy();
-    expect(screen.queryByTestId('geteilt-hinweis')).toBeNull();
+    expect(await screen.findByTestId('shared-unknown')).toBeTruthy();
+    expect(screen.queryByTestId('shared-hint')).toBeNull();
   });
 
   test('a running trip never even asks', async () => {
@@ -1189,14 +1189,14 @@ describe('the notice about an existing share link', () => {
     await screen.findByText(/Momente eingefangen/);
 
     expect(mockRpc).not.toHaveBeenCalled();
-    expect(screen.queryByTestId('geteilt-hinweis')).toBeNull();
+    expect(screen.queryByTestId('shared-hint')).toBeNull();
   });
 
   test('the question is asked about EXACTLY this trip', async () => {
     (fetchTrip as jest.Mock).mockResolvedValue(tripRevealedOk);
     mockRpc.mockResolvedValue({ data: true, error: null });
     await wrap();
-    await screen.findByTestId('geteilt-hinweis');
+    await screen.findByTestId('shared-hint');
 
     expect(mockRpc).toHaveBeenCalledWith('recap_is_shared', { p_trip_id: 't1' });
   });

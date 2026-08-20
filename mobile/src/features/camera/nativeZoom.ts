@@ -3,7 +3,7 @@
 //
 // Why bother with our own Swift at all: `expo-camera` doesn't take a zoom
 // factor, but a slider from 0 to 1 that iOS maps exponentially onto
-// `activeFormat.videoMaxZoomFactor` — a number JavaScript can't read and
+// `activeFormat.videoMaxZoomFactor`, a number JavaScript can't read and
 // which also changes between photo and video format. The module sets
 // `videoZoomFactor` directly instead. It also supplies the device's switch
 // points, from which the steps arise (see zoom.ts), and the mapping from
@@ -55,7 +55,7 @@ const KNOWN_TYPES: LensType[] = [
 ];
 
 // Apple can add a device type at any time. It has to be allowed through
-// without an unknown string travelling onward as a type — the calculation
+// without an unknown string travelling onward as a type: the calculation
 // in zoom.ts only ever asks for `ultraWide`, it treats everything else the
 // same.
 function toType(raw: string): LensType {

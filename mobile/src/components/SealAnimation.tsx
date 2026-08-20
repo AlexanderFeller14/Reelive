@@ -204,14 +204,14 @@ export function SealAnimation({ visible, onFinished, imageUri, counter }: Props)
   const after = (counter ?? 0) + 1;
 
   return (
-    <View style={StyleSheet.absoluteFill} pointerEvents="none" testID="versiegelung">
+    <View style={StyleSheet.absoluteFill} pointerEvents="none" testID="seal">
       <Animated.View style={[StyleSheet.absoluteFill, styles.background, { opacity: scrimOpacity }]} />
 
       {imageUri != null && !reducedMotion && (
         <View style={[StyleSheet.absoluteFill, styles.center]}>
           <Animated.View style={{ opacity: imageOpacity, transform: [{ scale: imageScale }] }}>
             <Image
-              testID="versiegelung-moment"
+              testID="seal-moment"
               source={{ uri: imageUri }}
               style={{ width: imageWidth, height: imageHeight, borderRadius: radius.card }}
               contentFit="cover"
@@ -224,7 +224,7 @@ export function SealAnimation({ visible, onFinished, imageUri, counter }: Props)
         <Animated.View style={[styles.glow, { opacity: glow1Opacity, transform: [{ scale: glow1Scale }] }]} />
         <Animated.View style={[styles.glow, { opacity: glow2Opacity, transform: [{ scale: glow2Scale }] }]} />
         <Animated.View
-          testID="versiegelung-filmrolle"
+          testID="seal-film-reel"
           style={[styles.reel, { opacity: reelOpacity, transform: [{ scale: reelScale }] }]}
         >
           <Animated.View style={[StyleSheet.absoluteFill, { transform: [{ rotate: reelRotation }] }]}>
@@ -244,7 +244,7 @@ export function SealAnimation({ visible, onFinished, imageUri, counter }: Props)
           style={[styles.counterBlock, { opacity: counterOpacity, transform: [{ translateY: counterLift }] }]}
         >
           {showsNumber && (
-            <View testID="versiegelung-zaehler">
+            <View testID="seal-counter">
               {reducedMotion ? (
                 <Text style={styles.staticNumber}>{String(after)}</Text>
               ) : (

@@ -7,7 +7,7 @@ const OLD = `profiles/${UID}/alt.jpg`;
 // jest.mock()-Aufrufe vor alle anderen Anweisungen (auch vor `const X =
 // jest.fn()`), damit die Module schon gemockt sind, bevor sie importiert
 // werden. Referenziert eine Factory eine Variable von ausserhalb, prüft das
-// Plugin, ob sie diese Hebung übersteht — und das tut nur, was mit „mock“
+// Plugin, ob sie diese Hebung übersteht, und das tut nur, was mit „mock“
 // beginnt (case-insensitive), das hebt es gleich mit an. Ohne das Präfix
 // bricht schon der Testlauf mit "not allowed to reference any out-of-scope
 // variables" ab, siehe medien.test.ts für dieselbe Falle bei Typ-Aliassen.
@@ -17,12 +17,12 @@ const mockAktualisiert = jest.fn();
 const mockCrop = jest.fn();
 const mockResize = jest.fn();
 
-// Der HTTP-Status, den der gemockte Upload zurückgibt — steuerbar pro Test.
+// Der HTTP-Status, den der gemockte Upload zurückgibt, steuerbar pro Test.
 //
 // Vorher stand hier fest `{ status: 200 }`, und damit war der Statuszweig in
 // avatarApi.hochladen() von KEINEM Test erreichbar: man konnte die Prüfung
 // ersatzlos löschen, die Suite blieb grün. Genau diese Prüfung trägt aber die
-// Zusicherung aus Spec §5.4 — `File.upload()` wirft bei 4xx/5xx nicht, sondern
+// Zusicherung aus Spec §5.4, `File.upload()` wirft bei 4xx/5xx nicht, sondern
 // liefert die Antwort zurück. Ohne sie setzte ein abgelehnter Upload (413 über
 // dem 2-MiB-Bucket-Limit, 403 bei verletzter Ordner-Policy) `avatar_key` auf
 // einen Schlüssel ohne Bytes dahinter: eine kaputte Kachel für jeden
@@ -36,7 +36,7 @@ let mockUploadStatus = 200;
 // expo-crypto. Im Jest-Environment ersetzt jest-expo jedes native Modul
 // automatisch durch den generierten No-op-Mock aus
 // expo-crypto/mocks/ExpoCrypto.ts, dessen randomUUID() dort `undefined`
-// liefert — derselbe Grund, aus dem avatar.test.ts denselben Mock schon
+// liefert, derselbe Grund, aus dem avatar.test.ts denselben Mock schon
 // braucht. Ohne ihn wirft `Crypto.randomUUID().replace(...)` schon beim
 // ersten Aufruf, bevor die eigentliche Assertion überhaupt greift.
 let mockUuidCounter = 0;
@@ -63,7 +63,7 @@ jest.mock('expo-image-manipulator', () => ({
       crop: (...a: unknown[]) => mockCrop(...a),
       resize: (...a: unknown[]) => mockResize(...a),
       renderAsync: async () => ({
-        // renderAsync liefert die Masse — genau daraus liest avatarApi sie ab.
+        // renderAsync liefert die Masse, genau daraus liest avatarApi sie ab.
         get width() { return mockQuellBreite; },
         get height() { return mockQuellHoehe; },
         saveAsync: async () => ({ uri: 'file:///cache/fertig.jpg' }),
@@ -104,7 +104,7 @@ jest.mock('@/lib/supabase', () => ({
 
 // mockReset, nicht mockClear: mehrere Tests unten setzen eine eigene
 // Implementation (werfen, Reihenfolge protokollieren). mockClear löscht nur die
-// Aufrufliste und liesse sie in den nächsten Test überlaufen — ein Test, der
+// Aufrufliste und liesse sie in den nächsten Test überlaufen, ein Test, der
 // dann aus dem falschen Grund grün oder rot wird.
 beforeEach(() => {
   mockUploaded.mockReset();
@@ -191,14 +191,14 @@ test('ein gescheiterter Upload setzt die Spalte nicht', async () => {
 
 // Der Fall, der ohne steuerbaren Status unprüfbar war (siehe mockUploadStatus
 // oben): der Upload läuft technisch DURCH, `File.upload()` wirft nicht, aber
-// der Server lehnt ab. 413 ist der realistische Fall — der Bucket `avatare`
+// der Server lehnt ab. 413 ist der realistische Fall, der Bucket `avatare`
 // begrenzt auf 2 MiB (Migration 20260812130000), 403 wäre der zweite (Ordner-
 // Policy). Die Spalte darf danach nichts wissen wollen von einem Schlüssel,
 // hinter dem keine Bytes liegen.
 test('ein mit 4xx abgelehnter Upload setzt die Spalte nicht', async () => {
   mockUploadStatus = 413;
   const { avatarKey, error } = await setzeAvatar(UID, 'file:///zu-gross.jpg', null);
-  // Der Versuch fand statt — sonst prüfte dieser Test nur, dass gar nichts
+  // Der Versuch fand statt, sonst prüfte dieser Test nur, dass gar nichts
   // passierte, und wäre auch bei einem kaputten Mock grün.
   expect(mockUploaded).toHaveBeenCalledTimes(1);
   expect(avatarKey).toBeNull();

@@ -62,7 +62,7 @@ beforeEach(() => {
 
 test('the onboarding screen offers the avatar picker right away', async () => {
   await wrap(<ProfileSetupScreen />);
-  expect(screen.getByTestId('avatar-waehler')).toBeTruthy();
+  expect(screen.getByTestId('avatar-picker')).toBeTruthy();
 });
 
 // Review finding (CRITICAL, merge fix round): the sheet used to hang in the
@@ -78,13 +78,13 @@ test('the onboarding screen offers the avatar picker right away', async () => {
 // the geometry follows from that.
 test('the image sheet hangs off the screen frame, not inside the form', async () => {
   await wrap(<ProfileSetupScreen />);
-  await fireEvent.press(screen.getByTestId('avatar-waehler'));
+  await fireEvent.press(screen.getByTestId('avatar-picker'));
   await screen.findByText('Foto auswählen');
 
-  const form = screen.getByTestId('onboarding-formular');
+  const form = screen.getByTestId('onboarding-form');
   // Control first: the circle really does live inside the form. Without it
   // the assertion below would be green even with a testID that no longer fits.
-  expect(within(form).getByTestId('avatar-waehler')).toBeTruthy();
+  expect(within(form).getByTestId('avatar-picker')).toBeTruthy();
   expect(within(form).queryByTestId('sheet-root')).toBeNull();
   expect(screen.getByTestId('sheet-root')).toBeTruthy();
 });
@@ -117,12 +117,12 @@ test('without an image the onboarding still goes through and avatar_key stays nu
 // the profile already stands.
 test('a chosen image is uploaded before the profile row is created', async () => {
   await wrap(<ProfileSetupScreen />);
-  await fireEvent.press(screen.getByTestId('avatar-waehler'));
+  await fireEvent.press(screen.getByTestId('avatar-picker'));
   await fireEvent.press(screen.getByText('Foto auswählen'));
   // The crop step has sat in between since 2026-08-13 (the system editor had
   // to go, it made large images fail).
-  await fireEvent.press(await screen.findByTestId('zuschnitt-uebernehmen'));
-  await waitFor(() => expect(screen.getByTestId('avatar-bild')).toBeTruthy());
+  await fireEvent.press(await screen.findByTestId('crop-apply'));
+  await waitFor(() => expect(screen.getByTestId('avatar-image')).toBeTruthy());
   await fireEvent.changeText(usernameField(), 'lea_2026');
   await fireEvent.changeText(displayNameField(), 'Lea');
   await fireEvent.press(screen.getByText("Los geht's"));
@@ -137,22 +137,22 @@ test('a chosen image is uploaded before the profile row is created', async () =>
 // "Bild entfernen" entry in the sheet hung on `avatarKey` alone. This test
 // chooses an image, opens the picker again, checks that the entry is there
 // now, removes the image through it and checks against the rendered tree
-// (not against internal state) that it is really gone: `avatar-bild` (the
+// (not against internal state) that it is really gone: `avatar-image` (the
 // local preview image) must not exist afterwards.
 test('a chosen image can be taken back before the form is submitted', async () => {
   await wrap(<ProfileSetupScreen />);
-  await fireEvent.press(screen.getByTestId('avatar-waehler'));
+  await fireEvent.press(screen.getByTestId('avatar-picker'));
   await fireEvent.press(screen.getByText('Foto auswählen'));
   // The crop step has sat in between since 2026-08-13 (the system editor had
   // to go, it made large images fail).
-  await fireEvent.press(await screen.findByTestId('zuschnitt-uebernehmen'));
-  await waitFor(() => expect(screen.getByTestId('avatar-bild')).toBeTruthy());
+  await fireEvent.press(await screen.findByTestId('crop-apply'));
+  await waitFor(() => expect(screen.getByTestId('avatar-image')).toBeTruthy());
 
-  await fireEvent.press(screen.getByTestId('avatar-waehler'));
+  await fireEvent.press(screen.getByTestId('avatar-picker'));
   await waitFor(() => expect(screen.getByText('Bild entfernen')).toBeTruthy());
   await fireEvent.press(screen.getByText('Bild entfernen'));
 
-  await waitFor(() => expect(screen.queryByTestId('avatar-bild')).toBeNull());
+  await waitFor(() => expect(screen.queryByTestId('avatar-image')).toBeNull());
 });
 
 // A failed upload must not block the onboarding: the name is the required
@@ -160,12 +160,12 @@ test('a chosen image can be taken back before the form is submitted', async () =
 test('a failed upload still creates the profile', async () => {
   (setzeAvatar as jest.Mock).mockResolvedValue({ avatarKey: null, error: 'Das Bild konnte nicht hochgeladen werden. Probier es gleich nochmal.' });
   await wrap(<ProfileSetupScreen />);
-  await fireEvent.press(screen.getByTestId('avatar-waehler'));
+  await fireEvent.press(screen.getByTestId('avatar-picker'));
   await fireEvent.press(screen.getByText('Foto auswählen'));
   // The crop step has sat in between since 2026-08-13 (the system editor had
   // to go, it made large images fail).
-  await fireEvent.press(await screen.findByTestId('zuschnitt-uebernehmen'));
-  await waitFor(() => expect(screen.getByTestId('avatar-bild')).toBeTruthy());
+  await fireEvent.press(await screen.findByTestId('crop-apply'));
+  await waitFor(() => expect(screen.getByTestId('avatar-image')).toBeTruthy());
   await fireEvent.changeText(usernameField(), 'lea_2026');
   await fireEvent.changeText(displayNameField(), 'Lea');
   await fireEvent.press(screen.getByText("Los geht's"));

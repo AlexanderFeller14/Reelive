@@ -60,7 +60,7 @@ export function ProgressBar({ count, activeIndex, durationMs, elapsedMs, paused 
   }, [activeIndex, durationMs, elapsedMs, paused, activeShare]);
 
   return (
-    <View style={styles.row} testID="fortschrittsbalken">
+    <View style={styles.row} testID="progress-bar">
       {Array.from({ length: count }).map((_, i) => (
         // Task 10, Phase 6: a dedicated `Pill` (blur + tint) PER segment,
         // not a single one across the whole row, which preserves exactly the
@@ -72,11 +72,11 @@ export function ProgressBar({ count, activeIndex, durationMs, elapsedMs, paused 
         // judged on a device (Spec §10), deliberately not "optimized" ahead
         // of time here (a single shared blur surface would tint the gaps
         // between segments along with it and change the look).
-        <Pill key={i} style={styles.track} testID={`fortschritt-segment-${i}`}>
-          {i < activeIndex && <View testID={`fortschritt-voll-${i}`} style={styles.staticFill} />}
+        <Pill key={i} style={styles.track} testID={`progress-segment-${i}`}>
+          {i < activeIndex && <View testID={`progress-full-${i}`} style={styles.staticFill} />}
           {i === activeIndex && (
             <Animated.View
-              testID="fortschritt-aktiv"
+              testID="progress-active"
               style={[
                 styles.staticFill,
                 { transform: [{ scaleX: activeShare }], transformOrigin: 'left' },

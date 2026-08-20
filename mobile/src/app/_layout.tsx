@@ -46,7 +46,7 @@ initErrorReporter();
 function WebAppOnlyPage() {
   const { colors } = useTheme();
   return (
-    <View testID="web-nur-app-seite" style={[styles.webLockScreen, { backgroundColor: colors['bg-0'] }]}>
+    <View testID="web-lock-screen" style={[styles.webLockScreen, { backgroundColor: colors['bg-0'] }]}>
       <Text style={[type.h3, { color: colors['text-1'] }]}>Reelive</Text>
       <Text style={[type.h1, styles.webLockText, { color: colors['text-1'] }]}>
         Reelive gibt es als App.
@@ -165,7 +165,7 @@ export default function RootLayout() {
     Figtree_700Bold,
   });
   if (fontError) {
-    console.warn('[start] Schriften nicht geladen, weiter mit Systemschrift:', fontError);
+    console.warn('[start] fonts not loaded, continuing with system font:', fontError);
   }
   if (!fontsLoaded && !fontError) return null;
   return (

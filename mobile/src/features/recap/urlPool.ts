@@ -9,9 +9,9 @@
 // Same call pattern as recapApi.revealTrip and momentsApi.signedUrls/
 // confirmUpload: supabase.functions.invoke, errors arrive either as a
 // FunctionsHttpError with German plain text in the JSON body, or as a
-// network error recognised via istOffline.
+// network error recognised via isOffline.
 import { supabase } from '@/lib/supabase';
-import { OFFLINE_HINT, istOffline } from '@/lib/networkError';
+import { OFFLINE_HINT, isOffline } from '@/lib/networkError';
 
 export type MediaUrl = { post_id: string; medium_url: string; thumb_url: string | null };
 // skipped: number of moments for which there was no URL, Task 11 turns
@@ -72,8 +72,8 @@ type ReadResponse = { media: MediaEntry[]; valid_until: string; skipped: number 
 // falling back to the generic message. Same pattern as recapApi.ts.
 function functionMessage(error: unknown, fallback: string): string {
   const err = error as { message?: string; context?: { message?: string } } | null;
-  if (istOffline({ message: err?.context?.message })) return OFFLINE_HINT;
-  return istOffline(err ?? null) ? OFFLINE_HINT : fallback;
+  if (isOffline({ message: err?.context?.message })) return OFFLINE_HINT;
+  return isOffline(err ?? null) ? OFFLINE_HINT : fallback;
 }
 
 const LOAD_ERROR = 'Die Momente konnten nicht geladen werden. Probier es gleich nochmal.';

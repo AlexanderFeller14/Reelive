@@ -201,7 +201,7 @@ von der Rechtsberatung bewertet werden (Standardvertragsklauseln o.ä.).
 ## 6. Speicherdauer und Löschung
 
 Daten bleiben gespeichert, solange das Konto besteht. **Konto löschen** (im Profil-Screen der
-App, `mobile/src/features/konto/`) löst die Edge Function `konto-loeschen` aus:
+App, `mobile/src/features/account/`) löst die Edge Function `delete-account` aus:
 
 - Zuerst werden alle zugehörigen **Objekte im Speicher** entfernt (eigene Momente überall,
   alle Momente in selbst angelegten Reisen), erst danach die Datenbankzeilen — misslingt der

@@ -68,7 +68,7 @@ test('the position picks the placeholder cover', async () => {
       <TripCard trip={{ ...trip, id: 't2' }} position={1} onPress={jest.fn()} />
     </>
   );
-  const [first, second] = screen.getAllByTestId('reise-cover');
+  const [first, second] = screen.getAllByTestId('trip-cover');
   expect(first.props.source).not.toBe(second.props.source);
 });
 

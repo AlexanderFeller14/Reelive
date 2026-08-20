@@ -107,7 +107,7 @@ test('media_ext comes from the storage key (iOS delivers mov, Android mp4)', asy
 // === 2026-08-13: the silent error message ===
 // `signierteUrls` only logged the error object, so the Metro log only
 // showed "FunctionsHttpError: Edge Function returned a non-2xx status
-// code" — the reason sat in the response body, which nobody read.
+// code", the reason sat in the response body, which nobody read.
 // Debugging on the device cost an hour over this, even though
 // uploadBestaetigen right next to it has always evaluated the plain text.
 describe('signedUrls logs the Function’s plain text', () => {
@@ -144,7 +144,7 @@ describe('signedUrls logs the Function’s plain text', () => {
   // worker has to be able to tell it apart from a network or server error.
   // The case jsdom hid: under Hermes the response in `context` is NOT the
   // global `Response`, `instanceof` silently failed and made the whole
-  // evaluation unreachable — invisible in the Jest run, because both sides
+  // evaluation unreachable: invisible in the Jest run, because both sides
   // use the same Response there. That's why there's deliberately an object
   // here that only has the shape.
   const responseWithoutClass = (status: number, body: unknown) => ({
@@ -233,7 +233,7 @@ describe('confirmUpload', () => {
   });
 
   // Counterpart to the test in signedUrls: the same class check has stood
-  // here forever and never held on the device — the 409 detection there
+  // here forever and never held on the device: the 409 detection there
   // was ineffective.
   test('409 is recognized as incomplete even without a real Response', async () => {
     mockInvoke.mockResolvedValueOnce({

@@ -70,7 +70,7 @@ function calculateRawDayNumber(moment: RecapMoment, startDate: string): number |
     }
     return diffDays + 1;
   } catch (error) {
-    console.error('[days] Moment ohne verwertbaren Zeitpunkt/Zeitzone übersprungen', moment.id, error);
+    console.error('[days] moment without usable timestamp/timezone skipped', moment.id, error);
     return null;
   }
 }

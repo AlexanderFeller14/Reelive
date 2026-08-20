@@ -169,7 +169,7 @@ export function SealPeel({ size, onPeeled, testID }: Props) {
       testID={testID}
       style={{ width: size, height: size }}
     >
-      <Canvas testID="siegel-buehne" style={{ width: size, height: size }}>
+      <Canvas testID="seal-stage" style={{ width: size, height: size }}>
         {image && textures && (
           <Group transform={[{ scale }]} opacity={opacity}>
             <Oval

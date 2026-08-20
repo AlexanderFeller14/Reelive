@@ -2,7 +2,7 @@
 // the tab bar (app/(tabs)/_layout.tsx) hangs off this: over the camera image
 // it sits as a translucent cinema bar ON TOP of the image (DESIGN-LANGUAGE
 // §1: UI on photos only translucent), so the viewfinder shows the same full
-// area as the preview afterwards — before, the preview showed ~10% less
+// area as the preview afterwards: before, the preview showed ~10% less
 // image width than the viewfinder, because both drew with `cover` into
 // differently tall areas (device finding 2026-08-18, "more cropped than
 // before I shoot"). The light states of the same tab (missing permission, no
@@ -23,7 +23,7 @@ const listeners = new Set<() => void>();
 // plus one grid step of air above the icons (§3). The formula lives HERE
 // because both sides need it: _layout.tsx makes the bar exactly this tall,
 // and the camera screen lifts its bottom controls by the same amount once
-// the bar sits as an overlay over the image — expo-router doesn't export its
+// the bar sits as an overlay over the image, expo-router doesn't export its
 // height context (useBottomTabBarHeight) publicly, a deep import into
 // build/ would be the more fragile dependency.
 export const BAR_CONTENT_HEIGHT = 49;

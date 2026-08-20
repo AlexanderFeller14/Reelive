@@ -5,7 +5,7 @@ import { ThemeProvider } from '@/theme/ThemeProvider';
 jest.mock('../AuthProvider', () => ({
   useAuth: () => ({ status: 'signedIn', userId: 'uid-1', refreshProfile: jest.fn() }),
 }));
-// Die Validatoren bekommen Sentinel-Texte statt der echten Meldungen —
+// Die Validatoren bekommen Sentinel-Texte statt der echten Meldungen,
 // dasselbe Muster wie `zahlenText` unten: die echten Formulierungen und
 // Regeln sind in profileApi.test.ts abgedeckt, hier zählt nur, DASS der
 // Screen die Meldung des Validators am richtigen Feld zeigt. Kein
@@ -31,7 +31,7 @@ jest.mock('../authApi', () => ({ signOut: () => mockSignOut() }));
 // Factory-Mock statt `jest.mock('@/features/auth/avatarApi')` ohne Factory
 // (Automock): Automock müsste die echte Datei laden, um ihre Exporte zu
 // erkennen, und die zieht transitiv expo-file-system, expo-image-manipulator
-// und @/lib/supabase mit (siehe die Mocks in avatarApi.test.ts) — hier reicht
+// und @/lib/supabase mit (siehe die Mocks in avatarApi.test.ts), hier reicht
 // ein reiner Ersatz, ohne diese Kette mitzuschleppen.
 //
 // Die Exporte sind hier direkt `jest.fn()` (keine Variable von aussen
@@ -43,8 +43,8 @@ jest.mock('@/features/auth/avatarApi', () => ({
   removeAvatar: jest.fn(),
 }));
 
-// profil.tsx rendert jetzt AvatarWaehler (Task 5), und die importiert
-// expo-image-picker direkt. Gleiches Mock-Muster wie AvatarWaehler.test.tsx:
+// profil.tsx rendert jetzt AvatarPicker (Task 5), und die importiert
+// expo-image-picker direkt. Gleiches Mock-Muster wie AvatarPicker.test.tsx:
 // "Foto auswählen" ruft echte Berechtigungs-/Auswahlfunktionen, die es im
 // Jest-Environment ohne diesen Mock nicht sinnvoll gibt.
 const mockGalerieRecht = jest.fn();
@@ -161,11 +161,11 @@ test('das Profilbild steht gross über der Namens-Karte, der Reisepass klein dar
   // der Namens-Karte vor. Gegen die alte Fassung (Reisepass zuerst) ist die
   // Zusicherung rot.
   const baum = JSON.stringify(screen.toJSON());
-  expect(baum.indexOf('avatar-waehler')).toBeLessThan(baum.indexOf('profil-reisepass'));
+  expect(baum.indexOf('avatar-picker')).toBeLessThan(baum.indexOf('profile-passport'));
   // Hero-Grösse statt der 44 der Karten-Avatare.
-  expect(StyleSheet.flatten(screen.getByTestId('avatar-kreis').props.style).width).toBe(160);
+  expect(StyleSheet.flatten(screen.getByTestId('avatar-circle').props.style).width).toBe(160);
   // Dekoration: der Reisepass sagt nichts, was die Karte nicht schon sagt.
-  expect(screen.getByTestId('profil-reisepass').props.accessible).toBe(false);
+  expect(screen.getByTestId('profile-passport').props.accessible).toBe(false);
 });
 
 test('zeigt den WLAN-Schalter mit Erklärung, was er bewirkt', async () => {
@@ -194,7 +194,7 @@ test('ein bereits gespeichertes „Nur über WLAN" zeigt sich beim Öffnen', asy
 describe('Profilbild (Task 6)', () => {
   test('der Profil-Tab zeigt den Bildwaehler als Kopfbild', async () => {
     await wrap(<ProfilScreen />);
-    expect(await screen.findByTestId('avatar-waehler')).toBeTruthy();
+    expect(await screen.findByTestId('avatar-picker')).toBeTruthy();
   });
 
   // Der gewählte Pfad muss ohne erneutes Laden sichtbar werden, sonst wirkt
@@ -207,19 +207,19 @@ describe('Profilbild (Task 6)', () => {
       error: null,
     });
     await wrap(<ProfilScreen />);
-    await fireEvent.press(await screen.findByTestId('avatar-waehler'));
+    await fireEvent.press(await screen.findByTestId('avatar-picker'));
     await fireEvent.press(screen.getByText('Foto auswählen'));
     // Seit dem Fehler vom 2026-08-13 liegt der Zuschnitt dazwischen: der
     // System-Editor musste raus, also wählt man den Ausschnitt in der App.
-    await fireEvent.press(await screen.findByTestId('zuschnitt-uebernehmen'));
-    await waitFor(() => expect(screen.getByTestId('avatar-bild')).toBeTruthy());
+    await fireEvent.press(await screen.findByTestId('crop-apply'));
+    await waitFor(() => expect(screen.getByTestId('avatar-image')).toBeTruthy());
   });
 
   // Review-Fund (CRITICAL, Merge-Fixrunde): das Sheet hing im 44-px-Wrapper
   // des Avatar-Kreises, also IN der ScrollView, IN einer Karten-Zeile. Weil
   // `Sheet` kein `Modal` ist, sondern `StyleSheet.absoluteFill` über seinen
   // unmittelbaren Elternteil legt, war es damit auf dem Gerät ein 44 px
-  // breiter, mitscrollender Streifen — «Foto auswählen» hätte bei 2 × 24 px
+  // breiter, mitscrollender Streifen: «Foto auswählen» hätte bei 2 × 24 px
   // Innenabstand negative Restbreite gehabt.
   //
   // Jest führt kein Yoga-Layout aus, die Geometrie selbst ist hier also nicht
@@ -228,14 +228,14 @@ describe('Profilbild (Task 6)', () => {
   // darunter es immer war. Gegen die alte Fassung wird dieser Test rot.
   test('das Bild-Sheet haengt am Screen, nicht in der ScrollView', async () => {
     await wrap(<ProfilScreen />);
-    await fireEvent.press(await screen.findByTestId('avatar-waehler'));
+    await fireEvent.press(await screen.findByTestId('avatar-picker'));
     await screen.findByText('Foto auswählen');
 
-    const inhalt = screen.getByTestId('profil-inhalt');
+    const inhalt = screen.getByTestId('profile-content');
     // Kontrolle zuerst: der Kreis liegt tatsächlich in dieser ScrollView.
     // Ohne sie wäre die Zusicherung darunter auch dann grün, wenn `within`
     // ins Leere griffe oder das testID nicht mehr passte.
-    expect(within(inhalt).getByTestId('avatar-waehler')).toBeTruthy();
+    expect(within(inhalt).getByTestId('avatar-picker')).toBeTruthy();
     expect(within(inhalt).queryByTestId('sheet-root')).toBeNull();
     expect(screen.getByTestId('sheet-root')).toBeTruthy();
   });
@@ -243,8 +243,8 @@ describe('Profilbild (Task 6)', () => {
   // Review-Fund: die ursprüngliche Fassung dieses Tests startete mit
   // avatar_key: null (Default-Mock) und prüfte nur den Fehlertext. Damit
   // liess sich "altes Bild korrekt erhalten" nicht von "altes Bild
-  // fälschlich gelöscht" unterscheiden — in BEIDEN Fällen gibt es keinen
-  // avatar-bild-Knoten. Diese Fassung startet deshalb MIT einem gesetzten
+  // fälschlich gelöscht" unterscheiden: in BEIDEN Fällen gibt es keinen
+  // avatar-image-Knoten. Diese Fassung startet deshalb MIT einem gesetzten
   // avatar_key und prüft danach explizit, dass genau diese URL nach dem
   // Fehlschlag noch im Baum steht: bräche der Fehlerzweig fälschlich
   // `avatar_key: null` in den State (statt vorher zurückzukehren, wie
@@ -259,12 +259,12 @@ describe('Profilbild (Task 6)', () => {
       error: 'Das Bild konnte nicht hochgeladen werden. Probier es gleich nochmal.',
     });
     await wrap(<ProfilScreen />);
-    await waitFor(() => expect(screen.getByTestId('avatar-bild')).toBeTruthy());
-    const urlVorher = screen.getByTestId('avatar-bild').props.source.uri;
+    await waitFor(() => expect(screen.getByTestId('avatar-image')).toBeTruthy());
+    const urlVorher = screen.getByTestId('avatar-image').props.source.uri;
 
-    await fireEvent.press(screen.getByTestId('avatar-waehler'));
+    await fireEvent.press(screen.getByTestId('avatar-picker'));
     await fireEvent.press(screen.getByText('Foto auswählen'));
-    await fireEvent.press(await screen.findByTestId('zuschnitt-uebernehmen'));
+    await fireEvent.press(await screen.findByTestId('crop-apply'));
 
     await waitFor(() =>
       expect(
@@ -273,7 +273,7 @@ describe('Profilbild (Task 6)', () => {
     );
     // Der eigentliche Kern der Zusicherung, nicht nur "irgendein Bild":
     // dieselbe URL wie vor dem fehlgeschlagenen Versuch.
-    expect(screen.getByTestId('avatar-bild').props.source.uri).toBe(urlVorher);
+    expect(screen.getByTestId('avatar-image').props.source.uri).toBe(urlVorher);
   });
 });
 
@@ -365,42 +365,42 @@ describe('Anzeigename ändern', () => {
   test('die Namens-Karte trägt einen Stift als Bearbeiten-Hinweis', async () => {
     await wrap(<ProfilScreen />);
     await screen.findByText('Lea');
-    const card = screen.getByTestId('name-bearbeiten-oeffnen');
-    expect(within(card).getByTestId('name-bearbeiten-stift')).toBeTruthy();
+    const card = screen.getByTestId('name-edit-open');
+    expect(within(card).getByTestId('name-edit-pencil')).toBeTruthy();
   });
 
   test('die Namens-Karte öffnet den Vollbild-Editor: Anzeigename vorbefüllt, KEIN Username-Feld', async () => {
     await wrap(<ProfilScreen />);
     await screen.findByText('Lea');
-    await fireEvent.press(screen.getByTestId('name-bearbeiten-oeffnen'));
+    await fireEvent.press(screen.getByTestId('name-edit-open'));
     // Vorbefüllt heisst: der GESPEICHERTE Wert steht im Feld (getByDisplayValue
     // trifft nur TextInputs, nicht den Kartentext daneben). Der Username hat
-    // kein Eingabefeld — fest, bis es eine serverseitige Bremse gibt.
+    // kein Eingabefeld, fest, bis es eine serverseitige Bremse gibt.
     expect(screen.getByDisplayValue('Lea')).toBeTruthy();
     expect(screen.queryByDisplayValue('lea')).toBeNull();
     // Vollbild-Overlay, kein Sheet: der Editor liegt wie der Zuschnitt als
     // Geschwister ÜBER dem Screen, nicht im Scroll-Inhalt (Baumstellung wie
-    // beim Bild-Sheet-Test unten — aus ihr folgt die Geometrie).
+    // beim Bild-Sheet-Test unten, aus ihr folgt die Geometrie).
     expect(screen.getByTestId('name-editor')).toBeTruthy();
     expect(screen.queryByTestId('sheet-root')).toBeNull();
-    expect(within(screen.getByTestId('profil-inhalt')).queryByTestId('name-editor')).toBeNull();
+    expect(within(screen.getByTestId('profile-content')).queryByTestId('name-editor')).toBeNull();
     // Statt Dekoration füllt eine Live-Vorschau die Seite: die Zeile, wie
     // Freunde einen sehen (Kreis, Name, Handle), mit dem GETIPPTEN Stand.
     // Sie steht ÜBER dem Eingabefeld (und damit vor den Knöpfen im Baum):
     // erst sehen, was man ändert, dann ändern.
-    const preview = within(screen.getByTestId('name-editor')).getByTestId('name-vorschau');
+    const preview = within(screen.getByTestId('name-editor')).getByTestId('name-preview');
     expect(within(preview).getByText('Lea')).toBeTruthy();
     expect(within(preview).getByText('@lea')).toBeTruthy();
     const baum = JSON.stringify(screen.toJSON());
-    expect(baum.indexOf('name-vorschau')).toBeLessThan(baum.indexOf('Speichern'));
+    expect(baum.indexOf('name-preview')).toBeLessThan(baum.indexOf('Speichern'));
   });
 
   test('die Vorschau zieht beim Tippen live mit, ohne zu speichern', async () => {
     await wrap(<ProfilScreen />);
     await screen.findByText('Lea');
-    await fireEvent.press(screen.getByTestId('name-bearbeiten-oeffnen'));
+    await fireEvent.press(screen.getByTestId('name-edit-open'));
     await fireEvent.changeText(screen.getByDisplayValue('Lea'), 'Lea Neu');
-    const preview = within(screen.getByTestId('name-editor')).getByTestId('name-vorschau');
+    const preview = within(screen.getByTestId('name-editor')).getByTestId('name-preview');
     expect(within(preview).getByText('Lea Neu')).toBeTruthy();
     // Nur die Vorschau, nicht der Screen dahinter: gespeichert ist nichts.
     expect(updateProfile).not.toHaveBeenCalled();
@@ -410,7 +410,7 @@ describe('Anzeigename ändern', () => {
     (updateProfile as jest.Mock).mockResolvedValue({ error: null });
     await wrap(<ProfilScreen />);
     await screen.findByText('Lea');
-    await fireEvent.press(screen.getByTestId('name-bearbeiten-oeffnen'));
+    await fireEvent.press(screen.getByTestId('name-edit-open'));
     await fireEvent.changeText(screen.getByDisplayValue('Lea'), 'Lea Neu');
     await fireEvent.press(screen.getByText('Speichern'));
     await waitFor(() => expect(updateProfile).toHaveBeenCalledWith('uid-1', 'Lea Neu'));
@@ -428,11 +428,11 @@ describe('Anzeigename ändern', () => {
     (updateProfile as jest.Mock).mockResolvedValue({ error: null });
     await wrap(<ProfilScreen />);
     await screen.findByText('Lea');
-    await fireEvent.press(screen.getByTestId('name-bearbeiten-oeffnen'));
+    await fireEvent.press(screen.getByTestId('name-edit-open'));
     await fireEvent.changeText(screen.getByDisplayValue('Lea'), 'Lea Neu');
     await fireEvent.press(screen.getByText('Speichern'));
     // Das Häkchen steht auf dem Knopf, BEVOR der Screen wechselt.
-    await waitFor(() => expect(screen.getByTestId('button-erfolg')).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId('button-success')).toBeTruthy());
     expect(screen.getByTestId('name-editor')).toBeTruthy();
     await waitFor(() => expect(mockHaptikLeicht).toHaveBeenCalledWith('light'));
     await waitFor(() => expect(screen.queryByTestId('name-editor')).toBeNull(), { timeout: 3000 });
@@ -442,7 +442,7 @@ describe('Anzeigename ändern', () => {
     (updateProfile as jest.Mock).mockResolvedValue({ error: 'KAPUTT' });
     await wrap(<ProfilScreen />);
     await screen.findByText('Lea');
-    await fireEvent.press(screen.getByTestId('name-bearbeiten-oeffnen'));
+    await fireEvent.press(screen.getByTestId('name-edit-open'));
     await fireEvent.changeText(screen.getByDisplayValue('Lea'), 'Lea Neu');
     await fireEvent.press(screen.getByText('Speichern'));
     expect(await screen.findByText('KAPUTT')).toBeTruthy();
@@ -455,7 +455,7 @@ describe('Anzeigename ändern', () => {
   test('«Abbrechen» schliesst den Editor, ohne zu speichern', async () => {
     await wrap(<ProfilScreen />);
     await screen.findByText('Lea');
-    await fireEvent.press(screen.getByTestId('name-bearbeiten-oeffnen'));
+    await fireEvent.press(screen.getByTestId('name-edit-open'));
     await fireEvent.changeText(screen.getByDisplayValue('Lea'), 'Lea Neu');
     await fireEvent.press(screen.getByText('Abbrechen'));
     expect(screen.queryByTestId('name-editor')).toBeNull();
@@ -466,7 +466,7 @@ describe('Anzeigename ändern', () => {
   test('ein leerer Anzeigename ruft die API gar nicht erst', async () => {
     await wrap(<ProfilScreen />);
     await screen.findByText('Lea');
-    await fireEvent.press(screen.getByTestId('name-bearbeiten-oeffnen'));
+    await fireEvent.press(screen.getByTestId('name-edit-open'));
     await fireEvent.changeText(screen.getByDisplayValue('Lea'), '   ');
     await fireEvent.press(screen.getByText('Speichern'));
     expect(await screen.findByText('NAME-REGEL')).toBeTruthy();
@@ -489,14 +489,14 @@ describe('Konto löschen (Task 9)', () => {
   test('steht unten, unter allem anderen, nach dem Abmelden-Knopf', async () => {
     await render(<ThemeProvider><ProfilScreen /></ThemeProvider>);
     await screen.findByText('Lea');
-    expect(screen.getByTestId('konto-loeschen-oeffnen')).toBeTruthy();
+    expect(screen.getByTestId('delete-account-open')).toBeTruthy();
     expect(screen.getByText('Konto löschen')).toBeTruthy();
   });
 
   test('Tippen öffnet den Dialog und lädt sofort die Zahlen', async () => {
     mockFetchDeletionCounts.mockResolvedValue(COUNTS_OK);
     await render(<ThemeProvider><ProfilScreen /></ThemeProvider>);
-    await fireEvent.press(await screen.findByTestId('konto-loeschen-oeffnen'));
+    await fireEvent.press(await screen.findByTestId('delete-account-open'));
     expect(mockFetchDeletionCounts).toHaveBeenCalledTimes(1);
     expect(await screen.findByText('ZAHLEN-TEXT (3 Reisen)')).toBeTruthy();
   });
@@ -507,17 +507,17 @@ describe('Konto löschen (Task 9)', () => {
   test('ohne geladene Zahlen gibt es KEINEN Bestätigungsknopf, nur einen Ladeindikator', async () => {
     mockFetchDeletionCounts.mockReturnValue(new Promise(() => {})); // hängt absichtlich
     await render(<ThemeProvider><ProfilScreen /></ThemeProvider>);
-    await fireEvent.press(await screen.findByTestId('konto-loeschen-oeffnen'));
-    expect(await screen.findByTestId('loeschen-zahlen-laedt')).toBeTruthy();
-    expect(screen.queryByTestId('konto-endgueltig-loeschen')).toBeNull();
+    await fireEvent.press(await screen.findByTestId('delete-account-open'));
+    expect(await screen.findByTestId('delete-account-counts-loading')).toBeTruthy();
+    expect(screen.queryByTestId('delete-account-confirm')).toBeNull();
   });
 
   test('ein Fehler beim Laden zeigt die Ursache mit Retry, keinen Bestätigungsknopf', async () => {
     mockFetchDeletionCounts.mockResolvedValue({ data: null, error: 'kaputt' });
     await render(<ThemeProvider><ProfilScreen /></ThemeProvider>);
-    await fireEvent.press(await screen.findByTestId('konto-loeschen-oeffnen'));
+    await fireEvent.press(await screen.findByTestId('delete-account-open'));
     expect(await screen.findByText('kaputt')).toBeTruthy();
-    expect(screen.queryByTestId('konto-endgueltig-loeschen')).toBeNull();
+    expect(screen.queryByTestId('delete-account-confirm')).toBeNull();
     expect(screen.getByText('Nochmal versuchen')).toBeTruthy();
   });
 
@@ -526,10 +526,10 @@ describe('Konto löschen (Task 9)', () => {
       .mockResolvedValueOnce({ data: null, error: 'kaputt' })
       .mockResolvedValueOnce(EMPTY_COUNTS);
     await render(<ThemeProvider><ProfilScreen /></ThemeProvider>);
-    await fireEvent.press(await screen.findByTestId('konto-loeschen-oeffnen'));
+    await fireEvent.press(await screen.findByTestId('delete-account-open'));
     await screen.findByText('kaputt');
     await fireEvent.press(screen.getByText('Nochmal versuchen'));
-    expect(await screen.findByTestId('konto-endgueltig-loeschen')).toBeTruthy();
+    expect(await screen.findByTestId('delete-account-confirm')).toBeTruthy();
     expect(mockFetchDeletionCounts).toHaveBeenCalledTimes(2);
   });
 
@@ -537,8 +537,8 @@ describe('Konto löschen (Task 9)', () => {
     mockFetchDeletionCounts.mockResolvedValue(EMPTY_COUNTS);
     mockDeleteAccount.mockResolvedValue({ error: null });
     await render(<ThemeProvider><ProfilScreen /></ThemeProvider>);
-    await fireEvent.press(await screen.findByTestId('konto-loeschen-oeffnen'));
-    await fireEvent.press(await screen.findByTestId('konto-endgueltig-loeschen'));
+    await fireEvent.press(await screen.findByTestId('delete-account-open'));
+    await fireEvent.press(await screen.findByTestId('delete-account-confirm'));
     await waitFor(() => expect(mockDeleteAccount).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(mockSignOut).toHaveBeenCalledTimes(1));
   });
@@ -549,13 +549,13 @@ describe('Konto löschen (Task 9)', () => {
       error: 'Dein Konto konnte nicht vollständig gelöscht werden. Probier es später noch einmal.',
     });
     await render(<ThemeProvider><ProfilScreen /></ThemeProvider>);
-    await fireEvent.press(await screen.findByTestId('konto-loeschen-oeffnen'));
-    await fireEvent.press(await screen.findByTestId('konto-endgueltig-loeschen'));
+    await fireEvent.press(await screen.findByTestId('delete-account-open'));
+    await fireEvent.press(await screen.findByTestId('delete-account-confirm'));
     expect(
       await screen.findByText('Dein Konto konnte nicht vollständig gelöscht werden. Probier es später noch einmal.')
     ).toBeTruthy();
     expect(mockSignOut).not.toHaveBeenCalled();
-    expect(screen.getByTestId('konto-endgueltig-loeschen').props.accessibilityState.disabled).toBe(false);
+    expect(screen.getByTestId('delete-account-confirm').props.accessibilityState.disabled).toBe(false);
   });
 
   test('ein zweiter Tipp, während die Löschung noch läuft, löst KEINEN zweiten Aufruf aus', async () => {
@@ -563,10 +563,10 @@ describe('Konto löschen (Task 9)', () => {
     let aufloesen!: (wert: { error: null }) => void;
     mockDeleteAccount.mockReturnValue(new Promise((resolve) => { aufloesen = resolve; }));
     await render(<ThemeProvider><ProfilScreen /></ThemeProvider>);
-    await fireEvent.press(await screen.findByTestId('konto-loeschen-oeffnen'));
-    await fireEvent.press(await screen.findByTestId('konto-endgueltig-loeschen'));
-    expect(await screen.findByTestId('konto-loeschen-laeuft')).toBeTruthy(); // Spinner statt Text
-    await fireEvent.press(screen.getByTestId('konto-endgueltig-loeschen'));
+    await fireEvent.press(await screen.findByTestId('delete-account-open'));
+    await fireEvent.press(await screen.findByTestId('delete-account-confirm'));
+    expect(await screen.findByTestId('delete-account-loading')).toBeTruthy(); // Spinner statt Text
+    await fireEvent.press(screen.getByTestId('delete-account-confirm'));
     await act(async () => {
       aufloesen({ error: null });
     });
@@ -576,10 +576,10 @@ describe('Konto löschen (Task 9)', () => {
   test('«Abbrechen» schliesst den Dialog, ohne zu löschen oder abzumelden', async () => {
     mockFetchDeletionCounts.mockResolvedValue(EMPTY_COUNTS);
     await render(<ThemeProvider><ProfilScreen /></ThemeProvider>);
-    await fireEvent.press(await screen.findByTestId('konto-loeschen-oeffnen'));
-    await screen.findByTestId('konto-endgueltig-loeschen');
+    await fireEvent.press(await screen.findByTestId('delete-account-open'));
+    await screen.findByTestId('delete-account-confirm');
     await fireEvent.press(screen.getByText('Abbrechen'));
-    expect(screen.queryByTestId('konto-endgueltig-loeschen')).toBeNull();
+    expect(screen.queryByTestId('delete-account-confirm')).toBeNull();
     expect(mockDeleteAccount).not.toHaveBeenCalled();
     expect(mockSignOut).not.toHaveBeenCalled();
   });

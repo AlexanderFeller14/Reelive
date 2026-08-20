@@ -21,12 +21,12 @@
 //                             automatically, this file never needs to
 //                             acknowledge them separately.
 import { supabase } from '@/lib/supabase';
-import { OFFLINE_HINT, istOffline } from '@/lib/networkError';
+import { OFFLINE_HINT, isOffline } from '@/lib/networkError';
 
 type Loaded<T> = { data: T; error: string | null };
 
 function message(error: { message?: string } | null, fallback: string): string {
-  return istOffline(error) ? OFFLINE_HINT : fallback;
+  return isOffline(error) ? OFFLINE_HINT : fallback;
 }
 
 // Same pattern as socialApi.currentUserId: the reporter_id comes from the
@@ -162,7 +162,7 @@ export async function removeMoment(momentId: string): Promise<{ error: string | 
     }
   }
   const raw = error as { message?: string; context?: { message?: string } } | null;
-  if (istOffline({ message: raw?.context?.message }) || istOffline(raw ?? null)) {
+  if (isOffline({ message: raw?.context?.message }) || isOffline(raw ?? null)) {
     return { error: OFFLINE_HINT };
   }
   return { error: REMOVE_ERROR };

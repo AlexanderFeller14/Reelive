@@ -297,7 +297,7 @@ function FocusRing({ x, y, onDone }: { x: number; y: number; onDone: () => void 
   const scale = entrance.interpolate({ inputRange: [0, 1], outputRange: [1.4, 1] });
   return (
     <Animated.View
-      testID="fokus-ring"
+      testID="focus-ring"
       pointerEvents="none"
       accessible={false}
       style={[
@@ -339,7 +339,7 @@ function SwitchFade() {
       accessible={false}
       style={[StyleSheet.absoluteFill, { opacity }]}
     >
-      <BlurView testID="wechsel-blende" intensity={50} tint="dark" style={StyleSheet.absoluteFill} />
+      <BlurView testID="switch-blur" intensity={50} tint="dark" style={StyleSheet.absoluteFill} />
     </Animated.View>
   );
 }
@@ -401,7 +401,7 @@ function FloatingFlightTicket() {
     <View style={styles.ticketStage}>
       <Animated.View style={[styles.ticketSurface, { transform: [{ translateY: lift }] }]}>
         <Image
-          testID="leerzustand-flugticket"
+          testID="empty-state-flight-ticket"
           source={require('@/assets/images/flugticket-transparent.png')}
           style={styles.flightTicket}
           contentFit="contain"
@@ -1415,7 +1415,7 @@ export default function CaptureScreen() {
       handoff.setPhoto({ ref, file: handoff.savedFile(ref) });
       goToPreview({ typ: 'photo', dauer: '0', tripId: trip.id });
     } catch (err) {
-      console.error('[capture] Foto kam nicht zustande', err);
+      console.error('[capture] photo capture failed', err);
       // Without the thaw the viewfinder would stay frozen: pausePreview has
       // run and nobody navigates away. In the MultiCam branch the call is a
       // no-op (there is no CameraView there, cameraRef stays null), nothing
@@ -1471,7 +1471,7 @@ export default function CaptureScreen() {
       // All rounds used up. Whatever went wrong last belongs in the log:
       // otherwise only ERROR_TEXT stands on the device and the actual cause
       // (simulator, no storage, permission revoked) is swallowed.
-      console.error('[capture] Videoaufnahme kam nicht zustande', lastError);
+      console.error('[capture] video capture failed', lastError);
       return undefined;
     };
     // The switch: try our own native pipeline first (task 2); only if it
@@ -1624,7 +1624,7 @@ export default function CaptureScreen() {
         // comes in a step of its own. Everything above it (zoom surface, focus
         // ring, header, zoom row, shutter) is the same for both branches.
         <multiCamera.MultiCameraViewfinder
-          testID="multikamera-sucher"
+          testID="multicam-viewfinder"
           style={StyleSheet.absoluteFill}
         />
       ) : (
@@ -1671,7 +1671,7 @@ export default function CaptureScreen() {
       {/* Catches the movement of two fingers. Lies above the camera image but
           below everything operable: whatever comes after it gets its touches
           first. */}
-      <View testID="sucher-zoomflaeche" style={StyleSheet.absoluteFill} {...zoomGesture} />
+      <View testID="viewfinder-zoom-area" style={StyleSheet.absoluteFill} {...zoomGesture} />
       {focusPoint && (
         <FocusRing
           key={focusPoint.state}
@@ -1688,7 +1688,7 @@ export default function CaptureScreen() {
           just hidden, so that VoiceOver offers nothing that cannot be operated
           right now. */}
       {!capturing && (
-        <View testID="sucher-kopfzeile" style={[styles.headerRow, { top: viewfinderTopInset }]}>
+        <View testID="viewfinder-header" style={[styles.headerRow, { top: viewfinderTopInset }]}>
           {/* The trip switcher (product concept): the trip name IS the button,
               no extra control on the image. The chevron makes that visible
               without asking for more room than an icon. */}
@@ -1750,7 +1750,7 @@ export default function CaptureScreen() {
         </View>
       )}
       <View
-        testID="ausloeser-buehne"
+        testID="shutter-stage"
         style={[styles.shutterWrap, { bottom: SHUTTER_BOTTOM + barHeight }]}
       >
         <ShutterButton

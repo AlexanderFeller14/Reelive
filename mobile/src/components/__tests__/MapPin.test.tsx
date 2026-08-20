@@ -88,7 +88,7 @@ afterEach(() => {
 
 test('shows the moment thumbnail', async () => {
   await wrap(<MapPin moment={photoMoment} thumbUrl="https://x/t.jpg" />);
-  expect(screen.getByTestId('nadel-bild').props.source.uri).toBe('https://x/t.jpg');
+  expect(screen.getByTestId('pin-image').props.source.uri).toBe('https://x/t.jpg');
 });
 
 // Fix round 1, item 1: THIS is the state you really see on a slow
@@ -98,22 +98,22 @@ test('shows the moment thumbnail', async () => {
 // cache.
 test('while the image loads, the skeleton underneath it pulses', async () => {
   await wrap(<MapPin moment={photoMoment} thumbUrl="https://x/t.jpg" />);
-  expect(screen.getByTestId('nadel-skelett')).toBeTruthy();
-  expect(screen.getByTestId('nadel-bild')).toBeTruthy();
+  expect(screen.getByTestId('pin-skeleton')).toBeTruthy();
+  expect(screen.getByTestId('pin-image')).toBeTruthy();
   expect(pulseSpy).toHaveBeenCalled();
 });
 
 test('once loaded, the skeleton is gone', async () => {
   await wrap(<MapPin moment={photoMoment} thumbUrl="https://x/t.jpg" />);
-  await fireEvent(screen.getByTestId('nadel-bild'), 'load');
-  expect(screen.queryByTestId('nadel-skelett')).toBeNull();
+  await fireEvent(screen.getByTestId('pin-image'), 'load');
+  expect(screen.queryByTestId('pin-skeleton')).toBeNull();
 });
 
 test('a new image source brings the skeleton back', async () => {
   const { rerender } = await wrap(<MapPin moment={photoMoment} thumbUrl="https://x/t.jpg" />);
-  await fireEvent(screen.getByTestId('nadel-bild'), 'load');
+  await fireEvent(screen.getByTestId('pin-image'), 'load');
   await rerender(wrapper(<MapPin moment={photoMoment} thumbUrl="https://x/neu.jpg" />));
-  expect(screen.getByTestId('nadel-skelett')).toBeTruthy();
+  expect(screen.getByTestId('pin-skeleton')).toBeTruthy();
 });
 
 // Without an image source, the pin waits on nothing. It shows the same
@@ -121,8 +121,8 @@ test('a new image source brings the skeleton back', async () => {
 // coming.
 test('without an image source, a quiet circle stands still', async () => {
   await wrap(<MapPin moment={photoMoment} thumbUrl={null} />);
-  expect(screen.getByTestId('nadel-skelett')).toBeTruthy();
-  expect(screen.queryByTestId('nadel-bild')).toBeNull();
+  expect(screen.getByTestId('pin-skeleton')).toBeTruthy();
+  expect(screen.queryByTestId('pin-image')).toBeNull();
   expect(pulseSpy).not.toHaveBeenCalled();
 });
 
@@ -136,18 +136,18 @@ test('without an image source, a quiet circle stands still', async () => {
 test('with reduced motion the circle stands still instead of pulsing', async () => {
   mockReducedMotion = true;
   await wrap(<MapPin moment={photoMoment} thumbUrl="https://x/t.jpg" />);
-  expect(screen.getByTestId('nadel-skelett')).toBeTruthy();
+  expect(screen.getByTestId('pin-skeleton')).toBeTruthy();
   expect(pulseSpy).not.toHaveBeenCalled();
 });
 
 test('a video additionally carries the play icon', async () => {
   await wrap(<MapPin moment={videoMoment} thumbUrl="https://x/t.jpg" />);
-  expect(screen.getByTestId('nadel-video')).toBeTruthy();
+  expect(screen.getByTestId('pin-video')).toBeTruthy();
 });
 
 test('a photo carries no play icon', async () => {
   await wrap(<MapPin moment={photoMoment} thumbUrl="https://x/t.jpg" />);
-  expect(screen.queryByTestId('nadel-video')).toBeNull();
+  expect(screen.queryByTestId('pin-video')).toBeNull();
 });
 
 test('a group shows its count', async () => {
@@ -164,7 +164,7 @@ test('reports ready as soon as the image has loaded', async () => {
   const onReady = jest.fn();
   await wrap(<MapPin moment={photoMoment} thumbUrl="https://x/t.jpg" onReady={onReady} />);
   expect(onReady).not.toHaveBeenCalled();
-  await fireEvent(screen.getByTestId('nadel-bild'), 'load');
+  await fireEvent(screen.getByTestId('pin-image'), 'load');
   expect(onReady).toHaveBeenCalled();
 });
 
@@ -174,7 +174,7 @@ test('reports ready as soon as the image has loaded', async () => {
 test('reports ready when the image fails', async () => {
   const onReady = jest.fn();
   await wrap(<MapPin moment={photoMoment} thumbUrl="https://x/t.jpg" onReady={onReady} />);
-  await fireEvent(screen.getByTestId('nadel-bild'), 'error');
+  await fireEvent(screen.getByTestId('pin-image'), 'error');
   expect(onReady).toHaveBeenCalled();
 });
 
@@ -194,7 +194,7 @@ test('without an image source, the pin is ready immediately', async () => {
 test('the pin keeps redrawing until its image is settled, and not after', async () => {
   await wrap(<MapPinMarker point={point} thumbUrl="https://x/t.jpg" />);
   expect(tracksSinceThen().at(-1)).toBe(true);
-  await fireEvent(screen.getByTestId('nadel-bild'), 'load');
+  await fireEvent(screen.getByTestId('pin-image'), 'load');
   expect(tracksSinceThen().at(-1)).toBe(false);
 });
 
@@ -207,7 +207,7 @@ test('a changed count lets the pin redraw again', async () => {
   const { rerender } = await wrap(
     <MapPinMarker point={point} thumbUrl="https://x/t.jpg" count={4} />
   );
-  await fireEvent(screen.getByTestId('nadel-bild'), 'load');
+  await fireEvent(screen.getByTestId('pin-image'), 'load');
   expect(tracksSinceThen().at(-1)).toBe(false);
 
   await rerender(wrapper(<MapPinMarker point={point} thumbUrl="https://x/t.jpg" count={2} />));
@@ -220,19 +220,19 @@ test('a changed count lets the pin redraw again', async () => {
 // been removed without a single thing turning red.
 test('a new image source lets the pin redraw again', async () => {
   const { rerender } = await wrap(<MapPinMarker point={point} thumbUrl="https://x/t.jpg" />);
-  await fireEvent(screen.getByTestId('nadel-bild'), 'load');
+  await fireEvent(screen.getByTestId('pin-image'), 'load');
   expect(tracksSinceThen().at(-1)).toBe(false);
 
   await rerender(wrapper(<MapPinMarker point={point} thumbUrl="https://x/neu.jpg" />));
   // Stays on until the new image has settled too, not just for one commit.
   expect(tracksSinceThen().at(-1)).toBe(true);
-  await fireEvent(screen.getByTestId('nadel-bild'), 'load');
+  await fireEvent(screen.getByTestId('pin-image'), 'load');
   expect(tracksSinceThen().at(-1)).toBe(false);
 });
 
 test('a changed moment type lets the pin redraw again', async () => {
   const { rerender } = await wrap(<MapPinMarker point={point} thumbUrl="https://x/t.jpg" />);
-  await fireEvent(screen.getByTestId('nadel-bild'), 'load');
+  await fireEvent(screen.getByTestId('pin-image'), 'load');
   expect(tracksSinceThen().at(-1)).toBe(false);
 
   await rerender(wrapper(<MapPinMarker point={videoPoint} thumbUrl="https://x/t.jpg" />));

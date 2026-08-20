@@ -6,13 +6,13 @@
 // exported, see the comment there), errors as German plain text via
 // `message()`.
 import { supabase } from '@/lib/supabase';
-import { OFFLINE_HINT, istOffline } from '@/lib/networkError';
+import { OFFLINE_HINT, isOffline } from '@/lib/networkError';
 import type { Comment, Reaction } from './types';
 
 type Loaded<T> = { data: T; error: string | null };
 
 function message(error: { message?: string } | null, fallback: string): string {
-  return istOffline(error) ? OFFLINE_HINT : fallback;
+  return isOffline(error) ? OFFLINE_HINT : fallback;
 }
 
 // Practically unreachable (the player only runs behind status ===

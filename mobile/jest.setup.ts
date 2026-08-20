@@ -41,7 +41,7 @@ jest.mock('react-native-safe-area-context', () =>
 jest.mock('react-native-maps', () => {
   const ReactActual = require('react');
   const { View } = require('react-native');
-  const Karte = ReactActual.forwardRef((props: Record<string, unknown>, ref: unknown) => {
+  const MockMapView = ReactActual.forwardRef((props: Record<string, unknown>, ref: unknown) => {
     ReactActual.useImperativeHandle(ref, () => ({
       animateToRegion: jest.fn(),
       setRegion: jest.fn(),
@@ -51,7 +51,7 @@ jest.mock('react-native-maps', () => {
   });
   return {
     __esModule: true,
-    default: Karte,
+    default: MockMapView,
     Marker: (props: Record<string, unknown>) => ReactActual.createElement(View, props, props.children),
     Polyline: (props: Record<string, unknown>) => ReactActual.createElement(View, props),
     PROVIDER_DEFAULT: undefined,

@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabase';
-import { OFFLINE_HINT, istOffline } from '@/lib/networkError';
+import { OFFLINE_HINT, isOffline } from '@/lib/networkError';
 import type { Face } from '@/components/Avatar';
 import type { InvitePreview, RedeemResult, Trip, TripMember } from './types';
 
@@ -12,7 +12,7 @@ type Loaded<T> = { data: T; error: string | null };
 // Translates a Supabase error into a message per §6: offline is the one
 // cause the user can fix themselves, and is therefore named.
 function message(error: { message?: string } | null, fallback: string): string {
-  return istOffline(error) ? OFFLINE_HINT : fallback;
+  return isOffline(error) ? OFFLINE_HINT : fallback;
 }
 
 const COLUMNS = 'id, name, start_date, end_date, status, owner_id';

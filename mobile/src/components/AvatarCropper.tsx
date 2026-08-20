@@ -125,9 +125,9 @@ export function AvatarCropper({
   return (
     <View style={styles.surface}>
       <View style={styles.center}>
-        <View testID="zuschnitt-rahmen" style={styles.frame} {...pan.panHandlers}>
+        <View testID="crop-frame" style={styles.frame} {...pan.panHandlers}>
           <Image
-            testID="zuschnitt-bild"
+            testID="crop-image"
             source={{ uri }}
             style={{
               width: width * factor,
@@ -146,11 +146,11 @@ export function AvatarCropper({
       </View>
 
       <View style={styles.buttons}>
-        <PressScale testID="zuschnitt-abbrechen" accessibilityRole="button" onPress={onCancel}>
+        <PressScale testID="crop-cancel" accessibilityRole="button" onPress={onCancel}>
           <Text style={[type.bodyMedium, styles.buttonText]}>Abbrechen</Text>
         </PressScale>
         <PressScale
-          testID="zuschnitt-uebernehmen"
+          testID="crop-apply"
           accessibilityRole="button"
           onPress={() => onDone(cropFor(framing, source, FRAME))}
         >

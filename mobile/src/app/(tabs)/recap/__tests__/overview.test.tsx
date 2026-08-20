@@ -53,7 +53,7 @@ jest.mock('@/features/sharing/ShareSheetContent', () => {
   const { Text } = require('react-native');
   return {
     ShareSheetContent: ({ tripId }: { tripId: string }) =>
-      ReactActual.createElement(Text, { testID: 'mock-teilen-sheet-inhalt' }, tripId),
+      ReactActual.createElement(Text, { testID: 'mock-share-sheet-content' }, tripId),
   };
 });
 // exportApi has its own complete test file
@@ -228,9 +228,9 @@ test('stragglers and skipped moments get no tile, but each an honest line', asyn
   await wrap();
   await screen.findByText('Tag 1 · Lissabon · 10. August');
 
-  expect(screen.getAllByTestId(/^recap-kachel-/)).toHaveLength(3);
-  expect(screen.queryByTestId('recap-kachel-p4')).toBeNull();
-  expect(screen.queryByTestId('recap-kachel-p5')).toBeNull();
+  expect(screen.getAllByTestId(/^recap-tile-/)).toHaveLength(3);
+  expect(screen.queryByTestId('recap-tile-p4')).toBeNull();
+  expect(screen.queryByTestId('recap-tile-p5')).toBeNull();
 
   expect(screen.getByText('1 Moment ist noch unterwegs.')).toBeTruthy();
   expect(screen.getByText('1 Moment liess sich gerade nicht laden. Schau später nochmal rein.')).toBeTruthy();
@@ -252,7 +252,7 @@ test('plural wording for several stragglers and several skipped moments', async 
   await wrap();
   expect(await screen.findByText('3 Momente sind noch unterwegs.')).toBeTruthy();
   expect(screen.getByText('2 Momente liessen sich gerade nicht laden. Schau später nochmal rein.')).toBeTruthy();
-  expect(screen.getAllByTestId(/^recap-kachel-/)).toHaveLength(1);
+  expect(screen.getAllByTestId(/^recap-tile-/)).toHaveLength(1);
 });
 
 // The core case: p5 lies chronologically BEFORE all visible tiles (see the
@@ -265,10 +265,10 @@ test('a tap on a tile hands over the right start index, counted across the day b
   await wrap();
   await screen.findByText('Tag 1 · Lissabon · 10. August');
 
-  await fireEvent.press(screen.getByTestId('recap-kachel-p1'));
+  await fireEvent.press(screen.getByTestId('recap-tile-p1'));
   expect(mockPush).toHaveBeenCalledWith({ pathname: '/recap/[id]/player', params: { id: 't1', start: '0' } });
 
-  await fireEvent.press(screen.getByTestId('recap-kachel-p3'));
+  await fireEvent.press(screen.getByTestId('recap-tile-p3'));
   expect(mockPush).toHaveBeenCalledWith({ pathname: '/recap/[id]/player', params: { id: 't1', start: '2' } });
 });
 
@@ -276,7 +276,7 @@ test('the tile pulls the thumbnail, not the full image', async () => {
   (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: COMPLETE, error: null });
   (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
   await wrap();
-  const imageElement = await screen.findByTestId('recap-bild-p2');
+  const imageElement = await screen.findByTestId('recap-image-p2');
   expect(imageElement.props.source).toEqual({ uri: image('p2').thumb_url });
   expect(imageElement.props.source).not.toEqual({ uri: image('p2').medium_url });
 });
@@ -341,7 +341,7 @@ test('an error while loading the pool names its cause instead of showing an empt
   });
   await wrap();
   expect(await screen.findByText('Diese Reise ist noch versiegelt.')).toBeTruthy();
-  expect(screen.queryByTestId('recap-kachel-p1')).toBeNull();
+  expect(screen.queryByTestId('recap-tile-p1')).toBeNull();
 });
 
 test('a trip that no longer exists offers a way back instead of an empty screen', async () => {
@@ -402,16 +402,16 @@ describe('"Recap teilen": the owner only, and only once revealed', () => {
     emptyLoadSuccess();
     await wrap();
     await screen.findByText('Lissabon Städtetrip');
-    expect(screen.getByTestId('uebersicht-teilen-oeffnen')).toBeTruthy();
+    expect(screen.getByTestId('overview-share-open')).toBeTruthy();
   });
 
   test('a tap on the share button opens the sheet with ShareSheetContent for this trip', async () => {
     emptyLoadSuccess();
     await wrap();
     await screen.findByText('Lissabon Städtetrip');
-    expect(screen.queryByTestId('mock-teilen-sheet-inhalt')).toBeNull();
-    await fireEvent.press(screen.getByTestId('uebersicht-teilen-oeffnen'));
-    const content = await screen.findByTestId('mock-teilen-sheet-inhalt');
+    expect(screen.queryByTestId('mock-share-sheet-content')).toBeNull();
+    await fireEvent.press(screen.getByTestId('overview-share-open'));
+    const content = await screen.findByTestId('mock-share-sheet-content');
     expect(content).toHaveTextContent('t1');
   });
 
@@ -419,10 +419,10 @@ describe('"Recap teilen": the owner only, and only once revealed', () => {
     emptyLoadSuccess();
     await wrap();
     await screen.findByText('Lissabon Städtetrip');
-    await fireEvent.press(screen.getByTestId('uebersicht-teilen-oeffnen'));
-    await screen.findByTestId('mock-teilen-sheet-inhalt');
+    await fireEvent.press(screen.getByTestId('overview-share-open'));
+    await screen.findByTestId('mock-share-sheet-content');
     await fireEvent.press(screen.getByTestId('sheet-backdrop'));
-    expect(screen.queryByTestId('mock-teilen-sheet-inhalt')).toBeNull();
+    expect(screen.queryByTestId('mock-share-sheet-content')).toBeNull();
   });
 
   test('someone who is not the owner never sees the share button', async () => {
@@ -430,7 +430,7 @@ describe('"Recap teilen": the owner only, and only once revealed', () => {
     emptyLoadSuccess();
     await wrap();
     await screen.findByText('Lissabon Städtetrip');
-    expect(screen.queryByTestId('uebersicht-teilen-oeffnen')).toBeNull();
+    expect(screen.queryByTestId('overview-share-open')).toBeNull();
   });
 
   test('on a trip still sealed (status "active") the share button is missing, even for the owner', async () => {
@@ -438,7 +438,7 @@ describe('"Recap teilen": the owner only, and only once revealed', () => {
     emptyLoadSuccess();
     await wrap();
     await screen.findByText('Lissabon Städtetrip');
-    expect(screen.queryByTestId('uebersicht-teilen-oeffnen')).toBeNull();
+    expect(screen.queryByTestId('overview-share-open')).toBeNull();
   });
 
   // Deliberately WITHOUT an exception for 'archived', even though an already
@@ -453,7 +453,7 @@ describe('"Recap teilen": the owner only, and only once revealed', () => {
     emptyLoadSuccess();
     await wrap();
     await screen.findByText('Lissabon Städtetrip');
-    expect(screen.queryByTestId('uebersicht-teilen-oeffnen')).toBeNull();
+    expect(screen.queryByTestId('overview-share-open')).toBeNull();
   });
 });
 
@@ -467,7 +467,7 @@ describe('"Alle sichern"', () => {
     mockAuth.userId = 'jemand-anders';
     await wrap();
     await screen.findByText('Lissabon Städtetrip');
-    expect(screen.getByTestId('uebersicht-alle-sichern-oeffnen')).toBeTruthy();
+    expect(screen.getByTestId('overview-save-all-open')).toBeTruthy();
   });
 
   test('missing when there is literally nothing to save', async () => {
@@ -479,14 +479,14 @@ describe('"Alle sichern"', () => {
     });
     await wrap();
     await screen.findByText('Diese Reise ist leer geblieben.');
-    expect(screen.queryByTestId('uebersicht-alle-sichern-oeffnen')).toBeNull();
+    expect(screen.queryByTestId('overview-save-all-open')).toBeNull();
   });
 
   test('calls saveAllToGallery with EXACTLY the three visible moments (moment plus url)', async () => {
     (saveAllToGallery as jest.Mock).mockReturnValue(new Promise(() => {}));
     await wrap();
     await screen.findByText('Lissabon Städtetrip');
-    await fireEvent.press(screen.getByTestId('uebersicht-alle-sichern-oeffnen'));
+    await fireEvent.press(screen.getByTestId('overview-save-all-open'));
     expect(saveAllToGallery).toHaveBeenCalledTimes(1);
     const entries = (saveAllToGallery as jest.Mock).mock.calls[0][0] as { moment: { id: string } }[];
     expect(entries.map((e) => e.moment.id).sort()).toEqual(['p1', 'p2', 'p3']);
@@ -502,7 +502,7 @@ describe('"Alle sichern"', () => {
     );
     await wrap();
     await screen.findByText('Lissabon Städtetrip');
-    await fireEvent.press(screen.getByTestId('uebersicht-alle-sichern-oeffnen'));
+    await fireEvent.press(screen.getByTestId('overview-save-all-open'));
     expect(screen.getByText('0 von 3 gesichert')).toBeTruthy();
     await act(async () => {
       reportProgress({ done: 2, total: 3 });
@@ -516,9 +516,9 @@ describe('"Alle sichern"', () => {
     });
     await wrap();
     await screen.findByText('Lissabon Städtetrip');
-    await fireEvent.press(screen.getByTestId('uebersicht-alle-sichern-oeffnen'));
+    await fireEvent.press(screen.getByTestId('overview-save-all-open'));
     await act(async () => {});
-    expect(await screen.findByTestId('export-bilanz')).toHaveTextContent(
+    expect(await screen.findByTestId('export-outcome')).toHaveTextContent(
       '2 von 3 Momenten gesichert. 1 ist fehlgeschlagen.'
     );
   });
@@ -529,9 +529,9 @@ describe('"Alle sichern"', () => {
     });
     await wrap();
     await screen.findByText('Lissabon Städtetrip');
-    await fireEvent.press(screen.getByTestId('uebersicht-alle-sichern-oeffnen'));
+    await fireEvent.press(screen.getByTestId('overview-save-all-open'));
     await act(async () => {});
-    expect(await screen.findByTestId('export-bilanz')).toHaveTextContent(
+    expect(await screen.findByTestId('export-outcome')).toHaveTextContent(
       'Abgebrochen bei 1 von 3 Momenten. 1 ist dabei fehlgeschlagen.'
     );
   });
@@ -542,11 +542,11 @@ describe('"Alle sichern"', () => {
     });
     await wrap();
     await screen.findByText('Lissabon Städtetrip');
-    await fireEvent.press(screen.getByTestId('uebersicht-alle-sichern-oeffnen'));
+    await fireEvent.press(screen.getByTestId('overview-save-all-open'));
     await act(async () => {});
-    await screen.findByTestId('export-bilanz');
+    await screen.findByTestId('export-outcome');
     await fireEvent.press(screen.getByText('Fertig'));
-    expect(screen.queryByTestId('export-bilanz')).toBeNull();
+    expect(screen.queryByTestId('export-outcome')).toBeNull();
   });
 
   test('a missing permission names the cause and offers the settings, instead of simply doing nothing', async () => {
@@ -555,7 +555,7 @@ describe('"Alle sichern"', () => {
     });
     await wrap();
     await screen.findByText('Lissabon Städtetrip');
-    await fireEvent.press(screen.getByTestId('uebersicht-alle-sichern-oeffnen'));
+    await fireEvent.press(screen.getByTestId('overview-save-all-open'));
     await act(async () => {});
     expect(await screen.findByText('Reelive braucht Zugriff auf deine Fotobibliothek …')).toBeTruthy();
     await fireEvent.press(screen.getByText('Einstellungen öffnen'));
@@ -572,7 +572,7 @@ describe('"Alle sichern"', () => {
     );
     await wrap();
     await screen.findByText('Lissabon Städtetrip');
-    await fireEvent.press(screen.getByTestId('uebersicht-alle-sichern-oeffnen'));
+    await fireEvent.press(screen.getByTestId('overview-save-all-open'));
     expect(receivedSignal?.aborted).toBe(false);
     await fireEvent.press(screen.getByText('Abbrechen'));
     expect(receivedSignal?.aborted).toBe(true);
@@ -588,7 +588,7 @@ describe('"Alle sichern"', () => {
     );
     await wrap();
     await screen.findByText('Lissabon Städtetrip');
-    await fireEvent.press(screen.getByTestId('uebersicht-alle-sichern-oeffnen'));
+    await fireEvent.press(screen.getByTestId('overview-save-all-open'));
     await fireEvent.press(screen.getByTestId('sheet-backdrop'));
     expect(receivedSignal?.aborted).toBe(true);
   });
@@ -599,11 +599,11 @@ describe('"Alle sichern"', () => {
     });
     await wrap();
     await screen.findByText('Lissabon Städtetrip');
-    await fireEvent.press(screen.getByTestId('uebersicht-alle-sichern-oeffnen'));
+    await fireEvent.press(screen.getByTestId('overview-save-all-open'));
     await act(async () => {});
-    await screen.findByTestId('export-bilanz');
+    await screen.findByTestId('export-outcome');
     await fireEvent.press(screen.getByTestId('sheet-backdrop'));
-    expect(screen.queryByTestId('export-bilanz')).toBeNull();
+    expect(screen.queryByTestId('export-outcome')).toBeNull();
     expect(saveAllToGallery).toHaveBeenCalledTimes(1);
   });
 });
@@ -633,7 +633,7 @@ describe('segment row "Nach Tagen" / "Auf der Karte"', () => {
     emptyLoadSuccess();
     await wrap();
     await screen.findByText('Nach Tagen');
-    const activeHalf = screen.getByTestId('uebersicht-segment-tage');
+    const activeHalf = screen.getByTestId('overview-segment-days');
     expect(activeHalf.props.accessibilityRole).toBe('text');
     expect(activeHalf.props.accessible).toBe(true);
   });
@@ -738,12 +738,12 @@ describe('the seal on the recap overview', () => {
   test('the seal stands there with its hint, while grid, popcorn, segment row and counting lines stay closed', async () => {
     fullRecap();
     await wrap();
-    expect(await screen.findByTestId('recap-siegel')).toBeTruthy();
+    expect(await screen.findByTestId('recap-seal')).toBeTruthy();
     expect(screen.getByText('Dein Recap ist versiegelt. Tipp aufs Siegel, um ihn zu öffnen.')).toBeTruthy();
     expect(screen.getByText('Lissabon Städtetrip')).toBeTruthy();
     expect(screen.queryByText(POPCORN_TEXT)).toBeNull();
     expect(screen.queryByText('Tag 1 · Lissabon · 10. August')).toBeNull();
-    expect(screen.queryAllByTestId(/^recap-kachel-/)).toHaveLength(0);
+    expect(screen.queryAllByTestId(/^recap-tile-/)).toHaveLength(0);
     expect(screen.queryByText('Auf der Karte')).toBeNull();
     expect(screen.queryByText('1 Moment ist noch unterwegs.')).toBeNull();
   });
@@ -751,7 +751,7 @@ describe('the seal on the recap overview', () => {
   test('the stage of the seal takes the content width, capped at 416', async () => {
     fullRecap();
     await wrap();
-    const seal = await screen.findByTestId('recap-siegel');
+    const seal = await screen.findByTestId('recap-seal');
     // The jest window is 750 wide, minus twice the screen margin 24 would be
     // 702; the cap (sharpness limit of the png) holds at 416.
     expect(seal.props.style).toEqual({ width: 416, height: 416 });
@@ -760,14 +760,14 @@ describe('the seal on the recap overview', () => {
   test('peeled off: the recap arrives, the seal is gone', async () => {
     fullRecap();
     await wrap();
-    await fireEvent.press(await screen.findByTestId('recap-siegel'));
+    await fireEvent.press(await screen.findByTestId('recap-seal'));
 
     expect(await screen.findByText('Tag 1 · Lissabon · 10. August')).toBeTruthy();
     expect(screen.getByText(POPCORN_TEXT)).toBeTruthy();
-    expect(screen.getAllByTestId(/^recap-kachel-/)).toHaveLength(3);
+    expect(screen.getAllByTestId(/^recap-tile-/)).toHaveLength(3);
     expect(screen.getByText('Auf der Karte')).toBeTruthy();
     expect(screen.getByText('1 Moment ist noch unterwegs.')).toBeTruthy();
-    expect(screen.queryByTestId('recap-siegel')).toBeNull();
+    expect(screen.queryByTestId('recap-seal')).toBeNull();
   });
 
   test('without a single visible day there is no seal, peeling it would lead nowhere', async () => {
@@ -779,7 +779,7 @@ describe('the seal on the recap overview', () => {
     });
     await wrap();
     expect(await screen.findByText('1 Moment ist noch unterwegs.')).toBeTruthy();
-    expect(screen.queryByTestId('recap-siegel')).toBeNull();
+    expect(screen.queryByTestId('recap-seal')).toBeNull();
   });
 
   test('neither a load error nor a trip that stayed empty carries a seal', async () => {
@@ -789,12 +789,12 @@ describe('the seal on the recap overview', () => {
     });
     await wrap();
     await screen.findByText('Der Recap konnte nicht geladen werden.');
-    expect(screen.queryByTestId('recap-siegel')).toBeNull();
+    expect(screen.queryByTestId('recap-seal')).toBeNull();
 
     screen.unmount();
     emptyLoadSuccess();
     await wrap();
     await screen.findByText('Diese Reise ist leer geblieben.');
-    expect(screen.queryByTestId('recap-siegel')).toBeNull();
+    expect(screen.queryByTestId('recap-seal')).toBeNull();
   });
 });

@@ -211,15 +211,15 @@ export function Sheet({ visible, title, onClose, children, cinemaMode }: Props) 
           carries surface+shadow+movement, the inner one only the
           limit/the clipping. */}
       <Animated.View
-        testID="sheet-schatten"
+        testID="sheet-shadow"
         style={[styles.shadowLayer, { backgroundColor: surface, opacity, transform: [{ translateY }] }]}
       >
         <View testID="sheet-panel" style={[styles.panelClip, { maxHeight }]}>
           {/* Only the handle area is swipeable, the rest stays free for
               content like lists or input fields (Task 12) that need their
               own touch gestures (scroll). */}
-          <View testID="sheet-griff-bereich" style={styles.handleArea} {...pan.panHandlers}>
-            <View testID="sheet-griff" style={[styles.handle, { backgroundColor: grabberColor }]} />
+          <View testID="sheet-handle-area" style={styles.handleArea} {...pan.panHandlers}>
+            <View testID="sheet-handle" style={[styles.handle, { backgroundColor: grabberColor }]} />
             {title ? <Text style={[type.h3, { color: textColor }]}>{title}</Text> : null}
           </View>
           <View style={styles.content}>{children}</View>

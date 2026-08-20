@@ -123,14 +123,14 @@ beforeEach(() => {
 
 test('places one pin per cluster', async () => {
   await wrap({ clusters: [clusterA, clusterB] });
-  expect(screen.getAllByTestId(/^karte-nadel/)).toHaveLength(2);
+  expect(screen.getAllByTestId(/^map-pin/)).toHaveLength(2);
 });
 
 // The pin sits on the ANCHOR of the cluster, not on an average: the anchor
 // is a real moment with a real coordinate (clustering.ts).
 test('the pin sits on the coordinate of the anchor', async () => {
   await wrap({ clusters: [separable] });
-  expect(screen.getByTestId('karte-nadel-p1').props.coordinate).toEqual({
+  expect(screen.getByTestId('map-pin-p1').props.coordinate).toEqual({
     latitude: 38.71, longitude: -9.14,
   });
 });
@@ -146,7 +146,7 @@ test('the pin carries the image of its anchor', async () => {
   const thumbFor = jest.fn((postId: string) => `https://cdn.example/${postId}.jpg`);
   await wrap({ clusters: [separable], thumbFor });
   expect(thumbFor).toHaveBeenCalledWith('p1');
-  expect(screen.getByTestId('nadel-bild').props.source.uri).toBe('https://cdn.example/p1.jpg');
+  expect(screen.getByTestId('pin-image').props.source.uri).toBe('https://cdn.example/p1.jpg');
 });
 
 // The label has to know the same switch as the tap: if it opens a sheet,
@@ -200,7 +200,7 @@ test('asked with the WHOLE cluster, not just its anchor', async () => {
 test('reports a tap on a cluster upward', async () => {
   const onCluster = jest.fn();
   await wrap({ clusters: [clusterA], onCluster });
-  await fireEvent.press(screen.getByTestId(`karte-nadel-${clusterA.anchor.moment.id}`));
+  await fireEvent.press(screen.getByTestId(`map-pin-${clusterA.anchor.moment.id}`));
   expect(onCluster).toHaveBeenCalledWith(clusterA);
 });
 
@@ -209,7 +209,7 @@ test('reports a tap on a cluster upward', async () => {
 test('reports the cluster whose pin was tapped', async () => {
   const onCluster = jest.fn();
   await wrap({ clusters: [clusterA, clusterB], onCluster });
-  await fireEvent.press(screen.getByTestId('karte-nadel-p2'));
+  await fireEvent.press(screen.getByTestId('map-pin-p2'));
   expect(onCluster).toHaveBeenCalledTimes(1);
   expect(onCluster).toHaveBeenCalledWith(clusterB);
 });
@@ -221,13 +221,13 @@ test('reports the visible viewport after every map movement', async () => {
   const onViewportChange = jest.fn();
   await wrap({ clusters: [clusterA], onViewportChange });
   const tight = { latitude: 38.71, longitude: -9.14, latitudeDelta: 0.002, longitudeDelta: 0.002 };
-  await fireEvent(screen.getByTestId('karte-flaeche'), 'regionChangeComplete', tight);
+  await fireEvent(screen.getByTestId('map-surface'), 'regionChangeComplete', tight);
   expect(onViewportChange).toHaveBeenCalledWith(tight);
 });
 
 test('opens with the given viewport', async () => {
   await wrap({ clusters: [clusterA] });
-  expect(screen.getByTestId('karte-flaeche').props.initialRegion).toEqual(VIEWPORT);
+  expect(screen.getByTestId('map-surface').props.initialRegion).toEqual(VIEWPORT);
 });
 
 // ---------------------------------------------------------------------------
@@ -240,7 +240,7 @@ test('draws the line in the given order', async () => {
     { latitude: 38.72, longitude: -9.13 },
   ];
   await wrap({ clusters: [clusterA, clusterB], line });
-  expect(screen.getByTestId('karte-linie').props.coordinates).toEqual(line);
+  expect(screen.getByTestId('map-line').props.coordinates).toEqual(line);
 });
 
 test('the line is the accent at width 3', async () => {
@@ -249,15 +249,15 @@ test('the line is the accent at width 3', async () => {
     { latitude: 38.72, longitude: -9.13 },
   ];
   await wrap({ line });
-  expect(screen.getByTestId('karte-linie').props.strokeColor).toBe(palette.accent);
-  expect(screen.getByTestId('karte-linie').props.strokeWidth).toBe(3);
+  expect(screen.getByTestId('map-line').props.strokeColor).toBe(palette.accent);
+  expect(screen.getByTestId('map-line').props.strokeWidth).toBe(3);
 });
 
 // A line needs two points, otherwise an overlay would sit on the map that
 // connects nothing.
 test('a single point yields no line', async () => {
   await wrap({ clusters: [clusterA], line: [{ latitude: 38.71, longitude: -9.14 }] });
-  expect(screen.queryByTestId('karte-linie')).toBeNull();
+  expect(screen.queryByTestId('map-line')).toBeNull();
 });
 
 // ---------------------------------------------------------------------------
@@ -370,14 +370,14 @@ test('a tap immediately after a cluster falls apart is not swallowed', async () 
   const tree = (round: number, clusters: Cluster[]) => (
     <ThemeProvider>
       <MapSurface {...base} clusters={clusters} onCluster={onCluster} />
-      <Tapper round={round} pin="karte-nadel-p2" />
+      <Tapper round={round} pin="map-pin-p2" />
     </ThemeProvider>
   );
   // Precondition: p2 is a member of the cluster around p1, so has no pin
   // of its own, the tap below applies to one that didn't exist on the
   // render before.
   const { rerender } = await render(tree(0, [separable]));
-  expect(screen.queryByTestId('karte-nadel-p2')).toBeNull();
+  expect(screen.queryByTestId('map-pin-p2')).toBeNull();
 
   await rerender(tree(1, [clusterA, clusterB]));
 
@@ -393,7 +393,7 @@ test('a tap immediately after a cluster falls apart is not swallowed', async () 
 test('new clusters do not give the pins a new onPress', async () => {
   const onCluster = jest.fn();
   const { rerender } = await wrap({ clusters: [clusterA], onCluster });
-  const before = screen.getByTestId('karte-nadel-p1').props.onPress;
+  const before = screen.getByTestId('map-pin-p1').props.onPress;
 
   // A new array with the same content: exactly what every map movement
   // produces (the screen clusters again on every reported viewport).
@@ -402,5 +402,5 @@ test('new clusters do not give the pins a new onPress', async () => {
       <MapSurface {...base} clusters={[clusterA]} onCluster={onCluster} />
     </ThemeProvider>
   );
-  expect(screen.getByTestId('karte-nadel-p1').props.onPress).toBe(before);
+  expect(screen.getByTestId('map-pin-p1').props.onPress).toBe(before);
 });

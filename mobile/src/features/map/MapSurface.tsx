@@ -91,7 +91,7 @@ export const MapSurface = forwardRef<MapSurfaceHandle, MapSurfaceProps>(
     return (
       <MapView
         ref={mapRef}
-        testID="karte-flaeche"
+        testID="map-surface"
         style={StyleSheet.absoluteFill}
         initialRegion={initialViewport}
         onRegionChangeComplete={onViewportChange}
@@ -100,7 +100,7 @@ export const MapSurface = forwardRef<MapSurfaceHandle, MapSurfaceProps>(
             them. Under two points there's nothing to connect. */}
         {line.length > 1 && (
           <Polyline
-            testID="karte-linie"
+            testID="map-line"
             coordinates={line}
             strokeColor={colors.accent}
             strokeWidth={3}

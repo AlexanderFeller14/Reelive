@@ -44,7 +44,7 @@ function DangerButton({
   const { colors } = useTheme();
   return (
     <PressScale
-      testID="konto-endgueltig-loeschen"
+      testID="delete-account-confirm"
       accessibilityRole="button"
       accessibilityState={{ disabled: !!disabled }}
       onPress={() => {
@@ -53,7 +53,7 @@ function DangerButton({
     >
       <View style={[styles.dangerButton, { borderColor: colors.danger }]}>
         {disabled ? (
-          <ActivityIndicator testID="konto-loeschen-laeuft" color={colors.danger} size="small" />
+          <ActivityIndicator testID="delete-account-loading" color={colors.danger} size="small" />
         ) : (
           <Text style={[type.bodyMedium, { color: colors.danger }]}>{label}</Text>
         )}
@@ -283,7 +283,7 @@ export default function ProfileScreen() {
       {/* Scrollable instead of a fixed height: with the image above it the
           content grows longer than the screen on small devices, and the
           destructive zone at the bottom must never end up out of sight. */}
-      <ScrollView testID="profil-inhalt" contentContainerStyle={[styles.content, { paddingTop: topInset }]}>
+      <ScrollView testID="profile-content" contentContainerStyle={[styles.content, { paddingTop: topInset }]}>
         <View style={styles.headerImage}>
           <AvatarPicker
             large
@@ -308,14 +308,14 @@ export default function ProfileScreen() {
             sits above), and a second one inside would cut it in two (same
             reasoning as the trip card in Avatar.tsx). */}
         <PressScale
-          testID="name-bearbeiten-oeffnen"
+          testID="name-edit-open"
           accessibilityRole="button"
           accessibilityLabel="Anzeigename ändern"
           onPress={openNameEditor}
         >
           <Card style={styles.row}>
             <Image
-              testID="profil-reisepass"
+              testID="profile-passport"
               source={require('@/assets/images/reisepass-rot-transparent.png')}
               style={styles.passport}
               contentFit="contain"
@@ -333,7 +333,7 @@ export default function ProfileScreen() {
                 not an action. In a View wrapper like the badge in
                 AvatarPicker.tsx: Lucide does not pass testID through to the
                 rendered node. */}
-            <View testID="name-bearbeiten-stift">
+            <View testID="name-edit-pencil">
               <Pencil size={20} color={colors['text-2']} strokeWidth={1.75} />
             </View>
           </Card>
@@ -377,7 +377,7 @@ export default function ProfileScreen() {
             itself apart from the rest without introducing a second
             surface or card. */}
         <PressScale
-          testID="konto-loeschen-oeffnen"
+          testID="delete-account-open"
           accessibilityRole="button"
           onPress={openDeleteAccount}
         >
@@ -437,7 +437,7 @@ export default function ProfileScreen() {
                   }],
                 }}
               >
-                <Card testID="name-vorschau" style={styles.row}>
+                <Card testID="name-preview" style={styles.row}>
                   <Avatar name={nameDraft} avatarKey={profile?.avatar_key ?? null} size={44} />
                   <View style={styles.rowText}>
                     <Text style={[type.h1, { color: colors['text-1'] }]}>
@@ -496,7 +496,7 @@ export default function ProfileScreen() {
       <Sheet visible={deleteSheetVisible} title="Konto löschen?" onClose={closeDeleteAccount}>
         {countsState === 'loading' && (
           <View style={styles.countsLoading}>
-            <ActivityIndicator testID="loeschen-zahlen-laedt" color={colors['text-1']} />
+            <ActivityIndicator testID="delete-account-counts-loading" color={colors['text-1']} />
           </View>
         )}
         {countsState === 'error' && (

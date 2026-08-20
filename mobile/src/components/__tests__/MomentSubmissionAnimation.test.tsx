@@ -75,7 +75,7 @@ test('invisible renders nothing and onFinished is never called', async () => {
   const { queryByTestId, unmount } = await render(
     <MomentSubmissionAnimation visible={false} onFinished={onFinished} />
   );
-  expect(queryByTestId('memory-animation')).toBeNull();
+  expect(queryByTestId('moment-animation')).toBeNull();
   await act(async () => {
     jest.advanceTimersByTime(10_000);
   });
@@ -132,7 +132,7 @@ test('visible off and back on restarts the animation fully from the start', asyn
     rerender(<MomentSubmissionAnimation visible={false} onFinished={onFinished} />);
   });
   // Aborted: nothing left in the tree, no late onFinished.
-  expect(queryByTestId('memory-animation')).toBeNull();
+  expect(queryByTestId('moment-animation')).toBeNull();
   await act(async () => {
     jest.advanceTimersByTime(10_000);
   });
@@ -216,10 +216,10 @@ test("rolls the counter up one digit when the trip's count is available", async 
   );
   // 11 → 12: the tens digit stays fixed, the ones digit rolls 1 → 2
   // (digit roll from CounterRoll.tsx, tested in detail there).
-  expect(getByTestId('memory-zaehler')).toBeTruthy();
-  expect(getByTestId('zaehler-ziffer-fest-0').props.children).toBe('1');
-  expect(getByTestId('zaehler-ziffer-alt-1').props.children).toBe('1');
-  expect(getByTestId('zaehler-ziffer-neu-1').props.children).toBe('2');
+  expect(getByTestId('moment-counter')).toBeTruthy();
+  expect(getByTestId('counter-digit-fixed-0').props.children).toBe('1');
+  expect(getByTestId('counter-digit-old-1').props.children).toBe('1');
+  expect(getByTestId('counter-digit-new-1').props.children).toBe('2');
   await act(async () => {
     jest.advanceTimersByTime(TOTAL);
   });
@@ -230,7 +230,7 @@ test('without a counter value, the animation runs without a number', async () =>
   const { queryByTestId, unmount } = await render(
     <MomentSubmissionAnimation visible={true} onFinished={jest.fn()} counter={null} />
   );
-  expect(queryByTestId('memory-zaehler')).toBeNull();
+  expect(queryByTestId('moment-counter')).toBeNull();
   await act(async () => {
     jest.advanceTimersByTime(TOTAL);
   });
@@ -243,7 +243,7 @@ test('with reduced motion, the new count stands still, without a roll', async ()
     <MomentSubmissionAnimation visible={true} onFinished={jest.fn()} counter={11} />
   );
   expect(getByText('12')).toBeTruthy();
-  expect(queryByTestId('zaehler-ziffer-neu-1')).toBeNull();
+  expect(queryByTestId('counter-digit-new-1')).toBeNull();
   await act(async () => {
     jest.advanceTimersByTime(REDUCED_TOTAL);
   });
@@ -260,7 +260,7 @@ test('shows the title, subtitle, three decorative polaroids, and the confirmatio
   // includeHiddenElements: the polaroids are deliberately hidden from
   // accessibility, standard queries filter out exactly such elements, here
   // they should still be counted.
-  const polaroids = getAllByTestId('memory-polaroid', { includeHiddenElements: true });
+  const polaroids = getAllByTestId('moment-polaroid', { includeHiddenElements: true });
   expect(polaroids).toHaveLength(3);
   // Decorative: no polaroid gets read out individually by the screen
   // reader.
@@ -268,10 +268,10 @@ test('shows the title, subtitle, three decorative polaroids, and the confirmatio
     expect(polaroid.props.accessibilityElementsHidden).toBe(true);
   }
 
-  expect(getByTestId('memory-pin')).toBeTruthy();
+  expect(getByTestId('moment-pin')).toBeTruthy();
   // The whole interstitial screen announces itself as ONE element with a
   // clear statement.
-  expect(getByTestId('memory-animation').props.accessibilityLabel).toBe(
+  expect(getByTestId('moment-animation').props.accessibilityLabel).toBe(
     'Moment erfolgreich eingesendet'
   );
   await act(async () => {

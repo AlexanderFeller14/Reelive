@@ -111,12 +111,12 @@ test('a name without letters shows a question mark', async () => {
 test('without a key, the initial stays', async () => {
   await wrap(<Avatar name="Lea" avatarKey={null} />);
   expect(screen.getByText('L')).toBeTruthy();
-  expect(screen.queryByTestId('avatar-bild')).toBeNull();
+  expect(screen.queryByTestId('avatar-image')).toBeNull();
 });
 
 test('with a key, the circle shows the image', async () => {
   await wrap(<Avatar name="Lea" avatarKey={KEY} />);
-  const image = screen.getByTestId('avatar-bild');
+  const image = screen.getByTestId('avatar-image');
   expect(image.props.source).toEqual({ uri: avatarUrl(KEY) });
 });
 
@@ -124,7 +124,7 @@ test('with a key, the circle shows the image', async () => {
 // rectangle in the round (DESIGN-LANGUAGE §4: avatars are round).
 test('the image fills the circle', async () => {
   await wrap(<Avatar name="Lea" avatarKey={KEY} />);
-  expect(screen.getByTestId('avatar-bild').props.contentFit).toBe('cover');
+  expect(screen.getByTestId('avatar-image').props.contentFit).toBe('cover');
 });
 
 // While the image is loading, the initial stays there. Without it, an
@@ -143,7 +143,7 @@ test('the group shows images and initials side by side', async () => {
       ]}
     />
   );
-  expect(screen.getByTestId('avatar-bild')).toBeTruthy();
+  expect(screen.getByTestId('avatar-image')).toBeTruthy();
   expect(screen.getByText('M')).toBeTruthy();
 });
 
@@ -151,7 +151,7 @@ test('the group shows images and initials side by side', async () => {
 // Task 9/10. It must use the dark palette, not the provider's.
 test('the cinema variant takes the dark palette', async () => {
   await wrap(<Avatar name="Lea" avatarKey={null} cinemaMode />);
-  const circle = screen.getByTestId('avatar-kreis');
+  const circle = screen.getByTestId('avatar-circle');
   expect(StyleSheet.flatten(circle.props.style).backgroundColor).toBe(cinema['bg-1']);
 });
 
@@ -168,7 +168,7 @@ test('the cinema variant takes the dark palette', async () => {
 // showing up on a real screen.
 test('the cinema variant draws the ring and initial in the lightest cinema color, not the facepile-separator tone', async () => {
   await wrap(<Avatar name="Lea" avatarKey={null} cinemaMode />);
-  const circle = StyleSheet.flatten(screen.getByTestId('avatar-kreis').props.style);
+  const circle = StyleSheet.flatten(screen.getByTestId('avatar-circle').props.style);
   expect(circle.borderColor).toBe(cinema['text-1']);
   expect(circle.borderColor).not.toBe(cinema['bg-0']);
   const initial = StyleSheet.flatten(screen.getByText('L').props.style);
@@ -186,7 +186,7 @@ test('the cinema variant draws the ring and initial in the lightest cinema color
 // is about.
 test('in the cinema group, the rest circle carries the same ring as the faces next to it', async () => {
   await wrap(<AvatarGroup faces={withoutImage(EIGHT)} cinemaMode />);
-  const face = StyleSheet.flatten(screen.getAllByTestId('avatar-kreis')[0].props.style);
+  const face = StyleSheet.flatten(screen.getAllByTestId('avatar-circle')[0].props.style);
   const rest = StyleSheet.flatten(screen.getByTestId('avatar-rest').props.style);
   expect(rest.borderColor).toBe(face.borderColor);
   expect(StyleSheet.flatten(screen.getByText('+5').props.style).color)

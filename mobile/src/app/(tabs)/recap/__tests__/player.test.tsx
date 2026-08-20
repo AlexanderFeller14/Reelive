@@ -230,8 +230,8 @@ describe('loading and edge cases', () => {
     });
     await wrap();
     expect(screen.getByText('Diese Reise ist leer geblieben.')).toBeTruthy();
-    expect(screen.queryByTestId('player-links')).toBeNull();
-    expect(screen.queryByTestId('player-rechts')).toBeNull();
+    expect(screen.queryByTestId('player-left')).toBeNull();
+    expect(screen.queryByTestId('player-right')).toBeNull();
   });
 
   test('a straggler alone leaves nothing to play, so the player shows the empty text', async () => {
@@ -243,7 +243,7 @@ describe('loading and edge cases', () => {
     });
     await wrap();
     expect(screen.getByText('Diese Reise ist leer geblieben.')).toBeTruthy();
-    expect(screen.queryByTestId('player-links')).toBeNull();
+    expect(screen.queryByTestId('player-left')).toBeNull();
   });
 
   test('a load error shows the cause with a retry instead of an empty player', async () => {
@@ -252,7 +252,7 @@ describe('loading and edge cases', () => {
     (getPool as jest.Mock).mockResolvedValue({ pool: null, error: null, reason: null });
     await wrap();
     expect(screen.getByText('Diese Reise gibt es nicht mehr.')).toBeTruthy();
-    expect(screen.queryByTestId('player-links')).toBeNull();
+    expect(screen.queryByTestId('player-left')).toBeNull();
   });
 });
 
@@ -261,7 +261,7 @@ describe('start index (contract 2)', () => {
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
     (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
-    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: image('p1').medium_url });
+    expect(screen.getByTestId('player-photo').props.source).toEqual({ uri: image('p1').medium_url });
   });
 
   test('a valid start param opens the matching moment right away', async () => {
@@ -269,7 +269,7 @@ describe('start index (contract 2)', () => {
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
     (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
-    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: image('p3').medium_url });
+    expect(screen.getByTestId('player-photo').props.source).toEqual({ uri: image('p3').medium_url });
   });
 
   test.each([['non-numeric', 'abc'], ['negative', '-1'], ['out of range', '999'], ['non-integer', '2.5']])(
@@ -279,7 +279,7 @@ describe('start index (contract 2)', () => {
       (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
       (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
       await wrap();
-      expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: image('p1').medium_url });
+      expect(screen.getByTestId('player-photo').props.source).toEqual({ uri: image('p1').medium_url });
     }
   );
 
@@ -288,7 +288,7 @@ describe('start index (contract 2)', () => {
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
     (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
-    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: image('p1').medium_url });
+    expect(screen.getByTestId('player-photo').props.source).toEqual({ uri: image('p1').medium_url });
   });
 
   // The playlist holds exactly four entries here (p1..p4), so start='4'
@@ -298,7 +298,7 @@ describe('start index (contract 2)', () => {
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
     (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
-    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: image('p1').medium_url });
+    expect(screen.getByTestId('player-photo').props.source).toEqual({ uri: image('p1').medium_url });
   });
 });
 
@@ -323,7 +323,7 @@ describe('header and caption pills (step 3)', () => {
       reason: null,
     });
     await wrap();
-    expect(await screen.findByTestId('avatar-bild')).toBeTruthy();
+    expect(await screen.findByTestId('avatar-image')).toBeTruthy();
   });
 
   test('the time comes from captured_tz OF THE MOMENT, not from the device clock', async () => {
@@ -382,19 +382,19 @@ describe('state machine across the screen', () => {
     (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
     expect(screen.getByTestId('player-video')).toBeTruthy();
-    await fireEvent(screen.getByTestId('player-rechts'), 'pressIn');
-    await fireEvent(screen.getByTestId('player-rechts'), 'pressOut');
-    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: image('p3').medium_url });
+    await fireEvent(screen.getByTestId('player-right'), 'pressIn');
+    await fireEvent(screen.getByTestId('player-right'), 'pressOut');
+    expect(screen.getByTestId('player-photo').props.source).toEqual({ uri: image('p3').medium_url });
   });
 
   test('a tap on the left half at the first moment stays at the first moment', async () => {
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
     (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
-    await fireEvent.press(screen.getByTestId('player-zwischenkarte')); // day 1 interstitial gone
-    await fireEvent(screen.getByTestId('player-links'), 'pressIn');
-    await fireEvent(screen.getByTestId('player-links'), 'pressOut');
-    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: image('p1').medium_url });
+    await fireEvent.press(screen.getByTestId('player-interstitial')); // day 1 interstitial gone
+    await fireEvent(screen.getByTestId('player-left'), 'pressIn');
+    await fireEvent(screen.getByTestId('player-left'), 'pressOut');
+    expect(screen.getByTestId('player-photo').props.source).toEqual({ uri: image('p1').medium_url });
   });
 
   test('once the photo duration is up the player advances on its own', async () => {
@@ -402,12 +402,12 @@ describe('state machine across the screen', () => {
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
     (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
-    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: image('p3').medium_url });
+    expect(screen.getByTestId('player-photo').props.source).toEqual({ uri: image('p3').medium_url });
     await act(async () => {
       jest.advanceTimersByTime(5000); // PHOTO_DURATION_MS
     });
     // p3 -> p4 is a day change, so the day 2 interstitial has to be there.
-    expect(screen.getByTestId('player-zwischenkarte')).toBeTruthy();
+    expect(screen.getByTestId('player-interstitial')).toBeTruthy();
     expect(screen.getByText('Tag 2 · 11. August')).toBeTruthy();
   });
 
@@ -416,10 +416,10 @@ describe('state machine across the screen', () => {
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
     (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
-    await fireEvent.press(screen.getByTestId('player-zwischenkarte')); // day 2 interstitial gone
-    await fireEvent(screen.getByTestId('player-rechts'), 'pressIn');
-    await fireEvent(screen.getByTestId('player-rechts'), 'pressOut');
-    expect(screen.getByTestId('player-ende')).toBeTruthy();
+    await fireEvent.press(screen.getByTestId('player-interstitial')); // day 2 interstitial gone
+    await fireEvent(screen.getByTestId('player-right'), 'pressIn');
+    await fireEvent(screen.getByTestId('player-right'), 'pressOut');
+    expect(screen.getByTestId('player-end')).toBeTruthy();
     expect(screen.getByText('Das war der Recap.')).toBeTruthy();
     expect(screen.getByText('1 Moment ist noch unterwegs.')).toBeTruthy();
   });
@@ -429,13 +429,13 @@ describe('state machine across the screen', () => {
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
     (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
-    await fireEvent(screen.getByTestId('player-rechts'), 'pressIn');
+    await fireEvent(screen.getByTestId('player-right'), 'pressIn');
     await act(async () => {
       jest.advanceTimersByTime(5000);
     });
-    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: image('p3').medium_url });
-    await fireEvent(screen.getByTestId('player-rechts'), 'pressOut');
-    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: image('p3').medium_url });
+    expect(screen.getByTestId('player-photo').props.source).toEqual({ uri: image('p3').medium_url });
+    await fireEvent(screen.getByTestId('player-right'), 'pressOut');
+    expect(screen.getByTestId('player-photo').props.source).toEqual({ uri: image('p3').medium_url });
   });
 
   test('a short tap navigates while a long press only holds', async () => {
@@ -443,9 +443,9 @@ describe('state machine across the screen', () => {
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
     (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
-    await fireEvent(screen.getByTestId('player-rechts'), 'pressIn');
-    await fireEvent(screen.getByTestId('player-rechts'), 'pressOut'); // released at once: a tap
-    expect(screen.getByTestId('player-zwischenkarte')).toBeTruthy(); // p3 -> p4, day change
+    await fireEvent(screen.getByTestId('player-right'), 'pressIn');
+    await fireEvent(screen.getByTestId('player-right'), 'pressOut'); // released at once: a tap
+    expect(screen.getByTestId('player-interstitial')).toBeTruthy(); // p3 -> p4, day change
   });
 });
 
@@ -454,12 +454,12 @@ describe('day interstitial', () => {
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
     (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
-    expect(screen.getByTestId('player-zwischenkarte')).toBeTruthy();
+    expect(screen.getByTestId('player-interstitial')).toBeTruthy();
     expect(screen.getByText('Tag 1 · Lissabon · 10. August')).toBeTruthy();
     await act(async () => {
       jest.advanceTimersByTime(1500);
     });
-    expect(screen.queryByTestId('player-zwischenkarte')).toBeNull();
+    expect(screen.queryByTestId('player-interstitial')).toBeNull();
     // The normal auto advance runs on from HERE (not from the mount): p1
     // moves to p2 one photo duration later.
     await act(async () => {
@@ -472,20 +472,20 @@ describe('day interstitial', () => {
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
     (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
-    expect(screen.getByTestId('player-zwischenkarte')).toBeTruthy();
+    expect(screen.getByTestId('player-interstitial')).toBeTruthy();
     await act(async () => {
       jest.advanceTimersByTime(1499);
     });
-    expect(screen.getByTestId('player-zwischenkarte')).toBeTruthy();
+    expect(screen.getByTestId('player-interstitial')).toBeTruthy();
   });
 
   test('a tap during the day interstitial skips ONLY the interstitial, without advancing as well', async () => {
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
     (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
-    await fireEvent.press(screen.getByTestId('player-zwischenkarte'));
-    expect(screen.queryByTestId('player-zwischenkarte')).toBeNull();
-    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: image('p1').medium_url });
+    await fireEvent.press(screen.getByTestId('player-interstitial'));
+    expect(screen.queryByTestId('player-interstitial')).toBeNull();
+    expect(screen.getByTestId('player-photo').props.source).toEqual({ uri: image('p1').medium_url });
   });
 
   // fireEvent.press knows nothing about geometry or stacking, so the
@@ -494,9 +494,9 @@ describe('day interstitial', () => {
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
     (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
-    const card = StyleSheet.flatten(screen.getByTestId('player-zwischenkarte').props.style);
-    const left = StyleSheet.flatten(screen.getByTestId('player-links').props.style);
-    const right = StyleSheet.flatten(screen.getByTestId('player-rechts').props.style);
+    const card = StyleSheet.flatten(screen.getByTestId('player-interstitial').props.style);
+    const left = StyleSheet.flatten(screen.getByTestId('player-left').props.style);
+    const right = StyleSheet.flatten(screen.getByTestId('player-right').props.style);
     expect(card.zIndex).toBeGreaterThan(left.zIndex ?? 0);
     expect(card.zIndex).toBeGreaterThan(right.zIndex ?? 0);
   });
@@ -507,11 +507,11 @@ describe('day interstitial', () => {
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
     (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
-    expect(screen.getByTestId('player-zwischenkarte')).toBeTruthy();
-    const closePill = StyleSheet.flatten(screen.getByTestId('player-schliessen').props.style);
-    const card = StyleSheet.flatten(screen.getByTestId('player-zwischenkarte').props.style);
+    expect(screen.getByTestId('player-interstitial')).toBeTruthy();
+    const closePill = StyleSheet.flatten(screen.getByTestId('player-close').props.style);
+    const card = StyleSheet.flatten(screen.getByTestId('player-interstitial').props.style);
     expect(closePill.zIndex).toBeGreaterThan(card.zIndex ?? 0);
-    await fireEvent.press(screen.getByTestId('player-schliessen'));
+    await fireEvent.press(screen.getByTestId('player-close'));
     expect(mockBack).toHaveBeenCalled();
   });
 
@@ -534,9 +534,9 @@ describe('day interstitial', () => {
     });
     await wrap();
     // p3 -> p2v: a day change, the day 2 interstitial appears BEFORE the video.
-    await fireEvent(screen.getByTestId('player-rechts'), 'pressIn');
-    await fireEvent(screen.getByTestId('player-rechts'), 'pressOut');
-    expect(screen.getByTestId('player-zwischenkarte')).toBeTruthy();
+    await fireEvent(screen.getByTestId('player-right'), 'pressIn');
+    await fireEvent(screen.getByTestId('player-right'), 'pressOut');
+    expect(screen.getByTestId('player-interstitial')).toBeTruthy();
     expect(screen.getByTestId('player-video')).toBeTruthy();
     expect(mockVideoPlayer.pause).toHaveBeenCalled();
 
@@ -546,19 +546,19 @@ describe('day interstitial', () => {
       jest.advanceTimersByTime(1000);
       mockListeners.playToEnd?.forEach((cb) => cb());
     });
-    expect(screen.getByTestId('player-zwischenkarte')).toBeTruthy();
+    expect(screen.getByTestId('player-interstitial')).toBeTruthy();
     expect(screen.getByTestId('player-video')).toBeTruthy();
 
     await act(async () => {
       jest.advanceTimersByTime(500); // 1500 ms in total since the day change
     });
-    expect(screen.queryByTestId('player-zwischenkarte')).toBeNull();
+    expect(screen.queryByTestId('player-interstitial')).toBeNull();
     expect(screen.getByTestId('player-video')).toBeTruthy();
     await act(async () => {
       mockListeners.playToEnd?.forEach((cb) => cb());
     });
     expect(screen.queryByTestId('player-video')).toBeNull(); // last moment reached, end screen
-    expect(screen.getByTestId('player-ende')).toBeTruthy();
+    expect(screen.getByTestId('player-end')).toBeTruthy();
   });
 
   // Skipping the interstitial by tap leaves its timer orphaned: the deps of
@@ -583,24 +583,24 @@ describe('day interstitial', () => {
     await wrap();
     // Step 1: the day change shows the day 2 interstitial and starts its
     // 1.5 s timer T (t=0 from here on).
-    await fireEvent(screen.getByTestId('player-rechts'), 'pressIn');
-    await fireEvent(screen.getByTestId('player-rechts'), 'pressOut');
-    expect(screen.getByTestId('player-zwischenkarte')).toBeTruthy();
+    await fireEvent(screen.getByTestId('player-right'), 'pressIn');
+    await fireEvent(screen.getByTestId('player-right'), 'pressOut');
+    expect(screen.getByTestId('player-interstitial')).toBeTruthy();
 
     // Step 2: tap the interstitial at t=200 ms (skip). T lives on, orphaned.
     await act(async () => {
       jest.advanceTimersByTime(200);
     });
-    await fireEvent.press(screen.getByTestId('player-zwischenkarte'));
-    expect(screen.queryByTestId('player-zwischenkarte')).toBeNull();
+    await fireEvent.press(screen.getByTestId('player-interstitial'));
+    expect(screen.queryByTestId('player-interstitial')).toBeNull();
 
     // Step 3: at t=400 ms open the comment sheet, which really pauses the
     // video (player.pause()).
     await act(async () => {
       jest.advanceTimersByTime(200);
     });
-    await fireEvent.press(screen.getByTestId('player-kommentare-oeffnen'));
-    expect(screen.getByTestId('kommentar-eingabe')).toBeTruthy(); // sheet is open
+    await fireEvent.press(screen.getByTestId('player-comments-open'));
+    expect(screen.getByTestId('comment-input')).toBeTruthy(); // sheet is open
     const playCallsOnOpen = mockVideoPlayer.play.mock.calls.length;
     const pauseCallsOnOpen = mockVideoPlayer.pause.mock.calls.length;
 
@@ -612,7 +612,7 @@ describe('day interstitial', () => {
 
     expect(mockVideoPlayer.play.mock.calls.length).toBe(playCallsOnOpen);
     expect(mockVideoPlayer.pause.mock.calls.length).toBe(pauseCallsOnOpen);
-    expect(screen.getByTestId('kommentar-eingabe')).toBeTruthy(); // sheet still open
+    expect(screen.getByTestId('comment-input')).toBeTruthy(); // sheet still open
   });
 });
 
@@ -627,7 +627,7 @@ describe('video moments', () => {
       jest.advanceTimersByTime(500); // well before the fallback's 3000 ms
       mockListeners.playToEnd?.forEach((cb) => cb());
     });
-    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: image('p3').medium_url });
+    expect(screen.getByTestId('player-photo').props.source).toEqual({ uri: image('p3').medium_url });
   });
 
   test('holding pauses the actual video playback as well, releasing resumes it', async () => {
@@ -637,13 +637,13 @@ describe('video moments', () => {
     await wrap();
     expect(mockVideoPlayer.pause).not.toHaveBeenCalled();
 
-    await fireEvent(screen.getByTestId('player-rechts'), 'pressIn');
+    await fireEvent(screen.getByTestId('player-right'), 'pressIn');
     expect(mockVideoPlayer.pause).toHaveBeenCalledTimes(1);
 
     await act(async () => {
       jest.advanceTimersByTime(400); // long enough for a hold, too long for a tap
     });
-    await fireEvent(screen.getByTestId('player-rechts'), 'pressOut');
+    await fireEvent(screen.getByTestId('player-right'), 'pressOut');
     // play() already ran once when the player was created (setup), the
     // SECOND call is the resume.
     expect(mockVideoPlayer.play.mock.calls.length).toBeGreaterThanOrEqual(2);
@@ -654,15 +654,15 @@ describe('video moments', () => {
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
     (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
-    await fireEvent(screen.getByTestId('player-rechts'), 'pressIn'); // hold
+    await fireEvent(screen.getByTestId('player-right'), 'pressIn'); // hold
     await act(async () => {
       mockListeners.playToEnd?.forEach((cb) => cb());
     });
-    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: image('p3').medium_url });
+    expect(screen.getByTestId('player-photo').props.source).toEqual({ uri: image('p3').medium_url });
     await act(async () => {
       jest.advanceTimersByTime(5000); // PHOTO_DURATION_MS
     });
-    expect(screen.getByTestId('player-zwischenkarte')).toBeTruthy(); // p3 -> p4, day change
+    expect(screen.getByTestId('player-interstitial')).toBeTruthy(); // p3 -> p4, day change
   });
 
   test('a video that fails to load shows the thumbnail and a hint after one silent retry, and stays tappable', async () => {
@@ -688,9 +688,9 @@ describe('video moments', () => {
     expect(getPool).toHaveBeenCalledTimes(2); // no third, invisible attempt
 
     // The recap does not break off, tapping onwards keeps working.
-    await fireEvent(screen.getByTestId('player-rechts'), 'pressIn');
-    await fireEvent(screen.getByTestId('player-rechts'), 'pressOut');
-    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: image('p3').medium_url });
+    await fireEvent(screen.getByTestId('player-right'), 'pressIn');
+    await fireEvent(screen.getByTestId('player-right'), 'pressOut');
+    expect(screen.getByTestId('player-photo').props.source).toEqual({ uri: image('p3').medium_url });
   });
 
   // The same treatment as for a video, symmetrically for a photo (V10: a broken
@@ -702,7 +702,7 @@ describe('video moments', () => {
 
     // First failure: a SILENT retry, no hint text yet.
     await act(async () => {
-      screen.getByTestId('player-foto').props.onError();
+      screen.getByTestId('player-photo').props.onError();
     });
     await act(async () => {});
     expect(screen.queryByText('Dieses Foto lässt sich gerade nicht laden.')).toBeNull();
@@ -710,14 +710,14 @@ describe('video moments', () => {
     // Second failure on the same moment: the retry is used up, the hint appears
     // over the thumbnail, and the photo view itself is gone.
     await act(async () => {
-      screen.getByTestId('player-foto').props.onError();
+      screen.getByTestId('player-photo').props.onError();
     });
     expect(screen.getByText('Dieses Foto lässt sich gerade nicht laden.')).toBeTruthy();
-    expect(screen.queryByTestId('player-foto')).toBeNull();
+    expect(screen.queryByTestId('player-photo')).toBeNull();
 
     // The recap does not break off, tapping onwards keeps working.
-    await fireEvent(screen.getByTestId('player-rechts'), 'pressIn');
-    await fireEvent(screen.getByTestId('player-rechts'), 'pressOut');
+    await fireEvent(screen.getByTestId('player-right'), 'pressIn');
+    await fireEvent(screen.getByTestId('player-right'), 'pressOut');
     expect(screen.getByTestId('player-video')).toBeTruthy();
   });
 
@@ -755,15 +755,15 @@ describe('video moments', () => {
     const p2EndCallback = mockListeners.playToEnd[0];
     expect(p2EndCallback).toBeTruthy();
 
-    await fireEvent(screen.getByTestId('player-rechts'), 'pressIn');
-    await fireEvent(screen.getByTestId('player-rechts'), 'pressOut'); // p2 -> p3
-    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: image('p3').medium_url });
+    await fireEvent(screen.getByTestId('player-right'), 'pressIn');
+    await fireEvent(screen.getByTestId('player-right'), 'pressOut'); // p2 -> p3
+    expect(screen.getByTestId('player-photo').props.source).toEqual({ uri: image('p3').medium_url });
 
     // The late event from p2 arrives now.
     await act(async () => {
       p2EndCallback();
     });
-    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: image('p3').medium_url });
+    expect(screen.getByTestId('player-photo').props.source).toEqual({ uri: image('p3').medium_url });
   });
 
   test('a late retry answer for a moment left behind does not override the pause of the new moment', async () => {
@@ -778,10 +778,10 @@ describe('video moments', () => {
       mockListeners.statusChange?.forEach((cb) => cb({ status: 'error' })); // triggers the hanging retry for p2
     });
     // Meanwhile the viewer taps onwards ...
-    await fireEvent(screen.getByTestId('player-rechts'), 'pressIn');
-    await fireEvent(screen.getByTestId('player-rechts'), 'pressOut'); // -> p3
+    await fireEvent(screen.getByTestId('player-right'), 'pressIn');
+    await fireEvent(screen.getByTestId('player-right'), 'pressOut'); // -> p3
     // ... and now holds on the NEW moment.
-    await fireEvent(screen.getByTestId('player-rechts'), 'pressIn');
+    await fireEvent(screen.getByTestId('player-right'), 'pressIn');
     // The late answer for p2 arrives now.
     await act(async () => {
       resolveRetry({ pool: POOL_OK });
@@ -789,7 +789,7 @@ describe('video moments', () => {
     await act(async () => {
       jest.advanceTimersByTime(5000);
     });
-    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: image('p3').medium_url });
+    expect(screen.getByTestId('player-photo').props.source).toEqual({ uri: image('p3').medium_url });
   });
 
   // Unlike the test above this one only taps onwards and never holds again,
@@ -807,9 +807,9 @@ describe('video moments', () => {
       mockListeners.statusChange?.forEach((cb) => cb({ status: 'error' })); // triggers the hanging retry for p2
     });
     // The viewer taps onwards without holding afterwards -> p3.
-    await fireEvent(screen.getByTestId('player-rechts'), 'pressIn');
-    await fireEvent(screen.getByTestId('player-rechts'), 'pressOut');
-    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: image('p3').medium_url });
+    await fireEvent(screen.getByTestId('player-right'), 'pressIn');
+    await fireEvent(screen.getByTestId('player-right'), 'pressOut');
+    expect(screen.getByTestId('player-photo').props.source).toEqual({ uri: image('p3').medium_url });
 
     // The late answer for p2 arrives now.
     await act(async () => {
@@ -822,7 +822,7 @@ describe('video moments', () => {
     await act(async () => {
       jest.advanceTimersByTime(5000); // PHOTO_DURATION_MS
     });
-    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: image('p4').medium_url });
+    expect(screen.getByTestId('player-photo').props.source).toEqual({ uri: image('p4').medium_url });
   });
 });
 
@@ -848,12 +848,12 @@ describe('pool renewal (V10)', () => {
       .mockResolvedValueOnce({ pool: soonExpiring, error: null, reason: null })
       .mockResolvedValue({ pool: POOL_RENEWED, error: null, reason: null });
     await wrap();
-    await fireEvent(screen.getByTestId('player-rechts'), 'pressIn');
-    await fireEvent(screen.getByTestId('player-rechts'), 'pressOut');
+    await fireEvent(screen.getByTestId('player-right'), 'pressIn');
+    await fireEvent(screen.getByTestId('player-right'), 'pressOut');
     await act(async () => {});
     expect(getPool).toHaveBeenCalledTimes(2);
-    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: imageRenewed('p3').medium_url });
-    expect(screen.queryByTestId('player-fehler')).toBeNull();
+    expect(screen.getByTestId('player-photo').props.source).toEqual({ uri: imageRenewed('p3').medium_url });
+    expect(screen.queryByTestId('player-error')).toBeNull();
   });
 
   test('a pool with plenty of time left is NOT fetched again', async () => {
@@ -861,8 +861,8 @@ describe('pool renewal (V10)', () => {
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
     (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
-    await fireEvent(screen.getByTestId('player-rechts'), 'pressIn');
-    await fireEvent(screen.getByTestId('player-rechts'), 'pressOut');
+    await fireEvent(screen.getByTestId('player-right'), 'pressIn');
+    await fireEvent(screen.getByTestId('player-right'), 'pressOut');
     await act(async () => {});
     expect(getPool).toHaveBeenCalledTimes(1);
   });
@@ -875,8 +875,8 @@ describe('pool renewal (V10)', () => {
       .mockResolvedValueOnce({ pool: soonExpiring, error: null, reason: null })
       .mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
-    await fireEvent(screen.getByTestId('player-links'), 'pressIn');
-    await fireEvent(screen.getByTestId('player-links'), 'pressOut');
+    await fireEvent(screen.getByTestId('player-left'), 'pressIn');
+    await fireEvent(screen.getByTestId('player-left'), 'pressOut');
     await act(async () => {});
     expect(getPool).toHaveBeenCalledTimes(2);
   });
@@ -890,11 +890,11 @@ describe('pool renewal (V10)', () => {
       .mockResolvedValueOnce({ pool: soonExpiring, error: null, reason: null })
       .mockReturnValueOnce(new Promise((resolve) => { resolvePool = resolve; }));
     await wrap();
-    await fireEvent.press(screen.getByTestId('player-zwischenkarte'));
-    await fireEvent(screen.getByTestId('player-rechts'), 'pressIn');
-    await fireEvent(screen.getByTestId('player-rechts'), 'pressOut'); // triggers the hanging renewal
-    await fireEvent(screen.getByTestId('player-rechts'), 'pressIn');
-    await fireEvent(screen.getByTestId('player-rechts'), 'pressOut'); // second tap, renewal still running
+    await fireEvent.press(screen.getByTestId('player-interstitial'));
+    await fireEvent(screen.getByTestId('player-right'), 'pressIn');
+    await fireEvent(screen.getByTestId('player-right'), 'pressOut'); // triggers the hanging renewal
+    await fireEvent(screen.getByTestId('player-right'), 'pressIn');
+    await fireEvent(screen.getByTestId('player-right'), 'pressOut'); // second tap, renewal still running
     expect(getPool).toHaveBeenCalledTimes(2); // 1x initial load, ONLY 1x renewal
     await act(async () => {
       resolvePool({ pool: POOL_OK });
@@ -942,10 +942,10 @@ describe('stragglers and skipped moments on the end screen', () => {
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [...MOMENTS, p6], error: null });
     (getPool as jest.Mock).mockResolvedValue({ pool: { ...POOL_OK, skipped: 1 }, error: null, reason: null });
     await wrap();
-    await fireEvent.press(screen.getByTestId('player-zwischenkarte'));
-    await fireEvent(screen.getByTestId('player-rechts'), 'pressIn');
-    await fireEvent(screen.getByTestId('player-rechts'), 'pressOut');
-    expect(screen.getByTestId('player-ende')).toBeTruthy();
+    await fireEvent.press(screen.getByTestId('player-interstitial'));
+    await fireEvent(screen.getByTestId('player-right'), 'pressIn');
+    await fireEvent(screen.getByTestId('player-right'), 'pressOut');
+    expect(screen.getByTestId('player-end')).toBeTruthy();
     expect(screen.getByText('1 Moment ist noch unterwegs.')).toBeTruthy();
     expect(screen.getByText('1 Moment liess sich gerade nicht laden. Schau später nochmal rein.')).toBeTruthy();
   });
@@ -960,9 +960,9 @@ describe('stragglers and skipped moments on the end screen', () => {
       reason: null,
     });
     await wrap();
-    await fireEvent(screen.getByTestId('player-rechts'), 'pressIn');
-    await fireEvent(screen.getByTestId('player-rechts'), 'pressOut');
-    expect(screen.getByTestId('player-ende')).toBeTruthy();
+    await fireEvent(screen.getByTestId('player-right'), 'pressIn');
+    await fireEvent(screen.getByTestId('player-right'), 'pressOut');
+    expect(screen.getByTestId('player-end')).toBeTruthy();
     expect(screen.queryByText(/unterwegs\.$/)).toBeNull();
     expect(screen.queryByText(/laden\. Schau später nochmal rein\.$/)).toBeNull();
   });
@@ -973,7 +973,7 @@ describe('closing the player', () => {
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
     (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
-    await fireEvent.press(screen.getByTestId('player-schliessen'));
+    await fireEvent.press(screen.getByTestId('player-close'));
     expect(mockBack).toHaveBeenCalled();
     expect(mockReplace).not.toHaveBeenCalled();
   });
@@ -983,7 +983,7 @@ describe('closing the player', () => {
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
     (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
-    await fireEvent.press(screen.getByTestId('player-schliessen'));
+    await fireEvent.press(screen.getByTestId('player-close'));
     expect(mockReplace).toHaveBeenCalledWith('/recap');
     expect(mockBack).not.toHaveBeenCalled();
   });
@@ -998,18 +998,18 @@ describe('closing the player', () => {
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
     (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
-    await fireEvent.press(screen.getByTestId('player-zwischenkarte')); // interstitial gone, tap zones free
+    await fireEvent.press(screen.getByTestId('player-interstitial')); // interstitial gone, tap zones free
     const config = createSpy.mock.calls[0][0];
     // The touch has to start on the tap zone: without this pressIn the
     // recorded touch start would stay at 0, the gesture would count as a
     // very long hold, and the test would go green by accident even without
     // the takeover guard.
-    await fireEvent(screen.getByTestId('player-rechts'), 'pressIn');
+    await fireEvent(screen.getByTestId('player-right'), 'pressIn');
     await act(async () => {
       config.onPanResponderGrant?.({} as never, {} as never); // the swipe takes the touch over
     });
-    await fireEvent(screen.getByTestId('player-rechts'), 'pressOut'); // Pressability fires anyway
-    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: image('p1').medium_url });
+    await fireEvent(screen.getByTestId('player-right'), 'pressOut'); // Pressability fires anyway
+    expect(screen.getByTestId('player-photo').props.source).toEqual({ uri: image('p1').medium_url });
     createSpy.mockRestore();
   });
 
@@ -1018,16 +1018,16 @@ describe('closing the player', () => {
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
     (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
-    await fireEvent.press(screen.getByTestId('player-zwischenkarte'));
+    await fireEvent.press(screen.getByTestId('player-interstitial'));
     const config = createSpy.mock.calls[0][0];
-    await fireEvent(screen.getByTestId('player-rechts'), 'pressIn');
+    await fireEvent(screen.getByTestId('player-right'), 'pressIn');
     await act(async () => {
       config.onPanResponderGrant?.({} as never, {} as never);
     });
-    await fireEvent(screen.getByTestId('player-rechts'), 'pressOut'); // swallowed by the swipe
-    await fireEvent(screen.getByTestId('player-rechts'), 'pressIn'); // a new touch
-    await fireEvent(screen.getByTestId('player-rechts'), 'pressOut');
-    // p1 -> p2, and p2 is a video (not 'player-foto').
+    await fireEvent(screen.getByTestId('player-right'), 'pressOut'); // swallowed by the swipe
+    await fireEvent(screen.getByTestId('player-right'), 'pressIn'); // a new touch
+    await fireEvent(screen.getByTestId('player-right'), 'pressOut');
+    // p1 -> p2, and p2 is a video (not 'player-photo').
     expect(screen.getByTestId('player-video')).toBeTruthy();
     createSpy.mockRestore();
   });
@@ -1098,9 +1098,9 @@ describe('reactions (Task 12)', () => {
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
     (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
-    const social = StyleSheet.flatten(screen.getByTestId('player-sozial-bereich').props.style);
-    const left = StyleSheet.flatten(screen.getByTestId('player-links').props.style);
-    const right = StyleSheet.flatten(screen.getByTestId('player-rechts').props.style);
+    const social = StyleSheet.flatten(screen.getByTestId('player-social-area').props.style);
+    const left = StyleSheet.flatten(screen.getByTestId('player-left').props.style);
+    const right = StyleSheet.flatten(screen.getByTestId('player-right').props.style);
     expect(social.zIndex).toBeGreaterThan(left.zIndex ?? 0);
     expect(social.zIndex).toBeGreaterThan(right.zIndex ?? 0);
   });
@@ -1120,17 +1120,17 @@ describe('reactions (Task 12)', () => {
     (setReaction as jest.Mock).mockReturnValue(promise); // deliberately NOT resolved
 
     await wrap();
-    expect(screen.getByTestId('player-emoji-herz').props.accessibilityState.selected).toBe(false);
+    expect(screen.getByTestId('player-emoji-heart').props.accessibilityState.selected).toBe(false);
 
-    await fireEvent.press(screen.getByTestId('player-emoji-herz'));
+    await fireEvent.press(screen.getByTestId('player-emoji-heart'));
     // Without any wait on `promise`: the pill has to be active already.
-    expect(screen.getByTestId('player-emoji-herz').props.accessibilityState.selected).toBe(true);
+    expect(screen.getByTestId('player-emoji-heart').props.accessibilityState.selected).toBe(true);
     expect(mockHaptics).toHaveBeenCalledWith('light');
 
     await act(async () => {
       resolve({ error: null });
     });
-    expect(screen.getByTestId('player-emoji-herz').props.accessibilityState.selected).toBe(true);
+    expect(screen.getByTestId('player-emoji-heart').props.accessibilityState.selected).toBe(true);
   });
 
   test('when setting fails the reaction disappears again and the cause is shown', async () => {
@@ -1140,14 +1140,14 @@ describe('reactions (Task 12)', () => {
     (setReaction as jest.Mock).mockReturnValue(promise);
 
     await wrap();
-    await fireEvent.press(screen.getByTestId('player-emoji-herz'));
+    await fireEvent.press(screen.getByTestId('player-emoji-heart'));
     // Optimistic: already active BEFORE the answer arrives.
-    expect(screen.getByTestId('player-emoji-herz').props.accessibilityState.selected).toBe(true);
+    expect(screen.getByTestId('player-emoji-heart').props.accessibilityState.selected).toBe(true);
 
     await act(async () => {
       resolve({ error: 'Deine Reaktion konnte nicht gespeichert werden. Probier es gleich nochmal.' });
     });
-    expect(screen.getByTestId('player-emoji-herz').props.accessibilityState.selected).toBe(false);
+    expect(screen.getByTestId('player-emoji-heart').props.accessibilityState.selected).toBe(false);
     expect(
       screen.getByText('Deine Reaktion konnte nicht gespeichert werden. Probier es gleich nochmal.')
     ).toBeTruthy();
@@ -1160,7 +1160,7 @@ describe('reactions (Task 12)', () => {
     (setReaction as jest.Mock).mockReturnValue(promise);
 
     await wrap();
-    const pill = screen.getByTestId('player-emoji-herz');
+    const pill = screen.getByTestId('player-emoji-heart');
     // Two taps while the answer to the first is still outstanding. The
     // guard is purely synchronous, so it needs no real concurrency, only
     // both presses arriving before setReaction has answered.
@@ -1184,10 +1184,10 @@ describe('reactions (Task 12)', () => {
     (removeReaction as jest.Mock).mockResolvedValue({ error: null });
 
     await wrap();
-    expect(screen.getByTestId('player-emoji-herz').props.accessibilityState.selected).toBe(true);
+    expect(screen.getByTestId('player-emoji-heart').props.accessibilityState.selected).toBe(true);
 
-    await fireEvent.press(screen.getByTestId('player-emoji-herz'));
-    expect(screen.getByTestId('player-emoji-herz').props.accessibilityState.selected).toBe(false);
+    await fireEvent.press(screen.getByTestId('player-emoji-heart'));
+    expect(screen.getByTestId('player-emoji-heart').props.accessibilityState.selected).toBe(false);
     expect(removeReaction).toHaveBeenCalledWith('p1', '❤️');
     expect(setReaction).not.toHaveBeenCalled();
   });
@@ -1203,14 +1203,14 @@ describe('reactions (Task 12)', () => {
     (removeReaction as jest.Mock).mockReturnValue(promise);
 
     await wrap();
-    await fireEvent.press(screen.getByTestId('player-emoji-herz'));
+    await fireEvent.press(screen.getByTestId('player-emoji-heart'));
     // Optimistic: already inactive BEFORE the answer arrives.
-    expect(screen.getByTestId('player-emoji-herz').props.accessibilityState.selected).toBe(false);
+    expect(screen.getByTestId('player-emoji-heart').props.accessibilityState.selected).toBe(false);
 
     await act(async () => {
       resolve({ error: 'Deine Reaktion konnte nicht entfernt werden. Probier es gleich nochmal.' });
     });
-    expect(screen.getByTestId('player-emoji-herz').props.accessibilityState.selected).toBe(true);
+    expect(screen.getByTestId('player-emoji-heart').props.accessibilityState.selected).toBe(true);
     expect(
       screen.getByText('Deine Reaktion konnte nicht entfernt werden. Probier es gleich nochmal.')
     ).toBeTruthy();
@@ -1230,7 +1230,7 @@ describe('reactions (Task 12)', () => {
       error: null,
     });
     await wrap();
-    expect(screen.getByTestId('player-reaktionen-andere')).toBeTruthy();
+    expect(screen.getByTestId('player-reactions-others')).toBeTruthy();
     expect(screen.getByText('😂 👏')).toBeTruthy();
     expect(screen.queryByText('Jonas')).toBeNull();
   });
@@ -1243,7 +1243,7 @@ describe('reactions (Task 12)', () => {
       error: null,
     });
     await wrap();
-    expect(screen.queryByTestId('player-reaktionen-andere')).toBeNull();
+    expect(screen.queryByTestId('player-reactions-others')).toBeNull();
   });
 
   test('a reaction by someone else does NOT mark your own pill as active', async () => {
@@ -1256,10 +1256,10 @@ describe('reactions (Task 12)', () => {
     (setReaction as jest.Mock).mockResolvedValue({ error: null });
 
     await wrap();
-    expect(screen.getByTestId('player-emoji-lachen').props.accessibilityState.selected).toBe(false);
+    expect(screen.getByTestId('player-emoji-laugh').props.accessibilityState.selected).toBe(false);
 
     // A tap on 😂 therefore has to SET, not remove Jonas' reaction.
-    await fireEvent.press(screen.getByTestId('player-emoji-lachen'));
+    await fireEvent.press(screen.getByTestId('player-emoji-laugh'));
     expect(setReaction).toHaveBeenCalledWith('p1', '😂');
     expect(removeReaction).not.toHaveBeenCalled();
   });
@@ -1272,9 +1272,9 @@ describe('reactions (Task 12)', () => {
     (setReaction as jest.Mock).mockReturnValue(promise);
 
     await wrap();
-    await fireEvent.press(screen.getByTestId('player-emoji-herz')); // reacts on p2, hangs
-    await fireEvent(screen.getByTestId('player-rechts'), 'pressIn');
-    await fireEvent(screen.getByTestId('player-rechts'), 'pressOut'); // on to p3
+    await fireEvent.press(screen.getByTestId('player-emoji-heart')); // reacts on p2, hangs
+    await fireEvent(screen.getByTestId('player-right'), 'pressIn');
+    await fireEvent(screen.getByTestId('player-right'), 'pressOut'); // on to p3
 
     await act(async () => {
       resolve({ error: 'Deine Reaktion konnte nicht gespeichert werden. Probier es gleich nochmal.' });
@@ -1308,15 +1308,15 @@ describe('reactions (Task 12)', () => {
     // state: an already REJECTED promise settles just as fast as an already
     // RESOLVED one, so the rollback has run by the time the awaited
     // fireEvent.press returns.
-    await fireEvent.press(screen.getByTestId('player-emoji-herz'));
+    await fireEvent.press(screen.getByTestId('player-emoji-heart'));
 
     await act(async () => {});
-    expect(screen.getByTestId('player-emoji-herz').props.accessibilityState.selected).toBe(false);
+    expect(screen.getByTestId('player-emoji-heart').props.accessibilityState.selected).toBe(false);
     expect(
       screen.getByText('Deine Reaktion konnte nicht gespeichert werden. Probier es gleich nochmal.')
     ).toBeTruthy();
 
-    await fireEvent.press(screen.getByTestId('player-emoji-herz'));
+    await fireEvent.press(screen.getByTestId('player-emoji-heart'));
     expect(setReaction).toHaveBeenCalledTimes(2);
   });
 });
@@ -1332,7 +1332,7 @@ describe('comment sheet (Task 12)', () => {
     });
     await wrap();
 
-    await fireEvent.press(screen.getByTestId('player-kommentare-oeffnen'));
+    await fireEvent.press(screen.getByTestId('player-comments-open'));
     await act(async () => {});
     expect(fetchComments).toHaveBeenCalledWith('p3');
     expect(screen.getByText('Jonas')).toBeTruthy();
@@ -1342,14 +1342,14 @@ describe('comment sheet (Task 12)', () => {
     await act(async () => {
       jest.advanceTimersByTime(5000);
     });
-    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: image('p3').medium_url });
+    expect(screen.getByTestId('player-photo').props.source).toEqual({ uri: image('p3').medium_url });
 
     // Closing (a tap on the sheet backdrop) takes the pause reason back.
     await fireEvent.press(screen.getByTestId('sheet-backdrop'));
     await act(async () => {
       jest.advanceTimersByTime(5000);
     });
-    expect(screen.getByTestId('player-zwischenkarte')).toBeTruthy(); // p3 -> p4, day change
+    expect(screen.getByTestId('player-interstitial')).toBeTruthy(); // p3 -> p4, day change
   });
 
   test('a hanging send for a moment left behind does not leave the send button of a new session stuck on sending', async () => {
@@ -1360,16 +1360,16 @@ describe('comment sheet (Task 12)', () => {
     (writeComment as jest.Mock).mockReturnValue(promise); // hangs for p1
 
     await wrap(); // start=0 -> p1
-    await fireEvent.press(screen.getByTestId('player-zwischenkarte')); // day 1 interstitial gone
-    await fireEvent.press(screen.getByTestId('player-kommentare-oeffnen')); // opens for p1
+    await fireEvent.press(screen.getByTestId('player-interstitial')); // day 1 interstitial gone
+    await fireEvent.press(screen.getByTestId('player-comments-open')); // opens for p1
     await act(async () => {});
-    await fireEvent.changeText(screen.getByTestId('kommentar-eingabe'), 'Hallo');
-    await fireEvent.press(screen.getByTestId('kommentar-senden')); // sending starts and hangs
+    await fireEvent.changeText(screen.getByTestId('comment-input'), 'Hallo');
+    await fireEvent.press(screen.getByTestId('comment-send')); // sending starts and hangs
 
     await fireEvent.press(screen.getByTestId('sheet-backdrop')); // close WITHOUT waiting for the answer
-    await fireEvent(screen.getByTestId('player-rechts'), 'pressIn');
-    await fireEvent(screen.getByTestId('player-rechts'), 'pressOut'); // on to p2
-    await fireEvent.press(screen.getByTestId('player-kommentare-oeffnen')); // open again for p2
+    await fireEvent(screen.getByTestId('player-right'), 'pressIn');
+    await fireEvent(screen.getByTestId('player-right'), 'pressOut'); // on to p2
+    await fireEvent.press(screen.getByTestId('player-comments-open')); // open again for p2
     await act(async () => {});
 
     expect(screen.getByText('Senden')).toBeTruthy();
@@ -1383,22 +1383,22 @@ describe('comment sheet (Task 12)', () => {
     (writeComment as jest.Mock).mockReturnValue(promise); // hangs for p1
 
     await wrap(); // start=0 -> p1
-    await fireEvent.press(screen.getByTestId('player-zwischenkarte')); // day 1 interstitial gone
-    await fireEvent.press(screen.getByTestId('player-kommentare-oeffnen')); // opens for p1
+    await fireEvent.press(screen.getByTestId('player-interstitial')); // day 1 interstitial gone
+    await fireEvent.press(screen.getByTestId('player-comments-open')); // opens for p1
     await act(async () => {});
-    await fireEvent.changeText(screen.getByTestId('kommentar-eingabe'), 'Hallo');
-    await fireEvent.press(screen.getByTestId('kommentar-senden')); // sending starts and hangs
+    await fireEvent.changeText(screen.getByTestId('comment-input'), 'Hallo');
+    await fireEvent.press(screen.getByTestId('comment-send')); // sending starts and hangs
     expect(writeComment).toHaveBeenCalledTimes(1);
 
     // Close (the player stays on p1) and reopen at once: same moment, same
     // send still running.
     await fireEvent.press(screen.getByTestId('sheet-backdrop'));
-    await fireEvent.press(screen.getByTestId('player-kommentare-oeffnen'));
+    await fireEvent.press(screen.getByTestId('player-comments-open'));
     await act(async () => {});
 
     expect(screen.queryByText('Senden')).toBeNull();
     expect(
-      screen.getByTestId('kommentar-senden').props.accessibilityState.disabled
+      screen.getByTestId('comment-send').props.accessibilityState.disabled
     ).toBe(true);
   });
 
@@ -1409,7 +1409,7 @@ describe('comment sheet (Task 12)', () => {
     await wrap();
     const playCallsBefore = mockVideoPlayer.play.mock.calls.length;
 
-    await fireEvent.press(screen.getByTestId('player-kommentare-oeffnen'));
+    await fireEvent.press(screen.getByTestId('player-comments-open'));
     expect(mockVideoPlayer.pause).toHaveBeenCalled();
 
     await fireEvent.press(screen.getByTestId('sheet-backdrop'));
@@ -1427,7 +1427,7 @@ describe('comment sheet (Task 12)', () => {
     await wrap();
     expect(screen.getByTestId('player-video')).toBeTruthy();
 
-    await fireEvent.press(screen.getByTestId('player-kommentare-oeffnen'));
+    await fireEvent.press(screen.getByTestId('player-comments-open'));
     // The race window: playToEnd fires while the sheet has just opened.
     await act(async () => {
       mockListeners.playToEnd?.forEach((cb) => cb());
@@ -1445,7 +1445,7 @@ describe('comment sheet (Task 12)', () => {
     await act(async () => {
       jest.advanceTimersByTime(3000); // durationFor(p2) = duration_s (3) * 1000
     });
-    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: image('p3').medium_url });
+    expect(screen.getByTestId('player-photo').props.source).toEqual({ uri: image('p3').medium_url });
   });
 
   test('a late answer for a moment long left behind does not overwrite the comments of the NEW moment', async () => {
@@ -1461,13 +1461,13 @@ describe('comment sheet (Task 12)', () => {
       });
 
     await wrap(); // start=0 -> p1
-    await fireEvent.press(screen.getByTestId('player-zwischenkarte')); // day 1 interstitial gone
-    await fireEvent.press(screen.getByTestId('player-kommentare-oeffnen')); // opens for p1, hangs
+    await fireEvent.press(screen.getByTestId('player-interstitial')); // day 1 interstitial gone
+    await fireEvent.press(screen.getByTestId('player-comments-open')); // opens for p1, hangs
     await fireEvent.press(screen.getByTestId('sheet-backdrop')); // close, the request runs on
 
-    await fireEvent(screen.getByTestId('player-rechts'), 'pressIn');
-    await fireEvent(screen.getByTestId('player-rechts'), 'pressOut'); // p1 -> p2
-    await fireEvent.press(screen.getByTestId('player-kommentare-oeffnen')); // opens for p2
+    await fireEvent(screen.getByTestId('player-right'), 'pressIn');
+    await fireEvent(screen.getByTestId('player-right'), 'pressOut'); // p1 -> p2
+    await fireEvent.press(screen.getByTestId('player-comments-open')); // opens for p2
     await act(async () => {});
     expect(screen.getByText('Zweiter Moment')).toBeTruthy();
 
@@ -1487,12 +1487,12 @@ describe('comment sheet (Task 12)', () => {
     });
 
     await wrap();
-    await fireEvent.press(screen.getByTestId('player-kommentare-oeffnen'));
+    await fireEvent.press(screen.getByTestId('player-comments-open'));
     await act(async () => {});
 
     const tooLongText = 'a'.repeat(501);
-    await fireEvent.changeText(screen.getByTestId('kommentar-eingabe'), tooLongText);
-    await fireEvent.press(screen.getByTestId('kommentar-senden'));
+    await fireEvent.changeText(screen.getByTestId('comment-input'), tooLongText);
+    await fireEvent.press(screen.getByTestId('comment-send'));
     await act(async () => {});
 
     expect(writeComment).toHaveBeenCalledWith('p1', tooLongText);
@@ -1514,16 +1514,16 @@ describe('comment sheet (Task 12)', () => {
       });
 
     await wrap();
-    await fireEvent.press(screen.getByTestId('player-kommentare-oeffnen'));
+    await fireEvent.press(screen.getByTestId('player-comments-open'));
     await act(async () => {});
 
-    await fireEvent.changeText(screen.getByTestId('kommentar-eingabe'), 'Toller Moment!');
-    await fireEvent.press(screen.getByTestId('kommentar-senden'));
+    await fireEvent.changeText(screen.getByTestId('comment-input'), 'Toller Moment!');
+    await fireEvent.press(screen.getByTestId('comment-send'));
     await act(async () => {});
 
     expect(writeComment).toHaveBeenCalledWith('p1', 'Toller Moment!');
     expect(fetchComments).toHaveBeenCalledTimes(2);
-    expect(screen.getByTestId('kommentar-eingabe').props.value).toBe('');
+    expect(screen.getByTestId('comment-input').props.value).toBe('');
     expect(screen.getByText('Toller Moment!')).toBeTruthy();
   });
 });
@@ -1537,7 +1537,7 @@ describe('saving a moment to the photo library', () => {
   test('calls saveMomentToGallery with the active moment and its MEDIUM url, not the thumbnail', async () => {
     (saveMomentToGallery as jest.Mock).mockResolvedValue({ ok: true });
     await wrap();
-    await fireEvent.press(screen.getByTestId('player-sichern'));
+    await fireEvent.press(screen.getByTestId('player-save'));
     await act(async () => {});
     expect(saveMomentToGallery).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'p1' }),
@@ -1548,9 +1548,9 @@ describe('saving a moment to the photo library', () => {
   test('success shows a short confirmation', async () => {
     (saveMomentToGallery as jest.Mock).mockResolvedValue({ ok: true });
     await wrap();
-    await fireEvent.press(screen.getByTestId('player-sichern'));
+    await fireEvent.press(screen.getByTestId('player-save'));
     await act(async () => {});
-    expect(await screen.findByTestId('player-export-hinweis')).toHaveTextContent('In der Fotobibliothek gesichert.');
+    expect(await screen.findByTestId('player-export-hint')).toHaveTextContent('In der Fotobibliothek gesichert.');
   });
 
   test('a missing permission shows an alert with a way into the settings, not a quiet pill', async () => {
@@ -1558,14 +1558,14 @@ describe('saving a moment to the photo library', () => {
       ok: false, reason: 'no_permission', text: 'Reelive braucht Zugriff auf deine Fotobibliothek …',
     });
     await wrap();
-    await fireEvent.press(screen.getByTestId('player-sichern'));
+    await fireEvent.press(screen.getByTestId('player-save'));
     await act(async () => {});
     expect(mockAlertSpy).toHaveBeenCalledWith(
       'Kein Zugriff auf die Fotobibliothek',
       'Reelive braucht Zugriff auf deine Fotobibliothek …',
       expect.any(Array)
     );
-    expect(screen.queryByTestId('player-export-hinweis')).toBeNull();
+    expect(screen.queryByTestId('player-export-hint')).toBeNull();
   });
 
   test('tapping "Einstellungen öffnen" in the alert calls Linking.openSettings', async () => {
@@ -1573,7 +1573,7 @@ describe('saving a moment to the photo library', () => {
       ok: false, reason: 'no_permission', text: 'Kein Zugriff.',
     });
     await wrap();
-    await fireEvent.press(screen.getByTestId('player-sichern'));
+    await fireEvent.press(screen.getByTestId('player-save'));
     await act(async () => {});
     const buttons = mockAlertSpy.mock.calls[0][2] as AlertButton[];
     buttons.find((b) => b.text === 'Einstellungen öffnen')?.onPress?.();
@@ -1585,9 +1585,9 @@ describe('saving a moment to the photo library', () => {
       ok: false, reason: 'error', text: 'Dieser Moment konnte nicht gesichert werden. Probier es gleich nochmal.',
     });
     await wrap();
-    await fireEvent.press(screen.getByTestId('player-sichern'));
+    await fireEvent.press(screen.getByTestId('player-save'));
     await act(async () => {});
-    expect(await screen.findByTestId('player-export-hinweis')).toHaveTextContent(
+    expect(await screen.findByTestId('player-export-hint')).toHaveTextContent(
       'Dieser Moment konnte nicht gesichert werden. Probier es gleich nochmal.'
     );
     expect(mockAlertSpy).not.toHaveBeenCalled();
@@ -1597,11 +1597,11 @@ describe('saving a moment to the photo library', () => {
     let resolveSave!: (value: { ok: true }) => void;
     (saveMomentToGallery as jest.Mock).mockReturnValue(new Promise((resolve) => { resolveSave = resolve; }));
     await wrap();
-    await fireEvent.press(screen.getByTestId('player-sichern'));
+    await fireEvent.press(screen.getByTestId('player-save'));
     await act(async () => {});
-    expect(screen.getByTestId('player-sichern-laedt')).toBeTruthy();
+    expect(screen.getByTestId('player-save-loading')).toBeTruthy();
     // A second tap while it is loading must NOT trigger a second call.
-    await fireEvent.press(screen.getByTestId('player-sichern'));
+    await fireEvent.press(screen.getByTestId('player-save'));
     await act(async () => {
       resolveSave({ ok: true });
     });
@@ -1612,11 +1612,11 @@ describe('saving a moment to the photo library', () => {
     let resolveSave!: (value: { ok: true }) => void;
     (saveMomentToGallery as jest.Mock).mockReturnValue(new Promise((resolve) => { resolveSave = resolve; }));
     await wrap();
-    await fireEvent.press(screen.getByTestId('player-sichern'));
+    await fireEvent.press(screen.getByTestId('player-save'));
     await act(async () => {});
 
-    await fireEvent(screen.getByTestId('player-rechts'), 'pressIn');
-    await fireEvent(screen.getByTestId('player-rechts'), 'pressOut');
+    await fireEvent(screen.getByTestId('player-right'), 'pressIn');
+    await fireEvent(screen.getByTestId('player-right'), 'pressOut');
     await act(async () => {});
     // p2 (video) is active now instead of p1 (photo), and it is the only
     // video in the fixture.
@@ -1625,15 +1625,15 @@ describe('saving a moment to the photo library', () => {
     await act(async () => {
       resolveSave({ ok: true });
     });
-    expect(screen.queryByTestId('player-export-hinweis')).toBeNull();
-    await fireEvent.press(screen.getByTestId('player-sichern'));
+    expect(screen.queryByTestId('player-export-hint')).toBeNull();
+    await fireEvent.press(screen.getByTestId('player-save'));
     await act(async () => {});
     expect(saveMomentToGallery).toHaveBeenCalledTimes(2);
   });
 });
 
 // `onLongPress` hangs off exactly the same Pressable nodes as
-// onPressIn/onPressOut (`player-links`/`player-rechts`), which the zIndex
+// onPressIn/onPressOut (`player-left`/`player-right`), which the zIndex
 // tests above already show to be the frontmost touch layer in their half of
 // the screen: there is no new stacking question to prove here, so every
 // test below fires on that very node.
@@ -1643,67 +1643,67 @@ describe('reporting a moment (Task 8)', () => {
     (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
 
-    await fireEvent(screen.getByTestId('player-rechts'), 'longPress');
+    await fireEvent(screen.getByTestId('player-right'), 'longPress');
     await act(async () => {});
     expect(screen.getByText('Diesen Moment melden')).toBeTruthy();
-    expect(screen.getByTestId('melden-grund')).toBeTruthy();
+    expect(screen.getByTestId('report-reason')).toBeTruthy();
 
     // Paused: p1 stays put even after the full photo duration.
     await act(async () => {
       jest.advanceTimersByTime(5000);
     });
-    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: image('p1').medium_url });
+    expect(screen.getByTestId('player-photo').props.source).toEqual({ uri: image('p1').medium_url });
   });
 
   test('the long press works from the LEFT tap zone just as from the RIGHT one', async () => {
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
     (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
-    await fireEvent(screen.getByTestId('player-links'), 'longPress');
+    await fireEvent(screen.getByTestId('player-left'), 'longPress');
     await act(async () => {});
-    expect(screen.getByTestId('melden-grund')).toBeTruthy();
+    expect(screen.getByTestId('report-reason')).toBeTruthy();
   });
 
   test('the moment stays visible while the report sheet is open', async () => {
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
     (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
-    await fireEvent(screen.getByTestId('player-rechts'), 'longPress');
+    await fireEvent(screen.getByTestId('player-right'), 'longPress');
     await act(async () => {});
-    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: image('p1').medium_url });
+    expect(screen.getByTestId('player-photo').props.source).toEqual({ uri: image('p1').medium_url });
   });
 
   test('the send button stays disabled while no reason is entered, whitespace included', async () => {
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
     (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
-    await fireEvent(screen.getByTestId('player-rechts'), 'longPress');
+    await fireEvent(screen.getByTestId('player-right'), 'longPress');
     await act(async () => {});
-    expect(screen.getByTestId('melden-senden').props.accessibilityState.disabled).toBe(true);
+    expect(screen.getByTestId('report-send').props.accessibilityState.disabled).toBe(true);
 
-    await fireEvent.changeText(screen.getByTestId('melden-grund'), '   ');
-    expect(screen.getByTestId('melden-senden').props.accessibilityState.disabled).toBe(true);
+    await fireEvent.changeText(screen.getByTestId('report-reason'), '   ');
+    expect(screen.getByTestId('report-send').props.accessibilityState.disabled).toBe(true);
 
-    await fireEvent.changeText(screen.getByTestId('melden-grund'), 'Unpassend');
-    expect(screen.getByTestId('melden-senden').props.accessibilityState.disabled).toBe(false);
+    await fireEvent.changeText(screen.getByTestId('report-reason'), 'Unpassend');
+    expect(screen.getByTestId('report-send').props.accessibilityState.disabled).toBe(false);
   });
 
   test('a successful report sends the reason for the ACTIVE moment and then shows a confirmation', async () => {
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
     (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
-    await fireEvent(screen.getByTestId('player-rechts'), 'longPress');
+    await fireEvent(screen.getByTestId('player-right'), 'longPress');
     await act(async () => {});
-    await fireEvent.changeText(screen.getByTestId('melden-grund'), 'Sieht komisch aus');
-    await fireEvent.press(screen.getByTestId('melden-senden'));
+    await fireEvent.changeText(screen.getByTestId('report-reason'), 'Sieht komisch aus');
+    await fireEvent.press(screen.getByTestId('report-send'));
     await act(async () => {});
 
     expect(reportMoment).toHaveBeenCalledWith('p1', 'Sieht komisch aus');
-    expect(screen.getByTestId('melden-bestaetigung')).toBeTruthy();
-    expect(screen.queryByTestId('melden-grund')).toBeNull();
+    expect(screen.getByTestId('report-confirmation')).toBeTruthy();
+    expect(screen.queryByTestId('report-reason')).toBeNull();
     // Still the same moment: the confirmation replaces the sheet content,
     // not the player behind it.
-    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: image('p1').medium_url });
+    expect(screen.getByTestId('player-photo').props.source).toEqual({ uri: image('p1').medium_url });
   });
 
   test('a failed report shows the cause on the form, without a confirmation, and the sheet stays usable', async () => {
@@ -1713,17 +1713,17 @@ describe('reporting a moment (Task 8)', () => {
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
     (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
-    await fireEvent(screen.getByTestId('player-rechts'), 'longPress');
+    await fireEvent(screen.getByTestId('player-right'), 'longPress');
     await act(async () => {});
-    await fireEvent.changeText(screen.getByTestId('melden-grund'), 'Sieht komisch aus');
-    await fireEvent.press(screen.getByTestId('melden-senden'));
+    await fireEvent.changeText(screen.getByTestId('report-reason'), 'Sieht komisch aus');
+    await fireEvent.press(screen.getByTestId('report-send'));
     await act(async () => {});
 
     expect(
       screen.getByText('Deine Meldung konnte nicht gesendet werden. Probier es gleich nochmal.')
     ).toBeTruthy();
-    expect(screen.queryByTestId('melden-bestaetigung')).toBeNull();
-    expect(screen.getByTestId('melden-grund')).toBeTruthy();
+    expect(screen.queryByTestId('report-confirmation')).toBeNull();
+    expect(screen.getByTestId('report-reason')).toBeTruthy();
   });
 
   test('a second tap on send while the first request is still running triggers NO second call', async () => {
@@ -1732,12 +1732,12 @@ describe('reporting a moment (Task 8)', () => {
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
     (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
-    await fireEvent(screen.getByTestId('player-rechts'), 'longPress');
+    await fireEvent(screen.getByTestId('player-right'), 'longPress');
     await act(async () => {});
-    await fireEvent.changeText(screen.getByTestId('melden-grund'), 'Sieht komisch aus');
-    await fireEvent.press(screen.getByTestId('melden-senden')); // sending starts and hangs
+    await fireEvent.changeText(screen.getByTestId('report-reason'), 'Sieht komisch aus');
+    await fireEvent.press(screen.getByTestId('report-send')); // sending starts and hangs
     await act(async () => {});
-    await fireEvent.press(screen.getByTestId('melden-senden'));
+    await fireEvent.press(screen.getByTestId('report-send'));
     await act(async () => {
       resolveReport({ error: null });
     });
@@ -1751,13 +1751,13 @@ describe('reporting a moment (Task 8)', () => {
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
     (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
-    await fireEvent(screen.getByTestId('player-rechts'), 'longPress');
+    await fireEvent(screen.getByTestId('player-right'), 'longPress');
     await act(async () => {});
     await fireEvent.press(screen.getByTestId('sheet-backdrop'));
     await act(async () => {
       jest.advanceTimersByTime(3000); // durationFor(p2) = max(1000, 3*1000) = 3000 ms
     });
-    expect(screen.getByTestId('player-foto').props.source).toEqual({ uri: image('p3').medium_url });
+    expect(screen.getByTestId('player-photo').props.source).toEqual({ uri: image('p3').medium_url });
   });
 
   test('a hanging report for a moment left behind does NOT show its late answer on a newly opened session', async () => {
@@ -1770,28 +1770,28 @@ describe('reporting a moment (Task 8)', () => {
     await wrap();
 
     // Opens for p1, sends, hangs.
-    await fireEvent(screen.getByTestId('player-rechts'), 'longPress');
+    await fireEvent(screen.getByTestId('player-right'), 'longPress');
     await act(async () => {});
-    await fireEvent.changeText(screen.getByTestId('melden-grund'), 'Erstes');
-    await fireEvent.press(screen.getByTestId('melden-senden'));
+    await fireEvent.changeText(screen.getByTestId('report-reason'), 'Erstes');
+    await fireEvent.press(screen.getByTestId('report-send'));
     await act(async () => {});
 
     // Close without waiting for the answer, on to p2, open again (a fresh
     // session with nothing sent yet).
     await fireEvent.press(screen.getByTestId('sheet-backdrop'));
-    await fireEvent(screen.getByTestId('player-rechts'), 'pressIn');
-    await fireEvent(screen.getByTestId('player-rechts'), 'pressOut');
+    await fireEvent(screen.getByTestId('player-right'), 'pressIn');
+    await fireEvent(screen.getByTestId('player-right'), 'pressOut');
     await act(async () => {});
-    await fireEvent(screen.getByTestId('player-rechts'), 'longPress');
+    await fireEvent(screen.getByTestId('player-right'), 'longPress');
     await act(async () => {});
-    expect(screen.getByTestId('melden-grund')).toBeTruthy(); // a fresh, empty form for p2
+    expect(screen.getByTestId('report-reason')).toBeTruthy(); // a fresh, empty form for p2
 
     // The old, hanging answer for p1 arrives now.
     await act(async () => {
       resolveFirstReport({ error: null });
     });
-    expect(screen.queryByTestId('melden-bestaetigung')).toBeNull();
-    expect(screen.getByTestId('melden-grund')).toBeTruthy();
+    expect(screen.queryByTestId('report-confirmation')).toBeNull();
+    expect(screen.getByTestId('report-reason')).toBeTruthy();
   });
 });
 
@@ -1808,7 +1808,7 @@ describe('the error state only offers what it can deliver', () => {
     (getPool as jest.Mock).mockResolvedValue({ pool: null, error: text, reason });
     await wrap();
 
-    expect(screen.getByTestId('player-fehler')).toBeTruthy();
+    expect(screen.getByTestId('player-error')).toBeTruthy();
     expect(screen.getByText(text)).toBeTruthy();
     expect(screen.queryByText('Nochmal versuchen')).toBeNull();
     // The way back stays: it is then the only action there is.
@@ -1877,7 +1877,7 @@ describe('safe area of the device', () => {
     setInsets(59, 34);
     await wrap();
 
-    const topStyle = StyleSheet.flatten(screen.getByTestId('player-kopf-bereich').props.style);
+    const topStyle = StyleSheet.flatten(screen.getByTestId('player-header-area').props.style);
     expect(topStyle.top).toBe(59 + 16);
   });
 
@@ -1885,7 +1885,7 @@ describe('safe area of the device', () => {
     setInsets(59, 34);
     await wrap();
 
-    const bottomStyle = StyleSheet.flatten(screen.getByTestId('player-sozial-bereich').props.style);
+    const bottomStyle = StyleSheet.flatten(screen.getByTestId('player-social-area').props.style);
     expect(bottomStyle.bottom).toBe(34 + 16);
   });
 
@@ -1896,8 +1896,8 @@ describe('safe area of the device', () => {
     setInsets(0, 0);
     await wrap();
 
-    const topStyle = StyleSheet.flatten(screen.getByTestId('player-kopf-bereich').props.style);
-    const bottomStyle = StyleSheet.flatten(screen.getByTestId('player-sozial-bereich').props.style);
+    const topStyle = StyleSheet.flatten(screen.getByTestId('player-header-area').props.style);
+    const bottomStyle = StyleSheet.flatten(screen.getByTestId('player-social-area').props.style);
     expect(topStyle.top).toBe(32);
     expect(bottomStyle.bottom).toBe(32);
   });

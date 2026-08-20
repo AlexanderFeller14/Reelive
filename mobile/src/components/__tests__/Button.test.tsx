@@ -94,10 +94,10 @@ test('the text variant renders the label underlined and fires', async () => {
 test('success shows a checkmark instead of the label and locks the button', async () => {
   const onPress = jest.fn();
   await wrap(<Button variant="primary" label="Speichern" onPress={onPress} success />);
-  expect(screen.getByTestId('button-erfolg')).toBeTruthy();
+  expect(screen.getByTestId('button-success')).toBeTruthy();
   expect(screen.queryByText('Speichern')).toBeNull();
   expect(screen.queryByTestId('button-loading')).toBeNull();
-  fireEvent.press(screen.getByTestId('button-erfolg'));
+  fireEvent.press(screen.getByTestId('button-success'));
   expect(onPress).not.toHaveBeenCalled();
 });
 
@@ -108,7 +108,7 @@ test('success shows a checkmark instead of the label and locks the button', asyn
 // the fade-in: 0/0 instead of standing there already finished.
 test('the checkmark starts its fade-in at 0, instead of appearing abruptly', async () => {
   await wrap(<Button variant="primary" label="Speichern" onPress={jest.fn()} success />);
-  const checkmark = screen.getByTestId('button-erfolg');
+  const checkmark = screen.getByTestId('button-success');
   const flattened = StyleSheet.flatten(checkmark.props.style) as {
     opacity?: number;
     transform?: { scale?: number }[];

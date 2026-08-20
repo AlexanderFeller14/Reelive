@@ -1,5 +1,5 @@
 // Access to the native module (modules/camera-zoom). What's checked here is
-// NOT the Swift — that doesn't exist in the test and just as little on the
+// NOT the Swift: that doesn't exist in the test and just as little on the
 // Simulator, because there's no camera there. What's checked is that the
 // app asserts nothing exactly when there's nothing to assert: without a
 // native module, no lenses, no bounds, and a zoom call that doesn't throw
@@ -52,7 +52,7 @@ test('a lens type this app doesn\'t know is called "unknown"', () => {
   ]);
 });
 
-test('without a native module — Android, Simulator — there are no lenses', () => {
+test('without a native module (Android, Simulator), there are no lenses', () => {
   mockAvailable = false;
   expect(nativeZoom().lenses('back')).toEqual([]);
 });

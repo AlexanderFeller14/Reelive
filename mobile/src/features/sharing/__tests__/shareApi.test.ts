@@ -71,10 +71,10 @@ describe('resolveToken: success', () => {
 
     expect(error).toBeNull();
     expect(mockInvoke).toHaveBeenCalledWith('share-link', { body: { action: 'resolve', token: 'tok123' } });
-    expect(data?.reise).toEqual({ name: 'Lissabon Städtetrip', start_date: '2026-08-10', end_date: '2026-08-14' });
+    expect(data?.trip).toEqual({ name: 'Lissabon Städtetrip', start_date: '2026-08-10', end_date: '2026-08-14' });
     expect(data?.validUntil).toBe(Date.parse('2026-08-08T13:00:00.000Z'));
-    expect(data?.medien).toHaveLength(2);
-    expect(data?.medien[0]).toEqual({
+    expect(data?.media).toHaveLength(2);
+    expect(data?.media[0]).toEqual({
       post_id: 'p1', authorName: 'Lea', authorAvatarKey: 'profiles/u1/a.jpg', type: 'photo',
       captured_at: '2026-08-10T09:00:00.000Z',
       captured_tz: 'Europe/Zurich', place_name: 'Lissabon', caption: 'Schön hier',
@@ -90,8 +90,8 @@ describe('resolveToken: success', () => {
   test('authorAvatarKey passes through unchanged, including as null', async () => {
     mockInvoke.mockResolvedValueOnce({ data: validResponse, error: null });
     const { data } = await resolveToken('tok123');
-    expect(data?.medien[0].authorAvatarKey).toBe('profiles/u1/a.jpg');
-    expect(data?.medien[1].authorAvatarKey).toBeNull();
+    expect(data?.media[0].authorAvatarKey).toBe('profiles/u1/a.jpg');
+    expect(data?.media[1].authorAvatarKey).toBeNull();
   });
 
   // Counter-check to the shape check, same pattern as with lat/lng: an
@@ -111,7 +111,7 @@ describe('resolveToken: success', () => {
       error: null,
     });
     const { data } = await resolveToken('tok123');
-    expect(data?.medien[0].authorAvatarKey).toBeNull();
+    expect(data?.media[0].authorAvatarKey).toBeNull();
   });
 
   // The coordinates have been part of the response since phase 7 (spec
@@ -121,10 +121,10 @@ describe('resolveToken: success', () => {
   test('lat/lng pass through unchanged, including as null', async () => {
     mockInvoke.mockResolvedValueOnce({ data: validResponse, error: null });
     const { data } = await resolveToken('tok123');
-    expect(data?.medien[0].lat).toBe(38.7139);
-    expect(data?.medien[0].lng).toBe(-9.1301);
-    expect(data?.medien[1].lat).toBeNull();
-    expect(data?.medien[1].lng).toBeNull();
+    expect(data?.media[0].lat).toBe(38.7139);
+    expect(data?.media[0].lng).toBe(-9.1301);
+    expect(data?.media[1].lat).toBeNull();
+    expect(data?.media[1].lng).toBeNull();
   });
 
   // And the counter-check to the shape check: an older function without
@@ -144,8 +144,8 @@ describe('resolveToken: success', () => {
       error: null,
     });
     const { data } = await resolveToken('tok123');
-    expect(data?.medien[0].lat).toBeNull();
-    expect(data?.medien[0].lng).toBeNull();
+    expect(data?.media[0].lat).toBeNull();
+    expect(data?.media[0].lng).toBeNull();
   });
 
   // Missing thumb_url becomes null, not undefined, on SharedMoment.
@@ -155,18 +155,18 @@ describe('resolveToken: success', () => {
   test('a moment without thumb_url gets null, not undefined, and the field remains its own property', async () => {
     mockInvoke.mockResolvedValueOnce({ data: validResponse, error: null });
     const { data } = await resolveToken('tok123');
-    expect(data?.medien[1].thumb_url).toBeNull();
-    expect(Object.prototype.hasOwnProperty.call(data!.medien[1], 'thumb_url')).toBe(true);
+    expect(data?.media[1].thumb_url).toBeNull();
+    expect(Object.prototype.hasOwnProperty.call(data!.media[1], 'thumb_url')).toBe(true);
   });
 
-  // `ausgelassen` are moments for which the function couldn't hand out a
-  // URL, they're missing from `medien`. Without this count they'd be
+  // `skipped` are moments for which the function couldn't hand out a
+  // URL, they're missing from `media`. Without this count they'd be
   // missing WITHOUT A TRACE, and the shared page would claim to show the
   // whole trip (final review, finding 2).
   test('omitted moments are read along', async () => {
     mockInvoke.mockResolvedValueOnce({ data: validResponse, error: null });
     const { data } = await resolveToken('tok123');
-    expect(data?.ausgelassen).toBe(2);
+    expect(data?.skipped).toBe(2);
   });
 
   // Additive and therefore NOT part of the shape check: an older function
@@ -181,14 +181,14 @@ describe('resolveToken: success', () => {
     mockInvoke.mockResolvedValueOnce({ data: { ...withoutField, ...broken }, error: null });
     const { data, error } = await resolveToken('tok123');
     expect(error).toBeNull();
-    expect(data?.ausgelassen).toBe(0);
+    expect(data?.skipped).toBe(0);
   });
 
-  test('an empty reel returns a SharedRecap with an empty medien array, no error', async () => {
+  test('an empty reel returns a SharedRecap with an empty media array, no error', async () => {
     mockInvoke.mockResolvedValueOnce({ data: { ...validResponse, media: [] }, error: null });
     const { data, error } = await resolveToken('tok123');
     expect(error).toBeNull();
-    expect(data?.medien).toEqual([]);
+    expect(data?.media).toEqual([]);
   });
 });
 

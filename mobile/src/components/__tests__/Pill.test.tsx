@@ -54,18 +54,18 @@ test('renders its children', async () => {
 
 test('passes testID through to the outer node', async () => {
   await render(
-    <Pill testID="meine-pille">
+    <Pill testID="my-pill">
       <Text>x</Text>
     </Pill>
   );
-  expect(screen.getByTestId('meine-pille')).toBeTruthy();
+  expect(screen.getByTestId('my-pill')).toBeTruthy();
 });
 
 test('passes pointerEvents through (e.g. for a purely informational pill over the tap zones)', async () => {
   await render(
-    <Pill testID="meine-pille" pointerEvents="none">
+    <Pill testID="my-pill" pointerEvents="none">
       <Text>x</Text>
     </Pill>
   );
-  expect(screen.getByTestId('meine-pille').props.pointerEvents).toBe('none');
+  expect(screen.getByTestId('my-pill').props.pointerEvents).toBe('none');
 });

@@ -13,7 +13,7 @@ const JPEG_QUALITAET = 0.8;
 // Das Bild kommt NICHT mehr quadratisch herein: der System-Zuschnitt
 // (`allowsEditing`) ist raus, weil er auf iOS den alten
 // UIImagePickerController erzwingt und bei grossen Vorlagen vom System
-// abgeräumt wird — die App bekommt dann ein «abgebrochen», das von einem
+// abgeräumt wird, die App bekommt dann ein «abgebrochen», das von einem
 // echten Abbruch nicht zu unterscheiden ist (Fehlersuche 2026-08-13,
 // gemessen: canceled=true ohne jede Ausnahme). Also schneidet die App selbst
 // zu, und der Zuschnitt gehört hierher, wo das Bild ohnehin durchläuft.
@@ -34,7 +34,7 @@ async function alsQuadratJpeg(uri: string, gewaehlt?: Crop): Promise<string> {
   } else {
     // Kein gewählter Ausschnitt (Kamera-Selfie): mittig auf die kürzere Kante.
     // Die Masse kennt die kontextbasierte API erst nach renderAsync(), also
-    // einmal unverändert laden — gleiches Vorgehen wie quellmasseErmitteln()
+    // einmal unverändert laden, gleiches Vorgehen wie quellmasseErmitteln()
     // in media.ts.
     const measureContext = ImageManipulator.manipulate(uri);
     let breite: number;
@@ -117,9 +117,9 @@ async function altesWegraeumen(oldKey: string | null): Promise<void> {
   if (!oldKey) return;
   try {
     const { error } = await supabase.storage.from(AVATAR_BUCKET).remove([oldKey]);
-    if (error) console.error('[avatarApi] altes Bild blieb liegen', error);
+    if (error) console.error('[avatarApi] old image left behind', error);
   } catch (error) {
-    console.error('[avatarApi] altes Bild blieb liegen', error);
+    console.error('[avatarApi] old image left behind', error);
   }
 }
 
@@ -140,7 +140,7 @@ export async function setzeAvatar(
     const fertig = await alsQuadratJpeg(localUri, crop);
     await upload(schluessel, fertig);
   } catch (error) {
-    console.error('[avatarApi] Hochladen fehlgeschlagen', error);
+    console.error('[avatarApi] upload failed', error);
     return {
       avatarKey: null,
       error: 'Das Bild konnte nicht hochgeladen werden. Probier es gleich nochmal.',
@@ -152,7 +152,7 @@ export async function setzeAvatar(
     .update({ avatar_key: schluessel })
     .eq('id', userId);
   if (error) {
-    console.error('[avatarApi] avatar_key setzen fehlgeschlagen', error);
+    console.error('[avatarApi] avatar_key set failed', error);
     // Das frische Objekt liegt schon im Speicher, die Spalte kennt es aber
     // nicht. Wegräumen, sonst bleibt es für immer, ohne dass jemand seinen
     // Pfad noch kennt (dieselbe Überlegung wie in delete-account/process.ts).
@@ -178,7 +178,7 @@ export async function removeAvatar(
     .update({ avatar_key: null })
     .eq('id', userId);
   if (error) {
-    console.error('[avatarApi] avatar_key leeren fehlgeschlagen', error);
+    console.error('[avatarApi] avatar_key clear failed', error);
     return { error: 'Das Bild konnte nicht entfernt werden. Probier es gleich nochmal.' };
   }
   await altesWegraeumen(oldKey);

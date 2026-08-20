@@ -83,7 +83,7 @@ export function Input({ label, error, value, placeholder, style, onFocus, onBlur
   return (
     <View style={{ gap: spacing.xs }}>
       <View
-        testID="input-rahmen"
+        testID="input-frame"
         style={{
           height: 56,
           borderWidth: focused ? 2 : 1,

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// `npm run network` — writes the current LAN address into configuration files.
+// `npm run network`, writes the current LAN address into configuration files.
 // Call after each network change (home <-> office), but ONLY needed if moments
 // are to be uploaded or recaps shared: The app itself finds the server since
 // src/lib/supabaseAddress.ts on its own.
@@ -21,7 +21,7 @@ function lanAddress() {
       }).trim();
       if (address) return address;
     } catch {
-      // This interface has no address right now — try the next.
+      // This interface has no address right now, try the next.
     }
   }
   return null;

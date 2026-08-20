@@ -155,7 +155,7 @@ export function FadeIn({ position, children }: { position: number; children: Rea
 export type SheetForm = {
   /** Label of the primary button in the moment sheet. */
   buttonLabel: string;
-  /** Placed before every testID, e.g. `'teilen-'`. Empty is allowed. */
+  /** Placed before every testID, e.g. `'share-'`. Empty is allowed. */
   prefix: string;
 };
 
@@ -184,14 +184,14 @@ export function MomentSheetContent({
           sizes, image (3:2), place and caption alone reach past the
           sheet's bottom edge, and the button would no longer be
           reachable. */}
-      <SheetScroll testID={`${form.prefix}moment-inhalt`}>
+      <SheetScroll testID={`${form.prefix}moment-content`}>
         <View style={[styles.sheetImage, { backgroundColor: colors['bg-1'] }]}>
           {/* Without a usable URL, the calm bg-1 surface stays, no pulse:
               nothing more is coming (same distinction as in the pin
               skeleton, components/MapPin.tsx). */}
           {imageUrl !== null && (
             <Image
-              testID={`${form.prefix}sheet-bild`}
+              testID={`${form.prefix}sheet-image`}
               source={{ uri: imageUrl }}
               style={StyleSheet.absoluteFill}
               contentFit="cover"
@@ -233,7 +233,7 @@ export function ClusterEntry({
         scaleTo={0.98}
         accessibilityRole="button"
         accessibilityLabel={momentLabel(moment)}
-        testID={`${form.prefix}gruppe-eintrag-${moment.id}`}
+        testID={`${form.prefix}group-entry-${moment.id}`}
         onPress={() => onView(point)}
       >
         <View style={rowStyles.row}>
@@ -274,7 +274,7 @@ export function ClusterSheetContent({
     // The list scrolls (see SheetScroll): arbitrarily many moments can sit
     // on one spot, and zooming by definition doesn't help there, cut-off
     // entries would be unreachable any other way.
-    <SheetScroll testID={`${form.prefix}gruppe-liste`}>
+    <SheetScroll testID={`${form.prefix}group-list`}>
       {points.map((p, position) => (
         <ClusterEntry
           key={p.moment.id}

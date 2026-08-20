@@ -10,7 +10,7 @@ const EMPTY = { start: null, end: null };
 
 test('the weekday row shows Monday first', async () => {
   await wrap(<Calendar selection={EMPTY} onDayPress={jest.fn()} today={TODAY} />);
-  expect(screen.getByTestId('kalender-wochentage')).toBeTruthy();
+  expect(screen.getByTestId('calendar-weekdays')).toBeTruthy();
   expect(screen.getByText('Mo')).toBeTruthy();
   expect(screen.getByText('So')).toBeTruthy();
 });
@@ -45,8 +45,8 @@ test('chosen days are marked as selected', async () => {
 // the cause instead of the effect.
 test('the calendar and its month list fill the available space', async () => {
   await wrap(<Calendar selection={EMPTY} onDayPress={jest.fn()} today={TODAY} />);
-  expect(StyleSheet.flatten(screen.getByTestId('kalender').props.style).flex).toBe(1);
-  const list = screen.getByTestId('kalender-monate');
+  expect(StyleSheet.flatten(screen.getByTestId('calendar').props.style).flex).toBe(1);
+  const list = screen.getByTestId('calendar-months');
   expect(list.type).toBe('RCTScrollView');
   expect(StyleSheet.flatten(list.props.style).flex).toBe(1);
 });
@@ -60,23 +60,23 @@ test('the calendar and its month list fill the available space', async () => {
 test('the span sits in the cell, not in the press target', async () => {
   const selection = { start: '2026-08-12', end: '2026-08-15' };
   await wrap(<Calendar selection={selection} onDayPress={jest.fn()} today={TODAY} />);
-  const between = screen.getByTestId('spanne-2026-08-13');
+  const between = screen.getByTestId('span-2026-08-13');
   const flat = StyleSheet.flatten(between.props.style);
   expect(flat.left).toBe(0);
   expect(flat.right).toBe(0);
   // The decisive part: not below the Pressable, otherwise it would be sized
   // by the circle instead of the cell.
-  expect(within(screen.getByLabelText('13. August 2026')).queryByTestId('spanne-2026-08-13'))
+  expect(within(screen.getByLabelText('13. August 2026')).queryByTestId('span-2026-08-13'))
     .toBeNull();
 });
 
 test('the start and end reach into the neighboring cell with their half span', async () => {
   const selection = { start: '2026-08-12', end: '2026-08-15' };
   await wrap(<Calendar selection={selection} onDayPress={jest.fn()} today={TODAY} />);
-  const start = StyleSheet.flatten(screen.getByTestId('spanne-2026-08-12').props.style);
+  const start = StyleSheet.flatten(screen.getByTestId('span-2026-08-12').props.style);
   expect(start.left).toBe('50%');
   expect(start.right).toBe(0);
-  const end = StyleSheet.flatten(screen.getByTestId('spanne-2026-08-15').props.style);
+  const end = StyleSheet.flatten(screen.getByTestId('span-2026-08-15').props.style);
   expect(end.left).toBe(0);
   expect(end.right).toBe('50%');
 });
@@ -84,7 +84,7 @@ test('the start and end reach into the neighboring cell with their half span', a
 test('a day trip gets no span at all', async () => {
   const selection = { start: '2026-08-12', end: '2026-08-12' };
   await wrap(<Calendar selection={selection} onDayPress={jest.fn()} today={TODAY} />);
-  expect(screen.queryByTestId('spanne-2026-08-12')).toBeNull();
+  expect(screen.queryByTestId('span-2026-08-12')).toBeNull();
 });
 
 test('the range starts at the first allowed day', async () => {

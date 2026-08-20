@@ -87,14 +87,14 @@ beforeEach(() => {
   mockLastSource = undefined;
 });
 
-function trip(overrides: Partial<SharedRecap['reise']> = {}) {
+function trip(overrides: Partial<SharedRecap['trip']> = {}) {
   return { name: 'Lissabon Städtetrip', start_date: '2026-08-10', end_date: '2026-08-14', ...overrides };
 }
 
 // Without coordinates by default: the moments of the existing blocks test the
 // player, and a recap without a single place has no way into the map (spec
 // K9), so they stay exactly the story they were before.
-function moment(overrides: Partial<SharedRecap['medien'][number]> = {}): SharedRecap['medien'][number] {
+function moment(overrides: Partial<SharedRecap['media'][number]> = {}): SharedRecap['media'][number] {
   return {
     post_id: 'p0', authorName: 'Lea', authorAvatarKey: null, type: 'photo', duration_s: null, caption: null,
     captured_at: '2026-08-10T09:00:00.000Z', captured_tz: 'Europe/Zurich', place_name: 'Lissabon',
@@ -116,12 +116,12 @@ const p3 = moment({
 });
 
 function success(
-  media: SharedRecap['medien'],
-  tripOverrides: Partial<SharedRecap['reise']> = {},
+  media: SharedRecap['media'],
+  tripOverrides: Partial<SharedRecap['trip']> = {},
   skipped = 0
 ) {
   return {
-    data: { reise: trip(tripOverrides), medien: media, validUntil: Date.now() + 3600_000, ausgelassen: skipped },
+    data: { trip: trip(tripOverrides), media, validUntil: Date.now() + 3600_000, skipped },
     error: null,
   };
 }
@@ -142,27 +142,27 @@ describe('Loading', () => {
     mockToken = 'abc';
     mockResolveToken.mockReturnValue(new Promise(() => {})); // hangs on purpose
     await render(<SharedRecapScreen />);
-    expect(screen.getByTestId('teilen-laedt')).toBeTruthy();
+    expect(screen.getByTestId('share-loading')).toBeTruthy();
     expect(mockResolveToken).toHaveBeenCalledWith('abc');
   });
 
   test('a rejected or dead link shows exactly the error text, and "Nochmal versuchen" loads again', async () => {
     mockResolveToken.mockResolvedValueOnce({ data: null, error: 'Dieser Link funktioniert nicht mehr.' });
     await ready();
-    expect(screen.getByTestId('teilen-fehler')).toBeTruthy();
+    expect(screen.getByTestId('share-error')).toBeTruthy();
     expect(screen.getByText('Dieser Link funktioniert nicht mehr.')).toBeTruthy();
 
     mockResolveToken.mockResolvedValueOnce(success([p1]));
     await fireEvent.press(screen.getByText('Nochmal versuchen'));
     await act(async () => {});
     expect(mockResolveToken).toHaveBeenCalledTimes(2);
-    expect(screen.getByTestId('teilen-bereit')).toBeTruthy();
+    expect(screen.getByTestId('share-ready')).toBeTruthy();
   });
 
   test('a resolved but empty reel shows the empty message with the trip name', async () => {
     mockResolveToken.mockResolvedValueOnce(success([], { name: 'Herbstwanderung' }));
     await ready();
-    expect(screen.getByTestId('teilen-leer')).toBeTruthy();
+    expect(screen.getByTestId('share-empty')).toBeTruthy();
     expect(screen.getByText('Herbstwanderung ist leer geblieben.')).toBeTruthy();
   });
 
@@ -175,15 +175,15 @@ describe('Loading', () => {
     mockResolveToken.mockResolvedValueOnce(success([withPlace]));
     const { rerender } = await ready();
     await fireEvent.press(await screen.findByText('Auf der Karte'));
-    expect(screen.getByTestId('teilen-karte')).toBeTruthy();
+    expect(screen.getByTestId('share-map')).toBeTruthy();
 
     mockToken = 'tok999';
     mockResolveToken.mockResolvedValueOnce(success([withPlace], { name: 'Herbstwanderung' }));
     await rerender(<SharedRecapScreen />);
     await act(async () => {});
     expect(mockResolveToken).toHaveBeenLastCalledWith('tok999');
-    expect(screen.getByTestId('teilen-bereit')).toBeTruthy();
-    expect(screen.queryByTestId('teilen-karte')).toBeNull();
+    expect(screen.getByTestId('share-ready')).toBeTruthy();
+    expect(screen.queryByTestId('share-map')).toBeNull();
   });
 });
 
@@ -191,18 +191,18 @@ describe('The story on screen', () => {
   test('shows the progress bar, the author, the place and time pill and the caption of the active moment', async () => {
     mockResolveToken.mockResolvedValueOnce(success([p1, p2]));
     await ready();
-    expect(screen.getByTestId('teilen-bereit')).toBeTruthy();
-    expect(screen.getByTestId('fortschrittsbalken')).toBeTruthy();
-    expect(screen.getAllByTestId(/fortschritt-segment-/)).toHaveLength(2);
+    expect(screen.getByTestId('share-ready')).toBeTruthy();
+    expect(screen.getByTestId('progress-bar')).toBeTruthy();
+    expect(screen.getAllByTestId(/progress-segment-/)).toHaveLength(2);
     expect(screen.getByText('Lea')).toBeTruthy();
     expect(screen.getByText(/Lissabon · \d{2}:\d{2}/)).toBeTruthy();
-    expect(screen.queryByTestId('teilen-caption')).toBeNull(); // p1 has no caption
+    expect(screen.queryByTestId('share-caption')).toBeNull(); // p1 has no caption
   });
 
   test('a video moment shows the caption of the video', async () => {
     mockResolveToken.mockResolvedValueOnce(success([p2]));
     await ready();
-    expect(screen.getByTestId('teilen-video')).toBeTruthy();
+    expect(screen.getByTestId('share-video')).toBeTruthy();
     expect(screen.getByText('Schön hier')).toBeTruthy();
   });
 
@@ -216,7 +216,7 @@ describe('The story on screen', () => {
       success([moment({ post_id: 'p1', authorAvatarKey: 'profiles/u1/a.jpg' })])
     );
     await ready();
-    expect(await screen.findByTestId('avatar-bild')).toBeTruthy();
+    expect(await screen.findByTestId('avatar-image')).toBeTruthy();
   });
 
   // Counter-check: without an image key the initial stays and there is no
@@ -226,13 +226,13 @@ describe('The story on screen', () => {
     mockResolveToken.mockResolvedValueOnce(success([moment({ post_id: 'p1', authorAvatarKey: null })]));
     await ready();
     expect(screen.getByText('L')).toBeTruthy();
-    expect(screen.queryByTestId('avatar-bild')).toBeNull();
+    expect(screen.queryByTestId('avatar-image')).toBeNull();
   });
 
   test('the footer shows the Reelive wordmark and the app hint, and stays untouchable', async () => {
     mockResolveToken.mockResolvedValueOnce(success([p1]));
     await ready();
-    const footer = screen.getByTestId('teilen-fussleiste');
+    const footer = screen.getByTestId('share-footer');
     expect(screen.getByText('Reelive')).toBeTruthy();
     expect(screen.getByText('Hol dir die App')).toBeTruthy();
     // Not interactive: a touch in this spot has to belong to the tap zone
@@ -262,21 +262,21 @@ describe('Navigation: tap, hold, auto advance, end', () => {
     await ready();
     expect(screen.getByText('Lea')).toBeTruthy();
 
-    await fireEvent(screen.getByTestId('teilen-rechts'), 'pressIn');
-    await fireEvent(screen.getByTestId('teilen-rechts'), 'pressOut');
-    expect(screen.getByTestId('teilen-video')).toBeTruthy();
+    await fireEvent(screen.getByTestId('share-right'), 'pressIn');
+    await fireEvent(screen.getByTestId('share-right'), 'pressOut');
+    expect(screen.getByTestId('share-video')).toBeTruthy();
 
-    await fireEvent(screen.getByTestId('teilen-links'), 'pressIn');
-    await fireEvent(screen.getByTestId('teilen-links'), 'pressOut');
-    expect(screen.getByTestId('teilen-foto')).toBeTruthy();
+    await fireEvent(screen.getByTestId('share-left'), 'pressIn');
+    await fireEvent(screen.getByTestId('share-left'), 'pressOut');
+    expect(screen.getByTestId('share-photo')).toBeTruthy();
   });
 
   test('a tap on the left at the very first moment stays on the first moment', async () => {
     mockResolveToken.mockResolvedValueOnce(success([p1, p2]));
     await ready();
-    await fireEvent(screen.getByTestId('teilen-links'), 'pressIn');
-    await fireEvent(screen.getByTestId('teilen-links'), 'pressOut');
-    expect(screen.getByTestId('teilen-foto')).toBeTruthy(); // still p1
+    await fireEvent(screen.getByTestId('share-left'), 'pressIn');
+    await fireEvent(screen.getByTestId('share-left'), 'pressOut');
+    expect(screen.getByTestId('share-photo')).toBeTruthy(); // still p1
   });
 
   test('holding for 250ms or more pauses the auto advance, and letting go resumes the same moment instead of navigating', async () => {
@@ -290,9 +290,9 @@ describe('Navigation: tap, hold, auto advance, end', () => {
     await act(async () => {
       jest.advanceTimersByTime(1500);
     });
-    expect(screen.queryByTestId('teilen-zwischenkarte')).toBeNull();
+    expect(screen.queryByTestId('share-interstitial')).toBeNull();
 
-    await fireEvent(screen.getByTestId('teilen-rechts'), 'pressIn');
+    await fireEvent(screen.getByTestId('share-right'), 'pressIn');
     await act(async () => {
       jest.advanceTimersByTime(300); // > TAP_THRESHOLD_MS: counts as holding, not as a tap
     });
@@ -301,18 +301,18 @@ describe('Navigation: tap, hold, auto advance, end', () => {
     await act(async () => {
       jest.advanceTimersByTime(5000);
     });
-    expect(screen.getByTestId('teilen-foto')).toBeTruthy(); // still p1
+    expect(screen.getByTestId('share-photo')).toBeTruthy(); // still p1
 
-    await fireEvent(screen.getByTestId('teilen-rechts'), 'pressOut');
+    await fireEvent(screen.getByTestId('share-right'), 'pressOut');
     // Let go after holding: the same moment (p1), no jump to p2.
-    expect(screen.getByTestId('teilen-foto')).toBeTruthy();
+    expect(screen.getByTestId('share-photo')).toBeTruthy();
     expect(screen.getByText('Lea')).toBeTruthy();
   });
 
   test('once the photo duration has run out the player moves on by itself', async () => {
     mockResolveToken.mockResolvedValueOnce(success([p1, p2]));
     await ready();
-    expect(screen.getByTestId('teilen-foto')).toBeTruthy();
+    expect(screen.getByTestId('share-photo')).toBeTruthy();
 
     // Two SEPARATE advanceTimersByTime calls (not one over 6500ms): the second
     // timer (auto advance) is only scheduled BY the state change of the first
@@ -325,7 +325,7 @@ describe('Navigation: tap, hold, auto advance, end', () => {
     await act(async () => {
       jest.advanceTimersByTime(5000); // PHOTO_DURATION_MS
     });
-    expect(screen.getByTestId('teilen-video')).toBeTruthy();
+    expect(screen.getByTestId('share-video')).toBeTruthy();
   });
 
   test('a playToEnd event moves on without waiting for the photo duration', async () => {
@@ -336,7 +336,7 @@ describe('Navigation: tap, hold, auto advance, end', () => {
     // PHOTO_DURATION_MS (5000ms) ever having elapsed.
     mockResolveToken.mockResolvedValueOnce(success([p2]));
     await ready();
-    expect(screen.getByTestId('teilen-video')).toBeTruthy();
+    expect(screen.getByTestId('share-video')).toBeTruthy();
     // Wait out the interstitial of the very first moment, blocksAutoAdvance
     // blocks playToEnd as long as it stands.
     await act(async () => {
@@ -346,20 +346,20 @@ describe('Navigation: tap, hold, auto advance, end', () => {
     await act(async () => {
       for (const cb of mockListeners.playToEnd ?? []) cb();
     });
-    expect(screen.getByTestId('teilen-ende')).toBeTruthy();
+    expect(screen.getByTestId('share-end')).toBeTruthy();
   });
 
   test('at the last moment a tap on the right ends the story, and "Nochmal ansehen" starts it over', async () => {
     mockResolveToken.mockResolvedValueOnce(success([p1], { name: 'Herbstwanderung' }));
     await ready();
-    await fireEvent(screen.getByTestId('teilen-rechts'), 'pressIn');
-    await fireEvent(screen.getByTestId('teilen-rechts'), 'pressOut');
-    expect(screen.getByTestId('teilen-ende')).toBeTruthy();
+    await fireEvent(screen.getByTestId('share-right'), 'pressIn');
+    await fireEvent(screen.getByTestId('share-right'), 'pressOut');
+    expect(screen.getByTestId('share-end')).toBeTruthy();
     expect(screen.getByText('Das war der Recap von „Herbstwanderung".')).toBeTruthy();
 
     await fireEvent.press(screen.getByText('Nochmal ansehen'));
-    expect(screen.getByTestId('teilen-bereit')).toBeTruthy();
-    expect(screen.getByTestId('teilen-foto')).toBeTruthy();
+    expect(screen.getByTestId('share-ready')).toBeTruthy();
+    expect(screen.getByTestId('share-photo')).toBeTruthy();
     // No second network call for the restart, only the original one.
     expect(mockResolveToken).toHaveBeenCalledTimes(1);
   });
@@ -371,28 +371,28 @@ describe('The day interstitial', () => {
     await ready();
     // The very first moment ALWAYS shows the day interstitial (dayChanges
     // returns true unconditionally for index 0).
-    expect(screen.getByTestId('teilen-zwischenkarte')).toBeTruthy();
+    expect(screen.getByTestId('share-interstitial')).toBeTruthy();
     expect(screen.getByText(/Tag 1 · Lissabon · 10\. August/)).toBeTruthy();
 
     await act(async () => {
       jest.advanceTimersByTime(1500);
     });
-    expect(screen.queryByTestId('teilen-zwischenkarte')).toBeNull();
+    expect(screen.queryByTestId('share-interstitial')).toBeNull();
 
     // On to p3 (day 2, another date), the interstitial appears again.
-    await fireEvent(screen.getByTestId('teilen-rechts'), 'pressIn');
-    await fireEvent(screen.getByTestId('teilen-rechts'), 'pressOut');
-    expect(screen.getByTestId('teilen-zwischenkarte')).toBeTruthy();
+    await fireEvent(screen.getByTestId('share-right'), 'pressIn');
+    await fireEvent(screen.getByTestId('share-right'), 'pressOut');
+    expect(screen.getByTestId('share-interstitial')).toBeTruthy();
     expect(screen.getByText(/Tag 2 · 11\. August/)).toBeTruthy();
   });
 
   test('a tap on the interstitial skips it IMMEDIATELY without navigating on at the same time', async () => {
     mockResolveToken.mockResolvedValueOnce(success([p1, p3]));
     await ready();
-    expect(screen.getByTestId('teilen-zwischenkarte')).toBeTruthy();
+    expect(screen.getByTestId('share-interstitial')).toBeTruthy();
 
-    await fireEvent.press(screen.getByTestId('teilen-zwischenkarte'));
-    expect(screen.queryByTestId('teilen-zwischenkarte')).toBeNull();
+    await fireEvent.press(screen.getByTestId('share-interstitial'));
+    expect(screen.queryByTestId('share-interstitial')).toBeNull();
     expect(screen.getByText('Lea')).toBeTruthy(); // still p1, no jump to p3
   });
 
@@ -401,9 +401,9 @@ describe('The day interstitial', () => {
   test('the interstitial lies above the tap zones by zIndex', async () => {
     mockResolveToken.mockResolvedValueOnce(success([p1]));
     await ready();
-    const left = StyleSheet.flatten(screen.getByTestId('teilen-links').props.style);
-    const right = StyleSheet.flatten(screen.getByTestId('teilen-rechts').props.style);
-    const interstitial = StyleSheet.flatten(screen.getByTestId('teilen-zwischenkarte').props.style);
+    const left = StyleSheet.flatten(screen.getByTestId('share-left').props.style);
+    const right = StyleSheet.flatten(screen.getByTestId('share-right').props.style);
+    const interstitial = StyleSheet.flatten(screen.getByTestId('share-interstitial').props.style);
     expect(left.zIndex).toBe(1);
     expect(right.zIndex).toBe(1);
     expect(interstitial.zIndex).toBeGreaterThan(left.zIndex as number);
@@ -449,7 +449,7 @@ describe('The map in the shared recap (spec §5.10)', () => {
     expect(await screen.findByText('Auf der Karte')).toBeTruthy();
     // Both labels are always there, the active half only says where you are.
     expect(screen.getByText('Ansehen')).toBeTruthy();
-    expect(screen.getByTestId('teilen-bereit')).toBeTruthy();
+    expect(screen.getByTestId('share-ready')).toBeTruthy();
   });
 
   test('without a single place there is no way into the map', async () => {
@@ -461,30 +461,30 @@ describe('The map in the shared recap (spec §5.10)', () => {
 
   test('the map replaces the player on the same screen, and «Ansehen» brings it back', async () => {
     await onTheMap();
-    expect(screen.getByTestId('teilen-karte')).toBeTruthy();
+    expect(screen.getByTestId('share-map')).toBeTruthy();
     // The player is GONE, not merely covered: there is no second route (the
     // expo-router mock above offers no `router` at all, a `router.push` in
     // this screen would crash the test right here).
-    expect(screen.queryByTestId('teilen-bereit')).toBeNull();
+    expect(screen.queryByTestId('share-ready')).toBeNull();
 
     await fireEvent.press(screen.getByText('Ansehen'));
-    expect(screen.getByTestId('teilen-bereit')).toBeTruthy();
+    expect(screen.getByTestId('share-ready')).toBeTruthy();
     // And the surface is torn down, not hidden (see the reasoning in the
     // screen: an invisible Leaflet map builds itself on 0 × 0).
-    expect(screen.queryByTestId('karte-flaeche')).toBeNull();
+    expect(screen.queryByTestId('map-surface')).toBeNull();
   });
 
   test('the map shows the moments with a place, and only those', async () => {
     await onTheMap();
-    expect(await screen.findAllByTestId(/^karte-nadel/)).toHaveLength(2);
-    expect(screen.getByTestId('karte-nadel-q1')).toBeTruthy();
-    expect(screen.getByTestId('karte-nadel-q3')).toBeTruthy();
-    expect(screen.queryByTestId('karte-nadel-q2')).toBeNull();
+    expect(await screen.findAllByTestId(/^map-pin/)).toHaveLength(2);
+    expect(screen.getByTestId('map-pin-q1')).toBeTruthy();
+    expect(screen.getByTestId('map-pin-q3')).toBeTruthy();
+    expect(screen.queryByTestId('map-pin-q2')).toBeNull();
   });
 
   test('it opens with a viewport that holds both moments (K2)', async () => {
     await onTheMap();
-    const region = screen.getByTestId('karte-flaeche').props.initialRegion;
+    const region = screen.getByTestId('map-surface').props.initialRegion;
     const north = region.latitude + region.latitudeDelta / 2;
     const south = region.latitude - region.latitudeDelta / 2;
     const east = region.longitude + region.longitudeDelta / 2;
@@ -499,7 +499,7 @@ describe('The map in the shared recap (spec §5.10)', () => {
 
   test('the line connects the moments in the order they were captured (K3)', async () => {
     await onTheMap();
-    expect(screen.getByTestId('karte-linie').props.coordinates).toEqual([
+    expect(screen.getByTestId('map-line').props.coordinates).toEqual([
       { latitude: q1.lat, longitude: q1.lng },
       { latitude: q3.lat, longitude: q3.lng },
     ]);
@@ -520,19 +520,19 @@ describe('The map in the shared recap (spec §5.10)', () => {
   // tapped, counted into the list the shared player plays.
   test('«Ab hier ansehen» jumps to exactly that spot in the shared player', async () => {
     await onTheMap();
-    await fireEvent.press(screen.getByTestId('karte-nadel-q3'));
+    await fireEvent.press(screen.getByTestId('map-pin-q3'));
     expect(screen.getByText('Bairro Alto')).toBeTruthy(); // the sheet is open
 
     await fireEvent.press(screen.getByText('Ab hier ansehen'));
 
-    expect(screen.getByTestId('teilen-bereit')).toBeTruthy();
+    expect(screen.getByTestId('share-ready')).toBeTruthy();
     expect(screen.getByText('Fado im Hinterhof')).toBeTruthy();
     expect(screen.getByText('Mira')).toBeTruthy();
     // And the index counted, not merely "something happened": the progress bar
     // fills exactly the segments BEFORE the active one, so two full ones mean
     // index 2. If the jump counted into the pin list (q1, q3), a 1 would stand
     // here, and the player would start off at q2.
-    expect(screen.getAllByTestId(/^fortschritt-voll-/)).toHaveLength(2);
+    expect(screen.getAllByTestId(/^progress-full-/)).toHaveLength(2);
   });
 
   // Not covered by the test above, for a reason that slipped through on the
@@ -542,12 +542,12 @@ describe('The map in the shared recap (spec §5.10)', () => {
   // BACK, where it would lie over the map without anyone having tapped a pin.
   test('the map opens without the sheet from before', async () => {
     await onTheMap();
-    await fireEvent.press(screen.getByTestId('karte-nadel-q3'));
+    await fireEvent.press(screen.getByTestId('map-pin-q3'));
     await fireEvent.press(screen.getByText('Ab hier ansehen'));
-    expect(screen.getByTestId('teilen-bereit')).toBeTruthy();
+    expect(screen.getByTestId('share-ready')).toBeTruthy();
 
     await fireEvent.press(screen.getByText('Auf der Karte'));
-    expect(screen.getByTestId('teilen-karte')).toBeTruthy();
+    expect(screen.getByTestId('share-map')).toBeTruthy();
     expect(screen.queryByText('Ab hier ansehen')).toBeNull();
     expect(screen.queryByTestId('sheet-root')).toBeNull();
   });
@@ -558,20 +558,20 @@ describe('The map in the shared recap (spec §5.10)', () => {
     // Tap all the way to the end: three moments, so three taps on the right,
     // the third one leads from the last moment into the closing titles.
     for (let i = 0; i < 3; i++) {
-      await fireEvent(screen.getByTestId('teilen-rechts'), 'pressIn');
-      await fireEvent(screen.getByTestId('teilen-rechts'), 'pressOut');
+      await fireEvent(screen.getByTestId('share-right'), 'pressIn');
+      await fireEvent(screen.getByTestId('share-right'), 'pressOut');
     }
-    expect(screen.getByTestId('teilen-ende')).toBeTruthy();
+    expect(screen.getByTestId('share-end')).toBeTruthy();
 
     // The map stays reachable from the closing titles.
     await fireEvent.press(screen.getByText('Auf der Karte'));
-    await fireEvent.press(screen.getByTestId('karte-nadel-q1'));
+    await fireEvent.press(screen.getByTestId('map-pin-q1'));
     await fireEvent.press(screen.getByText('Ab hier ansehen'));
-    expect(screen.getByTestId('teilen-bereit')).toBeTruthy();
+    expect(screen.getByTestId('share-ready')).toBeTruthy();
     expect(screen.getByText('Lea')).toBeTruthy();
     expect(screen.getByText(/Alfama · \d{2}:\d{2}/)).toBeTruthy();
     // Index 0: no segment before the active one is full.
-    expect(screen.queryAllByTestId(/^fortschritt-voll-/)).toHaveLength(0);
+    expect(screen.queryAllByTestId(/^progress-full-/)).toHaveLength(0);
   });
 
   test('moments on the same coordinate open the list, and every entry leads to its own spot', async () => {
@@ -590,17 +590,17 @@ describe('The map in the shared recap (spec §5.10)', () => {
     });
     await onTheMap([s1, s2, s3]);
 
-    expect(await screen.findAllByTestId(/^karte-nadel/)).toHaveLength(1);
-    await fireEvent.press(screen.getByTestId('karte-nadel-s1'));
+    expect(await screen.findAllByTestId(/^map-pin/)).toHaveLength(1);
+    await fireEvent.press(screen.getByTestId('map-pin-s1'));
     expect(screen.getByText('2 Momente an diesem Ort')).toBeTruthy();
     // No primary button in this list (DESIGN-LANGUAGE §4): that one belongs to
     // the sheet of the single moment.
     expect(screen.queryByText('Ab hier ansehen')).toBeNull();
 
-    await fireEvent.press(screen.getByTestId('teilen-gruppe-eintrag-s2'));
-    expect(screen.getByTestId('teilen-bereit')).toBeTruthy();
+    await fireEvent.press(screen.getByTestId('share-group-entry-s2'));
+    expect(screen.getByTestId('share-ready')).toBeTruthy();
     expect(screen.getByText('Direkt daneben')).toBeTruthy();
-    expect(screen.getAllByTestId(/^fortschritt-voll-/)).toHaveLength(1);
+    expect(screen.getAllByTestId(/^progress-full-/)).toHaveLength(1);
   });
 
   // The player survives the switch as STATE, only its view is gone. Without a
@@ -616,7 +616,7 @@ describe('The map in the shared recap (spec §5.10)', () => {
     await act(async () => {
       jest.advanceTimersByTime(INTERSTITIAL_MS);
     });
-    expect(screen.queryByTestId('teilen-zwischenkarte')).toBeNull();
+    expect(screen.queryByTestId('share-interstitial')).toBeNull();
 
     await fireEvent.press(screen.getByText('Auf der Karte'));
     // Far more than the photo duration (5000 ms), and more than all three
@@ -624,12 +624,12 @@ describe('The map in the shared recap (spec §5.10)', () => {
     await act(async () => {
       jest.advanceTimersByTime(30_000);
     });
-    expect(screen.getByTestId('teilen-karte')).toBeTruthy();
+    expect(screen.getByTestId('share-map')).toBeTruthy();
 
     await fireEvent.press(screen.getByText('Ansehen'));
-    expect(screen.getByTestId('teilen-bereit')).toBeTruthy();
+    expect(screen.getByTestId('share-ready')).toBeTruthy();
     // Still on the first moment, not in the closing titles.
-    expect(screen.queryAllByTestId(/^fortschritt-voll-/)).toHaveLength(0);
+    expect(screen.queryAllByTestId(/^progress-full-/)).toHaveLength(0);
     expect(screen.getByText('Lea')).toBeTruthy();
   });
 
@@ -641,14 +641,14 @@ describe('The map in the shared recap (spec §5.10)', () => {
   test('the day interstitial begins from the start again after the map', async () => {
     mockResolveToken.mockResolvedValueOnce(success([q1, q2, q3]));
     await ready();
-    expect(screen.getByTestId('teilen-zwischenkarte')).toBeTruthy();
+    expect(screen.getByTestId('share-interstitial')).toBeTruthy();
 
     await fireEvent.press(screen.getByText('Auf der Karte'));
     await act(async () => {
       jest.advanceTimersByTime(INTERSTITIAL_MS * 4);
     });
     await fireEvent.press(screen.getByText('Ansehen'));
-    expect(screen.getByTestId('teilen-zwischenkarte')).toBeTruthy();
+    expect(screen.getByTestId('share-interstitial')).toBeTruthy();
   });
 
   // DESIGN-LANGUAGE §1: cinema only on the media screens. On the map, bright
@@ -669,14 +669,14 @@ describe('The map in the shared recap (spec §5.10)', () => {
   // stood open.
   test('«Ansehen» clears an open moment sheet away with it', async () => {
     await onTheMap();
-    await fireEvent.press(screen.getByTestId('karte-nadel-q3'));
+    await fireEvent.press(screen.getByTestId('map-pin-q3'));
     expect(screen.getByText('Ab hier ansehen')).toBeTruthy();
 
     await fireEvent.press(screen.getByText('Ansehen'));
-    expect(screen.getByTestId('teilen-bereit')).toBeTruthy();
+    expect(screen.getByTestId('share-ready')).toBeTruthy();
 
     await fireEvent.press(screen.getByText('Auf der Karte'));
-    expect(screen.getByTestId('teilen-karte')).toBeTruthy();
+    expect(screen.getByTestId('share-map')).toBeTruthy();
     expect(screen.queryByText('Ab hier ansehen')).toBeNull();
     expect(screen.queryByTestId('sheet-root')).toBeNull();
   });
@@ -701,12 +701,12 @@ describe('The map in the shared recap (spec §5.10)', () => {
     });
     await onTheMap([g1, g2, g3]);
 
-    await fireEvent.press(screen.getByTestId('karte-nadel-g1'));
-    expect(screen.queryByTestId('teilen-gruppe-liste')).toBeNull(); // fly first
+    await fireEvent.press(screen.getByTestId('map-pin-g1'));
+    expect(screen.queryByTestId('share-group-list')).toBeNull(); // fly first
 
-    await fireEvent.press(screen.getByTestId('karte-nadel-g1'));
+    await fireEvent.press(screen.getByTestId('map-pin-g1'));
     expect(screen.getByText('2 Momente an diesem Ort')).toBeTruthy();
-    expect(screen.getByTestId('teilen-gruppe-eintrag-g2')).toBeTruthy();
+    expect(screen.getByTestId('share-group-entry-g2')).toBeTruthy();
   });
 
   // And the counter-check that keeps the zoom path alive: if the viewport has
@@ -727,17 +727,17 @@ describe('The map in the shared recap (spec §5.10)', () => {
     });
     await onTheMap([g1, g2, g3]);
 
-    await fireEvent.press(screen.getByTestId('karte-nadel-g1'));
+    await fireEvent.press(screen.getByTestId('map-pin-g1'));
     // The map reports a distinctly tighter viewport, it HAS flown.
-    await fireEvent(screen.getByTestId('karte-flaeche'), 'regionChangeComplete', {
+    await fireEvent(screen.getByTestId('map-surface'), 'regionChangeComplete', {
       latitude: 38.71399,
       longitude: -9.1301,
       latitudeDelta: 0.0006,
       longitudeDelta: 0.0006,
     });
 
-    await fireEvent.press(screen.getByTestId('karte-nadel-g1'));
-    expect(screen.queryByTestId('teilen-gruppe-liste')).toBeNull();
+    await fireEvent.press(screen.getByTestId('map-pin-g1'));
+    expect(screen.queryByTestId('share-group-list')).toBeNull();
     expect(screen.queryByText(/an diesem Ort/)).toBeNull();
   });
 
@@ -750,7 +750,7 @@ describe('The map in the shared recap (spec §5.10)', () => {
     mockResolveToken.mockResolvedValueOnce(success([q1, q2, q3], {}, 2));
     await ready();
     await fireEvent.press(await screen.findByText('Auf der Karte'));
-    expect(screen.getByTestId('teilen-ausgelassen')).toBeTruthy();
+    expect(screen.getByTestId('share-skipped')).toBeTruthy();
     expect(screen.getByText(SKIPPED_SENTENCE)).toBeTruthy();
   });
 
@@ -760,16 +760,16 @@ describe('The map in the shared recap (spec §5.10)', () => {
     mockResolveToken.mockResolvedValueOnce(success([q1, q2, q3], {}, 2));
     await ready();
     for (let i = 0; i < 3; i++) {
-      await fireEvent(screen.getByTestId('teilen-rechts'), 'pressIn');
-      await fireEvent(screen.getByTestId('teilen-rechts'), 'pressOut');
+      await fireEvent(screen.getByTestId('share-right'), 'pressIn');
+      await fireEvent(screen.getByTestId('share-right'), 'pressOut');
     }
-    expect(screen.getByTestId('teilen-ende')).toBeTruthy();
+    expect(screen.getByTestId('share-end')).toBeTruthy();
     expect(screen.getByText(SKIPPED_SENTENCE)).toBeTruthy();
   });
 
   test('with nothing skipped, nothing claims the opposite', async () => {
     await onTheMap();
-    expect(screen.queryByTestId('teilen-ausgelassen')).toBeNull();
+    expect(screen.queryByTestId('share-skipped')).toBeNull();
     expect(screen.queryByText(/liessen sich gerade nicht laden/)).toBeNull();
   });
 
@@ -790,13 +790,13 @@ describe('The map in the shared recap (spec §5.10)', () => {
       lat: 38.7, lng: -9.2,
     });
     await onTheMap([g1, g2, g3]);
-    expect(await screen.findAllByTestId(/^karte-nadel/)).toHaveLength(2);
+    expect(await screen.findAllByTestId(/^map-pin/)).toHaveLength(2);
 
-    await fireEvent.press(screen.getByTestId('karte-nadel-g1'));
+    await fireEvent.press(screen.getByTestId('map-pin-g1'));
     // No sheet, the map flies into it (spec §5.5), and reports that with
     // selection haptics (DESIGN-LANGUAGE §5).
     expect(screen.queryByText('Ab hier ansehen')).toBeNull();
-    expect(screen.queryByTestId('teilen-gruppe-liste')).toBeNull();
+    expect(screen.queryByTestId('share-group-list')).toBeNull();
     expect(mockHaptics).toHaveBeenCalledTimes(1);
   });
 });
@@ -805,7 +805,7 @@ describe('A single moment that fails to load (deliberately WITHOUT the silent re
   test('a photo that does not load shows the hint pill IMMEDIATELY after the FIRST error', async () => {
     mockResolveToken.mockResolvedValueOnce(success([p1]));
     await ready();
-    await fireEvent(screen.getByTestId('teilen-foto'), 'error');
+    await fireEvent(screen.getByTestId('share-photo'), 'error');
     expect(screen.getByText('Dieses Foto lässt sich gerade nicht laden.')).toBeTruthy();
   });
 

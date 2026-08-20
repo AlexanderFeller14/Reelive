@@ -5,7 +5,7 @@ const KEY = 'reelive.notifications';
 // If the entry is missing (first install, cleared storage, read error), ON
 // applies: push registration has run automatically on every signedIn since
 // Task 4, the switch in the profile tab must not silence existing
-// installations. That's why '0' is the only OFF value — the mirror image
+// installations. That's why '0' is the only OFF value, the mirror image
 // of moments/settings, where '1' is the only ON value, because the
 // default there is off.
 export async function notificationsActive(): Promise<boolean> {

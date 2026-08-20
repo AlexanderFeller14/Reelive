@@ -8,7 +8,7 @@
 // Everything here is pure computation without React and without Skia, so
 // it's (a) testable against the prototype's reference values in Jest and
 // (b) can run as a worklet on the UI thread (`useDerivedValue` in
-// SiegelAbziehen.tsx). That's why the functions that run per frame carry
+// SealPeel.tsx). That's why the functions that run per frame carry
 // the 'worklet' directive, and touch only numbers and each other.
 //
 // The prototype's picture: the seal sticks like a flexible sticker. A

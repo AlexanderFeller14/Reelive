@@ -161,8 +161,8 @@ test('shows the given moment image shrinking into the film reel', async () => {
   const { getByTestId, unmount } = await render(
     <SealAnimation visible={true} onFinished={jest.fn()} imageUri="file:///momente/m1.jpg" />
   );
-  expect(getByTestId('versiegelung-moment')).toBeTruthy();
-  expect(getByTestId('versiegelung-filmrolle')).toBeTruthy();
+  expect(getByTestId('seal-moment')).toBeTruthy();
+  expect(getByTestId('seal-film-reel')).toBeTruthy();
   await act(async () => {
     jest.advanceTimersByTime(DURATION + AFTERGLOW);
   });
@@ -173,8 +173,8 @@ test('without an image the sequence still runs, just without a moment image', as
   const { queryByTestId, getByTestId, unmount } = await render(
     <SealAnimation visible={true} onFinished={jest.fn()} />
   );
-  expect(queryByTestId('versiegelung-moment')).toBeNull();
-  expect(getByTestId('versiegelung-filmrolle')).toBeTruthy();
+  expect(queryByTestId('seal-moment')).toBeNull();
+  expect(getByTestId('seal-film-reel')).toBeTruthy();
   await act(async () => {
     jest.advanceTimersByTime(DURATION + AFTERGLOW);
   });
@@ -186,9 +186,9 @@ test('rolls the counter up one digit and shows the sealed line', async () => {
     <SealAnimation visible={true} onFinished={jest.fn()} counter={11} />
   );
   // 11 → 12: the tens digit stays fixed, the ones digit rolls 1 → 2.
-  expect(getByTestId('zaehler-ziffer-fest-0').props.children).toBe('1');
-  expect(getByTestId('zaehler-ziffer-alt-1').props.children).toBe('1');
-  expect(getByTestId('zaehler-ziffer-neu-1').props.children).toBe('2');
+  expect(getByTestId('counter-digit-fixed-0').props.children).toBe('1');
+  expect(getByTestId('counter-digit-old-1').props.children).toBe('1');
+  expect(getByTestId('counter-digit-new-1').props.children).toBe('2');
   expect(getByText('Bis zum Recap versiegelt.')).toBeTruthy();
   await act(async () => {
     jest.advanceTimersByTime(DURATION + AFTERGLOW);
@@ -200,7 +200,7 @@ test('without a counter value the number is omitted, the sealed line remains', a
   const { queryByTestId, getByText, unmount } = await render(
     <SealAnimation visible={true} onFinished={jest.fn()} counter={null} />
   );
-  expect(queryByTestId('versiegelung-zaehler')).toBeNull();
+  expect(queryByTestId('seal-counter')).toBeNull();
   expect(getByText('Bis zum Recap versiegelt.')).toBeTruthy();
   await act(async () => {
     jest.advanceTimersByTime(DURATION + AFTERGLOW);

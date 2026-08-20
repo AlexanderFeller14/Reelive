@@ -1,5 +1,5 @@
-// The viewfinder's zoom steps. Pure computation, no React, no native module
-// — both come in from outside (see nativeZoom.ts and ZoomWahl.tsx).
+// The viewfinder's zoom steps. Pure computation, no React, no native module,
+// both come in from outside (see nativeZoom.ts and ZoomSelector.tsx).
 //
 // Why this file computes at all instead of just knowing numbers: `expo-camera`
 // doesn't take a zoom factor, but a slider from 0 to 1, which iOS maps
@@ -21,7 +21,7 @@ export type LensType =
   | 'unknown';
 
 export type Lens = {
-  /** Localized device name — exactly the string `selectedLens` expects. */
+  /** Localized device name, exactly the string `selectedLens` expects. */
   name: string;
   type: LensType;
   /** For virtual devices, the lenses it contains, from widest to longest. */
@@ -42,7 +42,7 @@ export type ZoomDevice = {
 // Picks, out of all cameras of one facing direction, the one that combines
 // the most lenses. That's the virtual multi-lens camera: iOS switches
 // between the lenses inside it by itself, seamlessly and without rebuilding
-// the session — the reason the pinch doesn't stutter across the steps.
+// the session, the reason the pinch doesn't stutter across the steps.
 //
 // The steps are the device's own switch-over points
 // (`virtualDeviceSwitchOverVideoZoomFactors`), i.e. exactly the factors at
@@ -58,7 +58,7 @@ export function zoomDevice(lenses: Lens[]): ZoomDevice | null {
   for (const lens of lenses) {
     if (!best || lens.components.length > best.components.length) best = lens;
   }
-  // Without a switch point there's only one lens and so nothing to choose —
+  // Without a switch point there's only one lens and so nothing to choose,
   // iPhone SE, every front camera, and Android, which reports no lenses at all.
   if (!best || best.switchPoints.length === 0) return null;
 
@@ -88,7 +88,7 @@ export function clamp(
 }
 
 // From here on the decimal place is dropped. Two digits plus comma plus a
-// digit would be five characters, and the step is a small circle — the
+// digit would be five characters, and the step is a small circle: the
 // Camera app draws the same line.
 const WITHOUT_DECIMAL_FROM = 10;
 
@@ -102,7 +102,7 @@ export function label(factor: number): string {
 }
 
 // The pinch measures the distance between the two fingers. Its ratio to the
-// distance at touch-down is the factor by which the zoom changes — so a
+// distance at touch-down is the factor by which the zoom changes, so a
 // single distance is enough, with no knowledge of where on the image it sits.
 export function fingerDistance(fingers: { pageX: number; pageY: number }[]): number | null {
   if (fingers.length < 2) return null;
@@ -111,7 +111,7 @@ export function fingerDistance(fingers: { pageX: number; pageY: number }[]): num
 
 // Which step currently applies: the largest one the factor has reached.
 // Between two steps the smaller one thus stays active and carries the
-// running value — that's how the Camera app does it too, while the pinch is
+// running value, that's how the Camera app does it too, while the pinch is
 // running.
 export function activeStep(factor: number, steps: number[]): number {
   let active = steps[0];
@@ -124,13 +124,13 @@ export function activeStep(factor: number, steps: number[]): number {
 // The shutter's drag zoom (Snapchat pattern): hold and pull upward. `pull`
 // is the finger movement since touch-down (positive upward, pt), `start` the
 // display factor at capture start, `distances` the stretches that cover the
-// full range — upward to the maximum, downward to the minimum (the shutter
+// full range: upward to the maximum, downward to the minimum (the shutter
 // sits almost at the bottom, there isn't much room there, hence two separate
 // stretches).
 //
 // Exponential rather than linear: zoom is multiplicative. Mapped linearly,
 // half the stretch would sit between 30× and 60×, even though that's ONE
-// doubling step — that feels sluggish at the top and jumpy at the bottom.
+// doubling step, that feels sluggish at the top and jumpy at the bottom.
 // This way every centimeter of travel carries the same factor.
 export function dragFactor(
   pull: number,

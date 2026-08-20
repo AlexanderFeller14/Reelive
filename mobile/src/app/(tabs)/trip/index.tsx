@@ -83,7 +83,7 @@ export default function TripList() {
                 shadow, same as the film reel in the empty recap tab
                 (recap/index.tsx). */}
             <Image
-              testID="leerzustand-camper"
+              testID="empty-state-camper"
               source={require('@/assets/images/camper-salbeigruen-transparent.png')}
               style={styles.camper}
               contentFit="contain"

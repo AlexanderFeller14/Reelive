@@ -77,7 +77,7 @@ function SubmitButton({
 }) {
   return (
     <PressScale
-      testID="einsenden-knopf"
+      testID="submit-button"
       accessibilityRole="button"
       accessibilityState={{ disabled: loading }}
       disabled={loading}
@@ -93,7 +93,7 @@ function SubmitButton({
           ]}
         >
           {loading ? (
-            <ActivityIndicator testID="einsenden-loading" color={palette['on-accent']} />
+            <ActivityIndicator testID="submit-loading" color={palette['on-accent']} />
           ) : (
             <Text style={[type.bodyMedium, { color: palette['on-accent'] }]}>Einsenden</Text>
           )}
@@ -423,7 +423,7 @@ export default function PreviewScreen() {
     } catch (error) {
       media.removeMomentFiles(postId);
       if (prepared && source) media.discardIntermediates(source, prepared);
-      console.error('[preview] Einsenden fehlgeschlagen', error);
+      console.error('[preview] submit failed', error);
       setSubmitError(SENDING_FAILED_MESSAGE);
       setSubmitting(false);
     }
@@ -450,11 +450,11 @@ export default function PreviewScreen() {
           // The own pipeline (Task 12): the native ring buffer is already
           // playing before this screen even draws, so this shape needs
           // neither a VideoView nor a poster.
-          <InstantPreview testID="sofort-vorschau" style={StyleSheet.absoluteFill} />
+          <InstantPreview testID="instant-preview" style={StyleSheet.absoluteFill} />
         ) : (
           <>
             <VideoView
-              testID="video-vorschau"
+              testID="video-preview"
               player={player}
               style={StyleSheet.absoluteFill}
               contentFit="cover"
@@ -474,7 +474,7 @@ export default function PreviewScreen() {
         )
       ) : (
         <Image
-          testID="foto-vorschau"
+          testID="photo-preview"
           source={photo ? photo.ref : { uri }}
           style={StyleSheet.absoluteFill}
           contentFit="cover"
@@ -511,7 +511,7 @@ export default function PreviewScreen() {
           submitting. Below it used to stand next to the primary button and
           took a third of its width. */}
       <PressScale
-        testID="verwerfen-knopf"
+        testID="discard-button"
         accessibilityRole="button"
         accessibilityLabel="Aufnahme verwerfen"
         disabled={submitting}
@@ -530,7 +530,7 @@ export default function PreviewScreen() {
           pull the field back under the keyboard; the offset is kept and
           returns on closing. */}
       <Animated.View
-        testID="bildunterschrift-feld"
+        testID="caption-field"
         {...(writing ? {} : panResponder.panHandlers)}
         style={[
           styles.captionWrap,
@@ -559,7 +559,7 @@ export default function PreviewScreen() {
           </Pill>
         ) : (
           <PressScale
-            testID="bildunterschrift-chip"
+            testID="caption-chip"
             accessibilityRole="button"
             accessibilityLabel={caption ? `Bildunterschrift ändern: ${caption}` : 'Etwas dazu schreiben'}
             onPress={() => setFieldOpen(true)}
@@ -581,7 +581,7 @@ export default function PreviewScreen() {
       </Animated.View>
 
       <View
-        testID="fuss"
+        testID="footer"
         style={[styles.footer, { bottom: bottomInset }]}
         onLayout={(e) => setFooterHeight(e.nativeEvent.layout.height)}
       >

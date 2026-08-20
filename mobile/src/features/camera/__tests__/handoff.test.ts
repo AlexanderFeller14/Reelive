@@ -43,11 +43,11 @@ test('a failing file stays available to the taker as a rejection', async () => {
 });
 
 // The video handoff (device finding 2026-08-14): the pre-warmed player AND a
-// poster (frame 0 of the video) travel to the preview together — the
+// poster (frame 0 of the video) travel to the preview together: the
 // VideoView needs ~0.8 s on device before it draws a fully loaded player
 // itself; until then the poster stands in, and the switch is invisible
 // because the loop starts at frame 0. At runtime all that matters is that
-// the same pair comes back out — and that a leftover player gets released
+// the same pair comes back out, and that a leftover player gets released
 // (native object, explicit release required).
 const fakePlayer = () => ({ release: jest.fn() }) as unknown as VideoPlayer;
 

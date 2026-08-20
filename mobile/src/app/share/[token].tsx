@@ -103,7 +103,7 @@ const MAP_LABEL = 'Auf der Karte';
 // (features/map/MomentSheet.tsx), and nothing else: the button is named
 // differently here, because there is no recap player to jump into, only the
 // shared player on THIS screen (spec §5.10).
-const SHEET_FORM: SheetForm = { buttonLabel: 'Ab hier ansehen', prefix: 'teilen-' };
+const SHEET_FORM: SheetForm = { buttonLabel: 'Ab hier ansehen', prefix: 'share-' };
 // Height of the segment row (36 + 2 × 4 padding), the same 44 points as
 // every other pill in this project. A constant, because the player's header
 // slides underneath as soon as the row exists.
@@ -195,7 +195,7 @@ function LoadingHintPill({ text }: { text: string }) {
 // a link into nothing would be worse than none at all.
 function FooterBar() {
   return (
-    <View testID="teilen-fussleiste" style={styles.footerBar} pointerEvents="none">
+    <View testID="share-footer" style={styles.footerBar} pointerEvents="none">
       <Text style={[type.label, { color: cinema['text-1'] }]}>Reelive</Text>
       <Text style={[type.secondary, { color: cinema['text-2'] }]}>Hol dir die App</Text>
     </View>
@@ -205,7 +205,7 @@ function FooterBar() {
 function PhotoMoment({ url, onError }: { url: string; onError: () => void }) {
   return (
     <Image
-      testID="teilen-foto"
+      testID="share-photo"
       source={{ uri: url }}
       style={StyleSheet.absoluteFill}
       contentFit="cover"
@@ -247,7 +247,7 @@ function VideoMoment({
 
   return (
     <VideoView
-      testID="teilen-video"
+      testID="share-video"
       player={player}
       style={StyleSheet.absoluteFill}
       contentFit="cover"
@@ -297,7 +297,7 @@ function MomentView({
 // ---------------------------------------------------------------------------
 
 // Moments this page never received at all: the function could hand out no URL
-// for them (`ausgelassen`, share-link/resolution.ts). Worded exactly as in
+// for them (`skipped`, share-link/resolution.ts). Worded exactly as in
 // overview.tsx and recap/[id]/map.tsx: the same situation says the same thing
 // everywhere.
 function skippedText(count: number): string {
@@ -384,13 +384,13 @@ function SegmentRow({
         <SegmentHalf
           label={VIEW_LABEL}
           active={!onMap}
-          testID="teilen-segment-ansehen"
+          testID="share-segment-view"
           onPress={onSwitch}
         />
         <SegmentHalf
           label={MAP_LABEL}
           active={onMap}
-          testID="teilen-segment-karte"
+          testID="share-segment-map"
           onPress={onSwitch}
         />
       </Pill>
@@ -471,13 +471,13 @@ export default function SharedRecapScreen() {
       return;
     }
 
-    const list = sortMoments(data.medien.map(toRecapMoment));
+    const list = sortMoments(data.media.map(toRecapMoment));
     const urlMap = new Map<string, MediaLink>(
-      data.medien.map((m) => [m.post_id, { medium_url: m.medium_url, thumb_url: m.thumb_url }])
+      data.media.map((m) => [m.post_id, { medium_url: m.medium_url, thumb_url: m.thumb_url }])
     );
-    setTripName(data.reise.name);
-    setStartDate(data.reise.start_date);
-    setSkipped(data.ausgelassen);
+    setTripName(data.trip.name);
+    setStartDate(data.trip.start_date);
+    setSkipped(data.skipped);
     setUrls(urlMap);
     setPlaylist(list);
     setFailed(new Set());
@@ -765,7 +765,7 @@ export default function SharedRecapScreen() {
 
   if (phase === 'loading') {
     return (
-      <View testID="teilen-laedt" style={styles.screen}>
+      <View testID="share-loading" style={styles.screen}>
         <ActivityIndicator color={cinema['text-1']} />
       </View>
     );
@@ -773,7 +773,7 @@ export default function SharedRecapScreen() {
 
   if (phase === 'error') {
     return (
-      <View testID="teilen-fehler" style={[styles.screen, styles.center]}>
+      <View testID="share-error" style={[styles.screen, styles.center]}>
         <Text style={[type.h2, styles.centeredText]}>{errorText}</Text>
         <View style={{ marginTop: spacing.xl }}>
           <CinemaButton label="Nochmal versuchen" onPress={() => void load()} />
@@ -785,7 +785,7 @@ export default function SharedRecapScreen() {
 
   if (phase === 'empty') {
     return (
-      <View testID="teilen-leer" style={[styles.screen, styles.center]}>
+      <View testID="share-empty" style={[styles.screen, styles.center]}>
         <Text style={[type.h2, styles.centeredText]}>
           {tripName ? `${tripName} ist leer geblieben.` : 'Dieser Recap ist leer geblieben.'}
         </Text>
@@ -800,7 +800,7 @@ export default function SharedRecapScreen() {
       // as in the app, not a media full screen (spec §5.3). The tiles bring
       // their own colours, they are content like a photo, not interface
       // (decision R2); what lies ON TOP of them stays binding.
-      <View testID="teilen-karte" style={styles.surface}>
+      <View testID="share-map" style={styles.surface}>
         <MapSurface
           ref={map}
           initialViewport={visibleViewport}
@@ -823,7 +823,7 @@ export default function SharedRecapScreen() {
         {(withoutPlace.length > 0 || skipped > 0) && (
           <View style={styles.bar} pointerEvents="none">
             {skipped > 0 && (
-              <Pill testID="teilen-ausgelassen" style={styles.barPill}>
+              <Pill testID="share-skipped" style={styles.barPill}>
                 <Text style={[type.secondary, { color: cinema['text-1'] }]}>
                   {skippedText(skipped)}
                 </Text>
@@ -877,7 +877,7 @@ export default function SharedRecapScreen() {
 
   if (phase === 'end') {
     return (
-      <View testID="teilen-ende" style={[styles.screen, styles.center]}>
+      <View testID="share-end" style={[styles.screen, styles.center]}>
         <Text style={[type.h2, styles.centeredText]}>
           {tripName ? `Das war der Recap von „${tripName}".` : 'Das war der Recap.'}
         </Text>
@@ -904,7 +904,7 @@ export default function SharedRecapScreen() {
     : timeInZone(activeMoment.captured_at, activeMoment.captured_tz);
 
   return (
-    <View testID="teilen-bereit" style={styles.screen}>
+    <View testID="share-ready" style={styles.screen}>
       <MomentView
         key={activeMoment.id}
         moment={activeMoment}
@@ -951,13 +951,13 @@ export default function SharedRecapScreen() {
       </View>
 
       {activeMoment.caption && (
-        <Pill testID="teilen-caption" style={styles.captionPill} pointerEvents="none">
+        <Pill testID="share-caption" style={styles.captionPill} pointerEvents="none">
           <Text style={[type.body, { color: cinema['text-1'] }]}>{activeMoment.caption}</Text>
         </Pill>
       )}
 
       <Pressable
-        testID="teilen-links"
+        testID="share-left"
         accessibilityRole="button"
         accessibilityLabel="Zurück zum vorherigen Moment"
         style={styles.tapZoneLeft}
@@ -965,7 +965,7 @@ export default function SharedRecapScreen() {
         onPressOut={() => endTouch('left')}
       />
       <Pressable
-        testID="teilen-rechts"
+        testID="share-right"
         accessibilityRole="button"
         accessibilityLabel="Weiter zum nächsten Moment"
         style={styles.tapZoneRight}
@@ -974,7 +974,7 @@ export default function SharedRecapScreen() {
       />
 
       {interstitial && (
-        <Pressable testID="teilen-zwischenkarte" style={styles.interstitial} onPress={skipInterstitial}>
+        <Pressable testID="share-interstitial" style={styles.interstitial} onPress={skipInterstitial}>
           <Text style={[type.h1, styles.centeredText]}>
             {currentDay ? dayHeading(currentDay) : 'Ein neuer Tag beginnt.'}
           </Text>

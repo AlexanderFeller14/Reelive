@@ -240,11 +240,11 @@ test('while locked, the round core becomes a square', async () => {
     <ShutterButton onPhoto={jest.fn()} onVideoStart={jest.fn()} onVideoStop={jest.fn()} maxSeconds={30} />
   );
   await videoIsRunning();
-  const round = StyleSheet.flatten(screen.getByTestId('ausloeser-kern').props.style) as ViewStyle;
+  const round = StyleSheet.flatten(screen.getByTestId('shutter-core').props.style) as ViewStyle;
 
   await fireEvent(button(), 'touchMove', BEYOND);
   await fireEvent(button(), 'pressOut');
-  const square = StyleSheet.flatten(screen.getByTestId('ausloeser-kern').props.style) as ViewStyle;
+  const square = StyleSheet.flatten(screen.getByTestId('shutter-core').props.style) as ViewStyle;
 
   expect(round.borderRadius).toBeGreaterThan(square.borderRadius as number);
 });

@@ -285,7 +285,7 @@ function WithoutPlaceTile({
         scaleTo={0.96}
         accessibilityRole="button"
         accessibilityLabel={momentLabel(moment)}
-        testID={`ohne-ort-kachel-${moment.id}`}
+        testID={`without-place-tile-${moment.id}`}
         onPress={() => onView(entry)}
       >
         <View style={[styles.tile, { backgroundColor: colors['bg-1'] }]}>
@@ -294,7 +294,7 @@ function WithoutPlaceTile({
               skeleton and in the moment sheet). */}
           {thumbUrl !== null && (
             <Image
-              testID={`ohne-ort-bild-${moment.id}`}
+              testID={`without-place-image-${moment.id}`}
               source={{ uri: thumbUrl }}
               style={StyleSheet.absoluteFill}
               contentFit="cover"
@@ -340,7 +340,7 @@ function MapSkeleton({ topInset, onBack }: { topInset: number; onBack: () => voi
   return (
     <View style={[styles.surface, { backgroundColor: colors['bg-0'] }]}>
       <Animated.View
-        testID="karte-skelett"
+        testID="map-skeleton"
         style={[StyleSheet.absoluteFill, { backgroundColor: colors['bg-1'], opacity }]}
       />
       {/* The same arrow as in the error branch, at the same spot as the back
@@ -1158,7 +1158,7 @@ export default function RecapMap() {
           there is nothing to choose anyway. */}
       {days.length > 1 && (
         <PressScale
-          testID="karte-tagesfilter"
+          testID="map-day-filter"
           accessibilityRole="button"
           accessibilityLabel={`Reisetag wählen, aktuell ${filterState}`}
           onPress={openDayFilter}
@@ -1202,7 +1202,7 @@ export default function RecapMap() {
               the bar would come to less than the trip has, and nobody would
               see why. */}
           {fullyMissing.length > 0 && (
-            <Pill testID="karte-fehlen-ganz" style={styles.missingPill} pointerEvents="none">
+            <Pill testID="map-fully-missing" style={styles.missingPill} pointerEvents="none">
               {fullyMissing.map((sentence) => (
                 <Text key={sentence} style={[type.secondary, { color: cinema['text-1'] }]}>
                   {sentence}
@@ -1212,7 +1212,7 @@ export default function RecapMap() {
           )}
           {withoutPlace.length > 0 && (
             <PressScale
-              testID="karte-ohne-ort"
+              testID="map-without-place"
               accessibilityRole="button"
               // The pill shows the number, the label additionally says what a
               // tap does, word for word like the pin of an indivisible
@@ -1238,9 +1238,9 @@ export default function RecapMap() {
               long trip has many days, and `Sheet` would cut the overhang off
               hard (85 % window height, `overflow: hidden`), so the last days
               would be selectable on no way at all. */}
-          <SheetScroll testID="tage-liste">
+          <SheetScroll testID="days-list">
             <DayEntry
-              testID="tag-eintrag-alle"
+              testID="day-entry-all"
               label="Alle Tage"
               active={selectedDay === null}
               position={0}
@@ -1249,7 +1249,7 @@ export default function RecapMap() {
             {days.map((day, position) => (
               <DayEntry
                 key={day.number}
-                testID={`tag-eintrag-${day.number}`}
+                testID={`day-entry-${day.number}`}
                 label={`Tag ${day.number}`}
                 place={day.place}
                 active={selectedDay?.number === day.number}
@@ -1276,7 +1276,7 @@ export default function RecapMap() {
               height, `overflow: hidden`), and the cut off moments would be
               reachable from the map on no other way, a pin is exactly what they
               do not have. */}
-          <SheetScroll testID="ohne-ort-liste">
+          <SheetScroll testID="without-place-list">
             <View style={styles.tileGrid}>
               {withoutPlace.map((entry, position) => (
                 <WithoutPlaceTile

@@ -84,11 +84,11 @@ function ReportRow({
 }) {
   const { colors } = useTheme();
   return (
-    <View testID={`meldung-${report.id}`} style={[styles.reportRow, { borderBottomColor: colors.line }]}>
+    <View testID={`report-${report.id}`} style={[styles.reportRow, { borderBottomColor: colors.line }]}>
       <View style={styles.reportHead}>
         {previewUrl ? (
           <Image
-            testID={`meldung-vorschau-${report.id}`}
+            testID={`report-preview-${report.id}`}
             source={{ uri: previewUrl }}
             style={[styles.reportImage, { backgroundColor: colors['bg-1'] }]}
             contentFit="cover"
@@ -103,7 +103,7 @@ function ReportRow({
       </View>
       {error && <Text style={[type.secondary, { color: colors.danger }]}>{error}</Text>}
       {running ? (
-        <ActivityIndicator testID={`meldung-laedt-${report.id}`} color={colors['text-1']} />
+        <ActivityIndicator testID={`report-loading-${report.id}`} color={colors['text-1']} />
       ) : (
         <View style={styles.reportActions}>
           <PressScale accessibilityRole="button" onPress={onDismiss}>
@@ -487,7 +487,7 @@ export default function TripDetail() {
           <Text style={[type.body, { color: colors.danger, marginTop: spacing.m }]}>{membersError}</Text>
         ) : members.length > 0 ? (
           <PressScale
-            testID="mitreisende-oeffnen"
+            testID="members-open"
             accessibilityRole="button"
             accessibilityLabel={travellersLabel(members.length)}
             onPress={() => setMembersVisible(true)}
@@ -525,7 +525,7 @@ export default function TripDetail() {
       </View>
 
       {shared === true && (
-        <View testID="geteilt-hinweis" style={[styles.sharedBox, { backgroundColor: colors['bg-1'] }]}>
+        <View testID="shared-hint" style={[styles.sharedBox, { backgroundColor: colors['bg-1'] }]}>
           <Share2 size={20} color={colors['text-1']} strokeWidth={1.75} />
           <View style={styles.sharedText}>
             <Text style={[type.bodyMedium, { color: colors['text-1'] }]}>Dieser Recap ist geteilt</Text>
@@ -535,7 +535,7 @@ export default function TripDetail() {
       )}
 
       {shared === null && (
-        <Text testID="geteilt-unbekannt" style={[type.secondary, { color: colors['text-2'] }]}>
+        <Text testID="shared-unknown" style={[type.secondary, { color: colors['text-2'] }]}>
           {SHARED_UNKNOWN}
         </Text>
       )}
@@ -556,7 +556,7 @@ export default function TripDetail() {
 
       {isOwner && reportCount > 0 && (
         <PressScale
-          testID="moderation-oeffnen"
+          testID="moderation-open"
           accessibilityRole="button"
           accessibilityLabel={reportsText(reportCount)}
           onPress={openModeration}
@@ -651,7 +651,7 @@ export default function TripDetail() {
 
     <Sheet visible={moderationVisible} title="Gemeldete Momente" onClose={closeModeration}>
       {moderationPhase === 'loading' ? (
-        <ActivityIndicator testID="moderation-laedt" color={colors['text-1']} />
+        <ActivityIndicator testID="moderation-loading" color={colors['text-1']} />
       ) : moderationPhase === 'error' ? (
         <View style={{ gap: spacing.base }}>
           <Text style={[type.body, { color: colors.danger }]}>{moderationError}</Text>
@@ -660,7 +660,7 @@ export default function TripDetail() {
       ) : reports.length === 0 ? (
         <Text style={[type.secondary, { color: colors['text-2'] }]}>Keine offenen Meldungen mehr.</Text>
       ) : (
-        <ScrollView testID="moderation-liste" style={styles.moderationList}>
+        <ScrollView testID="moderation-list" style={styles.moderationList}>
           {reports.map((r) => (
             <ReportRow
               key={r.id}

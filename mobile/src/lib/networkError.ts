@@ -16,6 +16,6 @@ export const OFFLINE_HINT = 'Du bist offline. Verbinde dich und probier es nochm
 // row-level security policy ...") contains neither.
 const OFFLINE_PATTERN = /fetch|network request failed/i;
 
-export function istOffline(error: { message?: string } | null | undefined): boolean {
+export function isOffline(error: { message?: string } | null | undefined): boolean {
   return OFFLINE_PATTERN.test(error?.message ?? '');
 }

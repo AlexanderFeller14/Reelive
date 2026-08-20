@@ -90,11 +90,11 @@ const MOMENT_CHANGE_REASONS: PauseReason[] = ['halten', 'neuversuch'];
 // several codepoints, e.g. heart plus variation selector, which makes a poor
 // testID), `emoji` is the value socialApi actually stores.
 const EMOJI_BAR: { id: string; emoji: string; label: string }[] = [
-  { id: 'herz', emoji: '❤️', label: 'Herz' },
-  { id: 'lachen', emoji: '😂', label: 'Lachen' },
-  { id: 'staunen', emoji: '😮', label: 'Staunen' },
-  { id: 'klatschen', emoji: '👏', label: 'Applaus' },
-  { id: 'weinen', emoji: '😢', label: 'Träne' },
+  { id: 'heart', emoji: '❤️', label: 'Herz' },
+  { id: 'laugh', emoji: '😂', label: 'Lachen' },
+  { id: 'wow', emoji: '😮', label: 'Staunen' },
+  { id: 'clap', emoji: '👏', label: 'Applaus' },
+  { id: 'cry', emoji: '😢', label: 'Träne' },
 ];
 
 // Same wording as the sister screen recap/[id]/overview.tsx for latecomers
@@ -213,7 +213,7 @@ function OtherReactionsPill({ emojis }: { emojis: string[] }) {
   if (emojis.length === 0) return null;
   return (
     <Pill
-      testID="player-reaktionen-andere"
+      testID="player-reactions-others"
       style={styles.otherReactionsPill}
       accessibilityLabel={`Weitere Reaktionen: ${emojis.join(', ')}`}
     >
@@ -224,7 +224,7 @@ function OtherReactionsPill({ emojis }: { emojis: string[] }) {
 
 function CommentRow({ comment }: { comment: Comment }) {
   return (
-    <View testID={`kommentar-${comment.id}`} style={styles.commentRow}>
+    <View testID={`comment-${comment.id}`} style={styles.commentRow}>
       <Text style={[type.bodyMedium, { color: cinema['text-1'] }]}>{comment.authorName}</Text>
       <Text style={[type.body, { color: cinema['text-1'] }]}>{comment.text}</Text>
     </View>
@@ -242,7 +242,7 @@ function LoadingHintPill({ text }: { text: string }) {
 function PhotoMoment({ url, onError }: { url: string; onError: () => void }) {
   return (
     <Image
-      testID="player-foto"
+      testID="player-photo"
       source={{ uri: url }}
       style={StyleSheet.absoluteFill}
       contentFit="cover"
@@ -984,7 +984,7 @@ export default function RecapPlayer() {
 
   if (phase === 'loading') {
     return (
-      <View testID="player-laedt" style={styles.screen}>
+      <View testID="player-loading" style={styles.screen}>
         <ActivityIndicator color={cinema['text-1']} />
       </View>
     );
@@ -992,7 +992,7 @@ export default function RecapPlayer() {
 
   if (phase === 'error') {
     return (
-      <View testID="player-fehler" style={[styles.screen, styles.center]}>
+      <View testID="player-error" style={[styles.screen, styles.center]}>
         <Text style={[type.h2, styles.centeredText]}>{error?.text}</Text>
         <View style={{ marginTop: spacing.xl, gap: spacing.base, alignItems: 'center' }}>
           {/* Only where a second attempt can achieve anything
@@ -1009,7 +1009,7 @@ export default function RecapPlayer() {
 
   if (phase === 'empty') {
     return (
-      <View testID="player-leer" style={[styles.screen, styles.center]}>
+      <View testID="player-empty" style={[styles.screen, styles.center]}>
         <Text style={[type.h2, styles.centeredText]}>Diese Reise ist leer geblieben.</Text>
         <View style={{ marginTop: spacing.xl }}>
           <TextLink label="Zurück zur Übersicht" onPress={close} />
@@ -1020,7 +1020,7 @@ export default function RecapPlayer() {
 
   if (phase === 'ended') {
     return (
-      <View testID="player-ende" style={[styles.screen, styles.center]}>
+      <View testID="player-end" style={[styles.screen, styles.center]}>
         <Text style={[type.h2, styles.centeredText]}>Das war der Recap.</Text>
         {(pendingCount > 0 || skippedCount > 0) && (
           <View style={{ marginTop: spacing.base, gap: spacing.xs, alignItems: 'center' }}>
@@ -1048,7 +1048,7 @@ export default function RecapPlayer() {
     : timeInZone(activeMoment.captured_at, activeMoment.captured_tz);
 
   return (
-    <View testID="player-bereit" style={styles.screen}>
+    <View testID="player-ready" style={styles.screen}>
       <Animated.View style={[styles.content, { transform: pan.getTranslateTransform() }]} {...panResponder.panHandlers}>
         <MomentView
           key={activeMoment.id}
@@ -1061,7 +1061,7 @@ export default function RecapPlayer() {
         />
 
         <View
-          testID="player-kopf-bereich"
+          testID="player-header-area"
           style={[styles.headerArea, { top: topInset }]}
           pointerEvents="box-none"
         >
@@ -1087,7 +1087,7 @@ export default function RecapPlayer() {
         </View>
 
         <View
-          testID="player-sozial-bereich"
+          testID="player-social-area"
           style={[styles.socialArea, { bottom: bottomInset }]}
           pointerEvents="box-none"
         >
@@ -1109,7 +1109,7 @@ export default function RecapPlayer() {
               />
             ))}
             <PressScale
-              testID="player-kommentare-oeffnen"
+              testID="player-comments-open"
               accessibilityRole="button"
               accessibilityLabel="Kommentare öffnen"
               onPress={openComments}
@@ -1122,7 +1122,7 @@ export default function RecapPlayer() {
                 a moment that is not loading has nothing that could be saved. */}
             {url && (
               <PressScale
-                testID="player-sichern"
+                testID="player-save"
                 accessibilityRole="button"
                 accessibilityLabel="In Galerie sichern"
                 accessibilityState={{ disabled: exportRunning }}
@@ -1132,7 +1132,7 @@ export default function RecapPlayer() {
               >
                 <Pill style={styles.commentButton}>
                   {exportRunning ? (
-                    <ActivityIndicator testID="player-sichern-laedt" color={cinema['text-1']} size="small" />
+                    <ActivityIndicator testID="player-save-loading" color={cinema['text-1']} size="small" />
                   ) : (
                     <Download size={20} color={cinema['text-1']} strokeWidth={1.75} />
                   )}
@@ -1146,7 +1146,7 @@ export default function RecapPlayer() {
             </Pill>
           )}
           {exportNotice && (
-            <Pill testID="player-export-hinweis" style={styles.reactionErrorPill}>
+            <Pill testID="player-export-hint" style={styles.reactionErrorPill}>
               <Text style={[type.secondary, { color: cinema['text-1'] }]}>{exportNotice}</Text>
             </Pill>
           )}
@@ -1164,7 +1164,7 @@ export default function RecapPlayer() {
             before that, onLongPress never fires and endTouch decides on the hold
             duration alone, as before. */}
         <Pressable
-          testID="player-links"
+          testID="player-left"
           accessibilityRole="button"
           accessibilityLabel="Zurück zum vorherigen Moment"
           style={styles.tapZoneLeft}
@@ -1174,7 +1174,7 @@ export default function RecapPlayer() {
           delayLongPress={LONG_PRESS_MS}
         />
         <Pressable
-          testID="player-rechts"
+          testID="player-right"
           accessibilityRole="button"
           accessibilityLabel="Weiter zum nächsten Moment"
           style={styles.tapZoneRight}
@@ -1185,7 +1185,7 @@ export default function RecapPlayer() {
         />
 
         <PressScale
-          testID="player-schliessen"
+          testID="player-close"
           accessibilityRole="button"
           accessibilityLabel="Schliessen"
           onPress={close}
@@ -1197,7 +1197,7 @@ export default function RecapPlayer() {
         </PressScale>
 
         {interstitial && (
-          <Pressable testID="player-zwischenkarte" style={styles.interstitial} onPress={skip}>
+          <Pressable testID="player-interstitial" style={styles.interstitial} onPress={skip}>
             <Text style={[type.h1, styles.centeredText]}>
               {currentDay ? dayHeading(currentDay) : 'Ein neuer Tag beginnt.'}
             </Text>
@@ -1215,7 +1215,7 @@ export default function RecapPlayer() {
           including the tap zones. */}
       <Sheet visible={commentsOpen} title="Kommentare" onClose={closeComments} cinemaMode>
         {commentsLoading ? (
-          <ActivityIndicator testID="kommentare-laedt" color={cinema['text-1']} />
+          <ActivityIndicator testID="comments-loading" color={cinema['text-1']} />
         ) : commentsError ? (
           <Text style={[type.secondary, { color: cinema['text-2'] }]}>{commentsError}</Text>
         ) : comments.length === 0 ? (
@@ -1223,7 +1223,7 @@ export default function RecapPlayer() {
             Noch keine Kommentare. Schreib den ersten.
           </Text>
         ) : (
-          <ScrollView testID="kommentar-liste" style={styles.commentList}>
+          <ScrollView testID="comment-list" style={styles.commentList}>
             {comments.map((c) => (
               <CommentRow key={c.id} comment={c} />
             ))}
@@ -1232,7 +1232,7 @@ export default function RecapPlayer() {
         <View style={styles.commentInputRow}>
           <View style={{ flex: 1 }}>
             <Input
-              testID="kommentar-eingabe"
+              testID="comment-input"
               label="Kommentar schreiben"
               value={commentText}
               onChangeText={setCommentText}
@@ -1244,7 +1244,7 @@ export default function RecapPlayer() {
             />
           </View>
           <PressScale
-            testID="kommentar-senden"
+            testID="comment-send"
             accessibilityRole="button"
             accessibilityLabel="Kommentar senden"
             disabled={commentSending || commentText.trim().length === 0}
@@ -1270,7 +1270,7 @@ export default function RecapPlayer() {
       <Sheet visible={reportOpen} title="Diesen Moment melden" onClose={closeReport} cinemaMode>
         {reportConfirmed ? (
           <View style={{ gap: spacing.base }}>
-            <Text testID="melden-bestaetigung" style={[type.body, { color: cinema['text-1'] }]}>
+            <Text testID="report-confirmation" style={[type.body, { color: cinema['text-1'] }]}>
               Danke. Die Person, die diese Reise angelegt hat, sieht deine Meldung.
             </Text>
             <CinemaButton label="Schliessen" onPress={closeReport} />
@@ -1284,7 +1284,7 @@ export default function RecapPlayer() {
               entscheidet, was als Nächstes passiert.
             </Text>
             <Input
-              testID="melden-grund"
+              testID="report-reason"
               label="Was stimmt nicht?"
               value={reportReason}
               onChangeText={setReportReason}
@@ -1294,7 +1294,7 @@ export default function RecapPlayer() {
               cinemaMode
             />
             <PressScale
-              testID="melden-senden"
+              testID="report-send"
               accessibilityRole="button"
               accessibilityLabel="Meldung senden"
               disabled={reportSending || reportReason.trim().length === 0}
@@ -1402,7 +1402,7 @@ const styles = StyleSheet.create({
   },
   // Without a zIndex this area lay UNDER the tap zones (zIndex 1, see
   // tapZoneLeft/tapZoneRight below), and every tap on an emoji or the comment
-  // button physically hit player-links/-rechts and only paged on instead of
+  // button physically hit player-left/-rechts and only paged on instead of
   // reacting or opening the sheet. zIndex 2 lifts it above the tap zones; it
   // stays below the interstitial card (also zIndex 2, but LATER in the tree,
   // and at equal zIndex the later rendered sibling wins in React Native), so

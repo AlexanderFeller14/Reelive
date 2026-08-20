@@ -137,7 +137,7 @@ export function RevealSequence({ visible, onFinished }: Props) {
     // opaque overlay onto these surfaces for the whole sequence, so this is
     // explicitly "auto" here (blocks everything underneath), unlike "none"
     // there.
-    <View style={StyleSheet.absoluteFill} pointerEvents="auto" testID="reveal-inszenierung">
+    <View style={StyleSheet.absoluteFill} pointerEvents="auto" testID="reveal-sequence">
       <Animated.View style={[StyleSheet.absoluteFill, styles.background, { opacity: scrimOpacity }]} />
       <View style={[StyleSheet.absoluteFill, styles.center]}>
         <Animated.View style={[styles.icon, { opacity: sealOpacity, transform: [{ scale: sealScale }] }]}>

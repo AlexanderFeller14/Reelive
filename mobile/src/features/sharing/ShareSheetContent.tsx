@@ -25,7 +25,7 @@ import { LINK_REACH_TEXT } from './texts';
 const EXPIRY_OPTIONS: { id: string; label: string; days: number | null }[] = [
   { id: '7', label: '7 Tage', days: 7 },
   { id: '30', label: '30 Tage', days: 30 },
-  { id: 'unbegrenzt', label: 'Unbegrenzt', days: null },
+  { id: 'unlimited', label: 'Unbegrenzt', days: null },
 ];
 
 // The same sentence the trip screen also shows for as long as a link
@@ -92,7 +92,7 @@ function ExpiryPill({
 }) {
   return (
     <PressScale
-      testID={`teilen-ablauf-${id}`}
+      testID={`share-expiry-${id}`}
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityState={{ selected: active }}
@@ -225,7 +225,7 @@ export function ShareSheetContent({ tripId }: { tripId: string }) {
 
   if (phase === 'laedt') {
     return (
-      <View testID="teilen-sheet-laedt" style={styles.center}>
+      <View testID="share-sheet-loading" style={styles.center}>
         <ActivityIndicator color={cinema['text-1']} />
       </View>
     );
@@ -233,9 +233,9 @@ export function ShareSheetContent({ tripId }: { tripId: string }) {
 
   if (phase === 'fehler') {
     return (
-      <View testID="teilen-sheet-fehler" style={{ gap: spacing.base }}>
+      <View testID="share-sheet-error" style={{ gap: spacing.base }}>
         <Text style={[type.body, { color: palette.danger }]}>{loadError}</Text>
-        <CinemaPrimaryButton label="Nochmal versuchen" onPress={() => void load()} testID="teilen-nochmal" />
+        <CinemaPrimaryButton label="Nochmal versuchen" onPress={() => void load()} testID="share-retry" />
       </View>
     );
   }
@@ -244,12 +244,12 @@ export function ShareSheetContent({ tripId }: { tripId: string }) {
     return (
       <View style={{ gap: spacing.base }}>
         <Text style={[type.secondary, { color: cinema['text-2'] }]}>{DISCLOSURE_TEXT}</Text>
-        <Text testID="teilen-link-text" style={[type.body, { color: cinema['text-1'] }]} selectable>
+        <Text testID="share-link-text" style={[type.body, { color: cinema['text-1'] }]} selectable>
           {link.url}
         </Text>
         <View style={styles.actionRow}>
           <PressScale
-            testID="teilen-kopieren"
+            testID="share-copy"
             accessibilityRole="button"
             accessibilityLabel="Link kopieren"
             onPress={() => void copy()}
@@ -262,7 +262,7 @@ export function ShareSheetContent({ tripId }: { tripId: string }) {
             </Pill>
           </PressScale>
           <PressScale
-            testID="teilen-teilen"
+            testID="share-share"
             accessibilityRole="button"
             accessibilityLabel="Teilen"
             onPress={() => void share()}
@@ -277,7 +277,7 @@ export function ShareSheetContent({ tripId }: { tripId: string }) {
           <Text style={[type.secondary, { color: palette.danger }]}>{revokeError}</Text>
         )}
         <PressScale
-          testID="teilen-deaktivieren"
+          testID="share-deactivate"
           accessibilityRole="button"
           accessibilityState={{ disabled: revoking }}
           onPress={() => {
@@ -317,7 +317,7 @@ export function ShareSheetContent({ tripId }: { tripId: string }) {
         label="Link erstellen"
         loading={creating}
         onPress={() => void create()}
-        testID="teilen-erstellen"
+        testID="share-create"
       />
     </View>
   );

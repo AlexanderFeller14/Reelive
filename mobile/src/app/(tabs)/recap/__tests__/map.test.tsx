@@ -263,23 +263,23 @@ beforeEach(() => {
 test('sets one pin per moment that has a place', async () => {
   loadSuccess();
   await wrap();
-  expect(await screen.findAllByTestId(/^karte-nadel/)).toHaveLength(2);
-  expect(screen.getByTestId('karte-nadel-p1')).toBeTruthy();
-  expect(screen.getByTestId('karte-nadel-p2')).toBeTruthy();
+  expect(await screen.findAllByTestId(/^map-pin/)).toHaveLength(2);
+  expect(screen.getByTestId('map-pin-p1')).toBeTruthy();
+  expect(screen.getByTestId('map-pin-p2')).toBeTruthy();
 });
 
 test('the pin sits on exactly the coordinate of its moment', async () => {
   loadSuccess();
   await wrap();
-  const pin = await screen.findByTestId('karte-nadel-p2');
+  const pin = await screen.findByTestId('map-pin-p2');
   expect(pin.props.coordinate).toEqual({ latitude: 38.72, longitude: -9.13 });
 });
 
 test('moments without a place get no pin', async () => {
   loadSuccess();
   await wrap();
-  await screen.findByTestId('karte-nadel-p1');
-  expect(screen.queryByTestId('karte-nadel-p3')).toBeNull();
+  await screen.findByTestId('map-pin-p1');
+  expect(screen.queryByTestId('map-pin-p3')).toBeNull();
 });
 
 // Deliberately TWO tests instead of one with two assertions: the screen
@@ -288,43 +288,43 @@ test('moments without a place get no pin', async () => {
 test('a moment still uploading gets no pin, even with a url in the pool', async () => {
   loadSuccess();
   await wrap();
-  await screen.findByTestId('karte-nadel-p1');
-  expect(screen.queryByTestId('karte-nadel-p4')).toBeNull();
+  await screen.findByTestId('map-pin-p1');
+  expect(screen.queryByTestId('map-pin-p4')).toBeNull();
 });
 
 test('a moment without an image in the pool gets no pin', async () => {
   loadSuccess();
   await wrap();
-  await screen.findByTestId('karte-nadel-p1');
-  expect(screen.queryByTestId('karte-nadel-p5')).toBeNull();
+  await screen.findByTestId('map-pin-p1');
+  expect(screen.queryByTestId('map-pin-p5')).toBeNull();
 });
 
 test('every pin carries the thumbnail of its own moment', async () => {
   loadSuccess();
   await wrap();
-  const pin = await screen.findByTestId('karte-nadel-p2');
-  expect(within(pin).getByTestId('nadel-bild').props.source.uri).toBe(image('p2').thumb_url);
+  const pin = await screen.findByTestId('map-pin-p2');
+  expect(within(pin).getByTestId('pin-image').props.source.uri).toBe(image('p2').thumb_url);
 });
 
 test('with the thumbnail missing the pin takes the medium image', async () => {
   loadSuccess(COMPLETE, POOL_WITHOUT_THUMB);
   await wrap();
-  const pin = await screen.findByTestId('karte-nadel-p1');
-  expect(within(pin).getByTestId('nadel-bild').props.source.uri).toBe(image('p1').medium_url);
+  const pin = await screen.findByTestId('map-pin-p1');
+  expect(within(pin).getByTestId('pin-image').props.source.uri).toBe(image('p1').medium_url);
 });
 
 test('without any image source the pin shows no image node', async () => {
   loadSuccess(COMPLETE, POOL_WITHOUT_ANY_IMAGE);
   await wrap();
-  const pin = await screen.findByTestId('karte-nadel-p1');
-  expect(within(pin).queryByTestId('nadel-bild')).toBeNull();
-  expect(within(pin).getByTestId('nadel-skelett')).toBeTruthy();
+  const pin = await screen.findByTestId('map-pin-p1');
+  expect(within(pin).queryByTestId('pin-image')).toBeNull();
+  expect(within(pin).getByTestId('pin-skeleton')).toBeTruthy();
 });
 
 test('without any image source the pin still stops drawing itself', async () => {
   loadSuccess(COMPLETE, POOL_WITHOUT_ANY_IMAGE);
   await wrap();
-  const pin = await screen.findByTestId('karte-nadel-p1');
+  const pin = await screen.findByTestId('map-pin-p1');
   expect(pin.props.tracksViewChanges).toBe(false);
 });
 
@@ -333,7 +333,7 @@ test('without any image source the pin still stops drawing itself', async () => 
 test('every pin carries a label for VoiceOver', async () => {
   loadSuccess();
   await wrap();
-  const pin = await screen.findByTestId('karte-nadel-p1');
+  const pin = await screen.findByTestId('map-pin-p1');
   expect(pin.props.accessibilityLabel).toBe('Moment von Lea um 10:00 öffnen');
 });
 
@@ -347,19 +347,19 @@ test('every pin carries a label for VoiceOver', async () => {
 test('the pin keeps being redrawn until its image is there, and no longer after that', async () => {
   loadSuccess();
   await wrap();
-  const pin = await screen.findByTestId('karte-nadel-p1');
+  const pin = await screen.findByTestId('map-pin-p1');
   expect(pin.props.tracksViewChanges).toBe(true);
 
-  await fireEvent(within(pin).getByTestId('nadel-bild'), 'load');
-  expect(screen.getByTestId('karte-nadel-p1').props.tracksViewChanges).toBe(false);
+  await fireEvent(within(pin).getByTestId('pin-image'), 'load');
+  expect(screen.getByTestId('map-pin-p1').props.tracksViewChanges).toBe(false);
 });
 
 test('a finished pin switches off only itself', async () => {
   loadSuccess();
   await wrap();
-  const pin = await screen.findByTestId('karte-nadel-p1');
-  await fireEvent(within(pin).getByTestId('nadel-bild'), 'load');
-  expect(screen.getByTestId('karte-nadel-p2').props.tracksViewChanges).toBe(true);
+  const pin = await screen.findByTestId('map-pin-p1');
+  await fireEvent(within(pin).getByTestId('pin-image'), 'load');
+  expect(screen.getByTestId('map-pin-p2').props.tracksViewChanges).toBe(true);
 });
 
 // ---------------------------------------------------------------------------
@@ -369,7 +369,7 @@ test('a finished pin switches off only itself', async () => {
 test('moments lying close together share a single pin', async () => {
   loadSuccess(CLOSE_TOGETHER);
   await wrap();
-  const pins = await screen.findAllByTestId(/^karte-nadel/);
+  const pins = await screen.findAllByTestId(/^map-pin/);
   expect(pins).toHaveLength(1);
   expect(screen.getByText('2')).toBeTruthy();
 });
@@ -377,10 +377,10 @@ test('moments lying close together share a single pin', async () => {
 test('zooming in breaks the cluster into single pins', async () => {
   loadSuccess(CLOSE_TOGETHER);
   await wrap();
-  expect(await screen.findAllByTestId(/^karte-nadel/)).toHaveLength(1);
+  expect(await screen.findAllByTestId(/^map-pin/)).toHaveLength(1);
 
-  await fireEvent(screen.getByTestId('karte-flaeche'), 'regionChangeComplete', NARROW);
-  expect(screen.getAllByTestId(/^karte-nadel/)).toHaveLength(2);
+  await fireEvent(screen.getByTestId('map-surface'), 'regionChangeComplete', NARROW);
+  expect(screen.getAllByTestId(/^map-pin/)).toHaveLength(2);
   expect(screen.queryByText('2')).toBeNull();
 });
 
@@ -392,12 +392,12 @@ test('zooming in breaks the cluster into single pins', async () => {
 test('when the cluster falls apart its pin is drawn anew', async () => {
   loadSuccess(CLOSE_TOGETHER);
   await wrap();
-  const pin = await screen.findByTestId('karte-nadel-p1');
-  await fireEvent(within(pin).getByTestId('nadel-bild'), 'load');
-  expect(tracksSince('karte-nadel-p1').at(-1)).toBe(false);
+  const pin = await screen.findByTestId('map-pin-p1');
+  await fireEvent(within(pin).getByTestId('pin-image'), 'load');
+  expect(tracksSince('map-pin-p1').at(-1)).toBe(false);
 
-  await fireEvent(screen.getByTestId('karte-flaeche'), 'regionChangeComplete', NARROW);
-  const history = tracksSince('karte-nadel-p1');
+  await fireEvent(screen.getByTestId('map-surface'), 'regionChangeComplete', NARROW);
+  const history = tracksSince('map-pin-p1');
   expect(history).toContain(true);
   expect(history.at(-1)).toBe(false);
 });
@@ -416,7 +416,7 @@ function expectTargetOnTheCluster(target: Viewport) {
 test('a tap on a cluster travels into it', async () => {
   loadSuccess(CLOSE_TOGETHER);
   await wrap();
-  await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
+  await fireEvent.press(await screen.findByTestId('map-pin-p1'));
 
   expect(mockAnimateToRegion).toHaveBeenCalledTimes(1);
   const [target, duration] = mockAnimateToRegion.mock.calls[0];
@@ -427,14 +427,14 @@ test('a tap on a cluster travels into it', async () => {
 test('a tap on a cluster answers with selection haptics', async () => {
   loadSuccess(CLOSE_TOGETHER);
   await wrap();
-  await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
+  await fireEvent.press(await screen.findByTestId('map-pin-p1'));
   expect(mockHaptics).toHaveBeenCalledTimes(1);
 });
 
 test('a tap on a single pin does not knock', async () => {
   loadSuccess();
   await wrap();
-  await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
+  await fireEvent.press(await screen.findByTestId('map-pin-p1'));
   expect(mockHaptics).not.toHaveBeenCalled();
 });
 
@@ -445,10 +445,10 @@ test('a tap on a single pin does not knock', async () => {
 test('a tap on a cluster never zooms out', async () => {
   loadSuccess(CLOSE_TOGETHER);
   await wrap();
-  await screen.findByTestId('karte-nadel-p1');
-  await fireEvent(screen.getByTestId('karte-flaeche'), 'regionChangeComplete', MEDIUM);
+  await screen.findByTestId('map-pin-p1');
+  await fireEvent(screen.getByTestId('map-surface'), 'regionChangeComplete', MEDIUM);
 
-  await fireEvent.press(screen.getByTestId('karte-nadel-p1'));
+  await fireEvent.press(screen.getByTestId('map-pin-p1'));
   const [target] = mockAnimateToRegion.mock.calls[0];
   expect(target.latitudeDelta).toBeLessThan(MEDIUM.latitudeDelta);
   expect(target.longitudeDelta).toBeLessThan(MEDIUM.longitudeDelta);
@@ -457,7 +457,7 @@ test('a tap on a cluster never zooms out', async () => {
 test('a tap on a single pin does not move the map', async () => {
   loadSuccess();
   await wrap();
-  await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
+  await fireEvent.press(await screen.findByTestId('map-pin-p1'));
   expect(mockAnimateToRegion).not.toHaveBeenCalled();
   expect(mockSetRegion).not.toHaveBeenCalled();
 });
@@ -466,7 +466,7 @@ test('with Reduced Motion the map jumps instead of travelling', async () => {
   mockReducedMotion = true;
   loadSuccess(CLOSE_TOGETHER);
   await wrap();
-  await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
+  await fireEvent.press(await screen.findByTestId('map-pin-p1'));
   expect(mockAnimateToRegion).not.toHaveBeenCalled();
   expect(mockSetRegion).toHaveBeenCalledTimes(1);
 });
@@ -475,7 +475,7 @@ test('the jump hits the same target as the travel', async () => {
   mockReducedMotion = true;
   loadSuccess(CLOSE_TOGETHER);
   await wrap();
-  await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
+  await fireEvent.press(await screen.findByTestId('map-pin-p1'));
   const [target] = mockSetRegion.mock.calls[0];
   expectTargetOnTheCluster(target);
 });
@@ -484,10 +484,10 @@ test('with Reduced Motion it never zooms out either', async () => {
   mockReducedMotion = true;
   loadSuccess(CLOSE_TOGETHER);
   await wrap();
-  await screen.findByTestId('karte-nadel-p1');
-  await fireEvent(screen.getByTestId('karte-flaeche'), 'regionChangeComplete', MEDIUM);
+  await screen.findByTestId('map-pin-p1');
+  await fireEvent(screen.getByTestId('map-surface'), 'regionChangeComplete', MEDIUM);
 
-  await fireEvent.press(screen.getByTestId('karte-nadel-p1'));
+  await fireEvent.press(screen.getByTestId('map-pin-p1'));
   const [target] = mockSetRegion.mock.calls[0];
   expect(target.latitudeDelta).toBeLessThan(MEDIUM.latitudeDelta);
   expect(target.longitudeDelta).toBeLessThan(MEDIUM.longitudeDelta);
@@ -496,7 +496,7 @@ test('with Reduced Motion it never zooms out either', async () => {
 test('the line connects the moments in capture order', async () => {
   loadSuccess();
   await wrap();
-  const line = await screen.findByTestId('karte-linie');
+  const line = await screen.findByTestId('map-line');
   expect(line.props.coordinates).toEqual([
     { latitude: 38.71, longitude: -9.14 },
     { latitude: 38.72, longitude: -9.13 },
@@ -506,7 +506,7 @@ test('the line connects the moments in capture order', async () => {
 test('the line is the accent colour at width 3', async () => {
   loadSuccess();
   await wrap();
-  const line = await screen.findByTestId('karte-linie');
+  const line = await screen.findByTestId('map-line');
   expect(line.props.strokeColor).toBe(palette.accent);
   expect(line.props.strokeWidth).toBe(3);
 });
@@ -514,21 +514,21 @@ test('the line is the accent colour at width 3', async () => {
 test('a single moment yields no line', async () => {
   loadSuccess([m1, m3]);
   await wrap();
-  await screen.findByTestId('karte-nadel-p1');
-  expect(screen.queryByTestId('karte-linie')).toBeNull();
+  await screen.findByTestId('map-pin-p1');
+  expect(screen.queryByTestId('map-line')).toBeNull();
 });
 
 test('toMapPoints receives the player playlist, not the raw moment list', async () => {
   loadSuccess();
   await wrap();
-  await screen.findByTestId('karte-nadel-p1');
+  await screen.findByTestId('map-pin-p1');
   expect(toMapPoints).toHaveBeenCalledWith([m1, m2, m3]);
 });
 
 test('the viewport spans only the visible pins', async () => {
   loadSuccess();
   await wrap();
-  const region = (await screen.findByTestId('karte-flaeche')).props.initialRegion;
+  const region = (await screen.findByTestId('map-surface')).props.initialRegion;
   expect(region.latitude).toBeCloseTo(38.715, 3);
   expect(region.longitude).toBeCloseTo(-9.135, 3);
   expect(region.latitudeDelta).toBeLessThan(1);
@@ -543,8 +543,8 @@ test('when not a single moment has a place there is no map at all', async () => 
   loadSuccess([m3]);
   await wrap();
   await screen.findByText('Diese Reise hat keine Orte');
-  expect(screen.queryByTestId('karte-flaeche')).toBeNull();
-  expect(screen.queryByTestId(/^karte-nadel/)).toBeNull();
+  expect(screen.queryByTestId('map-surface')).toBeNull();
+  expect(screen.queryByTestId(/^map-pin/)).toBeNull();
 });
 
 test('when the load path throws the screen stays operable instead of hanging', async () => {
@@ -553,7 +553,7 @@ test('when the load path throws the screen stays operable instead of hanging', a
   await wrap();
   await fireEvent.press(await screen.findByLabelText('Zurück'));
   expect(mockBack).toHaveBeenCalled();
-  expect(screen.queryByTestId('karte-flaeche')).toBeNull();
+  expect(screen.queryByTestId('map-surface')).toBeNull();
 });
 
 test('the back arrow leaves the screen via back() when a way back exists', async () => {
@@ -610,7 +610,7 @@ const ON_ONE_SPOT = [withoutUrlM, withoutPlaceEarly, withEverything, m2SameSpot,
 test('a tap on a single pin shows the moment', async () => {
   loadSuccess(WITH_SHEET_DATA);
   await wrap();
-  await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
+  await fireEvent.press(await screen.findByTestId('map-pin-p1'));
 
   expect(screen.getByText('Angekommen, 28 Grad im Mai')).toBeTruthy();
   expect(screen.getByText('Miradouro da Senhora do Monte')).toBeTruthy();
@@ -621,8 +621,8 @@ test('a tap on a single pin shows the moment', async () => {
 test('the sheet shows the medium image, not the pin thumbnail', async () => {
   loadSuccess(WITH_SHEET_DATA);
   await wrap();
-  await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
-  expect(screen.getByTestId('sheet-bild').props.source.uri).toBe(image('p1').medium_url);
+  await fireEvent.press(await screen.findByTestId('map-pin-p1'));
+  expect(screen.getByTestId('sheet-image').props.source.uri).toBe(image('p1').medium_url);
 });
 
 // `start` is an INDEX into the sorted PLAYLIST of the player (uploaded
@@ -635,7 +635,7 @@ test('the sheet shows the medium image, not the pin thumbnail', async () => {
 test('the watch in recap button starts the player at exactly this moment', async () => {
   loadSuccess(WITH_SHEET_DATA);
   await wrap();
-  await fireEvent.press(await screen.findByTestId('karte-nadel-p2'));
+  await fireEvent.press(await screen.findByTestId('map-pin-p2'));
   await fireEvent.press(screen.getByText('Im Recap ansehen'));
 
   expect(mockPush).toHaveBeenCalledWith({
@@ -647,27 +647,27 @@ test('the watch in recap button starts the player at exactly this moment', async
 test('the sheet closes without leaving the screen', async () => {
   loadSuccess(WITH_SHEET_DATA);
   await wrap();
-  await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
+  await fireEvent.press(await screen.findByTestId('map-pin-p1'));
   await fireEvent.press(screen.getByLabelText('Schliessen'));
 
   expect(screen.queryByText('Im Recap ansehen')).toBeNull();
   expect(mockPush).not.toHaveBeenCalled();
-  expect(screen.getByTestId('karte-nadel-p1')).toBeTruthy();
+  expect(screen.getByTestId('map-pin-p1')).toBeTruthy();
 });
 
 test('a cluster that cannot be zoomed apart opens a sheet after all', async () => {
   loadSuccess(ON_ONE_SPOT);
   await wrap();
-  await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
+  await fireEvent.press(await screen.findByTestId('map-pin-p1'));
 
   expect(screen.getByText('2 Momente an diesem Ort')).toBeTruthy();
-  expect(screen.getAllByTestId(/^gruppe-eintrag/)).toHaveLength(2);
+  expect(screen.getAllByTestId(/^group-entry/)).toHaveLength(2);
 });
 
 test('a cluster on one spot does not travel into nothing before the sheet arrives', async () => {
   loadSuccess(ON_ONE_SPOT);
   await wrap();
-  await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
+  await fireEvent.press(await screen.findByTestId('map-pin-p1'));
 
   expect(mockAnimateToRegion).not.toHaveBeenCalled();
   expect(mockSetRegion).not.toHaveBeenCalled();
@@ -679,8 +679,8 @@ test('a cluster on one spot does not travel into nothing before the sheet arrive
 test('every row of the cluster leads to its own place in the playlist', async () => {
   loadSuccess(ON_ONE_SPOT);
   await wrap();
-  await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
-  await fireEvent.press(screen.getByTestId('gruppe-eintrag-p2'));
+  await fireEvent.press(await screen.findByTestId('map-pin-p1'));
+  await fireEvent.press(screen.getByTestId('group-entry-p2'));
 
   expect(mockPush).toHaveBeenCalledWith({
     pathname: '/recap/[id]/player',
@@ -691,7 +691,7 @@ test('every row of the cluster leads to its own place in the playlist', async ()
 test('a change of trip leaves no sheet of the previous one standing', async () => {
   loadSuccess(WITH_SHEET_DATA);
   const { rerender } = await wrap();
-  await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
+  await fireEvent.press(await screen.findByTestId('map-pin-p1'));
   expect(screen.getByText('Im Recap ansehen')).toBeTruthy();
 
   mockId = 't2';
@@ -717,7 +717,7 @@ test('the pin of a zoomable cluster announces the zoom', async () => {
 test('a cluster that can be zoomed apart opens NO sheet', async () => {
   loadSuccess(CLOSE_TOGETHER);
   await wrap();
-  await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
+  await fireEvent.press(await screen.findByTestId('map-pin-p1'));
 
   expect(screen.queryByText(/an diesem Ort/)).toBeNull();
   expect(screen.queryByText('Im Recap ansehen')).toBeNull();
@@ -739,21 +739,21 @@ test('a cluster that can be zoomed apart opens NO sheet', async () => {
 test('when a cluster tap does not move the camera the next one opens the sheet', async () => {
   loadSuccess(CLOSE_TOGETHER);
   await wrap();
-  await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
+  await fireEvent.press(await screen.findByTestId('map-pin-p1'));
   expect(screen.queryByText(/an diesem Ort/)).toBeNull();
 
-  await fireEvent.press(screen.getByTestId('karte-nadel-p1'));
+  await fireEvent.press(screen.getByTestId('map-pin-p1'));
   expect(screen.getByText('2 Momente an diesem Ort')).toBeTruthy();
-  expect(screen.getAllByTestId(/^gruppe-eintrag/)).toHaveLength(2);
+  expect(screen.getAllByTestId(/^group-entry/)).toHaveLength(2);
 });
 
 test('when the viewport has moved the second tap keeps zooming', async () => {
   loadSuccess(CLOSE_TOGETHER);
   await wrap();
-  await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
-  await fireEvent(screen.getByTestId('karte-flaeche'), 'regionChangeComplete', MEDIUM);
+  await fireEvent.press(await screen.findByTestId('map-pin-p1'));
+  await fireEvent(screen.getByTestId('map-surface'), 'regionChangeComplete', MEDIUM);
 
-  await fireEvent.press(screen.getByTestId('karte-nadel-p1'));
+  await fireEvent.press(screen.getByTestId('map-pin-p1'));
   expect(screen.queryByText(/an diesem Ort/)).toBeNull();
   expect(mockAnimateToRegion).toHaveBeenCalledTimes(2);
 });
@@ -764,11 +764,11 @@ test('when the viewport has moved the second tap keeps zooming', async () => {
 test('at a stuck cluster the pin announces the sheet, not the zoom', async () => {
   loadSuccess(CLOSE_TOGETHER);
   await wrap();
-  await fireEvent(screen.getByTestId('karte-flaeche'), 'regionChangeComplete', MEDIUM);
+  await fireEvent(screen.getByTestId('map-surface'), 'regionChangeComplete', MEDIUM);
   expect(await screen.findByLabelText('Auf 2 Momente heranzoomen')).toBeTruthy();
 
-  await fireEvent.press(screen.getByTestId('karte-nadel-p1'));
-  await fireEvent(screen.getByTestId('karte-flaeche'), 'regionChangeComplete', { ...MEDIUM });
+  await fireEvent.press(screen.getByTestId('map-pin-p1'));
+  await fireEvent(screen.getByTestId('map-surface'), 'regionChangeComplete', { ...MEDIUM });
 
   expect(screen.getByLabelText('2 Momente an diesem Ort ansehen')).toBeTruthy();
   expect(screen.queryByLabelText('Auf 2 Momente heranzoomen')).toBeNull();
@@ -785,9 +785,9 @@ test('a stuck attempt does not block a DIFFERENT cluster', async () => {
     skipped: 0,
   });
   await wrap();
-  await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
+  await fireEvent.press(await screen.findByTestId('map-pin-p1'));
   // The map stands still (no regionChangeComplete), the attempt on p1 is stuck.
-  await fireEvent.press(screen.getByTestId('karte-nadel-p6'));
+  await fireEvent.press(screen.getByTestId('map-pin-p6'));
 
   expect(screen.queryByText(/an diesem Ort/)).toBeNull();
   expect(mockAnimateToRegion).toHaveBeenCalledTimes(2);
@@ -834,17 +834,17 @@ test('a tap right after a cluster falls apart is not swallowed', async () => {
   await render(
     <ThemeProvider>
       <RecapMap />
-      <PinTapper pin="karte-nadel-p2" />
+      <PinTapper pin="map-pin-p2" />
     </ThemeProvider>
   );
-  await screen.findByTestId('karte-nadel-p1');
-  expect(screen.queryByTestId('karte-nadel-p2')).toBeNull();
+  await screen.findByTestId('map-pin-p1');
+  expect(screen.queryByTestId('map-pin-p2')).toBeNull();
 
   await act(async () => {
     Dimensions.set({ window: LARGE_WINDOW, screen: LARGE_WINDOW });
   });
 
-  expect(screen.getByTestId('karte-nadel-p2')).toBeTruthy();
+  expect(screen.getByTestId('map-pin-p2')).toBeTruthy();
   expect(screen.getByText('Lea · 19:00')).toBeTruthy();
 });
 
@@ -885,14 +885,14 @@ const POOL_MANY = {
 test('the cluster list scrolls instead of clipping its last moments', async () => {
   loadSuccess(MANY_ON_ONE_SPOT, POOL_MANY);
   await wrap();
-  await fireEvent.press(await screen.findByTestId('karte-nadel-f0'));
+  await fireEvent.press(await screen.findByTestId('map-pin-f0'));
 
-  const list = screen.getByTestId('gruppe-liste');
+  const list = screen.getByTestId('group-list');
   expect(list.type).toBe('RCTScrollView');
   expect(StyleSheet.flatten(list.props.style).maxHeight).toBe(
     Dimensions.get('window').height * SHEET_SCROLL_RATIO
   );
-  expect(within(list).getAllByTestId(/^gruppe-eintrag/)).toHaveLength(12);
+  expect(within(list).getAllByTestId(/^group-entry/)).toHaveLength(12);
 });
 
 // f11 is at playlist position 12 (p3 without a place in front of it, p5
@@ -900,8 +900,8 @@ test('the cluster list scrolls instead of clipping its last moments', async () =
 test('even the last row of a long list leads into the player', async () => {
   loadSuccess(MANY_ON_ONE_SPOT, POOL_MANY);
   await wrap();
-  await fireEvent.press(await screen.findByTestId('karte-nadel-f0'));
-  await fireEvent.press(within(screen.getByTestId('gruppe-liste')).getByTestId('gruppe-eintrag-f11'));
+  await fireEvent.press(await screen.findByTestId('map-pin-f0'));
+  await fireEvent.press(within(screen.getByTestId('group-list')).getByTestId('group-entry-f11'));
 
   expect(mockPush).toHaveBeenCalledWith({
     pathname: '/recap/[id]/player',
@@ -916,11 +916,11 @@ test('even the last row of a long list leads into the player', async () => {
 test('in the moment sheet the content scrolls while the button stays put', async () => {
   loadSuccess(WITH_SHEET_DATA);
   await wrap();
-  await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
+  await fireEvent.press(await screen.findByTestId('map-pin-p1'));
 
-  const content = screen.getByTestId('moment-inhalt');
+  const content = screen.getByTestId('moment-content');
   expect(content.type).toBe('RCTScrollView');
-  expect(within(content).getByTestId('sheet-bild')).toBeTruthy();
+  expect(within(content).getByTestId('sheet-image')).toBeTruthy();
   expect(within(content).getByText('Angekommen, 28 Grad im Mai')).toBeTruthy();
   expect(within(content).queryByLabelText('Im Recap ansehen')).toBeNull();
   expect(screen.getByLabelText('Im Recap ansehen')).toBeTruthy();
@@ -929,7 +929,7 @@ test('in the moment sheet the content scrolls while the button stays put', async
 test('after t1 to t2 to t1 no sheet opens by itself', async () => {
   loadSuccess(WITH_SHEET_DATA);
   const { rerender } = await wrap();
-  await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
+  await fireEvent.press(await screen.findByTestId('map-pin-p1'));
   expect(screen.getByText('Im Recap ansehen')).toBeTruthy();
 
   mockId = 't2';
@@ -970,7 +970,7 @@ test('the rows of the cluster list appear staggered', async () => {
   const spy = jest.spyOn(Animated, 'timing');
   loadSuccess(ON_ONE_SPOT);
   await wrap();
-  await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
+  await fireEvent.press(await screen.findByTestId('map-pin-p1'));
 
   expect(staggerDelays()).toEqual([0, 40]);
   expect(staggerDurations()).toEqual([motion.duration.base, motion.duration.base]);
@@ -982,7 +982,7 @@ test('with Reduced Motion the rows appear without stagger, in 200 ms', async () 
   mockReducedMotion = true;
   loadSuccess(ON_ONE_SPOT);
   await wrap();
-  await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
+  await fireEvent.press(await screen.findByTestId('map-pin-p1'));
 
   expect(staggerDelays()).toEqual([0, 0]);
   expect(staggerDurations()).toEqual([200, 200]);
@@ -1000,15 +1000,15 @@ const POOL_WITHOUT_MEDIUM = {
 test('with the medium image missing the sheet shows the thumbnail', async () => {
   loadSuccess(WITH_SHEET_DATA, POOL_WITHOUT_MEDIUM);
   await wrap();
-  await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
-  expect(screen.getByTestId('sheet-bild').props.source.uri).toBe(image('p1').thumb_url);
+  await fireEvent.press(await screen.findByTestId('map-pin-p1'));
+  expect(screen.getByTestId('sheet-image').props.source.uri).toBe(image('p1').thumb_url);
 });
 
 test('without any image source the sheet shows no image node', async () => {
   loadSuccess(WITH_SHEET_DATA, POOL_WITHOUT_ANY_IMAGE);
   await wrap();
-  await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
-  expect(screen.queryByTestId('sheet-bild')).toBeNull();
+  await fireEvent.press(await screen.findByTestId('map-pin-p1'));
+  expect(screen.queryByTestId('sheet-image')).toBeNull();
   expect(screen.getByText('Mira · 14:32')).toBeTruthy();
 });
 
@@ -1036,7 +1036,7 @@ const POOL_DAYS = {
 };
 
 async function openDayFilter() {
-  await fireEvent.press(screen.getByTestId('karte-tagesfilter'));
+  await fireEvent.press(screen.getByTestId('map-day-filter'));
 }
 
 test('the filter shows all days to begin with', async () => {
@@ -1048,13 +1048,13 @@ test('the filter shows all days to begin with', async () => {
 test('a chosen day thins out the pins', async () => {
   loadSuccess(WITH_DAYS, POOL_DAYS);
   await wrap();
-  expect(await screen.findAllByTestId(/^karte-nadel/)).toHaveLength(3);
+  expect(await screen.findAllByTestId(/^map-pin/)).toHaveLength(3);
 
   await openDayFilter();
-  await fireEvent.press(screen.getByTestId('tag-eintrag-2'));
+  await fireEvent.press(screen.getByTestId('day-entry-2'));
 
-  expect(screen.getAllByTestId(/^karte-nadel/)).toHaveLength(1);
-  expect(screen.getByTestId('karte-nadel-p6')).toBeTruthy();
+  expect(screen.getAllByTestId(/^map-pin/)).toHaveLength(1);
+  expect(screen.getByTestId('map-pin-p6')).toBeTruthy();
   expect(screen.getByText('Tag 2')).toBeTruthy();
 });
 
@@ -1068,11 +1068,11 @@ test('a chosen day thins out the pins', async () => {
 test('a chosen day does not change the index into the playlist', async () => {
   loadSuccess(WITH_DAYS, POOL_DAYS);
   await wrap();
-  await screen.findByTestId('karte-nadel-p6');
+  await screen.findByTestId('map-pin-p6');
 
   await openDayFilter();
-  await fireEvent.press(screen.getByTestId('tag-eintrag-2'));
-  await fireEvent.press(screen.getByTestId('karte-nadel-p6'));
+  await fireEvent.press(screen.getByTestId('day-entry-2'));
+  await fireEvent.press(screen.getByTestId('map-pin-p6'));
   await fireEvent.press(screen.getByText('Im Recap ansehen'));
 
   expect(mockPush).toHaveBeenCalledWith({
@@ -1084,10 +1084,10 @@ test('a chosen day does not change the index into the playlist', async () => {
 test('filtering happens after toMapPoints, not before', async () => {
   loadSuccess(WITH_DAYS, POOL_DAYS);
   await wrap();
-  await screen.findByTestId('karte-nadel-p6');
+  await screen.findByTestId('map-pin-p6');
 
   await openDayFilter();
-  await fireEvent.press(screen.getByTestId('tag-eintrag-2'));
+  await fireEvent.press(screen.getByTestId('day-entry-2'));
 
   expect(toMapPoints).toHaveBeenCalledTimes(1);
   expect(toMapPoints).toHaveBeenCalledWith([withoutPlaceEarly, withEverything, m2, day2M]);
@@ -1096,12 +1096,12 @@ test('filtering happens after toMapPoints, not before', async () => {
 test('a chosen day shortens the line as well', async () => {
   loadSuccess(WITH_DAYS, POOL_DAYS);
   await wrap();
-  expect((await screen.findByTestId('karte-linie')).props.coordinates).toHaveLength(3);
+  expect((await screen.findByTestId('map-line')).props.coordinates).toHaveLength(3);
 
   await openDayFilter();
-  await fireEvent.press(screen.getByTestId('tag-eintrag-1'));
+  await fireEvent.press(screen.getByTestId('day-entry-1'));
 
-  expect(screen.getByTestId('karte-linie').props.coordinates).toEqual([
+  expect(screen.getByTestId('map-line').props.coordinates).toEqual([
     { latitude: 38.71, longitude: -9.14 },
     { latitude: 38.72, longitude: -9.13 },
   ]);
@@ -1110,10 +1110,10 @@ test('a chosen day shortens the line as well', async () => {
 test('a chosen day moves the viewport onto its moments', async () => {
   loadSuccess(WITH_DAYS, POOL_DAYS);
   await wrap();
-  await screen.findByTestId('karte-nadel-p6');
+  await screen.findByTestId('map-pin-p6');
 
   await openDayFilter();
-  await fireEvent.press(screen.getByTestId('tag-eintrag-2'));
+  await fireEvent.press(screen.getByTestId('day-entry-2'));
 
   expect(mockAnimateToRegion).toHaveBeenCalledTimes(1);
   const [target, duration] = mockAnimateToRegion.mock.calls[0];
@@ -1126,10 +1126,10 @@ test('with Reduced Motion the viewport jumps to the chosen day', async () => {
   mockReducedMotion = true;
   loadSuccess(WITH_DAYS, POOL_DAYS);
   await wrap();
-  await screen.findByTestId('karte-nadel-p6');
+  await screen.findByTestId('map-pin-p6');
 
   await openDayFilter();
-  await fireEvent.press(screen.getByTestId('tag-eintrag-2'));
+  await fireEvent.press(screen.getByTestId('day-entry-2'));
 
   expect(mockAnimateToRegion).not.toHaveBeenCalled();
   expect(mockSetRegion).toHaveBeenCalledTimes(1);
@@ -1141,10 +1141,10 @@ test('with Reduced Motion the viewport jumps to the chosen day', async () => {
 test('choosing a day answers with selection haptics', async () => {
   loadSuccess(WITH_DAYS, POOL_DAYS);
   await wrap();
-  await screen.findByTestId('karte-nadel-p6');
+  await screen.findByTestId('map-pin-p6');
 
   await openDayFilter();
-  await fireEvent.press(screen.getByTestId('tag-eintrag-2'));
+  await fireEvent.press(screen.getByTestId('day-entry-2'));
 
   expect(mockHaptics).toHaveBeenCalledTimes(1);
 });
@@ -1152,14 +1152,14 @@ test('choosing a day answers with selection haptics', async () => {
 test('the all days entry brings the whole trip back', async () => {
   loadSuccess(WITH_DAYS, POOL_DAYS);
   await wrap();
-  await screen.findByTestId('karte-nadel-p6');
+  await screen.findByTestId('map-pin-p6');
 
   await openDayFilter();
-  await fireEvent.press(screen.getByTestId('tag-eintrag-2'));
+  await fireEvent.press(screen.getByTestId('day-entry-2'));
   await openDayFilter();
-  await fireEvent.press(screen.getByTestId('tag-eintrag-alle'));
+  await fireEvent.press(screen.getByTestId('day-entry-all'));
 
-  expect(screen.getAllByTestId(/^karte-nadel/)).toHaveLength(3);
+  expect(screen.getAllByTestId(/^map-pin/)).toHaveLength(3);
   expect(screen.getByText('Alle Tage')).toBeTruthy();
   expect(mockAnimateToRegion).toHaveBeenCalledTimes(2);
   const [target] = mockAnimateToRegion.mock.calls[1];
@@ -1170,12 +1170,12 @@ test('the all days entry brings the whole trip back', async () => {
 test('the day numbers count from the start date of the trip', async () => {
   loadSuccess(WITH_DAYS, POOL_DAYS, { start_date: '2026-08-08' });
   await wrap();
-  await screen.findByTestId('karte-nadel-p6');
+  await screen.findByTestId('map-pin-p6');
 
   await openDayFilter();
-  expect(screen.getByTestId('tag-eintrag-3')).toBeTruthy();
-  expect(screen.getByTestId('tag-eintrag-4')).toBeTruthy();
-  expect(screen.queryByTestId('tag-eintrag-1')).toBeNull();
+  expect(screen.getByTestId('day-entry-3')).toBeTruthy();
+  expect(screen.getByTestId('day-entry-4')).toBeTruthy();
+  expect(screen.queryByTestId('day-entry-1')).toBeNull();
 });
 
 // Eastward across the date line: `groupByDays` carries the highest day number
@@ -1205,11 +1205,11 @@ const POOL_EASTWARD = {
 test('the day numbers count over the whole playlist, not only over the moments with a place', async () => {
   loadSuccess(EASTWARD, POOL_EASTWARD);
   await wrap();
-  await screen.findByTestId('karte-nadel-o2');
+  await screen.findByTestId('map-pin-o2');
 
   await openDayFilter();
-  expect(screen.getByTestId('tag-eintrag-3')).toBeTruthy();
-  expect(screen.queryByTestId('tag-eintrag-2')).toBeNull();
+  expect(screen.getByTestId('day-entry-3')).toBeTruthy();
+  expect(screen.queryByTestId('day-entry-2')).toBeNull();
 });
 
 const WITHOUT_PLACE_IN_BETWEEN = [
@@ -1225,20 +1225,20 @@ const POOL_WITHOUT_PLACE_IN_BETWEEN = {
 test('a day without moments on the map is not offered for choice', async () => {
   loadSuccess(WITHOUT_PLACE_IN_BETWEEN, POOL_WITHOUT_PLACE_IN_BETWEEN);
   await wrap();
-  await screen.findByTestId('karte-nadel-q3');
+  await screen.findByTestId('map-pin-q3');
 
   await openDayFilter();
-  expect(screen.getByTestId('tag-eintrag-1')).toBeTruthy();
-  expect(screen.getByTestId('tag-eintrag-3')).toBeTruthy();
-  expect(screen.queryByTestId('tag-eintrag-2')).toBeNull();
+  expect(screen.getByTestId('day-entry-1')).toBeTruthy();
+  expect(screen.getByTestId('day-entry-3')).toBeTruthy();
+  expect(screen.queryByTestId('day-entry-2')).toBeNull();
 });
 
 // COMPLETE has pins on day 1 only (p3 on the second day has no place).
 test('a trip with pins on a single day shows no day filter', async () => {
   loadSuccess();
   await wrap();
-  await screen.findByTestId('karte-nadel-p1');
-  expect(screen.queryByTestId('karte-tagesfilter')).toBeNull();
+  await screen.findByTestId('map-pin-p1');
+  expect(screen.queryByTestId('map-day-filter')).toBeNull();
 });
 
 test('without trip data the map stays, only without the day filter', async () => {
@@ -1246,8 +1246,8 @@ test('without trip data the map stays, only without the day filter', async () =>
   (fetchTrip as jest.Mock).mockResolvedValue({ data: null, error: 'Diese Reise konnte nicht geladen werden.' });
   await wrap();
 
-  expect(await screen.findAllByTestId(/^karte-nadel/)).toHaveLength(3);
-  expect(screen.queryByTestId('karte-tagesfilter')).toBeNull();
+  expect(await screen.findAllByTestId(/^map-pin/)).toHaveLength(3);
+  expect(screen.queryByTestId('map-day-filter')).toBeNull();
 });
 
 // On the device the backdrop of the open sheet catches the tap anyway, what
@@ -1255,27 +1255,27 @@ test('without trip data the map stays, only without the day filter', async () =>
 test('the day filter closes an open moment sheet', async () => {
   loadSuccess(WITH_DAYS, POOL_DAYS);
   await wrap();
-  await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
+  await fireEvent.press(await screen.findByTestId('map-pin-p1'));
   expect(screen.getByText('Im Recap ansehen')).toBeTruthy();
 
   await openDayFilter();
   expect(screen.queryByText('Im Recap ansehen')).toBeNull();
-  expect(screen.getByTestId('tag-eintrag-alle')).toBeTruthy();
+  expect(screen.getByTestId('day-entry-all')).toBeTruthy();
 });
 
 test('a change of trip resets the day filter', async () => {
   loadSuccess(WITH_DAYS, POOL_DAYS);
   const { rerender } = await wrap();
   await openDayFilter();
-  await fireEvent.press(screen.getByTestId('tag-eintrag-2'));
-  expect(screen.getAllByTestId(/^karte-nadel/)).toHaveLength(1);
+  await fireEvent.press(screen.getByTestId('day-entry-2'));
+  expect(screen.getAllByTestId(/^map-pin/)).toHaveLength(1);
 
   mockId = 't2';
   loadSuccess(WITH_DAYS, POOL_DAYS);
   await rerender(<ThemeProvider><RecapMap /></ThemeProvider>);
 
   expect(screen.getByText('Alle Tage')).toBeTruthy();
-  expect(screen.getAllByTestId(/^karte-nadel/)).toHaveLength(3);
+  expect(screen.getAllByTestId(/^map-pin/)).toHaveLength(3);
 });
 
 // A long trip has many days, the same dead end as with the cluster list:
@@ -1299,24 +1299,24 @@ const POOL_MANY_DAYS = {
 test('the day list scrolls instead of clipping its last days', async () => {
   loadSuccess(MANY_DAYS, POOL_MANY_DAYS);
   await wrap();
-  await screen.findByTestId('karte-nadel-v0');
+  await screen.findByTestId('map-pin-v0');
 
   await openDayFilter();
-  const list = screen.getByTestId('tage-liste');
+  const list = screen.getByTestId('days-list');
   expect(list.type).toBe('RCTScrollView');
   expect(StyleSheet.flatten(list.props.style).maxHeight).toBe(
     Dimensions.get('window').height * SHEET_SCROLL_RATIO
   );
   // Twelve days plus the all days entry.
-  expect(within(list).getAllByTestId(/^tag-eintrag/)).toHaveLength(13);
-  expect(within(list).getByTestId('tag-eintrag-12')).toBeTruthy();
+  expect(within(list).getAllByTestId(/^day-entry/)).toHaveLength(13);
+  expect(within(list).getByTestId('day-entry-12')).toBeTruthy();
 });
 
 test('the rows of the day list appear staggered', async () => {
   const spy = jest.spyOn(Animated, 'timing');
   loadSuccess(WITH_DAYS, POOL_DAYS);
   await wrap();
-  await screen.findByTestId('karte-nadel-p6');
+  await screen.findByTestId('map-pin-p6');
 
   await openDayFilter();
   // The all days entry, day 1, day 2.
@@ -1332,7 +1332,7 @@ test('with Reduced Motion the rows of the day list appear without stagger, in 20
   mockReducedMotion = true;
   loadSuccess(WITH_DAYS, POOL_DAYS);
   await wrap();
-  await screen.findByTestId('karte-nadel-p6');
+  await screen.findByTestId('map-pin-p6');
 
   await openDayFilter();
   expect(staggerDelays()).toEqual([0, 0, 0]);
@@ -1354,14 +1354,14 @@ test('the pins are up before the trip query is back', async () => {
   );
   await wrap();
 
-  expect(await screen.findAllByTestId(/^karte-nadel/)).toHaveLength(3);
-  expect(screen.getByTestId('karte-linie')).toBeTruthy();
-  expect(screen.queryByTestId('karte-tagesfilter')).toBeNull();
+  expect(await screen.findAllByTestId(/^map-pin/)).toHaveLength(3);
+  expect(screen.getByTestId('map-line')).toBeTruthy();
+  expect(screen.queryByTestId('map-day-filter')).toBeNull();
 
   await act(async () => {
     resolveTrip({ data: TRIP, error: null });
   });
-  expect(screen.getByTestId('karte-tagesfilter')).toBeTruthy();
+  expect(screen.getByTestId('map-day-filter')).toBeTruthy();
   expect(screen.getByText('Alle Tage')).toBeTruthy();
 });
 
@@ -1369,14 +1369,14 @@ test('a change of trip leaves no open day sheet of the previous one standing', a
   loadSuccess(WITH_DAYS, POOL_DAYS);
   const { rerender } = await wrap();
   await openDayFilter();
-  expect(screen.getByTestId('tag-eintrag-2')).toBeTruthy();
+  expect(screen.getByTestId('day-entry-2')).toBeTruthy();
 
   mockId = 't2';
   loadSuccess(WITH_DAYS, POOL_DAYS);
   await rerender(<ThemeProvider><RecapMap /></ThemeProvider>);
 
-  expect(screen.queryByTestId('tag-eintrag-2')).toBeNull();
-  expect(screen.getAllByTestId(/^karte-nadel/)).toHaveLength(3);
+  expect(screen.queryByTestId('day-entry-2')).toBeNull();
+  expect(screen.getAllByTestId(/^map-pin/)).toHaveLength(3);
   expect(mockAnimateToRegion).not.toHaveBeenCalled();
 });
 
@@ -1387,7 +1387,7 @@ test('a change of trip leaves no open day sheet of the previous one standing', a
 test('a half finished trip change shows neither pins nor day numbers of the previous trip', async () => {
   loadSuccess(WITH_DAYS, POOL_DAYS);
   const { rerender } = await wrap();
-  await screen.findByTestId('karte-tagesfilter');
+  await screen.findByTestId('map-day-filter');
 
   mockId = 't2';
   // The trip answers at once and with a DIFFERENT start date, the moments of t2
@@ -1404,19 +1404,19 @@ test('a half finished trip change shows neither pins nor day numbers of the prev
   (getPool as jest.Mock).mockResolvedValue({ pool: POOL_DAYS, error: null, reason: null });
   await rerender(<ThemeProvider><RecapMap /></ThemeProvider>);
 
-  expect(screen.queryAllByTestId(/^karte-nadel/)).toHaveLength(0);
-  expect(screen.queryByTestId('karte-tagesfilter')).toBeNull();
-  expect(screen.getByTestId('karte-skelett')).toBeTruthy();
+  expect(screen.queryAllByTestId(/^map-pin/)).toHaveLength(0);
+  expect(screen.queryByTestId('map-day-filter')).toBeNull();
+  expect(screen.getByTestId('map-skeleton')).toBeTruthy();
 
   // And as soon as t2's moments are there the days count from ITS start date
   // (08.08.): the same moments yield day 3 and day 4, not day 1 and 2.
   await act(async () => {
     resolveMoments({ data: WITH_DAYS, error: null });
   });
-  await fireEvent.press(screen.getByTestId('karte-tagesfilter'));
-  expect(screen.getByTestId('tag-eintrag-3')).toBeTruthy();
-  expect(screen.getByTestId('tag-eintrag-4')).toBeTruthy();
-  expect(screen.queryByTestId('tag-eintrag-1')).toBeNull();
+  await fireEvent.press(screen.getByTestId('map-day-filter'));
+  expect(screen.getByTestId('day-entry-3')).toBeTruthy();
+  expect(screen.getByTestId('day-entry-4')).toBeTruthy();
+  expect(screen.queryByTestId('day-entry-1')).toBeNull();
 });
 
 test('the day filter says via VoiceOver which day is currently in force', async () => {
@@ -1425,7 +1425,7 @@ test('the day filter says via VoiceOver which day is currently in force', async 
   expect(await screen.findByLabelText('Reisetag wählen, aktuell Alle Tage')).toBeTruthy();
 
   await openDayFilter();
-  await fireEvent.press(screen.getByTestId('tag-eintrag-2'));
+  await fireEvent.press(screen.getByTestId('day-entry-2'));
   expect(screen.getByLabelText('Reisetag wählen, aktuell Tag 2')).toBeTruthy();
 });
 
@@ -1497,7 +1497,7 @@ test('a single moment without a place reads in the singular', async () => {
 test('without such moments there is no bar', async () => {
   loadSuccess(CLOSE_TOGETHER);
   await wrap();
-  await screen.findByTestId('karte-nadel-p1');
+  await screen.findByTestId('map-pin-p1');
   expect(screen.queryByText(/ohne Ort/)).toBeNull();
 });
 
@@ -1527,15 +1527,15 @@ test('the notice about missing moments catches no tap', async () => {
   loadSuccess();
   await wrap();
   expect(
-    (await screen.findByTestId('karte-fehlen-ganz')).props.pointerEvents
+    (await screen.findByTestId('map-fully-missing')).props.pointerEvents
   ).toBe('none');
 });
 
 test('a complete trip claims nothing of the sort', async () => {
   loadSuccess(CLOSE_TOGETHER, { ...POOL_OK, skipped: 0 });
   await wrap();
-  await screen.findByTestId('karte-nadel-p1');
-  expect(screen.queryByTestId('karte-fehlen-ganz')).toBeNull();
+  await screen.findByTestId('map-pin-p1');
+  expect(screen.queryByTestId('map-fully-missing')).toBeNull();
   expect(screen.queryByText(/noch unterwegs/)).toBeNull();
   expect(screen.queryByText(/nicht laden/)).toBeNull();
 });
@@ -1546,10 +1546,10 @@ test('the bar opens a sheet with one tile per moment without a place', async () 
   await screen.findByText('3 Momente ohne Ort');
   await openWithoutPlace();
 
-  expect(screen.getAllByTestId(/^ohne-ort-kachel/)).toHaveLength(3);
-  expect(screen.getByTestId('ohne-ort-kachel-k0')).toBeTruthy();
-  expect(screen.getByTestId('ohne-ort-kachel-k2')).toBeTruthy();
-  expect(screen.getByTestId('ohne-ort-kachel-k5')).toBeTruthy();
+  expect(screen.getAllByTestId(/^without-place-tile/)).toHaveLength(3);
+  expect(screen.getByTestId('without-place-tile-k0')).toBeTruthy();
+  expect(screen.getByTestId('without-place-tile-k2')).toBeTruthy();
+  expect(screen.getByTestId('without-place-tile-k5')).toBeTruthy();
 });
 
 test('every tile carries the thumbnail of its own moment', async () => {
@@ -1558,8 +1558,8 @@ test('every tile carries the thumbnail of its own moment', async () => {
   await screen.findByText('3 Momente ohne Ort');
   await openWithoutPlace();
 
-  const tile = screen.getByTestId('ohne-ort-kachel-k2');
-  expect(within(tile).getByTestId('ohne-ort-bild-k2').props.source.uri).toBe(image('k2').thumb_url);
+  const tile = screen.getByTestId('without-place-tile-k2');
+  expect(within(tile).getByTestId('without-place-image-k2').props.source.uri).toBe(image('k2').thumb_url);
 });
 
 // `start` counts into the PLAYLIST, never into the moments without a place
@@ -1570,7 +1570,7 @@ test('from the sheet the way leads into the player', async () => {
   await wrap();
   await screen.findByText('3 Momente ohne Ort');
   await openWithoutPlace();
-  await fireEvent.press(screen.getByTestId('ohne-ort-kachel-k5'));
+  await fireEvent.press(screen.getByTestId('without-place-tile-k5'));
 
   expect(mockPush).toHaveBeenCalledWith({
     pathname: '/recap/[id]/player',
@@ -1585,7 +1585,7 @@ test('the index of a moment without a place does not hang on the incoming order'
   await wrap();
   await screen.findByText('3 Momente ohne Ort');
   await openWithoutPlace();
-  await fireEvent.press(screen.getByTestId('ohne-ort-kachel-k5'));
+  await fireEvent.press(screen.getByTestId('without-place-tile-k5'));
 
   expect(mockPush).toHaveBeenCalledWith({
     pathname: '/recap/[id]/player',
@@ -1599,7 +1599,7 @@ test('the day filter does not thin out the moments without a place', async () =>
   expect(await screen.findByText('1 Moment ohne Ort')).toBeTruthy();
 
   await openDayFilter();
-  await fireEvent.press(screen.getByTestId('tag-eintrag-2'));
+  await fireEvent.press(screen.getByTestId('day-entry-2'));
 
   // p3 (without a place) lies on day 1, the bar names it all the same.
   expect(screen.getByText('1 Moment ohne Ort')).toBeTruthy();
@@ -1623,12 +1623,12 @@ test('the tile list scrolls instead of clipping its last moments', async () => {
   await wrap();
   await fireEvent.press(await screen.findByText('12 Momente ohne Ort'));
 
-  const list = screen.getByTestId('ohne-ort-liste');
+  const list = screen.getByTestId('without-place-list');
   expect(list.type).toBe('RCTScrollView');
   expect(StyleSheet.flatten(list.props.style).maxHeight).toBe(
     Dimensions.get('window').height * SHEET_SCROLL_RATIO
   );
-  expect(within(list).getAllByTestId(/^ohne-ort-kachel/)).toHaveLength(12);
+  expect(within(list).getAllByTestId(/^without-place-tile/)).toHaveLength(12);
 });
 
 // w12 is at playlist position 12.
@@ -1636,7 +1636,7 @@ test('even the last tile leads into the player', async () => {
   loadSuccess(MANY_WITHOUT_PLACE, POOL_MANY_WITHOUT_PLACE);
   await wrap();
   await fireEvent.press(await screen.findByText('12 Momente ohne Ort'));
-  await fireEvent.press(within(screen.getByTestId('ohne-ort-liste')).getByTestId('ohne-ort-kachel-w12'));
+  await fireEvent.press(within(screen.getByTestId('without-place-list')).getByTestId('without-place-tile-w12'));
 
   expect(mockPush).toHaveBeenCalledWith({
     pathname: '/recap/[id]/player',
@@ -1676,24 +1676,24 @@ test('a change of trip leaves no open sheet of the moments without a place stand
   const { rerender } = await wrap();
   await screen.findByText('3 Momente ohne Ort');
   await openWithoutPlace();
-  expect(screen.getByTestId('ohne-ort-kachel-k5')).toBeTruthy();
+  expect(screen.getByTestId('without-place-tile-k5')).toBeTruthy();
 
   mockId = 't2';
   loadSuccess(THREE_WITHOUT_PLACE, POOL_THREE);
   await rerender(<ThemeProvider><RecapMap /></ThemeProvider>);
 
-  expect(screen.queryByTestId('ohne-ort-kachel-k5')).toBeNull();
+  expect(screen.queryByTestId('without-place-tile-k5')).toBeNull();
 });
 
 test('the bar closes an open moment sheet', async () => {
   loadSuccess(THREE_WITHOUT_PLACE, POOL_THREE);
   await wrap();
-  await fireEvent.press(await screen.findByTestId('karte-nadel-k1'));
+  await fireEvent.press(await screen.findByTestId('map-pin-k1'));
   expect(screen.getByText('Im Recap ansehen')).toBeTruthy();
 
   await openWithoutPlace();
   expect(screen.queryByText('Im Recap ansehen')).toBeNull();
-  expect(screen.getByTestId('ohne-ort-kachel-k5')).toBeTruthy();
+  expect(screen.getByTestId('without-place-tile-k5')).toBeTruthy();
 });
 
 // ---------------------------------------------------------------------------
@@ -1705,9 +1705,9 @@ test('before the first answer a skeleton stands there, not the explanation', asy
   (getPool as jest.Mock).mockReturnValue(new Promise(() => {}));
   await wrap();
 
-  expect(screen.getByTestId('karte-skelett')).toBeTruthy();
+  expect(screen.getByTestId('map-skeleton')).toBeTruthy();
   expect(screen.queryByText('Diese Reise hat keine Orte')).toBeNull();
-  expect(screen.queryByTestId('karte-flaeche')).toBeNull();
+  expect(screen.queryByTestId('map-surface')).toBeNull();
 });
 
 // Neither `urlPool.ts` nor `recapApi.ts` knows a timeout or an
@@ -1768,7 +1768,7 @@ test('the try again button brings the map back', async () => {
   loadSuccess();
   await fireEvent.press(screen.getByText('Nochmal versuchen'));
 
-  expect(await screen.findByTestId('karte-nadel-p1')).toBeTruthy();
+  expect(await screen.findByTestId('map-pin-p1')).toBeTruthy();
   expect(screen.queryByText('Gerade keine Verbindung.')).toBeNull();
 });
 
@@ -1782,7 +1782,7 @@ test('when no moment has a place the screen explains it', async () => {
       'Momente bekommen ihren Ort beim Einsenden, aber nur, wenn die Ortungsdienste erlaubt sind. Für diese Reise war das nie der Fall.'
     )
   ).toBeTruthy();
-  expect(screen.queryByTestId(/^karte-nadel/)).toBeNull();
+  expect(screen.queryByTestId(/^map-pin/)).toBeNull();
 });
 
 test('a trip without a single moment does not talk about location services', async () => {
@@ -1792,7 +1792,7 @@ test('a trip without a single moment does not talk about location services', asy
   expect(await screen.findByText('Diese Reise ist leer geblieben.')).toBeTruthy();
   expect(screen.queryByText('Diese Reise hat keine Orte')).toBeNull();
   expect(screen.queryByText(/Ortungsdienste/)).toBeNull();
-  expect(screen.queryByTestId('karte-flaeche')).toBeNull();
+  expect(screen.queryByTestId('map-surface')).toBeNull();
 });
 
 test('a trip with moments that lack a place does not talk about an empty trip', async () => {
@@ -1854,7 +1854,7 @@ test('the empty state of t1 does not stand over t2', async () => {
   await switchToHangingT2(rerender);
 
   expect(screen.queryByText('Diese Reise hat keine Orte')).toBeNull();
-  expect(screen.getByTestId('karte-skelett')).toBeTruthy();
+  expect(screen.getByTestId('map-skeleton')).toBeTruthy();
 });
 
 test('the error of t1 does not stand over t2', async () => {
@@ -1867,7 +1867,7 @@ test('the error of t1 does not stand over t2', async () => {
 
   expect(screen.queryByText('Kein Zugriff auf diese Reise.')).toBeNull();
   expect(screen.queryByText('Nochmal versuchen')).toBeNull();
-  expect(screen.getByTestId('karte-skelett')).toBeTruthy();
+  expect(screen.getByTestId('map-skeleton')).toBeTruthy();
 });
 
 // The most dangerous of the three: a sheet opened now already carries
@@ -1881,7 +1881,7 @@ test('the bar of t1 does not stand over t2', async () => {
   await switchToHangingT2(rerender);
 
   expect(screen.queryByText(/ohne Ort/)).toBeNull();
-  expect(screen.getByTestId('karte-skelett')).toBeTruthy();
+  expect(screen.getByTestId('map-skeleton')).toBeTruthy();
 });
 
 // ---------------------------------------------------------------------------
@@ -1894,7 +1894,7 @@ test('when the trip query fails it at least leaves a trace', async () => {
     data: null, error: 'Diese Reise konnte nicht geladen werden.',
   });
   await wrap();
-  await screen.findAllByTestId(/^karte-nadel/);
+  await screen.findAllByTestId(/^map-pin/);
 
   expect(reportError).toHaveBeenCalledWith(
     expect.objectContaining({ message: 'Diese Reise konnte nicht geladen werden.' }),
@@ -1905,7 +1905,7 @@ test('when the trip query fails it at least leaves a trace', async () => {
 test('a successful trip query reports nothing', async () => {
   loadSuccess(WITH_DAYS, POOL_DAYS);
   await wrap();
-  await screen.findByTestId('karte-tagesfilter');
+  await screen.findByTestId('map-day-filter');
   expect(reportError).not.toHaveBeenCalled();
 });
 
@@ -1915,10 +1915,10 @@ test('a successful trip query reports nothing', async () => {
 test('the gap in the day numbers is explained', async () => {
   loadSuccess(WITHOUT_PLACE_IN_BETWEEN, POOL_WITHOUT_PLACE_IN_BETWEEN);
   await wrap();
-  await screen.findByTestId('karte-nadel-q3');
+  await screen.findByTestId('map-pin-q3');
 
   await openDayFilter();
-  expect(screen.queryByTestId('tag-eintrag-2')).toBeNull();
+  expect(screen.queryByTestId('day-entry-2')).toBeNull();
   expect(
     screen.getByText('Tage, an denen kein Moment einen Ort hat, stehen nicht zur Wahl.')
   ).toBeTruthy();
@@ -1927,11 +1927,11 @@ test('the gap in the day numbers is explained', async () => {
 test('without a gap the line is not there', async () => {
   loadSuccess(WITH_DAYS, POOL_DAYS);
   await wrap();
-  await screen.findByTestId('karte-nadel-p6');
+  await screen.findByTestId('map-pin-p6');
 
   await openDayFilter();
-  expect(screen.getByTestId('tag-eintrag-1')).toBeTruthy();
-  expect(screen.getByTestId('tag-eintrag-2')).toBeTruthy();
+  expect(screen.getByTestId('day-entry-1')).toBeTruthy();
+  expect(screen.getByTestId('day-entry-2')).toBeTruthy();
   expect(screen.queryByText(/stehen nicht zur Wahl/)).toBeNull();
 });
 
@@ -1994,7 +1994,7 @@ function hangingLoadPath() {
 test('§9: the loading state carries no primary button', async () => {
   hangingLoadPath();
   await wrap();
-  expect(screen.getByTestId('karte-skelett')).toBeTruthy();
+  expect(screen.getByTestId('map-skeleton')).toBeTruthy();
   expect(primaryButtons()).toEqual([]);
 });
 
@@ -2076,31 +2076,31 @@ test('§9: the trip without places carries exactly one primary button', async ()
 test('§9: the map itself carries no primary button', async () => {
   loadSuccess(WITH_DAYS, POOL_DAYS);
   await wrap();
-  await screen.findByTestId('karte-nadel-p1');
+  await screen.findByTestId('map-pin-p1');
   expect(primaryButtons()).toEqual([]);
 });
 
 test('§9: with an open moment sheet it is exactly one', async () => {
   loadSuccess(WITH_DAYS, POOL_DAYS);
   await wrap();
-  await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
+  await fireEvent.press(await screen.findByTestId('map-pin-p1'));
   expect(primaryButtons()).toEqual(['Im Recap ansehen']);
 });
 
 test('§9: the cluster sheet adds no second one', async () => {
   loadSuccess(ON_ONE_SPOT);
   await wrap();
-  await fireEvent.press(await screen.findByTestId('karte-nadel-p1'));
-  expect(screen.getByTestId('gruppe-liste')).toBeTruthy();
+  await fireEvent.press(await screen.findByTestId('map-pin-p1'));
+  expect(screen.getByTestId('group-list')).toBeTruthy();
   expect(primaryButtons()).toEqual([]);
 });
 
 test('§9: the day sheet adds no second one', async () => {
   loadSuccess(WITH_DAYS, POOL_DAYS);
   await wrap();
-  await screen.findByTestId('karte-tagesfilter');
+  await screen.findByTestId('map-day-filter');
   await openDayFilter();
-  expect(screen.getByTestId('tag-eintrag-alle')).toBeTruthy();
+  expect(screen.getByTestId('day-entry-all')).toBeTruthy();
   expect(primaryButtons()).toEqual([]);
 });
 
@@ -2109,7 +2109,7 @@ test('§9: the sheet of the moments without a place adds no second one', async (
   await wrap();
   await screen.findByText('3 Momente ohne Ort');
   await openWithoutPlace();
-  expect(screen.getAllByTestId(/^ohne-ort-kachel/)).toHaveLength(3);
+  expect(screen.getAllByTestId(/^without-place-tile/)).toHaveLength(3);
   expect(primaryButtons()).toEqual([]);
 });
 
@@ -2121,14 +2121,14 @@ test('§9: the sheet of the moments without a place adds no second one', async (
 test('§9: a tap on a pin closes an open day sheet', async () => {
   loadSuccess(WITH_DAYS, POOL_DAYS);
   await wrap();
-  await screen.findByTestId('karte-nadel-p1');
+  await screen.findByTestId('map-pin-p1');
   await openDayFilter();
-  expect(screen.getByTestId('tag-eintrag-alle')).toBeTruthy();
+  expect(screen.getByTestId('day-entry-all')).toBeTruthy();
 
-  await fireEvent.press(screen.getByTestId('karte-nadel-p1'));
+  await fireEvent.press(screen.getByTestId('map-pin-p1'));
 
   expect(screen.getByText('Im Recap ansehen')).toBeTruthy();
-  expect(screen.queryByTestId('tag-eintrag-alle')).toBeNull();
+  expect(screen.queryByTestId('day-entry-all')).toBeNull();
   expect(screen.getAllByTestId('sheet-panel')).toHaveLength(1);
 });
 
@@ -2141,7 +2141,7 @@ test('§9: the skeleton pulses while the map is loading', async () => {
   const spy = jest.spyOn(Animated, 'loop');
   hangingLoadPath();
   await wrap();
-  expect(screen.getByTestId('karte-skelett')).toBeTruthy();
+  expect(screen.getByTestId('map-skeleton')).toBeTruthy();
   expect(spy).toHaveBeenCalled();
   spy.mockRestore();
 });
@@ -2151,7 +2151,7 @@ test('§9: with Reduced Motion the skeleton stands still instead of pulsing', as
   mockReducedMotion = true;
   hangingLoadPath();
   await wrap();
-  expect(screen.getByTestId('karte-skelett')).toBeTruthy();
+  expect(screen.getByTestId('map-skeleton')).toBeTruthy();
   expect(spy).not.toHaveBeenCalled();
   spy.mockRestore();
 });

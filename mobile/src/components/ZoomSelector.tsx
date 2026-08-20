@@ -25,7 +25,7 @@ export function ZoomSelector({ steps, factor, onSelect }: Props) {
   const active = activeStep(factor, steps);
 
   return (
-    <Pill testID="zoom-wahl" style={styles.row}>
+    <Pill testID="zoom-selector" style={styles.row}>
       {steps.map((step) => {
         const isActive = step === active;
         // The active step shows where you actually stand (e.g. "2,3×"), the

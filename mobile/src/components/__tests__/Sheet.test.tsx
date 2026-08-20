@@ -134,7 +134,7 @@ test('opens from clearly outside the visible area, not from the zero position', 
       <Text>Inhalt</Text>
     </Sheet>
   );
-  const shadowNode = screen.getByTestId('sheet-schatten');
+  const shadowNode = screen.getByTestId('sheet-shadow');
   expect(translateYOf(shadowNode)).toBeGreaterThan(100);
 });
 
@@ -148,7 +148,7 @@ test('reduced motion holds the position at 0, no invisible sheet', async () => {
       <Text>Inhalt</Text>
     </Sheet>
   );
-  const shadowNode = screen.getByTestId('sheet-schatten');
+  const shadowNode = screen.getByTestId('sheet-shadow');
   expect(translateYOf(shadowNode)).toBe(0);
 });
 
@@ -180,7 +180,7 @@ describe('DESIGN-LANGUAGE §4, spec measurements, checked individually (mutation
         <Text>Inhalt</Text>
       </Sheet>
     );
-    const shadowNode = screen.getByTestId('sheet-schatten');
+    const shadowNode = screen.getByTestId('sheet-shadow');
     const flattened = StyleSheet.flatten(shadowNode.props.style);
     expect(flattened.shadowOpacity).toBe(shadow.s3.shadowOpacity);
     expect(flattened.shadowRadius).toBe(shadow.s3.shadowRadius);
@@ -194,7 +194,7 @@ describe('DESIGN-LANGUAGE §4, spec measurements, checked individually (mutation
         <Text>Inhalt</Text>
       </Sheet>
     );
-    const handle = screen.getByTestId('sheet-griff');
+    const handle = screen.getByTestId('sheet-handle');
     const flattened = StyleSheet.flatten(handle.props.style);
     expect(flattened.width).toBe(36);
     expect(flattened.height).toBe(4);
@@ -207,7 +207,7 @@ describe('DESIGN-LANGUAGE §4, spec measurements, checked individually (mutation
         <Text>Inhalt</Text>
       </Sheet>
     );
-    const handleArea = screen.getByTestId('sheet-griff-bereich');
+    const handleArea = screen.getByTestId('sheet-handle-area');
     expect(typeof handleArea.props.onStartShouldSetResponder).toBe('function');
     const panel = screen.getByTestId('sheet-panel');
     expect(panel.props.onStartShouldSetResponder).toBeUndefined();
@@ -248,7 +248,7 @@ describe('Review Important 2, maximum height and cinema variant', () => {
         <Text>Inhalt</Text>
       </Sheet>
     );
-    const shadowNode = screen.getByTestId('sheet-schatten');
+    const shadowNode = screen.getByTestId('sheet-shadow');
     expect(StyleSheet.flatten(shadowNode.props.style).backgroundColor).toBe(palette['bg-0']);
     expect(StyleSheet.flatten(screen.getByText('Titel').props.style).color).toBe(palette['text-1']);
   });
@@ -259,7 +259,7 @@ describe('Review Important 2, maximum height and cinema variant', () => {
         <Text>Inhalt</Text>
       </Sheet>
     );
-    const shadowNode = screen.getByTestId('sheet-schatten');
+    const shadowNode = screen.getByTestId('sheet-shadow');
     expect(StyleSheet.flatten(shadowNode.props.style).backgroundColor).toBe(cinema['bg-1']);
     expect(StyleSheet.flatten(screen.getByText('Titel').props.style).color).toBe(cinema['text-1']);
   });
@@ -284,7 +284,7 @@ test('the panel is a flex child at the bottom edge, not absolutely positioned (o
   );
   const root = StyleSheet.flatten(screen.getByTestId('sheet-root').props.style);
   expect(root.justifyContent).toBe('flex-end');
-  const shadowNode = StyleSheet.flatten(screen.getByTestId('sheet-schatten').props.style);
+  const shadowNode = StyleSheet.flatten(screen.getByTestId('sheet-shadow').props.style);
   expect(shadowNode.position).toBeUndefined();
   expect(shadowNode.bottom).toBeUndefined();
 });

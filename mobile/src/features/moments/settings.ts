@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const KEY = 'reelive.nurWlan';
+const KEY = 'reelive.wifiOnly';
 
 // If the entry is missing (first install or cleared storage), "false" applies,
 // uploads also run over mobile data until someone explicitly turns on

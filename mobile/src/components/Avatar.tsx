@@ -71,7 +71,7 @@ export function Avatar({
   const initialStyle = size > 44 ? type.display : type.label;
 
   return (
-    <View testID="avatar-kreis" style={circle(size, surface, ring)}>
+    <View testID="avatar-circle" style={circle(size, surface, ring)}>
       {/* The initial always stays in the tree, the image lays on top of
           it. This way the circle carries something while loading (otherwise
           an empty surface would flash and the whole facepile would jump),
@@ -82,7 +82,7 @@ export function Avatar({
       </Text>
       {url && (
         <Image
-          testID="avatar-bild"
+          testID="avatar-image"
           source={{ uri: url }}
           style={{ position: 'absolute', width: '100%', height: '100%' }}
           contentFit="cover"

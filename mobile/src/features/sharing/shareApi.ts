@@ -2,7 +2,7 @@
 // Task-2-brief): the edge function `share-link`, action `resolve`, needs
 // NO JWT. Same call path as recapApi.ts/urlPool.ts, supabase.functions.invoke,
 // errors arrive either as a FunctionsHttpError with German plain text in the
-// JSON body, or as a network error detected via istOffline.
+// JSON body, or as a network error detected via isOffline.
 //
 // W4 (spec promise): the web player can write nothing. This file calls
 // ONLY supabase.functions.invoke('share-link', { action: 'resolve' }),
@@ -11,14 +11,14 @@
 // statically via the module graph
 // (mobile/src/app/share/__tests__/moduleGraph.test.ts), not just asserted.
 //
-// SharedRecap/SharedMoment keep their `reise`/`medien`/`ausgelassen` field
-// names for now (app-internal shape, consumed directly by
-// app/share/[token].tsx, out of this task's write zone): the RAW wire
-// response (ResolveResponse/MediaEntry below) already matches the
-// English-language server contract from Task 13, this function is the one
-// seam that translates between the two. See task-13-report.md, Bedenken.
+// SharedRecap/SharedMoment field names now match the wire contract
+// (ResolveResponse/MediaEntry below, Task 13) directly, so this function's
+// mapping mostly collapses to a pass-through; it still translates
+// snake_case wire fields onto SharedMoment's camelCase ones
+// (author_name -> authorName, author_avatar_key -> authorAvatarKey) and
+// applies the defensive reads (numberOrNull/stringOrNull) below.
 import { supabase } from '@/lib/supabase';
-import { OFFLINE_HINT, istOffline } from '@/lib/networkError';
+import { OFFLINE_HINT, isOffline } from '@/lib/networkError';
 
 export type SharedMoment = {
   post_id: string;
@@ -45,16 +45,16 @@ export type SharedMoment = {
 };
 
 export type SharedRecap = {
-  reise: { name: string; start_date: string; end_date: string };
-  medien: SharedMoment[];
+  trip: { name: string; start_date: string; end_date: string };
+  media: SharedMoment[];
   validUntil: number;
   // Moments for which the function could not hand out a URL (broken or
   // missing object, signing error, dropped while paging). They're missing
-  // from `medien`; without this count they'd be missing WITHOUT A TRACE, and
+  // from `media`; without this count they'd be missing WITHOUT A TRACE, and
   // the shared page would claim to show the whole trip. It's always present
   // in the response, even as 0 (share-link/resolution.ts,
   // `buildResolveResponse`).
-  ausgelassen: number;
+  skipped: number;
 };
 
 // Same pattern as recapApi.ts/urlPool.ts/tripsApi.ts: Loaded<T> is NOT
@@ -82,8 +82,8 @@ const LOAD_ERROR = 'Der Recap konnte nicht geladen werden. Probier es gleich noc
 // places must be checked (same pattern as recapApi.ts/urlPool.ts).
 function functionMessage(error: unknown, fallback: string): string {
   const err = error as { message?: string; context?: { message?: string } } | null;
-  if (istOffline({ message: err?.context?.message })) return OFFLINE_HINT;
-  return istOffline(err ?? null) ? OFFLINE_HINT : fallback;
+  if (isOffline({ message: err?.context?.message })) return OFFLINE_HINT;
+  return isOffline(err ?? null) ? OFFLINE_HINT : fallback;
 }
 
 // Mirrors PublicMoment in supabase/functions/share-link/resolution.ts
@@ -186,15 +186,15 @@ export async function resolveToken(token: string): Promise<Loaded<SharedRecap | 
 
   return {
     data: {
-      reise: { name: trip.name, start_date: trip.start_date, end_date: trip.end_date },
-      medien: media,
+      trip: { name: trip.name, start_date: trip.start_date, end_date: trip.end_date },
+      media,
       validUntil,
       // Read leniently and NOT part of the shape check above: the field is
       // purely additive (see `buildResolveResponse`), and an older
       // function without it must not produce a dead page. If it's missing,
       // nothing is claimed, 0 means "nothing left out", the same state it
       // was everywhere before this field existed.
-      ausgelassen: typeof response.skipped === 'number' && Number.isFinite(response.skipped)
+      skipped: typeof response.skipped === 'number' && Number.isFinite(response.skipped)
         ? response.skipped
         : 0,
     },

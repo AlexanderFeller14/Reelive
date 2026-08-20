@@ -20,12 +20,12 @@
 // only cleaner (the app manages its own link, the web player only resolves
 // it), but the only option that doesn't weaken the existing W4 guarantee.
 import { supabase } from '@/lib/supabase';
-import { OFFLINE_HINT, istOffline } from '@/lib/networkError';
+import { OFFLINE_HINT, isOffline } from '@/lib/networkError';
 
 type Loaded<T> = { data: T; error: string | null };
 
 function message(error: { message?: string } | null, fallback: string): string {
-  return istOffline(error) ? OFFLINE_HINT : fallback;
+  return isOffline(error) ? OFFLINE_HINT : fallback;
 }
 
 // functions-js replaces a genuine network error with a fixed English
@@ -33,7 +33,7 @@ function message(error: { message?: string } | null, fallback: string): string {
 // (same pattern as recapApi.ts/urlPool.ts/shareApi.ts).
 function functionMessage(error: unknown, fallback: string): string {
   const err = error as { message?: string; context?: { message?: string } } | null;
-  if (istOffline({ message: err?.context?.message })) return OFFLINE_HINT;
+  if (isOffline({ message: err?.context?.message })) return OFFLINE_HINT;
   return message(err ?? null, fallback);
 }
 
