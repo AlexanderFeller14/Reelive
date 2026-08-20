@@ -355,7 +355,7 @@ export async function buildMedia(
       // live elsewhere, and the derived URL would point at nothing).
       if (row.storage_key !== derived.storage_key) {
         console.error(
-          'share-link: storage_key weicht vom abgeleiteten Pfad ab, Moment wird ausgelassen.',
+          'share-link: storage_key deviates from the derived path, moment is skipped.',
           { post_id: row.id, stored: row.storage_key, derived: derived.storage_key },
         );
         return null;

@@ -301,8 +301,8 @@ export default function RecapOverview() {
     Animated.timing(fadeIn, {
       toValue: 1,
       duration: reducedMotion ? motion.duration.base : motion.duration.gentle,
-      // Spelled out, not the RN default (inOut): see the MemorySubmission
-      // animation, the default makes a fade run out sluggishly.
+      // Spelled out, not the RN default (inOut): see the
+      // MomentSubmissionAnimation, the default makes a fade run out sluggishly.
       easing: Easing.bezier(...motion.easeSmooth),
       useNativeDriver: true,
     }).start();

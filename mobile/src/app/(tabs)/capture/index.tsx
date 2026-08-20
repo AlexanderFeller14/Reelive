@@ -1083,7 +1083,12 @@ export default function CaptureScreen() {
   // joinFlow.ts) is a leftover from the time before the route existed:
   // `/preview` is in the generated route list today, and tsc accepts the push
   // without the cast as well (checked 2026-08-19).
-  const goToPreview = (params: { typ: 'photo' | 'video'; dauer: string; tripId: string; uri?: string }) => {
+  const goToPreview = (params: {
+    type: 'photo' | 'video';
+    duration: string;
+    tripId: string;
+    uri?: string;
+  }) => {
     // Set BEFORE the navigation: the blur effect and the mute prop treat the
     // preview differently from a tab switch (see inPreview above).
     setInPreview(true);
@@ -1377,7 +1382,7 @@ export default function CaptureScreen() {
         // the JPEG.
         const source = { uri: photo.uri } as unknown as PictureRef;
         handoff.setPhoto({ ref: source, file: Promise.resolve({ uri: photo.uri }) });
-        goToPreview({ typ: 'photo', dauer: '0', tripId: trip.id });
+        goToPreview({ type: 'photo', duration: '0', tripId: trip.id });
         return;
       }
       // Kick off the capture first, THEN freeze the preview: the SDK docs
@@ -1413,7 +1418,7 @@ export default function CaptureScreen() {
       // savePictureAsync directly: the native return is called `url` on iOS
       // and `uri` on Android (see handoff.ts).
       handoff.setPhoto({ ref, file: handoff.savedFile(ref) });
-      goToPreview({ typ: 'photo', dauer: '0', tripId: trip.id });
+      goToPreview({ type: 'photo', duration: '0', tripId: trip.id });
     } catch (err) {
       console.error('[capture] photo capture failed', err);
       // Without the thaw the viewfinder would stay frozen: pausePreview has
@@ -1533,8 +1538,8 @@ export default function CaptureScreen() {
       handoff.setVideo({ kind: 'native', fileReady: nativeCapture.fileReady() });
       goToPreview({
         uri: result.uri,
-        typ: 'video',
-        dauer: String(Math.round(result.durationS)),
+        type: 'video',
+        duration: String(Math.round(result.durationS)),
         tripId: trip.id,
       });
       return;
@@ -1591,7 +1596,7 @@ export default function CaptureScreen() {
     } else {
       handoff.setVideo({ kind: 'player', player, poster });
     }
-    goToPreview({ uri: result.uri, typ: 'video', dauer: String(duration), tripId: trip.id });
+    goToPreview({ uri: result.uri, type: 'video', duration: String(duration), tripId: trip.id });
   };
 
   // Three states instead of two (fix round 1: the earlier version wrongly

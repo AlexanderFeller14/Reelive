@@ -140,9 +140,9 @@ const stackReady = Boolean(
 
 if (!stackReady) {
   console.warn(
-    'share_link_integration_test: übersprungen, braucht `supabase start` UND ' +
-      '`supabase functions serve --env-file supabase/functions/.env` in einem zweiten Terminal. ' +
-      'Die Sicherheitszusicherungen der Prüfkette laufen ohne Stack in resolution_test.ts.',
+    'share_link_integration_test: skipped, needs `supabase start` AND ' +
+      '`supabase functions serve --env-file supabase/functions/.env` in a second terminal. ' +
+      'The security guarantees of the check chain run without a stack in resolution_test.ts.',
   );
 }
 
@@ -207,7 +207,7 @@ async function cleanUp(tripIds: Array<string | null>, keys: string[]): Promise<v
       method: 'DELETE',
       headers: { apikey: SERVICE_ROLE_KEY, Authorization: `Bearer ${SERVICE_ROLE_KEY}` },
     }).catch(() => null);
-    if (res && !res.ok) console.warn(`Aufräumen von ${key} fehlgeschlagen: HTTP ${res.status}`);
+    if (res && !res.ok) console.warn(`Cleaning up ${key} failed: HTTP ${res.status}`);
   }
   for (const id of tripIds) {
     if (id === null) continue;
@@ -215,7 +215,7 @@ async function cleanUp(tripIds: Array<string | null>, keys: string[]): Promise<v
       method: 'DELETE',
       headers: restHeaders(),
     }).catch(() => null);
-    if (res && !res.ok) console.warn(`Aufräumen der Test-Reise fehlgeschlagen: HTTP ${res.status}`);
+    if (res && !res.ok) console.warn(`Cleaning up the test trip failed: HTTP ${res.status}`);
   }
 }
 
@@ -240,7 +240,7 @@ type ResolveResponse = {
 };
 
 Deno.test({
-  name: 'share-link: erstellen, auflösen ohne Anmeldung, widerrufen, und keine Auskunft an Unbefugte',
+  name: 'share-link: create, resolve without login, revoke, and no information for outsiders',
   ignore: !stackReady,
   async fn() {
     const tripId = await createTrip('Integrationstest share-link');
@@ -717,7 +717,7 @@ Deno.test({
 // the page size in store.ts matches it. 1001 rows is the smallest fixture
 // that shows this.
 Deno.test({
-  name: 'share-link: aufloesen blättert über die max_rows-Grenze und verliert keinen Moment',
+  name: 'share-link: resolve pages past the max_rows boundary and loses no moment',
   ignore: !stackReady,
   async fn() {
     const ROW_COUNT = 1001;

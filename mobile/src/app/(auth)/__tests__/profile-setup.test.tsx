@@ -35,7 +35,7 @@ jest.mock('expo-image-picker', () => ({
 // Scaffolding note: `AvatarPicker` still renders `Avatar` when no local URI
 // is chosen, and that imports `expo-image`. Without a mock the import itself
 // already fails, same reasoning as in AvatarPicker.test.tsx and
-// profilTab.test.tsx.
+// profileTab.test.tsx.
 jest.mock('expo-image', () => {
   const ReactActual = require('react');
   const { View } = require('react-native');

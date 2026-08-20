@@ -120,8 +120,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
   }
 
   if (!SUPABASE_URL || !SERVICE_ROLE_KEY || !ANON_KEY) {
-    console.error('delete-account: SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY/SUPABASE_ANON_KEY fehlen.');
-    await report(new Error('delete-account: SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY/SUPABASE_ANON_KEY fehlen.'));
+    console.error('delete-account: SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY/SUPABASE_ANON_KEY are missing.');
+    await report(new Error('delete-account: SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY/SUPABASE_ANON_KEY are missing.'));
     return errorResponse('Server nicht konfiguriert.', 500);
   }
 
@@ -164,7 +164,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
   const { data: ownTrips, error: tripsError } = await store.fetchOwnTrips(requestingUserId);
   if (tripsError) {
-    console.error('delete-account: trips-Select fehlgeschlagen', tripsError);
+    console.error('delete-account: trips select failed', tripsError);
     await report(tripsError, { user_id: requestingUserId });
     return errorResponse('Dein Konto konnte nicht geprüft werden.', 500);
   }
@@ -177,7 +177,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
   if (action === 'counts') {
     const { data: counts, error: countsError } = await store.fetchCounts(requestingUserId, ownTripIds);
     if (countsError || !counts) {
-      console.error('delete-account: Zählen fehlgeschlagen', countsError);
+      console.error('delete-account: counting failed', countsError);
       await report(countsError, { user_id: requestingUserId });
       return errorResponse('Die Zahlen konnten nicht ermittelt werden.', 500);
     }
@@ -194,8 +194,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
   // URL" error, instead of here as a clear 500 (same pattern as
   // media-urls/share-link).
   if (!s3ConfigComplete()) {
-    console.error('delete-account: S3-Umgebungsvariablen unvollständig.');
-    await report(new Error('delete-account: S3-Umgebungsvariablen unvollständig.'), { user_id: requestingUserId });
+    console.error('delete-account: S3 environment variables incomplete.');
+    await report(new Error('delete-account: S3 environment variables incomplete.'), { user_id: requestingUserId });
     return errorResponse('Server nicht konfiguriert.', 500);
   }
 
@@ -208,7 +208,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     store.fetchPostsPageInTrips(ownTripIds, from, withCount)
   );
   if (inOwn.error) {
-    console.error('delete-account: posts-Select (eigene Reisen) fehlgeschlagen', inOwn.error);
+    console.error('delete-account: posts select (own trips) failed', inOwn.error);
     await report(inOwn.error, { user_id: requestingUserId });
     return errorResponse('Deine Reisen konnten nicht gelesen werden.', 500);
   }
@@ -217,7 +217,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     store.fetchOwnPostsPageElsewhere(requestingUserId, ownTripIds, from, withCount)
   );
   if (elsewhere.error) {
-    console.error('delete-account: posts-Select (fremde Reisen) fehlgeschlagen', elsewhere.error);
+    console.error('delete-account: posts select (other people\'s trips) failed', elsewhere.error);
     await report(elsewhere.error, { user_id: requestingUserId });
     return errorResponse('Deine Momente konnten nicht gelesen werden.', 500);
   }
@@ -226,12 +226,12 @@ Deno.serve(async (req: Request): Promise<Response> => {
   // deletion to continue, the overlooked objects would stay in storage
   // forever, with nobody able to derive their path anymore.
   if (inOwn.lost > 0 || elsewhere.lost > 0) {
-    console.error('delete-account: beim Einsammeln der Momente sind Zeilen verlorengegangen.', {
+    console.error('delete-account: rows went missing while collecting the moments.', {
       user_id: requestingUserId,
       in_own_trips: inOwn.lost,
       elsewhere: elsewhere.lost,
     });
-    await report(new Error('delete-account: beim Einsammeln der Momente sind Zeilen verlorengegangen.'), {
+    await report(new Error('delete-account: rows went missing while collecting the moments.'), {
       user_id: requestingUserId,
       in_own_trips: inOwn.lost,
       elsewhere: elsewhere.lost,
@@ -261,7 +261,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
   const unresolvedPaths: string[] = [];
   const { data: avatarKey, error: avatarError } = await store.fetchAvatarKey(requestingUserId);
   if (avatarError) {
-    console.error('delete-account: profiles-Select fehlgeschlagen', avatarError);
+    console.error('delete-account: profiles select failed', avatarError);
     await report(avatarError, { user_id: requestingUserId });
     return errorResponse('Dein Profil konnte nicht gelesen werden.', 500);
   }
@@ -284,7 +284,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
   }
   if (unresolvedPaths.length > 0) {
     console.error(
-      'delete-account: cover_key/avatar_key liegen ausserhalb der eigenen Präfixe und bleiben liegen.',
+      'delete-account: cover_key/avatar_key lie outside our own prefixes and are left behind.',
       { user_id: requestingUserId, paths: unresolvedPaths },
     );
     // Only the COUNT goes to Sentry, never the paths themselves, they stay
@@ -292,7 +292,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     // moment content, but also not a diagnostic value an external service
     // needs; the count alone is enough to recognize the pattern.
     await report(
-      new Error('delete-account: cover_key/avatar_key liegen ausserhalb der eigenen Präfixe und bleiben liegen.'),
+      new Error('delete-account: cover_key/avatar_key lie outside our own prefixes and are left behind.'),
       { user_id: requestingUserId, count: unresolvedPaths.length },
     );
   }
@@ -321,7 +321,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
   const result = await performDeletion(storage, database);
   if (!result.ok) {
-    console.error('delete-account: Löschung abgebrochen', {
+    console.error('delete-account: deletion aborted', {
       user_id: requestingUserId,
       step: result.failedAt,
       database_touched: result.databaseTouched,

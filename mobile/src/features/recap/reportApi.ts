@@ -151,7 +151,7 @@ export async function removeMoment(momentId: string): Promise<{ error: string | 
       const body = (await response.clone().json()) as { error?: string };
       if (typeof body.error === 'string' && body.error.length > 0) return { error: body.error };
     } catch {
-      // Antwort war kein JSON, generische Meldung unten.
+      // The response was not JSON, generic message below.
     } finally {
       // The clone was read, the original wasn't, and an unread response
       // body keeps its stream open. That's invisible on the device, but not

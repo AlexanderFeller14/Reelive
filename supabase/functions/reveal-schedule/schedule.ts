@@ -86,8 +86,8 @@ export async function performAutoReveal(
 ): Promise<ScheduleResult> {
   const { data: due, error } = await store.fetchDueTrips(today);
   if (error || !due) {
-    console.error('reveal-schedule: Auswahl fälliger Reisen fehlgeschlagen', error);
-    await report(error ?? new Error('reveal-schedule: Auswahl ohne Daten.'), { today });
+    console.error('reveal-schedule: selecting due trips failed', error);
+    await report(error ?? new Error('reveal-schedule: selection returned no data.'), { today });
     return { status: 500, body: { error: 'Auswahl fehlgeschlagen.' } };
   }
 
@@ -95,7 +95,7 @@ export async function performAutoReveal(
   for (const trip of due) {
     const { data: updated, error: updateError } = await store.updateIfActive(trip.id);
     if (updateError) {
-      console.error('reveal-schedule: trips-Update fehlgeschlagen', updateError);
+      console.error('reveal-schedule: trips update failed', updateError);
       await report(updateError, { trip_id: trip.id, today });
       continue;
     }
@@ -108,7 +108,7 @@ export async function performAutoReveal(
     try {
       await sendRevealPush(store, sendFn, trip, null);
     } catch (err) {
-      console.error('reveal-schedule: Push-Versand fehlgeschlagen', err);
+      console.error('reveal-schedule: sending the push failed', err);
       await report(err, { trip_id: trip.id, today });
     }
   }
@@ -128,8 +128,8 @@ export async function performReminder(
 ): Promise<ScheduleResult> {
   const { data: trips, error } = await store.fetchReminderTrips(today);
   if (error || !trips) {
-    console.error('reveal-schedule: Auswahl der Erinnerungen fehlgeschlagen', error);
-    await report(error ?? new Error('reveal-schedule: Erinnerungs-Auswahl ohne Daten.'), { today });
+    console.error('reveal-schedule: selecting the reminders failed', error);
+    await report(error ?? new Error('reveal-schedule: reminder selection returned no data.'), { today });
     return { status: 500, body: { error: 'Auswahl fehlgeschlagen.' } };
   }
 
@@ -137,7 +137,7 @@ export async function performReminder(
   for (const trip of trips) {
     const { data: marked, error: markerError } = await store.markReminder(trip.id);
     if (markerError) {
-      console.error('reveal-schedule: Erinnerungs-Marker fehlgeschlagen', markerError);
+      console.error('reveal-schedule: setting the reminder marker failed', markerError);
       await report(markerError, { trip_id: trip.id, today });
       continue;
     }
@@ -147,7 +147,7 @@ export async function performReminder(
     try {
       const { data: tokenRows, error: tokenError } = await store.fetchTokens([trip.owner_id]);
       if (tokenError) {
-        console.error('reveal-schedule: push_tokens-Select fehlgeschlagen', tokenError);
+        console.error('reveal-schedule: push_tokens select failed', tokenError);
         await report(tokenError, { trip_id: trip.id, today });
         continue;
       }
@@ -165,11 +165,11 @@ export async function performReminder(
       if (dead.length > 0) {
         const { error: deleteError } = await store.deleteTokens(dead, [trip.owner_id]);
         if (deleteError) {
-          console.error('reveal-schedule: Aufräumen abgemeldeter push_tokens fehlgeschlagen', deleteError);
+          console.error('reveal-schedule: cleaning up unregistered push_tokens failed', deleteError);
         }
       }
     } catch (err) {
-      console.error('reveal-schedule: Erinnerungs-Versand fehlgeschlagen', err);
+      console.error('reveal-schedule: sending the reminder failed', err);
       await report(err, { trip_id: trip.id, today });
     }
   }

@@ -2,7 +2,7 @@ import * as SQLite from 'expo-sqlite';
 import type { SQLiteDatabase } from 'expo-sqlite';
 
 import { forStorage, forReading } from './queuePaths';
-import type { JobZustand, QueueJob, DiscardedMoment } from './types';
+import type { JobState, QueueJob, DiscardedMoment } from './types';
 
 // Only place in the project that translates between an SQLite row and
 // QueueJob. Booleans are stored as 0/1, times as numbers, see Task-3-Brief.
@@ -34,28 +34,28 @@ async function ensureTable(): Promise<void> {
 }
 
 const COLUMN_SCHEMA = [
-  { name: 'id', typ: 'text', pflicht: true },
-  { name: 'post_id', typ: 'text', pflicht: true },
-  { name: 'trip_id', typ: 'text', pflicht: true },
-  { name: 'author_id', typ: 'text', pflicht: true },
-  { name: 'typ', typ: 'text', pflicht: true },
-  { name: 'medium_uri', typ: 'text', pflicht: true },
-  { name: 'thumb_uri', typ: 'text', pflicht: true },
-  { name: 'storage_key', typ: 'text', pflicht: true },
-  { name: 'thumb_key', typ: 'text', pflicht: true },
-  { name: 'caption', typ: 'text', pflicht: false },
-  { name: 'captured_at', typ: 'text', pflicht: true },
-  { name: 'captured_tz', typ: 'text', pflicht: true },
-  { name: 'lat', typ: 'real', pflicht: false },
-  { name: 'lng', typ: 'real', pflicht: false },
-  { name: 'place_name', typ: 'text', pflicht: false },
-  { name: 'duration_s', typ: 'real', pflicht: false },
-  { name: 'zustand', typ: 'text', pflicht: true },
-  { name: 'versuche', typ: 'integer', pflicht: true },
-  { name: 'naechster_versuch', typ: 'integer', pflicht: true },
-  { name: 'zeile_angelegt', typ: 'integer', pflicht: true },
-  { name: 'medium_geladen', typ: 'integer', pflicht: true },
-  { name: 'thumb_geladen', typ: 'integer', pflicht: true },
+  { name: 'id', type: 'text', required: true },
+  { name: 'post_id', type: 'text', required: true },
+  { name: 'trip_id', type: 'text', required: true },
+  { name: 'author_id', type: 'text', required: true },
+  { name: 'typ', type: 'text', required: true },
+  { name: 'medium_uri', type: 'text', required: true },
+  { name: 'thumb_uri', type: 'text', required: true },
+  { name: 'storage_key', type: 'text', required: true },
+  { name: 'thumb_key', type: 'text', required: true },
+  { name: 'caption', type: 'text', required: false },
+  { name: 'captured_at', type: 'text', required: true },
+  { name: 'captured_tz', type: 'text', required: true },
+  { name: 'lat', type: 'real', required: false },
+  { name: 'lng', type: 'real', required: false },
+  { name: 'place_name', type: 'text', required: false },
+  { name: 'duration_s', type: 'real', required: false },
+  { name: 'zustand', type: 'text', required: true },
+  { name: 'versuche', type: 'integer', required: true },
+  { name: 'naechster_versuch', type: 'integer', required: true },
+  { name: 'zeile_angelegt', type: 'integer', required: true },
+  { name: 'medium_geladen', type: 'integer', required: true },
+  { name: 'thumb_geladen', type: 'integer', required: true },
 ] as const;
 
 type Column = (typeof COLUMN_SCHEMA)[number]['name'];
@@ -63,12 +63,12 @@ type Row = Record<Column, string | number | null>;
 
 const COLUMNS: readonly Column[] = COLUMN_SCHEMA.map((s) => s.name);
 
-const ALLOWED_STATES: readonly JobZustand[] = ['wartet', 'laeuft', 'fertig'];
+const ALLOWED_STATES: readonly JobState[] = ['wartet', 'laeuft', 'fertig'];
 const ALLOWED_TYPES: readonly QueueJob['typ'][] = ['photo', 'video'];
 
 function columnDefinitionSql(def: (typeof COLUMN_SCHEMA)[number]): string {
-  if (def.name === 'id') return `${def.name} ${def.typ} primary key`;
-  return `${def.name} ${def.typ}${def.pflicht ? ' not null' : ''}`;
+  if (def.name === 'id') return `${def.name} ${def.type} primary key`;
+  return `${def.name} ${def.type}${def.required ? ' not null' : ''}`;
 }
 
 function toRow(job: QueueJob): Row {
@@ -100,11 +100,11 @@ function toRow(job: QueueJob): Row {
 
 function isComplete(row: Record<string, unknown>): boolean {
   for (const def of COLUMN_SCHEMA) {
-    if (def.pflicht && (row[def.name] === null || row[def.name] === undefined)) {
+    if (def.required && (row[def.name] === null || row[def.name] === undefined)) {
       return false;
     }
   }
-  if (!ALLOWED_STATES.includes(row.zustand as JobZustand)) return false;
+  if (!ALLOWED_STATES.includes(row.zustand as JobState)) return false;
   if (!ALLOWED_TYPES.includes(row.typ as QueueJob['typ'])) return false;
   return true;
 }
@@ -128,7 +128,7 @@ function toJob(row: Record<string, unknown>): QueueJob | null {
     lng: (row.lng as number | null) ?? null,
     place_name: (row.place_name as string | null) ?? null,
     duration_s: (row.duration_s as number | null) ?? null,
-    zustand: row.zustand as JobZustand,
+    zustand: row.zustand as JobState,
     versuche: row.versuche as number,
     naechster_versuch: row.naechster_versuch as number,
     zeile_angelegt: Boolean(row.zeile_angelegt),
@@ -153,7 +153,7 @@ async function migrateColumns(db: SQLiteDatabase): Promise<void> {
   const names = new Set(existingColumns.map((s) => s.name));
   for (const def of COLUMN_SCHEMA) {
     if (!names.has(def.name)) {
-      await db.execAsync(`alter table upload_queue add column ${def.name} ${def.typ}`);
+      await db.execAsync(`alter table upload_queue add column ${def.name} ${def.type}`);
     }
   }
 }

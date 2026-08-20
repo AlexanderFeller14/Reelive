@@ -1,28 +1,28 @@
 const { withAppDelegate, withInfoPlist, withXcodeProject } = require('expo/config-plugins');
 
-// Scene-Lebenszyklus fuer iOS 27.
+// Scene lifecycle for iOS 27.
 //
-// Ab iOS 27 bricht UIKit jede App ab, die ihr Fenster noch im AppDelegate
-// aufspannt statt im Scene-Lebenszyklus. Der Absturz kommt ohne Meldung, nach
-// rund 250 ms, mit Signal 5; im Simulator laeuft dieselbe App weiter, weil die
-// Pruefung dort nicht greift. Expos prebuild-Vorlage erzeugt bis heute genau
-// diese alte Form (expo/expo#46663, offen), deshalb dieses Plugin.
+// From iOS 27 on, UIKit terminates every app that still opens its window in the
+// AppDelegate instead of in the scene lifecycle. The crash comes without a
+// message, after roughly 250 ms, with signal 5; in the simulator the same app
+// keeps running because the check does not apply there. Expo's prebuild template
+// still produces exactly that old shape (expo/expo#46663, open), hence this
+// plugin.
 //
-// Es macht zwei Dinge, die `prebuild` sonst bei jedem Durchlauf wieder
-// zunichte machen wuerde:
-//   1. Info.plist bekommt ein UIApplicationSceneManifest.
-//   2. AppDelegate.swift gibt die Fenster-Erstellung an einen SceneDelegate ab.
+// It does two things that `prebuild` would otherwise undo on every run:
+//   1. Info.plist gets a UIApplicationSceneManifest.
+//   2. AppDelegate.swift hands window creation over to a SceneDelegate.
 //
-// Sobald Expo das selbst loest, kann dieses Plugin ersatzlos entfallen. Dann
-// schlaegt es hier laut fehl (siehe die Pruefungen unten), statt still nichts
-// zu tun: ein Plugin, das seine Ankerstellen nicht mehr findet, muss den Build
-// anhalten, sonst startet die App erst auf dem Geraet nicht mehr.
+// As soon as Expo solves this itself, this plugin can go away entirely. Until
+// then it fails loudly here (see the checks below) instead of quietly doing
+// nothing: a plugin that no longer finds its anchors has to stop the build,
+// otherwise the app simply stops starting on the device.
 
-const SCENE_DELEGATE_KLASSE = 'SceneDelegate';
+const SCENE_DELEGATE_CLASS = 'SceneDelegate';
 
-// Was aus didFinishLaunchingWithOptions verschwinden muss. Genau der Block,
-// den die Vorlage erzeugt.
-const FENSTER_BLOCK = `#if os(iOS) || os(tvOS)
+// What has to disappear from didFinishLaunchingWithOptions. Exactly the block
+// the template produces.
+const WINDOW_BLOCK = `#if os(iOS) || os(tvOS)
     window = UIWindow(frame: UIScreen.main.bounds)
     factory.startReactNative(
       withModuleName: "main",
@@ -30,29 +30,29 @@ const FENSTER_BLOCK = `#if os(iOS) || os(tvOS)
       launchOptions: launchOptions)
 #endif`;
 
-const FENSTER_ERSATZ = `    // Kein Fenster an dieser Stelle: ab iOS 27 bricht UIKit eine App ab, die
-    // ihr Fenster im AppDelegate aufspannt statt im Scene-Lebenszyklus
+const WINDOW_REPLACEMENT = `    // No window at this point: from iOS 27 on, UIKit terminates an app that
+    // opens its window in the AppDelegate instead of in the scene lifecycle
     // («UIApplicationEvaluateRuntimeIssueForNoSceneLifecycleAdoption»).
-    // Es entsteht in ${SCENE_DELEGATE_KLASSE}.scene(_:willConnectTo:options:).
-    gemerkteStartoptionen = launchOptions`;
+    // It is created in ${SCENE_DELEGATE_CLASS}.scene(_:willConnectTo:options:).
+    storedLaunchOptions = launchOptions`;
 
-const STARTOPTIONEN_PROPERTY = `  // Aufgehoben, weil React Native erst im ${SCENE_DELEGATE_KLASSE} hochgefahren
-  // wird und die Optionen dort noch braucht.
-  var gemerkteStartoptionen: [UIApplication.LaunchOptionsKey: Any]?
+const LAUNCH_OPTIONS_PROPERTY = `  // Kept because React Native is only started up in the ${SCENE_DELEGATE_CLASS}
+  // and still needs the options there.
+  var storedLaunchOptions: [UIApplication.LaunchOptionsKey: Any]?
 
   var reactNativeDelegate: ExpoReactNativeFactoryDelegate?`;
 
 const SCENE_DELEGATE = `
-// Der Scene-Lebenszyklus, den iOS 27 verlangt. Bewusst in dieser Datei und
-// nicht in einer eigenen: eine neue Datei muesste in die Projektdatei
-// eingetragen werden, und die von aussen zu bearbeiten ist deutlich
-// fehleranfaelliger als ein paar Zeilen mehr hier.
+// The scene lifecycle iOS 27 demands. Deliberately in this file and not in one
+// of its own: a new file would have to be registered in the project file, and
+// editing that from the outside is considerably more error-prone than a few
+// extra lines here.
 //
-// Der Klassenname wird in Info.plist referenziert (siehe withSceneLifecycle.js).
-// @objc haelt ihn stabil, sonst waere er ein Swift-Symbol mit Modulpraefix und
-// UIKit faende die Klasse zur Laufzeit nicht.
-@objc(${SCENE_DELEGATE_KLASSE})
-class ${SCENE_DELEGATE_KLASSE}: UIResponder, UIWindowSceneDelegate {
+// The class name is referenced in Info.plist (see withSceneLifecycle.js).
+// @objc keeps it stable, otherwise it would be a Swift symbol with a module
+// prefix and UIKit would not find the class at runtime.
+@objc(${SCENE_DELEGATE_CLASS})
+class ${SCENE_DELEGATE_CLASS}: UIResponder, UIWindowSceneDelegate {
   var window: UIWindow?
 
   func scene(
@@ -60,30 +60,30 @@ class ${SCENE_DELEGATE_KLASSE}: UIResponder, UIWindowSceneDelegate {
     willConnectTo session: UISceneSession,
     options connectionOptions: UIScene.ConnectionOptions
   ) {
-    guard let fensterSzene = scene as? UIWindowScene,
+    guard let windowScene = scene as? UIWindowScene,
           let appDelegate = UIApplication.shared.delegate as? AppDelegate,
           let factory = appDelegate.reactNativeFactory else { return }
 
-    let fenster = UIWindow(windowScene: fensterSzene)
-    window = fenster
+    let newWindow = UIWindow(windowScene: windowScene)
+    window = newWindow
     factory.startReactNative(
       withModuleName: "main",
-      in: fenster,
-      launchOptions: appDelegate.gemerkteStartoptionen)
+      in: newWindow,
+      launchOptions: appDelegate.storedLaunchOptions)
 
-    szeneStartLinks(connectionOptions)
+    sceneStartLinks(connectionOptions)
   }
 
-  // Deep Links. Im Scene-Modell erreicht \`application(_:open:options:)\` die App
-  // nicht mehr, und ohne diese Weiterleitung liefe jeder Einladungslink
-  // (/join/<code>) und jeder Teilen-Link ins Leere.
+  // Deep links. In the scene model \`application(_:open:options:)\` no longer
+  // reaches the app, and without this forwarding every invite link
+  // (/join/<code>) and every share link would run into the void.
   func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {
-    for kontext in URLContexts {
-      RCTLinkingManager.application(UIApplication.shared, open: kontext.url, options: [:])
+    for context in URLContexts {
+      RCTLinkingManager.application(UIApplication.shared, open: context.url, options: [:])
     }
   }
 
-  // Universal Links, aus demselben Grund.
+  // Universal links, for the same reason.
   func scene(_ scene: UIScene, continue userActivity: NSUserActivity) {
     RCTLinkingManager.application(
       UIApplication.shared,
@@ -91,30 +91,29 @@ class ${SCENE_DELEGATE_KLASSE}: UIResponder, UIWindowSceneDelegate {
       restorationHandler: { _ in })
   }
 
-  // Ein Link, der die App erst startet, kommt nicht ueber die beiden Methoden
-  // oben, sondern liegt bereits in den Verbindungsoptionen.
-  func szeneStartLinks(_ connectionOptions: UIScene.ConnectionOptions) {
-    for kontext in connectionOptions.urlContexts {
-      RCTLinkingManager.application(UIApplication.shared, open: kontext.url, options: [:])
+  // A link that starts the app in the first place does not arrive through the
+  // two methods above, it is already sitting in the connection options.
+  func sceneStartLinks(_ connectionOptions: UIScene.ConnectionOptions) {
+    for context in connectionOptions.urlContexts {
+      RCTLinkingManager.application(UIApplication.shared, open: context.url, options: [:])
     }
-    for aktivitaet in connectionOptions.userActivities {
+    for activity in connectionOptions.userActivities {
       RCTLinkingManager.application(
         UIApplication.shared,
-        continue: aktivitaet,
+        continue: activity,
         restorationHandler: { _ in })
     }
   }
 }
 `;
 
-function fehler(was) {
+function failure(what) {
   return new Error(
-    `[withSceneLifecycle] ${was}\n` +
-      'Die Vorlage von expo prebuild hat sich geaendert. Pruefe, ob Expo den ' +
-      'Scene-Lebenszyklus inzwischen selbst erzeugt (expo/expo#46663). Wenn ja, ' +
-      'kann dieses Plugin entfallen; wenn nein, muessen die Ankerstellen in ' +
-      'plugins/withSceneLifecycle.js nachgezogen werden. Ohne beides startet ' +
-      'die App auf iOS 27 nicht.'
+    `[withSceneLifecycle] ${what}\n` +
+      'The template of expo prebuild has changed. Check whether Expo now creates the ' +
+      'scene lifecycle itself (expo/expo#46663). If so, this plugin can go away; if ' +
+      'not, the anchors in plugins/withSceneLifecycle.js have to be moved along. ' +
+      'Without either, the app does not start on iOS 27.'
   );
 }
 
@@ -126,7 +125,7 @@ const withSceneManifest = (config) =>
         UIWindowSceneSessionRoleApplication: [
           {
             UISceneConfigurationName: 'Default Configuration',
-            UISceneDelegateClassName: SCENE_DELEGATE_KLASSE,
+            UISceneDelegateClassName: SCENE_DELEGATE_CLASS,
           },
         ],
       },
@@ -137,62 +136,64 @@ const withSceneManifest = (config) =>
 const withSceneDelegate = (config) =>
   withAppDelegate(config, (config) => {
     if (config.modResults.language !== 'swift') {
-      throw fehler(`AppDelegate ist "${config.modResults.language}", erwartet wurde swift.`);
+      throw failure(`AppDelegate is "${config.modResults.language}", swift was expected.`);
     }
 
-    let inhalt = config.modResults.contents;
+    let contents = config.modResults.contents;
 
-    // Mehrfachlauf abfangen: prebuild ruft Mods unter Umstaenden erneut auf,
-    // und zwei SceneDelegate-Klassen in einer Datei kompilieren nicht.
-    if (inhalt.includes(`class ${SCENE_DELEGATE_KLASSE}`)) return config;
+    // Catch a repeated run: prebuild may invoke mods more than once, and two
+    // SceneDelegate classes in one file do not compile.
+    if (contents.includes(`class ${SCENE_DELEGATE_CLASS}`)) return config;
 
-    if (!inhalt.includes(FENSTER_BLOCK)) {
-      throw fehler('Der erwartete Fenster-Block in didFinishLaunchingWithOptions fehlt.');
+    if (!contents.includes(WINDOW_BLOCK)) {
+      throw failure('The expected window block in didFinishLaunchingWithOptions is missing.');
     }
-    inhalt = inhalt.replace(FENSTER_BLOCK, FENSTER_ERSATZ);
+    contents = contents.replace(WINDOW_BLOCK, WINDOW_REPLACEMENT);
 
-    const propertyAnker = '  var reactNativeDelegate: ExpoReactNativeFactoryDelegate?';
-    if (!inhalt.includes(propertyAnker)) {
-      throw fehler('Die Eigenschaft reactNativeDelegate fehlt, dort haengt gemerkteStartoptionen.');
+    const propertyAnchor = '  var reactNativeDelegate: ExpoReactNativeFactoryDelegate?';
+    if (!contents.includes(propertyAnchor)) {
+      throw failure(
+        'The reactNativeDelegate property is missing, storedLaunchOptions hangs off it.'
+      );
     }
-    inhalt = inhalt.replace(propertyAnker, STARTOPTIONEN_PROPERTY);
+    contents = contents.replace(propertyAnchor, LAUNCH_OPTIONS_PROPERTY);
 
-    const klassenAnker = 'class ReactNativeDelegate: ExpoReactNativeFactoryDelegate {';
-    if (!inhalt.includes(klassenAnker)) {
-      throw fehler('Die Klasse ReactNativeDelegate fehlt, davor gehoert der SceneDelegate.');
+    const classAnchor = 'class ReactNativeDelegate: ExpoReactNativeFactoryDelegate {';
+    if (!contents.includes(classAnchor)) {
+      throw failure('The ReactNativeDelegate class is missing, the SceneDelegate belongs before it.');
     }
-    inhalt = inhalt.replace(klassenAnker, `${SCENE_DELEGATE}\n${klassenAnker}`);
+    contents = contents.replace(classAnchor, `${SCENE_DELEGATE}\n${classAnchor}`);
 
-    config.modResults.contents = inhalt;
+    config.modResults.contents = contents;
     return config;
   });
 
-// Xcode 26/27 legt den App-Code standardmaessig in eine separate
-// `<Name>.debug.dylib` und laesst das eigentliche Binary nur noch laden. Auf
-// einem echten Geraet stirbt die App damit nach rund 250 ms mit Signal 5,
-// ohne Meldung und ohne Absturzbericht; im Simulator laeuft dieselbe App, weil
-// Dylib-Signaturen dort nicht streng geprueft werden.
+// Xcode 26/27 puts the app code into a separate `<Name>.debug.dylib` by default
+// and lets the actual binary do nothing but load it. On a real device the app
+// dies with that after roughly 250 ms with signal 5, without a message and
+// without a crash report; in the simulator the same app runs, because dylib
+// signatures are not checked strictly there.
 //
-// Die Einstellung gehoert ins Projekt und nicht an den einzelnen Aufruf: sonst
-// funktioniert nur der Terminal-Build mit dem passenden Flag, waehrend ⌘R in
-// Xcode und `npm run ios` still wieder eine App erzeugen, die nicht startet.
+// The setting belongs in the project and not on the individual invocation:
+// otherwise only the terminal build with the matching flag works, while ⌘R in
+// Xcode and `npm run ios` quietly produce an app again that does not start.
 const withoutDebugDylib = (config) =>
   withXcodeProject(config, (config) => {
-    const projekt = config.modResults;
-    const konfigurationen = projekt.pbxXCBuildConfigurationSection();
-    let getroffen = 0;
+    const project = config.modResults;
+    const configurations = project.pbxXCBuildConfigurationSection();
+    let matched = 0;
 
-    for (const eintrag of Object.values(konfigurationen)) {
-      if (typeof eintrag !== 'object' || !eintrag.buildSettings) continue;
-      // Nur das App-Target, nicht die Pods: dort ist die Einstellung ohne
-      // Wirkung und wuerde die Projektdatei unnoetig aufblaehen.
-      if (!eintrag.buildSettings.PRODUCT_NAME) continue;
-      eintrag.buildSettings.ENABLE_DEBUG_DYLIB = 'NO';
-      getroffen += 1;
+    for (const entry of Object.values(configurations)) {
+      if (typeof entry !== 'object' || !entry.buildSettings) continue;
+      // Only the app target, not the Pods: there the setting has no effect and
+      // would only bloat the project file.
+      if (!entry.buildSettings.PRODUCT_NAME) continue;
+      entry.buildSettings.ENABLE_DEBUG_DYLIB = 'NO';
+      matched += 1;
     }
 
-    if (getroffen === 0) {
-      throw fehler('Keine Build-Konfiguration mit PRODUCT_NAME gefunden.');
+    if (matched === 0) {
+      throw failure('No build configuration with PRODUCT_NAME found.');
     }
     return config;
   });

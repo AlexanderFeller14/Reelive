@@ -94,8 +94,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
   }
 
   if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
-    console.error('remove-moment: SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY fehlen.');
-    await report(new Error('remove-moment: SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY fehlen.'));
+    console.error('remove-moment: SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY are missing.');
+    await report(new Error('remove-moment: SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY are missing.'));
     return errorResponse('Server nicht konfiguriert.', 500);
   }
 
@@ -124,8 +124,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
   if (!postId) return errorResponse('post_id fehlt.', 400);
 
   if (!s3ConfigComplete()) {
-    console.error('remove-moment: S3-Umgebungsvariablen unvollständig.');
-    await report(new Error('remove-moment: S3-Umgebungsvariablen unvollständig.'), {
+    console.error('remove-moment: S3 environment variables incomplete.');
+    await report(new Error('remove-moment: S3 environment variables incomplete.'), {
       user_id: requestingUserId,
     });
     return errorResponse('Server nicht konfiguriert.', 500);
@@ -143,7 +143,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     .eq('id', postId)
     .maybeSingle<PostRow>();
   if (postError) {
-    console.error('remove-moment: posts-Select fehlgeschlagen', postError);
+    console.error('remove-moment: posts select failed', postError);
     await report(postError, { user_id: requestingUserId });
     return errorResponse('Der Moment konnte nicht geprüft werden.', 500);
   }
@@ -156,7 +156,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     .eq('id', post.trip_id)
     .maybeSingle<TripRow>();
   if (tripError) {
-    console.error('remove-moment: trips-Select fehlgeschlagen', tripError);
+    console.error('remove-moment: trips select failed', tripError);
     await report(tripError, { user_id: requestingUserId });
     return errorResponse('Der Moment konnte nicht geprüft werden.', 500);
   }
@@ -186,7 +186,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     if (!result.ok) {
       // The database stays untouched. A second attempt runs through cleanly,
       // because an already-deleted key is not an error.
-      console.error('remove-moment: S3-DELETE fehlgeschlagen', result.status);
+      console.error('remove-moment: S3 DELETE failed', result.status);
       await report(result.error ?? new Error(`S3 DELETE: HTTP ${result.status}`), {
         user_id: requestingUserId,
       });
@@ -198,7 +198,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
   // foreign key with ON DELETE CASCADE and go with it.
   const { error: deleteError } = await supabaseAdmin.from('posts').delete().eq('id', postId);
   if (deleteError) {
-    console.error('remove-moment: posts-Delete fehlgeschlagen', deleteError);
+    console.error('remove-moment: posts delete failed', deleteError);
     await report(deleteError, { user_id: requestingUserId });
     return errorResponse('Der Moment konnte nicht entfernt werden. Probier es gleich nochmal.', 500);
   }

@@ -3,8 +3,8 @@ import { Text, View } from 'react-native';
 import { useTheme } from '@/theme/ThemeProvider';
 import { radius, spacing, type } from '@/theme/tokens';
 
-// Pille (DESIGN-LANGUAGE v2 §4). tone 'seal' nur für Versiegelungs-Symbolik,
-// nie für Interaktion, dafür ist accent da.
+// Pill (DESIGN-LANGUAGE v2 §4). tone 'seal' only for sealing symbolism, never
+// for interaction, accent is there for that.
 export function Badge({
   label, tone = 'neutral', icon,
 }: { label: string; tone?: 'seal' | 'neutral'; icon?: ReactNode }) {

@@ -61,8 +61,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
   }
 
   if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
-    console.error('reveal-trip: SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY fehlen.');
-    await report(new Error('reveal-trip: SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY fehlen.'));
+    console.error('reveal-trip: SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY are missing.');
+    await report(new Error('reveal-trip: SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY are missing.'));
     return errorResponse('Server nicht konfiguriert.', 500);
   }
 

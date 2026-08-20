@@ -184,9 +184,9 @@ describe('multiCamera: access to the MultiCam module', () => {
   });
 
   it('startCapture resolves false on rejection and without the module', async () => {
-    // "laeuft_schon" or "keine_session": the screen should show the error
+    // "already_running" or "no_session": the screen should show the error
     // pill, not break on a rejection.
-    mockNativeModule.startRecording.mockRejectedValueOnce(new Error('keine_session'));
+    mockNativeModule.startRecording.mockRejectedValueOnce(new Error('no_session'));
     await expect(multiCamera().startCapture(90)).resolves.toBe(false);
 
     jest.resetModules();
@@ -201,7 +201,7 @@ describe('multiCamera: access to the MultiCam module', () => {
       durationS: 5.6,
     });
 
-    mockNativeModule.stopRecording.mockRejectedValueOnce(new Error('keine_aufnahme'));
+    mockNativeModule.stopRecording.mockRejectedValueOnce(new Error('no_recording'));
     await expect(mc.stopCapture()).resolves.toBeNull();
 
     jest.resetModules();
@@ -223,9 +223,9 @@ describe('multiCamera: access to the MultiCam module', () => {
   });
 
   it('takePhoto resolves null on rejection and without the module', async () => {
-    // "kein_frame" (the session delivers nothing more) or "keine_session":
+    // "no_frame" (the session delivers nothing more) or "no_session":
     // the screen should show its error pill, not break on a rejection.
-    mockNativeModule.takePhoto.mockRejectedValueOnce(new Error('kein_frame'));
+    mockNativeModule.takePhoto.mockRejectedValueOnce(new Error('no_frame'));
     await expect(multiCamera().takePhoto(false)).resolves.toBeNull();
 
     jest.resetModules();

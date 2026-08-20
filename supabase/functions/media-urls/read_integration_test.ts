@@ -148,9 +148,9 @@ const stackReady = Boolean(
 
 if (!stackReady) {
   console.warn(
-    'lesen_test: übersprungen, braucht `supabase start` UND ' +
+    'read_integration_test: skipped, needs `supabase start` AND ' +
       '`supabase functions serve media-urls --env-file supabase/functions/.env` ' +
-      'in einem zweiten Terminal. Details im Datei-Header.',
+      'in a second terminal. Details in the file header.',
   );
 }
 
@@ -574,11 +574,11 @@ Deno.test({
           method: 'DELETE',
           headers: { apikey: SERVICE_ROLE_KEY, Authorization: `Bearer ${SERVICE_ROLE_KEY}` },
         }).catch((err) => {
-          console.warn(`Aufräumen von ${key} fehlgeschlagen (Netzwerk):`, err);
+          console.warn(`Cleaning up ${key} failed (network):`, err);
           return null;
         });
         if (res && !res.ok) {
-          console.warn(`Aufräumen von ${key} fehlgeschlagen: HTTP ${res.status}`, await res.text());
+          console.warn(`Cleaning up ${key} failed: HTTP ${res.status}`, await res.text());
         }
       }
 
@@ -589,11 +589,11 @@ Deno.test({
           method: 'DELETE',
           headers: restHeaders(),
         }).catch((err) => {
-          console.warn('Aufräumen der Test-Reise fehlgeschlagen (Netzwerk):', err);
+          console.warn('Cleaning up the test trip failed (network):', err);
           return null;
         });
         if (res && !res.ok) {
-          console.warn(`Aufräumen der Test-Reise fehlgeschlagen: HTTP ${res.status}`, await res.text());
+          console.warn(`Cleaning up the test trip failed: HTTP ${res.status}`, await res.text());
         }
       }
     }
@@ -692,11 +692,11 @@ Deno.test({
         method: 'DELETE',
         headers: restHeaders(),
       }).catch((err) => {
-        console.warn('Aufräumen der Test-Reise fehlgeschlagen (Netzwerk):', err);
+        console.warn('Cleaning up the test trip failed (network):', err);
         return null;
       });
       if (res && !res.ok) {
-        console.warn(`Aufräumen der Test-Reise fehlgeschlagen: HTTP ${res.status}`, await res.text());
+        console.warn(`Cleaning up the test trip failed: HTTP ${res.status}`, await res.text());
       }
     }
   },

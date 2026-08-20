@@ -117,7 +117,7 @@ export async function sendSharePush(
 ): Promise<void> {
   const { data: members, error: membersError } = await store.fetchMembers(trip.id);
   if (membersError) {
-    console.error('share-link: trip_members-Select fehlgeschlagen', membersError);
+    console.error('share-link: trip_members select failed', membersError);
     return;
   }
 
@@ -126,7 +126,7 @@ export async function sendSharePush(
 
   const { data: tokenRows, error: tokenError } = await store.fetchTokens(recipientIds);
   if (tokenError) {
-    console.error('share-link: push_tokens-Select fehlgeschlagen', tokenError);
+    console.error('share-link: push_tokens select failed', tokenError);
     return;
   }
   const tokens = tokenRows ?? [];
@@ -137,7 +137,7 @@ export async function sendSharePush(
   // the notification.
   const { data: who, error: nameError } = await store.fetchDisplayName(triggeringUserId);
   if (nameError) {
-    console.error('share-link: profiles-Select für den Anzeigenamen fehlgeschlagen', nameError);
+    console.error('share-link: profiles select for the display name failed', nameError);
   }
 
   const dead = await sendFn(buildMessages(tokens, event, trip, who ?? null));
@@ -149,6 +149,6 @@ export async function sendSharePush(
   // must NEVER delete outside the circle just notified.
   const { error: deleteError } = await store.deleteTokens(dead, recipientIds);
   if (deleteError) {
-    console.error('share-link: Aufräumen abgemeldeter push_tokens fehlgeschlagen', deleteError);
+    console.error('share-link: cleaning up unregistered push_tokens failed', deleteError);
   }
 }

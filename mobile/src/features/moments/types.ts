@@ -1,4 +1,4 @@
-export type JobZustand = 'wartet' | 'laeuft' | 'fertig';
+export type JobState = 'wartet' | 'laeuft' | 'fertig';
 
 // A moment the worker had to permanently discard (Spec §8: "discarded with
 // an explanation"). Until the Final-Review one of these vanished silently,
@@ -37,7 +37,7 @@ export type QueueJob = {
   lng: number | null;
   place_name: string | null;
   duration_s: number | null;
-  zustand: JobZustand;
+  zustand: JobState;
   versuche: number;
   naechster_versuch: number; // ms since epoch
   zeile_angelegt: boolean;

@@ -14,9 +14,12 @@ import type { QueueJob } from './types';
 
 const INTERVAL_MS = 5_000;
 
-// Task-13-Fix-Runde-1: processJob checks the generation again before every
-// single write (insert, upload, update, confirmation, delete), not just
-// once at the entrance, because the state can have changed between two
+// Task-13-Fix-Runde-1: a job that is waiting on network I/O while someone
+// signs out (easily several seconds for a video) must not keep writing
+// afterwards. start()/stop() count this generation up; every run remembers
+// its own at the start, and processJob checks the generation again before
+// every single write (insert, upload, update, confirmation, delete), not
+// just once at the entrance, because the state can have changed between two
 // await points. Fix-Runde-2 additionally captures authorship in
 // QueueJob.author_id at enqueue time (see momentsApi.createMoment),
 // covering the more common, race-free case a generation check alone can't

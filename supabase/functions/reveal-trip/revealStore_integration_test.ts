@@ -72,7 +72,7 @@ const stackReady = Boolean(statusEnv && SERVICE_ROLE_KEY && (await restReachable
 
 if (!stackReady) {
   console.warn(
-    'revealStore_integration_test: übersprungen, braucht `supabase start`. Details im Datei-Header.',
+    'revealStore_integration_test: skipped, needs `supabase start`. Details in the file header.',
   );
 }
 
@@ -116,7 +116,7 @@ async function deleteTrip(tripId: string): Promise<void> {
 
 // --- 1. CAS race: two genuinely parallel calls, only one winner -----------
 Deno.test({
-  name: 'updateIfActive: zwei parallele Aufrufe committen nur einmal (CAS-Bedingung im echten Update)',
+  name: 'updateIfActive: two parallel calls commit only once (CAS condition in the real update)',
   ignore: !stackReady,
   async fn() {
     const tripId = await newTrip('active');
@@ -152,7 +152,7 @@ Deno.test({
 });
 
 Deno.test({
-  name: 'updateIfActive: eine bereits revealed Reise liefert data:null (CAS greift nicht mehr)',
+  name: 'updateIfActive: an already revealed trip returns data:null (the CAS no longer bites)',
   ignore: !stackReady,
   async fn() {
     const tripId = await newTrip('revealed');
@@ -171,7 +171,7 @@ Deno.test({
 
 // --- 2. Recipient restriction when deleting tokens --------------------------
 Deno.test({
-  name: 'deleteTokens: ein Token ausserhalb der userIds-Einschränkung bleibt unangetastet, selbst wenn sein Wert in tokens steht',
+  name: 'deleteTokens: a token outside the userIds restriction stays untouched, even when its value is in tokens',
   ignore: !stackReady,
   async fn() {
     const supabaseAdmin = createAdminClient(SUPABASE_URL, SERVICE_ROLE_KEY);
@@ -223,7 +223,7 @@ Deno.test({
 });
 
 Deno.test({
-  name: 'deleteTokens: liegen beide Tokens innerhalb der userIds-Einschränkung, werden beide gelöscht',
+  name: 'deleteTokens: if both tokens lie inside the userIds restriction, both are deleted',
   ignore: !stackReady,
   async fn() {
     const supabaseAdmin = createAdminClient(SUPABASE_URL, SERVICE_ROLE_KEY);

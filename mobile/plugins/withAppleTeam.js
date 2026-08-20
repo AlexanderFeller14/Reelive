@@ -1,59 +1,58 @@
 const { withXcodeProject } = require('expo/config-plugins');
 
-// Die Apple-Team-ID aus der Umgebung ins Xcode-Projekt schreiben.
+// Write the Apple team ID from the environment into the Xcode project.
 //
-// `DEVELOPMENT_TEAM` traegt sonst Xcode ein, sobald man unter Signing &
-// Capabilities ein Team waehlt — und `expo prebuild` erzeugt die pbxproj bei
-// jedem Durchlauf neu, `ios/` ist gitignored (mobile/.gitignore:44). Ohne
-// dieses Plugin ist die Auswahl nach jedem prebuild wieder weg und der
-// Geraetebuild scheitert an fehlendem Signing. Ueber app.json geht es nicht:
-// `@expo/prebuild-config` kennt kein Feld fuer die Team-ID.
+// `DEVELOPMENT_TEAM` is otherwise entered by Xcode as soon as a team is picked
+// under Signing & Capabilities, and `expo prebuild` regenerates the pbxproj on
+// every run, `ios/` is gitignored (mobile/.gitignore:44). Without this plugin
+// the selection is gone after every prebuild and the device build fails on
+// missing signing. Going through app.json does not work: `@expo/prebuild-config`
+// has no field for the team ID.
 //
-// Der Wert steht in .env (lokal, gitignored) und nicht in app.json, weil die
-// Team-ID zur Person und zum Rechner gehoert, nicht zum Projekt. Ohne die
-// Variable tut das Plugin nichts: EAS-Builds bekommen ihr Team ueber die
-// EAS-Credentials, dort waere ein fest eingetragenes Team sogar hinderlich.
+// The value lives in .env (local, gitignored) and not in app.json, because the
+// team ID belongs to the person and the machine, not to the project. Without the
+// variable the plugin does nothing: EAS builds get their team from the EAS
+// credentials, where a hard-coded team would even get in the way.
 
 const VARIABLE = 'REELIVE_APPLE_TEAM_ID';
-const EINSTELLUNG = 'DEVELOPMENT_TEAM';
+const SETTING = 'DEVELOPMENT_TEAM';
 
 module.exports = (config) => {
   const team = process.env[VARIABLE]?.trim();
   if (!team) return config;
 
-  // Eine Team-ID sind genau zehn alphanumerische Zeichen. Ein Klarname
-  // ("Alexander Feller") ist der naheliegende Fehlgriff, und der erzeugt sonst
-  // still ein Projekt, das erst in Xcode mit einer unverstaendlichen
-  // Signing-Meldung auffaellt.
+  // A team ID is exactly ten alphanumeric characters. A plain name ("Alexander
+  // Feller") is the obvious slip, and it otherwise quietly produces a project
+  // that only shows up in Xcode with an incomprehensible signing message.
   if (!/^[A-Z0-9]{10}$/i.test(team)) {
     throw new Error(
-      `[withAppleTeam] ${VARIABLE}="${team}" ist keine Team-ID. Erwartet werden zehn ` +
-        'alphanumerische Zeichen (Xcode: Signing & Capabilities, oder ' +
-        'developer.apple.com/account unter Membership details).'
+      `[withAppleTeam] ${VARIABLE}="${team}" is not a team ID. Expected are ten ` +
+        'alphanumeric characters (Xcode: Signing & Capabilities, or ' +
+        'developer.apple.com/account under Membership details).'
     );
   }
 
   return withXcodeProject(config, (config) => {
-    const konfigurationen = config.modResults.pbxXCBuildConfigurationSection();
-    let getroffen = 0;
+    const configurations = config.modResults.pbxXCBuildConfigurationSection();
+    let matched = 0;
 
-    for (const eintrag of Object.values(konfigurationen)) {
-      if (typeof eintrag !== 'object' || !eintrag.buildSettings) continue;
-      // Nur das App-Target, gleiche Abgrenzung wie in withSceneLifecycle.js.
-      if (!eintrag.buildSettings.PRODUCT_NAME) continue;
-      eintrag.buildSettings[EINSTELLUNG] = team;
-      getroffen += 1;
+    for (const entry of Object.values(configurations)) {
+      if (typeof entry !== 'object' || !entry.buildSettings) continue;
+      // Only the app target, same delimitation as in withSceneLifecycle.js.
+      if (!entry.buildSettings.PRODUCT_NAME) continue;
+      entry.buildSettings[SETTING] = team;
+      matched += 1;
     }
 
-    if (getroffen === 0) {
+    if (matched === 0) {
       throw new Error(
-        '[withAppleTeam] Keine Build-Konfiguration mit PRODUCT_NAME gefunden. Ohne ' +
-          'Team laesst sich nicht auf ein Geraet bauen, deshalb hier ein Abbruch statt ' +
-          'eines stillen No-Ops.'
+        '[withAppleTeam] No build configuration with PRODUCT_NAME found. Without a ' +
+          'team there is no building onto a device, hence an abort here instead of a ' +
+          'silent no-op.'
       );
     }
 
-    console.log(`[withAppleTeam] ${EINSTELLUNG}=${team} gesetzt (aus ${VARIABLE}).`);
+    console.log(`[withAppleTeam] set ${SETTING}=${team} (from ${VARIABLE}).`);
     return config;
   });
 };

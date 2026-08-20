@@ -5,17 +5,17 @@ import { useReducedMotion } from '@/theme/useReducedMotion';
 
 type Props = PressableProps & { scaleTo?: number };
 
-// Press-Feedback gemäss DESIGN-LANGUAGE v2 §5: Scale per Spring (spring-ui),
-// nie Opacity-Dimmen. Buttons/Tabs 0.97, randlose Karten 0.98, FAB 0.94.
+// Press feedback per DESIGN-LANGUAGE v2 §5: scale via spring (spring-ui),
+// never opacity dimming. Buttons/tabs 0.97, borderless cards 0.98, FAB 0.94.
 export function PressScale({ scaleTo = 0.97, children, onPressIn, onPressOut, ...rest }: Props) {
   const [scale] = useState(() => new Animated.Value(1));
   const reducedMotion = useReducedMotion();
   const springTo = (toValue: number) => {
-    // Reduced Motion (§5): Scale bleibt bei 1, keine Spring-Animation.
-    // `setValue(1)` statt eines blossen `return`: schaltet jemand die
-    // Systemeinstellung mitten im Druck um, steht `scale` bereits auf 0.97,
-    // ein reines Aussteigen haette das Element dauerhaft geschrumpft stehen
-    // lassen. So endet jeder Weg durch diese Funktion bei 1.
+    // Reduced motion (§5): scale stays at 1, no spring animation.
+    // `setValue(1)` instead of a bare `return`: if someone flips the system
+    // setting mid-press, `scale` already sits at 0.97, and simply bailing out
+    // would have left the element permanently shrunk. This way every path
+    // through this function ends at 1.
     if (reducedMotion) {
       scale.setValue(1);
       return;

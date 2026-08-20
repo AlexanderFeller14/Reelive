@@ -11,8 +11,8 @@ const mockBack = jest.fn();
 let mockCanGoBack = true;
 let mockParams: Record<string, string | undefined> = {
   uri: 'file://foto.jpg',
-  typ: 'photo',
-  dauer: '0',
+  type: 'photo',
+  duration: '0',
   tripId: 't1',
 };
 const mockStackScreenOptions = jest.fn();
@@ -206,7 +206,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockVideoPlayer.playing = false;
   mockAuth.userId = 'u1';
-  mockParams = { uri: 'file://foto.jpg', typ: 'photo', dauer: '0', tripId: 't1' };
+  mockParams = { uri: 'file://foto.jpg', type: 'photo', duration: '0', tripId: 't1' };
   mockNewMomentId.mockReturnValue('post-1');
   mockPreparePhoto.mockResolvedValue({ medium: 'file://medium.jpg', thumb: 'file://thumb.jpg' });
   mockPrepareVideo.mockResolvedValue({ medium: 'file://video.mp4', thumb: 'file://thumb.jpg' });
@@ -436,7 +436,7 @@ test('the capture time freezes when the screen appears instead of moving with ev
 });
 
 test('a video carries its duration in duration_s and goes through prepareVideo', async () => {
-  mockParams = { uri: 'file://video.mp4', typ: 'video', dauer: '12', tripId: 't1' };
+  mockParams = { uri: 'file://video.mp4', type: 'video', duration: '12', tripId: 't1' };
   mockDeterminePlace.mockResolvedValue({ lat: null, lng: null, place_name: null });
   await render(<PreviewScreen />);
 
@@ -458,7 +458,7 @@ test('a video carries its duration in duration_s and goes through prepareVideo',
 // mislabelled, and because the key is immutable per moment it could not be
 // healed afterwards.
 test('an iOS capture (.mov) gets a storage key with the actual extension', async () => {
-  mockParams = { uri: 'file://video.mov', typ: 'video', dauer: '12', tripId: 't1' };
+  mockParams = { uri: 'file://video.mov', type: 'video', duration: '12', tripId: 't1' };
   mockPrepareVideo.mockResolvedValue({ medium: 'file://video.mov', thumb: 'file://thumb.jpg' });
   mockDeterminePlace.mockResolvedValue({ lat: null, lng: null, place_name: null });
   await render(<PreviewScreen />);
@@ -478,7 +478,7 @@ test('an iOS capture (.mov) gets a storage key with the actual extension', async
 // thing edge to edge" for videos too (Spec) instead of only a symbol with a
 // duration: muted, in a loop, without controls (a preview, not a player).
 test('a video is shown as a muted, endlessly looping preview without controls', async () => {
-  mockParams = { uri: 'file://video.mp4', typ: 'video', dauer: '12', tripId: 't1' };
+  mockParams = { uri: 'file://video.mp4', type: 'video', duration: '12', tripId: 't1' };
   mockDeterminePlace.mockResolvedValue({ lat: null, lng: null, place_name: null });
   await render(<PreviewScreen />);
 
@@ -506,7 +506,7 @@ function playingChangeListener(): ((e: { isPlaying: boolean }) => void) | undefi
 }
 
 test('a foreign pause of the player is answered at once with playing on', async () => {
-  mockParams = { uri: 'file://video.mp4', typ: 'video', dauer: '12', tripId: 't1' };
+  mockParams = { uri: 'file://video.mp4', type: 'video', duration: '12', tripId: 't1' };
   mockDeterminePlace.mockResolvedValue({ lat: null, lng: null, place_name: null });
   await render(<PreviewScreen />);
 
@@ -520,7 +520,7 @@ test('a foreign pause of the player is answered at once with playing on', async 
 });
 
 test('when the session rebuild swallows the immediate resume, a straggler steps in', async () => {
-  mockParams = { uri: 'file://video.mp4', typ: 'video', dauer: '12', tripId: 't1' };
+  mockParams = { uri: 'file://video.mp4', type: 'video', duration: '12', tripId: 't1' };
   mockDeterminePlace.mockResolvedValue({ lat: null, lng: null, place_name: null });
   await render(<PreviewScreen />);
   const listener = playingChangeListener();
@@ -546,7 +546,7 @@ test('when the session rebuild swallows the immediate resume, a straggler steps 
 // Snapchat pattern (§5 exception, Spec 2026-08-13 §6). A fade would only slow
 // the switch down artificially.
 test('the switch from the camera to here cuts hard, without slide and without fade', async () => {
-  mockParams = { uri: 'file://video.mp4', typ: 'video', dauer: '12', tripId: 't1' };
+  mockParams = { uri: 'file://video.mp4', type: 'video', duration: '12', tripId: 't1' };
   mockDeterminePlace.mockResolvedValue({ lat: null, lng: null, place_name: null });
   await render(<PreviewScreen />);
 
@@ -571,7 +571,7 @@ function prewarmedPlayer() {
 }
 
 test('a prewarmed player from the handoff goes straight to the VideoView', async () => {
-  mockParams = { uri: 'file://video.mp4', typ: 'video', dauer: '12', tripId: 't1' };
+  mockParams = { uri: 'file://video.mp4', type: 'video', duration: '12', tripId: 't1' };
   mockDeterminePlace.mockResolvedValue({ lat: null, lng: null, place_name: null });
   const player = prewarmedPlayer();
   handoff.setVideo({ kind: 'player', player: player as unknown as VideoPlayer, poster: null });
@@ -587,7 +587,7 @@ test('a prewarmed player from the handoff goes straight to the VideoView', async
 // 2026-08-14), and then gives way invisibly because the loop starts at
 // frame 0.
 test('the poster stands over the video at once and gives way to the first drawn frame', async () => {
-  mockParams = { uri: 'file://video.mp4', typ: 'video', dauer: '12', tripId: 't1' };
+  mockParams = { uri: 'file://video.mp4', type: 'video', duration: '12', tripId: 't1' };
   mockDeterminePlace.mockResolvedValue({ lat: null, lng: null, place_name: null });
   const player = prewarmedPlayer();
   handoff.setVideo({
@@ -606,7 +606,7 @@ test('the poster stands over the video at once and gives way to the first drawn 
 });
 
 test('the taken over player is released on leaving and the poster cleaned up', async () => {
-  mockParams = { uri: 'file://video.mp4', typ: 'video', dauer: '12', tripId: 't1' };
+  mockParams = { uri: 'file://video.mp4', type: 'video', duration: '12', tripId: 't1' };
   mockDeterminePlace.mockResolvedValue({ lat: null, lng: null, place_name: null });
   const player = prewarmedPlayer();
   handoff.setVideo({
@@ -625,7 +625,7 @@ test('the taken over player is released on leaving and the poster cleaned up', a
 });
 
 test('the taken over player is played on as well after a foreign pause', async () => {
-  mockParams = { uri: 'file://video.mp4', typ: 'video', dauer: '12', tripId: 't1' };
+  mockParams = { uri: 'file://video.mp4', type: 'video', duration: '12', tripId: 't1' };
   mockDeterminePlace.mockResolvedValue({ lat: null, lng: null, place_name: null });
   const player = prewarmedPlayer();
   handoff.setVideo({ kind: 'player', player: player as unknown as VideoPlayer, poster: null });
@@ -644,7 +644,7 @@ test('the taken over player is played on as well after a foreign pause', async (
 // --- Native handoff (Task 12: InstantPreview, submitting waits, discarding
 // cleans up natively) ---
 test('a native handoff shows the instant preview instead of the VideoView', async () => {
-  mockParams = { uri: 'file://nativ.mov', typ: 'video', dauer: '3', tripId: 't1' };
+  mockParams = { uri: 'file://nativ.mov', type: 'video', duration: '3', tripId: 't1' };
   mockDeterminePlace.mockResolvedValue({ lat: null, lng: null, place_name: null });
   handoff.setVideo({ kind: 'native', fileReady: Promise.resolve() });
   await render(<PreviewScreen />);
@@ -653,7 +653,7 @@ test('a native handoff shows the instant preview instead of the VideoView', asyn
 });
 
 test('on a native handoff submitting waits for fileReady', async () => {
-  mockParams = { uri: 'file://nativ.mov', typ: 'video', dauer: '3', tripId: 't1' };
+  mockParams = { uri: 'file://nativ.mov', type: 'video', duration: '3', tripId: 't1' };
   mockDeterminePlace.mockResolvedValue({ lat: null, lng: null, place_name: null });
   let resolveReady: () => void = () => {};
   handoff.setVideo({
@@ -675,7 +675,7 @@ test('on a native handoff submitting waits for fileReady', async () => {
 });
 
 test('when the background write fails, submitting takes the existing error path', async () => {
-  mockParams = { uri: 'file://nativ.mov', typ: 'video', dauer: '3', tripId: 't1' };
+  mockParams = { uri: 'file://nativ.mov', type: 'video', duration: '3', tripId: 't1' };
   mockDeterminePlace.mockResolvedValue({ lat: null, lng: null, place_name: null });
   handoff.setVideo({ kind: 'native', fileReady: Promise.reject(new Error('full')) });
   await render(<PreviewScreen />);
@@ -687,7 +687,7 @@ test('when the background write fails, submitting takes the existing error path'
 });
 
 test('discarding a native handoff cleans up through the module', async () => {
-  mockParams = { uri: 'file://nativ.mov', typ: 'video', dauer: '3', tripId: 't1' };
+  mockParams = { uri: 'file://nativ.mov', type: 'video', duration: '3', tripId: 't1' };
   mockDeterminePlace.mockResolvedValue({ lat: null, lng: null, place_name: null });
   handoff.setVideo({ kind: 'native', fileReady: Promise.resolve() });
   await render(<PreviewScreen />);
@@ -776,7 +776,7 @@ test('when enqueuing fails the durable folder is cleared away again', async () =
 // still frame, the moment was gone. The photo test above let the gap through
 // because preparePhoto creates new files anyway.
 test('for a video the raw capture survives a failed enqueue', async () => {
-  mockParams = { uri: 'file://video.mov', typ: 'video', dauer: '12', tripId: 't1' };
+  mockParams = { uri: 'file://video.mov', type: 'video', duration: '12', tripId: 't1' };
   // Exactly the case: the medium IS the raw capture.
   mockPrepareVideo.mockResolvedValue({ medium: 'file://video.mov', thumb: 'file://thumb.jpg' });
   mockDeterminePlace.mockResolvedValue({ lat: null, lng: null, place_name: null });
@@ -802,7 +802,7 @@ test('for a video the raw capture survives a failed enqueue', async () => {
 
 // The proof of the pudding: the second attempt really goes through.
 test('after a failed submit the second attempt succeeds for a video', async () => {
-  mockParams = { uri: 'file://video.mov', typ: 'video', dauer: '12', tripId: 't1' };
+  mockParams = { uri: 'file://video.mov', type: 'video', duration: '12', tripId: 't1' };
   mockPrepareVideo.mockResolvedValue({ medium: 'file://video.mov', thumb: 'file://thumb.jpg' });
   mockDeterminePlace.mockResolvedValue({ lat: null, lng: null, place_name: null });
   mockEnqueueJob.mockRejectedValueOnce(new Error('SQLITE_FULL'));
@@ -825,7 +825,7 @@ test('after a failed submit the second attempt succeeds for a video', async () =
 // The copying itself fails (no space): even then the capture has to survive,
 // that is exactly why it is copied instead of moved.
 test('when the durable save already fails, the raw capture stays put', async () => {
-  mockParams = { uri: 'file://video.mov', typ: 'video', dauer: '12', tripId: 't1' };
+  mockParams = { uri: 'file://video.mov', type: 'video', duration: '12', tripId: 't1' };
   mockPrepareVideo.mockResolvedValue({ medium: 'file://video.mov', thumb: 'file://thumb.jpg' });
   mockDeterminePlace.mockResolvedValue({ lat: null, lng: null, place_name: null });
   mockPersistDurably.mockRejectedValue(new Error('ENOSPC'));
@@ -870,7 +870,7 @@ test('an error while enqueuing never passes as success and the screen stays stan
 });
 
 test('without a trip_id (navigation gap from the camera screen) submitting is refused with a clear cause', async () => {
-  mockParams = { uri: 'file://foto.jpg', typ: 'photo', dauer: '0', tripId: undefined };
+  mockParams = { uri: 'file://foto.jpg', type: 'photo', duration: '0', tripId: undefined };
   mockDeterminePlace.mockResolvedValue({ lat: null, lng: null, place_name: null });
   await render(<PreviewScreen />);
 
@@ -1159,14 +1159,14 @@ test('the input field sets no line height', async () => {
 const fakeRef = { width: 1920 } as never;
 
 test('a handed over photo is shown straight from memory', async () => {
-  mockParams = { typ: 'photo', dauer: '0', tripId: 't1' };
+  mockParams = { type: 'photo', duration: '0', tripId: 't1' };
   handoff.setPhoto({ ref: fakeRef, file: Promise.resolve({ uri: 'file://gespeichert.jpg' }) });
   await render(<PreviewScreen />);
   expect(screen.getByTestId('photo-preview').props.source).toBe(fakeRef);
 });
 
 test('submitting waits for the file saved in the background', async () => {
-  mockParams = { typ: 'photo', dauer: '0', tripId: 't1' };
+  mockParams = { type: 'photo', duration: '0', tripId: 't1' };
   let resolveFile: (v: { uri: string }) => void = () => {};
   handoff.setPhoto({
     ref: fakeRef,
@@ -1187,7 +1187,7 @@ test('submitting waits for the file saved in the background', async () => {
 });
 
 test('when the background save fails, the existing error path says so', async () => {
-  mockParams = { typ: 'photo', dauer: '0', tripId: 't1' };
+  mockParams = { type: 'photo', duration: '0', tripId: 't1' };
   handoff.setPhoto({ ref: fakeRef, file: Promise.reject(new Error('full')) });
   await render(<PreviewScreen />);
   await fireEvent.press(screen.getByTestId('submit-button'));
@@ -1200,7 +1200,7 @@ test('when the background save fails, the existing error path says so', async ()
 });
 
 test('discarding also clears away the file created in the background', async () => {
-  mockParams = { typ: 'photo', dauer: '0', tripId: 't1' };
+  mockParams = { type: 'photo', duration: '0', tripId: 't1' };
   handoff.setPhoto({ ref: fakeRef, file: Promise.resolve({ uri: 'file://gespeichert.jpg' }) });
   await render(<PreviewScreen />);
   await fireEvent.press(screen.getByTestId('discard-button'));
@@ -1209,7 +1209,7 @@ test('discarding also clears away the file created in the background', async () 
 });
 
 test('without a handoff and without a uri the preview leads back to the camera', async () => {
-  mockParams = { typ: 'photo', dauer: '0', tripId: 't1' };
+  mockParams = { type: 'photo', duration: '0', tripId: 't1' };
   await render(<PreviewScreen />);
   await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/capture'));
 });

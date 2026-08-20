@@ -7,7 +7,7 @@
 // without a DSN.
 const mockInit = jest.fn();
 const mockCaptureException = jest.fn();
-const mockBreadcrumbsIntegration = jest.fn((...a: unknown[]) => ({ name: 'Breadcrumbs', optionen: a[0] }));
+const mockBreadcrumbsIntegration = jest.fn((...a: unknown[]) => ({ name: 'Breadcrumbs', options: a[0] }));
 
 // Final-Review point 4: the actual fix (errorReporter.ts) is a LAZY
 // `require('@sentry/react-native')` instead of a top-level import; merely
@@ -17,11 +17,11 @@ const mockBreadcrumbsIntegration = jest.fn((...a: unknown[]) => ({ name: 'Breadc
 // was loaded, only what happens once it is loaded. Hence this flag: it
 // trips exactly when Jest actually runs the factory below, i.e. whenever
 // any code calls `require('@sentry/react-native')` (whether the real
-// package or, as here, its mock; `jest.resetModules()` in frischesModul()
+// package or, as here, its mock; `jest.resetModules()` in freshModule()
 // makes sure the factory runs again after every test, as soon as the
 // module is needed again). A reverted top-level import in errorReporter.ts
 // would trigger this factory as early as the `require('../errorReporter')`
-// call itself; the tests below, which require `sentryModulGeladen ===
+// call itself; the tests below, which require `sentryModuleLoaded ===
 // false` WITHOUT a DSN, would catch that.
 let sentryModuleLoaded = false;
 jest.mock('@sentry/react-native', () => {
@@ -90,9 +90,9 @@ describe('without EXPO_PUBLIC_SENTRY_DSN: fully a no-op', () => {
 
   // Final-Review point 4, the actual guard: without a DSN,
   // `@sentry/react-native` must not even be REQUIRE'd, not just "stay
-  // unused". A reverted top-level import would set `sentryModulGeladen` to
+  // unused". A reverted top-level import would set `sentryModuleLoaded` to
   // true through the mere `require('../errorReporter')` in
-  // frischesModul(), long before initErrorReporter() ever runs; this
+  // freshModule(), long before initErrorReporter() ever runs; this
   // assertion would catch that, where the three tests above (which only
   // check Sentry calls/console) could not.
   test('@sentry/react-native is never loaded (module guard)', () => {
@@ -145,14 +145,14 @@ describe('with EXPO_PUBLIC_SENTRY_DSN set', () => {
     const { initErrorReporter } = freshModule();
     initErrorReporter();
 
-    const optionen = mockInit.mock.calls[0]?.[0] as {
+    const options = mockInit.mock.calls[0]?.[0] as {
       integrations: (defaults: { name: string }[]) => unknown[];
     };
-    const sonstige = { name: 'Sonstiges' };
-    const ersetzt = optionen.integrations([{ name: 'Breadcrumbs' }, sonstige]);
+    const other = { name: 'Something else' };
+    const replaced = options.integrations([{ name: 'Breadcrumbs' }, other]);
 
     expect(mockBreadcrumbsIntegration).toHaveBeenCalledWith({ console: false, xhr: false });
-    expect(ersetzt).toEqual([{ name: 'Breadcrumbs', optionen: { console: false, xhr: false } }, sonstige]);
+    expect(replaced).toEqual([{ name: 'Breadcrumbs', options: { console: false, xhr: false } }, other]);
   });
 
   test('reportError() before initErrorReporter() stays a no-op, even with a DSN set', () => {

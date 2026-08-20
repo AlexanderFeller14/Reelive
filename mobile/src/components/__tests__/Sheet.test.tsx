@@ -275,7 +275,7 @@ describe('Review Important 2, maximum height and cinema variant', () => {
 // position:'absolute'), only then does the padding push it above the
 // keyboard. Jest doesn't run a Yoga layout; what's checkable is the
 // STRUCTURE the geometry follows from, like the tree-position test in
-// profilTab.test.tsx.
+// profileTab.test.tsx.
 test('the panel is a flex child at the bottom edge, not absolutely positioned (otherwise the keyboard would cover it)', async () => {
   await wrap(
     <Sheet visible onClose={jest.fn()}>

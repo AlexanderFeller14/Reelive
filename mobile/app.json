@@ -79,9 +79,9 @@
       "@sentry/react-native",
       "./plugins/withSceneLifecycle",
       "./plugins/withPushEntitlement",
-      "./plugins/withSentryOhneUpload",
+      "./plugins/withSentryWithoutUpload",
       "./plugins/withAppleTeam",
-      "./plugins/withPodWarnungenStumm"
+      "./plugins/withSilencedPodWarnings"
     ],
     "experiments": {
       "typedRoutes": true,

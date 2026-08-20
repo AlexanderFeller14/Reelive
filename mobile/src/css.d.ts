@@ -1,13 +1,14 @@
-// Ein Stylesheet als Modul: Expos Metro bündelt CSS-Importe im Web-Bundle,
-// TypeScript kennt sie ohne diese Zeile nicht (TS2882 beim Seiteneffekt-Import).
+// A stylesheet as a module: Expo's Metro bundles CSS imports into the web
+// bundle, TypeScript does not know them without this line (TS2882 on the
+// side-effect import).
 //
-// Bewusst NUR dieses eine Stylesheet und kein `declare module '*.css'`: eine
-// Platzhalter-Deklaration gilt für den ganzen Baum, also auch für eine NATIVE
-// Datei. Dort typprüfte ein CSS-Import ab sofort sauber durch und fiele erst
-// beim Bündeln auf, mit einem Fehler, der nichts mehr mit der Zeile zu tun
-// hat, die ihn verursacht.
+// Deliberately ONLY this one stylesheet and no `declare module '*.css'`: a
+// placeholder declaration would apply to the whole tree, including a NATIVE
+// file. There a CSS import would type-check cleanly from then on and only show
+// up while bundling, with an error that no longer has anything to do with the
+// line that caused it.
 //
-// Gebraucht von MapSurface.web.tsx. Ohne Leaflets eigenes Stylesheet liegen
-// die Kacheln als ungeordneter Bilderstapel übereinander, die Datei MUSS mit
-// ins Bundle.
+// Needed by MapSurface.web.tsx. Without Leaflet's own stylesheet the tiles lie
+// on top of each other as an unordered stack of images, the file MUST go into
+// the bundle.
 declare module 'leaflet/dist/leaflet.css';

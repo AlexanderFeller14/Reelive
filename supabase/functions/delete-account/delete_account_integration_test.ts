@@ -113,9 +113,9 @@ const stackReady = Boolean(
 
 if (!stackReady) {
   console.warn(
-    'konto_loeschen_integration_test: übersprungen, braucht `supabase start` UND ' +
-      '`supabase functions serve --env-file supabase/functions/.env` in einem zweiten Terminal. ' +
-      'Die Kernzusicherung W7 läuft ohne Stack in process_test.ts.',
+    'delete_account_integration_test: skipped, needs `supabase start` AND ' +
+      '`supabase functions serve --env-file supabase/functions/.env` in a second terminal. ' +
+      'The core guarantee W7 runs without a stack in process_test.ts.',
   );
 }
 
@@ -215,7 +215,7 @@ async function createPost(row: Record<string, unknown>): Promise<void> {
 }
 
 Deno.test({
-  name: 'delete-account räumt Zeilen und Objekte, und lässt fremde Reisen unangetastet',
+  name: 'delete-account clears rows and objects, and leaves other people\'s trips untouched',
   ignore: !stackReady,
   async fn() {
     const account = await createAccount('a');
@@ -493,7 +493,7 @@ Deno.test({
 });
 
 Deno.test({
-  name: 'delete-account: ohne Anmeldung und mit blossem Anon-Key geht gar nichts',
+  name: 'delete-account: without a login and with a bare anon key nothing happens at all',
   ignore: !stackReady,
   async fn() {
     const withoutAuth = await fetch(FUNCTION_URL, {
@@ -523,7 +523,7 @@ Deno.test({
 });
 
 Deno.test({
-  name: 'delete-account: ein Konto ohne eigene Reisen und ohne Momente löscht sich sauber',
+  name: 'delete-account: an account without own trips and without moments deletes cleanly',
   ignore: !stackReady,
   async fn() {
     // The edge case where an `in.()` filter with an empty list would

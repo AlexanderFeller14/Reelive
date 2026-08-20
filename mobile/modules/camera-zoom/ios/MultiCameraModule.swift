@@ -275,7 +275,7 @@ public class MultiCameraModule: Module {
       // keep the mismatch alive. The JS side turns the rejection into a
       // null and rolls its optimistic switch back.
       guard Self.ready else {
-        promise.reject("keine_session", "Die MultiCam-Session steht noch nicht")
+        promise.reject("no_session", "The MultiCam session is not up yet")
         return
       }
       let target = Self.switchTarget()
@@ -363,11 +363,11 @@ public class MultiCameraModule: Module {
       // yet: a stopped one deliberately stays around (the preview is still
       // playing from its start window) and simply gets replaced here.
       if let existing = CameraCaptureModule.current, !existing.isStopped {
-        promise.reject("laeuft_schon", "Es läuft bereits eine Aufnahme")
+        promise.reject("already_running", "A recording is already running")
         return
       }
       guard let session = Self.runningSession(), session.isRunning else {
-        promise.reject("keine_session", "Die MultiCam-Session läuft nicht")
+        promise.reject("no_session", "The MultiCam session is not running")
         return
       }
       do {
@@ -393,7 +393,7 @@ public class MultiCameraModule: Module {
     // the reason above.
     AsyncFunction("stopRecording") { (promise: Promise) in
       guard let capture = CameraCaptureModule.current else {
-        promise.reject("keine_aufnahme", "Es läuft keine Aufnahme")
+        promise.reject("no_recording", "No recording is running")
         return
       }
       capture.stop()
@@ -460,11 +460,11 @@ public class MultiCameraModule: Module {
       return existing
     }
     guard AVCaptureMultiCamSession.isMultiCamSupported else {
-      throw MultiCameraError(reason: "MultiCam wird auf diesem Gerät nicht unterstützt")
+      throw MultiCameraError(reason: "MultiCam is not supported on this device")
     }
     let found = findDevices()
     guard found["front"] != nil, found["wide"] != nil else {
-      throw MultiCameraError(reason: "Front- oder Weitwinkel-Kamera fehlt")
+      throw MultiCameraError(reason: "front or wide-angle camera is missing")
     }
     // Under the lock even though we're on the session queue: device(for:)
     // reads this same field from Main and the JS thread under exactly this
@@ -505,7 +505,7 @@ public class MultiCameraModule: Module {
     // path.
     for name in ["front", "wide"] {
       guard let device = devices[name] else {
-        throw MultiCameraError(reason: "\(name): Kamera fehlt")
+        throw MultiCameraError(reason: "\(name): camera is missing")
       }
       try attach(device, to: session, as: name)
     }
@@ -539,7 +539,7 @@ public class MultiCameraModule: Module {
     as name: String
   ) throws {
     guard let format = chooseFormat(device) else {
-      throw MultiCameraError(reason: "\(name): kein MultiCam-Format")
+      throw MultiCameraError(reason: "\(name): no MultiCam format")
     }
     try device.lockForConfiguration()
     // Its own block with defer (the file's pattern, see focus and setZoom):
@@ -564,7 +564,7 @@ public class MultiCameraModule: Module {
 
     let input = try AVCaptureDeviceInput(device: device)
     guard session.canAddInput(input) else {
-      throw MultiCameraError(reason: "\(name): Input nicht erlaubt")
+      throw MultiCameraError(reason: "\(name): input not allowed")
     }
     session.addInputWithNoConnections(input)
     inputs[name] = input
@@ -572,18 +572,18 @@ public class MultiCameraModule: Module {
     let output = AVCaptureVideoDataOutput()
     output.setSampleBufferDelegate(distributor, queue: videoQueue)
     guard session.canAddOutput(output) else {
-      throw MultiCameraError(reason: "\(name): Output nicht erlaubt")
+      throw MultiCameraError(reason: "\(name): output not allowed")
     }
     session.addOutputWithNoConnections(output)
     videoOutputs[name] = output
     outputNames[ObjectIdentifier(output)] = name
 
     guard let port = videoPort(input, device: device) else {
-      throw MultiCameraError(reason: "\(name): kein Video-Port")
+      throw MultiCameraError(reason: "\(name): no video port")
     }
     let connection = AVCaptureConnection(inputPorts: [port], output: output)
     guard session.canAddConnection(connection) else {
-      throw MultiCameraError(reason: "\(name): Verbindung nicht erlaubt")
+      throw MultiCameraError(reason: "\(name): connection not allowed")
     }
     session.addConnection(connection)
     // Attach first, then orient: on a connection that hasn't been added
@@ -600,7 +600,7 @@ public class MultiCameraModule: Module {
     // through to Main synchronously, a call FROM Main would hang on the
     // spot.
     precondition(
-      !Thread.isMainThread, "connectPreview gehört auf die Session-Queue, nie auf Main"
+      !Thread.isMainThread, "connectPreview belongs on the session queue, never on Main"
     )
     for connection in previewConnections.values where session.connections.contains(connection) {
       session.removeConnection(connection)
@@ -962,7 +962,7 @@ public class MultiCameraModule: Module {
   private static func takePhoto(flash: Bool, promise: Promise) {
     sessionQueue.async {
       guard let session = session, session.isRunning else {
-        promise.reject("keine_session", "Die MultiCam-Session läuft nicht")
+        promise.reject("no_session", "The MultiCam session is not running")
         return
       }
       let active = activeCamera
@@ -1020,7 +1020,7 @@ public class MultiCameraModule: Module {
       guard request.claim() else { return }
       clearPhotoRequest(number)
       restorePhotoLight(withLight)
-      promise.reject("kein_frame", "Die Kamera lieferte kein Bild")
+      promise.reject("no_frame", "The camera delivered no image")
     }
   }
 
@@ -1268,7 +1268,7 @@ public class MultiCameraModule: Module {
     _flashWanted = false
     // An open photo request dies with the session: it's waiting for a frame
     // that's no longer coming. Its promise is resolved by the deadline
-    // ("kein_frame"), so nobody's left hanging.
+    // ("no_frame"), so nobody's left hanging.
     _photoRequest = nil
     stateLock.unlock()
   }

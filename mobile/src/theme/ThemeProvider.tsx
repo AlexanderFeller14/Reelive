@@ -1,9 +1,9 @@
 import { createContext, useContext, type ReactNode } from 'react';
 import { palette, type ColorTokens } from './tokens';
 
-// Light-only (DESIGN-LANGUAGE v2 §1). `scheme` bleibt in der API, damit
-// Verbraucher stabil bleiben, es ist immer 'light'. Medien-Screens
-// importieren `cinema` direkt aus den Tokens.
+// Light-only (DESIGN-LANGUAGE v2 §1). `scheme` stays in the API so that
+// consumers stay stable, it is always 'light'. Media screens import `cinema`
+// directly from the tokens.
 type Theme = { colors: ColorTokens; scheme: 'light' };
 const theme: Theme = { colors: palette, scheme: 'light' };
 const ThemeContext = createContext<Theme>(theme);

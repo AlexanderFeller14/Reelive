@@ -107,8 +107,8 @@ const stackReady = Boolean(
 
 if (!stackReady) {
   console.warn(
-    'reveal_integration_test: übersprungen, braucht `supabase start` UND ' +
-      '`supabase functions serve --env-file supabase/functions/.env` in einem zweiten Terminal.',
+    'reveal_integration_test: skipped, needs `supabase start` AND ' +
+      '`supabase functions serve --env-file supabase/functions/.env` in a second terminal.',
   );
 }
 
@@ -128,7 +128,7 @@ async function expectJson(res: Response, expectedStatus: number): Promise<unknow
 }
 
 Deno.test({
-  name: 'reveal-trip End-to-End: Nicht-Owner 403, Owner reveals, zweiter Aufruf idempotent',
+  name: 'reveal-trip end to end: non-owner 403, owner reveals, second call idempotent',
   ignore: !stackReady,
   async fn() {
     const tripRes = await fetch(`${SUPABASE_URL}/rest/v1/trips`, {
@@ -216,7 +216,7 @@ Deno.test({
       await fetch(`${SUPABASE_URL}/rest/v1/trips?id=eq.${tripId}`, {
         method: 'DELETE',
         headers: restHeaders(),
-      }).catch((err) => console.warn('Aufräumen der Test-Reise fehlgeschlagen (Netzwerk):', err));
+      }).catch((err) => console.warn('Cleaning up the test trip failed (network):', err));
     }
   },
 });

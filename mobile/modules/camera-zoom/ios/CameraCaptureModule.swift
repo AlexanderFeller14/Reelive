@@ -69,7 +69,7 @@ public class CameraCaptureModule: Module {
       // only needed by continuing the SAME recording (taking it over into
       // the file preview, or discarding it, Task 9).
       if let existing = Self.current, !existing.isStopped {
-        promise.reject("laeuft_schon", "Es läuft bereits eine Aufnahme")
+        promise.reject("already_running", "A recording is already running")
         return
       }
       guard
@@ -77,7 +77,7 @@ public class CameraCaptureModule: Module {
         let layer = viewfinder.layer as? AVCaptureVideoPreviewLayer,
         let session = layer.session
       else {
-        promise.reject("keine_session", "Keine laufende Kamera-Session")
+        promise.reject("no_session", "No running camera session")
         return
       }
       do {
@@ -110,7 +110,7 @@ public class CameraCaptureModule: Module {
 
     AsyncFunction("stopRecording") { (promise: Promise) in
       guard let capture = Self.current else {
-        promise.reject("keine_aufnahme", "Es läuft keine Aufnahme")
+        promise.reject("no_recording", "No recording is running")
         return
       }
       capture.stop()
@@ -507,7 +507,7 @@ final class Capture {
       // awaitFile instead of silently reporting an empty file.
       writer.cancelWriting()
       let error = NSError(domain: "reelive", code: 4, userInfo: [
-        NSLocalizedDescriptionKey: "Kein Frame angekommen — die Aufnahme blieb leer",
+        NSLocalizedDescriptionKey: "No frame arrived, the recording stayed empty",
       ])
       DispatchQueue.main.async {
         self.finished = true

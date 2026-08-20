@@ -37,7 +37,7 @@ import { radius, spacing, type } from '@/theme/tokens';
 // No test had caught this, and none could: Jest runs no Yoga layout, RNTL
 // finds text in the element tree regardless of any geometry. What CAN be
 // checked instead is the tree position itself, and that's exactly what the
-// screen tests do now (profilTab.test.tsx, profile-setup.test.tsx:
+// screen tests do now (profileTab.test.tsx, profile-setup.test.tsx:
 // `sheet-root` is NOT inside the ScrollView, respectively not inside the
 // image row).
 //

@@ -3,8 +3,8 @@ import * as SecureStore from 'expo-secure-store';
 import * as Crypto from 'expo-crypto';
 import aesjs from 'aes-js';
 
-// SecureStore fasst nur ~2 KB, Sessions sind grösser. Darum: 256-bit-AES-Key
-// pro Eintrag in SecureStore, der verschlüsselte Payload in AsyncStorage.
+// SecureStore holds only ~2 KB, sessions are bigger. Hence: a 256-bit AES key
+// per entry in SecureStore, the encrypted payload in AsyncStorage.
 async function encrypt(key: string, value: string): Promise<string> {
   const encryptionKey = Crypto.getRandomValues(new Uint8Array(32));
   const cipher = new aesjs.ModeOfOperation.ctr(encryptionKey, new aesjs.Counter(1));
@@ -20,7 +20,7 @@ async function decrypt(key: string, hexValue: string): Promise<string | null> {
   return aesjs.utils.utf8.fromBytes(cipher.decrypt(aesjs.utils.hex.toBytes(hexValue)));
 }
 
-// SecureStore erlaubt nur [A-Za-z0-9._-]
+// SecureStore allows only [A-Za-z0-9._-]
 const sanitize = (key: string) => key.replace(/[^A-Za-z0-9._-]/g, '_');
 
 export const secureSessionStorage = {
@@ -30,10 +30,10 @@ export const secureSessionStorage = {
     try {
       return await decrypt(key, stored);
     } catch {
-      // Ciphertext und SecureStore-Key können auseinanderlaufen (z.B. abgebrochener
-      // Schreibvorgang), utf8.fromBytes wirft dann auf Byte-Ebene. Als "kein
-      // Eintrag" behandeln statt die App abstürzen zu lassen: Supabase sieht keine
-      // Session und der Nutzer meldet sich sauber neu an.
+      // Ciphertext and SecureStore key can drift apart (e.g. an aborted write),
+      // utf8.fromBytes then throws at byte level. Treat that as "no entry"
+      // instead of letting the app crash: Supabase sees no session and the
+      // person signs in again cleanly.
       return null;
     }
   },

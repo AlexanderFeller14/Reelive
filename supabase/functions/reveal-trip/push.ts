@@ -30,7 +30,7 @@ const EXPO_BLOCK_SIZE = 100;
 // empty list produces an empty list of blocks (no empty block).
 export function toBlocks<T>(items: T[], size: number): T[][] {
   if (size <= 0) {
-    throw new RangeError('groesse muss grösser als 0 sein.');
+    throw new RangeError('size must be greater than 0.');
   }
   const blocks: T[][] = [];
   for (let i = 0; i < items.length; i += size) {
@@ -95,7 +95,7 @@ export async function send(
 
       if (!response.ok) {
         console.error(
-          'reveal-trip/push: Expo antwortete mit Status',
+          'reveal-trip/push: Expo answered with status',
           response.status,
           await response.text().catch(() => ''),
         );
@@ -106,11 +106,11 @@ export async function send(
       const responseData = (payload as { data?: unknown } | null)?.data;
       const errors = (payload as { errors?: unknown } | null)?.errors;
       if (Array.isArray(errors) && errors.length > 0) {
-        console.error('reveal-trip/push: Expo meldete Fehler', errors);
+        console.error('reveal-trip/push: Expo reported errors', errors);
       }
       toDelete.push(...tokensToDelete(responseData, block.map((n) => n.to)));
     } catch (err) {
-      console.error('reveal-trip/push: Anfrage an Expo fehlgeschlagen', err);
+      console.error('reveal-trip/push: request to Expo failed', err);
     }
   }
 

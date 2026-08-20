@@ -20,15 +20,15 @@ test('localhost gets replaced too, for a phone that would be its own address', (
 });
 
 test('public addresses stay untouched', () => {
-  const zeile = 'API=https://api.example.com/v1';
-  expect(withNewAddress(zeile, NEW)).toBe(zeile);
+  const line = 'API=https://api.example.com/v1';
+  expect(withNewAddress(line, NEW)).toBe(line);
 });
 
 test('a line without a URL is never touched', () => {
-  // Schutz für Schlüssel und Token: dort darf keine Zeichenfolge, die zufällig
-  // wie eine Adresse aussieht, überschrieben werden.
-  const zeile = 'SERVICE_KEY=abc.192.168.1.30.def';
-  expect(withNewAddress(zeile, NEW)).toBe(zeile);
+  // Protection for keys and tokens: no character sequence that happens to look
+  // like an address may be overwritten there.
+  const line = 'SERVICE_KEY=abc.192.168.1.30.def';
+  expect(withNewAddress(line, NEW)).toBe(line);
 });
 
 test('multiple lines get updated together', () => {
@@ -49,6 +49,6 @@ test('multiple lines get updated together', () => {
 });
 
 test('if the address is already correct, nothing changes', () => {
-  const zeile = 'S3_ENDPOINT=http://192.168.1.213:54321';
-  expect(withNewAddress(zeile, NEW)).toBe(zeile);
+  const line = 'S3_ENDPOINT=http://192.168.1.213:54321';
+  expect(withNewAddress(line, NEW)).toBe(line);
 });

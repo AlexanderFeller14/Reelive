@@ -6,7 +6,7 @@ import { PEELED_AT_MS, DURATION_MS, GRID_RESOLUTION } from '@/features/recap/sea
 // Skia is mocked globally in jest.setup.ts (native drawing backend, the same
 // blind spot as react-native-maps). Reanimated drives progress on the UI
 // thread; in the test only the mechanics matter (tap, timer, haptic, a11y),
-// so the same hand-written mock as in MemorySubmissionAnimation.test.tsx
+// so the same hand-written mock as in MomentSubmissionAnimation.test.tsx
 // (the official mock pulls in the native worklets module and crashes under
 // Jest).
 jest.mock('react-native-reanimated', () => {

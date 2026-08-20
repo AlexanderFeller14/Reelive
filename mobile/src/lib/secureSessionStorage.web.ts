@@ -1,29 +1,30 @@
-// Web-Fassung von secureSessionStorage.ts (Task-4-Brief, Phase 6).
+// Web version of secureSessionStorage.ts (task 4 brief, phase 6).
 //
-// Speichert NICHTS und liest NICHTS. Das ist kein Zwischenstand, der später
-// "vervollständigt" werden muss, es ist die vollständige, gewollte
-// Implementierung, aus zwei Gründen:
+// It retains nothing, and that is the complete, intended implementation, not an
+// intermediate state waiting to be "finished". Proof and exact behaviour live in
+// lib/__tests__/secureSessionStorage.web.test.ts, above all "no second storage
+// path: neither expo-secure-store nor AsyncStorage is ever touched".
 //
-// 1. Spec-Versprechen W5: "Wer kein Konto hat, kommt an nichts anderes."
-//    Der Web-Player zeigt öffentliche Recaps ausschliesslich über einen
-//    widerrufbaren Link (share-link/aufloesen, Edge Function mit eigener
-//    Prüfkette), er braucht dafür nie eine angemeldete Supabase-Sitzung.
-//    Es gibt im Browser also nichts, was legitim aufbewahrt werden müsste.
-// 2. Selbst wenn es das gäbe: Im Browser fehlt die sichere Ablage, auf der
-//    die native Fassung aufbaut (Secure Enclave/Keystore hinter
-//    expo-secure-store). Jede Web-Alternative (localStorage, IndexedDB, ein
-//    eigenes AsyncStorage-Web) liegt für jedes Skript auf der Seite offen,
-//    ein XSS-Bug würde die Sitzung direkt auslesbar machen. Es gibt keine
-//    Web-Fassung, die dasselbe Sicherheitsversprechen wie SecureStore
-//    einlöst; darum wird hier keine gebaut.
+// Two reasons:
 //
-// supabase.ts reicht dieses Objekt als `auth.storage` an createClient()
-// weiter: nach jedem setItem() findet das nächste getItem() nichts wieder,
-// also entsteht auf Web nie eine über den Seitenaufruf hinaus bestehende
-// Sitzung. `detectSessionInUrl: false` (siehe supabase.ts) verhindert
-// zusätzlich, dass GoTrue Tokens aus dem URL-Fragment übernimmt, sonst
-// bliebe ein zweiter, an dieser Datei vorbeiführender Weg zu einer Sitzung
-// offen. Wer das "reparieren" will, verletzt W5.
+// 1. Spec promise W5: "Whoever has no account gets at nothing else."
+//    The web player shows public recaps exclusively through a revocable link
+//    (share-link/resolve, an edge function with its own check chain), it never
+//    needs a signed-in Supabase session for that. So there is nothing in the
+//    browser that would legitimately have to be kept.
+// 2. Even if there were: the browser lacks the secure store the native version
+//    builds on (Secure Enclave/Keystore behind expo-secure-store). Every web
+//    alternative (localStorage, IndexedDB, a home-grown AsyncStorage for web)
+//    lies open to every script on the page, and an XSS bug would make the
+//    session directly readable. There is no web version that keeps the same
+//    security promise as SecureStore; that is why none is built here.
+//
+// supabase.ts hands this object to createClient() as `auth.storage`, so no
+// session outliving the page view can ever come about on web.
+// `detectSessionInUrl: false` (see supabase.ts) additionally keeps GoTrue from
+// picking up tokens out of the URL fragment, otherwise a second route to a
+// session, bypassing this file, would stay open. Whoever "repairs" this
+// violates W5.
 export const secureSessionStorage = {
   async getItem(_key: string): Promise<string | null> {
     return null;

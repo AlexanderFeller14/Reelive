@@ -105,7 +105,7 @@ export async function sendRevealPush(
 ): Promise<void> {
   const { data: members, error: membersError } = await store.fetchMembers(trip.id);
   if (membersError) {
-    console.error('reveal-trip: trip_members-Select fehlgeschlagen', membersError);
+    console.error('reveal-trip: trip_members select failed', membersError);
     return;
   }
 
@@ -125,7 +125,7 @@ export async function sendRevealPush(
 
   const { data: tokenRows, error: tokenError } = await store.fetchTokens(recipientIds);
   if (tokenError) {
-    console.error('reveal-trip: push_tokens-Select fehlgeschlagen', tokenError);
+    console.error('reveal-trip: push_tokens select failed', tokenError);
     return;
   }
   const tokens = tokenRows ?? [];
@@ -150,7 +150,7 @@ export async function sendRevealPush(
   // the whole table.
   const { error: deleteError } = await store.deleteTokens(dead, recipientIds);
   if (deleteError) {
-    console.error('reveal-trip: Aufräumen abgemeldeter push_tokens fehlgeschlagen', deleteError);
+    console.error('reveal-trip: cleaning up unregistered push_tokens failed', deleteError);
   }
 }
 
@@ -182,7 +182,7 @@ export async function performReveal(
 ): Promise<RevealResult> {
   const { data: trip, error: tripError } = await store.fetchTrip(tripId);
   if (tripError) {
-    console.error('reveal-trip: trips-Select fehlgeschlagen', tripError);
+    console.error('reveal-trip: trips select failed', tripError);
     await report(tripError, { trip_id: tripId });
     return { status: 500, body: { error: 'Reise konnte nicht geladen werden.' } };
   }
@@ -214,7 +214,7 @@ export async function performReveal(
   // query, see the RevealStore comment).
   const { data: updated, error: updateError } = await store.updateIfActive(tripId);
   if (updateError) {
-    console.error('reveal-trip: trips-Update fehlgeschlagen', updateError);
+    console.error('reveal-trip: trips update failed', updateError);
     await report(updateError, { trip_id: tripId, user_id: requestingUserId });
     return { status: 500, body: { error: 'Reise konnte nicht abgeschlossen werden.' } };
   }
@@ -236,7 +236,7 @@ export async function performReveal(
     try {
       await sendRevealPush(store, sendFn, trip, requestingUserId);
     } catch (err) {
-      console.error('reveal-trip: Push-Versand fehlgeschlagen', err);
+      console.error('reveal-trip: sending the push failed', err);
     }
   } else {
     // 0 rows affected: a parallel call was faster and already flipped the
@@ -246,8 +246,8 @@ export async function performReveal(
     // winner branch above already sent it.
     const { data: followUp, error: followUpError } = await store.fetchRevealedAtFollowUp(tripId);
     if (followUpError || !followUp) {
-      console.error('reveal-trip: Nachlesen nach paralellem Reveal fehlgeschlagen', followUpError);
-      await report(followUpError ?? new Error('reveal-trip: Nachlesen nach parallelem Reveal ohne Zeile.'), {
+      console.error('reveal-trip: re-reading after a parallel reveal failed', followUpError);
+      await report(followUpError ?? new Error('reveal-trip: re-reading after a parallel reveal returned no row.'), {
         trip_id: tripId,
       });
       return { status: 500, body: { error: 'Reise konnte nicht abgeschlossen werden.' } };

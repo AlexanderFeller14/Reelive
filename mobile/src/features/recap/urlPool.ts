@@ -100,7 +100,7 @@ export async function getPool(
         const reason = typeof body.error === 'string' ? reasonFrom(status, body.error) : null;
         if (reason) return { pool: null, error: body.error as string, reason: reason };
       } catch {
-        // Antwort war kein JSON, generische Meldung unten.
+        // The response was not JSON, generic message below.
       }
     }
     return { pool: null, error: functionMessage(error, LOAD_ERROR), reason: null };

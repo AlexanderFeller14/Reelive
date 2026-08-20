@@ -171,8 +171,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
   }
 
   if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
-    console.error('share-link: SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY fehlen.');
-    await report(new Error('share-link: SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY fehlen.'));
+    console.error('share-link: SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY are missing.');
+    await report(new Error('share-link: SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY are missing.'));
     return errorResponse('Server nicht konfiguriert.', 500);
   }
 
@@ -208,7 +208,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     const { row, trip, error: readError } = await store.fetchTokenWithTrip(token);
     if (readError) {
-      console.error('share-link: share_links-Select fehlgeschlagen', readError);
+      console.error('share-link: share_links select failed', readError);
       // The token itself does NOT go into the report, it is the
       // authorization for a public recap, not a diagnostic value (same
       // reasoning as with signed S3 URLs in the header comment of
@@ -231,8 +231,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
     const tripRow = trip!;
 
     if (!s3ConfigComplete()) {
-      console.error('share-link: S3-Umgebungsvariablen unvollständig.');
-      await report(new Error('share-link: S3-Umgebungsvariablen unvollständig.'));
+      console.error('share-link: S3 environment variables incomplete.');
+      await report(new Error('share-link: S3 environment variables incomplete.'));
       return errorResponse('Server nicht konfiguriert.', 500);
     }
 
@@ -246,16 +246,16 @@ Deno.serve(async (req: Request): Promise<Response> => {
       (from, withCount) => store.fetchMomentsPage(tripId, from, withCount),
     );
     if (postsError) {
-      console.error('share-link: posts-Select fehlgeschlagen', postsError);
+      console.error('share-link: posts select failed', postsError);
       await report(postsError, { trip_id: tripId });
       return errorResponse('Momente konnten nicht geladen werden.', 500);
     }
     if (lost > 0) {
-      console.error('share-link: aufloesen hat weniger Momente eingesammelt als gezählt.', {
+      console.error('share-link: resolve collected fewer moments than counted.', {
         trip_id: tripId,
         lost,
       });
-      await report(new Error('share-link: aufloesen hat weniger Momente eingesammelt als gezählt.'), {
+      await report(new Error('share-link: resolve collected fewer moments than counted.'), {
         trip_id: tripId,
         lost,
       });
@@ -286,7 +286,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
         );
       }
     } catch (err) {
-      console.error('share-link: Signieren der Lese-URLs fehlgeschlagen', err);
+      console.error('share-link: signing the read URLs failed', err);
       await report(err, { trip_id: tripId });
       return errorResponse('Signieren fehlgeschlagen.', 502);
     }
@@ -332,14 +332,14 @@ Deno.serve(async (req: Request): Promise<Response> => {
     }
 
     if (!SHARE_BASE_URL) {
-      console.error('share-link: SHARE_BASE_URL fehlt, ohne sie entsteht kein gültiger Link.');
-      await report(new Error('share-link: SHARE_BASE_URL fehlt, ohne sie entsteht kein gültiger Link.'));
+      console.error('share-link: SHARE_BASE_URL is missing, without it no valid link is produced.');
+      await report(new Error('share-link: SHARE_BASE_URL is missing, without it no valid link is produced.'));
       return errorResponse('Server nicht konfiguriert.', 500);
     }
 
     const { data: trip, error: tripError } = await store.fetchTripForCreate(tripId);
     if (tripError) {
-      console.error('share-link: trips-Select fehlgeschlagen', tripError);
+      console.error('share-link: trips select failed', tripError);
       await report(tripError, { trip_id: tripId, user_id: requestingUserId });
       return errorResponse('Reise konnte nicht geladen werden.', 500);
     }
@@ -358,7 +358,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     const { token, error: insertError } = await store.createLink(tripId, expiry.expiresAt);
     if (insertError || !token) {
-      console.error('share-link: share_links-Insert fehlgeschlagen', insertError);
+      console.error('share-link: share_links insert failed', insertError);
       await report(insertError, { trip_id: tripId, user_id: requestingUserId });
       return errorResponse('Link konnte nicht erstellt werden.', 500);
     }
@@ -385,7 +385,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
     const { data: owner, error: readError } = await store.fetchTokenOwner(token);
     if (readError) {
-      console.error('share-link: share_links-Select für widerrufen fehlgeschlagen', readError);
+      console.error('share-link: share_links select for revoke failed', readError);
       // Here too the token itself does NOT go into the report, see the
       // reasoning in the `resolve` branch above.
       await report(readError, { user_id: requestingUserId });
@@ -406,7 +406,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     // has to work on an archived trip exactly the same.
     const { error: updateError } = await store.revokeLink(token);
     if (updateError) {
-      console.error('share-link: share_links-Update fehlgeschlagen', updateError);
+      console.error('share-link: share_links update failed', updateError);
       await report(updateError, { user_id: requestingUserId });
       return errorResponse('Link konnte nicht widerrufen werden.', 500);
     }

@@ -112,7 +112,7 @@ export function focus(x: number, y: number): void {
 // writer) and hangs off its `current`: everything downstream (fileReady,
 // discard, instant preview) therefore keeps running unchanged through
 // nativeCapture.ts, only WHO produces the capture changes here. Rejections
-// ("laeuft_schon", "keine_session") become false everywhere in this file, as
+// ("already_running", "no_session") become false everywhere in this file, as
 // elsewhere: the screen then shows its error pill.
 export async function startCapture(maxSeconds: number): Promise<boolean> {
   const m = getNativeModule();
@@ -139,7 +139,7 @@ export async function stopCapture(): Promise<{ uri: string; durationS: number } 
 // photo output: the image is the next frame of the running stream, which
 // the module drops into tmp as a JPEG. `flash` travels along because only
 // the module knows WHEN it's allowed to grab after firing (exposure takes a
-// moment to catch up). Rejections ("kein_frame", "keine_session") become
+// moment to catch up). Rejections ("no_frame", "no_session") become
 // null everywhere in this file, as elsewhere: the screen then shows its
 // error pill.
 export async function takePhoto(

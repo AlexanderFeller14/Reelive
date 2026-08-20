@@ -249,8 +249,8 @@ diese Reihenfolge einhalten, jeder Schritt setzt den vorigen voraus:
    ausführlichen Kommentare in `supabase/functions/.env.example` für die Bedeutung jedes Werts.
 5. **Sentry-DSN.** Ein Sentry-Projekt anlegen, DSN aus dessen Einstellungen kopieren, als
    `EXPO_PUBLIC_SENTRY_DSN` in `mobile/.env` (bzw. die EAS-Build-Umgebung) eintragen — siehe
-   Kommentar in `mobile/.env.example`. Ohne diese Variable bleibt `initFehlermelder()` ein
-   vollständiger No-Op (`mobile/src/lib/fehlermelder.ts`), das ist der aktuelle, gewollte
+   Kommentar in `mobile/.env.example`. Ohne diese Variable bleibt `initErrorReporter()` ein
+   vollständiger No-Op (`mobile/src/lib/errorReporter.ts`), das ist der aktuelle, gewollte
    Zustand. Für den natives Source-Map-Upload beim Build erwartet das in `mobile/app.json`
    bereits eingetragene `@sentry/react-native`-Plugin ausserdem `SENTRY_ORG`/`SENTRY_PROJECT`/
    `SENTRY_AUTH_TOKEN` als Umgebungsvariablen (fehlen sie, warnt `expo export`/`expo start`
@@ -290,7 +290,7 @@ keine automatische Ableitung der einen aus der anderen:
 
 | Variable | Wo | Wofür |
 |---|---|---|
-| `SHARE_BASE_URL` | `supabase/functions/.env` (serverseitig, Function `share-link`) | Baut die fertige Teilen-URL bei `aktion: 'erstellen'` |
+| `SHARE_BASE_URL` | `supabase/functions/.env` (serverseitig, Function `share-link`) | Baut die fertige Teilen-URL bei `action: 'create'` |
 | `EXPO_PUBLIC_SHARE_BASE_URL` | `mobile/.env` (clientseitig) | Zeigt den Link eines bereits bestehenden Teilen-Links erneut an, ohne ihn neu zu erzeugen |
 
 Beide müssen auf dieselbe Basis-URL zeigen (siehe Kommentare in den jeweiligen `.env.example`).

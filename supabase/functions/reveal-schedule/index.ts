@@ -40,8 +40,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
   }
 
   if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
-    console.error('reveal-schedule: SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY fehlen.');
-    await report(new Error('reveal-schedule: SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY fehlen.'));
+    console.error('reveal-schedule: SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY are missing.');
+    await report(new Error('reveal-schedule: SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY are missing.'));
     return errorResponse('Server nicht konfiguriert.', 500);
   }
 
@@ -55,8 +55,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
   const admission = checkScheduleRequest(req.headers.get('x-cron-secret'), CRON_SECRET, body);
   if (!admission.ok) {
     if (admission.status === 500) {
-      console.error('reveal-schedule: CRON_SECRET fehlt.');
-      await report(new Error('reveal-schedule: CRON_SECRET fehlt.'));
+      console.error('reveal-schedule: CRON_SECRET is missing.');
+      await report(new Error('reveal-schedule: CRON_SECRET is missing.'));
     }
     return errorResponse(admission.error, admission.status);
   }

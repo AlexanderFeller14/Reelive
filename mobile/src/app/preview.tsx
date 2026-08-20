@@ -121,13 +121,13 @@ export default function PreviewScreen() {
   const bottomInset = Math.max(spacing.base, insets.bottom);
   const {
     uri,
-    typ: mediaType,
-    dauer: duration,
+    type: mediaType,
+    duration,
     tripId,
   } = useLocalSearchParams<{
     uri?: string;
-    typ: 'photo' | 'video';
-    dauer: string;
+    type: 'photo' | 'video';
+    duration: string;
     tripId?: string;
   }>();
 

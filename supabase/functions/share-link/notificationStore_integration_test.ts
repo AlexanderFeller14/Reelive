@@ -78,7 +78,7 @@ async function restReachable(): Promise<boolean> {
 const stackReady = Boolean(statusEnv && SERVICE_ROLE_KEY && (await restReachable()));
 if (!stackReady) {
   console.warn(
-    'benachrichtigungStore_integration_test: übersprungen, braucht `supabase start`. Details im Datei-Header.',
+    'notificationStore_integration_test: skipped, needs `supabase start`. Details in the file header.',
   );
 }
 

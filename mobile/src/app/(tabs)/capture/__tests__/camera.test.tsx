@@ -489,7 +489,7 @@ test('a tap freezes the viewfinder, hands the photo over in memory and navigates
 
   expect(mockPush).toHaveBeenCalledWith({
     pathname: '/preview',
-    params: { typ: 'photo', dauer: '0', tripId: 't1' },
+    params: { type: 'photo', duration: '0', tripId: 't1' },
   });
   const takenPhoto = handoff.takePhoto();
   expect(takenPhoto).not.toBeNull();
@@ -547,7 +547,7 @@ test('with flash the viewfinder stays live until the picture is done and only fr
   expect(mockPausePreview).toHaveBeenCalledTimes(1);
   expect(mockPush).toHaveBeenCalledWith({
     pathname: '/preview',
-    params: { typ: 'photo', dauer: '0', tripId: 't1' },
+    params: { type: 'photo', duration: '0', tripId: 't1' },
   });
 });
 
@@ -847,7 +847,7 @@ test('with the native pipeline the stop navigates at once, without recordAsync a
   expect(mockPush).toHaveBeenCalled();
   const takenVideo = handoff.takeVideo();
   expect(takenVideo?.kind).toBe('native');
-  expect(mockPush.mock.calls[0][0]).toMatchObject({ params: expect.objectContaining({ dauer: '3', uri: 'file://nativ.mov' }) });
+  expect(mockPush.mock.calls[0][0]).toMatchObject({ params: expect.objectContaining({ duration: '3', uri: 'file://nativ.mov' }) });
 });
 
 test('if the native capture does not start, everything runs over the previous path', async () => {
@@ -894,7 +894,7 @@ test('holding the shutter records a video and navigates to the preview after the
 
   expect(mockPush).toHaveBeenCalledWith({
     pathname: '/preview',
-    params: { uri: 'file://video.mp4', typ: 'video', dauer: expect.any(String), tripId: 't1' },
+    params: { uri: 'file://video.mp4', type: 'video', duration: expect.any(String), tripId: 't1' },
   });
 });
 
@@ -1460,7 +1460,7 @@ test('a session hit busy at the start makes the start repeat instead of giving u
   expect(screen.queryByText(ERROR_TEXT)).toBeNull();
   expect(mockPush).toHaveBeenCalledWith({
     pathname: '/preview',
-    params: { uri: 'file://video.mp4', typ: 'video', dauer: expect.any(String), tripId: 't1' },
+    params: { uri: 'file://video.mp4', type: 'video', duration: expect.any(String), tripId: 't1' },
   });
 });
 
@@ -2620,7 +2620,7 @@ test('the stop takes file and duration from the multi camera module', async () =
   expect(mockCreateVideoPlayer).not.toHaveBeenCalled();
   expect(mockPush).toHaveBeenCalledWith({
     pathname: '/preview',
-    params: { uri: 'file://multicam.mov', typ: 'video', dauer: '6', tripId: 't1' },
+    params: { uri: 'file://multicam.mov', type: 'video', duration: '6', tripId: 't1' },
   });
   expect(handoff.takeVideo()?.kind).toBe('native');
   expect(mockNativeCapture.fileReady).toHaveBeenCalled();
@@ -2698,7 +2698,7 @@ test('the shutter takes the photo from the multi camera module and goes to the p
   expect(mockTakePictureAsync).not.toHaveBeenCalled();
   expect(mockPush).toHaveBeenCalledWith({
     pathname: '/preview',
-    params: { typ: 'photo', dauer: '0', tripId: 't1' },
+    params: { type: 'photo', duration: '0', tripId: 't1' },
   });
   const takenPhoto = handoff.takePhoto();
   expect(takenPhoto).not.toBeNull();

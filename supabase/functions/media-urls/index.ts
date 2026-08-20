@@ -201,8 +201,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
   }
 
   if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
-    console.error('media-urls: SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY fehlen.');
-    await report(new Error('media-urls: SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY fehlen.'));
+    console.error('media-urls: SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY are missing.');
+    await report(new Error('media-urls: SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY are missing.'));
     return errorResponse('Server nicht konfiguriert.', 500);
   }
 
@@ -248,7 +248,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       .maybeSingle();
 
     if (tripError) {
-      console.error('media-urls: trips-Select fehlgeschlagen', tripError);
+      console.error('media-urls: trips select failed', tripError);
       await report(tripError, { trip_id: tripId });
       return errorResponse('Reise konnte nicht geladen werden.', 500);
     }
@@ -275,7 +275,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
         .eq('user_id', requestingUserId)
         .maybeSingle();
       if (membershipError) {
-        console.error('media-urls: trip_members-Select fehlgeschlagen', membershipError);
+        console.error('media-urls: trip_members select failed', membershipError);
         await report(membershipError, { trip_id: rawTrip.id, user_id: requestingUserId });
         // membership stays null: evaluateReadAccess reaches the same
         // decision (403, same text) for "no row" and "error while
@@ -356,7 +356,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
         .range(from, from + POSTS_PAGE_SIZE - 1);
 
       if (postsError) {
-        console.error('media-urls: posts-Select für lesen fehlgeschlagen', postsError);
+        console.error('media-urls: posts select for read failed', postsError);
         await report(postsError, { trip_id: tripRow.id });
         return errorResponse('Momente konnten nicht geladen werden.', 500);
       }
@@ -388,12 +388,12 @@ Deno.serve(async (req: Request): Promise<Response> => {
     // is logged instead of going unnoticed.
     const lostWhileCollecting = countedTotal === null ? 0 : Math.max(0, countedTotal - postRows.length);
     if (countedTotal !== null && postRows.length < countedTotal) {
-      console.error('media-urls: lesen hat weniger Momente eingesammelt als gezählt.', {
+      console.error('media-urls: read collected fewer moments than counted.', {
         trip_id: tripRow.id,
         countedTotal,
         collected: postRows.length,
       });
-      await report(new Error('media-urls: lesen hat weniger Momente eingesammelt als gezählt.'), {
+      await report(new Error('media-urls: read collected fewer moments than counted.'), {
         trip_id: tripRow.id,
         countedTotal,
         collected: postRows.length,
@@ -401,8 +401,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
     }
 
     if (!s3ConfigComplete()) {
-      console.error('media-urls: S3-Umgebungsvariablen unvollständig.');
-      await report(new Error('media-urls: S3-Umgebungsvariablen unvollständig.'));
+      console.error('media-urls: S3 environment variables incomplete.');
+      await report(new Error('media-urls: S3 environment variables incomplete.'));
       return errorResponse('Server nicht konfiguriert.', 500);
     }
 
@@ -469,7 +469,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
           // written its keys in the same scheme since Phase 5.
           if (row.storage_key !== derived.storage_key) {
             console.error(
-              'media-urls: storage_key weicht vom abgeleiteten Pfad ab, Moment wird ausgelassen.',
+              'media-urls: storage_key deviates from the derived path, moment is skipped.',
               { post_id: row.id, stored: row.storage_key, derived: derived.storage_key },
             );
             return null;
@@ -513,7 +513,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
         );
       }
     } catch (err) {
-      console.error('media-urls: Signieren der Lese-URLs fehlgeschlagen', err);
+      console.error('media-urls: signing the read URLs failed', err);
       await report(err, { trip_id: tripRow.id });
       return errorResponse('Signieren fehlgeschlagen.', 502);
     }
@@ -549,7 +549,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     .maybeSingle();
 
   if (postError) {
-    console.error('media-urls: posts-Select fehlgeschlagen', postError);
+    console.error('media-urls: posts select failed', postError);
     await report(postError, { post_id: postId });
     return errorResponse('Moment konnte nicht geladen werden.', 500);
   }
@@ -586,8 +586,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
   );
 
   if (!s3ConfigComplete()) {
-    console.error('media-urls: S3-Umgebungsvariablen unvollständig.');
-    await report(new Error('media-urls: S3-Umgebungsvariablen unvollständig.'), { post_id: postRow.id });
+    console.error('media-urls: S3 environment variables incomplete.');
+    await report(new Error('media-urls: S3 environment variables incomplete.'), { post_id: postRow.id });
     return errorResponse('Server nicht konfiguriert.', 500);
   }
 
@@ -600,7 +600,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       ]);
       return json({ medium_url, thumb_url }, 200);
     } catch (err) {
-      console.error('media-urls: Signieren fehlgeschlagen', err);
+      console.error('media-urls: signing failed', err);
       await report(err, { post_id: postRow.id });
       return errorResponse('Signieren fehlgeschlagen.', 502);
     }
@@ -617,7 +617,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       objectSize(aws, thumb_key),
     ]);
   } catch (err) {
-    console.error('media-urls: Prüfung fehlgeschlagen', err);
+    console.error('media-urls: check failed', err);
     await report(err, { post_id: postRow.id });
     return errorResponse('Prüfung fehlgeschlagen.', 502);
   }
@@ -643,7 +643,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     .eq('id', postRow.id);
 
   if (updateError) {
-    console.error('media-urls: Bestätigen fehlgeschlagen', updateError);
+    console.error('media-urls: confirm failed', updateError);
     await report(updateError, { post_id: postRow.id });
     return errorResponse('Bestätigen fehlgeschlagen.', 500);
   }
