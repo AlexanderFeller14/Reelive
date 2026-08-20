@@ -35,6 +35,7 @@ type NativeMultiCameraModule = {
   stopRecording(): Promise<{ uri: string; durationS: number }>;
   takePhoto(flash: boolean): Promise<{ uri: string; width: number; height: number }>;
   flash(on: boolean): void;
+  stabilization(on: boolean): void;
   addListener(
     eventName: 'pressureChanged',
     listener: (event: { level: PressureLevel }) => void
@@ -159,6 +160,13 @@ export async function takePhoto(
 // gets the switch as a call, and there's no response to wait for.
 export function setFlash(on: boolean): void {
   getNativeModule()?.flash(on);
+}
+
+// Video stabilization for the whole stream; the photo frame grab inherits
+// it. Synchronous like setFlash: a wish call with no response to wait for.
+// The native default is on, so this only has to carry the toggle.
+export function setStabilization(on: boolean): void {
+  getNativeModule()?.stabilization(on);
 }
 
 // Returns the unsubscribe; without the module a no-op with nothing to

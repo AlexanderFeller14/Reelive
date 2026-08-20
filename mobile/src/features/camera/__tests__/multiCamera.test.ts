@@ -7,7 +7,7 @@ const mockRemove = jest.fn();
 // module, so its keys mirror MultiCameraModule.swift's Function/
 // AsyncFunction/Events names exactly (isAvailable/start/stop/
 // switchCamera/setZoom/focus/startRecording/stopRecording/
-// takePhoto/flash/addListener, event 'pressureChanged', result fields
+// takePhoto/flash/stabilization/addListener, event 'pressureChanged', result fields
 // uri/durationS/width/height), see the same note in multiCamera.ts.
 const mockNativeModule = {
   isAvailable: jest.fn(() => true),
@@ -24,6 +24,7 @@ const mockNativeModule = {
     height: 1920,
   })),
   flash: jest.fn((_on: boolean) => {}),
+  stabilization: jest.fn((_on: boolean) => {}),
   addListener: jest.fn((_event: string, _listener: (payload: unknown) => void) => ({
     remove: mockRemove,
   })),
@@ -76,6 +77,7 @@ beforeEach(() => {
     height: 1920,
   });
   mockNativeModule.flash.mockImplementation(() => {});
+  mockNativeModule.stabilization.mockImplementation(() => {});
   mockNativeModule.addListener.mockImplementation(() => ({ remove: mockRemove }));
 });
 
@@ -257,5 +259,18 @@ describe('multiCamera: access to the MultiCam module', () => {
 
     expect(mc.MultiCameraViewfinder).toBe(rnView);
     expect(mockRequireNativeViewManagerCalls).not.toHaveBeenCalled();
+  });
+
+  it('setStabilization passes the wish through to the native module', () => {
+    multiCamera().setStabilization(false);
+    expect(mockNativeModule.stabilization).toHaveBeenLastCalledWith(false);
+    multiCamera().setStabilization(true);
+    expect(mockNativeModule.stabilization).toHaveBeenLastCalledWith(true);
+  });
+
+  it('setStabilization without the native module stays silent', () => {
+    mockAvailable = false;
+    expect(() => multiCamera().setStabilization(true)).not.toThrow();
+    expect(mockNativeModule.stabilization).not.toHaveBeenCalled();
   });
 });
