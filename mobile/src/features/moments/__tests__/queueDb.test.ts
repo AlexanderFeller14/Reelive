@@ -31,7 +31,7 @@ const mockGetAllAsync = jest.fn(async (..._args: unknown[]) => {
     return existingColumns.map((name) => ({ name }));
   }
   if (!tableCreated) throw new Error('no such table: upload_queue');
-  if (typeof sql === 'string' && sql.includes('verworfene_momente')) return discardedRows;
+  if (typeof sql === 'string' && sql.includes('discarded_moments')) return discardedRows;
   return rows;
 });
 const mockExecAsync = jest.fn(async (..._args: unknown[]) => {
@@ -317,7 +317,7 @@ test('allJobs returns an empty list instead of throwing on a table that was neve
 test('initQueue also creates the table for discarded moments', async () => {
   await initQueue();
   expect(mockExecAsync).toHaveBeenCalledWith(
-    expect.stringContaining('create table if not exists verworfene_momente')
+    expect.stringContaining('create table if not exists discarded_moments')
   );
 });
 
@@ -330,7 +330,7 @@ test('rememberDiscarded writes idempotently', async () => {
     verworfen_am: 1234,
   });
   const [sql, values] = mockRunAsync.mock.calls[0] as unknown as [string, unknown[]];
-  expect(sql).toContain('insert or replace into verworfene_momente');
+  expect(sql).toContain('insert or replace into discarded_moments');
   expect(values).toEqual(['p9', 't1', 'u1', 'Nach dem Reveal aufgenommen.', 1234]);
 });
 
@@ -347,6 +347,6 @@ test('discardedMoments only reads this trip’s own entries', async () => {
 test('acknowledgeDiscarded only deletes this trip’s own entries', async () => {
   await acknowledgeDiscarded('t1', 'u1');
   const [sql, values] = mockRunAsync.mock.calls[0] as unknown as [string, unknown[]];
-  expect(sql).toContain('delete from verworfene_momente');
+  expect(sql).toContain('delete from discarded_moments');
   expect(values).toEqual(['t1', 'u1']);
 });

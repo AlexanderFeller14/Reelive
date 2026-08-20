@@ -173,7 +173,7 @@ export async function initQueue(): Promise<void> {
     // itself. `id` is the post_id of the discarded moment, so a second
     // attempt (restart after a crash) doesn't create a duplicate entry.
     await db.execAsync(`
-      create table if not exists verworfene_momente (
+      create table if not exists discarded_moments (
         id text primary key,
         trip_id text not null,
         author_id text not null,
@@ -272,7 +272,7 @@ export async function rememberDiscarded(entry: DiscardedMoment): Promise<void> {
   const db = await getDatabase();
   try {
     await db.runAsync(
-      'insert or replace into verworfene_momente (id, trip_id, author_id, grund, verworfen_am) values (?, ?, ?, ?, ?)',
+      'insert or replace into discarded_moments (id, trip_id, author_id, grund, verworfen_am) values (?, ?, ?, ?, ?)',
       [entry.id, entry.trip_id, entry.author_id, entry.grund, entry.verworfen_am]
     );
   } catch (error) {
@@ -286,7 +286,7 @@ export async function discardedMoments(tripId: string, authorId: string): Promis
   const db = await getDatabase();
   try {
     const rows = await db.getAllAsync<DiscardedMoment>(
-      'select id, trip_id, author_id, grund, verworfen_am from verworfene_momente where trip_id = ? and author_id = ? order by verworfen_am',
+      'select id, trip_id, author_id, grund, verworfen_am from discarded_moments where trip_id = ? and author_id = ? order by verworfen_am',
       [tripId, authorId]
     );
     return rows;
@@ -301,7 +301,7 @@ export async function acknowledgeDiscarded(tripId: string, authorId: string): Pr
   await ensureTable();
   const db = await getDatabase();
   try {
-    await db.runAsync('delete from verworfene_momente where trip_id = ? and author_id = ?', [
+    await db.runAsync('delete from discarded_moments where trip_id = ? and author_id = ?', [
       tripId,
       authorId,
     ]);

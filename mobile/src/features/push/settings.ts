@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const KEY = 'reelive.benachrichtigungen';
+const KEY = 'reelive.notifications';
 
 // If the entry is missing (first install, cleared storage, read error), ON
 // applies: push registration has run automatically on every signedIn since

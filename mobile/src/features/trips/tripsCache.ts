@@ -20,8 +20,8 @@ import type { TripStatus } from './types';
 // unreadable), neither reading nor writing happens, then there simply is no
 // fallback instead of guessing.
 
-const TRIPS_PREFIX = 'reelive.reisen.';
-const COUNTS_PREFIX = 'reelive.zaehler.';
+const TRIPS_PREFIX = 'reelive.trips.';
+const COUNTS_PREFIX = 'reelive.counters.';
 
 // Exactly the fields the camera screen needs. `Trip` is a superset of this
 // and can therefore be assigned directly (see toCached below).

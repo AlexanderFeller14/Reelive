@@ -16,7 +16,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 // therefore deliberately carries only the trip id, exactly the interface
 // from the Task-9 brief.
 
-const KEY_PREFIX = 'reelive.reveal_gesehen.';
+const KEY_PREFIX = 'reelive.reveal_seen.';
 
 export async function hasSeenReveal(tripId: string): Promise<boolean> {
   try {
