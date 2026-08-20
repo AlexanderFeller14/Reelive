@@ -3,7 +3,7 @@ import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 import { supabase } from '@/lib/supabase';
 
-export type PushRegistrationResult = 'ok' | 'keine-berechtigung' | 'nicht-unterstuetzt' | 'fehler';
+export type PushRegistrationResult = 'ok' | 'no_permission' | 'unsupported' | 'fehler';
 
 // ----------------------------------------------------------------------------
 // Every failure here is a NORMAL CASE, not an error (Task-4-brief): no
@@ -36,20 +36,20 @@ export async function registerPushToken(userId: string): Promise<PushRegistratio
     // push_tokens.platform only allows 'ios'|'android' via a CHECK
     // constraint (migration 20260808090000_push_tokens.sql). Web or
     // future platforms are "not supported", not an error.
-    if (Platform.OS !== 'ios' && Platform.OS !== 'android') return 'nicht-unterstuetzt';
+    if (Platform.OS !== 'ios' && Platform.OS !== 'android') return 'unsupported';
 
     // A simulator/emulator never gets a real push token, expo-device
     // exists for that (brief step 2).
-    if (!Device.isDevice) return 'nicht-unterstuetzt';
+    if (!Device.isDevice) return 'unsupported';
 
     // Android 13+ (per version-exact SDK-57 docs, see AGENTS.md): the
     // system permission dialog only appears AFTER at least one
     // notification channel exists, without this call requestPermissionsAsync()
     // below would be ineffective (no dialog, status stays 'undetermined'),
-    // which cleanly leads into 'keine-berechtigung' anyway. On iOS/web
+    // which cleanly leads into 'no_permission' anyway. On iOS/web
     // this call is a documented no-op (console.debug + null), on Android
     // best-effort: if it fails (e.g. Expo Go), that doesn't break the rest
-    // of the flow, it simply runs the same 'keine-berechtigung'/'fehler'
+    // of the flow, it simply runs the same 'no_permission'/'fehler'
     // path as without a channel.
     if (Platform.OS === 'android') {
       try {
@@ -69,7 +69,7 @@ export async function registerPushToken(userId: string): Promise<PushRegistratio
       // (no own dialog before it, DESIGN-LANGUAGE doesn't call for one).
       permission = await Notifications.requestPermissionsAsync();
     }
-    if (permission.status !== 'granted') return 'keine-berechtigung';
+    if (permission.status !== 'granted') return 'no_permission';
 
     const { data: token } = await Notifications.getExpoPushTokenAsync();
     if (!token) return 'fehler';

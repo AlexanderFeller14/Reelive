@@ -148,7 +148,7 @@ export default function ProfileScreen() {
     }
     if (!userId) return;
     const result = await registerPushToken(userId);
-    if (result === 'keine-berechtigung') {
+    if (result === 'no_permission') {
       setNotificationsEnabled(false);
       await setNotificationsActive(false);
       setPushNotice('Ohne Zugriff auf Mitteilungen geht es nicht. Du kannst das in den Einstellungen ändern.');

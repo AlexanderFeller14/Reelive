@@ -1,11 +1,11 @@
-export type PushRegistrationResult = 'ok' | 'keine-berechtigung' | 'nicht-unterstuetzt' | 'fehler';
+export type PushRegistrationResult = 'ok' | 'no_permission' | 'unsupported' | 'fehler';
 
 // Web version of pushApi.ts (Task-4-brief, phase 6).
 //
 // No import of expo-notifications or expo-device: both pull in native
 // modules that Metro can't bundle for web, and whose push functions don't
 // exist in the browser anyway. The native version would return
-// 'nicht-unterstuetzt' immediately for Platform.OS === 'web', before it
+// 'unsupported' immediately for Platform.OS === 'web', before it
 // actually uses either library, this web shim just makes that shortcut
 // explicit while avoiding the import itself.
 //
@@ -14,7 +14,7 @@ export type PushRegistrationResult = 'ok' | 'keine-berechtigung' | 'nicht-unters
 // root layout calls registerPushToken() on every signedIn change without
 // error handling.
 export async function registerPushToken(_userId: string): Promise<PushRegistrationResult> {
-  return 'nicht-unterstuetzt';
+  return 'unsupported';
 }
 
 export async function deregisterPushToken(): Promise<void> {}

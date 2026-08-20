@@ -282,7 +282,7 @@ describe('profile picture (Task 6)', () => {
 
 // The notifications switch controls device registration: off deletes the
 // token, on registers it. Only a declined system permission gets feedback;
-// 'fehler'/'nicht-unterstuetzt' are everyday cases (Expo Go, simulator,
+// 'fehler'/'unsupported' are everyday cases (Expo Go, simulator,
 // Task-4 brief) and stay silent.
 describe('notifications', () => {
   test('shows the switch with an explanation, default on', async () => {
@@ -326,7 +326,7 @@ describe('notifications', () => {
 
   test('a declined permission springs back and explains itself', async () => {
     mockNotificationsActive.mockResolvedValue(false);
-    mockRegisterPush.mockResolvedValue('keine-berechtigung');
+    mockRegisterPush.mockResolvedValue('no_permission');
     await wrap(<ProfileScreen />);
     const toggle = await screen.findByLabelText('Benachrichtigungen');
     await fireEvent(toggle, 'valueChange', true);

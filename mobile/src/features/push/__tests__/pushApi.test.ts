@@ -56,19 +56,19 @@ beforeEach(() => {
   });
 });
 
-test('no real device (simulator/emulator) → nicht-unterstuetzt, without asking for permission', async () => {
+test('no real device (simulator/emulator) → unsupported, without asking for permission', async () => {
   mockIsDevice.mockReturnValue(false);
   const result = await registerPushToken('u1');
-  expect(result).toBe('nicht-unterstuetzt');
+  expect(result).toBe('unsupported');
   expect(mockGetPermissionsAsync).not.toHaveBeenCalled();
   expect(mockUpsert).not.toHaveBeenCalled();
 });
 
-test('permission missing and declined after asking → keine-berechtigung', async () => {
+test('permission missing and declined after asking → no_permission', async () => {
   mockGetPermissionsAsync.mockResolvedValue(UNDETERMINED);
   mockRequestPermissionsAsync.mockResolvedValue(DENIED);
   const result = await registerPushToken('u1');
-  expect(result).toBe('keine-berechtigung');
+  expect(result).toBe('no_permission');
   expect(mockRequestPermissionsAsync).toHaveBeenCalledTimes(1);
   expect(mockUpsert).not.toHaveBeenCalled();
 });
