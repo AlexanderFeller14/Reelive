@@ -9,7 +9,7 @@ import { useTheme } from '@/theme/ThemeProvider';
 import { spacing, type } from '@/theme/tokens';
 import { useTopInset } from '@/theme/useTopInset';
 import { fetchTrips } from '@/features/trips/tripsApi';
-import { groupTrips } from '@/features/trips/tripDay';
+import { groupTrips, todaysCalendarDay } from '@/features/trips/tripDay';
 import type { Trip } from '@/features/trips/types';
 
 export default function TripList() {
@@ -55,10 +55,10 @@ export default function TripList() {
     }, [load])
   );
 
-  const { ongoing, recaps } = groupTrips(trips);
+  const { running, planned, recaps } = groupTrips(trips, todaysCalendarDay());
   const ready = loaded && !error;
   const noTrips = ready && trips.length === 0;
-  const onlyRecaps = ready && ongoing.length === 0 && recaps.length > 0;
+  const onlyRecaps = ready && running.length === 0 && planned.length === 0 && recaps.length > 0;
 
   return (
     <View style={{ flex: 1, backgroundColor: colors['bg-0'] }}>
@@ -102,9 +102,14 @@ export default function TripList() {
           </View>
         )}
 
-        {ongoing.length > 0 && (
+        {running.length > 0 && (
           <View style={{ gap: spacing.l }}>
-            {ongoing.map((t, i) => (
+            {/* Section titles only once there is something to tell apart:
+                without planned trips the list stays plain, as before. */}
+            {planned.length > 0 && (
+              <Text style={[type.h2, { color: colors['text-1'] }]}>Aktiv</Text>
+            )}
+            {running.map((t, i) => (
               <TripCard
                 key={t.id}
                 trip={t}
@@ -112,6 +117,25 @@ export default function TripList() {
                 onPress={() => router.push(`/trip/${t.id}?cover=${i}`)}
               />
             ))}
+          </View>
+        )}
+
+        {planned.length > 0 && (
+          <View style={{ gap: spacing.l }}>
+            <Text style={[type.h2, { color: colors['text-1'] }]}>Geplant</Text>
+            {/* Cover slots continue across the sections so that two identical
+                placeholder covers never stand directly above each other. */}
+            {planned.map((t, i) => {
+              const slot = running.length + i;
+              return (
+                <TripCard
+                  key={t.id}
+                  trip={t}
+                  position={slot}
+                  onPress={() => router.push(`/trip/${t.id}?cover=${slot}`)}
+                />
+              );
+            })}
           </View>
         )}
       </ScrollView>

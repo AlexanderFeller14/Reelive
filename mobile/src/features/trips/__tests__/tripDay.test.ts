@@ -36,15 +36,44 @@ test.each([
   expect(formatRange(start, end)).toBe(expected);
 });
 
-test('groupTrips splits ongoing trips from recaps', () => {
+test('groupTrips splits running, planned and recaps', () => {
   const trips = [
-    { id: 'a', status: 'active' as const },
-    { id: 'b', status: 'revealed' as const },
-    { id: 'c', status: 'archived' as const },
+    { id: 'future', status: 'active' as const, start_date: '2026-09-01' },
+    { id: 'running', status: 'active' as const, start_date: '2026-08-01' },
+    { id: 'revealed', status: 'revealed' as const, start_date: '2026-07-01' },
+    { id: 'archived', status: 'archived' as const, start_date: '2026-06-01' },
   ];
-  const { ongoing, recaps } = groupTrips(trips);
-  expect(ongoing.map((t) => t.id)).toEqual(['a']);
-  expect(recaps.map((t) => t.id)).toEqual(['b', 'c']);
+  const { running, planned, recaps } = groupTrips(trips, '2026-08-10');
+  expect(running.map((t) => t.id)).toEqual(['running']);
+  expect(planned.map((t) => t.id)).toEqual(['future']);
+  expect(recaps.map((t) => t.id)).toEqual(['revealed', 'archived']);
+});
+
+// Start = today is day 1, not a plan: whoever departs this morning is
+// travelling. Only tomorrow's start still counts as planned.
+test('groupTrips counts a trip starting today as running', () => {
+  const trips = [
+    { id: 'today', status: 'active' as const, start_date: '2026-08-10' },
+    { id: 'tomorrow', status: 'active' as const, start_date: '2026-08-11' },
+  ];
+  const { running, planned } = groupTrips(trips, '2026-08-10');
+  expect(running.map((t) => t.id)).toEqual(['today']);
+  expect(planned.map((t) => t.id)).toEqual(['tomorrow']);
+});
+
+// The API delivers start_date descending (farthest future first). Within
+// «Geplant» the NEXT trip belongs on top, so the group re-sorts ascending;
+// `running` keeps the delivered order (most recently started on top).
+test('groupTrips sorts planned trips soonest first', () => {
+  const trips = [
+    { id: 'far', status: 'active' as const, start_date: '2026-10-01' },
+    { id: 'soon', status: 'active' as const, start_date: '2026-09-01' },
+    { id: 'second', status: 'active' as const, start_date: '2026-08-05' },
+    { id: 'first', status: 'active' as const, start_date: '2026-08-01' },
+  ];
+  const { running, planned } = groupTrips(trips, '2026-08-10');
+  expect(planned.map((t) => t.id)).toEqual(['soon', 'far']);
+  expect(running.map((t) => t.id)).toEqual(['second', 'first']);
 });
 
 // `new Date().toISOString().slice(0, 10)` returned the calendar day in UTC,

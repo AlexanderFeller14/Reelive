@@ -8,7 +8,7 @@ import { useTheme } from '@/theme/ThemeProvider';
 import { spacing, type } from '@/theme/tokens';
 import { useTopInset } from '@/theme/useTopInset';
 import { fetchTrips } from '@/features/trips/tripsApi';
-import { groupTrips } from '@/features/trips/tripDay';
+import { groupTrips, todaysCalendarDay } from '@/features/trips/tripDay';
 import type { Trip } from '@/features/trips/types';
 
 export default function RecapList() {
@@ -49,7 +49,7 @@ export default function RecapList() {
     }, [load])
   );
 
-  const { recaps } = groupTrips(trips);
+  const { recaps } = groupTrips(trips, todaysCalendarDay());
   const empty = loaded && !error && recaps.length === 0;
 
   return (

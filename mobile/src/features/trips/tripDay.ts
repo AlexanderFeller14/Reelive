@@ -49,9 +49,21 @@ export function formatRange(startIso: string, endIso: string): string {
   return `${sd}.–${ed}. ${MONTHS[sm - 1]} ${sy}`;
 }
 
-export function groupTrips<T extends { status: TripStatus }>(trips: T[]): { ongoing: T[]; recaps: T[] } {
+// `running` vs `planned` is derived purely from `start_date`, the DB status
+// stays a lifecycle state: a trip past its end but not yet revealed is still
+// `active` and therefore running. Start = today counts as running (day 1).
+// `running` keeps the delivered order (start_date descending, most recently
+// started on top); `planned` re-sorts ascending so the next trip stands first.
+export function groupTrips<T extends { status: TripStatus; start_date: string }>(
+  trips: T[],
+  todayIso: string
+): { running: T[]; planned: T[]; recaps: T[] } {
+  const active = trips.filter((t) => t.status === 'active');
   return {
-    ongoing: trips.filter((t) => t.status === 'active'),
+    running: active.filter((t) => t.start_date <= todayIso),
+    planned: active
+      .filter((t) => t.start_date > todayIso)
+      .sort((a, b) => (a.start_date < b.start_date ? -1 : a.start_date > b.start_date ? 1 : 0)),
     recaps: trips.filter((t) => t.status !== 'active'),
   };
 }

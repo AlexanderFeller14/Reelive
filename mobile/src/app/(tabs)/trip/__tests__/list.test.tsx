@@ -16,6 +16,13 @@ jest.mock('expo-image', () => {
   return { Image: (props: object) => ReactActual.createElement(View, props) };
 });
 jest.mock('@/features/trips/tripsApi', () => ({ fetchTrips: jest.fn() }));
+// The section split derives «planned» from the real clock via
+// todaysCalendarDay(); pinned here so the fixtures below never age out of
+// their group. Everything else in the module stays real.
+jest.mock('@/features/trips/tripDay', () => ({
+  ...jest.requireActual('@/features/trips/tripDay'),
+  todaysCalendarDay: () => '2026-08-10',
+}));
 
 import TripList from '../index';
 import { fetchTrips } from '@/features/trips/tripsApi';
@@ -30,6 +37,9 @@ const trip = {
   member_count: 2, my_post_count: 7,
 };
 const recap = { ...trip, id: 't2', name: 'Lissabon Städtetrip', status: 'revealed' as const };
+const planned = {
+  ...trip, id: 't3', name: 'Island im Winter', start_date: '2026-09-01', end_date: '2026-09-10',
+};
 
 const wrap = () => render(<ThemeProvider><TripList /></ThemeProvider>);
 
@@ -123,4 +133,38 @@ test('tapping a card opens the trip and hands its cover slot along', async () =>
   await wrap();
   await fireEvent.press(await screen.findByText('Norwegen mit dem Camper'));
   expect(mockPush).toHaveBeenCalledWith('/trip/t1?cover=0');
+});
+
+test('without planned trips the list stays plain, no section titles', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(loaded([trip]));
+  await wrap();
+  await screen.findByText('Norwegen mit dem Camper');
+  expect(screen.queryByText('Aktiv')).toBeNull();
+  expect(screen.queryByText('Geplant')).toBeNull();
+});
+
+test('a planned trip splits the list into Aktiv above and Geplant below', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(loaded([planned, trip]));
+  await wrap();
+  expect(await screen.findByText('Norwegen mit dem Camper')).toBeTruthy();
+  expect(screen.getByText('Island im Winter')).toBeTruthy();
+  const titles = screen.getAllByText(/^(Aktiv|Geplant)$/).map((n) => n.props.children);
+  expect(titles).toEqual(['Aktiv', 'Geplant']);
+});
+
+test('with only planned trips the Geplant section stands alone, no empty state', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(loaded([planned, recap]));
+  await wrap();
+  expect(await screen.findByText('Island im Winter')).toBeTruthy();
+  expect(screen.getByText('Geplant')).toBeTruthy();
+  expect(screen.queryByText('Aktiv')).toBeNull();
+  expect(screen.queryByText('Gerade keine Reise unterwegs')).toBeNull();
+  expect(screen.queryByTestId('empty-state-camper')).toBeNull();
+});
+
+test('a planned card continues the cover slots after the running ones', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(loaded([planned, trip]));
+  await wrap();
+  await fireEvent.press(await screen.findByText('Island im Winter'));
+  expect(mockPush).toHaveBeenCalledWith('/trip/t3?cover=1');
 });
