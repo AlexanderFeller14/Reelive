@@ -7,7 +7,7 @@ function Probe() {
   return <Text>{`${scheme}:${colors['bg-0']}`}</Text>;
 }
 
-test('ThemeProvider ist light-only und liefert die v2-Palette', async () => {
+test('ThemeProvider is light-only and returns the v2 palette', async () => {
   await render(
     <ThemeProvider>
       <Probe />

@@ -1,6 +1,6 @@
 # Reelive
 
-Gemeinsames Reisetagebuch: privates Reiseprojekt, Freunde einladen, Momente einsenden —
+Gemeinsames Reisetagebuch: privates Reiseprojekt, Freunde einladen, Momente einsenden,
 versiegelt bis zum Reveal, danach chronologischer Recap aus allen Perspektiven.
 
 ## Pflichtlektüre nach Aufgabe
@@ -22,5 +22,6 @@ versiegelt bis zum Reveal, danach chronologischer Recap aus allen Perspektiven.
 - Quellcode ist englisch: Bezeichner, Datei- und Ordnernamen, Kommentare und
   Testbeschreibungen. Nur sichtbare UI-Texte sind deutsch (Du-Form, Vokabular
   gemäss DESIGN-LANGUAGE.md §6). Persistente Keys, Wire-Felder und Log-Texte
-  zählen zum Code. Einzige stehende Ausnahme: DB-Spalten, die historisch
-  deutsch sind (SQLite-Queue-Spalten).
+  zählen zum Code. Stehende Ausnahmen: DB-Spalten, die historisch deutsch
+  sind (SQLite-Queue-Spalten), und frei erfundene Testfixture-Werte ohne
+  eigene Bedeutung (z. B. Mock-Fehlertexte).

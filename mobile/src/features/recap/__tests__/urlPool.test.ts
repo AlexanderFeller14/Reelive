@@ -245,7 +245,7 @@ describe('getPool', () => {
     mockInvoke.mockResolvedValueOnce({
       data: null,
       error: Object.assign(new Error('http'), {
-        name: 'IrgendeinAndererFehler',
+        name: 'SomeOtherError',
         context: new Response(JSON.stringify({ error: 'Diese Reise ist noch versiegelt.' }), { status: 403 }),
       }),
     });

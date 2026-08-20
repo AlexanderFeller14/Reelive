@@ -12,7 +12,7 @@ afterEach(() => {
   jest.restoreAllMocks();
 });
 
-test('liefert true, wenn Reduce Motion aktiv ist', async () => {
+test('returns true when Reduce Motion is active', async () => {
   jest.spyOn(AccessibilityInfo, 'isReduceMotionEnabled').mockResolvedValue(true);
 
   await render(<Probe />);
@@ -20,7 +20,7 @@ test('liefert true, wenn Reduce Motion aktiv ist', async () => {
   await waitFor(() => expect(screen.getByText('true')).toBeTruthy());
 });
 
-test('liefert false, wenn Reduce Motion aus ist', async () => {
+test('returns false when Reduce Motion is off', async () => {
   jest.spyOn(AccessibilityInfo, 'isReduceMotionEnabled').mockResolvedValue(false);
 
   await render(<Probe />);

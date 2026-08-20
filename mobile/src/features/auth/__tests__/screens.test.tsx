@@ -11,15 +11,15 @@ jest.mock('../authApi', () => ({
   verifyOtp: jest.fn(async () => ({ error: 'Der Code stimmt nicht oder ist abgelaufen. Fordere einen neuen an.' })),
 }));
 
-// Pfad-Anpassung (Task-8-Kontext, Abweichung 2): Router-Root ist mobile/src/app/,
-// nicht mobile/app/, von __tests__/ drei Ebenen hoch zu src/, dann app/(auth)/...
+// Path adjustment (Task-8 context, deviation 2): the router root is mobile/src/app/,
+// not mobile/app/, three levels up from __tests__/ to src/, then app/(auth)/...
 import PhoneScreen from '../../../app/(auth)/phone';
 import OtpScreen from '../../../app/(auth)/otp';
 import { requestOtp } from '../authApi';
 
 const wrap = (ui: React.ReactElement) => render(<ThemeProvider>{ui}</ThemeProvider>);
 
-test('phone: ungültige Nummer zeigt Fehler, ruft kein OTP an', async () => {
+test('phone: an invalid number shows an error, does not call for an OTP', async () => {
   await wrap(<PhoneScreen />);
   await fireEvent.changeText(screen.getByLabelText('Handynummer'), 'abc');
   await fireEvent.press(screen.getByText('Code senden'));
@@ -27,7 +27,7 @@ test('phone: ungültige Nummer zeigt Fehler, ruft kein OTP an', async () => {
   expect(requestOtp).not.toHaveBeenCalled();
 });
 
-test('phone: gültige Nummer fordert Code an und navigiert weiter', async () => {
+test('phone: a valid number requests a code and navigates onward', async () => {
   await wrap(<PhoneScreen />);
   await fireEvent.changeText(screen.getByLabelText('Handynummer'), '079 000 00 01');
   await fireEvent.press(screen.getByText('Code senden'));
@@ -35,23 +35,23 @@ test('phone: gültige Nummer fordert Code an und navigiert weiter', async () => 
   expect(mockPush).toHaveBeenCalledWith({ pathname: '/otp', params: { phone: '+41790000001' } });
 });
 
-test('otp: falscher Code zeigt die Fehlermeldung der API', async () => {
+test("otp: a wrong code shows the API's error message", async () => {
   await wrap(<OtpScreen />);
   await fireEvent.changeText(screen.getByLabelText('Code'), '000000');
   await fireEvent.press(screen.getByText('Bestätigen'));
   expect(await screen.findByText(/stimmt nicht oder ist abgelaufen/)).toBeTruthy();
 });
 
-// «Code erneut senden» verwarf das Ergebnis von requestOtp: ob ein neuer Code
-// unterwegs war oder Supabase mit 429 abgewiesen hatte, sah gleich aus.
-test('otp: erneut senden bestätigt sichtbar', async () => {
+// «Resend code» used to discard the result of requestOtp: whether a new code
+// was on its way or Supabase had rejected it with 429 looked the same.
+test('otp: resending confirms visibly', async () => {
   (requestOtp as jest.Mock).mockResolvedValueOnce({ error: null });
   await wrap(<OtpScreen />);
   await fireEvent.press(screen.getByText('Code erneut senden'));
   expect(await screen.findByText('Neuer Code ist unterwegs.')).toBeTruthy();
 });
 
-test('otp: abgewiesenes erneutes Senden nennt den Grund', async () => {
+test('otp: a rejected resend names the reason', async () => {
   (requestOtp as jest.Mock).mockResolvedValueOnce({
     error: 'Zu viele Versuche. Warte kurz und fordere dann einen neuen Code an.',
   });

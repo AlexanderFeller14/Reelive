@@ -1,4 +1,4 @@
-// Jest-Hoisting: Variablen in jest.mock-Factories MÜSSEN mit "mock" beginnen
+// Jest hoisting: variables in jest.mock factories MUST start with "mock"
 const mockSecureStore = new Map<string, string>();
 const mockAsyncStore = new Map<string, string>();
 
@@ -20,38 +20,38 @@ import { secureSessionStorage } from '../secureSessionStorage';
 
 beforeEach(() => { mockSecureStore.clear(); mockAsyncStore.clear(); });
 
-test('Roundtrip: setItem → getItem liefert den Wert', async () => {
+test('roundtrip: setItem -> getItem returns the value', async () => {
   await secureSessionStorage.setItem('sb-session', '{"access_token":"abc"}');
   await expect(secureSessionStorage.getItem('sb-session')).resolves.toBe('{"access_token":"abc"}');
 });
 
-test('Payload liegt NICHT im Klartext in AsyncStorage', async () => {
+test('payload does NOT sit in plaintext in AsyncStorage', async () => {
   await secureSessionStorage.setItem('sb-session', 'geheimer-inhalt');
   expect([...mockAsyncStore.values()].join()).not.toContain('geheimer-inhalt');
 });
 
-test('Neustart-Simulation: Wert übersteht Modul-Reset', async () => {
+test('restart simulation: value survives a module reset', async () => {
   await secureSessionStorage.setItem('sb-session', 'bleibt');
   jest.resetModules();
   const fresh = require('../secureSessionStorage').secureSessionStorage;
   await expect(fresh.getItem('sb-session')).resolves.toBe('bleibt');
 });
 
-test('removeItem und fehlender Key → null', async () => {
+test('removeItem and a missing key -> null', async () => {
   await secureSessionStorage.setItem('sb-session', 'x');
   await secureSessionStorage.removeItem('sb-session');
   await expect(secureSessionStorage.getItem('sb-session')).resolves.toBeNull();
 });
 
-test('Beschädigter Ciphertext (Key vorhanden) → getItem liefert null statt zu werfen', async () => {
+test('corrupted ciphertext (key present) -> getItem returns null instead of throwing', async () => {
   await secureSessionStorage.setItem('sb-session', 'ok');
-  // Ciphertext manuell durch ungültigen Hex-Müll ersetzen, der SecureStore-Key
-  // bleibt bestehen, aber die Bytes lassen sich nicht mehr sinnvoll als UTF-8 dekodieren.
+  // Manually replace the ciphertext with invalid hex garbage, the SecureStore
+  // key stays intact, but the bytes can no longer be meaningfully decoded as UTF-8.
   mockAsyncStore.set('sb-session', 'zzz-kein-gueltiger-hex-string-zzz');
   await expect(secureSessionStorage.getItem('sb-session')).resolves.toBeNull();
 });
 
-test('Ciphertext ohne passenden SecureStore-Key → getItem liefert null', async () => {
+test('ciphertext without a matching SecureStore key -> getItem returns null', async () => {
   await secureSessionStorage.setItem('sb-session', 'ok');
   mockSecureStore.clear();
   await expect(secureSessionStorage.getItem('sb-session')).resolves.toBeNull();
