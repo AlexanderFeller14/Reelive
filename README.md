@@ -28,8 +28,8 @@ leert den Medien-Bucket gleich mit. Ohne den zweiten Halbschritt zeigen Übersic
 Player und Karte deshalb leere Kacheln, und jede Lese-URL antwortet mit 404.
 
 ```bash
-npx supabase db reset                     # Zeilen
-node scripts/testmedien-hochladen.mjs     # Dateien dazu (braucht ffmpeg)
+npx supabase db reset                   # Zeilen
+node scripts/upload-test-media.mjs      # Dateien dazu (braucht ffmpeg)
 ```
 
 Das Skript erzeugt je Moment eine eigene Farbfläche mit Ort und Uhrzeit darauf —
