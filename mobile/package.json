@@ -76,7 +76,7 @@
     "web": "expo start --web",
     "lint": "expo lint",
     "test": "jest",
-    "netz": "node scripts/netz.js"
+    "network": "node scripts/network.js"
   },
   "private": true,
   "jest": {
