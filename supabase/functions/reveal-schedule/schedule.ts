@@ -15,12 +15,13 @@
 // not a person. The function's safeguard is the cron secret
 // (checkScheduleRequest), not a JWT.
 //
-// Wire contract with the SQL cron job (migration 20260820090000,
-// call_reveal_schedule): the body fields `task`/`today` (read at the parse
-// site below), the task values 'reveal'/'reminder', and the header
-// `x-cron-secret` (index.ts) move together, see task-14-report.md.
+// Wire contract with the SQL cron job (migrations 20260820090000 and
+// 20260820120000, call_reveal_schedule): the body fields `task`/`today` (read
+// at the parse site below), the task values 'reveal'/'reminder'/'trip_start',
+// and the header `x-cron-secret` (index.ts) move together.
 import {
   sendRevealPush,
+  sendTripPush,
   type RevealStore,
   type SendFn,
   type StoreResult,
@@ -31,7 +32,7 @@ import type { ReportFn } from '../_shared/errorReporter.ts';
 
 const NO_REPORTER: ReportFn = async () => {};
 
-export type ScheduleTask = 'reveal' | 'reminder';
+export type ScheduleTask = 'reveal' | 'reminder' | 'trip_start';
 export type ScheduleRequest = { task: ScheduleTask; today: string };
 export type ScheduleResult = { status: number; body: Record<string, unknown> };
 
@@ -45,6 +46,13 @@ export interface ScheduleStore extends RevealStore {
   // CAS on the marker (… where end_reminder_sent_at is null): null means 0
   // rows, another run was faster, no second push.
   markReminder(tripId: string): Promise<StoreResult<{ end_reminder_sent_at: string }>>;
+  // status='active', start_date = today, start_push_sent_at is null; like
+  // fetchReminderTrips the conditions live as a real Postgres query in the
+  // adapter, checked in the integration test.
+  fetchTripStartTrips(today: string): Promise<StoreResult<TripRow[]>>;
+  // CAS on the marker (… where start_push_sent_at is null): null means 0
+  // rows, another run was faster, no second push.
+  markStartPush(tripId: string): Promise<StoreResult<{ start_push_sent_at: string }>>;
 }
 
 const TODAY_FORMAT = /^\d{4}-\d{2}-\d{2}$/;
@@ -65,7 +73,7 @@ export function checkScheduleRequest(
     return { ok: false, status: 401, error: 'Nicht berechtigt.' };
   }
   const b = (body ?? {}) as { task?: unknown; today?: unknown };
-  if (b.task !== 'reveal' && b.task !== 'reminder') {
+  if (b.task !== 'reveal' && b.task !== 'reminder' && b.task !== 'trip_start') {
     return { ok: false, status: 400, error: 'Ungültige Anfrage.' };
   }
   if (typeof b.today !== 'string' || !TODAY_FORMAT.test(b.today)) {
@@ -170,6 +178,54 @@ export async function performReminder(
       }
     } catch (err) {
       console.error('reveal-schedule: sending the reminder failed', err);
+      await report(err, { trip_id: trip.id, today });
+    }
+  }
+  return { status: 200, body: { ok: true, processed } };
+}
+
+// Pushes to ALL members on the morning of the first trip day (Spec
+// 2026-08-20-reisebeginn-push-design.md): the calendar triggers it, no
+// person, so triggeringUserId is null and nobody gets filtered. CAS on the
+// marker makes a double run harmless; only the winner sends. Should the
+// send fail AFTER the marker is set, the push is simply missed (no retry):
+// it is a convenience, the trip runs regardless. A trip created on its
+// start day after the cron run gets no push either: the next run sees
+// start_date < today and the equality condition no longer matches.
+export async function performTripStart(
+  store: ScheduleStore,
+  sendFn: SendFn,
+  today: string,
+  report: ReportFn = NO_REPORTER,
+): Promise<ScheduleResult> {
+  const { data: trips, error } = await store.fetchTripStartTrips(today);
+  if (error || !trips) {
+    console.error('reveal-schedule: selecting the trip starts failed', error);
+    await report(error ?? new Error('reveal-schedule: trip start selection returned no data.'), { today });
+    return { status: 500, body: { error: 'Auswahl fehlgeschlagen.' } };
+  }
+
+  let processed = 0;
+  for (const trip of trips) {
+    const { data: marked, error: markerError } = await store.markStartPush(trip.id);
+    if (markerError) {
+      console.error('reveal-schedule: setting the trip start marker failed', markerError);
+      await report(markerError, { trip_id: trip.id, today });
+      continue;
+    }
+    if (!marked) continue;
+    processed++;
+
+    try {
+      await sendTripPush(
+        store,
+        sendFn,
+        trip,
+        `Heute beginnt eure Reise «${trip.name}». Sendet eure ersten Momente ein!`,
+        null,
+      );
+    } catch (err) {
+      console.error('reveal-schedule: sending the trip start push failed', err);
       await report(err, { trip_id: trip.id, today });
     }
   }
