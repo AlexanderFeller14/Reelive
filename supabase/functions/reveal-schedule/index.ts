@@ -9,11 +9,12 @@ import '@supabase/functions-js/edge-runtime.d.ts';
 // translates HTTP: method, configuration, body parsing, dispatch by task.
 //
 // Wire contract with the SQL cron job: the header x-cron-secret, the body
-// fields task/today, the task values 'reveal'/'reminder', and the env key
-// CRON_SECRET below move together, see task-14-report.md.
+// fields task/today, the task values 'reveal'/'reminder'/'trip_start', the
+// migrations 20260820090000/20260820120000, and the env key CRON_SECRET
+// below move together, see task-14-report.md.
 import { send } from '../reveal-trip/push.ts';
 import { createErrorReporter } from '../_shared/errorReporter.ts';
-import { performAutoReveal, performReminder, checkScheduleRequest } from './schedule.ts';
+import { performAutoReveal, performReminder, performTripStart, checkScheduleRequest } from './schedule.ts';
 import { createAdminClient, createScheduleStore } from './scheduleStore.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
@@ -65,6 +66,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
   const { task, today } = admission.request;
   const result = task === 'reveal'
     ? await performAutoReveal(store, send, today, report)
-    : await performReminder(store, send, today, report);
+    : task === 'reminder'
+      ? await performReminder(store, send, today, report)
+      : await performTripStart(store, send, today, report);
   return json(result.body, result.status);
 });

@@ -6,6 +6,10 @@
 //   2. fetchReminderTrips: end_date = today AND marker empty.
 //   3. markReminder: the CAS condition `is('end_reminder_sent_at', null)`
 //      in the real update, second call 0 rows.
+//   4. fetchTripStartTrips: start_date = today AND marker empty.
+//   5. markStartPush: the CAS condition `is('start_push_sent_at', null)` and
+//      the status condition `status = 'active'` in the real update, second
+//      call 0 rows.
 //
 // To run:
 //   cd supabase/functions/reveal-schedule
@@ -75,13 +79,13 @@ async function expectJson(res: Response, expectedStatus: number): Promise<unknow
   return text.length > 0 ? JSON.parse(text) : null;
 }
 
-async function newTrip(endDate: string): Promise<string> {
+async function newTrip(endDate: string, startDate = '2026-01-01'): Promise<string> {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/trips`, {
     method: 'POST',
     headers: restHeaders({ Prefer: 'return=representation' }),
     body: JSON.stringify({
       name: 'integration test scheduleStore',
-      start_date: '2026-01-01',
+      start_date: startDate,
       end_date: endDate,
       owner_id: LEA_ID,
       status: 'active',
@@ -173,6 +177,62 @@ Deno.test({
       assertEquals(marked.data.some((t) => t.id === tripId), false);
     } finally {
       await deleteTrip(tripId);
+    }
+  },
+});
+
+Deno.test({
+  name: 'fetchTripStartTrips: start_date = today, active only, marker empty',
+  ignore: !stackReady,
+  fn: async () => {
+    const store = createScheduleStore(createAdminClient(SUPABASE_URL, SERVICE_ROLE_KEY));
+    const tripId = await newTrip('2026-01-10', '2026-01-02');
+    try {
+      const due = await store.fetchTripStartTrips('2026-01-02');
+      assert(due.data !== null, String(due.error));
+      assert(due.data.some((t) => t.id === tripId), 'a trip with start_date = today gets the push');
+
+      // The day before and the day after: the equality does not match.
+      const dayBefore = await store.fetchTripStartTrips('2026-01-01');
+      assert(dayBefore.data !== null, String(dayBefore.error));
+      assertEquals(dayBefore.data.some((t) => t.id === tripId), false);
+      const dayAfter = await store.fetchTripStartTrips('2026-01-03');
+      assert(dayAfter.data !== null, String(dayAfter.error));
+      assertEquals(dayAfter.data.some((t) => t.id === tripId), false);
+
+      // Marker set: no second selection.
+      await store.markStartPush(tripId);
+      const marked = await store.fetchTripStartTrips('2026-01-02');
+      assert(marked.data !== null, String(marked.error));
+      assertEquals(marked.data.some((t) => t.id === tripId), false);
+    } finally {
+      await deleteTrip(tripId);
+    }
+  },
+});
+
+Deno.test({
+  name: 'markStartPush: CAS in the real update, second call 0 rows, revealed blocks',
+  ignore: !stackReady,
+  fn: async () => {
+    const store = createScheduleStore(createAdminClient(SUPABASE_URL, SERVICE_ROLE_KEY));
+    const tripId = await newTrip('2026-01-10', '2026-01-02');
+    const tripId2 = await newTrip('2026-01-10', '2026-01-02');
+    try {
+      const first = await store.markStartPush(tripId);
+      assert(first.data !== null, String(first.error));
+      const second = await store.markStartPush(tripId);
+      assertEquals(second.data, null);
+      assertEquals(second.error, null);
+
+      // Revealed between selection and marker: `status = 'active'` in the
+      // real update condition blocks the push.
+      await store.updateIfActive(tripId2);
+      const afterReveal = await store.markStartPush(tripId2);
+      assertEquals(afterReveal, { data: null, error: null });
+    } finally {
+      await deleteTrip(tripId);
+      await deleteTrip(tripId2);
     }
   },
 });
