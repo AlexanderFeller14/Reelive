@@ -2654,6 +2654,7 @@ test('the stabilization toggle carries the wish to the module', async () => {
   await screen.findByLabelText('Auslöser');
 
   // The mount effect reports the default (on) once.
+  expect(mockMultiCamera.setStabilization).toHaveBeenCalledTimes(1);
   expect(mockMultiCamera.setStabilization).toHaveBeenLastCalledWith(true);
 
   await fireEvent.press(screen.getByLabelText('Stabilisierung ausschalten'));

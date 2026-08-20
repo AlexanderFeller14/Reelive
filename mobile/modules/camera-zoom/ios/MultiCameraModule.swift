@@ -1329,6 +1329,10 @@ public class MultiCameraModule: Module {
     // The flash wish starts fresh too: a freshly built session shouldn't
     // inherit the lamp of a long-finished recording.
     _flashWanted = false
+    // The stabilization wish intentionally survives teardown: the still-mounted
+    // screen's effect won't re-fire on a session rebuild, so resetting here
+    // would desync native state from the toggle; attach() re-applies the wish.
+    // _stabilizationWanted is not reset.
     // An open photo request dies with the session: it's waiting for a frame
     // that's no longer coming. Its promise is resolved by the deadline
     // ("no_frame"), so nobody's left hanging.
