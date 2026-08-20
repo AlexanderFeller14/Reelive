@@ -19,3 +19,8 @@ versiegelt bis zum Reveal, danach chronologischer Recap aus allen Perspektiven.
 - Schema-Änderungen nur über Migrationen in `supabase/migrations/`; jede RLS-Policy
   bekommt pgTAP-Tests in `supabase/tests/`
 - UI-Sprache Deutsch (Du-Form), Vokabular gemäss DESIGN-LANGUAGE.md §6
+- Quellcode ist englisch: Bezeichner, Datei- und Ordnernamen, Kommentare und
+  Testbeschreibungen. Nur sichtbare UI-Texte sind deutsch (Du-Form, Vokabular
+  gemäss DESIGN-LANGUAGE.md §6). Persistente Keys, Wire-Felder und Log-Texte
+  zählen zum Code. Einzige stehende Ausnahme: DB-Spalten, die historisch
+  deutsch sind (SQLite-Queue-Spalten).
