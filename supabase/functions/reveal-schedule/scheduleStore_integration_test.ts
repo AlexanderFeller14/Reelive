@@ -182,7 +182,7 @@ Deno.test({
 });
 
 Deno.test({
-  name: 'fetchTripStartTrips: start_date = today, active only, marker empty',
+  name: 'fetchTripStartTrips: start_date = today and marker empty',
   ignore: !stackReady,
   fn: async () => {
     const store = createScheduleStore(createAdminClient(SUPABASE_URL, SERVICE_ROLE_KEY));

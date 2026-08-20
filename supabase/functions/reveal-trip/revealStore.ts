@@ -106,7 +106,7 @@ export function createRevealStore(supabaseAdmin: AdminClient): RevealStore {
     },
 
     // userIds in addition to tokens (review minor, see the comment in
-    // reveal.ts/sendRevealPush): limits a mapping wrongly read as
+    // reveal.ts/sendTripPush): limits a mapping wrongly read as
     // DeviceNotRegistered to the just-notified recipient circle, instead of
     // running as the service role over the whole table. Checked directly
     // in revealStore_integration_test.ts.

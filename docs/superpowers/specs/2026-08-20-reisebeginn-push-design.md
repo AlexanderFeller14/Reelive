@@ -76,6 +76,11 @@ mit.
   Nachhol-Schwall für laufende Alt-Reisen.
 - App-Seite: nichts zu tun. Der Push öffnet die App, einen Tap-Handler gibt
   es wie bei den bestehenden Pushes bewusst nicht.
+- Eintaegige Reise (Beginn = Ende): am selben Morgen kommen beide Pushes, 07:30 UTC
+  die Owner-Erinnerung «letzter Tag», 08:00 UTC der Beginn-Push an alle Mitglieder.
+  Bewusst akzeptiert (Entscheid 2026-08-20): beide Aussagen stimmen, nur die
+  Owner-Person sieht beide, und der Beginn-Push ist fuer die Mitglieder der
+  wertvollere der beiden.
 
 ## Tests
 

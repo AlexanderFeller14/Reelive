@@ -67,7 +67,7 @@ export interface RevealStore {
 
   // ALL members of a trip, INCLUDING the triggering person. Deliberately
   // with no `.neq('user_id', triggeringUserId)` in the query: the exclusion
-  // happens in `sendRevealPush` (pure JS filtering), so it is unit-testable
+  // happens in `sendTripPush` (pure JS filtering), so it is unit-testable
   // instead of living only in a SQL clause no test without Docker reaches.
   fetchMembers(tripId: string): Promise<StoreResult<{ user_id: string }[]>>;
 
@@ -75,7 +75,7 @@ export interface RevealStore {
 
   // tokens: tokens Expo reports as "DeviceNotRegistered".
   // userIds: additional restriction to the just-notified recipient circle
-  // (review minor, see comment in sendRevealPush), both parameters already
+  // (review minor, see comment in sendTripPush), both parameters already
   // arrive correctly restricted from the pure orchestration, the adapter
   // only has to carry them 1:1 into the query.
   deleteTokens(tokens: string[], userIds: string[]): Promise<{ error: unknown }>;

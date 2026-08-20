@@ -39,16 +39,19 @@ openssl rand -hex 32
 3. Deploy OHNE JWT-Pflicht (config.toml gilt nur lokal):
    `supabase functions deploy reveal-schedule --no-verify-jwt`.
 4. Nach dem Ausrollen prüfen: `select jobname, schedule from cron.job;`
-   muss `reveal-schedule-reveal` (`10 23 * * *`) und
-   `reveal-schedule-reminder` (`30 7 * * *`) zeigen. Achtung: der erste
-   Reveal-Lauf deckt auch alte aktive Reisen mit vergangenem Enddatum auf
-   (Spec §2, abgenommen).
+   muss `reveal-schedule-reveal` (`10 23 * * *`), `reveal-schedule-reminder`
+   (`30 7 * * *`) und `reveal-schedule-trip-start` (`0 8 * * *`) zeigen.
+   Achtung: der erste Reveal-Lauf deckt auch alte aktive Reisen mit
+   vergangenem Enddatum auf (Spec §2, abgenommen). Der erste Trip-Start-Lauf
+   holt dagegen NICHT nach: nur Reisen mit `start_date = heute` lösen den
+   Push aus, laufende Alt-Reisen bekommen nichts.
 
 ## Zeiten
 
 Zeitreferenz ist fest Europe/Zurich (Spec §3). Die UTC-Cron-Zeiten liegen
 ganzjährig nach Zürcher Mitternacht (Reveal) bzw. am Zürcher Morgen
-(Erinnerung); «heute» berechnet der SQL-Wrapper mit der DB-Uhr.
+(Erinnerung, Beginn-Push); «heute» berechnet der SQL-Wrapper mit der DB-Uhr.
+08:00 UTC ist 10:00 Sommer- bzw. 09:00 Winterzeit in Zürich.
 
 Der `net.http_post`-Aufruf ist fire-and-forget, die Antwort der Function
 landet höchstens in `net._http_response`; ein verpasster oder abgebrochener

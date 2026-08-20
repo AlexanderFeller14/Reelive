@@ -1,6 +1,6 @@
 create extension if not exists pgtap with schema extensions;
 begin;
-select plan(5);
+select plan(6);
 
 -- Trip-start push (Spec 2026-08-20): column, ACL and cron wiring of
 -- migration 20260820120000. No new policies, therefore no policy tests.
@@ -29,6 +29,11 @@ select is(
   (select schedule from cron.job where jobname = 'reveal-schedule-trip-start'),
   '0 8 * * *',
   'the trip start job runs 08:00 UTC, 10:00 summer / 09:00 winter in Zurich');
+
+select is(
+  (select command from cron.job where jobname = 'reveal-schedule-trip-start'),
+  $$select public.call_reveal_schedule('trip_start')$$,
+  'the trip start job calls the task value the edge function accepts');
 
 select * from finish();
 rollback;
