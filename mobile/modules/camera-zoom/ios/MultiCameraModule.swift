@@ -1001,7 +1001,14 @@ public class MultiCameraModule: Module {
   // fixed name list with subscript access, the same rule as applyFlash.
   private static func applyStabilization() {
     sessionQueue.async {
+      guard let session = session else { return }
       let wanted = stabilizationWanted
+      // One bracket around all cameras: on a RUNNING session every mode
+      // assignment triggers its own pipeline transition, and three serial
+      // transitions showed up as serial stutter in the viewfinder on
+      // device (2026-08-20). Bracketed, the session rebuilds once.
+      session.beginConfiguration()
+      defer { session.commitConfiguration() }
       for name in cameraNames {
         guard let connection = outputConnections[name],
           connection.isVideoStabilizationSupported,
