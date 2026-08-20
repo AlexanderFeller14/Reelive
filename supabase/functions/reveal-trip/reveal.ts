@@ -87,20 +87,26 @@ export interface RevealStore {
 // `fetch`).
 export type SendFn = (messages: PushMessage[]) => Promise<string[]>;
 
-// Sends the reveal notification to every member of the trip except the
-// triggering person and deletes tokens Expo reports as deregistered.
+// Sends one notification text to every member of the trip except the
+// triggering person and deletes tokens Expo reports as deregistered. The
+// text goes into title AND body, like every push in this project.
 //
-// IMPORTANT: `performReveal` only calls this in the winner branch of the
-// CAS update. A parallel call that did not itself trigger the status
-// change (0 rows affected, follow-up branch) must not send the push a
-// second time, exactly this double send was a review finding on an earlier
-// version of this function (f26437a) and is now proven, not just by
-// reading the code, by reveal_test.ts with a real two-call race against a
-// shared fake store.
-export async function sendRevealPush(
+// Generalized from the former sendRevealPush body (trip-start push, Spec
+// 2026-08-20): recipients, token loading and dead-token cleanup are
+// identical for every trip-wide push, only the text differs.
+//
+// IMPORTANT: `performReveal` only calls this (via sendRevealPush) in the
+// winner branch of the CAS update. A parallel call that did not itself
+// trigger the status change (0 rows affected, follow-up branch) must not
+// send the push a second time, exactly this double send was a review
+// finding on an earlier version of this function (f26437a) and is now
+// proven, not just by reading the code, by reveal_test.ts with a real
+// two-call race against a shared fake store.
+export async function sendTripPush(
   store: RevealStore,
   sendFn: SendFn,
   trip: TripRow,
+  text: string,
   triggeringUserId: string | null,
 ): Promise<void> {
   const { data: members, error: membersError } = await store.fetchMembers(trip.id);
@@ -109,13 +115,13 @@ export async function sendRevealPush(
     return;
   }
 
-  // The triggering person does not get her own reveal pushed to her, she
-  // already knows, she just tapped "finish trip" herself. Previously a
+  // The triggering person does not get her own action pushed to her, she
+  // already knows, she just tapped the button herself. Previously a
   // `.neq('user_id', triggeringUserId)` clause in the SQL query itself, now
   // the same set as pure JS filtering, so reveal_test.ts can check it with
   // no Docker.
   //
-  // triggeringUserId null (auto-reveal, Spec 2026-08-18): the calendar
+  // triggeringUserId null (auto-reveal and trip-start push): the calendar
   // triggered it, no person, nobody gets filtered; the comparison userId
   // !== null is true for every user_id.
   const recipientIds = (members ?? [])
@@ -133,8 +139,8 @@ export async function sendRevealPush(
 
   const messages: PushMessage[] = tokens.map((t) => ({
     to: t.token,
-    title: `✈️ Euer Recap von «${trip.name}» ist bereit!`,
-    body: `✈️ Euer Recap von «${trip.name}» ist bereit!`,
+    title: text,
+    body: text,
     data: { trip_id: trip.id },
   }));
 
@@ -152,6 +158,17 @@ export async function sendRevealPush(
   if (deleteError) {
     console.error('reveal-trip: cleaning up unregistered push_tokens failed', deleteError);
   }
+}
+
+// The reveal message as a thin wrapper: same recipients and cleanup, only
+// the text is fixed. All existing callers stay unchanged.
+export async function sendRevealPush(
+  store: RevealStore,
+  sendFn: SendFn,
+  trip: TripRow,
+  triggeringUserId: string | null,
+): Promise<void> {
+  await sendTripPush(store, sendFn, trip, `✈️ Euer Recap von «${trip.name}» ist bereit!`, triggeringUserId);
 }
 
 export type RevealResult = { status: number; body: Record<string, unknown> };
