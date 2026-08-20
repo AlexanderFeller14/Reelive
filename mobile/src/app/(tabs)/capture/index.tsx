@@ -22,7 +22,7 @@ import {
 } from 'expo-camera';
 import { createVideoPlayer, type VideoPlayer } from 'expo-video';
 import { getThumbnailAsync } from 'expo-video-thumbnails';
-import { ChevronDown, SwitchCamera, Zap, ZapOff } from 'lucide-react-native';
+import { ChevronDown, SwitchCamera, Vibrate, VibrateOff, Zap, ZapOff } from 'lucide-react-native';
 import { ShutterButton } from '@/components/ShutterButton';
 import { Button } from '@/components/Button';
 import { Pill } from '@/components/Pill';
@@ -221,6 +221,8 @@ function EmptyScreen() {
 // pills". §10 excludes only the trip switcher, and "flash" appeared nowhere in
 // the plan (final review, important 7). For a shared travel diary, no front
 // camera means no group pictures.
+// The stabilization pill joined later (spec 2026-08-20), MultiCam branch
+// only.
 //
 // Translucent pill per DESIGN-LANGUAGE §1/§4: `overlay-pill` + blur (task 10,
 // phase 6, see components/Pill.tsx), radius 999. Icons: Lucide, outline,
@@ -513,6 +515,7 @@ export default function CaptureScreen() {
   const [multiCam, setMultiCam] = useState(() => multiCamera.available());
   const [facing, setFacing] = useState<'back' | 'front'>('back');
   const [flash, setFlash] = useState<'off' | 'on'>('off');
+  const [stabilization, setStabilization] = useState<'on' | 'off'>('on');
   // Counter catch-up from task 9 (task 10 brief): server state PLUS waiting
   // moments of the same trip (ownMomentCount), instead of freezing at the bare
   // trip.my_post_count, otherwise the pill does not move after an offline
@@ -834,6 +837,15 @@ export default function CaptureScreen() {
       if (on) multiCamera.setFlash(false);
     };
   }, [multiCam, flash, capturing, facing]);
+
+  // Unlike the torch, the stabilization wish holds for the whole stream
+  // (the photo grab inherits the stabilized frame), not only while
+  // recording. The native default is on; this effect carries the toggle
+  // and repeats the current wish on mount, which is idempotent.
+  useEffect(() => {
+    if (!multiCam) return;
+    multiCamera.setStabilization(stabilization === 'on');
+  }, [multiCam, stabilization]);
 
   // Once the bar lies over the image, it no longer takes room away from the
   // screen, so the bottom-anchored controls (shutter, zoom row, error pill)
@@ -1732,6 +1744,24 @@ export default function CaptureScreen() {
                 <ZapOff size={22} color={cinema['text-2']} strokeWidth={1.75} />
             )}
           </PillButton>
+            {multiCam && (
+              <PillButton
+                label={
+                  stabilization === 'on'
+                    ? 'Stabilisierung ausschalten'
+                    : 'Stabilisierung einschalten'
+                }
+                onPress={() =>
+                  setStabilization((current) => (current === 'on' ? 'off' : 'on'))
+                }
+              >
+                {stabilization === 'on' ? (
+                  <Vibrate size={22} color={cinema['text-1']} strokeWidth={1.75} />
+                ) : (
+                  <VibrateOff size={22} color={cinema['text-2']} strokeWidth={1.75} />
+                )}
+              </PillButton>
+            )}
         </View>
       </View>
       )}

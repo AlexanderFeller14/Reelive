@@ -250,6 +250,7 @@ const mockMultiCamera = {
       } | null
   ),
   setFlash: jest.fn((_on: boolean) => {}),
+  setStabilization: jest.fn((_on: boolean) => {}),
 };
 jest.mock('@/features/camera/multiCamera', () => {
   const ReactActual = require('react');
@@ -267,6 +268,7 @@ jest.mock('@/features/camera/multiCamera', () => {
     stopCapture: () => mockMultiCamera.stopCapture(),
     takePhoto: (flash: boolean) => mockMultiCamera.takePhoto(flash),
     setFlash: (on: boolean) => mockMultiCamera.setFlash(on),
+    setStabilization: (on: boolean) => mockMultiCamera.setStabilization(on),
     MultiCameraViewfinder: (props: object) => ReactActual.createElement(View, props),
   };
 });
@@ -335,6 +337,7 @@ beforeEach(() => {
     height: 1920,
   });
   mockMultiCamera.setFlash.mockImplementation(() => {});
+  mockMultiCamera.setStabilization.mockImplementation(() => {});
 });
 
 afterEach(() => {
@@ -2641,6 +2644,51 @@ test('a failed start in the MultiCam branch brings the error pill instead of rec
   expect(mockMultiCamera.stopCapture).not.toHaveBeenCalled();
   expect(mockPush).not.toHaveBeenCalled();
   expect(captureLock.isLocked()).toBe(false);
+});
+
+// === The stabilization pill (MultiCam branch only) ===
+test('the stabilization toggle carries the wish to the module', async () => {
+  mockMultiCamera.available.mockReturnValue(true);
+  (fetchTrips as jest.Mock).mockResolvedValue(loaded([trip()]));
+  await render(<CaptureScreen />);
+  await screen.findByLabelText('Auslöser');
+
+  // The mount effect reports the default (on) once.
+  expect(mockMultiCamera.setStabilization).toHaveBeenCalledTimes(1);
+  expect(mockMultiCamera.setStabilization).toHaveBeenLastCalledWith(true);
+
+  await fireEvent.press(screen.getByLabelText('Stabilisierung ausschalten'));
+  expect(mockMultiCamera.setStabilization).toHaveBeenLastCalledWith(false);
+
+  await fireEvent.press(screen.getByLabelText('Stabilisierung einschalten'));
+  expect(mockMultiCamera.setStabilization).toHaveBeenLastCalledWith(true);
+});
+
+test('the expo-camera fallback shows no stabilization pill', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(loaded([trip()]));
+  await render(<CaptureScreen />);
+  await screen.findByLabelText('Auslöser');
+  expect(screen.queryByLabelText('Stabilisierung ausschalten')).toBeNull();
+  expect(screen.queryByLabelText('Stabilisierung einschalten')).toBeNull();
+  expect(mockMultiCamera.setStabilization).not.toHaveBeenCalled();
+});
+
+test('during a running capture the stabilization pill disappears too', async () => {
+  mockMultiCamera.available.mockReturnValue(true);
+  (fetchTrips as jest.Mock).mockResolvedValue(loaded([trip()]));
+  mockMultiCamera.startCapture.mockImplementation(() => new Promise(() => {}));
+  await render(<CaptureScreen />);
+  await screen.findByLabelText('Auslöser');
+  expect(screen.getByLabelText('Stabilisierung ausschalten')).toBeTruthy();
+
+  jest.useFakeTimers();
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressIn');
+  await act(async () => {
+    jest.advanceTimersByTime(600);
+  });
+  jest.useRealTimers();
+
+  expect(screen.queryByLabelText('Stabilisierung ausschalten')).toBeNull();
 });
 
 test('in the MultiCam branch the flash lights during the capture and goes out on the release', async () => {
