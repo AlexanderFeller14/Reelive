@@ -2,17 +2,15 @@
 import '@supabase/functions-js/edge-runtime.d.ts';
 
 // reveal-schedule, the time-triggered counterpart to reveal-trip: called by
-// pg_cron via rufe_reveal_zeitplan (migration 20260818100000), never by the
+// pg_cron via call_reveal_schedule (migration 20260820090000), never by the
 // app. Instead of a JWT, the call carries the cron secret in the header
-// x-cron-geheimnis; the complete admission check is testable as a pure
+// x-cron-secret; the complete admission check is testable as a pure
 // function in schedule.ts (checkScheduleRequest). This handler only
 // translates HTTP: method, configuration, body parsing, dispatch by task.
 //
-// Task-14 contract: the header x-cron-geheimnis, the body fields
-// aufgabe/heute, the task values 'reveal'/'erinnerung', and the env key
-// CRON_GEHEIMNIS below are a wire contract with the SQL cron job and stay
-// exactly as written until Task 14 moves both sides together, see
-// task-13-report.md.
+// Wire contract with the SQL cron job: the header x-cron-secret, the body
+// fields task/today, the task values 'reveal'/'reminder', and the env key
+// CRON_SECRET below move together, see task-14-report.md.
 import { send } from '../reveal-trip/push.ts';
 import { createErrorReporter } from '../_shared/errorReporter.ts';
 import { performAutoReveal, performReminder, checkScheduleRequest } from './schedule.ts';
@@ -20,7 +18,7 @@ import { createAdminClient, createScheduleStore } from './scheduleStore.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
-const CRON_GEHEIMNIS = Deno.env.get('CRON_GEHEIMNIS') ?? '';
+const CRON_SECRET = Deno.env.get('CRON_SECRET') ?? '';
 
 const SENTRY_DSN = Deno.env.get('SENTRY_DSN') ?? '';
 const report = createErrorReporter(SENTRY_DSN, 'reveal-schedule');
@@ -54,11 +52,11 @@ Deno.serve(async (req: Request): Promise<Response> => {
     return errorResponse('Ungültige Anfrage.', 400);
   }
 
-  const admission = checkScheduleRequest(req.headers.get('x-cron-geheimnis'), CRON_GEHEIMNIS, body);
+  const admission = checkScheduleRequest(req.headers.get('x-cron-secret'), CRON_SECRET, body);
   if (!admission.ok) {
     if (admission.status === 500) {
-      console.error('reveal-schedule: CRON_GEHEIMNIS fehlt.');
-      await report(new Error('reveal-schedule: CRON_GEHEIMNIS fehlt.'));
+      console.error('reveal-schedule: CRON_SECRET fehlt.');
+      await report(new Error('reveal-schedule: CRON_SECRET fehlt.'));
     }
     return errorResponse(admission.error, admission.status);
   }

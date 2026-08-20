@@ -1139,8 +1139,8 @@ describe('moderation of reported moments', () => {
 // the SELECT policy on share_links is owner-only, and it stays that way,
 // because whoever reads the row reads the token. Everybody else had sent in
 // their moments without ever learning that they now sit behind a public URL,
-// places included. The answer comes from `public.recap_ist_geteilt`
-// (migration 20260810100000).
+// places included. The answer comes from `public.recap_is_shared`
+// (migration 20260820090000).
 describe('the notice about an existing share link', () => {
   test('stands there while the recap is shared, together with the sentence about what the link reveals', async () => {
     (fetchTrip as jest.Mock).mockResolvedValue(tripRevealedOk);
@@ -1198,6 +1198,6 @@ describe('the notice about an existing share link', () => {
     await wrap();
     await screen.findByTestId('geteilt-hinweis');
 
-    expect(mockRpc).toHaveBeenCalledWith('recap_ist_geteilt', { p_trip_id: 't1' });
+    expect(mockRpc).toHaveBeenCalledWith('recap_is_shared', { p_trip_id: 't1' });
   });
 });

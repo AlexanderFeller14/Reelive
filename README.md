@@ -99,7 +99,7 @@ ist es ein Befehl.
 4. **Beide `.env` auf die LAN-IP des Macs**, nicht `127.0.0.1`: das ist für ein
    Handy es selbst. Betroffen sind `EXPO_PUBLIC_SUPABASE_URL` und
    `EXPO_PUBLIC_SHARE_BASE_URL` in `mobile/.env` sowie `S3_ENDPOINT` und
-   `TEILEN_BASIS_URL` in `supabase/functions/.env`. Die beiden Teilen-Basen
+   `SHARE_BASE_URL` in `supabase/functions/.env`. Die beiden Teilen-Basen
    müssen übereinstimmen. Aktuelle Adresse: `ipconfig getifaddr en0`.
 
 **Bauen und installieren:**
@@ -290,7 +290,7 @@ keine automatische Ableitung der einen aus der anderen:
 
 | Variable | Wo | Wofür |
 |---|---|---|
-| `TEILEN_BASIS_URL` | `supabase/functions/.env` (serverseitig, Function `share-link`) | Baut die fertige Teilen-URL bei `aktion: 'erstellen'` |
+| `SHARE_BASE_URL` | `supabase/functions/.env` (serverseitig, Function `share-link`) | Baut die fertige Teilen-URL bei `aktion: 'erstellen'` |
 | `EXPO_PUBLIC_SHARE_BASE_URL` | `mobile/.env` (clientseitig) | Zeigt den Link eines bereits bestehenden Teilen-Links erneut an, ohne ihn neu zu erzeugen |
 
 Beide müssen auf dieselbe Basis-URL zeigen (siehe Kommentare in den jeweiligen `.env.example`).

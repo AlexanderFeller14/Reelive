@@ -87,7 +87,7 @@ const REVOKE_ERROR = 'Der Link konnte nicht deaktiviert werden. Probier es gleic
 //
 // Reads `aktive_share_links` (migration 20260810120000), not the table.
 // What "carries" means used to live twice in the project: here as a client
-// filter and in `recap_ist_geteilt` as SQL. Both said the same thing but
+// filter and in `recap_is_shared` as SQL. Both said the same thing but
 // weren't bound to each other, and a drift would stand side by side for
 // the same trip: this sheet says "no active link", the row on the trip
 // screen says "this recap is shared".
@@ -170,7 +170,7 @@ export async function revokeLink(token: string): Promise<{ error: string | null 
 // moments are currently sitting behind a public URL, places included.
 //
 // Hence a database function that only says yes or no
-// (`public.recap_ist_geteilt`, migration 20260810100000). It checks
+// (`public.recap_is_shared`, migration 20260820090000). It checks
 // membership itself and applies the same three conditions as
 // `share-link/resolve`: not revoked, not expired, row exists.
 //
@@ -187,7 +187,7 @@ export async function isRecapShared(tripId: string): Promise<Loaded<boolean | nu
   // unconfigured and returns `undefined`, in real operation
   // `supabase.rpc()` always resolves to { data, error } (same safeguard
   // and same reason as in features/trips/tripsApi.ts).
-  const result = await supabase.rpc('recap_ist_geteilt', { p_trip_id: tripId });
+  const result = await supabase.rpc('recap_is_shared', { p_trip_id: tripId });
   const error = result?.error;
   if (error) return { data: null, error: message(error, SHARE_STATUS_ERROR) };
   // The function is `returns boolean` and can only deliver null if

@@ -105,30 +105,30 @@ function collecting(): { sent: PushMessage[]; sendFn: SendFn } {
 // --- checkScheduleRequest ----------------------------------------------------
 
 Deno.test('checkScheduleRequest: a correct secret and body produce the request', () => {
-  const result = checkScheduleRequest('s3cret', 's3cret', { aufgabe: 'reveal', heute: '2026-08-18' });
+  const result = checkScheduleRequest('s3cret', 's3cret', { task: 'reveal', today: '2026-08-18' });
   assertEquals(result, { ok: true, request: { task: 'reveal', today: '2026-08-18' } });
 });
 
 Deno.test('checkScheduleRequest: a wrong or missing secret produces 401', () => {
-  const wrong = checkScheduleRequest('anders', 's3cret', { aufgabe: 'reveal', heute: '2026-08-18' });
+  const wrong = checkScheduleRequest('anders', 's3cret', { task: 'reveal', today: '2026-08-18' });
   assertEquals(wrong.ok, false);
   if (!wrong.ok) assertEquals(wrong.status, 401);
-  const missing = checkScheduleRequest(null, 's3cret', { aufgabe: 'reveal', heute: '2026-08-18' });
+  const missing = checkScheduleRequest(null, 's3cret', { task: 'reveal', today: '2026-08-18' });
   assertEquals(missing.ok, false);
   if (!missing.ok) assertEquals(missing.status, 401);
 });
 
 Deno.test('checkScheduleRequest: an unconfigured secret produces 500, never 200', () => {
-  const result = checkScheduleRequest('', '', { aufgabe: 'reveal', heute: '2026-08-18' });
+  const result = checkScheduleRequest('', '', { task: 'reveal', today: '2026-08-18' });
   assertEquals(result.ok, false);
   if (!result.ok) assertEquals(result.status, 500);
 });
 
-Deno.test('checkScheduleRequest: an unknown task or a broken heute produce 400', () => {
-  const task = checkScheduleRequest('s3cret', 's3cret', { aufgabe: 'putzen', heute: '2026-08-18' });
+Deno.test('checkScheduleRequest: an unknown task or a broken today produce 400', () => {
+  const task = checkScheduleRequest('s3cret', 's3cret', { task: 'cleaning', today: '2026-08-18' });
   assertEquals(task.ok, false);
   if (!task.ok) assertEquals(task.status, 400);
-  const today = checkScheduleRequest('s3cret', 's3cret', { aufgabe: 'reveal', heute: '18.08.2026' });
+  const today = checkScheduleRequest('s3cret', 's3cret', { task: 'reveal', today: '18.08.2026' });
   assertEquals(today.ok, false);
   if (!today.ok) assertEquals(today.status, 400);
 });

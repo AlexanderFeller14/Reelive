@@ -1,4 +1,4 @@
--- recap_ist_geteilt: die eine Auskunft, die Mitreisende über einen Teilen-Link
+-- recap_is_shared: die eine Auskunft, die Mitreisende über einen Teilen-Link
 -- bekommen, und die einzige, die sie bekommen sollen.
 --
 -- Zwei Dinge stehen hier auf dem Spiel, und beide sind unangenehm, wenn sie
@@ -69,8 +69,8 @@ update public.trips set status = 'revealed', revealed_at = '2026-08-10 18:00+00'
 -- A. Ohne Link ist nichts geteilt
 -- ----------------------------------------------------------------------------
 select pg_temp.login_as('00000000-0000-0000-0000-00000000000b');
-select is(public.recap_ist_geteilt('11111111-1111-1111-1111-111111111111'), false,
-  'ohne Link sagt die Auskunft nein');
+select is(public.recap_is_shared('11111111-1111-1111-1111-111111111111'), false,
+  'without a link the answer says no');
 
 -- ----------------------------------------------------------------------------
 -- B. Mit einem aktiven Link sehen es BEIDE, die Owner-Person und die Mitreisende
@@ -80,24 +80,24 @@ insert into public.share_links (token, trip_id) values
   ('link-aktiv', '11111111-1111-1111-1111-111111111111');
 
 select pg_temp.login_as('00000000-0000-0000-0000-00000000000b');
-select is(public.recap_ist_geteilt('11111111-1111-1111-1111-111111111111'), true,
-  'die Mitreisende erfährt, dass ihr Recap geteilt ist');
+select is(public.recap_is_shared('11111111-1111-1111-1111-111111111111'), true,
+  'the fellow traveler learns that their recap is shared');
 
 select pg_temp.login_as('00000000-0000-0000-0000-00000000000a');
-select is(public.recap_ist_geteilt('11111111-1111-1111-1111-111111111111'), true,
-  'die Owner-Person sieht dasselbe');
+select is(public.recap_is_shared('11111111-1111-1111-1111-111111111111'), true,
+  'the owner sees the same');
 
 -- Der Orakel-Schutz. `security definer` hebt RLS auf, ohne die
 -- Mitgliedschafts-Bedingung in der Funktion beantwortete sie für JEDE
 -- beliebige trip_id, ob dort gerade geteilt wird.
 select pg_temp.login_as('00000000-0000-0000-0000-00000000000c');
-select is(public.recap_ist_geteilt('11111111-1111-1111-1111-111111111111'), false,
-  'wer nicht mitgereist ist, erfährt nichts, auch nicht dass geteilt wird');
+select is(public.recap_is_shared('11111111-1111-1111-1111-111111111111'), false,
+  'whoever did not come along learns nothing, not even that sharing is happening');
 
 -- Und eine Reise, die es gar nicht gibt, verrät ebenso wenig, sie sieht von
 -- aussen aus wie eine fremde.
-select is(public.recap_ist_geteilt('99999999-9999-9999-9999-999999999999'), false,
-  'eine unbekannte Reise antwortet wie eine fremde');
+select is(public.recap_is_shared('99999999-9999-9999-9999-999999999999'), false,
+  'an unknown trip answers just like a stranger''s');
 
 -- ----------------------------------------------------------------------------
 -- C. Der Token bleibt bei der Owner-Person
@@ -108,12 +108,12 @@ select is(public.recap_ist_geteilt('99999999-9999-9999-9999-999999999999'), fals
 select pg_temp.login_as('00000000-0000-0000-0000-00000000000b');
 select is((select count(*)::int from public.share_links
             where trip_id = '11111111-1111-1111-1111-111111111111'), 0,
-  'die Mitreisende sieht die Zeile selbst nicht, und damit nie den Token');
+  'the fellow traveler never sees the row itself, and so never the token');
 
 select pg_temp.login_as('00000000-0000-0000-0000-00000000000a');
 select is((select count(*)::int from public.share_links
             where trip_id = '11111111-1111-1111-1111-111111111111'), 1,
-  'die Owner-Person sieht ihre Zeile weiterhin, sie braucht den Token');
+  'the owner still sees their row, they need the token');
 
 -- ----------------------------------------------------------------------------
 -- D. Dieselben Grenzen wie `share-link/aufloesen`
@@ -122,8 +122,8 @@ select pg_temp.as_service();
 update public.share_links set revoked = true where token = 'link-aktiv';
 
 select pg_temp.login_as('00000000-0000-0000-0000-00000000000b');
-select is(public.recap_ist_geteilt('11111111-1111-1111-1111-111111111111'), false,
-  'ein widerrufener Link zählt nicht mehr als geteilt');
+select is(public.recap_is_shared('11111111-1111-1111-1111-111111111111'), false,
+  'a revoked link no longer counts as shared');
 
 -- Ein zweiter, abgelaufener Link daneben: auch er trägt nichts mehr.
 select pg_temp.as_service();
@@ -131,8 +131,8 @@ insert into public.share_links (token, trip_id, expires_at) values
   ('link-abgelaufen', '11111111-1111-1111-1111-111111111111', now() - interval '1 minute');
 
 select pg_temp.login_as('00000000-0000-0000-0000-00000000000b');
-select is(public.recap_ist_geteilt('11111111-1111-1111-1111-111111111111'), false,
-  'ein abgelaufener Link zählt nicht als geteilt');
+select is(public.recap_is_shared('11111111-1111-1111-1111-111111111111'), false,
+  'an expired link does not count as shared');
 
 -- Und ein dritter, der noch gilt: EIN tragender Link genügt, auch neben zwei
 -- toten. Ohne diesen Fall wäre nicht zu unterscheiden, ob die Funktion
@@ -142,8 +142,8 @@ insert into public.share_links (token, trip_id, expires_at) values
   ('link-mit-frist', '11111111-1111-1111-1111-111111111111', now() + interval '7 days');
 
 select pg_temp.login_as('00000000-0000-0000-0000-00000000000b');
-select is(public.recap_ist_geteilt('11111111-1111-1111-1111-111111111111'), true,
-  'ein gültiger Link neben zwei toten genügt');
+select is(public.recap_is_shared('11111111-1111-1111-1111-111111111111'), true,
+  'one valid link next to two dead ones is enough');
 
 -- Die Grenze selbst, von der anderen Seite: läuft auch dieser ab, ist wieder
 -- nichts geteilt. Damit ist belegt, dass `expires_at` überhaupt gelesen wird
@@ -153,8 +153,8 @@ update public.share_links set expires_at = now() - interval '1 second'
   where token = 'link-mit-frist';
 
 select pg_temp.login_as('00000000-0000-0000-0000-00000000000b');
-select is(public.recap_ist_geteilt('11111111-1111-1111-1111-111111111111'), false,
-  'läuft auch der letzte ab, ist wieder nichts geteilt');
+select is(public.recap_is_shared('11111111-1111-1111-1111-111111111111'), false,
+  'once the last one expires too, nothing is shared again');
 
 -- `expires_at is null` heisst «ohne Ablauf», der Normalfall.
 select pg_temp.as_service();
@@ -162,8 +162,8 @@ insert into public.share_links (token, trip_id) values
   ('link-unbefristet', '11111111-1111-1111-1111-111111111111');
 
 select pg_temp.login_as('00000000-0000-0000-0000-00000000000b');
-select is(public.recap_ist_geteilt('11111111-1111-1111-1111-111111111111'), true,
-  'ein Link ohne Ablaufdatum gilt');
+select is(public.recap_is_shared('11111111-1111-1111-1111-111111111111'), true,
+  'a link with no expiry date counts');
 
 -- ----------------------------------------------------------------------------
 -- E. Die View traegt die Regel, und sie traegt die RLS mit
@@ -171,7 +171,7 @@ select is(public.recap_ist_geteilt('11111111-1111-1111-1111-111111111111'), true
 -- `aktive_share_links` (Migration 20260810120000) ist die EINE Stelle, an der
 -- steht, welcher Link gerade traegt. Sie hat zwei Leser mit verschiedenen
 -- Sichtweiten: den Client der Owner-Person (braucht den Token) und
--- `recap_ist_geteilt` (braucht nur ja/nein).
+-- `recap_is_shared` (braucht nur ja/nein).
 --
 -- Das Gefaehrliche an einer View ueber einer Tabelle mit RLS ist der
 -- Vorgabewert: OHNE `security_invoker = on` gehoert sie ihrem Erzeuger, und
@@ -185,49 +185,49 @@ update public.share_links set revoked = false, expires_at = null where token = '
 select pg_temp.login_as('00000000-0000-0000-0000-00000000000a');
 select is((select count(*)::int from public.aktive_share_links
             where trip_id = '11111111-1111-1111-1111-111111111111'), 1,
-  'die Owner-Person sieht in der View genau den einen Link, der noch traegt');
+  'the owner sees in the view exactly the one link that still carries');
 
 select is((select token from public.aktive_share_links
             where trip_id = '11111111-1111-1111-1111-111111111111'), 'link-unbefristet',
-  'und zwar den richtigen, nicht den widerrufenen oder den abgelaufenen');
+  'and specifically the right one, not the revoked or the expired one');
 
 -- DIE Zusicherung, wegen der `security_invoker = on` in der Migration steht.
 select pg_temp.login_as('00000000-0000-0000-0000-00000000000b');
 select is((select count(*)::int from public.aktive_share_links), 0,
-  'die Mitreisende sieht in der View KEINE Zeile, die RLS der Tabelle gilt weiter');
+  'the fellow traveler sees NO row in the view, the table''s RLS still applies');
 
 select pg_temp.login_as('00000000-0000-0000-0000-00000000000c');
 select is((select count(*)::int from public.aktive_share_links), 0,
-  'eine fremde Person erst recht nicht');
+  'a stranger even less so');
 
 -- Und die Gegenprobe zur Sichtweite: die Auskunft an die Mitreisende sagt
 -- trotzdem ja. Genau das ist der Unterschied zwischen den beiden Lesern, und
 -- ohne dieses Paar waere nicht zu erkennen, ob die Funktion die View
 -- ueberhaupt erreicht oder bloss dieselbe leere Sicht bekommt wie der Client.
 select pg_temp.login_as('00000000-0000-0000-0000-00000000000b');
-select is(public.recap_ist_geteilt('11111111-1111-1111-1111-111111111111'), true,
-  'die Auskunft sagt ja, obwohl dieselbe Person die Zeile nicht sehen darf');
+select is(public.recap_is_shared('11111111-1111-1111-1111-111111111111'), true,
+  'the answer says yes, even though that same person may not see the row');
 
 select is(has_table_privilege('anon', 'public.aktive_share_links', 'SELECT'), false,
-  'anon darf die View gar nicht erst lesen');
+  'anon may not even read the view');
 select is(has_table_privilege('authenticated', 'public.aktive_share_links', 'SELECT'), true,
-  'authenticated darf sie lesen, RLS entscheidet dann ueber die Zeilen');
+  'authenticated may read it, RLS then decides on the rows');
 
 -- Die View ist eine SICHT, kein Schreibweg. Ohne Grant scheitert ein Insert am
 -- Tabellenprivileg (42501), noch bevor irgendeine Regel ausgewertet wird.
 select throws_ok($$
   insert into public.aktive_share_links (token, trip_id)
   values ('geschmuggelt', '11111111-1111-1111-1111-111111111111')
-$$, '42501', null, 'ueber die View laesst sich kein Link anlegen');
+$$, '42501', null, 'no link can be created through the view');
 
 -- ----------------------------------------------------------------------------
 -- F. Ohne Anmeldung gar nichts
 -- ----------------------------------------------------------------------------
 select pg_temp.as_anon();
-select is(has_function_privilege('anon', 'public.recap_ist_geteilt(uuid)', 'EXECUTE'), false,
-  'anon darf die Auskunft gar nicht erst aufrufen');
-select is(has_function_privilege('authenticated', 'public.recap_ist_geteilt(uuid)', 'EXECUTE'), true,
-  'authenticated darf sie aufrufen');
+select is(has_function_privilege('anon', 'public.recap_is_shared(uuid)', 'EXECUTE'), false,
+  'anon may not even call the function');
+select is(has_function_privilege('authenticated', 'public.recap_is_shared(uuid)', 'EXECUTE'), true,
+  'authenticated may call it');
 
 select * from finish();
 rollback;

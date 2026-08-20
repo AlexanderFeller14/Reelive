@@ -6,7 +6,7 @@
 // HTTP.
 //
 // The calendar day "today" comes in as a parameter (computed in SQL by the
-// cron wrapper rufe_reveal_zeitplan, Europe/Zurich by the DB clock): the
+// cron wrapper call_reveal_schedule, Europe/Zurich by the DB clock): the
 // logic here deliberately has NO clock of its own, that keeps it
 // deterministically testable and the due-date decision on the same clock
 // as revealed_at.
@@ -15,11 +15,10 @@
 // not a person. The function's safeguard is the cron secret
 // (checkScheduleRequest), not a JWT.
 //
-// Task-14 contract: the body fields `aufgabe`/`heute` (read at the parse
-// site below), the task values 'reveal'/'erinnerung', and the header
-// `x-cron-geheimnis` (index.ts) are a wire contract with the SQL cron job
-// and move together in Task 14, see task-13-report.md. Everything else
-// here is translated normally.
+// Wire contract with the SQL cron job (migration 20260820090000,
+// call_reveal_schedule): the body fields `task`/`today` (read at the parse
+// site below), the task values 'reveal'/'reminder', and the header
+// `x-cron-secret` (index.ts) move together, see task-14-report.md.
 import {
   sendRevealPush,
   type RevealStore,
@@ -32,7 +31,7 @@ import type { ReportFn } from '../_shared/errorReporter.ts';
 
 const NO_REPORTER: ReportFn = async () => {};
 
-export type ScheduleTask = 'reveal' | 'erinnerung';
+export type ScheduleTask = 'reveal' | 'reminder';
 export type ScheduleRequest = { task: ScheduleTask; today: string };
 export type ScheduleResult = { status: number; body: Record<string, unknown> };
 
@@ -65,14 +64,14 @@ export function checkScheduleRequest(
   if (!secretHeader || secretHeader !== configuredSecret) {
     return { ok: false, status: 401, error: 'Nicht berechtigt.' };
   }
-  const b = (body ?? {}) as { aufgabe?: unknown; heute?: unknown };
-  if (b.aufgabe !== 'reveal' && b.aufgabe !== 'erinnerung') {
+  const b = (body ?? {}) as { task?: unknown; today?: unknown };
+  if (b.task !== 'reveal' && b.task !== 'reminder') {
     return { ok: false, status: 400, error: 'Ungültige Anfrage.' };
   }
-  if (typeof b.heute !== 'string' || !TODAY_FORMAT.test(b.heute)) {
+  if (typeof b.today !== 'string' || !TODAY_FORMAT.test(b.today)) {
     return { ok: false, status: 400, error: 'Ungültige Anfrage.' };
   }
-  return { ok: true, request: { task: b.aufgabe, today: b.heute } };
+  return { ok: true, request: { task: b.task, today: b.today } };
 }
 
 // Reveals every due trip. Per trip: a CAS update like the manual reveal;

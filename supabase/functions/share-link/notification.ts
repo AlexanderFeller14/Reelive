@@ -16,8 +16,8 @@ import type { PushMessage } from '../reveal-trip/push.ts';
 // URL.
 //
 // The push is one half of the answer, the fleeting one. The other, the
-// one you can look up later, is `public.recap_ist_geteilt` (migration
-// 20260810100000) and the row the trip screen builds from it. Whoever
+// one you can look up later, is `public.recap_is_shared` (migration
+// 20260820090000) and the row the trip screen builds from it. Whoever
 // swipes the notification away or never allowed push still finds the
 // information.
 

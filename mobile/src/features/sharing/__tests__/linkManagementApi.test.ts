@@ -62,7 +62,7 @@ describe('fetchActiveLink', () => {
 
   // The chain reads the VIEW, not the table, and no longer filters on
   // `revoked` itself. That's the merge: the same rule used to live here
-  // AND in `recap_ist_geteilt`, without being bound to each other.
+  // AND in `recap_is_shared`, without being bound to each other.
   test('reads the view and no longer filters on revoked itself', async () => {
     const { select, eqTrip, order, limit } = activeLinksChain({ data: null, error: null });
     await fetchActiveLink('t1');
@@ -206,7 +206,7 @@ describe('revokeLink', () => {
 // `fetchActiveLink` above answers the same question, but only for the
 // owner: the SELECT policy on share_links is owner-only, and it stays
 // that way, because whoever reads the row reads the token. This function
-// therefore goes through `public.recap_ist_geteilt`, which only says yes
+// therefore goes through `public.recap_is_shared`, which only says yes
 // or no.
 describe('isRecapShared', () => {
   test('asks the database function with the trip id, not the table', async () => {
@@ -214,7 +214,7 @@ describe('isRecapShared', () => {
     const result = await isRecapShared('t1');
 
     expect(result).toEqual({ data: true, error: null });
-    expect(mockRpc).toHaveBeenCalledWith('recap_ist_geteilt', { p_trip_id: 't1' });
+    expect(mockRpc).toHaveBeenCalledWith('recap_is_shared', { p_trip_id: 't1' });
     // The whole point of the exercise: the token is never read.
     expect(mockFrom).not.toHaveBeenCalled();
   });

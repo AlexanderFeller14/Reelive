@@ -549,7 +549,7 @@ enabled = true
 # verify_jwt = false wie bei share-link, aber aus einem anderen Grund: der
 # Aufrufer ist kein Mensch und hat kein JWT, er ist die eigene Datenbank.
 # Was die Function stattdessen trägt, ist das Cron-Secret: der Header
-# x-cron-geheimnis muss der Umgebungsvariable CRON_GEHEIMNIS entsprechen
+# x-cron-secret muss der Umgebungsvariable CRON_SECRET entsprechen
 # (checkScheduleRequest in schedule.ts, ein leeres konfiguriertes Secret
 # ergibt 500, nie Durchlass). Wer diese Prüfung entfernt, macht Reveal-Läufe
 # für jeden Anonymen auslösbar.

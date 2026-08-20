@@ -84,10 +84,7 @@ const report = createErrorReporter(SENTRY_DSN, 'share-link');
 // that looks like a link and is not one. If the variable is missing,
 // `create` says so loudly (500 + log) instead of handing out a broken link.
 // Local in supabase/functions/.env, documented in .env.example.
-//
-// Env var name TEILEN_BASIS_URL stays as written here deliberately: shared
-// Task-14 contract with the CRON_GEHEIMNIS rename, see task report.
-const SHARE_BASE_URL = (Deno.env.get('TEILEN_BASIS_URL') ?? '').replace(/\/$/, '');
+const SHARE_BASE_URL = (Deno.env.get('SHARE_BASE_URL') ?? '').replace(/\/$/, '');
 
 // Validity of the issued read URLs: one hour, like the member read path
 // (media-urls, READ_URL_VALIDITY_SECONDS). One response covers an entire
@@ -335,8 +332,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
     }
 
     if (!SHARE_BASE_URL) {
-      console.error('share-link: TEILEN_BASIS_URL fehlt, ohne sie entsteht kein gültiger Link.');
-      await report(new Error('share-link: TEILEN_BASIS_URL fehlt, ohne sie entsteht kein gültiger Link.'));
+      console.error('share-link: SHARE_BASE_URL fehlt, ohne sie entsteht kein gültiger Link.');
+      await report(new Error('share-link: SHARE_BASE_URL fehlt, ohne sie entsteht kein gültiger Link.'));
       return errorResponse('Server nicht konfiguriert.', 500);
     }
 

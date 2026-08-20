@@ -12,41 +12,41 @@ select has_column('public', 'trips', 'end_reminder_sent_at', 'trips.end_reminder
 select is(
   has_column_privilege('authenticated', 'public.trips', 'end_reminder_sent_at', 'UPDATE'),
   false,
-  'authenticated kann end_reminder_sent_at nicht schreiben');
+  'authenticated cannot write end_reminder_sent_at');
 
 -- Gegenprobe: ohne sie belegte der Test oben auch einen versehentlich ganz
 -- fehlenden Update-Grant auf trips.
 select is(
   has_column_privilege('authenticated', 'public.trips', 'end_date', 'UPDATE'),
   true,
-  'authenticated kann end_date weiterhin schreiben');
+  'authenticated can still write end_date');
 
 -- Lesbar wie alle trips-Spalten (Tabellen-Grant select, Spec §5).
 select is(
   has_column_privilege('authenticated', 'public.trips', 'end_reminder_sent_at', 'SELECT'),
   true,
-  'authenticated kann end_reminder_sent_at lesen');
+  'authenticated can read end_reminder_sent_at');
 
 select is(
   (select count(*)::int from cron.job
-    where jobname in ('reveal-zeitplan-reveal', 'reveal-zeitplan-erinnerung')),
+    where jobname in ('reveal-schedule-reveal', 'reveal-schedule-reminder')),
   2,
-  'beide Cron-Jobs sind eingeplant');
+  'both cron jobs are scheduled');
 
 select is(
-  (select schedule from cron.job where jobname = 'reveal-zeitplan-reveal'),
+  (select schedule from cron.job where jobname = 'reveal-schedule-reveal'),
   '10 23 * * *',
-  'Reveal-Job läuft 23:10 UTC, ganzjährig nach Zürcher Mitternacht');
+  'the reveal job runs 23:10 UTC, year-round after Zurich midnight');
 
 select is(
-  (select schedule from cron.job where jobname = 'reveal-zeitplan-erinnerung'),
+  (select schedule from cron.job where jobname = 'reveal-schedule-reminder'),
   '30 7 * * *',
-  'Erinnerungs-Job läuft 07:30 UTC, ganzjährig am Zürcher Morgen');
+  'the reminder job runs 07:30 UTC, year-round in the Zurich morning');
 
 select is(
-  has_function_privilege('authenticated', 'public.rufe_reveal_zeitplan(text)', 'EXECUTE'),
+  has_function_privilege('authenticated', 'public.call_reveal_schedule(text)', 'EXECUTE'),
   false,
-  'authenticated kann den Cron-Wrapper nicht aufrufen');
+  'authenticated cannot call the cron wrapper');
 
 select * from finish();
 rollback;
