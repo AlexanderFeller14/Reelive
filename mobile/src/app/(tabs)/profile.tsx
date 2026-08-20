@@ -16,7 +16,7 @@ import { useReducedMotion } from '@/theme/useReducedMotion';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { AvatarCropper } from '@/components/AvatarCropper';
 import { Input } from '@/components/Input';
-import { removeAvatar, setzeAvatar } from '@/features/auth/avatarApi';
+import { removeAvatar, setAvatar } from '@/features/auth/avatarApi';
 import type { Crop } from '@/features/auth/crop';
 import {
   fetchOwnProfile, updateProfile, validateDisplayName, type Profile,
@@ -196,7 +196,7 @@ export default function ProfileScreen() {
     if (!userId) return;
     setImageLoading(true);
     setImageError(null);
-    const { avatarKey, error } = await setzeAvatar(
+    const { avatarKey, error } = await setAvatar(
       userId, uri, profile?.avatar_key ?? null, crop,
     );
     setImageLoading(false);

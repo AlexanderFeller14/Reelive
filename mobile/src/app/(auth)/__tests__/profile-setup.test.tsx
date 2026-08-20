@@ -2,7 +2,7 @@ import { render, screen, fireEvent, waitFor, within } from '@testing-library/rea
 import { ThemeProvider } from '@/theme/ThemeProvider';
 import ProfileSetupScreen from '../profile-setup';
 import { createProfile } from '@/features/auth/profileApi';
-import { setzeAvatar } from '@/features/auth/avatarApi';
+import { setAvatar } from '@/features/auth/avatarApi';
 
 // Scaffolding note: `createProfile` is pulled from the real module via
 // `jest.requireActual` (validateUsername/validateDisplayName must stay REAL,
@@ -57,7 +57,7 @@ const wrap = (ui: React.ReactElement) => render(<ThemeProvider>{ui}</ThemeProvid
 
 beforeEach(() => {
   (createProfile as jest.Mock).mockResolvedValue({ error: null, field: null });
-  (setzeAvatar as jest.Mock).mockResolvedValue({ avatarKey: 'profiles/u1/neu.jpg', error: null });
+  (setAvatar as jest.Mock).mockResolvedValue({ avatarKey: 'profiles/u1/neu.jpg', error: null });
 });
 
 test('the onboarding screen offers the avatar picker right away', async () => {
@@ -109,7 +109,7 @@ test('without an image the onboarding still goes through and avatar_key stays nu
   await fireEvent.changeText(displayNameField(), 'Lea');
   await fireEvent.press(screen.getByText("Los geht's"));
   await waitFor(() => expect(createProfile).toHaveBeenCalledWith('u1', 'lea_2026', 'Lea', null));
-  expect(setzeAvatar).not.toHaveBeenCalled();
+  expect(setAvatar).not.toHaveBeenCalled();
 });
 
 // Upload first, then create the row: createProfile writes avatar_key along
@@ -158,7 +158,7 @@ test('a chosen image can be taken back before the form is submitted', async () =
 // A failed upload must not block the onboarding: the name is the required
 // field, the image is the extra.
 test('a failed upload still creates the profile', async () => {
-  (setzeAvatar as jest.Mock).mockResolvedValue({ avatarKey: null, error: 'Das Bild konnte nicht hochgeladen werden. Probier es gleich nochmal.' });
+  (setAvatar as jest.Mock).mockResolvedValue({ avatarKey: null, error: 'Das Bild konnte nicht hochgeladen werden. Probier es gleich nochmal.' });
   await wrap(<ProfileSetupScreen />);
   await fireEvent.press(screen.getByTestId('avatar-picker'));
   await fireEvent.press(screen.getByText('Foto auswählen'));

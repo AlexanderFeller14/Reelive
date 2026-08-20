@@ -25,7 +25,7 @@ jest.mock('../profileApi', () => ({
 const mockSignOut = jest.fn();
 jest.mock('../authApi', () => ({ signOut: () => mockSignOut() }));
 
-// Task 6: setzeAvatar/entferneAvatar sind in avatarApi.test.ts bereits voll
+// Task 6: setAvatar/removeAvatar sind in avatarApi.test.ts bereits voll
 // geprüft (Reihenfolge Upload→Spalte→Aufräumen), hier zählt nur, DASS
 // profil.tsx ihr Ergebnis übernimmt (Kreis, Fehlertext). Volles
 // Factory-Mock statt `jest.mock('@/features/auth/avatarApi')` ohne Factory
@@ -36,10 +36,10 @@ jest.mock('../authApi', () => ({ signOut: () => mockSignOut() }));
 //
 // Die Exporte sind hier direkt `jest.fn()` (keine Variable von aussen
 // referenziert, also auch ohne "mock"-Präfix hebbar): so lässt sich der
-// importierte `setzeAvatar` in den Tests unten unmittelbar als `jest.Mock`
+// importierte `setAvatar` in den Tests unten unmittelbar als `jest.Mock`
 // ansprechen, ohne einen zusätzlichen Umweg über eine eigene Variable.
 jest.mock('@/features/auth/avatarApi', () => ({
-  setzeAvatar: jest.fn(),
+  setAvatar: jest.fn(),
   removeAvatar: jest.fn(),
 }));
 
@@ -119,7 +119,7 @@ jest.mock('expo-haptics', () => ({
 // Pfad-Anpassung (Task-10-Kontext, Abweichung 2): Router-Root ist mobile/src/app/,
 // nicht mobile/app/, von __tests__/ drei Ebenen hoch zu app/(tabs)/...
 import ProfilScreen from '../../../app/(tabs)/profile';
-import { setzeAvatar } from '@/features/auth/avatarApi';
+import { setAvatar } from '@/features/auth/avatarApi';
 import { fetchOwnProfile, updateProfile } from '../profileApi';
 
 const wrap = (ui: React.ReactElement) => render(<ThemeProvider>{ui}</ThemeProvider>);
@@ -200,9 +200,9 @@ describe('Profilbild (Task 6)', () => {
   // Der gewählte Pfad muss ohne erneutes Laden sichtbar werden, sonst wirkt
   // der Tap folgenlos, bis der Screen zufällig neu lädt. profileApi wird
   // hier absichtlich NICHT erneut aufgerufen (kein zweiter fetchOwnProfile),
-  // die Antwort von setzeAvatar IST der neue Stand.
+  // die Antwort von setAvatar IST der neue Stand.
   test('ein gewaehltes Bild erscheint sofort im Kreis', async () => {
-    (setzeAvatar as jest.Mock).mockResolvedValue({
+    (setAvatar as jest.Mock).mockResolvedValue({
       avatarKey: 'profiles/u1/neu.jpg',
       error: null,
     });
@@ -254,7 +254,7 @@ describe('Profilbild (Task 6)', () => {
     (fetchOwnProfile as jest.Mock).mockResolvedValue({
       id: 'uid-1', username: 'lea', display_name: 'Lea', avatar_key: 'profiles/u1/alt.jpg',
     });
-    (setzeAvatar as jest.Mock).mockResolvedValue({
+    (setAvatar as jest.Mock).mockResolvedValue({
       avatarKey: null,
       error: 'Das Bild konnte nicht hochgeladen werden. Probier es gleich nochmal.',
     });

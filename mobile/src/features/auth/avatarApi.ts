@@ -5,115 +5,114 @@ import { supabaseBaseUrl } from '@/lib/supabaseUrl';
 import { AVATAR_BUCKET, newAvatarKey } from './avatar';
 import type { Crop } from './crop';
 
-// Grösster Anzeigeort ist der 44-px-Kreis, das trägt 512 auch auf einem
-// 3x-Display mit Reserve. Bei Qualität 0.8 sind das rund 50 KB.
-const KANTE = 512;
-const JPEG_QUALITAET = 0.8;
+// The largest display spot is the 44 px circle, 512 carries that with
+// headroom even on a 3x display. At quality 0.8 that's about 50 KB.
+const EDGE = 512;
+const JPEG_QUALITY = 0.8;
 
-// Das Bild kommt NICHT mehr quadratisch herein: der System-Zuschnitt
-// (`allowsEditing`) ist raus, weil er auf iOS den alten
-// UIImagePickerController erzwingt und bei grossen Vorlagen vom System
-// abgeräumt wird, die App bekommt dann ein «abgebrochen», das von einem
-// echten Abbruch nicht zu unterscheiden ist (Fehlersuche 2026-08-13,
-// gemessen: canceled=true ohne jede Ausnahme). Also schneidet die App selbst
-// zu, und der Zuschnitt gehört hierher, wo das Bild ohnehin durchläuft.
+// The image no longer arrives square: the system crop (`allowsEditing`) is
+// gone, because on iOS it forces the old UIImagePickerController and gets
+// torn down by the system on large originals, the app then gets a
+// "cancelled" that is indistinguishable from a real cancel (debugged
+// 2026-08-13, measured: canceled=true without any exception). So the app
+// crops itself, and the crop belongs here, where the image runs through
+// anyway.
 //
-// Mittig auf die KÜRZERE Kante, dann skalieren. Nicht einfach beide Kanten auf
-// 512 setzen: das staucht ein Hoch- oder Querformat zum Quadrat, und im runden
-// Rahmen sieht man das sofort an gequetschten Gesichtern.
+// Centered on the SHORTER edge, then scaled. Not simply setting both edges
+// to 512: that squashes a portrait or landscape format into a square, and
+// in the round frame that shows immediately as squeezed faces.
 //
-// Dasselbe kontextbasierte Muster wie features/moments/media.ts, inklusive
-// release() im finally: die SharedObjects werden auch im Fehlerfall frei.
-async function alsQuadratJpeg(uri: string, gewaehlt?: Crop): Promise<string> {
-  let bereich: Crop;
-  if (gewaehlt) {
-    // Die Person hat den Ausschnitt selbst gewählt (AvatarZuschnitt). Dann
-    // entfällt das Messen: die Masse kennt der Zuschnitt-Screen bereits, und
-    // ein zweites renderAsync() auf ein grosses Original wäre reine Arbeit.
-    bereich = gewaehlt;
+// Same context-based pattern as features/moments/media.ts, including
+// release() in finally: the SharedObjects are freed in the error case too.
+async function asSquareJpeg(uri: string, chosen?: Crop): Promise<string> {
+  let area: Crop;
+  if (chosen) {
+    // The person chose the crop themselves (AvatarCropper). Then measuring
+    // is skipped: the crop screen already knows the dimensions, and a second
+    // renderAsync() on a large original would be pure waste.
+    area = chosen;
   } else {
-    // Kein gewählter Ausschnitt (Kamera-Selfie): mittig auf die kürzere Kante.
-    // Die Masse kennt die kontextbasierte API erst nach renderAsync(), also
-    // einmal unverändert laden, gleiches Vorgehen wie quellmasseErmitteln()
-    // in media.ts.
+    // No chosen crop (camera selfie): centered on the shorter edge. The
+    // context-based API only knows the dimensions after renderAsync(), so
+    // load it once unchanged, same approach as sourceDimensions() in
+    // media.ts.
     const measureContext = ImageManipulator.manipulate(uri);
-    let breite: number;
-    let hoehe: number;
+    let width: number;
+    let height: number;
     try {
       const original = await measureContext.renderAsync();
       try {
-        breite = original.width;
-        hoehe = original.height;
+        width = original.width;
+        height = original.height;
       } finally {
         original.release();
       }
     } finally {
       measureContext.release();
     }
-    const seite = Math.min(breite, hoehe);
-    bereich = {
-      originX: Math.round((breite - seite) / 2),
-      originY: Math.round((hoehe - seite) / 2),
-      width: seite,
-      height: seite,
+    const side = Math.min(width, height);
+    area = {
+      originX: Math.round((width - side) / 2),
+      originY: Math.round((height - side) / 2),
+      width: side,
+      height: side,
     };
   }
 
-  const { originX, originY } = bereich;
-  const seite = bereich.width;
+  const { originX, originY } = area;
+  const side = area.width;
 
   const context = ImageManipulator.manipulate(uri);
   try {
-    // Erst beschneiden, dann skalieren: andersherum würde auf dem vollen,
-    // ungeschnittenen Bild skaliert und der Ausschnitt danach nicht mehr
-    // passen.
-    context.crop({ originX, originY, width: seite, height: seite });
-    context.resize({ width: KANTE, height: KANTE });
-    const gerendert = await context.renderAsync();
+    // Crop first, then scale: the other way around would scale the full,
+    // uncropped image and the crop would no longer fit afterwards.
+    context.crop({ originX, originY, width: side, height: side });
+    context.resize({ width: EDGE, height: EDGE });
+    const rendered = await context.renderAsync();
     try {
-      const ergebnis = await gerendert.saveAsync({
+      const result = await rendered.saveAsync({
         format: SaveFormat.JPEG,
-        compress: JPEG_QUALITAET,
+        compress: JPEG_QUALITY,
       });
-      return ergebnis.uri;
+      return result.uri;
     } finally {
-      gerendert.release();
+      rendered.release();
     }
   } finally {
     context.release();
   }
 }
 
-// NICHT supabase.storage.from().upload(): der Storage-Client erwartet ein Blob,
-// und `fetch(uri).blob()` ist unter React Native unzuverlässig. Stattdessen
-// dasselbe File.upload()-Muster wie features/moments/uploadWorker.ts, das im
-// Projekt erprobt ist.
-async function upload(schluessel: string, uri: string): Promise<void> {
+// NOT supabase.storage.from().upload(): the storage client expects a Blob,
+// and `fetch(uri).blob()` is unreliable under React Native. Instead the same
+// File.upload() pattern as features/moments/uploadWorker.ts, proven in this
+// project.
+async function upload(key: string, uri: string): Promise<void> {
   const { data } = await supabase.auth.getSession();
   const token = data.session?.access_token;
   if (!token) throw new Error('Nicht angemeldet.');
-  const basis = supabaseBaseUrl;
-  if (!basis) throw new Error('Supabase-URL fehlt.');
+  const base = supabaseBaseUrl;
+  if (!base) throw new Error('Supabase-URL fehlt.');
 
-  const antwort = await new File(uri).upload(
-    `${basis}/storage/v1/object/${AVATAR_BUCKET}/${schluessel}`,
+  const response = await new File(uri).upload(
+    `${base}/storage/v1/object/${AVATAR_BUCKET}/${key}`,
     {
       httpMethod: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'image/jpeg' },
     }
   );
-  // upload() wirft bei 4xx/5xx NICHT, es liefert die Antwort zurück (derselbe
-  // Stolperstein wie in uploadWorker.ts). Ohne diese Prüfung ginge ein
-  // abgelehnter Upload als erledigt durch, und die Spalte zeigte ins Leere.
-  if (antwort.status < 200 || antwort.status >= 300) {
-    throw new Error(`Upload abgelehnt (${antwort.status}).`);
+  // upload() does NOT throw on 4xx/5xx, it returns the response (the same
+  // pitfall as in uploadWorker.ts). Without this check a rejected upload
+  // would pass as done, and the column would point at nothing.
+  if (response.status < 200 || response.status >= 300) {
+    throw new Error(`Upload abgelehnt (${response.status}).`);
   }
 }
 
-// Räumt ein altes Objekt weg. Bewusst OHNE Fehlerrückgabe: ein liegen-
-// gebliebenes Objekt kostet ~50 KB, ein zurückgenommenes Bild kostet die
-// Person ihre gerade getroffene Wahl. Die harmlosere Fehlerrichtung gewinnt.
-async function altesWegraeumen(oldKey: string | null): Promise<void> {
+// Cleans up an old object. Deliberately WITHOUT returning an error: a
+// leftover object costs ~50 KB, a reverted image costs the person their
+// just-made choice. The less harmful failure direction wins.
+async function cleanupOld(oldKey: string | null): Promise<void> {
   if (!oldKey) return;
   try {
     const { error } = await supabase.storage.from(AVATAR_BUCKET).remove([oldKey]);
@@ -123,22 +122,22 @@ async function altesWegraeumen(oldKey: string | null): Promise<void> {
   }
 }
 
-// Reihenfolge (Spec §5.3): hochladen → Spalte setzen → altes Objekt löschen.
-// So zeigt die Zeile nie auf etwas, das noch nicht oder nicht mehr da ist.
-export async function setzeAvatar(
+// Order (Spec §5.3): upload -> set column -> delete old object. This way
+// the row never points at something that isn't there yet or no longer is.
+export async function setAvatar(
   userId: string,
   localUri: string,
   oldKey: string | null,
-  // Optional, weil nicht jeder Weg einen gewählten Ausschnitt hat: aus der
-  // Galerie kommt einer (AvatarZuschnitt), ein Kamera-Selfie ist bereits
-  // aufnahmefertig und wird mittig beschnitten.
+  // Optional, because not every path has a chosen crop: one comes from the
+  // gallery (AvatarCropper), a camera selfie is already capture-ready and
+  // gets cropped centered.
   crop?: Crop,
 ): Promise<{ avatarKey: string | null; error: string | null }> {
-  const schluessel = newAvatarKey(userId);
+  const key = newAvatarKey(userId);
 
   try {
-    const fertig = await alsQuadratJpeg(localUri, crop);
-    await upload(schluessel, fertig);
+    const preparedUri = await asSquareJpeg(localUri, crop);
+    await upload(key, preparedUri);
   } catch (error) {
     console.error('[avatarApi] upload failed', error);
     return {
@@ -149,26 +148,26 @@ export async function setzeAvatar(
 
   const { error } = await supabase
     .from('profiles')
-    .update({ avatar_key: schluessel })
+    .update({ avatar_key: key })
     .eq('id', userId);
   if (error) {
     console.error('[avatarApi] avatar_key set failed', error);
-    // Das frische Objekt liegt schon im Speicher, die Spalte kennt es aber
-    // nicht. Wegräumen, sonst bleibt es für immer, ohne dass jemand seinen
-    // Pfad noch kennt (dieselbe Überlegung wie in delete-account/process.ts).
-    await altesWegraeumen(schluessel);
+    // The fresh object already sits in storage, but the column doesn't know
+    // about it. Clean it up, otherwise it stays forever, with nobody left
+    // who still knows its path (same reasoning as in delete-account/process.ts).
+    await cleanupOld(key);
     return {
       avatarKey: null,
       error: 'Das Bild konnte nicht gespeichert werden. Probier es gleich nochmal.',
     };
   }
 
-  await altesWegraeumen(oldKey);
-  return { avatarKey: schluessel, error: null };
+  await cleanupOld(oldKey);
+  return { avatarKey: key, error: null };
 }
 
-// Umgekehrte Reihenfolge: erst die Spalte leeren, dann das Objekt. Andersherum
-// zeigte die Zeile auf etwas, das es nicht mehr gibt.
+// Reverse order: clear the column first, then the object. The other way
+// around, the row would point at something that no longer exists.
 export async function removeAvatar(
   userId: string,
   oldKey: string | null,
@@ -181,6 +180,6 @@ export async function removeAvatar(
     console.error('[avatarApi] avatar_key clear failed', error);
     return { error: 'Das Bild konnte nicht entfernt werden. Probier es gleich nochmal.' };
   }
-  await altesWegraeumen(oldKey);
+  await cleanupOld(oldKey);
   return { error: null };
 }

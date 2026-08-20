@@ -1,4 +1,4 @@
-import { removeAvatar, setzeAvatar } from '../avatarApi';
+import { removeAvatar, setAvatar } from '../avatarApi';
 
 const UID = '11111111-2222-3333-4444-555555555555';
 const OLD = `profiles/${UID}/alt.jpg`;
@@ -125,7 +125,7 @@ beforeEach(() => {
 test('ein Querformat wird mittig auf die kuerzere Kante beschnitten, nicht gestaucht', async () => {
   mockQuellBreite = 4000;
   mockQuellHoehe = 3000;
-  await setzeAvatar(UID, 'file:///quer.jpg', null);
+  await setAvatar(UID, 'file:///quer.jpg', null);
   // Kürzere Kante ist die Höhe: 3000er Quadrat, waagrecht zentriert.
   expect(mockCrop).toHaveBeenCalledWith({
     originX: 500, originY: 0, width: 3000, height: 3000,
@@ -136,7 +136,7 @@ test('ein Querformat wird mittig auf die kuerzere Kante beschnitten, nicht gesta
 test('ein Hochformat wird senkrecht zentriert beschnitten', async () => {
   mockQuellBreite = 1000;
   mockQuellHoehe = 2500;
-  await setzeAvatar(UID, 'file:///hoch.jpg', null);
+  await setAvatar(UID, 'file:///hoch.jpg', null);
   expect(mockCrop).toHaveBeenCalledWith({
     originX: 0, originY: 750, width: 1000, height: 1000,
   });
@@ -149,12 +149,12 @@ test('beschnitten wird vor dem Skalieren', async () => {
   const reihenfolge: string[] = [];
   mockCrop.mockImplementation(() => reihenfolge.push('crop'));
   mockResize.mockImplementation(() => reihenfolge.push('resize'));
-  await setzeAvatar(UID, 'file:///quer.jpg', null);
+  await setAvatar(UID, 'file:///quer.jpg', null);
   expect(reihenfolge).toEqual(['crop', 'resize']);
 });
 
-test('setzeAvatar laedt hoch, setzt die Spalte und raeumt das alte Objekt weg', async () => {
-  const { avatarKey, error } = await setzeAvatar(UID, 'file:///gewaehlt.jpg', OLD);
+test('setAvatar laedt hoch, setzt die Spalte und raeumt das alte Objekt weg', async () => {
+  const { avatarKey, error } = await setAvatar(UID, 'file:///gewaehlt.jpg', OLD);
   expect(error).toBeNull();
   expect(avatarKey).toMatch(new RegExp(`^profiles/${UID}/[0-9a-f]{32}\\.jpg$`));
   expect(mockAktualisiert).toHaveBeenCalledWith({ avatar_key: avatarKey });
@@ -168,7 +168,7 @@ test('die Spalte wird erst nach dem Hochladen gesetzt', async () => {
   const reihenfolge: string[] = [];
   mockUploaded.mockImplementation(() => reihenfolge.push('upload'));
   mockAktualisiert.mockImplementation(() => reihenfolge.push('update'));
-  await setzeAvatar(UID, 'file:///gewaehlt.jpg', null);
+  await setAvatar(UID, 'file:///gewaehlt.jpg', null);
   expect(reihenfolge).toEqual(['upload', 'update']);
 });
 
@@ -176,14 +176,14 @@ test('die Spalte wird erst nach dem Hochladen gesetzt', async () => {
 // das neue, bereits gesetzte Bild nicht zurücknehmen.
 test('ein gescheitertes Aufraeumen laesst das neue Bild stehen', async () => {
   mockRemoved.mockImplementation(() => { throw new Error('weg ist weg'); });
-  const { avatarKey, error } = await setzeAvatar(UID, 'file:///gewaehlt.jpg', OLD);
+  const { avatarKey, error } = await setAvatar(UID, 'file:///gewaehlt.jpg', OLD);
   expect(error).toBeNull();
   expect(avatarKey).not.toBeNull();
 });
 
 test('ein gescheiterter Upload setzt die Spalte nicht', async () => {
   mockUploaded.mockImplementation(() => { throw new Error('kein Netz'); });
-  const { avatarKey, error } = await setzeAvatar(UID, 'file:///gewaehlt.jpg', null);
+  const { avatarKey, error } = await setAvatar(UID, 'file:///gewaehlt.jpg', null);
   expect(avatarKey).toBeNull();
   expect(error).toBe('Das Bild konnte nicht hochgeladen werden. Probier es gleich nochmal.');
   expect(mockAktualisiert).not.toHaveBeenCalled();
@@ -197,7 +197,7 @@ test('ein gescheiterter Upload setzt die Spalte nicht', async () => {
 // hinter dem keine Bytes liegen.
 test('ein mit 4xx abgelehnter Upload setzt die Spalte nicht', async () => {
   mockUploadStatus = 413;
-  const { avatarKey, error } = await setzeAvatar(UID, 'file:///zu-gross.jpg', null);
+  const { avatarKey, error } = await setAvatar(UID, 'file:///zu-gross.jpg', null);
   // Der Versuch fand statt, sonst prüfte dieser Test nur, dass gar nichts
   // passierte, und wäre auch bei einem kaputten Mock grün.
   expect(mockUploaded).toHaveBeenCalledTimes(1);

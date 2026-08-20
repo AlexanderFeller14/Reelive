@@ -9,7 +9,7 @@ import { spacing, type } from '@/theme/tokens';
 import { useTopInset } from '@/theme/useTopInset';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { AvatarCropper } from '@/components/AvatarCropper';
-import { setzeAvatar } from '@/features/auth/avatarApi';
+import { setAvatar } from '@/features/auth/avatarApi';
 import type { Crop } from '@/features/auth/crop';
 import { createProfile, validateDisplayName, validateUsername } from '@/features/auth/profileApi';
 
@@ -44,10 +44,10 @@ export default function ProfileSetupScreen() {
     // an object that belongs to nobody.
     let avatarKey: string | null = null;
     if (imageUri) {
-      const result = await setzeAvatar(userId, imageUri, null, imageCrop ?? undefined);
+      const result = await setAvatar(userId, imageUri, null, imageCrop ?? undefined);
       avatarKey = result.avatarKey;
     }
-    // Careful: setzeAvatar() internally sets `profiles.avatar_key` via UPDATE,
+    // Careful: setAvatar() internally sets `profiles.avatar_key` via UPDATE,
     // which hits zero rows here because the row does not exist yet. That is
     // not an error (an UPDATE without a match reports none), and the returned
     // key is still correct because it is formed BEFORE the upload
