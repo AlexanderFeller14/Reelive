@@ -618,8 +618,20 @@ export default function CaptureScreen() {
     limits: { min: number; max: number };
   } | null>(null);
   // What held at the start of the capture: the drag zoom computes relative to
-  // it, as the pinch does relative to its landing.
-  const dragStart = useRef<{ factor: number; limits: { min: number; max: number } } | null>(null);
+  // it, as the pinch does relative to its landing. `pull` is the travel the
+  // shutter had already reported when the anchor was set: the drag counts from
+  // there on, not from the touch-down. Without it a camera switch in the middle
+  // of the drag pushed the OLD travel onto the new anchor, and the fresh
+  // direction stood zoomed in although nobody had pulled for it (user finding
+  // 2026-08-21).
+  const dragStart = useRef<{
+    factor: number;
+    limits: { min: number; max: number };
+    pull: number;
+  } | null>(null);
+  // The travel the shutter last reported. The switch needs it to re-anchor
+  // mid-drag; it is not state, nothing renders from it.
+  const dragPull = useRef(0);
   // Where the finger landed, and when the last tap was: the double tap comes
   // out of those two (see zoomGesture below).
   const tapStart = useRef<{ pageX: number; pageY: number } | null>(null);
@@ -1161,7 +1173,10 @@ export default function CaptureScreen() {
     setFactor(restored);
     if (dragStart.current) {
       const limits = zoomLimitsFor(to);
-      dragStart.current = limits ? { factor: restored, limits } : null;
+      // The finger keeps lying where it lies, and from here on that spot means
+      // the restored factor: the travel so far belongs to the direction just
+      // left behind.
+      dragStart.current = limits ? { factor: restored, limits, pull: dragPull.current } : null;
     }
   };
 
@@ -1209,13 +1224,16 @@ export default function CaptureScreen() {
   // capture zooms in, back down zooms out again. Set hard like the pinch: the
   // zoom follows the finger, it does not trail behind.
   const zoomDrag = (dragAmount: number) => {
+    // Noted before the exit below: a facing without zoom reports no factor, but
+    // the travel still has to be current when a switch re-anchors.
+    dragPull.current = dragAmount;
     // The anchor exists only where there were limits (zoomLimitsFor); the
     // question "does this facing have zoom at all?" is thereby already
     // answered, including for the device-less front in the MultiCam branch.
     const start = dragStart.current;
     if (!start) return;
     applyZoom(
-      dragFactor(dragAmount, start.factor, start.limits, zoomBase, {
+      dragFactor(dragAmount - start.pull, start.factor, start.limits, zoomBase, {
         up: Dimensions.get('window').height * DRAG_DISTANCE_UP_RATIO,
         down: DRAG_DISTANCE_DOWN,
       }),
@@ -1469,7 +1487,8 @@ export default function CaptureScreen() {
     // active format. Without limits (front in the expo branch) there is no
     // drag.
     const limits = zoomLimitsFor(facing);
-    dragStart.current = limits ? { factor: factorRef.current, limits } : null;
+    dragPull.current = 0;
+    dragStart.current = limits ? { factor: factorRef.current, limits, pull: 0 } : null;
     // Start directly instead of via an effect on the mode: the session has
     // long been ready in the permanent video mode, there is nothing to commit.
     // It is retried anyway (see VIDEO_START_ATTEMPTS above), and on the
