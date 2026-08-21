@@ -17,7 +17,14 @@ function routes() {
   return ROUTE_NAMES.map((name) => ({ key: `${name}-key`, name }));
 }
 
-function barProps(overrides: Record<string, unknown> = {}) {
+// The mocks stay visible in the type (jest.Mock instead of the plain
+// signature), so the assertions below can ask them what they were called with.
+type BarProps = React.ComponentProps<typeof TabBar> & {
+  navigation: { emit: jest.Mock };
+  jumpTo: jest.Mock;
+};
+
+function barProps(overrides: Partial<BarProps> = {}): BarProps {
   return {
     state: { index: 0, routes: routes() },
     navigation: { emit: jest.fn(() => ({ defaultPrevented: false })) },
@@ -25,7 +32,7 @@ function barProps(overrides: Record<string, unknown> = {}) {
     jumpTo: jest.fn(),
     segments: ['(tabs)', 'capture'],
     ...overrides,
-  } as never;
+  };
 }
 
 const wrap = (ui: React.ReactElement) => render(<ThemeProvider>{ui}</ThemeProvider>);

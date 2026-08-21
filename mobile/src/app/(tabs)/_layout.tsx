@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import { useSegments } from 'expo-router';
-import { TopTabs } from 'expo-router/js-top-tabs';
+import { TopTabs, type MaterialTopTabBarProps } from 'expo-router/js-top-tabs';
 import { useTheme } from '@/theme/ThemeProvider';
 import { TabBar } from '@/features/navigation/TabBar';
 import { swipeAllowed } from '@/features/navigation/barShape';
@@ -32,7 +32,7 @@ export default function TabsLayout() {
   return (
     <TopTabs
       tabBarPosition="bottom"
-      tabBar={(props) => <TabBar {...props} segments={segments} />}
+      tabBar={(props: MaterialTopTabBarProps) => <TabBar {...props} segments={segments} />}
       screenOptions={{
         // Every screen stays mounted, so the neighbour is already there while
         // the finger drags instead of arriving empty. What that costs stays
