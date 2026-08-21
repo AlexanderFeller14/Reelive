@@ -122,6 +122,10 @@ describe('multiCamera: access to the MultiCam module', () => {
     await expect(mc.start()).resolves.toBe(false);
     await expect(mc.start()).resolves.toBe(true);
 
+    // The `stop` in between is what makes the second round a round of its
+    // own: a running session answers a repeated `start` from the latch
+    // without asking the native side again (see the cases below).
+    mc.stop();
     mockNativeModule.start.mockRejectedValueOnce(new Error('aufbau_gescheitert'));
     await expect(mc.start()).resolves.toBe(false);
     await expect(mc.start()).resolves.toBe(true);
@@ -129,6 +133,46 @@ describe('multiCamera: access to the MultiCam module', () => {
     // All four attempts actually reached the module, none was skipped
     // because of a supposedly permanent failure.
     expect(mockNativeModule.start).toHaveBeenCalledTimes(4);
+  });
+
+  // Since the tabs can be swiped, the session is asked for from two sides:
+  // the capture screen on focus, and the warm-up while the swipe is still
+  // under way (features/camera/warmup.ts). Without the latch the second
+  // `start` would reach a RUNNING session, come back as a throw, and two
+  // throws in a row switch the MultiCam path off for the rest of the app
+  // session. Two swipes would have been enough to lose the camera.
+  it('a second start on a running session does not reach the native side', async () => {
+    const mc = multiCamera();
+    await expect(mc.start()).resolves.toBe(true);
+    await expect(mc.start()).resolves.toBe(true);
+    expect(mockNativeModule.start).toHaveBeenCalledTimes(1);
+    expect(mc.available()).toBe(true);
+  });
+
+  it('two starts at once share a single native build-up', async () => {
+    const mc = multiCamera();
+    // Neither is awaited before the other begins: this is the real order of
+    // events, the warm-up starts the session and focus follows a frame later.
+    await expect(Promise.all([mc.start(), mc.start()])).resolves.toEqual([true, true]);
+    expect(mockNativeModule.start).toHaveBeenCalledTimes(1);
+  });
+
+  it('after a stop the session may be built up again', async () => {
+    const mc = multiCamera();
+    await mc.start();
+    mc.stop();
+    await expect(mc.start()).resolves.toBe(true);
+    expect(mockNativeModule.start).toHaveBeenCalledTimes(2);
+  });
+
+  it('a failed build-up leaves the way open for the next attempt', async () => {
+    const mc = multiCamera();
+    mockNativeModule.start.mockRejectedValueOnce(new Error('aufbau_gescheitert'));
+    await expect(mc.start()).resolves.toBe(false);
+    // Nothing is running, so nothing may be held back: without releasing the
+    // latch here, a single slip would freeze the camera until the next stop.
+    await expect(mc.start()).resolves.toBe(true);
+    expect(mockNativeModule.start).toHaveBeenCalledTimes(2);
   });
 
   it('setZoom passes camera, factor and smooth through to the module', () => {

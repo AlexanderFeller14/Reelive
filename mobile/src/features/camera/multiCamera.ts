@@ -67,22 +67,41 @@ export function available(): boolean {
   return m !== null && m.isAvailable();
 }
 
-export async function start(): Promise<boolean> {
-  if (failed) return false;
+// The session is asked for from two sides ever since the tabs can be swiped:
+// the capture screen on focus, and the warm-up while a swipe is still under
+// way (warmup.ts). A second `start()` on a RUNNING session would reach the
+// native side as "already running", i.e. as a throw, and two throws in a row
+// switch the MultiCam path off for the rest of the app session (see
+// MAX_CONSECUTIVE_FAILURES above): two swipes would have cost the camera.
+// The latch holds the running build-up instead, so whoever asks second gets
+// the same promise and the native side is asked exactly once.
+let startPromise: Promise<boolean> | null = null;
+
+export function start(): Promise<boolean> {
+  if (failed) return Promise.resolve(false);
+  if (startPromise) return startPromise;
   const m = getNativeModule();
-  if (!m) return false;
-  try {
-    await m.start();
-    consecutiveFailures = 0;
-    return true;
-  } catch {
-    consecutiveFailures += 1;
-    if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) failed = true;
-    return false;
-  }
+  if (!m) return Promise.resolve(false);
+  startPromise = m
+    .start()
+    .then(() => {
+      consecutiveFailures = 0;
+      return true;
+    })
+    .catch(() => {
+      // A failed build-up leaves nothing running, so nothing may be held
+      // back: release the latch, otherwise a single slip would freeze the
+      // camera until the next stop.
+      startPromise = null;
+      consecutiveFailures += 1;
+      if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) failed = true;
+      return false;
+    });
+  return startPromise;
 }
 
 export function stop(): void {
+  startPromise = null;
   void getNativeModule()
     ?.stop()
     .catch(() => {});
