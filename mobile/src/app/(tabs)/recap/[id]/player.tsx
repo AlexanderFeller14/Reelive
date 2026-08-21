@@ -113,8 +113,8 @@ function skippedText(count: number): string {
   return `${count} ${count === 1 ? 'Moment liess' : 'Momente liessen'} sich gerade nicht laden. Schau später nochmal rein.`;
 }
 
-// Same copy rationale as above: "Tag 3 · Lissabon · 12. August" is the exact
-// format from overview.tsx (not exported there either).
+// Same copy rationale as above: "12. August" is the exact date format from
+// overview.tsx's own formatDayDate (not exported there either).
 const MONTHS_LONG = [
   'Januar', 'Februar', 'März', 'April', 'Mai', 'Juni',
   'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember',
@@ -123,11 +123,11 @@ function formatDayDate(iso: string): string {
   const [, m, d] = iso.split('-').map(Number);
   return `${d}. ${MONTHS_LONG[m - 1]}`;
 }
-function dayHeading(day: RecapDay): string {
-  const parts = [`Tag ${day.number}`];
-  if (day.place) parts.push(day.place);
-  parts.push(formatDayDate(day.date));
-  return parts.join(' · ');
+// Second line of the interstitial card, staged BELOW the day number rather
+// than joined onto it (recap-show plan, Task 3): this is the staging the
+// overview's own day headings are meant to move to as well, later.
+function daySubheading(day: RecapDay): string {
+  return day.place ? `${day.place} · ${formatDayDate(day.date)}` : formatDayDate(day.date);
 }
 
 // Unlike preview.tsx (where moment time and device time are the same, because
@@ -1237,8 +1237,13 @@ export default function RecapPlayer() {
         {interstitial && (
           <Pressable testID="player-interstitial" style={styles.interstitial} onPress={skip}>
             <Text style={[type.h1, styles.centeredText]}>
-              {currentDay ? dayHeading(currentDay) : 'Ein neuer Tag beginnt.'}
+              {currentDay ? `Tag ${currentDay.number}` : 'Ein neuer Tag beginnt.'}
             </Text>
+            {currentDay && (
+              <Text style={[type.secondary, styles.centeredTextSecondary, { marginTop: spacing.s }]}>
+                {daySubheading(currentDay)}
+              </Text>
+            )}
           </Pressable>
         )}
       </Animated.View>

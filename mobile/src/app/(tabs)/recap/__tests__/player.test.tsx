@@ -431,7 +431,8 @@ describe('state machine across the screen', () => {
     });
     // p3 -> p4 is a day change, so the day 2 interstitial has to be there.
     expect(screen.getByTestId('player-interstitial')).toBeTruthy();
-    expect(screen.getByText('Tag 2 · 11. August')).toBeTruthy();
+    expect(screen.getByText('Tag 2')).toBeTruthy();
+    expect(screen.getByText('11. August')).toBeTruthy();
   });
 
   test('advancing past the last moment reaches the end screen, not an empty state', async () => {
@@ -473,12 +474,35 @@ describe('state machine across the screen', () => {
 });
 
 describe('day interstitial', () => {
+  test('the interstitial card stages day number above place and date', async () => {
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
+    await wrap();
+    expect(await screen.findByTestId('player-interstitial')).toBeTruthy();
+    expect(screen.getByText('Tag 1')).toBeTruthy();
+    expect(screen.getByText('Lissabon · 10. August')).toBeTruthy();
+    // The old single line must be gone, not merely joined differently.
+    expect(screen.queryByText('Tag 1 · Lissabon · 10. August')).toBeNull();
+  });
+
+  test('without a place the card carries day number and date alone', async () => {
+    mockParams = { id: 't1', start: '2' }; // p3, one tap right crosses into day 2 (p4, no place_name)
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
+    await wrap();
+    await fireEvent(screen.getByTestId('player-right'), 'pressIn');
+    await fireEvent(screen.getByTestId('player-right'), 'pressOut');
+    expect(await screen.findByTestId('player-interstitial')).toBeTruthy();
+    expect(screen.getByText('Tag 2')).toBeTruthy();
+    expect(screen.getByText('11. August')).toBeTruthy();
+  });
+
   test('appears before the very first moment and disappears on its own after 1.5 seconds', async () => {
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
     (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
     expect(screen.getByTestId('player-interstitial')).toBeTruthy();
-    expect(screen.getByText('Tag 1 · Lissabon · 10. August')).toBeTruthy();
+    expect(screen.getByText('Tag 1')).toBeTruthy();
     await act(async () => {
       jest.advanceTimersByTime(1500);
     });
