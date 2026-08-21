@@ -115,7 +115,7 @@ function heroSubtitle(trip: Trip, displayedMomentCount: number): string {
 // Quiet bg-1 surface with an opacity pulse (DESIGN-LANGUAGE §4: "Skeleton:
 // bg-1-Blöcke, Opacity-Puls 0.6 ↔ 1.0, kein Gradient-Shimmer"). Pure
 // presentation, hence local instead of its own component file.
-function SkeletonBlock({ style }: { style: object }) {
+function SkeletonBlock({ style, testID }: { style: object; testID?: string }) {
   const { colors } = useTheme();
   const reducedMotion = useReducedMotion();
   const [opacity] = useState(() => new Animated.Value(0.6));
@@ -135,7 +135,7 @@ function SkeletonBlock({ style }: { style: object }) {
     return () => pulse.stop();
   }, [reducedMotion, opacity]);
 
-  return <Animated.View style={[style, { backgroundColor: colors['bg-1'], opacity }]} />;
+  return <Animated.View testID={testID} style={[style, { backgroundColor: colors['bg-1'], opacity }]} />;
 }
 
 // Mirrors the loaded screen's own shape (hero, then a day head, then a
@@ -149,12 +149,12 @@ function SkeletonScreen() {
   return (
     <View testID="recap-skeleton" style={{ flex: 1, backgroundColor: colors['bg-0'] }}>
       <View style={[styles.content, { paddingTop: topInset }]}>
-        <SkeletonBlock style={{ aspectRatio: 3 / 2, borderRadius: radius.card }} />
+        <SkeletonBlock testID="recap-skeleton-hero" style={{ aspectRatio: 3 / 2, borderRadius: radius.card }} />
         <View style={{ gap: spacing.xs, marginTop: spacing.xl }}>
           <SkeletonBlock style={{ width: 120, height: 26, borderRadius: radius.control }} />
           <SkeletonBlock style={{ width: 180, height: 18, borderRadius: radius.control }} />
         </View>
-        <View style={[styles.featureRow, { marginTop: spacing.m }]}>
+        <View testID="recap-skeleton-feature" style={[styles.featureRow, { marginTop: spacing.m }]}>
           <SkeletonBlock style={[styles.leadPress, styles.leadTile]} />
           <View style={styles.featureColumn}>
             <SkeletonBlock style={[styles.featureThirdPress, styles.featureThirdTile]} />
@@ -231,9 +231,12 @@ function MosaicTileView({
 }
 
 // One row of the mosaic. `feature` is the only row shape with two columns
-// of DIFFERENT height, so it gets its own branch; the other three
-// (`single`/`pair`/`triple`) only differ in which tile shape fills them, an
-// ordinary same-height row of 1-3 tiles.
+// of DIFFERENT height, so it gets its own branch. `triple` gets its own
+// branch too: unlike `single`/`pair` (always exactly as many tiles as the
+// row needs), a trailing `triple` row can be short, and its tiles must stay
+// true thirds regardless (see the spacer comment below). `single`/`pair`
+// are always full, so they share the plain closing branch, only differing
+// in which tile shape fills them.
 function MosaicRowView({
   row, urls, indexById, onTap,
 }: {
@@ -284,11 +287,43 @@ function MosaicRowView({
       </View>
     );
   }
+  if (row.kind === 'triple') {
+    // A trailing `triple` row can hold fewer than three moments (mosaic.ts
+    // keeps a short last row rather than padding or dropping moments); each
+    // real tile still gets `flex: 1` via `thirdPress`. Without something
+    // else claiming the missing slots' share, N `flex: 1` siblings would
+    // just split the WHOLE row width among however many tiles actually
+    // stand there, silently growing a lone trailing tile to full width (or
+    // two of them to half each) instead of the one-third every other
+    // `third` tile is. These spacers claim exactly that missing share
+    // instead (same `flex: 1`, no content, not tappable, not announced),
+    // so a partial row's real tiles stay the same width as a full row's,
+    // and the empty slots simply show through to the screen's own
+    // background on the right. Do not "tidy" them away: that is the one
+    // behaviour this whole branch exists for.
+    const missingSlots = 3 - row.tiles.length;
+    return (
+      <View style={styles.tileRow}>
+        {row.tiles.map((t) => (
+          <MosaicTileView
+            key={t.moment.id}
+            tile={t}
+            pressStyle={styles.thirdPress}
+            clipStyle={styles.thirdTile}
+            urls={urls}
+            indexById={indexById}
+            onTap={onTap}
+          />
+        ))}
+        {Array.from({ length: missingSlots }).map((_, i) => (
+          <View key={`spacer-${i}`} accessible={false} style={styles.thirdPress} />
+        ))}
+      </View>
+    );
+  }
   const [pressStyle, clipStyle] = row.kind === 'single'
     ? [styles.widePress, styles.wideTile]
-    : row.kind === 'pair'
-      ? [styles.halfPress, styles.halfTile]
-      : [styles.thirdPress, styles.thirdTile];
+    : [styles.halfPress, styles.halfTile];
   return (
     <View style={styles.tileRow}>
       {row.tiles.map((t) => (

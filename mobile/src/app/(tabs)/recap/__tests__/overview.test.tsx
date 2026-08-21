@@ -316,6 +316,25 @@ describe('mosaic', () => {
     expect(screen.queryByTestId('recap-tile-video-p1')).toBeNull();
   });
 
+  // The badge above only proves it on a `third` tile (p2); the brief is
+  // explicit that it sits "on the big tile just like on the small ones",
+  // and `MosaicTileView` draws the badge the same way for every shape, so
+  // this checks the `lead` tile specifically instead of assuming the
+  // uniform code path behaves the same for it too.
+  test('the play badge shows on the lead tile too, not only on a third', async () => {
+    const leadVideo = moment({
+      id: 'v1', captured_at: '2026-08-10T06:00:00.000Z', type: 'video' as const,
+    });
+    const data = [leadVideo, p2, p3, p4];
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data, error: null });
+    (getPool as jest.Mock).mockResolvedValue({
+      pool: poolFor(['v1', 'p2', 'p3', 'p4']), error: null, reason: null,
+    });
+    await wrap();
+    expect(await screen.findByTestId('recap-tile-lead-v1')).toBeTruthy();
+    expect(screen.getByTestId('recap-tile-video-v1')).toBeTruthy();
+  });
+
   test('a day with a single moment shows it full width instead of a lonely tile', async () => {
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [p1], error: null });
     (getPool as jest.Mock).mockResolvedValue({ pool: poolFor(['p1']), error: null, reason: null });
@@ -323,19 +342,33 @@ describe('mosaic', () => {
     expect(await screen.findByTestId('recap-tile-wide-p1')).toBeTruthy();
   });
 
+  // FOUR_ON_DAY_ONE's fourth moment (p4) is exactly the case the trailing
+  // `triple` row's spacers exist for (review Important 1): a lone tile
+  // after the feature row. It must still be a real, tappable `third` tile
+  // at its own index, not merely occupy space.
+  test('a trailing partial row still holds its own tile, tappable at its own index', async () => {
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: FOUR_ON_DAY_ONE, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: poolFor(['p1', 'p2', 'p3', 'p4']), error: null, reason: null });
+    await wrap();
+    fireEvent.press(await screen.findByTestId('recap-tile-third-p4'));
+    expect(mockPush).toHaveBeenCalledWith({
+      pathname: '/recap/[id]/player', params: { id: 't1', start: '3' },
+    });
+  });
+
   // `fetchTrip` never resolves, so `loaded` never flips to true (see the
   // `if (!loaded)` guard in the component): the only way to reach the
-  // skeleton branch at all. This assertion is unchanged from the pre-Task-10
-  // skeleton (same testID, still true either way) - it documents that the
-  // skeleton keeps standing in for the loading state after the rewrite, it
-  // does not by itself prove the mosaic-shaped skeleton content; that part
-  // has no distinct testID and is a visual, not a unit-test, concern.
-  test('the skeleton shows hero and mosaic, not the old grid', async () => {
+  // skeleton branch at all. Both testIDs are new (Task 10 review, Important
+  // 2): the plain `recap-skeleton` root testID predates this task and would
+  // have passed against the old nine-square-grid skeleton too, so it alone
+  // proved nothing about THIS rewrite.
+  test('the skeleton shows a hero block and a feature row, not the old nine-square grid', async () => {
     (fetchTrip as jest.Mock).mockReturnValue(new Promise(() => {}));
     (fetchRecapMoments as jest.Mock).mockReturnValue(new Promise(() => {}));
     (getPool as jest.Mock).mockReturnValue(new Promise(() => {}));
     await wrap();
-    expect(await screen.findByTestId('recap-skeleton')).toBeTruthy();
+    expect(await screen.findByTestId('recap-skeleton-hero')).toBeTruthy();
+    expect(screen.getByTestId('recap-skeleton-feature')).toBeTruthy();
   });
 });
 
