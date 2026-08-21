@@ -1077,6 +1077,13 @@ export default function RecapPlayer() {
     );
   }
 
+  // Show mode never WAS on the overview (it comes straight from the recap
+  // tab) and close() there `replace`s onto it rather than going back, so
+  // "Zurück" would claim a place this person has never been. Jump mode's
+  // own close() genuinely does go back (canGoBack()) to the overview it
+  // jumped in from, where the label stays accurate as it is.
+  const wayBackLabel = mode === 'show' ? 'Zur Übersicht' : 'Zurück zur Übersicht';
+
   if (phase === 'error') {
     return (
       <View testID="player-error" style={[styles.screen, styles.center]}>
@@ -1088,7 +1095,7 @@ export default function RecapPlayer() {
           {error?.canRetry && (
             <CinemaButton label="Nochmal versuchen" onPress={() => void load()} />
           )}
-          <TextLink label="Zurück zur Übersicht" onPress={close} />
+          <TextLink label={wayBackLabel} onPress={close} />
         </View>
       </View>
     );
@@ -1099,7 +1106,7 @@ export default function RecapPlayer() {
       <View testID="player-empty" style={[styles.screen, styles.center]}>
         <Text style={[type.h2, styles.centeredText]}>Diese Reise ist leer geblieben.</Text>
         <View style={{ marginTop: spacing.xl }}>
-          <TextLink label="Zurück zur Übersicht" onPress={close} />
+          <TextLink label={wayBackLabel} onPress={close} />
         </View>
       </View>
     );

@@ -2000,8 +2000,11 @@ describe('the error state only offers what it can deliver', () => {
     expect(screen.getByTestId('player-error')).toBeTruthy();
     expect(screen.getByText(text)).toBeTruthy();
     expect(screen.queryByText('Nochmal versuchen')).toBeNull();
-    // The way back stays: it is then the only action there is.
-    expect(screen.getByText('Zurück zur Übersicht')).toBeTruthy();
+    // The way back stays: it is then the only action there is. Show mode by
+    // default here (mockParams from the outer beforeEach), so "Zur
+    // Übersicht", not "Zurück" (see the dedicated describe below for both
+    // wordings and why they differ).
+    expect(screen.getByText('Zur Übersicht')).toBeTruthy();
   });
 
   test('an error without a reason keeps its retry button', async () => {
@@ -2024,6 +2027,36 @@ describe('the error state only offers what it can deliver', () => {
 
     expect(screen.getByText('Die Reise liess sich nicht laden.')).toBeTruthy();
     expect(screen.getByText('Nochmal versuchen')).toBeTruthy();
+  });
+});
+
+// Final whole-branch review: "Zurück zur Übersicht" used to stand under
+// error/empty regardless of mode, although show mode was never ON the
+// overview to begin with (it comes straight from the recap tab, and
+// close() there `replace`s onto the overview instead of going back to it).
+describe('the way-back label names what actually happens', () => {
+  test('show mode (no start param) says "Zur Übersicht", not "Zurück"', async () => {
+    mockParams = { id: 't1' }; // no start param: show mode
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({
+      pool: null, error: 'Diese Reise ist noch versiegelt.', reason: 'versiegelt',
+    });
+    await wrap();
+    expect(await screen.findByTestId('player-error')).toBeTruthy();
+    expect(screen.getByText('Zur Übersicht')).toBeTruthy();
+    expect(screen.queryByText('Zurück zur Übersicht')).toBeNull();
+  });
+
+  test('jump mode (a start param) keeps "Zurück zur Übersicht": that is genuinely where it goes back to', async () => {
+    mockParams = { id: 't1', start: '0' };
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [], error: null });
+    (getPool as jest.Mock).mockResolvedValue({
+      pool: { urls: new Map(), validUntil: Date.now() + 999_999, skipped: 0 }, error: null, reason: null,
+    });
+    await wrap();
+    expect(await screen.findByTestId('player-empty')).toBeTruthy();
+    expect(screen.getByText('Zurück zur Übersicht')).toBeTruthy();
+    expect(screen.queryByText('Zur Übersicht')).toBeNull();
   });
 });
 
