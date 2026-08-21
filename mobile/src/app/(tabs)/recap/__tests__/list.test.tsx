@@ -133,3 +133,23 @@ test('while the list is still loading the empty state stays away', async () => {
   release(loaded([]));
   expect(await screen.findByText('Noch kein Recap')).toBeTruthy();
 });
+
+// The cover only exists where the device occupies a top strip; the global
+// mock reports insets of 0, so the device measurement is set via the spy
+// pattern from player.test.tsx.
+describe('status bar cover', () => {
+  let insetSpy: jest.SpyInstance;
+
+  afterEach(() => insetSpy.mockRestore());
+
+  test('an opaque surface backs the status bar, scrolled content never shows behind it', async () => {
+    const safeAreaModule = require('react-native-safe-area-context');
+    insetSpy = jest
+      .spyOn(safeAreaModule, 'useSafeAreaInsets')
+      .mockReturnValue({ top: 59, bottom: 0, left: 0, right: 0 });
+    (fetchTrips as jest.Mock).mockResolvedValue(loaded([recap]));
+    await wrap();
+    await screen.findByText('Lissabon Städtetrip');
+    expect(screen.getByTestId('status-bar-cover')).toBeTruthy();
+  });
+});

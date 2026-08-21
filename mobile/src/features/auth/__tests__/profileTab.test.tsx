@@ -588,3 +588,22 @@ describe('deleting the account (Task 9)', () => {
     expect(mockSignOut).not.toHaveBeenCalled();
   });
 });
+
+// The cover only exists where the device occupies a top strip; the global
+// mock reports insets of 0, so the device measurement is set via the spy
+// pattern from player.test.tsx.
+describe('status bar cover', () => {
+  let insetSpy: jest.SpyInstance;
+
+  afterEach(() => insetSpy.mockRestore());
+
+  test('an opaque surface backs the status bar, scrolled content never shows behind it', async () => {
+    const safeAreaModule = require('react-native-safe-area-context');
+    insetSpy = jest
+      .spyOn(safeAreaModule, 'useSafeAreaInsets')
+      .mockReturnValue({ top: 59, bottom: 0, left: 0, right: 0 });
+    await render(<ThemeProvider><ProfileScreen /></ThemeProvider>);
+    await screen.findByText('Lea');
+    expect(screen.getByTestId('status-bar-cover')).toBeTruthy();
+  });
+});

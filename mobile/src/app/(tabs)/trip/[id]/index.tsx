@@ -10,6 +10,7 @@ import { Button } from '@/components/Button';
 import { TripCover } from '@/components/TripCover';
 import { RevealSequence } from '@/components/RevealSequence';
 import { Sheet, SHEET_SCROLL_RATIO } from '@/components/Sheet';
+import { StatusBarCover } from '@/components/StatusBarCover';
 import { useTheme } from '@/theme/ThemeProvider';
 import { radius, spacing, type } from '@/theme/tokens';
 import { useTopInset } from '@/theme/useTopInset';
@@ -607,6 +608,9 @@ export default function TripDetail() {
         onPress={isOwner ? deleteThisTrip : leaveTrip}
       />
     </ScrollView>
+    {/* Before the sheets and the reveal overlay: their backdrop must keep
+        covering the whole screen, including the status bar strip. */}
+    <StatusBarCover />
 
     <Sheet visible={confirmVisible} title="Reise abschliessen?" onClose={closeFinishSheet}>
       <Text style={[type.body, { color: colors['text-2'] }]}>

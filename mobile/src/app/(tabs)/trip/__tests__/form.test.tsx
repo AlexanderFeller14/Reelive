@@ -119,3 +119,31 @@ test('editing: a save error does not land in the name field, it says nothing abo
   expect(await screen.findByText(/nicht gespeichert werden/)).toBeTruthy();
   expect(fieldRow('Name der Reise').queryByText(/nicht gespeichert werden/)).toBeNull();
 });
+
+// The cover only exists where the device occupies a top strip; the global
+// mock reports insets of 0, so the device measurement is set via the spy
+// pattern from player.test.tsx. Both forms sit in a KeyboardAvoidingView,
+// which shifts them up under the status bar while typing.
+describe('status bar cover', () => {
+  let insetSpy: jest.SpyInstance;
+
+  beforeEach(() => {
+    const safeAreaModule = require('react-native-safe-area-context');
+    insetSpy = jest
+      .spyOn(safeAreaModule, 'useSafeAreaInsets')
+      .mockReturnValue({ top: 59, bottom: 0, left: 0, right: 0 });
+  });
+
+  afterEach(() => insetSpy.mockRestore());
+
+  test('an opaque surface backs the status bar while creating a trip', async () => {
+    await wrap(<NewTrip />);
+    expect(screen.getByTestId('status-bar-cover')).toBeTruthy();
+  });
+
+  test('an opaque surface backs the status bar while editing a trip', async () => {
+    await wrap(<EditTrip />);
+    await screen.findByDisplayValue('Norwegen');
+    expect(screen.getByTestId('status-bar-cover')).toBeTruthy();
+  });
+});

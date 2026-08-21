@@ -5,6 +5,7 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { TripCard } from '@/components/TripCard';
 import { Button } from '@/components/Button';
 import { Fab } from '@/components/Fab';
+import { StatusBarCover } from '@/components/StatusBarCover';
 import { useTheme } from '@/theme/ThemeProvider';
 import { spacing, type } from '@/theme/tokens';
 import { useTopInset } from '@/theme/useTopInset';
@@ -139,6 +140,7 @@ export default function TripList() {
           </View>
         )}
       </ScrollView>
+      <StatusBarCover />
       <Fab label="Neue Reise" onPress={() => router.push('/trip/new')} />
     </View>
   );

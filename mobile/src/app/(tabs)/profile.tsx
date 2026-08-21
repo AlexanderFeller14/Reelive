@@ -9,6 +9,7 @@ import { Button } from '@/components/Button';
 import { Card } from '@/components/Card';
 import { PressScale } from '@/components/PressScale';
 import { Sheet } from '@/components/Sheet';
+import { StatusBarCover } from '@/components/StatusBarCover';
 import { useTheme } from '@/theme/ThemeProvider';
 import { motion, radius, spacing, type } from '@/theme/tokens';
 import { useTopInset } from '@/theme/useTopInset';
@@ -386,6 +387,9 @@ export default function ProfileScreen() {
           </Text>
         </PressScale>
       </ScrollView>
+      {/* Before the sheets and overlays: their backdrop must keep covering
+          the whole screen, including the status bar strip. */}
+      <StatusBarCover />
 
       {/* Both sheets are siblings of the ScrollView, not its children: a
           sheet lays itself over its parent via StyleSheet.absoluteFill, so

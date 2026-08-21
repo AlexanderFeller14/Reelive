@@ -4,6 +4,7 @@ import { useRouter } from 'expo-router';
 import { Button } from '@/components/Button';
 import { Input } from '@/components/Input';
 import { DateRangeField } from '@/components/DateRangeField';
+import { StatusBarCover } from '@/components/StatusBarCover';
 import { useTheme } from '@/theme/ThemeProvider';
 import { spacing, type } from '@/theme/tokens';
 import { useTopInset } from '@/theme/useTopInset';
@@ -73,6 +74,10 @@ export default function NewTrip() {
         <View style={styles.filler} />
         <Button variant="primary" label="Reise anlegen" onPress={submit} loading={loading} />
       </View>
+      {/* Inside the KeyboardAvoidingView, whose box stays the full screen:
+          only the inner view shrinks when the keyboard pads it, so the strip
+          keeps sitting at the very top while the form slides up under it. */}
+      <StatusBarCover />
     </KeyboardAvoidingView>
   );
 }

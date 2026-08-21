@@ -9,6 +9,7 @@ import { ChevronLeft, Download, Share2 } from 'lucide-react-native';
 import { PressScale } from '@/components/PressScale';
 import { Button } from '@/components/Button';
 import { Sheet } from '@/components/Sheet';
+import { StatusBarCover } from '@/components/StatusBarCover';
 import { SealPeel } from '@/components/SealPeel';
 import { useTheme } from '@/theme/ThemeProvider';
 import { useReducedMotion } from '@/theme/useReducedMotion';
@@ -512,6 +513,9 @@ export default function RecapOverview() {
           </View>
         )}
       </ScrollView>
+      {/* Before the sheets: their backdrop must keep covering the whole
+          screen, including the status bar strip. */}
+      <StatusBarCover />
 
       {/* Sibling of the ScrollView, not its child (same pattern as the
           comment sheet in player.tsx), it has to lie above everything. */}

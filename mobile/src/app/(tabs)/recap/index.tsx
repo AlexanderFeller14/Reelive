@@ -4,6 +4,7 @@ import { Image } from 'expo-image';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { TripCard } from '@/components/TripCard';
 import { Button } from '@/components/Button';
+import { StatusBarCover } from '@/components/StatusBarCover';
 import { useTheme } from '@/theme/ThemeProvider';
 import { spacing, type } from '@/theme/tokens';
 import { useTopInset } from '@/theme/useTopInset';
@@ -102,6 +103,7 @@ export default function RecapList() {
           </View>
         )}
       </ScrollView>
+      <StatusBarCover />
     </View>
   );
 }
