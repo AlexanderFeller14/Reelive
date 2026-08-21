@@ -1197,6 +1197,28 @@ describe('the show hands over to the overview', () => {
     expect(mockBack).not.toHaveBeenCalled();
   });
 
+  // The brief names the X pill AND the swipe explicitly (task-4-brief.md:11):
+  // both leave via replace() in show mode. The swipe drives the SAME close()
+  // as the pill (asserted above), but that shared function is an
+  // implementation detail, not a substitute for exercising this specific
+  // entry point: PanResponder release is its own code path into close().
+  test('a swipe release in show mode also lands on the overview, not back', async () => {
+    mockParams = { id: 't1' }; // no start param: show mode
+    const createSpy = jest.spyOn(PanResponder, 'create');
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
+    await wrap();
+    const config = createSpy.mock.calls[0][0];
+    await act(async () => {
+      config.onPanResponderRelease?.({} as never, { dy: 121 } as never); // past CLOSE_THRESHOLD_PX
+    });
+    expect(mockReplace).toHaveBeenCalledWith({
+      pathname: '/recap/[id]/overview', params: { id: 't1' },
+    });
+    expect(mockBack).not.toHaveBeenCalled();
+    createSpy.mockRestore();
+  });
+
   test('after a jump from the overview the end card keeps its button and goes back', async () => {
     mockParams = { id: 't1', start: '0' }; // start=0 is a jump too (repeat from the overview)
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
