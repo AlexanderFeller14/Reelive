@@ -149,6 +149,31 @@ jest.mock('@/features/recap/reportApi', () => ({
   reportMoment: jest.fn(),
 }));
 
+// A stand-in for SealPeel (it has its own test file: skia, timers, haptics),
+// not a real seal that needs an actual peel gesture to get out of the way.
+// Auto-peel defaults to true so every EXISTING test below keeps finding the
+// player as before, without a seal in front of it; only the seal describe
+// block below switches it off to look at the standing seal. The seal moved
+// out of the overview and into this screen (Task 2-4), so overview.test.tsx
+// no longer needs a mock of its own to have moved along with it.
+let mockSealAutoPeel = true;
+jest.mock('@/components/SealPeel', () => {
+  const ReactActual = require('react');
+  const { Pressable } = require('react-native');
+  return {
+    SealPeel: ({ size, onPeeled, testID }: { size: number; onPeeled: () => void; testID?: string }) => {
+      ReactActual.useEffect(() => {
+        if (mockSealAutoPeel) onPeeled();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, []);
+      return ReactActual.createElement(Pressable, {
+        testID, accessibilityRole: 'button', accessibilityLabel: 'Siegel abziehen',
+        onPress: onPeeled, style: { width: size, height: size },
+      });
+    },
+  };
+});
+
 import RecapPlayer from '../[id]/player';
 import { fetchTrip } from '@/features/trips/tripsApi';
 import { fetchRecapMoments } from '@/features/recap/recapApi';
@@ -408,7 +433,8 @@ describe('state machine across the screen', () => {
     });
     // p3 -> p4 is a day change, so the day 2 interstitial has to be there.
     expect(screen.getByTestId('player-interstitial')).toBeTruthy();
-    expect(screen.getByText('Tag 2 · 11. August')).toBeTruthy();
+    expect(screen.getByText('Tag 2')).toBeTruthy();
+    expect(screen.getByText('11. August')).toBeTruthy();
   });
 
   test('advancing past the last moment reaches the end screen, not an empty state', async () => {
@@ -450,12 +476,35 @@ describe('state machine across the screen', () => {
 });
 
 describe('day interstitial', () => {
+  test('the interstitial card stages day number above place and date', async () => {
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
+    await wrap();
+    expect(await screen.findByTestId('player-interstitial')).toBeTruthy();
+    expect(screen.getByText('Tag 1')).toBeTruthy();
+    expect(screen.getByText('Lissabon · 10. August')).toBeTruthy();
+    // The old single line must be gone, not merely joined differently.
+    expect(screen.queryByText('Tag 1 · Lissabon · 10. August')).toBeNull();
+  });
+
+  test('without a place the card carries day number and date alone', async () => {
+    mockParams = { id: 't1', start: '2' }; // p3, one tap right crosses into day 2 (p4, no place_name)
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
+    await wrap();
+    await fireEvent(screen.getByTestId('player-right'), 'pressIn');
+    await fireEvent(screen.getByTestId('player-right'), 'pressOut');
+    expect(await screen.findByTestId('player-interstitial')).toBeTruthy();
+    expect(screen.getByText('Tag 2')).toBeTruthy();
+    expect(screen.getByText('11. August')).toBeTruthy();
+  });
+
   test('appears before the very first moment and disappears on its own after 1.5 seconds', async () => {
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
     (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
     expect(screen.getByTestId('player-interstitial')).toBeTruthy();
-    expect(screen.getByText('Tag 1 · Lissabon · 10. August')).toBeTruthy();
+    expect(screen.getByText('Tag 1')).toBeTruthy();
     await act(async () => {
       jest.advanceTimersByTime(1500);
     });
@@ -504,6 +553,11 @@ describe('day interstitial', () => {
   // The interstitial covers the whole screen opaquely, so without an even
   // higher zIndex the close pill would be unreachable for its 1.5 s.
   test('the close pill stays usable WHILE the day interstitial is up', async () => {
+    // Jump mode (Task 4): show mode's close() always replaces to the
+    // overview, which is not what this test is about. start='0' keeps the
+    // same p1 with its interstitial (day change at index 0 regardless of
+    // mode) while testing the ordinary back() path.
+    mockParams = { id: 't1', start: '0' };
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
     (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
@@ -969,7 +1023,11 @@ describe('stragglers and skipped moments on the end screen', () => {
 });
 
 describe('closing the player', () => {
+  // Both tests below run in jump mode (Task 4): show mode's close() always
+  // replaces to the overview regardless of canGoBack(), which is exactly
+  // the OTHER branch, covered separately above.
   test('the close button leaves the player via back() when there is a way back', async () => {
+    mockParams = { id: 't1', start: '0' };
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
     (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
@@ -979,6 +1037,7 @@ describe('closing the player', () => {
   });
 
   test('without a way back in the stack the close button replaces to the recap list', async () => {
+    mockParams = { id: 't1', start: '0' };
     mockCanGoBack = false;
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
     (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
@@ -1036,6 +1095,10 @@ describe('closing the player', () => {
   // itself, without touch simulation: that is the only way to hit the
   // 120 px threshold precisely in RNTL.
   test('a swipe release closes from the threshold on and springs back below it', async () => {
+    // Jump mode (Task 4): the swipe calls the same close() as the pill, so
+    // show mode would replace to the overview here too. The threshold and
+    // spring-back logic under test is independent of that branch.
+    mockParams = { id: 't1', start: '0' };
     const createSpy = jest.spyOn(PanResponder, 'create');
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
     (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
@@ -1051,6 +1114,134 @@ describe('closing the player', () => {
     });
     expect(mockBack).not.toHaveBeenCalled();
     createSpy.mockRestore();
+  });
+});
+
+// Task 4 of the recap-show plan: in show mode the end card is no longer a
+// dead end with a button, it hands the show back to the overview by
+// itself after a reading pause. Jump mode (a tile or the repeat pill FROM
+// the overview) keeps today's button and back() unchanged.
+describe('the show hands over to the overview', () => {
+  test('the show ends by itself on the overview after the end card', async () => {
+    mockParams = { id: 't1' }; // no start param: show mode
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
+    await wrap();
+
+    // Walk the whole reel: the day 1 interstitial (before p1), taps through
+    // to p4 (POOL_OK carries four moments, p1..p4), the day 2 interstitial
+    // (before p4, a day change), and a last tap past the end.
+    await fireEvent.press(await screen.findByTestId('player-interstitial'));
+    await fireEvent(screen.getByTestId('player-right'), 'pressIn');
+    await fireEvent(screen.getByTestId('player-right'), 'pressOut'); // p1 -> p2
+    await fireEvent(screen.getByTestId('player-right'), 'pressIn');
+    await fireEvent(screen.getByTestId('player-right'), 'pressOut'); // p2 -> p3
+    await fireEvent(screen.getByTestId('player-right'), 'pressIn');
+    await fireEvent(screen.getByTestId('player-right'), 'pressOut'); // p3 -> p4, day change
+    await fireEvent.press(screen.getByTestId('player-interstitial'));
+    await fireEvent(screen.getByTestId('player-right'), 'pressIn');
+    await fireEvent(screen.getByTestId('player-right'), 'pressOut'); // past p4, the end
+
+    expect(await screen.findByTestId('player-end')).toBeTruthy();
+    expect(screen.queryByText('Zurück zur Übersicht')).toBeNull();
+
+    // In slices, not one large jump: the point under test is that NOTHING
+    // happens before the full 2000 ms are up, which a single advance could
+    // pass even against a shorter, unfixed timer.
+    await act(async () => {
+      jest.advanceTimersByTime(1000);
+    });
+    expect(mockReplace).not.toHaveBeenCalled();
+    await act(async () => {
+      jest.advanceTimersByTime(999);
+    });
+    expect(mockReplace).not.toHaveBeenCalled();
+    await act(async () => {
+      jest.advanceTimersByTime(1);
+    });
+    expect(mockReplace).toHaveBeenCalledWith({
+      pathname: '/recap/[id]/overview', params: { id: 't1' },
+    });
+  });
+
+  test('a tap on the end card does not wait for the timer', async () => {
+    mockParams = { id: 't1' };
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
+    await wrap();
+
+    await fireEvent.press(await screen.findByTestId('player-interstitial'));
+    await fireEvent(screen.getByTestId('player-right'), 'pressIn');
+    await fireEvent(screen.getByTestId('player-right'), 'pressOut');
+    await fireEvent(screen.getByTestId('player-right'), 'pressIn');
+    await fireEvent(screen.getByTestId('player-right'), 'pressOut');
+    await fireEvent(screen.getByTestId('player-right'), 'pressIn');
+    await fireEvent(screen.getByTestId('player-right'), 'pressOut');
+    await fireEvent.press(screen.getByTestId('player-interstitial'));
+    await fireEvent(screen.getByTestId('player-right'), 'pressIn');
+    await fireEvent(screen.getByTestId('player-right'), 'pressOut');
+
+    await fireEvent.press(await screen.findByTestId('player-end'));
+    expect(mockReplace).toHaveBeenCalledWith({
+      pathname: '/recap/[id]/overview', params: { id: 't1' },
+    });
+  });
+
+  test('leaving the show midway lands on the overview, not back in the tab', async () => {
+    mockParams = { id: 't1' };
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
+    await wrap();
+    await fireEvent.press(screen.getByTestId('player-close'));
+    expect(mockReplace).toHaveBeenCalledWith({
+      pathname: '/recap/[id]/overview', params: { id: 't1' },
+    });
+    expect(mockBack).not.toHaveBeenCalled();
+  });
+
+  // The brief names the X pill AND the swipe explicitly (task-4-brief.md:11):
+  // both leave via replace() in show mode. The swipe drives the SAME close()
+  // as the pill (asserted above), but that shared function is an
+  // implementation detail, not a substitute for exercising this specific
+  // entry point: PanResponder release is its own code path into close().
+  test('a swipe release in show mode also lands on the overview, not back', async () => {
+    mockParams = { id: 't1' }; // no start param: show mode
+    const createSpy = jest.spyOn(PanResponder, 'create');
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
+    await wrap();
+    const config = createSpy.mock.calls[0][0];
+    await act(async () => {
+      config.onPanResponderRelease?.({} as never, { dy: 121 } as never); // past CLOSE_THRESHOLD_PX
+    });
+    expect(mockReplace).toHaveBeenCalledWith({
+      pathname: '/recap/[id]/overview', params: { id: 't1' },
+    });
+    expect(mockBack).not.toHaveBeenCalled();
+    createSpy.mockRestore();
+  });
+
+  test('after a jump from the overview the end card keeps its button and goes back', async () => {
+    mockParams = { id: 't1', start: '0' }; // start=0 is a jump too (repeat from the overview)
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
+    await wrap();
+
+    await fireEvent.press(await screen.findByTestId('player-interstitial'));
+    await fireEvent(screen.getByTestId('player-right'), 'pressIn');
+    await fireEvent(screen.getByTestId('player-right'), 'pressOut');
+    await fireEvent(screen.getByTestId('player-right'), 'pressIn');
+    await fireEvent(screen.getByTestId('player-right'), 'pressOut');
+    await fireEvent(screen.getByTestId('player-right'), 'pressIn');
+    await fireEvent(screen.getByTestId('player-right'), 'pressOut');
+    await fireEvent.press(screen.getByTestId('player-interstitial'));
+    await fireEvent(screen.getByTestId('player-right'), 'pressIn');
+    await fireEvent(screen.getByTestId('player-right'), 'pressOut');
+
+    expect(await screen.findByTestId('player-end')).toBeTruthy();
+    await fireEvent.press(screen.getByText('Zurück zur Übersicht'));
+    expect(mockBack).toHaveBeenCalled();
+    expect(mockReplace).not.toHaveBeenCalled();
   });
 });
 
@@ -1811,8 +2002,11 @@ describe('the error state only offers what it can deliver', () => {
     expect(screen.getByTestId('player-error')).toBeTruthy();
     expect(screen.getByText(text)).toBeTruthy();
     expect(screen.queryByText('Nochmal versuchen')).toBeNull();
-    // The way back stays: it is then the only action there is.
-    expect(screen.getByText('Zurück zur Übersicht')).toBeTruthy();
+    // The way back stays: it is then the only action there is. Show mode by
+    // default here (mockParams from the outer beforeEach), so "Zur
+    // Übersicht", not "Zurück" (see the dedicated describe below for both
+    // wordings and why they differ).
+    expect(screen.getByText('Zur Übersicht')).toBeTruthy();
   });
 
   test('an error without a reason keeps its retry button', async () => {
@@ -1835,6 +2029,172 @@ describe('the error state only offers what it can deliver', () => {
 
     expect(screen.getByText('Die Reise liess sich nicht laden.')).toBeTruthy();
     expect(screen.getByText('Nochmal versuchen')).toBeTruthy();
+  });
+});
+
+// Final whole-branch review: "Zurück zur Übersicht" used to stand under
+// error/empty regardless of mode, although show mode was never ON the
+// overview to begin with (it comes straight from the recap tab, and
+// close() there `replace`s onto the overview instead of going back to it).
+describe('the way-back label names what actually happens', () => {
+  test('show mode (no start param) says "Zur Übersicht", not "Zurück"', async () => {
+    mockParams = { id: 't1' }; // no start param: show mode
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({
+      pool: null, error: 'Diese Reise ist noch versiegelt.', reason: 'versiegelt',
+    });
+    await wrap();
+    expect(await screen.findByTestId('player-error')).toBeTruthy();
+    expect(screen.getByText('Zur Übersicht')).toBeTruthy();
+    expect(screen.queryByText('Zurück zur Übersicht')).toBeNull();
+  });
+
+  test('jump mode (a start param) keeps "Zurück zur Übersicht": that is genuinely where it goes back to', async () => {
+    mockParams = { id: 't1', start: '0' };
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [], error: null });
+    (getPool as jest.Mock).mockResolvedValue({
+      pool: { urls: new Map(), validUntil: Date.now() + 999_999, skipped: 0 }, error: null, reason: null,
+    });
+    await wrap();
+    expect(await screen.findByTestId('player-empty')).toBeTruthy();
+    expect(screen.getByText('Zurück zur Übersicht')).toBeTruthy();
+    expect(screen.queryByText('Zur Übersicht')).toBeNull();
+  });
+});
+
+// Task 2 of the recap-show plan: the seal moves from the overview into the
+// player and becomes the first full-screen card of the show. `playerMode`
+// (Task 1) decides show versus jump; these tests hold the seal itself
+// (mockSealAutoPeel = false) to look at it standing, instead of letting it
+// peel itself away on mount like every test above.
+describe('the seal in front of the show', () => {
+  beforeEach(() => {
+    mockSealAutoPeel = false;
+  });
+  afterEach(() => {
+    mockSealAutoPeel = true;
+  });
+
+  test('entering without a start parameter the seal stands in front of the reel', async () => {
+    mockParams = { id: 't1' }; // no start param: show mode
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
+    await wrap();
+    expect(await screen.findByTestId('player-seal')).toBeTruthy();
+    expect(screen.getByText('Dein Recap ist versiegelt. Tipp aufs Siegel, um ihn zu öffnen.')).toBeTruthy();
+    expect(screen.queryByTestId('player-ready')).toBeNull();
+  });
+
+  test('peeled off, the reel runs', async () => {
+    mockParams = { id: 't1' };
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
+    await wrap();
+    await fireEvent.press(await screen.findByTestId('player-seal'));
+    expect(await screen.findByTestId('player-ready')).toBeTruthy();
+    expect(screen.queryByTestId('player-seal')).toBeNull();
+  });
+
+  test('entering with a start parameter no seal stands, the jump comes from the overview', async () => {
+    mockParams = { id: 't1', start: '2' };
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
+    await wrap();
+    expect(await screen.findByTestId('player-ready')).toBeTruthy();
+    expect(screen.queryByTestId('player-seal')).toBeNull();
+  });
+
+  test('start=0 is a jump too, repeating from the overview gets no second seal', async () => {
+    mockParams = { id: 't1', start: '0' };
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
+    await wrap();
+    expect(await screen.findByTestId('player-ready')).toBeTruthy();
+    expect(screen.queryByTestId('player-seal')).toBeNull();
+  });
+
+  test('a load error skips the seal: nothing stands behind it', async () => {
+    (fetchTrip as jest.Mock).mockResolvedValue({ data: null, error: null });
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [], error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: null, error: null, reason: null });
+    mockParams = { id: 't1' };
+    await wrap();
+    expect(await screen.findByTestId('player-error')).toBeTruthy();
+    expect(screen.queryByTestId('player-seal')).toBeNull();
+  });
+
+  test('an empty reel skips the seal as well', async () => {
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [], error: null });
+    (getPool as jest.Mock).mockResolvedValue({
+      pool: { urls: new Map(), validUntil: Date.now() + 999_999, skipped: 0 }, error: null, reason: null,
+    });
+    mockParams = { id: 't1' };
+    await wrap();
+    expect(await screen.findByTestId('player-empty')).toBeTruthy();
+    expect(screen.queryByTestId('player-seal')).toBeNull();
+  });
+
+  // Without this guard the auto-advance timer and the day interstitial both
+  // key off `phase`/`state` alone, and `load()` reaches 'ready' regardless of
+  // whether the seal still stands: the reel would run on, unseen, behind it.
+  // 20000 ms is well past PHOTO_DURATION_MS (5000) and past the whole
+  // four-moment reel, so if any timer were still ticking behind the seal, the
+  // player would already be on 'ended' by the time it peels.
+  test('while the seal stands, no timer runs behind it: waiting past the whole reel changes nothing', async () => {
+    mockParams = { id: 't1' };
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
+    await wrap();
+    expect(await screen.findByTestId('player-seal')).toBeTruthy();
+
+    // In steps, not one big jump: a single `advanceTimersByTime` only fires
+    // the timers already scheduled at the moment it is called, it does not
+    // also let React flush the effects a fired timer's setState triggers and
+    // let THOSE effects schedule their own new timers within the same call.
+    // Stepping keeps giving React that chance between advances, the same
+    // reason the day-interstitial tests above advance in two separate calls
+    // rather than one.
+    for (let i = 0; i < 20; i += 1) {
+      await act(async () => {
+        jest.advanceTimersByTime(1000);
+      });
+    }
+    expect(screen.getByTestId('player-seal')).toBeTruthy();
+    expect(screen.queryByTestId('player-end')).toBeNull();
+
+    await fireEvent.press(screen.getByTestId('player-seal'));
+    expect(await screen.findByTestId('player-ready')).toBeTruthy();
+    expect(screen.getByTestId('player-photo').props.source).toEqual({ uri: image('p1').medium_url });
+    expect(screen.queryByTestId('player-end')).toBeNull();
+  });
+
+  // Final whole-branch review: the seal is the loading window for the FIRST
+  // image it reveals. The old slice started at index+1, leaving exactly the
+  // moment the peel uncovers (the current one) cold.
+  test('while the seal stands, the current photo warms up too, not just the ones behind it', async () => {
+    mockParams = { id: 't1' }; // no start param: show mode, seal stands over p1 (index 0)
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
+    await wrap();
+    expect(await screen.findByTestId('player-seal')).toBeTruthy();
+    expect(mockPrefetch).toHaveBeenCalledWith([image('p1').medium_url, image('p3').medium_url]);
+  });
+
+  // Final whole-branch review: the seal stage on its own had no way out
+  // (no close pill, no tap zones, no swipe), leaving only the OS back
+  // gesture, which `animation: 'fade'` on this route may disable. The close
+  // pill is the one exit that belongs here (tap zones and swipe stay out,
+  // the story navigation must not bite behind the seal).
+  test('with the seal standing, the close pill still leaves the player', async () => {
+    mockParams = { id: 't1' }; // no start param: show mode
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
+    await wrap();
+    expect(await screen.findByTestId('player-seal')).toBeTruthy();
+    await fireEvent.press(screen.getByTestId('player-close'));
+    expect(mockReplace).toHaveBeenCalledWith({
+      pathname: '/recap/[id]/overview', params: { id: 't1' },
+    });
   });
 });
 
@@ -1861,10 +2221,20 @@ describe('safe area of the device', () => {
   };
 
   // The spy survives jest.clearAllMocks() (which only clears recordings, not
-  // implementations), so it has to be restored by hand, otherwise every
-  // later suite runs with foreign device measurements.
+  // implementations), so it has to be reset by hand, otherwise every later
+  // test runs with foreign device measurements.
+  //
+  // `mockRestore()` looks like the obvious way to do that but is NOT enough
+  // here: `useSafeAreaInsets` is already a `jest.fn()` coming out of the
+  // global mock (jest.setup.ts), so `jest.spyOn` never captured a real,
+  // unmocked original to go back to. Its `mockRestore()` silently degrades to
+  // `mockReset()`, which wipes the implementation instead of restoring one,
+  // so `useSafeAreaInsets()` returns `undefined` for every test that renders
+  // afterwards, in this file or any that runs later. Re-asserting the
+  // all-zero default the global mock provides keeps that default alive
+  // instead. Do not "simplify" this back to `mockRestore()`.
   afterEach(() => {
-    insetSpy?.mockRestore();
+    insetSpy?.mockReturnValue({ top: 0, bottom: 0, left: 0, right: 0 });
     insetSpy = undefined;
   });
 

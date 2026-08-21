@@ -251,8 +251,12 @@ export default function TripDetail() {
     void markRevealSeen(id);
   }, [id]);
 
+  // No `start` param, exactly like the recap card (recap/index.tsx): that
+  // absence is what puts the seal in front of the show instead of landing
+  // straight in the overview, unceremoniously, on a button whose own label
+  // says "starten" (final whole-branch review).
   const toRecap = () => {
-    router.push({ pathname: '/recap/[id]/overview', params: { id } });
+    router.push({ pathname: '/recap/[id]/player', params: { id } });
   };
 
   const acknowledgeDiscarded = useCallback(() => {

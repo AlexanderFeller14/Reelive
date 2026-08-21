@@ -9,6 +9,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
@@ -24,6 +25,7 @@ import { ProgressBar } from '@/components/ProgressBar';
 import { Pill } from '@/components/Pill';
 import { Sheet } from '@/components/Sheet';
 import { Input } from '@/components/Input';
+import { SealPeel } from '@/components/SealPeel';
 import { cinema, motion, palette, radius, spacing, type } from '@/theme/tokens';
 import { useTopInset, useBottomInset } from '@/theme/useTopInset';
 import { useReducedMotion } from '@/theme/useReducedMotion';
@@ -33,6 +35,7 @@ import { fetchRecapMoments } from '@/features/recap/recapApi';
 import { saveMomentToGallery } from '@/features/recap/exportApi';
 import { reportMoment, REPORT_MAX_LENGTH } from '@/features/recap/reportApi';
 import { groupByDays } from '@/features/recap/days';
+import { playerMode } from '@/features/recap/playerEntry';
 import type { Comment, Reaction, RecapMoment, RecapDay } from '@/features/recap/types';
 import {
   getPool,
@@ -73,10 +76,30 @@ const TAP_THRESHOLD_MS = 250;
 // RN Pressable's own default for `delayLongPress`).
 const LONG_PRESS_MS = 500;
 const CLOSE_THRESHOLD_PX = 120;
-// DESIGN-LANGUAGE §5: "light to cinema = fade through dark, 350 ms", the
-// staged transition when entering the player ("the lights go out").
+// DESIGN-LANGUAGE §5: "light to cinema = fade through dark, 350 ms" ("the
+// lights go out"). Only describes JUMP mode (final whole-branch review): the
+// Animated.View that shows this sits inside the 'ready' branch, but the
+// animation itself starts ticking on MOUNT regardless of phase (see the
+// effect below). Show mode's seal is an INDEFINITE wait on top of the load,
+// so by the time 'ready' ever mounts there the fade has always already
+// finished, unseen; the route-level `animation: 'fade'` (recap/_layout.tsx)
+// is what covers §5 for show mode instead. Not restarted once the seal
+// peels either: a second darkening on top of the route's own transition
+// would be showing off, not honouring the spec.
 const CINEMA_FADE_DURATION_MS = 350;
 const CINEMA_FADE_REDUCED_MS = 200;
+// How long the end card stands in show mode before handing over to the
+// overview on its own (Task 4). This is READING time for "Das war der
+// Recap.", not a motion duration, so `useReducedMotion()` must NOT shorten
+// it the way CINEMA_FADE_REDUCED_MS shortens the fade above.
+const END_CARD_MS = 2000;
+// Same sharpness-limit rationale as FILM_REEL_MAX in recap/index.tsx (see
+// there): the seal is drawn from the same 1254 px source (SealPeel.tsx), so
+// it goes soft at the same width. Only bites on an iPad, every iPhone stays
+// below it anyway. (The seal used to stand in recap/[id]/overview.tsx before
+// Task 2 of the recap-show plan moved it here; that is not where this
+// rationale lives any more.)
+const SEAL_STAGE_MAX = 416;
 
 // Reasons that belong to the moment being LEFT and are taken back on every
 // ACTUAL index change, never carried over to the NEW moment. 'kommentare'
@@ -107,8 +130,8 @@ function skippedText(count: number): string {
   return `${count} ${count === 1 ? 'Moment liess' : 'Momente liessen'} sich gerade nicht laden. Schau später nochmal rein.`;
 }
 
-// Same copy rationale as above: "Tag 3 · Lissabon · 12. August" is the exact
-// format from overview.tsx (not exported there either).
+// Same copy rationale as above: "12. August" is the exact date format from
+// overview.tsx's own formatDayDate (not exported there either).
 const MONTHS_LONG = [
   'Januar', 'Februar', 'März', 'April', 'Mai', 'Juni',
   'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember',
@@ -117,11 +140,11 @@ function formatDayDate(iso: string): string {
   const [, m, d] = iso.split('-').map(Number);
   return `${d}. ${MONTHS_LONG[m - 1]}`;
 }
-function dayHeading(day: RecapDay): string {
-  const parts = [`Tag ${day.number}`];
-  if (day.place) parts.push(day.place);
-  parts.push(formatDayDate(day.date));
-  return parts.join(' · ');
+// Second line of the interstitial card, staged BELOW the day number rather
+// than joined onto it (recap-show plan, Task 3): this is the staging the
+// overview's own day headings are meant to move to as well, later.
+function daySubheading(day: RecapDay): string {
+  return day.place ? `${day.place} · ${formatDayDate(day.date)}` : formatDayDate(day.date);
 }
 
 // Unlike preview.tsx (where moment time and device time are the same, because
@@ -342,12 +365,21 @@ export default function RecapPlayer() {
   const router = useRouter();
   const { id: tripId, start: startParam } = useLocalSearchParams<{ id: string; start?: string }>();
   const reducedMotion = useReducedMotion();
+  // Computed ONCE here: Task 4 (end card, leaving the player) reads the same
+  // `mode`, so this is the single derivation both tasks share, never a second
+  // independent one.
+  const mode = playerMode(startParam);
   // The player shows no header and lies edge to edge behind the island and the
   // home indicator. Device finding: the designed 32 from the StyleSheet were
   // not enough, the progress segments sat under the Dynamic Island.
   const topInset = useTopInset(spacing.xl);
   const bottomInset = useBottomInset(spacing.xl);
   const { userId } = useAuth();
+  const { width: windowWidth } = useWindowDimensions();
+
+  // As a useState INITIALIZER, not an effect: an effect would leave the
+  // player visible without its seal for one frame after mount.
+  const [sealed, setSealed] = useState(() => mode === 'show');
 
   const [phase, setPhase] = useState<LoadPhase>('loading');
   // The error and the question whether a second attempt achieves anything in
@@ -485,8 +517,8 @@ export default function RecapPlayer() {
     }, [])
   );
 
-  // "The lights go out": the staged fade through dark when entering the player
-  // (DESIGN-LANGUAGE §5).
+  // "The lights go out" (DESIGN-LANGUAGE §5), meaningful in jump mode only;
+  // see CINEMA_FADE_DURATION_MS above for why show mode never sees it.
   //
   // `reducedMotion` sits in the deps on purpose, although the staging is
   // conceptually one-off: `useReducedMotion()` always returns `false` on the
@@ -825,7 +857,10 @@ export default function RecapPlayer() {
     // Covers ALL reasons, including 'halten' and 'zwischenkarte' (unlike
     // blocksAutoAdvance in videoEnded above): the regular per-moment timer is not
     // an event that a hold gesture would have to let through by way of exception.
-    if (phase !== 'ready' || state.paused.size > 0) return;
+    // `sealed` guards the same way: the reel must not run on behind a standing
+    // seal, and `phase` alone does not prevent that, `load()` reaches 'ready'
+    // independently of whether the seal has been peeled yet.
+    if (sealed || phase !== 'ready' || state.paused.size > 0) return;
     const moment = playlist[state.index];
     if (!moment) return;
     const duration = durationFor(moment);
@@ -833,7 +868,7 @@ export default function RecapPlayer() {
     segmentStartRef.current = Date.now() - state.progress;
     const timer = setTimeout(() => advanceAutomaticallyRef.current(), remaining);
     return () => clearTimeout(timer);
-  }, [phase, state.paused, state.index, state.progress, playlist]);
+  }, [sealed, phase, state.paused, state.index, state.progress, playlist]);
 
   // Day interstitial card: appears BEFORE the first moment of a new day and
   // stands for 1.5 s before advancing on its own.
@@ -845,7 +880,10 @@ export default function RecapPlayer() {
   // the orphaned timer itself but that its body reset `paused`
   // UNCONDITIONALLY instead of only its own reason.
   useEffect(() => {
-    if (phase !== 'ready') return;
+    // Same `sealed` guard as the auto-advance timer above and for the same
+    // reason: this effect starts its own 1.5 s timer, which must not begin
+    // ticking behind a standing seal either.
+    if (sealed || phase !== 'ready') return;
     if (!dayChanges(playlist, startDate, state.index)) {
       // This branch runs on EVERY index change that is NOT a day change, the
       // ordinary case. `withoutReason` itself is no-op safe (it returns the same
@@ -861,19 +899,25 @@ export default function RecapPlayer() {
       setState((s) => ({ ...s, paused: withoutReason(s.paused, 'zwischenkarte') }));
     }, INTERSTITIAL_DURATION_MS);
     return () => clearTimeout(timer);
-  }, [phase, playlist, startDate, state.index]);
+  }, [sealed, phase, playlist, startDate, state.index]);
 
   // Videos are deliberately not preloaded: the brief does not ask for it and
   // expo-video buffers on mount by itself.
   useEffect(() => {
     if (phase !== 'ready') return;
+    // Behind a standing seal nothing is on screen yet, so the CURRENT moment
+    // needs the same warm-up as the ones after it: it is the exact frame the
+    // peel reveals, and the seal is the loading window for it. Once the reel
+    // runs the current image is already showing, and prefetching it again
+    // would be pointless, so the window shifts to start only after it.
+    const from = sealed ? state.index : state.index + 1;
     const upcomingUrls = playlist
-      .slice(state.index + 1, state.index + 1 + PRELOAD_COUNT)
+      .slice(from, from + PRELOAD_COUNT)
       .filter((m) => m.type === 'photo')
       .map((m) => urls.get(m.id)?.medium_url)
       .filter((u): u is string => !!u);
     if (upcomingUrls.length > 0) void Image.prefetch(upcomingUrls);
-  }, [phase, state.index, playlist, urls]);
+  }, [phase, state.index, playlist, urls, sealed]);
 
   // A tap SKIPS the interstitial card without also advancing to the next
   // moment: the card is the only `Pressable` at this place on screen, it is
@@ -949,10 +993,31 @@ export default function RecapPlayer() {
     setState((s) => ({ ...s, paused: withoutReason(s.paused, 'halten') }));
   };
 
+  // Show mode has no route to come FROM other than the recap tab, and going
+  // `back()` there would land behind the seal again on a trip already
+  // opened. `replace` sends it to the overview instead, the screen the show
+  // is building towards.
+  const toOverview = useCallback(() => {
+    router.replace({ pathname: '/recap/[id]/overview', params: { id: tripId } });
+  }, [router, tripId]);
+
   const close = () => {
+    if (mode === 'show') {
+      toOverview();
+      return;
+    }
     if (router.canGoBack()) router.back();
     else router.replace('/recap');
   };
+
+  // Jump mode keeps the end card as a dead end with a button (today's
+  // behaviour): someone who jumped in from a tile or the repeat pill is
+  // already on the overview one screen behind and can just go back.
+  useEffect(() => {
+    if (phase !== 'ended' || mode !== 'show') return;
+    const timer = setTimeout(toOverview, END_CARD_MS);
+    return () => clearTimeout(timer);
+  }, [phase, mode, toOverview]);
 
   const [pan] = useState(() => new Animated.ValueXY());
   // True as soon as the PanResponder has actually taken the touch over
@@ -982,6 +1047,40 @@ export default function RecapPlayer() {
     })
   ).current;
 
+  // Own state, checked BEFORE the phase evaluation below and returned first:
+  // while it stands, none of the phase-driven mechanics (progress bar,
+  // auto-advance timer, tap zones) render at all, they simply never get to
+  // their own `return`. The two phases excepted here are exactly the ones
+  // with nothing behind the seal worth revealing.
+  if (sealed && phase !== 'error' && phase !== 'empty') {
+    const sealStageSize = Math.min(windowWidth - 2 * spacing.screen, SEAL_STAGE_MAX);
+    return (
+      <View testID="player-seal-stage" style={[styles.screen, styles.center]}>
+        <SealPeel testID="player-seal" size={sealStageSize} onPeeled={() => setSealed(false)} />
+        <Text style={[type.body, styles.centeredTextSecondary, { marginTop: spacing.l }]}>
+          Dein Recap ist versiegelt. Tipp aufs Siegel, um ihn zu öffnen.
+        </Text>
+        {/* Final whole-branch review: a standing seal has no timer to hand it
+            over eventually (unlike the interstitial card, gone in 1.5 s), so
+            without this the only way out would be the OS back gesture, which
+            `animation: 'fade'` on this route may disable. No tap zones and no
+            swipe here on purpose (recap-show spec): the story navigation must
+            not bite behind the seal, only the exit was missing. */}
+        <PressScale
+          testID="player-close"
+          accessibilityRole="button"
+          accessibilityLabel="Schliessen"
+          onPress={close}
+          style={[styles.closeWrap, { top: topInset }]}
+        >
+          <Pill style={styles.closePill}>
+            <X size={18} color={cinema['text-1']} strokeWidth={1.75} />
+          </Pill>
+        </PressScale>
+      </View>
+    );
+  }
+
   if (phase === 'loading') {
     return (
       <View testID="player-loading" style={styles.screen}>
@@ -989,6 +1088,13 @@ export default function RecapPlayer() {
       </View>
     );
   }
+
+  // Show mode never WAS on the overview (it comes straight from the recap
+  // tab) and close() there `replace`s onto it rather than going back, so
+  // "Zurück" would claim a place this person has never been. Jump mode's
+  // own close() genuinely does go back (canGoBack()) to the overview it
+  // jumped in from, where the label stays accurate as it is.
+  const wayBackLabel = mode === 'show' ? 'Zur Übersicht' : 'Zurück zur Übersicht';
 
   if (phase === 'error') {
     return (
@@ -1001,7 +1107,7 @@ export default function RecapPlayer() {
           {error?.canRetry && (
             <CinemaButton label="Nochmal versuchen" onPress={() => void load()} />
           )}
-          <TextLink label="Zurück zur Übersicht" onPress={close} />
+          <TextLink label={wayBackLabel} onPress={close} />
         </View>
       </View>
     );
@@ -1012,26 +1118,38 @@ export default function RecapPlayer() {
       <View testID="player-empty" style={[styles.screen, styles.center]}>
         <Text style={[type.h2, styles.centeredText]}>Diese Reise ist leer geblieben.</Text>
         <View style={{ marginTop: spacing.xl }}>
-          <TextLink label="Zurück zur Übersicht" onPress={close} />
+          <TextLink label={wayBackLabel} onPress={close} />
         </View>
       </View>
     );
   }
 
   if (phase === 'ended') {
+    const stragglers = (pendingCount > 0 || skippedCount > 0) && (
+      <View style={{ marginTop: spacing.base, gap: spacing.xs, alignItems: 'center' }}>
+        {pendingCount > 0 && (
+          <Text style={[type.secondary, styles.centeredTextSecondary]}>{pendingText(pendingCount)}</Text>
+        )}
+        {skippedCount > 0 && (
+          <Text style={[type.secondary, styles.centeredTextSecondary]}>{skippedText(skippedCount)}</Text>
+        )}
+      </View>
+    );
+    // Show mode hands itself over on its own (the timer above), so the card
+    // is just an early exit for a tap, with no button to press. Jump mode
+    // keeps today's dead end with a button and close()'s back()/'/recap'.
+    if (mode === 'show') {
+      return (
+        <Pressable testID="player-end" style={[styles.screen, styles.center]} onPress={toOverview}>
+          <Text style={[type.h2, styles.centeredText]}>Das war der Recap.</Text>
+          {stragglers}
+        </Pressable>
+      );
+    }
     return (
       <View testID="player-end" style={[styles.screen, styles.center]}>
         <Text style={[type.h2, styles.centeredText]}>Das war der Recap.</Text>
-        {(pendingCount > 0 || skippedCount > 0) && (
-          <View style={{ marginTop: spacing.base, gap: spacing.xs, alignItems: 'center' }}>
-            {pendingCount > 0 && (
-              <Text style={[type.secondary, styles.centeredTextSecondary]}>{pendingText(pendingCount)}</Text>
-            )}
-            {skippedCount > 0 && (
-              <Text style={[type.secondary, styles.centeredTextSecondary]}>{skippedText(skippedCount)}</Text>
-            )}
-          </View>
-        )}
+        {stragglers}
         <View style={{ marginTop: spacing.xl }}>
           <CinemaButton label="Zurück zur Übersicht" onPress={close} />
         </View>
@@ -1199,8 +1317,13 @@ export default function RecapPlayer() {
         {interstitial && (
           <Pressable testID="player-interstitial" style={styles.interstitial} onPress={skip}>
             <Text style={[type.h1, styles.centeredText]}>
-              {currentDay ? dayHeading(currentDay) : 'Ein neuer Tag beginnt.'}
+              {currentDay ? `Tag ${currentDay.number}` : 'Ein neuer Tag beginnt.'}
             </Text>
+            {currentDay && (
+              <Text style={[type.secondary, styles.centeredTextSecondary, { marginTop: spacing.s }]}>
+                {daySubheading(currentDay)}
+              </Text>
+            )}
           </Pressable>
         )}
       </Animated.View>
