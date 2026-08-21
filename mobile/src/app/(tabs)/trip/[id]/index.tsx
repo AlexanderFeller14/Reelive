@@ -3,16 +3,18 @@ import { ActivityIndicator, Alert, ScrollView, Text, useWindowDimensions, View, 
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
-import { Flag, Share2, X } from 'lucide-react-native';
+import { Ellipsis, Flag, Share2, X } from 'lucide-react-native';
 import { PressScale } from '@/components/PressScale';
 import { Avatar, AvatarGroup } from '@/components/Avatar';
+import { Pill } from '@/components/Pill';
+import { SealedStack } from '@/components/SealedStack';
 import { Button } from '@/components/Button';
 import { TripCover } from '@/components/TripCover';
 import { RevealSequence } from '@/components/RevealSequence';
 import { Sheet, SHEET_SCROLL_RATIO } from '@/components/Sheet';
 import { StatusBarCover } from '@/components/StatusBarCover';
 import { useTheme } from '@/theme/ThemeProvider';
-import { radius, spacing, type } from '@/theme/tokens';
+import { cinema, radius, spacing, type } from '@/theme/tokens';
 import { useTopInset } from '@/theme/useTopInset';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { deleteTrip, fetchMembers, fetchTrip, removeMember } from '@/features/trips/tripsApi';
@@ -158,6 +160,7 @@ export default function TripDetail() {
   const [discarded, setDiscarded] = useState<DiscardedMoment[]>([]);
   const [reportCount, setReportCount] = useState(0);
   const [membersVisible, setMembersVisible] = useState(false);
+  const [manageVisible, setManageVisible] = useState(false);
   const [moderationVisible, setModerationVisible] = useState(false);
   const [moderationPhase, setModerationPhase] = useState<'loading' | 'ready' | 'error'>('loading');
   const [moderationError, setModerationError] = useState<string | null>(null);
@@ -280,6 +283,7 @@ export default function TripDetail() {
   );
 
   const openFinishSheet = () => {
+    setManageVisible(false);
     setRevealError(null);
     warningHaptics();
     setConfirmVisible(true);
@@ -327,13 +331,20 @@ export default function TripDetail() {
   const tripEnded = today >= trip.end_date;
   const showsFinish = isOwner && isActive;
 
-  // Two ways lead here: the button at the end of the screen and the one in
-  // the traveller sheet. Closing it first applies to both, it costs the
-  // screen route nothing (nothing is open there anyway) and prevents a
-  // sheet from lying over the trip when coming back from the invite screen.
+  // Three ways lead here: the button at the end of the screen, the one in
+  // the traveller sheet and the one in the management. Closing both panels
+  // first applies to all of them, it costs the screen route nothing
+  // (nothing is open there anyway) and prevents a sheet from lying over the
+  // trip when coming back from the invite screen.
   const invite = () => {
     setMembersVisible(false);
+    setManageVisible(false);
     router.push(`/trip/${id}/invite`);
+  };
+
+  const editTrip = () => {
+    setManageVisible(false);
+    router.push(`/trip/${id}/edit`);
   };
 
   const removeTraveller = (m: TripMember) => {
@@ -473,14 +484,34 @@ export default function TripDetail() {
       style={{ backgroundColor: colors['bg-0'] }}
       contentContainerStyle={[styles.content, { paddingTop: topInset }]}
     >
-      <TripCover position={coverPosition} sealed={isActive} />
+      <TripCover position={coverPosition} sealed={isActive}>
+        {/* Everything that manages the trip lives behind this one pill, so
+            the screen below can end on a single call to action instead of
+            a stack of four buttons. It sits ON the cover and is therefore
+            translucent, the only way §1 allows UI on a photo. */}
+        <PressScale
+          testID="manage-open"
+          accessibilityRole="button"
+          accessibilityLabel="Reise verwalten"
+          style={styles.manageAnchor}
+          onPress={() => setManageVisible(true)}
+        >
+          <Pill style={styles.managePill}>
+            <Ellipsis size={24} color={cinema['text-1']} strokeWidth={1.75} />
+          </Pill>
+        </PressScale>
+      </TripCover>
 
       <View style={{ gap: spacing.xs }}>
         <Text style={[type.h1, { color: colors['text-1'] }]}>{trip.name}</Text>
         <Text style={[type.secondary, { color: colors['text-2'] }]}>
           {formatRange(trip.start_date, trip.end_date)}
         </Text>
-        {isActive && day > 0 && (
+        {/* Up to and including the last day, no further: tied to the day
+            rather than to `tripEnded`, so that day 14 of 14 still stands on
+            the closing day, while a trip left open afterwards no longer
+            counts into nowhere («Tag 21 von 14»). */}
+        {isActive && day > 0 && day <= length && (
           <Text style={[type.secondary, { color: colors['text-2'] }]}>{`Tag ${day} von ${length}`}</Text>
         )}
 
@@ -493,30 +524,32 @@ export default function TripDetail() {
             accessibilityLabel={travellersLabel(members.length)}
             onPress={() => setMembersVisible(true)}
           >
-            <View style={{ marginTop: spacing.m, alignSelf: 'flex-start' }}>
+            {/* The circles alone say neither that they can be tapped nor
+                how many people the "+1" stands for. The underlined line
+                next to them says both, and it is the only underlined text
+                on this screen, so it reads as a way rather than as
+                decoration. */}
+            <View style={styles.travellerRow}>
               <AvatarGroup
                 faces={members.map((m) => ({ name: m.display_name, avatarKey: m.avatar_key }))}
               />
+              <Text style={[type.secondary, styles.travellerLink, { color: colors['text-2'] }]}>
+                {`${members.length} dabei`}
+              </Text>
             </View>
           </PressScale>
         ) : null}
       </View>
 
-      {showsFinish && tripEnded && (
-        <View style={{ gap: spacing.m }}>
-          <Text style={[type.body, { color: colors['text-2'] }]}>
-            Eure Reise ist zu Ende. Zeit für den Recap.
-          </Text>
-          <Button
-            variant={confirmVisible || membersVisible ? 'secondary' : 'primary'}
-            label="Reise abschliessen"
-            onPress={openFinishSheet}
-          />
-        </View>
-      )}
-
+      {/* The counter now stands directly under the trip, before any call to
+          action: it is what this screen is about while the trip is sealed.
+          The stack next to it shows the same moments as a picture, the
+          explanation below runs the full width and therefore stays whole. */}
       <View style={{ gap: spacing.xs }}>
-        <Text style={[type.display, { color: colors['text-1'] }]}>{String(counter)}</Text>
+        <View style={styles.counterRow}>
+          <Text style={[type.display, { color: colors['text-1'] }]}>{String(counter)}</Text>
+          <SealedStack count={counter} />
+        </View>
         <Text style={[type.body, { color: colors['text-2'] }]}>
           Momente eingefangen, bis zum Recap versiegelt.
         </Text>
@@ -569,48 +602,66 @@ export default function TripDetail() {
         </PressScale>
       )}
 
-      {/* The actions are ONE block, not four. The screen gap (spacing.xl)
-          separates blocks from each other: cover, title, counter, notices.
-          Between buttons that belong together it is too much, they read as
-          four independent sections. Hence spacing.m inside, while the big
-          gap outside keeps the group apart from the counter above and the
-          destructive link below (§3: separate surfaces through white space,
-          and that is graded, not the same everywhere). */}
-      <View style={styles.actions}>
-      {showsFinish && !tripEnded && (
-        <Button variant="secondary" label="Reise abschliessen" onPress={openFinishSheet} />
-      )}
-      {isOwner && isActive && (
-        <Button
-          variant={tripEnded || confirmVisible || membersVisible ? 'secondary' : 'primary'}
-          label="Freunde einladen"
-          onPress={invite}
-        />
-      )}
-      {revealReady && (
+      {/* Exactly ONE button closes the screen, the one thing that is due
+          right now. Everything else went into the management behind the
+          pill on the cover. Which one is due follows the trip's state, and
+          they exclude each other: a revealed trip is no longer active, and
+          before the closing day there is nothing to finish yet.
+          `membersVisible`/`confirmVisible` let it step back while a panel
+          with an accent surface of its own stands over it (§4: at most one
+          per screen). The management needs no such exception, it carries no
+          accent surface. */}
+      {revealReady ? (
         <Button
           variant={confirmVisible ? 'secondary' : 'primary'}
           label="Recap starten"
           onPress={toRecap}
         />
-      )}
-      {isOwner && (
-        <Button variant="secondary" label="Reise bearbeiten" onPress={() => router.push(`/trip/${id}/edit`)} />
-      )}
-      </View>
+      ) : showsFinish && tripEnded ? (
+        <View style={{ gap: spacing.m }}>
+          <Text style={[type.body, { color: colors['text-2'] }]}>
+            Eure Reise ist zu Ende. Zeit für den Recap.
+          </Text>
+          <Button
+            variant={confirmVisible || membersVisible ? 'secondary' : 'primary'}
+            label="Reise abschliessen"
+            onPress={openFinishSheet}
+          />
+        </View>
+      ) : isOwner && isActive ? (
+        <Button
+          variant={confirmVisible || membersVisible ? 'secondary' : 'primary'}
+          label="Freunde einladen"
+          onPress={invite}
+        />
+      ) : null}
+    </ScrollView>
+    {/* Before the sheets and the reveal overlay: their backdrop must keep
+        covering the whole screen, including the status bar strip. */}
+    <StatusBarCover />
 
-      {/* Stays outside the group: «Reise löschen»/«Reise verlassen» is
-          destructive and must not be mistaken for the button above it. The
-          big screen gap is exactly right here. */}
+    {/* Everything that is about the trip rather than about this moment.
+        No accent surface in here on purpose: a list of ways has no one main
+        way, and the screen behind it keeps its own (see the button block
+        above). Same reasoning as the moderation sheet, which carries none
+        either. */}
+    <Sheet visible={manageVisible} title="Reise verwalten" onClose={() => setManageVisible(false)}>
+      {isOwner && isActive && (
+        tripEnded ? (
+          <Button variant="secondary" label="Freunde einladen" onPress={invite} />
+        ) : (
+          <Button variant="secondary" label="Reise abschliessen" onPress={openFinishSheet} />
+        )
+      )}
+      {isOwner && <Button variant="secondary" label="Reise bearbeiten" onPress={editTrip} />}
+      {/* Destructive, and therefore a link rather than a surface, set apart
+          from the ways above it by the sheet's own gap. */}
       <Button
         variant="text"
         label={isOwner ? 'Reise löschen' : 'Reise verlassen'}
         onPress={isOwner ? deleteThisTrip : leaveTrip}
       />
-    </ScrollView>
-    {/* Before the sheets and the reveal overlay: their backdrop must keep
-        covering the whole screen, including the status bar strip. */}
-    <StatusBarCover />
+    </Sheet>
 
     <Sheet visible={confirmVisible} title="Reise abschliessen?" onClose={closeFinishSheet}>
       <Text style={[type.body, { color: colors['text-2'] }]}>
@@ -689,7 +740,29 @@ const styles = StyleSheet.create({
   content: { padding: spacing.screen, paddingBottom: spacing.xxl, gap: spacing.xl },
   empty: { flex: 1, justifyContent: 'center', padding: spacing.screen, gap: spacing.l },
   row: { flexDirection: 'row', alignItems: 'center', gap: spacing.m },
-  actions: { gap: spacing.m },
+  // The number reads from the left, the stack lies at the right edge of the
+  // screen. `flex-end` on the cross axis puts both on the same floor: the
+  // display digit is much taller than the cards, centred they would hang
+  // above them.
+  counterRow: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' },
+  travellerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.m,
+    marginTop: spacing.m,
+    alignSelf: 'flex-start',
+  },
+  travellerLink: { textDecorationLine: 'underline' },
+  // TripCover's overlay lays its children out at the left edge; the pill
+  // belongs to the opposite corner, where it covers the least of the image.
+  manageAnchor: { alignSelf: 'flex-end' },
+  managePill: {
+    width: 44,
+    height: 44,
+    borderRadius: radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   // A set-off surface instead of a shadow (DESIGN-LANGUAGE §3: a shadow
   // means "floats"). Radius 12 like every other surface of this size.
   discardedBox: { borderRadius: radius.control, padding: spacing.base, gap: spacing.m },

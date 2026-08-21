@@ -236,6 +236,13 @@ test('the travellers appear as a facepile, not as a list on the screen', async (
   expect(screen.queryByText('Jonas')).toBeNull();
 });
 
+// The circles alone say nothing about being tappable, and nothing about how
+// many people the "+1" stands for. The line next to them says both.
+test('next to the facepile stands how many are coming along', async () => {
+  await wrap();
+  expect(await screen.findByText('2 dabei')).toBeTruthy();
+});
+
 test('the facepile says out loud how many people are coming along', async () => {
   await wrap();
   expect(await screen.findByLabelText('Wer dabei ist, 2 Personen')).toBeTruthy();
@@ -288,14 +295,26 @@ test('shows the own moment counter together with its explanation', async () => {
   expect(screen.getByText(/Momente eingefangen/)).toBeTruthy();
 });
 
-test('the owner can invite straight from the screen', async () => {
+test('while the trip runs, the owner invites straight from the screen', async () => {
+  (fetchTrip as jest.Mock).mockResolvedValue(tripBeforeEndOk);
   await wrap();
   await fireEvent.press(await screen.findByText('Freunde einladen'));
   expect(mockPush).toHaveBeenCalledWith('/trip/t1/invite');
 });
 
-// Shorthand for the tests below: the management sits behind the facepile, so
-// every test that needs it has to open it first.
+// The stack hides itself from screen readers (SealedStack.tsx), and RNTL
+// skips hidden nodes by default.
+const HIDDEN = { includeHiddenElements: true } as const;
+
+// Shorthand: the management sits behind the pill on the cover, so every
+// test that needs it has to open it first.
+async function openManagement() {
+  await fireEvent.press(await screen.findByTestId('manage-open'));
+  await screen.findByText('Reise verwalten');
+}
+
+// Shorthand for the tests below: the traveller list sits behind the
+// facepile, so every test that needs it has to open it first.
 async function openTravellers() {
   await fireEvent.press(await screen.findByTestId('members-open'));
   await screen.findByText('Lea');
@@ -309,6 +328,7 @@ test('the owner can remove a traveller from inside the sheet', async () => {
 });
 
 test('the owner can also invite from inside the sheet, and it closes on the way out', async () => {
+  (fetchTrip as jest.Mock).mockResolvedValue(tripBeforeEndOk);
   await wrap();
   await openTravellers();
   // Two buttons of that name are in the tree while the sheet is open: the one
@@ -329,7 +349,8 @@ test('the owner cannot remove themselves', async () => {
 test('a member without the owner role is offered leaving instead of deleting', async () => {
   mockAuth.userId = 'u2';
   await wrap();
-  expect(await screen.findByText('Reise verlassen')).toBeTruthy();
+  await openManagement();
+  expect(screen.getByText('Reise verlassen')).toBeTruthy();
   expect(screen.queryByText('Reise löschen')).toBeNull();
 });
 
@@ -353,7 +374,8 @@ test('after the reveal the sheet is pure information, even for the owner', async
 
 test('the owner is offered deleting instead of leaving', async () => {
   await wrap();
-  expect(await screen.findByText('Reise löschen')).toBeTruthy();
+  await openManagement();
+  expect(screen.getByText('Reise löschen')).toBeTruthy();
   expect(screen.queryByText('Reise verlassen')).toBeNull();
 });
 
@@ -366,7 +388,8 @@ test('a revealed trip offers no invite button anymore', async () => {
 
 test('the owner deletes the trip and lands back on the trip list', async () => {
   await wrap();
-  await fireEvent.press(await screen.findByText('Reise löschen'));
+  await openManagement();
+  await fireEvent.press(screen.getByText('Reise löschen'));
   await waitFor(() => expect(deleteTrip).toHaveBeenCalledWith('t1'));
   await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/trip'));
 });
@@ -374,7 +397,8 @@ test('the owner deletes the trip and lands back on the trip list', async () => {
 test('a member leaves the trip and lands back on the trip list', async () => {
   mockAuth.userId = 'u2';
   await wrap();
-  await fireEvent.press(await screen.findByText('Reise verlassen'));
+  await openManagement();
+  await fireEvent.press(screen.getByText('Reise verlassen'));
   await waitFor(() => expect(removeMember).toHaveBeenCalledWith('t1', 'u2'));
   await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/trip'));
 });
@@ -384,7 +408,8 @@ test('a failed deletion navigates nowhere and names the reason', async () => {
     error: 'Die Reise wurde nicht gelöscht. Es gibt sie nicht mehr, oder sie gehört dir nicht.',
   });
   await wrap();
-  await fireEvent.press(await screen.findByText('Reise löschen'));
+  await openManagement();
+  await fireEvent.press(screen.getByText('Reise löschen'));
   await waitFor(() => expect(deleteTrip).toHaveBeenCalledWith('t1'));
   await waitFor(() =>
     expect(Alert.alert).toHaveBeenCalledWith(
@@ -441,18 +466,21 @@ test('the destructive dialog «Jonas entfernen» announces itself with warning h
 
 test('the destructive dialog «Reise löschen» announces itself with warning haptics', async () => {
   await wrap();
-  await fireEvent.press(await screen.findByText('Reise löschen'));
+  await openManagement();
+  await fireEvent.press(screen.getByText('Reise löschen'));
   expect(Haptics.notificationAsync).toHaveBeenCalledWith('warning');
 });
 
 test('«Reise verlassen» announces itself with warning haptics', async () => {
   mockAuth.userId = 'u2';
   await wrap();
-  await fireEvent.press(await screen.findByText('Reise verlassen'));
+  await openManagement();
+  await fireEvent.press(screen.getByText('Reise verlassen'));
   expect(Haptics.notificationAsync).toHaveBeenCalledWith('warning');
 });
 
 test('haptics stay sparing: nothing fires without a destructive dialog', async () => {
+  (fetchTrip as jest.Mock).mockResolvedValue(tripBeforeEndOk);
   await wrap();
   await fireEvent.press(await screen.findByText('Freunde einladen'));
   expect(Haptics.notificationAsync).not.toHaveBeenCalled();
@@ -599,48 +627,53 @@ test('«Reise abschliessen» is missing on an archived trip', async () => {
   expect(screen.queryByText('Reise abschliessen')).toBeNull();
 });
 
-test('before the end date «Reise abschliessen» sits below as a secondary button while «Freunde einladen» stays primary', async () => {
+test('before the end date «Freunde einladen» carries the accent while finishing waits in the management', async () => {
   (fetchTrip as jest.Mock).mockResolvedValue(tripBeforeEndOk);
   await wrap();
   await screen.findByText('Norwegen mit dem Camper');
   expect(screen.queryByText('Eure Reise ist zu Ende. Zeit für den Recap.')).toBeNull();
 
-  const finish = StyleSheet.flatten(screen.getByText('Reise abschliessen').parent?.props.style);
-  expect(finish.borderWidth).toBe(1);
-  expect(finish.backgroundColor).toBe(palette['bg-0']);
-
   const invite = StyleSheet.flatten(screen.getByText('Freunde einladen').parent?.props.style);
   expect(invite.backgroundColor).toBe(palette.accent);
 
-  // The anchor is the moment counter in the middle of the screen: the upper
-  // block stands before it, the lower one behind it. RNTL v14 exposes no
-  // sibling-order matchers, but `JSON.stringify(toJSON())` keeps the
-  // document order.
+  // The anchor is the moment counter in the middle of the screen: the one
+  // call to action closes the screen, it no longer pushes itself in front of
+  // the counter. RNTL v14 exposes no sibling-order matchers, but
+  // `JSON.stringify(toJSON())` keeps the document order.
   const tree = JSON.stringify(screen.toJSON());
-  expect(tree.indexOf('Reise abschliessen')).toBeGreaterThan(tree.indexOf('Momente eingefangen'));
+  expect(tree.indexOf('Freunde einladen')).toBeGreaterThan(tree.indexOf('Momente eingefangen'));
 
   // DESIGN-LANGUAGE §7: at most one surface carries the accent colour.
   expect(countAccentSurfaces(screen.toJSON())).toBe(1);
+
+  // Finishing early is the exception, it lies in the management and stays a
+  // secondary surface there.
+  await openManagement();
+  const finish = StyleSheet.flatten(screen.getByText('Reise abschliessen').parent?.props.style);
+  expect(finish.borderWidth).toBe(1);
+  expect(finish.backgroundColor).toBe(palette['bg-0']);
 });
 
-test('from the end date on, «Reise abschliessen» moves up and turns primary while «Freunde einladen» steps back', async () => {
+test('from the end date on «Reise abschliessen» takes the accent and inviting steps into the management', async () => {
   (fetchTrip as jest.Mock).mockResolvedValue(tripAtEndOk);
   await wrap();
   expect(await screen.findByText('Eure Reise ist zu Ende. Zeit für den Recap.')).toBeTruthy();
 
   // getByText throws on more than one hit, which also proves the button does
-  // not stand at the top AND at the bottom at the same time.
+  // not stand on the screen AND in the management at the same time.
   const finish = StyleSheet.flatten(screen.getByText('Reise abschliessen').parent?.props.style);
   expect(finish.backgroundColor).toBe(palette.accent);
+  expect(screen.queryByText('Freunde einladen')).toBeNull();
 
+  const tree = JSON.stringify(screen.toJSON());
+  expect(tree.indexOf('Reise abschliessen')).toBeGreaterThan(tree.indexOf('Momente eingefangen'));
+
+  expect(countAccentSurfaces(screen.toJSON())).toBe(1);
+
+  await openManagement();
   const invite = StyleSheet.flatten(screen.getByText('Freunde einladen').parent?.props.style);
   expect(invite.borderWidth).toBe(1);
   expect(invite.backgroundColor).toBe(palette['bg-0']);
-
-  const tree = JSON.stringify(screen.toJSON());
-  expect(tree.indexOf('Reise abschliessen')).toBeLessThan(tree.indexOf('Momente eingefangen'));
-
-  expect(countAccentSurfaces(screen.toJSON())).toBe(1);
 });
 
 test('tapping «Reise abschliessen» opens the confirmation sheet with the honest text and warning haptics', async () => {
@@ -933,6 +966,97 @@ test('«Recap starten» uses the actual trip id instead of a hard wired «t1»',
     pathname: '/recap/[id]/overview',
     params: { id: 'trip-xyz' },
   });
+});
+
+// === The screen below the cover ===
+
+test('the day count runs to the last day of the trip', async () => {
+  (fetchTrip as jest.Mock).mockResolvedValue({
+    data: { ...trip, start_date: inDays(-13), end_date: TODAY }, error: null,
+  });
+  await wrap();
+  expect(await screen.findByText('Tag 14 von 14')).toBeTruthy();
+});
+
+test('past the last day the count is gone instead of counting beyond the end', async () => {
+  await wrap();
+  await screen.findByText('Norwegen mit dem Camper');
+  expect(screen.queryByText(/^Tag \d+ von/)).toBeNull();
+});
+
+test('the counter carries a stack of the moments already taken', async () => {
+  (ownMomentCount as jest.Mock).mockResolvedValue(2);
+  await wrap();
+  await screen.findByText('2');
+  expect(screen.getAllByTestId('sealed-card', HIDDEN)).toHaveLength(2);
+});
+
+test('with nothing taken yet, nothing lies next to the zero', async () => {
+  await wrap();
+  await screen.findByText('0');
+  expect(screen.queryAllByTestId('sealed-card', HIDDEN)).toHaveLength(0);
+});
+
+test('the counter stands before the call to action, not behind it', async () => {
+  (fetchTrip as jest.Mock).mockResolvedValue(tripAtEndOk);
+  await wrap();
+  await screen.findByText('Eure Reise ist zu Ende. Zeit für den Recap.');
+  const tree = JSON.stringify(screen.toJSON());
+  expect(tree.indexOf('Momente eingefangen')).toBeLessThan(tree.indexOf('Eure Reise ist zu Ende'));
+});
+
+// === The management behind the pill ===
+
+test('managing the trip sits behind a single pill on the cover', async () => {
+  await wrap();
+  expect(screen.queryByText('Reise bearbeiten')).toBeNull();
+  await openManagement();
+  expect(screen.getByText('Reise bearbeiten')).toBeTruthy();
+});
+
+test('the owner of a finished trip invites from the management', async () => {
+  await wrap();
+  await openManagement();
+  await fireEvent.press(screen.getByText('Freunde einladen'));
+  expect(mockPush).toHaveBeenCalledWith('/trip/t1/invite');
+});
+
+test('while the trip is still running, inviting stays on the screen and finishing steps into the management', async () => {
+  (fetchTrip as jest.Mock).mockResolvedValue(tripBeforeEndOk);
+  await wrap();
+  await screen.findByText('Norwegen mit dem Camper');
+
+  const invite = StyleSheet.flatten(screen.getByText('Freunde einladen').parent?.props.style);
+  expect(invite.backgroundColor).toBe(palette.accent);
+  expect(screen.queryByText('Reise abschliessen')).toBeNull();
+
+  await openManagement();
+  expect(screen.getByText('Reise abschliessen')).toBeTruthy();
+});
+
+test('a member finds leaving in the management, and nothing else', async () => {
+  mockAuth.userId = 'u2';
+  await wrap();
+  await openManagement();
+  expect(screen.getByText('Reise verlassen')).toBeTruthy();
+  expect(screen.queryByText('Reise bearbeiten')).toBeNull();
+  expect(screen.queryByText('Freunde einladen')).toBeNull();
+});
+
+test('the open management leaves the accent to the one button of the screen', async () => {
+  await wrap();
+  await openManagement();
+  expect(countAccentSurfaces(screen.toJSON())).toBe(1);
+});
+
+test('deleting from the management leads back to the trip list', async () => {
+  await wrap();
+  await openManagement();
+  await fireEvent.press(screen.getByText('Reise löschen'));
+  // Waiting on the navigation rather than on deleteTrip: the call happens
+  // first, the replace only once its promise chain has resolved.
+  await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/trip'));
+  expect(deleteTrip).toHaveBeenCalledWith('t1');
 });
 
 describe('moderation of reported moments', () => {
