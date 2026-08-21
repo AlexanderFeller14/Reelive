@@ -18,6 +18,22 @@ import { supabase } from '@/lib/supabase';
 type CoverEntry = { trip_id: string; thumb_url: string };
 type CoversResponse = { covers: CoverEntry[] };
 
+// The `data` above is only EVER cast, never validated by the runtime, so an
+// individual array element is exactly as untrusted as the array itself
+// (already guarded above). The server (Task 6, media-urls/covers.ts) only
+// ever emits well-formed entries today, but that guarantee then lives in
+// someone else's code; this module's own header promises "only ever an
+// empty Map", never a throw, so the invariant has to hold here regardless of
+// what the server currently does.
+function isCoverEntry(value: unknown): value is CoverEntry {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as { trip_id?: unknown }).trip_id === 'string' &&
+    typeof (value as { thumb_url?: unknown }).thumb_url === 'string'
+  );
+}
+
 export async function fetchCovers(tripIds: string[]): Promise<Map<string, string>> {
   // Guards against a call for nothing, not against exceeding MAX_TRIP_IDS
   // (that cap is enforced server-side, covers.ts): the recap list is the
@@ -32,5 +48,7 @@ export async function fetchCovers(tripIds: string[]): Promise<Map<string, string
   const response = data as Partial<CoversResponse> | null;
   if (!response || !Array.isArray(response.covers)) return new Map();
 
-  return new Map(response.covers.map((entry) => [entry.trip_id, entry.thumb_url]));
+  return new Map(
+    response.covers.filter(isCoverEntry).map((entry) => [entry.trip_id, entry.thumb_url])
+  );
 }

@@ -31,3 +31,34 @@ test('without trip ids no call goes out at all', async () => {
   expect((await fetchCovers([])).size).toBe(0);
   expect(supabase.functions.invoke).not.toHaveBeenCalled();
 });
+
+// The module's own header promises "only ever an empty Map", never a throw.
+// Without a guard against a malformed ARRAY ELEMENT (as opposed to a
+// malformed array itself, already covered above) this would throw a
+// TypeError on `entry.trip_id`, reject fetchCovers, and leave retry() in
+// recap/index.tsx unable to ever reach setLoading(false).
+test('an array element missing trip_id or thumb_url is dropped, not thrown', async () => {
+  (supabase.functions.invoke as jest.Mock).mockResolvedValue({
+    data: {
+      covers: [
+        { trip_id: 't1', thumb_url: 'https://x/1.jpg' },
+        { trip_id: 't2' },
+        { thumb_url: 'https://x/3.jpg' },
+      ],
+    },
+    error: null,
+  });
+  const covers = await fetchCovers(['t1', 't2', 't3']);
+  expect(covers.get('t1')).toBe('https://x/1.jpg');
+  expect(covers.size).toBe(1);
+});
+
+test('a null element in the covers array is dropped, not thrown', async () => {
+  (supabase.functions.invoke as jest.Mock).mockResolvedValue({
+    data: { covers: [{ trip_id: 't1', thumb_url: 'https://x/1.jpg' }, null] },
+    error: null,
+  });
+  const covers = await fetchCovers(['t1']);
+  expect(covers.get('t1')).toBe('https://x/1.jpg');
+  expect(covers.size).toBe(1);
+});
