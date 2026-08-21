@@ -11,20 +11,24 @@ import { placeholderCover } from '@/features/trips/placeholderCover';
 // at the very top of the trip detail screen, hence here once instead of
 // twice.
 //
-// Real trip covers don't exist yet. Until then a placeholder sits here,
-// where an empty `bg-1` surface used to be: `position` is the card's place
-// in its list and picks the image (see `placeholderCover`), so that two
-// identical covers don't end up stacked. The trip detail passes the same
+// Task 7 (recap-show plan) gives a trip its own photo: `coverUrl`, signed by
+// Task 6's media-urls `covers` action. A trip that call found nothing for
+// (still sealed, no member, no thumbnail among its first moments, or the
+// call simply hasn't answered yet this focus, see recap/index.tsx) falls
+// back to the placeholder that used to be the only option, where an empty
+// `bg-1` surface stood before that: `position` is the card's place in its
+// list and picks the image (see `placeholderCover`), so that two identical
+// placeholders don't end up stacked. The trip detail passes the same
 // position in via its route's `cover` parameter. Without one, it defaults
 // to the first image.
 //
 // `bg-1` stays underneath as a base so the surface doesn't flash white
-// while decoding. The images are 16:9 and get cropped to 3:2 (`cover`),
-// about 8% falls away on each side, in both cases the subject sits far
-// enough inside to survive that. The image says nothing the title below
-// it doesn't already say, hence `accessible={false}`.
+// while decoding, real cover or placeholder alike. The placeholder images
+// are 16:9 and get cropped to 3:2 (`cover`), about 8% falls away on each
+// side, the subject sits far enough inside to survive that. The image says
+// nothing the title below it doesn't already say, hence `accessible={false}`.
 export function TripCover({
-  position = 0, sealed = false, scrim = false, children,
+  position = 0, sealed = false, scrim = false, coverUrl, children,
 }: {
   position?: number;
   sealed?: boolean;
@@ -32,6 +36,11 @@ export function TripCover({
   // pill a revealed recap card carries. Optional and off by default so the
   // trip detail's plain cover (no children there either) stays untouched.
   scrim?: boolean;
+  // Task 7: the trip's own photo, when Task 6's covers call found one.
+  // `null` and `undefined` both mean "none yet", the placeholder handles
+  // both the same way, so callers never have to normalise one into the
+  // other.
+  coverUrl?: string | null;
   children?: ReactNode;
 }) {
   const { colors } = useTheme();
@@ -44,7 +53,7 @@ export function TripCover({
       <View style={[styles.cover, { backgroundColor: colors['bg-1'] }]}>
         <Image
           testID="trip-cover"
-          source={placeholderCover(position)}
+          source={coverUrl ? { uri: coverUrl } : placeholderCover(position)}
           style={StyleSheet.absoluteFill}
           contentFit="cover"
           accessible={false}

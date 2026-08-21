@@ -24,9 +24,17 @@ jest.mock('expo-image', () => {
   return { Image: (props: object) => ReactActual.createElement(View, props) };
 });
 jest.mock('@/features/trips/tripsApi', () => ({ fetchTrips: jest.fn() }));
+// Task 7: index.tsx now calls fetchCovers after every load. Mocked here
+// (not `@/lib/supabase`) for the same reason fetchTrips is: this file
+// tests the screen's own wiring, not coversApi's, which has its own
+// suite. Without this mock the real module would run and reach
+// `@/lib/supabase`, unconfigured in this test environment (Ruling B, task
+// 7 brief).
+jest.mock('@/features/recap/coversApi', () => ({ fetchCovers: jest.fn() }));
 
 import RecapList from '../index';
 import { fetchTrips } from '@/features/trips/tripsApi';
+import { fetchCovers } from '@/features/recap/coversApi';
 
 const activeTrip = {
   id: 't1', name: 'Norwegen mit dem Camper', start_date: '2026-08-01', end_date: '2026-08-14',
@@ -42,7 +50,14 @@ const archived = { ...activeTrip, id: 't3', name: 'Alte Reise nach Kreta', statu
 
 const wrap = () => render(<ThemeProvider><RecapList /></ThemeProvider>);
 
-beforeEach(() => jest.clearAllMocks());
+beforeEach(() => {
+  jest.clearAllMocks();
+  // Default for every test that predates Task 7 and therefore never sets
+  // fetchCovers up itself: an empty map is exactly what a real failed or
+  // still-pending covers call also yields, so every card in those tests
+  // keeps showing its placeholder, unchanged from before this task.
+  (fetchCovers as jest.Mock).mockResolvedValue(new Map());
+});
 
 const loaded = (trips: unknown[]) => ({ data: trips, error: null });
 const LOAD_ERROR = 'Deine Reisen konnten nicht geladen werden. Probier es gleich nochmal.';
@@ -126,6 +141,30 @@ test('the card promises the show with a translucent pill on the cover', async ()
   await wrap();
   expect(await screen.findByTestId('recap-card-play')).toBeTruthy();
   expect(screen.getByTestId('trip-cover-scrim')).toBeTruthy();
+});
+
+// Task 7 (recap-show plan): the card now shows the trip's own photo once
+// fetchCovers has an entry for it, the placeholder is a fallback, not the
+// default any more.
+test('the card shows the real photo of the trip', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(loaded([recap]));
+  (fetchCovers as jest.Mock).mockResolvedValue(new Map([['t2', 'https://x/1.jpg']]));
+  await wrap();
+  const cover = await screen.findByTestId('trip-cover');
+  expect(cover.props.source).toEqual({ uri: 'https://x/1.jpg' });
+});
+
+// The counter-proof to the test above: a trip absent from the covers map
+// (sealed, no member, no thumbnail among its first moments, or none of
+// this task's business to tell apart, Task 6) must never keep the card
+// from standing, it only ever loses the photo, never the list.
+test('without a cover the placeholder stays, the list stands regardless', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(loaded([recap]));
+  (fetchCovers as jest.Mock).mockResolvedValue(new Map());
+  await wrap();
+  expect(await screen.findByText('Lissabon Städtetrip')).toBeTruthy();
+  const cover = screen.getByTestId('trip-cover');
+  expect(cover.props.source).not.toEqual({ uri: expect.any(String) });
 });
 
 // `fetchTrips` deliberately hangs unresolved here until the test releases it

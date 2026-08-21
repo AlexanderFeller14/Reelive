@@ -9,6 +9,7 @@ import { useTheme } from '@/theme/ThemeProvider';
 import { spacing, type } from '@/theme/tokens';
 import { useTopInset } from '@/theme/useTopInset';
 import { fetchTrips } from '@/features/trips/tripsApi';
+import { fetchCovers } from '@/features/recap/coversApi';
 import { groupTrips, todaysCalendarDay } from '@/features/trips/tripDay';
 import type { Trip } from '@/features/trips/types';
 
@@ -20,6 +21,11 @@ export default function RecapList() {
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  // Task 7: real cover photos, keyed by trip id. Starts empty so a card
+  // never has anything to show but its placeholder before the first
+  // answer arrives, exactly the same state a trip without a cover ends up
+  // in.
+  const [covers, setCovers] = useState<Map<string, string>>(new Map());
   // Shields setState after blur/unmount; every focus cycle sets it anew
   // (same pattern as trip/index.tsx).
   const active = useRef(true);
@@ -30,6 +36,14 @@ export default function RecapList() {
     setTrips(data);
     setError(loadError);
     setLoaded(true);
+    // Deliberately a second, later step, not awaited alongside fetchTrips:
+    // the list must stand with its placeholders first, the photos fill in
+    // after, `expo-image`'s transition and the placeholder holding the same
+    // surface mean no jump either way (Task 7 brief).
+    const recapIds = groupTrips(data, todaysCalendarDay()).recaps.map((t) => t.id);
+    const found = await fetchCovers(recapIds);
+    if (!active.current) return;
+    setCovers(found);
   }, []);
 
   const retry = useCallback(async () => {
@@ -97,6 +111,7 @@ export default function RecapList() {
                 trip={t}
                 position={i}
                 asRecap
+                coverUrl={covers.get(t.id)}
                 // No `start` param: that absence is what makes the player
                 // begin at the seal instead of mid-show (task 5,
                 // recap-show plan).

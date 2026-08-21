@@ -38,7 +38,7 @@ import type { Trip } from '@/features/trips/types';
 // the light UI, the pill is only its window onto a photo, the same reason
 // any other UI on a photo stays translucent (§1).
 export function TripCard({
-  trip, onPress, asRecap = false, position = 0,
+  trip, onPress, asRecap = false, position = 0, coverUrl,
 }: {
   trip: Trip;
   onPress: () => void;
@@ -47,6 +47,10 @@ export function TripCard({
   // (TripCover): it decides which image it shows, so that two identical
   // ones don't end up stacked.
   position?: number;
+  // Task 7 (recap-show plan): passed straight through to TripCover, the
+  // card itself has no opinion on where the photo comes from or why it
+  // might be missing.
+  coverUrl?: string | null;
 }) {
   const { colors } = useTheme();
   const momentsLabel = `${trip.my_post_count} ${trip.my_post_count === 1 ? 'Moment' : 'Momente'}`;
@@ -60,7 +64,7 @@ export function TripCard({
       onPress={onPress}
     >
       <View style={{ gap: spacing.m }}>
-        <TripCover position={position} sealed={trip.status === 'active'} scrim={revealed}>
+        <TripCover position={position} sealed={trip.status === 'active'} scrim={revealed} coverUrl={coverUrl}>
           {revealed && (
             <Pill testID="recap-card-play" style={styles.playPill}>
               <Play size={12} color={palette['bg-0']} strokeWidth={1.75} />
