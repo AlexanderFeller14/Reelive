@@ -314,7 +314,7 @@ public class MultiCameraModule: Module {
 
     // Tap-to-focus on the ACTIVE device. The window-to-device conversion is
     // done by the matching preview layer itself (it knows orientation,
-    // mirroring and the aspect-fill crop); unlike in the CameraZoom module
+    // mirroring and its own gravity); unlike in the CameraZoom module
     // this needs no search through the view hierarchy, the module holds the
     // layers. Resetting after a scene change is handled by the existing
     // observer in CameraZoomModule, which listens globally for

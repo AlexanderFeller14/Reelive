@@ -33,6 +33,30 @@ export function barHeight(bottomInset: number): number {
   return BAR_CONTENT_HEIGHT + BAR_TOP_PADDING + bottomInset;
 }
 
+// The capture's shape: the writer puts every recording into a 1080x1920
+// track (CameraCaptureModule), and photos come out of the same stream.
+export const CAPTURE_ASPECT = 9 / 16;
+
+// How tall the picture stands on screen, and thereby WHICH picture is seen.
+// Filling the whole screen cost 18 % of the width on a tall device (the
+// front camera carries 45,3 degrees across, only 37,7 of them reached the
+// glass, measured 2026-08-21), and that missing strip still went into the
+// recording, unseen. At this height the picture stands whole.
+//
+// It hangs at the tab bar's top edge, so nothing black stands between the
+// picture and the bar; what is left over gathers above, where it merges with
+// the status bar. On a screen too short for the full height the picture
+// fills what there is and gets cropped, as it always did.
+//
+// Lives HERE next to barHeight for the same reason: the viewfinder
+// (capture/index.tsx) and the preview (preview.tsx) both need it, and they
+// must not drift apart. They did once: both drew with `cover` into
+// differently tall areas, and the preview came out ~10 % narrower than the
+// viewfinder (device finding 2026-08-18).
+export function pictureHeight(width: number, height: number, bottomInset: number): number {
+  return Math.min(width / CAPTURE_ASPECT, height - barHeight(bottomInset));
+}
+
 export function set(on: boolean): void {
   if (visible === on) return;
   visible = on;

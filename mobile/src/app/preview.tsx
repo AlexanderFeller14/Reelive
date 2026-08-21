@@ -10,6 +10,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { Pencil, X } from 'lucide-react-native';
@@ -28,6 +29,7 @@ import * as media from '@/features/moments/media';
 import * as placeAndTime from '@/features/moments/placeAndTime';
 import * as handoff from '@/features/camera/handoff';
 import * as nativeCapture from '@/features/camera/nativeCapture';
+import * as cinemaStage from '@/features/camera/cinemaStage';
 import * as uploadWorker from '@/features/moments/uploadWorker';
 import { ownMomentCount } from '@/features/moments/counter';
 import { useAuth } from '@/features/auth/AuthProvider';
@@ -119,6 +121,18 @@ export default function PreviewScreen() {
   // the designed minimum margin.
   const insets = useSafeAreaInsets();
   const bottomInset = Math.max(spacing.base, insets.bottom);
+  // The capture's frame, the same one the viewfinder draws into: the cinema
+  // bar keeps standing under this screen (it hangs on the SELECTED tab, see
+  // backToCamera below), so both sides reckon with the same area and the
+  // picture stands exactly where it stood a moment ago.
+  const window = useWindowDimensions();
+  const pictureFrame = [
+    styles.media,
+    {
+      height: cinemaStage.pictureHeight(window.width, window.height, insets.bottom),
+      bottom: cinemaStage.barHeight(insets.bottom),
+    },
+  ];
   const {
     uri,
     type: mediaType,
@@ -445,19 +459,25 @@ export default function PreviewScreen() {
     <View style={styles.screen}>
       <Stack.Screen options={{ animation: 'none' }} />
 
+      {/* The recording's own frame, all three of them:
+          the viewfinder shows the full frame since the field-of-view
+          measurement (MultiCameraViewfinderView), and a preview that filled
+          would crop away exactly the 18 % of the width that was just standing
+          on the glass. The very same frame as the viewfinder's, so nothing
+          jumps on the way here. */}
       {mediaType === 'video' ? (
         prewarmed?.kind === 'native' ? (
           // The own pipeline (Task 12): the native ring buffer is already
           // playing before this screen even draws, so this shape needs
           // neither a VideoView nor a poster.
-          <InstantPreview testID="instant-preview" style={StyleSheet.absoluteFill} />
+          <InstantPreview testID="instant-preview" style={pictureFrame} />
         ) : (
           <>
             <VideoView
               testID="video-preview"
               player={player}
-              style={StyleSheet.absoluteFill}
-              contentFit="cover"
+              style={pictureFrame}
+              contentFit="contain"
               nativeControls={false}
               allowsPictureInPicture={false}
               onFirstFrameRender={() => setPosterVisible(false)}
@@ -466,8 +486,8 @@ export default function PreviewScreen() {
               <Image
                 testID="video-poster"
                 source={{ uri: prewarmedPlayer.poster }}
-                style={StyleSheet.absoluteFill}
-                contentFit="cover"
+                style={pictureFrame}
+                contentFit="contain"
               />
             ) : null}
           </>
@@ -476,8 +496,8 @@ export default function PreviewScreen() {
         <Image
           testID="photo-preview"
           source={photo ? photo.ref : { uri }}
-          style={StyleSheet.absoluteFill}
-          contentFit="cover"
+          style={pictureFrame}
+          contentFit="contain"
         />
       )}
 
@@ -605,6 +625,11 @@ export default function PreviewScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: cinema['bg-0'] },
+  // The capture's frame: 1080x1920, hung at the top edge. Mirrors
+  // MultiCameraViewfinderView, whose preview layer sits exactly there.
+  // The capture's frame, the SAME one the viewfinder draws into
+  // (cinemaStage.pictureHeight); height and bottom come from the device.
+  media: { position: 'absolute', left: 0, right: 0 },
   scrimTop: {
     position: 'absolute',
     top: 0,

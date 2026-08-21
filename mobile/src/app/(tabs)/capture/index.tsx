@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
   Dimensions,
+  useWindowDimensions,
   Easing,
   ScrollView,
   StyleSheet,
@@ -869,12 +870,24 @@ export default function CaptureScreen() {
   // lift by its height, otherwise they would sit behind it. The same formula
   // as in _layout.tsx (cinemaStage.barHeight), so the two sides cannot drift
   // apart.
-  const barHeight = cinemaStage.barHeight(useSafeAreaInsets().bottom);
+  const insets = useSafeAreaInsets();
+  const barHeight = cinemaStage.barHeight(insets.bottom);
+
+  // The picture's own frame (cinemaStage.pictureHeight): it hangs at the top
+  // edge of the bar and stands as tall as the capture is, so the viewfinder
+  // shows the WHOLE recording instead of a filled, 18 % narrower cut-out.
+  // What is left over gathers above the picture, where it merges with the
+  // status bar.
+  const window = useWindowDimensions();
+  const pictureHeight = cinemaStage.pictureHeight(window.width, window.height, insets.bottom);
+  const stageTop = window.height - barHeight - pictureHeight;
 
   // Sits with the hooks, because the early returns below lie in between. What
   // lies on top of the viewfinder respects the same top edge as every other
   // screen: edge-to-edge is the camera image, not the pill on top of it.
-  const viewfinderTopInset = useTopInset(spacing.xl);
+  // ...and never above the picture's top edge: up there is the black stage,
+  // and the pill used to stick to its lower edge (user finding 2026-08-21).
+  const viewfinderTopInset = Math.max(useTopInset(spacing.xl), stageTop + spacing.m);
 
   // --- Zoom (spec 2026-08-12-kamera-zoom-design.md) ---
   //
@@ -1666,12 +1679,12 @@ export default function CaptureScreen() {
         // ring, header, zoom row, shutter) is the same for both branches.
         <multiCamera.MultiCameraViewfinder
           testID="multicam-viewfinder"
-          style={StyleSheet.absoluteFill}
+          style={[styles.picture, { height: pictureHeight, bottom: barHeight }]}
         />
       ) : (
         <CameraView
           ref={cameraRef}
-          style={StyleSheet.absoluteFill}
+          style={[styles.picture, { height: pictureHeight, bottom: barHeight }]}
           facing={facing}
           mode="video"
           // Not `!focused` alone: the tab bar stays visible, a LOCKED capture
@@ -1832,6 +1845,9 @@ export default function CaptureScreen() {
 const styles = StyleSheet.create({
   // The cinema hall: only the viewfinder itself.
   screen: { flex: 1, backgroundColor: cinema['bg-0'] },
+  // The capture's frame, hung at the tab bar's top edge; height and bottom
+  // come from the device (cinemaStage.pictureHeight).
+  picture: { position: 'absolute', left: 0, right: 0 },
   // Everything else in this tab, see EmptyScreen.
   light: { flex: 1, backgroundColor: palette['bg-0'] },
   center: { justifyContent: 'center', padding: spacing.screen },

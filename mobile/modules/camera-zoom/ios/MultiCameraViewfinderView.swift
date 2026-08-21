@@ -21,6 +21,14 @@ final class MultiCameraViewfinderView: ExpoView {
     backgroundColor = .black
     for name in MultiCameraModule.cameraNames {
       let previewLayer = AVCaptureVideoPreviewLayer()
+      // Fills its bounds, and the SCREEN gives it bounds of exactly the
+      // capture's shape (capture/index.tsx): 1080x1920, hung at the top edge
+      // of the tab bar. Filling the whole screen cost 18 % of the picture's
+      // width on a tall device: the format carries 45,3 degrees across, only
+      // 37,7 of them stood on the glass, and the selfie came out visibly
+      // narrower than in Apple's camera app (user finding 2026-08-21,
+      // measured on device). It went into the recording unseen too, because
+      // the writer takes the FULL frame.
       previewLayer.videoGravity = .resizeAspectFill
       // Visibility is set by the module once it knows the active camera.
       previewLayer.isHidden = true

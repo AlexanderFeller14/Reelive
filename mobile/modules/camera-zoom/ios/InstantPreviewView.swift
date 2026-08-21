@@ -24,6 +24,9 @@ final class InstantPreviewView: ExpoView {
 
   required init(appContext: AppContext? = nil) {
     super.init(appContext: appContext)
+    // Fills its bounds like the viewfinder, and gets the same frame from the
+    // screen (preview.tsx), so the picture stands exactly where it stood a
+    // moment ago.
     display.videoGravity = .resizeAspectFill
     layer.addSublayer(display)
   }
