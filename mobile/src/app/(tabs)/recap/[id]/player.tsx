@@ -76,8 +76,16 @@ const TAP_THRESHOLD_MS = 250;
 // RN Pressable's own default for `delayLongPress`).
 const LONG_PRESS_MS = 500;
 const CLOSE_THRESHOLD_PX = 120;
-// DESIGN-LANGUAGE §5: "light to cinema = fade through dark, 350 ms", the
-// staged transition when entering the player ("the lights go out").
+// DESIGN-LANGUAGE §5: "light to cinema = fade through dark, 350 ms" ("the
+// lights go out"). Only describes JUMP mode (final whole-branch review): the
+// Animated.View that shows this sits inside the 'ready' branch, but the
+// animation itself starts ticking on MOUNT regardless of phase (see the
+// effect below). Show mode's seal is an INDEFINITE wait on top of the load,
+// so by the time 'ready' ever mounts there the fade has always already
+// finished, unseen; the route-level `animation: 'fade'` (recap/_layout.tsx)
+// is what covers §5 for show mode instead. Not restarted once the seal
+// peels either: a second darkening on top of the route's own transition
+// would be showing off, not honouring the spec.
 const CINEMA_FADE_DURATION_MS = 350;
 const CINEMA_FADE_REDUCED_MS = 200;
 // How long the end card stands in show mode before handing over to the
@@ -85,8 +93,12 @@ const CINEMA_FADE_REDUCED_MS = 200;
 // Recap.", not a motion duration, so `useReducedMotion()` must NOT shorten
 // it the way CINEMA_FADE_REDUCED_MS shortens the fade above.
 const END_CARD_MS = 2000;
-// Same sharpness-limit rationale as SEAL_STAGE_MAX in recap/[id]/overview.tsx
-// (see there): only bites on an iPad, every iPhone stays below it anyway.
+// Same sharpness-limit rationale as FILM_REEL_MAX in recap/index.tsx (see
+// there): the seal is drawn from the same 1254 px source (SealPeel.tsx), so
+// it goes soft at the same width. Only bites on an iPad, every iPhone stays
+// below it anyway. (The seal used to stand in recap/[id]/overview.tsx before
+// Task 2 of the recap-show plan moved it here; that is not where this
+// rationale lives any more.)
 const SEAL_STAGE_MAX = 416;
 
 // Reasons that belong to the moment being LEFT and are taken back on every
@@ -505,8 +517,8 @@ export default function RecapPlayer() {
     }, [])
   );
 
-  // "The lights go out": the staged fade through dark when entering the player
-  // (DESIGN-LANGUAGE §5).
+  // "The lights go out" (DESIGN-LANGUAGE §5), meaningful in jump mode only;
+  // see CINEMA_FADE_DURATION_MS above for why show mode never sees it.
   //
   // `reducedMotion` sits in the deps on purpose, although the staging is
   // conceptually one-off: `useReducedMotion()` always returns `false` on the

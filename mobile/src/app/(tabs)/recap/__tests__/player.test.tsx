@@ -149,11 +149,13 @@ jest.mock('@/features/recap/reportApi', () => ({
   reportMoment: jest.fn(),
 }));
 
-// Same mock as overview.test.tsx (SealPeel has its own test file: skia,
-// timers, haptics), so both screens are exercised against the exact same
-// stand-in. Auto-peel defaults to true so every EXISTING test below keeps
-// finding the player as before, without a seal in front of it; only the
-// seal describe block below switches it off to look at the standing seal.
+// A stand-in for SealPeel (it has its own test file: skia, timers, haptics),
+// not a real seal that needs an actual peel gesture to get out of the way.
+// Auto-peel defaults to true so every EXISTING test below keeps finding the
+// player as before, without a seal in front of it; only the seal describe
+// block below switches it off to look at the standing seal. The seal moved
+// out of the overview and into this screen (Task 2-4), so overview.test.tsx
+// no longer needs a mock of its own to have moved along with it.
 let mockSealAutoPeel = true;
 jest.mock('@/components/SealPeel', () => {
   const ReactActual = require('react');

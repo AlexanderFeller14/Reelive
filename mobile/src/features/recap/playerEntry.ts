@@ -1,7 +1,7 @@
 // Pure logic to determine how the recap player opens: no network, no React.
 // Distinguishes between a full recap show (with seal sequence) and a direct
-// jump to a specific moment. Called by the navigation setup to route the
-// player accordingly.
+// jump to a specific moment. Called by the player screen itself, once, to
+// derive its own mode from the route's `start` param.
 
 export type PlayerMode = 'show' | 'jump';
 

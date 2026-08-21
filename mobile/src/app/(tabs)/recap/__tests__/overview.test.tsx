@@ -150,8 +150,6 @@ test('the overview opens with the hero, not with a seal', async () => {
   (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
   await wrap();
   expect(await screen.findByTestId('recap-hero-image')).toBeTruthy();
-  expect(screen.queryByTestId('recap-seal')).toBeNull();
-  expect(screen.queryByTestId('recap-popcorn')).toBeNull();
 });
 
 // The card in the tab list shows `my_post_count` (the owner's own

@@ -59,7 +59,10 @@ import type {
 // Public, read-only web player (Task-5 brief, spec §5.2): shows the same
 // story as mobile/src/app/(tabs)/recap/[id]/player.tsx, cinema palette,
 // progress bar, day separators, author, time, place, caption. WITHOUT the
-// emoji bar, WITHOUT comments, WITHOUT reporting, WITHOUT login. Built as
+// emoji bar, WITHOUT comments, WITHOUT reporting, WITHOUT login. (The day
+// separator's own FORMATTING has since drifted from the native player, see
+// dayHeading below; the recap-show plan (spec §9) parks the share flow, so
+// this screen is deliberately left as it is.) Built as
 // its OWN, smaller screen instead of copying the 1532 line player or bending
 // it with a `viewOnly` switch, see the report for the reasoning. Reused are
 // the finished, reviewed building blocks: ProgressBar, playerLogic
@@ -147,9 +150,14 @@ function toRecapMoment(m: SharedMoment): RecapMoment {
   };
 }
 
-// The day's date on the interstitial, formatted like in the native player
-// (player.tsx), as a small copy of its own: player.tsx does not export the
-// helper, and this screen does not go and rebuild it over there.
+// The day's date on the interstitial, a small copy of its own: player.tsx
+// does not export the helper, and this screen does not go and rebuild it
+// over there. This USED TO format like the native player's own day heading;
+// the recap-show plan (Task 3) has since restaged that one into two lines
+// (day number above, place/date below, see daySubheading in player.tsx),
+// while `dayHeading` below still glues all three into one line. Left as it
+// is (spec §9 parks the share flow), so this comment no longer claims the
+// two match.
 //
 // The time of day sat here as a copy too until Task 15. It now comes from
 // features/recap/timeOfDay.ts, which is the place the comment over there
