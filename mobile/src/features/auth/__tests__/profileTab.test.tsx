@@ -597,13 +597,50 @@ describe('status bar cover', () => {
 
   afterEach(() => insetSpy.mockRestore());
 
-  test('an opaque surface backs the status bar, scrolled content never shows behind it', async () => {
+  const setDeviceInset = () => {
     const safeAreaModule = require('react-native-safe-area-context');
     insetSpy = jest
       .spyOn(safeAreaModule, 'useSafeAreaInsets')
       .mockReturnValue({ top: 59, bottom: 0, left: 0, right: 0 });
+  };
+
+  test('an opaque surface stands over the status bar area', async () => {
+    setDeviceInset();
     await render(<ThemeProvider><ProfileScreen /></ThemeProvider>);
     await screen.findByText('Lea');
     expect(screen.getByTestId('status-bar-cover')).toBeTruthy();
+  });
+
+  // Where the cover hangs is the whole point, and mere existence cannot see
+  // it: mounted BEFORE the ScrollView the content paints over it and the
+  // original bug is back, mounted AFTER the sheets a white band lies on the
+  // sheet backdrop. Both keep every other test in this file green, so the
+  // order is pinned here. Jest runs no Yoga layout, but later siblings paint
+  // on top, so tree position IS paint order (same reasoning as the image
+  // sheet test above).
+  test('the cover paints over the scrolled content and under the sheet', async () => {
+    setDeviceInset();
+    await render(<ThemeProvider><ProfileScreen /></ThemeProvider>);
+    await screen.findByText('Lea');
+    await fireEvent.press(await screen.findByTestId('avatar-picker'));
+    await screen.findByTestId('sheet-root');
+
+    const order: string[] = [];
+    const walk = (node: unknown) => {
+      if (!node || typeof node !== 'object') return;
+      const n = node as { props?: { testID?: string }; children?: unknown[] };
+      if (n.props?.testID) order.push(n.props.testID);
+      (n.children ?? []).forEach(walk);
+    };
+    walk(screen.toJSON());
+
+    const cover = order.indexOf('status-bar-cover');
+    // Control first: all three really are in the tree, otherwise two
+    // indexOf of -1 would compare as happily as real positions.
+    expect(cover).toBeGreaterThan(-1);
+    expect(order.indexOf('profile-content')).toBeGreaterThan(-1);
+    expect(order.indexOf('sheet-root')).toBeGreaterThan(-1);
+    expect(cover).toBeGreaterThan(order.indexOf('profile-content'));
+    expect(cover).toBeLessThan(order.indexOf('sheet-root'));
   });
 });

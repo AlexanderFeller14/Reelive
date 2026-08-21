@@ -819,13 +819,13 @@ describe('status bar cover', () => {
 
   afterEach(() => insetSpy.mockRestore());
 
-  test('an opaque surface backs the status bar in the open recap', async () => {
+  test('the cover stands on the open recap', async () => {
     await wrap();
     await screen.findByText('Tag 1 · Lissabon · 10. August');
     expect(screen.getByTestId('status-bar-cover')).toBeTruthy();
   });
 
-  test('the surface already stands while the recap is still sealed', async () => {
+  test('the cover already stands while the recap is still sealed', async () => {
     mockSealAutoPeel = false;
     await wrap();
     await screen.findByTestId('recap-seal');

@@ -1088,6 +1088,27 @@ test('the trip picker lies light as well', async () => {
   expect(inCinema()).toBe(false);
 });
 
+// The picker is the one scrolling list in this otherwise cinema-shaped file,
+// so it needs the same opaque strip as the other light screens. The global
+// mock reports insets of 0, hence the spy for a device measurement.
+test('the cover stands on the trip picker', async () => {
+  const safeAreaModule = require('react-native-safe-area-context');
+  const insetSpy = jest
+    .spyOn(safeAreaModule, 'useSafeAreaInsets')
+    .mockReturnValue({ top: 59, bottom: 0, left: 0, right: 0 });
+  try {
+    (fetchTrips as jest.Mock).mockResolvedValue(
+      loaded([trip({ id: 'a', name: 'Norwegen' }), trip({ id: 'b', name: 'Lissabon' })])
+    );
+    await render(<CaptureScreen />);
+    await screen.findByText('Für welche Reise?');
+
+    expect(screen.getByTestId('status-bar-cover')).toBeTruthy();
+  } finally {
+    insetSpy.mockRestore();
+  }
+});
+
 test('the viewfinder itself is the one place that stays the dark cinema', async () => {
   (fetchTrips as jest.Mock).mockResolvedValue(loaded([trip()]));
   await render(<CaptureScreen />);

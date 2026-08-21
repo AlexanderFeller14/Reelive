@@ -138,11 +138,14 @@ test('while the list is still loading the empty state stays away', async () => {
 // mock reports insets of 0, so the device measurement is set via the spy
 // pattern from player.test.tsx.
 describe('status bar cover', () => {
-  let insetSpy: jest.SpyInstance;
+  let insetSpy: jest.SpyInstance | undefined;
 
-  afterEach(() => insetSpy.mockRestore());
+  afterEach(() => {
+    insetSpy?.mockRestore();
+    insetSpy = undefined;
+  });
 
-  test('an opaque surface backs the status bar, scrolled content never shows behind it', async () => {
+  test('the cover stands on the recap list', async () => {
     const safeAreaModule = require('react-native-safe-area-context');
     insetSpy = jest
       .spyOn(safeAreaModule, 'useSafeAreaInsets')
@@ -151,5 +154,9 @@ describe('status bar cover', () => {
     await wrap();
     await screen.findByText('Lissabon Städtetrip');
     expect(screen.getByTestId('status-bar-cover')).toBeTruthy();
+    // The cover lies over the top strip, the title starts below it: it must
+    // still be there. Checked here because a cover that swallows the screen
+    // title would otherwise pass every other test in this file.
+    expect(screen.getByText('Deine Recaps')).toBeTruthy();
   });
 });

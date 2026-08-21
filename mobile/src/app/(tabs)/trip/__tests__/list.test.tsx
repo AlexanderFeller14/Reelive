@@ -173,11 +173,14 @@ test('a planned card continues the cover slots after the running ones', async ()
 // mock reports insets of 0, so the device measurement is set via the spy
 // pattern from player.test.tsx.
 describe('status bar cover', () => {
-  let insetSpy: jest.SpyInstance;
+  let insetSpy: jest.SpyInstance | undefined;
 
-  afterEach(() => insetSpy.mockRestore());
+  afterEach(() => {
+    insetSpy?.mockRestore();
+    insetSpy = undefined;
+  });
 
-  test('an opaque surface backs the status bar, scrolled content never shows behind it', async () => {
+  test('the cover stands on the trip list', async () => {
     const safeAreaModule = require('react-native-safe-area-context');
     insetSpy = jest
       .spyOn(safeAreaModule, 'useSafeAreaInsets')

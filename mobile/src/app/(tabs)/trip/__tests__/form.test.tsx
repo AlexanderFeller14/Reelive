@@ -136,12 +136,12 @@ describe('status bar cover', () => {
 
   afterEach(() => insetSpy.mockRestore());
 
-  test('an opaque surface backs the status bar while creating a trip', async () => {
+  test('the cover stands while creating a trip', async () => {
     await wrap(<NewTrip />);
     expect(screen.getByTestId('status-bar-cover')).toBeTruthy();
   });
 
-  test('an opaque surface backs the status bar while editing a trip', async () => {
+  test('the cover stands while editing a trip', async () => {
     await wrap(<EditTrip />);
     await screen.findByDisplayValue('Norwegen');
     expect(screen.getByTestId('status-bar-cover')).toBeTruthy();
