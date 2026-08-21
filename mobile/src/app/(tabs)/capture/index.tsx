@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import {
   Animated,
   Dimensions,
@@ -53,6 +53,7 @@ import { useAuth } from '@/features/auth/AuthProvider';
 import * as handoff from '@/features/camera/handoff';
 import * as captureLock from '@/features/camera/captureLock';
 import * as cinemaStage from '@/features/camera/cinemaStage';
+import * as warmup from '@/features/camera/warmup';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // Maximum duration of a video, the same number goes to the shutter AND to
@@ -813,29 +814,43 @@ export default function CaptureScreen() {
   // The lifecycle of the MultiCam session (spec §8/§9). Two things hang off
   // it:
   //
-  // On focus the session is built up. If it reports `false` (no module, old
-  // build, simulator, or a setup that failed twice in a row), the screen falls
-  // back to expo-camera for the REST of the session: `multiCam` then stays
-  // false, this effect runs into nothing and the CameraView takes over. The
-  // active ref shields the answer that only arrives after leaving the screen
-  // (same pattern as in load above).
+  // The session is built up as soon as the screen is WANTED. That is more
+  // than focus ever since the tabs can be swiped: the pager reports how far
+  // the finger has dragged, and the warm-up flag goes up in the first tenth
+  // of the way (features/camera/warmup.ts). Building up on focus alone would
+  // drag a black surface through the whole gesture, since the session needs a
+  // moment to come up. `multiCamera.start` is latched against being asked
+  // twice, so warm-up and focus may both want it without the second call
+  // counting as a failed build-up.
   //
-  // On blur it is stopped ONLY if nothing rests on the session any more,
-  // following exactly the conditions of the mute prop in the other branch:
-  // under the CAPTURE PREVIEW it keeps running (a rebuild would be the most
-  // expensive moment of all on the instant way back), and nobody reaches into
-  // a running capture anyway.
-  useFocusEffect(
-    useCallback(() => {
-      if (!multiCam) return;
-      void multiCamera.start().then((ok) => {
-        if (!ok && active.current) setMultiCam(false);
-      });
-      return () => {
-        if (!capturingRef.current && !inPreviewRef.current) multiCamera.stop();
-      };
-    }, [multiCam])
-  );
+  // If it reports `false` (no module, old build, simulator, or a setup that
+  // failed twice in a row), the screen falls back to expo-camera for the REST
+  // of the session: `multiCam` then stays false, this effect runs into
+  // nothing and the CameraView takes over. The active ref shields the answer
+  // that only arrives after leaving the screen (same pattern as in load
+  // above).
+  //
+  // It is stopped ONLY if nothing rests on the session any more, following
+  // exactly the conditions of the mute prop in the other branch: under the
+  // CAPTURE PREVIEW it keeps running (a rebuild would be the most expensive
+  // moment of all on the instant way back), and nobody reaches into a running
+  // capture anyway.
+  //
+  // ONE derived boolean, deliberately not two dependencies: while a swipe
+  // finishes, `warm` and `focused` hand over to each other, and depending on
+  // both would tear the session down and build it right back up in exactly
+  // that moment.
+  const warm = useSyncExternalStore(warmup.subscribe, warmup.get);
+  const sessionWanted = focused || warm;
+  useEffect(() => {
+    if (!multiCam || !sessionWanted) return;
+    void multiCamera.start().then((ok) => {
+      if (!ok && active.current) setMultiCam(false);
+    });
+    return () => {
+      if (!capturingRef.current && !inPreviewRef.current) multiCamera.stop();
+    };
+  }, [multiCam, sessionWanted]);
 
   // The torch in the MultiCam branch. In the other branch a prop does this
   // (`enableTorch={flash === 'on' && capturing}` on the CameraView); our own

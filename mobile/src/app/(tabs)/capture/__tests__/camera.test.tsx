@@ -277,6 +277,7 @@ import CaptureScreen from '../index';
 import { fetchTrips } from '@/features/trips/tripsApi';
 import * as handoff from '@/features/camera/handoff';
 import * as captureLock from '@/features/camera/captureLock';
+import * as warmup from '@/features/camera/warmup';
 
 const trip = (over: Partial<Trip> = {}): Trip => ({
   id: 't1',
@@ -313,6 +314,9 @@ beforeEach(() => {
   mockCreatedPlayer.status = 'readyToPlay';
   // Module state, survives tests: always start unlocked.
   captureLock.lock(false);
+  // Same for the warm-up: a swipe from an earlier test must not keep the
+  // session wanted in the next one.
+  warmup.set(false);
   // A blurScreen() from an earlier test must not linger: every test starts
   // focused (a negative state would mean unfocused, the focus effects would
   // never run and no screen would load).
@@ -2629,6 +2633,46 @@ test('a blur without a preview stops the session', async () => {
   await blurScreen();
 
   expect(mockMultiCamera.stop).toHaveBeenCalledTimes(1);
+});
+
+// === The warm-up during a swipe (features/camera/warmup.ts) ===
+//
+// Since the tabs can be swiped, the screen arrives gradually instead of at
+// once. The session needs a moment to build up, so it starts WITH the
+// gesture: waiting for focus would drag a black surface through the whole
+// swipe.
+test('the session builds up while the swipe is still under way, before focus', async () => {
+  await multiCamViewfinder();
+  await blurScreen();
+  mockMultiCamera.start.mockClear();
+
+  await act(async () => warmup.set(true));
+
+  expect(mockMultiCamera.start).toHaveBeenCalled();
+});
+
+test('a swipe taken back lets the session go again', async () => {
+  await multiCamViewfinder();
+  await blurScreen();
+  await act(async () => warmup.set(true));
+  mockMultiCamera.stop.mockClear();
+
+  await act(async () => warmup.set(false));
+
+  expect(mockMultiCamera.stop).toHaveBeenCalledTimes(1);
+});
+
+// The finger swipes AWAY from the camera and turns back: the flag drops for
+// a moment while focus stays. Tearing the session down and building it right
+// back up would be the most expensive moment of all.
+test('the warm-up falling away does not stop a session the focus is holding', async () => {
+  await multiCamViewfinder();
+  await act(async () => warmup.set(true));
+  mockMultiCamera.stop.mockClear();
+
+  await act(async () => warmup.set(false));
+
+  expect(mockMultiCamera.stop).not.toHaveBeenCalled();
 });
 
 test('a blur during a running capture does not stop the session', async () => {
