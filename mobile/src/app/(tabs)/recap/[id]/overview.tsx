@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator, Animated, Easing, ScrollView, Text, View, StyleSheet, useWindowDimensions,
+  ActivityIndicator, Animated, ScrollView, Text, View, StyleSheet,
 } from 'react-native';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { Image } from 'expo-image';
@@ -8,9 +8,9 @@ import * as Linking from 'expo-linking';
 import { ChevronLeft, Download, Share2 } from 'lucide-react-native';
 import { PressScale } from '@/components/PressScale';
 import { Button } from '@/components/Button';
+import { RecapHero } from '@/components/RecapHero';
 import { Sheet } from '@/components/Sheet';
 import { StatusBarCover } from '@/components/StatusBarCover';
-import { SealPeel } from '@/components/SealPeel';
 import { useTheme } from '@/theme/ThemeProvider';
 import { useReducedMotion } from '@/theme/useReducedMotion';
 import { motion, radius, spacing, type } from '@/theme/tokens';
@@ -18,6 +18,7 @@ import { useTopInset } from '@/theme/useTopInset';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { fetchTrip } from '@/features/trips/tripsApi';
 import type { Trip } from '@/features/trips/types';
+import { formatRange } from '@/features/trips/tripDay';
 import { fetchRecapMoments } from '@/features/recap/recapApi';
 import { saveAllToGallery, type AllResult, type AllProgress } from '@/features/recap/exportApi';
 import { groupByDays } from '@/features/recap/days';
@@ -74,6 +75,30 @@ function summaryText(outcome: Extract<AllResult, { status: 'finished' }>): strin
     return `${outcome.saved} von ${outcome.total} Momenten gesichert.`;
   }
   return `${outcome.saved} von ${outcome.total} Momenten gesichert. ${outcome.failed} ${outcome.failed === 1 ? 'ist' : 'sind'} fehlgeschlagen.`;
+}
+
+// Returns null for a lone traveller, so `heroSubtitle` below can simply drop
+// this part instead of stitching it onto an empty phrase.
+function fellowTravellersText(memberCount: number): string | null {
+  if (memberCount <= 1) return null;
+  if (memberCount === 2) return 'zu zweit';
+  if (memberCount === 3) return 'zu dritt';
+  if (memberCount === 4) return 'zu viert';
+  return `mit ${memberCount} Mitreisenden`;
+}
+
+// `displayedMomentCount` is a parameter, not `trip.my_post_count`: the tab
+// list's card counts what only the owner contributed, the hero counts what
+// the recap actually SHOWS, all travellers together. Trip carries no count
+// of its own for that, only the loaded pool does.
+function heroSubtitle(trip: Trip, displayedMomentCount: number): string {
+  const parts = [
+    formatRange(trip.start_date, trip.end_date),
+    `${displayedMomentCount} ${displayedMomentCount === 1 ? 'Moment' : 'Momente'}`,
+  ];
+  const companions = fellowTravellersText(trip.member_count);
+  if (companions) parts.push(companions);
+  return parts.join(' · ');
 }
 
 // Quiet bg-1 surface with an opacity pulse (DESIGN-LANGUAGE §4: "Skeleton:
@@ -233,19 +258,6 @@ export default function RecapOverview() {
   const [retryHelpful, setRetryHelpful] = useState(true);
   const [loading, setLoading] = useState(false);
   const active = useRef(true);
-  // Session-only, no persistent marker: the seal stands again on EVERY fresh
-  // open of the recap (breaking it open is the moment, not a one-time
-  // unlock). `unsealedRef` holds the peel for the lifetime of THIS screen, so
-  // coming back from the player (the screen stays mounted, but useFocusEffect
-  // reloads) does not put a seal up again; only really leaving and reopening
-  // brings it back.
-  const [unsealed, setUnsealed] = useState(false);
-  const unsealedRef = useRef(false);
-  // Initial value 1 so the content stands there without a fade after a reload
-  // out of the player (`unsealed` is already true then).
-  const [fadeIn] = useState(() => new Animated.Value(1));
-  const reducedMotion = useReducedMotion();
-  const { width: windowWidth } = useWindowDimensions();
 
   const load = useCallback(async () => {
     const [
@@ -257,7 +269,6 @@ export default function RecapOverview() {
     setTrip(t);
     setMoments(m);
     setPool(p);
-    setUnsealed(unsealedRef.current);
     setError(tError ?? pError ?? mError ?? null);
     setRetryHelpful(tError === null && pError !== null ? retryHelps(pReason) : true);
     setLoaded(true);
@@ -290,23 +301,6 @@ export default function RecapOverview() {
 
   const toPlayer = (index: number) => {
     router.push({ pathname: '/recap/[id]/player', params: { id, start: String(index) } });
-  };
-
-  // Order matters: opacity to 0 FIRST, `unsealed` second, otherwise the
-  // content would stand there fully visible for one frame before the fade
-  // begins.
-  const unseal = () => {
-    unsealedRef.current = true;
-    fadeIn.setValue(0);
-    setUnsealed(true);
-    Animated.timing(fadeIn, {
-      toValue: 1,
-      duration: reducedMotion ? motion.duration.base : motion.duration.gentle,
-      // Spelled out, not the RN default (inOut): see the
-      // MomentSubmissionAnimation, the default makes a fade run out sluggishly.
-      easing: Easing.bezier(...motion.easeSmooth),
-      useNativeDriver: true,
-    }).start();
   };
 
   if (!loaded) return <SkeletonScreen />;
@@ -348,41 +342,16 @@ export default function RecapOverview() {
   // condition of the server policy verbatim.
   const canMap = !!trip && (trip.status === 'revealed' || trip.status === 'archived');
 
-  const header = (
-    <View style={styles.header}>
-      <PressScale accessibilityRole="button" accessibilityLabel="Zurück" onPress={goBack}>
-        <ChevronLeft size={24} color={colors['text-1']} strokeWidth={1.75} />
-      </PressScale>
-      <View style={styles.headerActions}>
-        {canExport && (
-          <PressScale
-            testID="overview-save-all-open"
-            accessibilityRole="button"
-            accessibilityLabel="Alle sichern"
-            onPress={saveAll}
-          >
-            <Download size={22} color={colors['text-1']} strokeWidth={1.75} />
-          </PressScale>
-        )}
-        {canShare && (
-          <PressScale
-            testID="overview-share-open"
-            accessibilityRole="button"
-            accessibilityLabel="Recap teilen"
-            onPress={() => setShareOpen(true)}
-          >
-            <Share2 size={22} color={colors['text-1']} strokeWidth={1.75} />
-          </PressScale>
-        )}
-      </View>
-    </View>
-  );
-
   if (!trip) {
     return (
       <View style={{ flex: 1, backgroundColor: colors['bg-0'] }}>
         <View style={[styles.content, { paddingTop: topInset }]}>
-          {header}
+          {/* The hero needs a trip to draw at all (title, dates, photo); this
+              state has none, so it keeps only the bare way back instead of
+              the hero the rest of the screen now opens with. */}
+          <PressScale accessibilityRole="button" accessibilityLabel="Zurück" onPress={goBack}>
+            <ChevronLeft size={24} color={colors['text-1']} strokeWidth={1.75} />
+          </PressScale>
           <Text style={[type.body, { color: colors.danger }]}>{error ?? 'Diese Reise gibt es nicht mehr.'}</Text>
           {error && retryHelpful && (
             <Button
@@ -401,59 +370,94 @@ export default function RecapOverview() {
   const pendingCount = moments.length - uploaded.length;
   const skippedCount = pool?.skipped ?? 0;
   const completelyEmpty = days.length === 0 && pendingCount === 0 && skippedCount === 0;
-  const sealed = days.length > 0 && !unsealed;
-  const stage = Math.min(windowWidth - 2 * spacing.screen, SEAL_STAGE_MAX);
+  // The cover needs no data source of its own: the screen already loads the
+  // url pool for the tile grid, the hero just borrows its first
+  // thumbnail-bearing entry from the same already-sorted list.
+  const coverEntry = withImage.find((m) => urls.get(m.id)?.thumb_url);
+  const coverUrl = coverEntry ? (urls.get(coverEntry.id)!.thumb_url ?? null) : null;
 
   return (
     <View style={{ flex: 1, backgroundColor: colors['bg-0'] }}>
-      {/* `flexGrow: 1` only while the seal stands: then the content fills the
-          height and the stage can centre itself in what is left below the
-          title. Normal afterwards, a short recap may be short. */}
-      <ScrollView contentContainerStyle={[styles.content, { paddingTop: topInset }, sealed && styles.contentStretched]}>
-        {header}
-        <Text style={[type.h1, { color: colors['text-1'] }]}>{trip.name}</Text>
+      <ScrollView contentContainerStyle={[styles.content, { paddingTop: topInset }]}>
+        <RecapHero
+          title={trip.name}
+          subtitle={heroSubtitle(trip, withImage.length)}
+          coverUrl={coverUrl}
+          onBack={goBack}
+          onPlay={() => toPlayer(0)}
+        />
 
         {/* The two readings of this recap (Spec §5.1) as a segment row of two
             pills (radius 999), explicitly NOT as a second tab bar: the bottom
             one stays at four entries (DESIGN-LANGUAGE §4), and the map is a
             view onto THIS recap, not an area of its own.
 
-            It sits below the H1, not between header row and H1: the row
-            switches what stands BELOW it, and separated from the title it
-            would read as part of the header chrome instead of as a choice
-            about the content. The spacing comes from the `gap` of
-            `styles.content` (12), 4-grid, without a second value beside it.
+            Sharing this row with the save/share icons (Task 9: they moved
+            here from the header the hero absorbed) instead of two separate
+            rows: both belong to the same "what can I do with this recap"
+            question, and a screen this light on chrome shouldn't spend two
+            lines answering it.
 
-            Light, not translucent: the `Pill` component is made for a foreign
-            surface (DESIGN-LANGUAGE §1, "auf Fotos"), here plain white lies
-            underneath. */}
-        {canMap && !sealed && (
-          <View style={styles.segmentRow}>
-            <View
-              accessible
-              accessibilityRole="text"
-              accessibilityLabel="Nach Tagen, aktuelle Ansicht"
-              testID="overview-segment-days"
-              style={[styles.segmentPill, { backgroundColor: colors['bg-1'] }]}
-            >
-              <Text style={[type.bodyMedium, { color: colors['text-1'] }]}>Nach Tagen</Text>
-            </View>
-            <PressScale
-              accessibilityRole="button"
-              testID="overview-segment-map"
-              onPress={toMap}
-            >
+            Light, not translucent: the `Pill` component is made for a
+            foreign surface (DESIGN-LANGUAGE §1, "auf Fotos"), here plain
+            white lies underneath. */}
+        <View style={styles.controlsRow}>
+          {canMap ? (
+            <View style={styles.segmentRow}>
               <View
-                style={[
-                  styles.segmentPill,
-                  { backgroundColor: colors['bg-0'], borderWidth: StyleSheet.hairlineWidth, borderColor: colors.line },
-                ]}
+                accessible
+                accessibilityRole="text"
+                accessibilityLabel="Nach Tagen, aktuelle Ansicht"
+                testID="overview-segment-days"
+                style={[styles.segmentPill, { backgroundColor: colors['bg-1'] }]}
               >
-                <Text style={[type.bodyMedium, { color: colors['text-2'] }]}>Auf der Karte</Text>
+                <Text style={[type.bodyMedium, { color: colors['text-1'] }]}>Nach Tagen</Text>
               </View>
-            </PressScale>
+              <PressScale
+                accessibilityRole="button"
+                testID="overview-segment-map"
+                onPress={toMap}
+              >
+                <View
+                  style={[
+                    styles.segmentPill,
+                    { backgroundColor: colors['bg-0'], borderWidth: StyleSheet.hairlineWidth, borderColor: colors.line },
+                  ]}
+                >
+                  <Text style={[type.bodyMedium, { color: colors['text-2'] }]}>Auf der Karte</Text>
+                </View>
+              </PressScale>
+            </View>
+          ) : (
+            // Empty, not omitted: `justifyContent: 'space-between'` on a
+            // SINGLE child aligns it to the start, which would drag the
+            // action icons below to the left edge instead of leaving them
+            // docked right.
+            <View />
+          )}
+          <View style={styles.actionIcons}>
+            {canExport && (
+              <PressScale
+                testID="overview-save-all-open"
+                accessibilityRole="button"
+                accessibilityLabel="Alle sichern"
+                onPress={saveAll}
+              >
+                <Download size={22} color={colors['text-1']} strokeWidth={1.75} />
+              </PressScale>
+            )}
+            {canShare && (
+              <PressScale
+                testID="overview-share-open"
+                accessibilityRole="button"
+                accessibilityLabel="Recap teilen"
+                onPress={() => setShareOpen(true)}
+              >
+                <Share2 size={22} color={colors['text-1']} strokeWidth={1.75} />
+              </PressScale>
+            )}
           </View>
-        )}
+        </View>
 
         {error ? (
           <View style={{ gap: spacing.l, marginTop: spacing.xl }}>
@@ -471,38 +475,15 @@ export default function RecapOverview() {
           <Text style={[type.h2, { color: colors['text-1'], marginTop: spacing.xl }]}>
             Diese Reise ist leer geblieben.
           </Text>
-        ) : sealed ? (
-          // The staged moment before the recap (§7: only staged moments are
-          // centred): the seal in the middle, a line below it saying what to
-          // do. No frame, no shadow from us, the seal brings its own.
-          <View style={styles.sealStage}>
-            <SealPeel testID="recap-seal" size={stage} onPeeled={unseal} />
-            <Text style={[type.body, { color: colors['text-2'], textAlign: 'center' }]}>
-              Dein Recap ist versiegelt. Tipp aufs Siegel, um ihn zu öffnen.
-            </Text>
-          </View>
         ) : (
-          <Animated.View style={{ gap: spacing.xl, marginTop: spacing.xl, opacity: fadeIn }}>
-            {/* Cut out on `bg-0`, hence without frame and shadow. */}
-            <View>
-              <Image
-                testID="recap-popcorn"
-                source={require('@/assets/images/popcornbecher.png')}
-                style={styles.popcorn}
-                contentFit="contain"
-                accessible={false}
-              />
-              <Text style={[type.bodyMedium, { color: colors['text-1'], marginTop: spacing.m }]}>
-                {"Dein Recap wartet. Popcorn holen, Licht aus, los geht's."}
-              </Text>
-            </View>
+          <View style={{ gap: spacing.xl, marginTop: spacing.xl }}>
             {days.map((day) => (
               <DaySection key={day.number} day={day} urls={urls} indexById={indexById} onTap={toPlayer} />
             ))}
-          </Animated.View>
+          </View>
         )}
 
-        {!error && !sealed && (pendingCount > 0 || skippedCount > 0) && (
+        {!error && (pendingCount > 0 || skippedCount > 0) && (
           <View style={{ gap: spacing.xs, marginTop: spacing.xl }}>
             {pendingCount > 0 && (
               <Text style={[type.secondary, { color: colors['text-2'] }]}>{inTransitText(pendingCount)}</Text>
@@ -538,20 +519,12 @@ export default function RecapOverview() {
   );
 }
 
-// Upper bound of the seal stage, the same sharpness limit as FILM_REEL_MAX in
-// recap/index.tsx: the seal takes up 500/720 of the stage, at 416 that is
-// 289 pt, times three 867 px, below the 1254 px of the source. On every
-// iPhone the width stays below this anyway, the limit only bites on an iPad.
-const SEAL_STAGE_MAX = 416;
-
 const styles = StyleSheet.create({
   content: { padding: spacing.screen, paddingTop: spacing.xl, paddingBottom: spacing.xxl, gap: spacing.m },
-  contentStretched: { flexGrow: 1 },
-  // Fills the height below the title and centres the seal in it, with the
-  // hint underneath (spacing from the 4-grid).
-  sealStage: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: spacing.l },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  headerActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.base },
+  // Segment pills left, save/share icons right (Task 9: both used to be two
+  // separate rows, the header above the H1 and the segment row below it).
+  controlsRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  actionIcons: { flexDirection: 'row', alignItems: 'center', gap: spacing.base },
   // Two pills side by side, left aligned (DESIGN-LANGUAGE §7), not a bar
   // stretched over the full width: stretched it would look like a second tab
   // bar, and that is exactly what it must not be (Spec §5.1).
@@ -572,8 +545,4 @@ const styles = StyleSheet.create({
   // and never exactly from the 4-grid.
   tileGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-start', columnGap: spacing.xs, rowGap: spacing.xs },
   tile: { width: '31.5%', aspectRatio: 1, borderRadius: radius.control, overflow: 'hidden' },
-  // Smaller than the images of the empty states (160): there the image
-  // carries a screen with nothing else on it, here it accompanies a recap
-  // that starts right below it.
-  popcorn: { width: 120, height: 120, alignSelf: 'center' },
 });

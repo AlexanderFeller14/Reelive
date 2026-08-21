@@ -63,32 +63,6 @@ jest.mock('@/features/sharing/ShareSheetContent', () => {
 jest.mock('@/features/recap/exportApi', () => ({ saveAllToGallery: jest.fn() }));
 const mockOpenSettings = jest.fn(() => Promise.resolve());
 jest.mock('expo-linking', () => ({ openSettings: () => mockOpenSettings() }));
-// SealPeel has its own test file (components/__tests__/SealPeel.test.tsx:
-// skia, timers, haptics). Here only THAT the screen shows it at which size
-// and what happens after `onPeeled` counts.
-//
-// The seal stands on EVERY open, so it would lie in front of every content.
-// For the many content tests (grid, lines, segment row, sharing, save all) to
-// find the recap open as before, the mock peels off IMMEDIATELY on mount by
-// default; the seal tests below switch that off to look at the standing seal
-// and tap it themselves.
-let mockSealAutoPeel = true;
-jest.mock('@/components/SealPeel', () => {
-  const ReactActual = require('react');
-  const { Pressable } = require('react-native');
-  return {
-    SealPeel: ({ size, onPeeled, testID }: { size: number; onPeeled: () => void; testID?: string }) => {
-      ReactActual.useEffect(() => {
-        if (mockSealAutoPeel) onPeeled();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-      }, []);
-      return ReactActual.createElement(Pressable, {
-        testID, accessibilityRole: 'button', accessibilityLabel: 'Siegel abziehen',
-        onPress: onPeeled, style: { width: size, height: size },
-      });
-    },
-  };
-});
 
 import RecapOverview from '../[id]/overview';
 import { fetchTrip } from '@/features/trips/tripsApi';
@@ -165,43 +139,41 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockCanGoBack = true;
   mockAuth.userId = 'u1';
-  mockSealAutoPeel = true;
   (fetchTrip as jest.Mock).mockResolvedValue({ data: trip, error: null });
 });
 
-const POPCORN_TEXT = "Dein Recap wartet. Popcorn holen, Licht aus, los geht's.";
-
-test('above the days the popcorn invites you to watch', async () => {
+// The overview opens with the photo hero now (Task 9, recap-show plan); the
+// seal moved into the player (Task 2-4) and the popcorn image left with it.
+test('the overview opens with the hero, not with a seal', async () => {
   (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: COMPLETE, error: null });
   (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
   await wrap();
-  expect(await screen.findByText(POPCORN_TEXT)).toBeTruthy();
-  expect(screen.getByTestId('recap-popcorn')).toBeTruthy();
+  expect(await screen.findByTestId('recap-hero-image')).toBeTruthy();
+  expect(screen.queryByTestId('recap-seal')).toBeNull();
+  expect(screen.queryByTestId('recap-popcorn')).toBeNull();
 });
 
-test('a load error gets no popcorn', async () => {
-  (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [], error: null });
-  (getPool as jest.Mock).mockResolvedValue({
-    pool: null, error: 'Der Recap konnte nicht geladen werden.', reason: null,
+// The card in the tab list shows `my_post_count` (the owner's own
+// contribution); the hero counts the DISPLAYED moments of all travellers
+// together. `my_post_count` is deliberately set to a THIRD number here (not
+// 3, not the shared fixture's 5), so a hero that read the wrong field would
+// show a wrong count instead of accidentally matching by coincidence.
+test('the hero counts all moments of the recap, not only my own', async () => {
+  (fetchTrip as jest.Mock).mockResolvedValue({ data: { ...trip, my_post_count: 7 }, error: null });
+  (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: COMPLETE, error: null });
+  (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
+  await wrap();
+  expect(await screen.findByText(/3 Momente/)).toBeTruthy();
+});
+
+test('play from the hero repeats the show without a seal, so with start=0', async () => {
+  (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: COMPLETE, error: null });
+  (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
+  await wrap();
+  fireEvent.press(await screen.findByTestId('recap-hero-play'));
+  expect(mockPush).toHaveBeenCalledWith({
+    pathname: '/recap/[id]/player', params: { id: 't1', start: '0' },
   });
-  await wrap();
-  await screen.findByText('Der Recap konnte nicht geladen werden.');
-  expect(screen.queryByTestId('recap-popcorn')).toBeNull();
-});
-
-test('a trip that stayed empty shows no popcorn either', async () => {
-  emptyLoadSuccess();
-  await wrap();
-  await screen.findByText('Diese Reise ist leer geblieben.');
-  expect(screen.queryByTestId('recap-popcorn')).toBeNull();
-});
-
-test('the popcorn picture stays invisible to VoiceOver, the sentence below says it all', async () => {
-  (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: COMPLETE, error: null });
-  (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
-  await wrap();
-  const popcorn = await screen.findByTestId('recap-popcorn');
-  expect(popcorn.props.accessible).toBe(false);
 });
 
 test('groups by days with the place name, and drops it where no moment carries one', async () => {
@@ -723,85 +695,6 @@ describe('the error only offers what it can keep', () => {
   });
 });
 
-// `mockSealAutoPeel = false` throughout this block, so the standing seal can
-// be looked at; the other tests peel it off immediately through the mock.
-describe('the seal on the recap overview', () => {
-  beforeEach(() => {
-    mockSealAutoPeel = false;
-  });
-
-  const fullRecap = () => {
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: COMPLETE, error: null });
-    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
-  };
-
-  test('the seal stands there with its hint, while grid, popcorn, segment row and counting lines stay closed', async () => {
-    fullRecap();
-    await wrap();
-    expect(await screen.findByTestId('recap-seal')).toBeTruthy();
-    expect(screen.getByText('Dein Recap ist versiegelt. Tipp aufs Siegel, um ihn zu öffnen.')).toBeTruthy();
-    expect(screen.getByText('Lissabon Städtetrip')).toBeTruthy();
-    expect(screen.queryByText(POPCORN_TEXT)).toBeNull();
-    expect(screen.queryByText('Tag 1 · Lissabon · 10. August')).toBeNull();
-    expect(screen.queryAllByTestId(/^recap-tile-/)).toHaveLength(0);
-    expect(screen.queryByText('Auf der Karte')).toBeNull();
-    expect(screen.queryByText('1 Moment ist noch unterwegs.')).toBeNull();
-  });
-
-  test('the stage of the seal takes the content width, capped at 416', async () => {
-    fullRecap();
-    await wrap();
-    const seal = await screen.findByTestId('recap-seal');
-    // The jest window is 750 wide, minus twice the screen margin 24 would be
-    // 702; the cap (sharpness limit of the png) holds at 416.
-    expect(seal.props.style).toEqual({ width: 416, height: 416 });
-  });
-
-  test('peeled off: the recap arrives, the seal is gone', async () => {
-    fullRecap();
-    await wrap();
-    await fireEvent.press(await screen.findByTestId('recap-seal'));
-
-    expect(await screen.findByText('Tag 1 · Lissabon · 10. August')).toBeTruthy();
-    expect(screen.getByText(POPCORN_TEXT)).toBeTruthy();
-    expect(screen.getAllByTestId(/^recap-tile-/)).toHaveLength(3);
-    expect(screen.getByText('Auf der Karte')).toBeTruthy();
-    expect(screen.getByText('1 Moment ist noch unterwegs.')).toBeTruthy();
-    expect(screen.queryByTestId('recap-seal')).toBeNull();
-  });
-
-  test('without a single visible day there is no seal, peeling it would lead nowhere', async () => {
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [pendingM], error: null });
-    (getPool as jest.Mock).mockResolvedValue({
-      pool: { urls: new Map(), validUntil: Date.now() + 999_999, skipped: 0 },
-      error: null,
-      reason: null,
-    });
-    await wrap();
-    expect(await screen.findByText('1 Moment ist noch unterwegs.')).toBeTruthy();
-    expect(screen.queryByTestId('recap-seal')).toBeNull();
-  });
-
-  test('neither a load error nor a trip that stayed empty carries a seal', async () => {
-    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [], error: null });
-    (getPool as jest.Mock).mockResolvedValue({
-      pool: null, error: 'Der Recap konnte nicht geladen werden.', reason: null,
-    });
-    await wrap();
-    await screen.findByText('Der Recap konnte nicht geladen werden.');
-    expect(screen.queryByTestId('recap-seal')).toBeNull();
-
-    // Awaited, because unmounting also runs inside act(): left dangling it
-    // collides with the next render as "overlapping act() calls", which
-    // only ever bit once tests followed this one (found 2026-08-20).
-    await screen.unmount();
-    emptyLoadSuccess();
-    await wrap();
-    await screen.findByText('Diese Reise ist leer geblieben.');
-    expect(screen.queryByTestId('recap-seal')).toBeNull();
-  });
-});
-
 // The cover only exists where the device occupies a top strip; the global
 // mock reports insets of 0, so the device measurement is set via the spy
 // pattern from player.test.tsx.
@@ -822,13 +715,6 @@ describe('status bar cover', () => {
   test('the cover stands on the open recap', async () => {
     await wrap();
     await screen.findByText('Tag 1 · Lissabon · 10. August');
-    expect(screen.getByTestId('status-bar-cover')).toBeTruthy();
-  });
-
-  test('the cover already stands while the recap is still sealed', async () => {
-    mockSealAutoPeel = false;
-    await wrap();
-    await screen.findByTestId('recap-seal');
     expect(screen.getByTestId('status-bar-cover')).toBeTruthy();
   });
 });
