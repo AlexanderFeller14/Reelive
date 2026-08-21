@@ -67,8 +67,8 @@ export function TripCard({
         <TripCover position={position} sealed={trip.status === 'active'} scrim={revealed} coverUrl={coverUrl}>
           {revealed && (
             <Pill testID="recap-card-play" style={styles.playPill}>
-              <Play size={12} color={palette['bg-0']} strokeWidth={1.75} />
-              <Text style={[type.label, { color: palette['bg-0'] }]}>Recap ansehen</Text>
+              <Play size={16} color={palette['bg-0']} strokeWidth={1.75} />
+              <Text style={[type.bodyMedium, { color: palette['bg-0'] }]}>Recap ansehen</Text>
             </Pill>
           )}
         </TripCover>
@@ -91,13 +91,18 @@ const styles = StyleSheet.create({
   // Shape and placement only, never a background: `Pill` owns the
   // translucent fill (DESIGN-LANGUAGE §1), duplicating it here would risk
   // the two drifting apart.
+  // Sized as an invitation, not as a badge: `bodyMedium` is the role this
+  // design language gives button labels, and the pill is exactly that, the
+  // promise of what a tap on the card does. The 12 px `label` it carried
+  // first read as a status marker sitting on the photo rather than as
+  // something to press.
   playPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.xs,
+    gap: spacing.s,
     alignSelf: 'flex-start',
-    paddingHorizontal: spacing.m,
-    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.base,
+    paddingVertical: spacing.s,
     borderRadius: radius.pill,
   },
 });
