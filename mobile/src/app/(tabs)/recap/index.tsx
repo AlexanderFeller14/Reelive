@@ -97,7 +97,10 @@ export default function RecapList() {
                 trip={t}
                 position={i}
                 asRecap
-                onPress={() => router.push(`/recap/${t.id}/overview`)}
+                // No `start` param: that absence is what makes the player
+                // begin at the seal instead of mid-show (task 5,
+                // recap-show plan).
+                onPress={() => router.push({ pathname: '/recap/[id]/player', params: { id: t.id } })}
               />
             ))}
           </View>

@@ -118,6 +118,16 @@ test('without asRecap, the same holds for an archived trip', async () => {
   expect(screen.queryByText('Recap ansehen')).toBeNull();
 });
 
+// Task 5 (recap-show plan): the pill moved into `Pill` (testID
+// `recap-card-play`) and the cover only draws its scrim when asked to. Both
+// stay tied to `asRecap`, same as the text check above, on the trip tab
+// (no `asRecap`) neither may stand.
+test('in the trip tab (without asRecap) neither pill nor scrim stands', async () => {
+  await wrap(<TripCard trip={{ ...trip, status: 'revealed' }} onPress={jest.fn()} />);
+  expect(screen.queryByTestId('recap-card-play')).toBeNull();
+  expect(screen.queryByTestId('trip-cover-scrim')).toBeNull();
+});
+
 test('a single moment is counted in the singular', async () => {
   await wrap(<TripCard trip={{ ...trip, my_post_count: 1 }} onPress={jest.fn()} />);
   expect(screen.getByText('1 Moment')).toBeTruthy();

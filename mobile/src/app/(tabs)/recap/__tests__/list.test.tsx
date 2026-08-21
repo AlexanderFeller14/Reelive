@@ -106,20 +106,26 @@ test('after a load error the button fetches the list again', async () => {
   expect(screen.queryByText(LOAD_ERROR)).toBeNull();
 });
 
-test('a card leads into the overview of exactly that trip', async () => {
+// Task 5 (recap-show plan): the tap used to lead into the overview, a tap
+// on the card now opens the player directly, without a `start` index, that
+// absence is what makes the player begin at the seal instead of mid-show.
+test('a tap on the recap card starts the show, without a start index', async () => {
   (fetchTrips as jest.Mock).mockResolvedValue(loaded([recap]));
   await wrap();
-  await fireEvent.press(await screen.findByText('Lissabon Städtetrip'));
-  expect(mockPush).toHaveBeenCalledWith('/recap/t2/overview');
+  fireEvent.press(await screen.findByText('Lissabon Städtetrip'));
+  expect(mockPush).toHaveBeenCalledWith({
+    pathname: '/recap/[id]/player', params: { id: 't2' },
+  });
 });
 
-// The card carries `asRecap` here and a tap really does lead into the overview
-// (see the test above), so the pill may stand here, unlike on the trip tab
-// (see TripCard.test.tsx).
-test('a recap card carries the play pill', async () => {
+// The card carries `asRecap` here and a tap really does open the player
+// (see the test above), so the pill and the scrim it sits on may stand
+// here, unlike on the trip tab (see TripCard.test.tsx).
+test('the card promises the show with a translucent pill on the cover', async () => {
   (fetchTrips as jest.Mock).mockResolvedValue(loaded([recap]));
   await wrap();
-  expect(await screen.findByText('Recap ansehen')).toBeTruthy();
+  expect(await screen.findByTestId('recap-card-play')).toBeTruthy();
+  expect(screen.getByTestId('trip-cover-scrim')).toBeTruthy();
 });
 
 // `fetchTrips` deliberately hangs unresolved here until the test releases it
