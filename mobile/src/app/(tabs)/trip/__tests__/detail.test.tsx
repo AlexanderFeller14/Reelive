@@ -1019,6 +1019,23 @@ test('managing the trip sits behind a single pill on the cover', async () => {
   expect(screen.getByText('Reise bearbeiten')).toBeTruthy();
 });
 
+// TripCover's overlay lays its children out in a flow that belongs to
+// whoever else uses it: the recap card's play pill sits at the bottom edge,
+// so the overlay pushes its children down. The management pill must not ride
+// along with that, it belongs into the top corner opposite the seal, and it
+// stays there only because it is positioned absolutely. This test is the
+// guard: without it the pill silently wanders the next time that overlay
+// changes, and no layout-blind test would notice.
+test('the management pill hangs in the top corner, independent of the cover overlay', async () => {
+  await wrap();
+  const anchor = StyleSheet.flatten(
+    (await screen.findByTestId('manage-open')).props.style
+  ) as { position?: string; top?: number; right?: number };
+  expect(anchor.position).toBe('absolute');
+  expect(anchor.top).toBe(0);
+  expect(anchor.right).toBe(0);
+});
+
 test('the owner of a finished trip invites from the management', async () => {
   await wrap();
   await openManagement();

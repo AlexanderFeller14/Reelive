@@ -757,9 +757,14 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
   },
   travellerLink: { textDecorationLine: 'underline' },
-  // TripCover's overlay lays its children out at the left edge; the pill
-  // belongs to the opposite corner, where it covers the least of the image.
-  manageAnchor: { alignSelf: 'flex-end' },
+  // Positioned absolutely instead of riding the overlay's flow: TripCover
+  // is shared with the recap card, whose play pill sits at the BOTTOM edge,
+  // so the overlay pushes its children down (justifyContent: 'flex-end'
+  // there). This pill belongs into the corner opposite the seal and has to
+  // stay there no matter how that flow is set. Yoga positions an absolute
+  // child against the parent's padding box, so `0/0` lands exactly on the
+  // overlay's 12 px inset.
+  manageAnchor: { position: 'absolute', top: 0, right: 0 },
   managePill: {
     width: 44,
     height: 44,
