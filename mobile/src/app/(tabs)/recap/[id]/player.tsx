@@ -80,6 +80,11 @@ const CLOSE_THRESHOLD_PX = 120;
 // staged transition when entering the player ("the lights go out").
 const CINEMA_FADE_DURATION_MS = 350;
 const CINEMA_FADE_REDUCED_MS = 200;
+// How long the end card stands in show mode before handing over to the
+// overview on its own (Task 4). This is READING time for "Das war der
+// Recap.", not a motion duration, so `useReducedMotion()` must NOT shorten
+// it the way CINEMA_FADE_REDUCED_MS shortens the fade above.
+const END_CARD_MS = 2000;
 // Same sharpness-limit rationale as SEAL_STAGE_MAX in recap/[id]/overview.tsx
 // (see there): only bites on an iPad, every iPhone stays below it anyway.
 const SEAL_STAGE_MAX = 416;
@@ -970,10 +975,31 @@ export default function RecapPlayer() {
     setState((s) => ({ ...s, paused: withoutReason(s.paused, 'halten') }));
   };
 
+  // Show mode has no route to come FROM other than the recap tab, and going
+  // `back()` there would land behind the seal again on a trip already
+  // opened. `replace` sends it to the overview instead, the screen the show
+  // is building towards.
+  const toOverview = useCallback(() => {
+    router.replace({ pathname: '/recap/[id]/overview', params: { id: tripId } });
+  }, [router, tripId]);
+
   const close = () => {
+    if (mode === 'show') {
+      toOverview();
+      return;
+    }
     if (router.canGoBack()) router.back();
     else router.replace('/recap');
   };
+
+  // Jump mode keeps the end card as a dead end with a button (today's
+  // behaviour): someone who jumped in from a tile or the repeat pill is
+  // already on the overview one screen behind and can just go back.
+  useEffect(() => {
+    if (phase !== 'ended' || mode !== 'show') return;
+    const timer = setTimeout(toOverview, END_CARD_MS);
+    return () => clearTimeout(timer);
+  }, [phase, mode, toOverview]);
 
   const [pan] = useState(() => new Animated.ValueXY());
   // True as soon as the PanResponder has actually taken the touch over
@@ -1057,19 +1083,31 @@ export default function RecapPlayer() {
   }
 
   if (phase === 'ended') {
+    const stragglers = (pendingCount > 0 || skippedCount > 0) && (
+      <View style={{ marginTop: spacing.base, gap: spacing.xs, alignItems: 'center' }}>
+        {pendingCount > 0 && (
+          <Text style={[type.secondary, styles.centeredTextSecondary]}>{pendingText(pendingCount)}</Text>
+        )}
+        {skippedCount > 0 && (
+          <Text style={[type.secondary, styles.centeredTextSecondary]}>{skippedText(skippedCount)}</Text>
+        )}
+      </View>
+    );
+    // Show mode hands itself over on its own (the timer above), so the card
+    // is just an early exit for a tap, with no button to press. Jump mode
+    // keeps today's dead end with a button and close()'s back()/'/recap'.
+    if (mode === 'show') {
+      return (
+        <Pressable testID="player-end" style={[styles.screen, styles.center]} onPress={toOverview}>
+          <Text style={[type.h2, styles.centeredText]}>Das war der Recap.</Text>
+          {stragglers}
+        </Pressable>
+      );
+    }
     return (
       <View testID="player-end" style={[styles.screen, styles.center]}>
         <Text style={[type.h2, styles.centeredText]}>Das war der Recap.</Text>
-        {(pendingCount > 0 || skippedCount > 0) && (
-          <View style={{ marginTop: spacing.base, gap: spacing.xs, alignItems: 'center' }}>
-            {pendingCount > 0 && (
-              <Text style={[type.secondary, styles.centeredTextSecondary]}>{pendingText(pendingCount)}</Text>
-            )}
-            {skippedCount > 0 && (
-              <Text style={[type.secondary, styles.centeredTextSecondary]}>{skippedText(skippedCount)}</Text>
-            )}
-          </View>
-        )}
+        {stragglers}
         <View style={{ marginTop: spacing.xl }}>
           <CinemaButton label="Zurück zur Übersicht" onPress={close} />
         </View>
