@@ -2511,8 +2511,10 @@ test('the drag zoom keeps working after a switch in the middle of the capture', 
   });
   expect(mockMultiCamera.setZoom).toHaveBeenLastCalledWith({ camera: 'front', factor: 40 }, false);
 
-  // Back to the back side: the anchor stands on its remembered 1x, and the full
-  // way ends at ITS display maximum (native 120 x base 0,5 = 60x).
+  // Back to the back side: the anchor stands on its remembered 1x, and the way
+  // counts from where the finger is standing NOW (page Y -1000, the top of the
+  // front's pull). Another full way up from there ends at the back's display
+  // maximum (native 120 x base 0,5 = 60x).
   mockMultiCamera.switchCamera.mockResolvedValue('back');
   for (const id of [9, 10]) {
     await act(async () => {
@@ -2524,9 +2526,53 @@ test('the drag zoom keeps working after a switch in the middle of the capture', 
   }
   mockMultiCamera.setZoom.mockClear();
   await fireEvent(screen.getByLabelText('Auslöser'), 'touchMove', {
-    nativeEvent: { pageX: 100, pageY: -1000, identifier: 1 },
+    nativeEvent: { pageX: 100, pageY: -2600, identifier: 1 },
   });
   expect(mockMultiCamera.setZoom).toHaveBeenLastCalledWith({ camera: 'wide', factor: 60 }, false);
+});
+
+test('a switch in the middle of the drag leaves the new direction at 1x', async () => {
+  await multiCamViewfinder();
+  mockZoomLimits.mockImplementation((name: string) =>
+    name === 'Frontkamera' ? { min: 1, max: 40 } : { min: 1, max: 120 }
+  );
+
+  jest.useFakeTimers();
+  await fireEvent(screen.getByLabelText('Auslöser'), 'pressIn', {
+    nativeEvent: { pageX: 100, pageY: 600, identifier: 1 },
+  });
+  await act(async () => {
+    jest.advanceTimersByTime(600);
+  });
+  jest.useRealTimers();
+
+  // Part of the way up: the back side now stands zoomed in.
+  await fireEvent(screen.getByLabelText('Auslöser'), 'touchMove', {
+    nativeEvent: { pageX: 100, pageY: 400, identifier: 1 },
+  });
+  const zoomedIn = mockMultiCamera.setZoom.mock.lastCall?.[0] as MultiCamTargetMock;
+  expect(zoomedIn.camera).toBe('wide');
+  expect(zoomedIn.factor).toBeGreaterThan(2);
+
+  // The second finger switches to the front, which has never been zoomed.
+  mockMultiCamera.switchCamera.mockResolvedValue('front');
+  const surface = viewfinderSurface();
+  for (const id of [7, 8]) {
+    await act(async () => {
+      surface.props.onTouchStart({ nativeEvent: { identifier: id, pageX: 210, pageY: 380 } });
+    });
+    await act(async () => {
+      surface.props.onTouchEnd({ nativeEvent: { identifier: id, pageX: 211, pageY: 381 } });
+    });
+  }
+
+  // The holding finger has not moved since the switch: the front therefore
+  // stays at its remembered 1x instead of inheriting the travel of the back.
+  mockMultiCamera.setZoom.mockClear();
+  await fireEvent(screen.getByLabelText('Auslöser'), 'touchMove', {
+    nativeEvent: { pageX: 100, pageY: 400, identifier: 1 },
+  });
+  expect(mockMultiCamera.setZoom).toHaveBeenLastCalledWith({ camera: 'front', factor: 1 }, false);
 });
 
 test('setting the zoom goes to the module as a MultiCam target', async () => {
