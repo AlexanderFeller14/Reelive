@@ -804,12 +804,17 @@ test('a freshly revealed, never seen trip plays the sequence first and only then
   expect(markRevealSeen).toHaveBeenCalledWith('t1');
 });
 
-test('«Recap starten» leads to the recap overview of this trip', async () => {
+// Final whole-branch review: before the recap-show plan this button landed
+// on the seal stage; now the seal only stands in the player (Task 2-4), so
+// pushing straight to the overview would skip the show entirely on a button
+// whose own label says "starten". No `start` param, exactly like the recap
+// card (recap/index.tsx): that absence is what puts the seal in front of it.
+test('«Recap starten» leads to the show, not straight to the overview', async () => {
   (fetchTrip as jest.Mock).mockResolvedValue(tripRevealedOk);
   (hasSeenReveal as jest.Mock).mockResolvedValue(true);
   await wrap();
   await fireEvent.press(await screen.findByText('Recap starten'));
-  expect(mockPush).toHaveBeenCalledWith({ pathname: '/recap/[id]/overview', params: { id: 't1' } });
+  expect(mockPush).toHaveBeenCalledWith({ pathname: '/recap/[id]/player', params: { id: 't1' } });
 });
 
 test('«Recap starten» stays the only primary button of a revealed trip', async () => {
@@ -930,7 +935,7 @@ test('«Recap starten» uses the actual trip id instead of a hard wired «t1»',
   await wrap();
   await fireEvent.press(await screen.findByText('Recap starten'));
   expect(mockPush).toHaveBeenCalledWith({
-    pathname: '/recap/[id]/overview',
+    pathname: '/recap/[id]/player',
     params: { id: 'trip-xyz' },
   });
 });
