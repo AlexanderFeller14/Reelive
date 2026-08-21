@@ -1932,6 +1932,40 @@ describe('the seal in front of the show', () => {
     expect(await screen.findByTestId('player-empty')).toBeTruthy();
     expect(screen.queryByTestId('player-seal')).toBeNull();
   });
+
+  // Without this guard the auto-advance timer and the day interstitial both
+  // key off `phase`/`state` alone, and `load()` reaches 'ready' regardless of
+  // whether the seal still stands: the reel would run on, unseen, behind it.
+  // 20000 ms is well past PHOTO_DURATION_MS (5000) and past the whole
+  // four-moment reel, so if any timer were still ticking behind the seal, the
+  // player would already be on 'ended' by the time it peels.
+  test('while the seal stands, no timer runs behind it: waiting past the whole reel changes nothing', async () => {
+    mockParams = { id: 't1' };
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
+    await wrap();
+    expect(await screen.findByTestId('player-seal')).toBeTruthy();
+
+    // In steps, not one big jump: a single `advanceTimersByTime` only fires
+    // the timers already scheduled at the moment it is called, it does not
+    // also let React flush the effects a fired timer's setState triggers and
+    // let THOSE effects schedule their own new timers within the same call.
+    // Stepping keeps giving React that chance between advances, the same
+    // reason the day-interstitial tests above advance in two separate calls
+    // rather than one.
+    for (let i = 0; i < 20; i += 1) {
+      await act(async () => {
+        jest.advanceTimersByTime(1000);
+      });
+    }
+    expect(screen.getByTestId('player-seal')).toBeTruthy();
+    expect(screen.queryByTestId('player-end')).toBeNull();
+
+    await fireEvent.press(screen.getByTestId('player-seal'));
+    expect(await screen.findByTestId('player-ready')).toBeTruthy();
+    expect(screen.getByTestId('player-photo').props.source).toEqual({ uri: image('p1').medium_url });
+    expect(screen.queryByTestId('player-end')).toBeNull();
+  });
 });
 
 // Device edges (found on a real iPhone, 2026-08-11)
@@ -1957,10 +1991,20 @@ describe('safe area of the device', () => {
   };
 
   // The spy survives jest.clearAllMocks() (which only clears recordings, not
-  // implementations), so it has to be restored by hand, otherwise every
-  // later suite runs with foreign device measurements.
+  // implementations), so it has to be reset by hand, otherwise every later
+  // test runs with foreign device measurements.
+  //
+  // `mockRestore()` looks like the obvious way to do that but is NOT enough
+  // here: `useSafeAreaInsets` is already a `jest.fn()` coming out of the
+  // global mock (jest.setup.ts), so `jest.spyOn` never captured a real,
+  // unmocked original to go back to. Its `mockRestore()` silently degrades to
+  // `mockReset()`, which wipes the implementation instead of restoring one,
+  // so `useSafeAreaInsets()` returns `undefined` for every test that renders
+  // afterwards, in this file or any that runs later. Re-asserting the
+  // all-zero default the global mock provides keeps that default alive
+  // instead. Do not "simplify" this back to `mockRestore()`.
   afterEach(() => {
-    insetSpy?.mockRestore();
+    insetSpy?.mockReturnValue({ top: 0, bottom: 0, left: 0, right: 0 });
     insetSpy = undefined;
   });
 

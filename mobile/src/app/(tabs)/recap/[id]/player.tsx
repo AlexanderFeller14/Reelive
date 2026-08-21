@@ -840,7 +840,10 @@ export default function RecapPlayer() {
     // Covers ALL reasons, including 'halten' and 'zwischenkarte' (unlike
     // blocksAutoAdvance in videoEnded above): the regular per-moment timer is not
     // an event that a hold gesture would have to let through by way of exception.
-    if (phase !== 'ready' || state.paused.size > 0) return;
+    // `sealed` guards the same way: the reel must not run on behind a standing
+    // seal, and `phase` alone does not prevent that, `load()` reaches 'ready'
+    // independently of whether the seal has been peeled yet.
+    if (sealed || phase !== 'ready' || state.paused.size > 0) return;
     const moment = playlist[state.index];
     if (!moment) return;
     const duration = durationFor(moment);
@@ -848,7 +851,7 @@ export default function RecapPlayer() {
     segmentStartRef.current = Date.now() - state.progress;
     const timer = setTimeout(() => advanceAutomaticallyRef.current(), remaining);
     return () => clearTimeout(timer);
-  }, [phase, state.paused, state.index, state.progress, playlist]);
+  }, [sealed, phase, state.paused, state.index, state.progress, playlist]);
 
   // Day interstitial card: appears BEFORE the first moment of a new day and
   // stands for 1.5 s before advancing on its own.
@@ -860,7 +863,10 @@ export default function RecapPlayer() {
   // the orphaned timer itself but that its body reset `paused`
   // UNCONDITIONALLY instead of only its own reason.
   useEffect(() => {
-    if (phase !== 'ready') return;
+    // Same `sealed` guard as the auto-advance timer above and for the same
+    // reason: this effect starts its own 1.5 s timer, which must not begin
+    // ticking behind a standing seal either.
+    if (sealed || phase !== 'ready') return;
     if (!dayChanges(playlist, startDate, state.index)) {
       // This branch runs on EVERY index change that is NOT a day change, the
       // ordinary case. `withoutReason` itself is no-op safe (it returns the same
@@ -876,7 +882,7 @@ export default function RecapPlayer() {
       setState((s) => ({ ...s, paused: withoutReason(s.paused, 'zwischenkarte') }));
     }, INTERSTITIAL_DURATION_MS);
     return () => clearTimeout(timer);
-  }, [phase, playlist, startDate, state.index]);
+  }, [sealed, phase, playlist, startDate, state.index]);
 
   // Videos are deliberately not preloaded: the brief does not ask for it and
   // expo-video buffers on mount by itself.
