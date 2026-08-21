@@ -149,6 +149,29 @@ jest.mock('@/features/recap/reportApi', () => ({
   reportMoment: jest.fn(),
 }));
 
+// Same mock as overview.test.tsx (SealPeel has its own test file: skia,
+// timers, haptics), so both screens are exercised against the exact same
+// stand-in. Auto-peel defaults to true so every EXISTING test below keeps
+// finding the player as before, without a seal in front of it; only the
+// seal describe block below switches it off to look at the standing seal.
+let mockSealAutoPeel = true;
+jest.mock('@/components/SealPeel', () => {
+  const ReactActual = require('react');
+  const { Pressable } = require('react-native');
+  return {
+    SealPeel: ({ size, onPeeled, testID }: { size: number; onPeeled: () => void; testID?: string }) => {
+      ReactActual.useEffect(() => {
+        if (mockSealAutoPeel) onPeeled();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, []);
+      return ReactActual.createElement(Pressable, {
+        testID, accessibilityRole: 'button', accessibilityLabel: 'Siegel abziehen',
+        onPress: onPeeled, style: { width: size, height: size },
+      });
+    },
+  };
+});
+
 import RecapPlayer from '../[id]/player';
 import { fetchTrip } from '@/features/trips/tripsApi';
 import { fetchRecapMoments } from '@/features/recap/recapApi';
@@ -1835,6 +1858,79 @@ describe('the error state only offers what it can deliver', () => {
 
     expect(screen.getByText('Die Reise liess sich nicht laden.')).toBeTruthy();
     expect(screen.getByText('Nochmal versuchen')).toBeTruthy();
+  });
+});
+
+// Task 2 of the recap-show plan: the seal moves from the overview into the
+// player and becomes the first full-screen card of the show. `playerMode`
+// (Task 1) decides show versus jump; these tests hold the seal itself
+// (mockSealAutoPeel = false) to look at it standing, instead of letting it
+// peel itself away on mount like every test above.
+describe('the seal in front of the show', () => {
+  beforeEach(() => {
+    mockSealAutoPeel = false;
+  });
+  afterEach(() => {
+    mockSealAutoPeel = true;
+  });
+
+  test('entering without a start parameter the seal stands in front of the reel', async () => {
+    mockParams = { id: 't1' }; // no start param: show mode
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
+    await wrap();
+    expect(await screen.findByTestId('player-seal')).toBeTruthy();
+    expect(screen.getByText('Dein Recap ist versiegelt. Tipp aufs Siegel, um ihn zu öffnen.')).toBeTruthy();
+    expect(screen.queryByTestId('player-ready')).toBeNull();
+  });
+
+  test('peeled off, the reel runs', async () => {
+    mockParams = { id: 't1' };
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
+    await wrap();
+    await fireEvent.press(await screen.findByTestId('player-seal'));
+    expect(await screen.findByTestId('player-ready')).toBeTruthy();
+    expect(screen.queryByTestId('player-seal')).toBeNull();
+  });
+
+  test('entering with a start parameter no seal stands, the jump comes from the overview', async () => {
+    mockParams = { id: 't1', start: '2' };
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
+    await wrap();
+    expect(await screen.findByTestId('player-ready')).toBeTruthy();
+    expect(screen.queryByTestId('player-seal')).toBeNull();
+  });
+
+  test('start=0 is a jump too, repeating from the overview gets no second seal', async () => {
+    mockParams = { id: 't1', start: '0' };
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
+    await wrap();
+    expect(await screen.findByTestId('player-ready')).toBeTruthy();
+    expect(screen.queryByTestId('player-seal')).toBeNull();
+  });
+
+  test('a load error skips the seal: nothing stands behind it', async () => {
+    (fetchTrip as jest.Mock).mockResolvedValue({ data: null, error: null });
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [], error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: null, error: null, reason: null });
+    mockParams = { id: 't1' };
+    await wrap();
+    expect(await screen.findByTestId('player-error')).toBeTruthy();
+    expect(screen.queryByTestId('player-seal')).toBeNull();
+  });
+
+  test('an empty reel skips the seal as well', async () => {
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [], error: null });
+    (getPool as jest.Mock).mockResolvedValue({
+      pool: { urls: new Map(), validUntil: Date.now() + 999_999, skipped: 0 }, error: null, reason: null,
+    });
+    mockParams = { id: 't1' };
+    await wrap();
+    expect(await screen.findByTestId('player-empty')).toBeTruthy();
+    expect(screen.queryByTestId('player-seal')).toBeNull();
   });
 });
 

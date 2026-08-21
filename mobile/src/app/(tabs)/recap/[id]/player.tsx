@@ -9,6 +9,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
@@ -24,6 +25,7 @@ import { ProgressBar } from '@/components/ProgressBar';
 import { Pill } from '@/components/Pill';
 import { Sheet } from '@/components/Sheet';
 import { Input } from '@/components/Input';
+import { SealPeel } from '@/components/SealPeel';
 import { cinema, motion, palette, radius, spacing, type } from '@/theme/tokens';
 import { useTopInset, useBottomInset } from '@/theme/useTopInset';
 import { useReducedMotion } from '@/theme/useReducedMotion';
@@ -33,6 +35,7 @@ import { fetchRecapMoments } from '@/features/recap/recapApi';
 import { saveMomentToGallery } from '@/features/recap/exportApi';
 import { reportMoment, REPORT_MAX_LENGTH } from '@/features/recap/reportApi';
 import { groupByDays } from '@/features/recap/days';
+import { playerMode } from '@/features/recap/playerEntry';
 import type { Comment, Reaction, RecapMoment, RecapDay } from '@/features/recap/types';
 import {
   getPool,
@@ -77,6 +80,9 @@ const CLOSE_THRESHOLD_PX = 120;
 // staged transition when entering the player ("the lights go out").
 const CINEMA_FADE_DURATION_MS = 350;
 const CINEMA_FADE_REDUCED_MS = 200;
+// Same sharpness-limit rationale as SEAL_STAGE_MAX in recap/[id]/overview.tsx
+// (see there): only bites on an iPad, every iPhone stays below it anyway.
+const SEAL_STAGE_MAX = 416;
 
 // Reasons that belong to the moment being LEFT and are taken back on every
 // ACTUAL index change, never carried over to the NEW moment. 'kommentare'
@@ -342,12 +348,21 @@ export default function RecapPlayer() {
   const router = useRouter();
   const { id: tripId, start: startParam } = useLocalSearchParams<{ id: string; start?: string }>();
   const reducedMotion = useReducedMotion();
+  // Computed ONCE here: Task 4 (end card, leaving the player) reads the same
+  // `mode`, so this is the single derivation both tasks share, never a second
+  // independent one.
+  const mode = playerMode(startParam);
   // The player shows no header and lies edge to edge behind the island and the
   // home indicator. Device finding: the designed 32 from the StyleSheet were
   // not enough, the progress segments sat under the Dynamic Island.
   const topInset = useTopInset(spacing.xl);
   const bottomInset = useBottomInset(spacing.xl);
   const { userId } = useAuth();
+  const { width: windowWidth } = useWindowDimensions();
+
+  // As a useState INITIALIZER, not an effect: an effect would leave the
+  // player visible without its seal for one frame after mount.
+  const [sealed, setSealed] = useState(() => mode === 'show');
 
   const [phase, setPhase] = useState<LoadPhase>('loading');
   // The error and the question whether a second attempt achieves anything in
@@ -981,6 +996,23 @@ export default function RecapPlayer() {
       },
     })
   ).current;
+
+  // Own state, checked BEFORE the phase evaluation below and returned first:
+  // while it stands, none of the phase-driven mechanics (progress bar,
+  // auto-advance timer, tap zones) render at all, they simply never get to
+  // their own `return`. The two phases excepted here are exactly the ones
+  // with nothing behind the seal worth revealing.
+  if (sealed && phase !== 'error' && phase !== 'empty') {
+    const sealStageSize = Math.min(windowWidth - 2 * spacing.screen, SEAL_STAGE_MAX);
+    return (
+      <View testID="player-seal-stage" style={[styles.screen, styles.center]}>
+        <SealPeel testID="player-seal" size={sealStageSize} onPeeled={() => setSealed(false)} />
+        <Text style={[type.body, styles.centeredTextSecondary, { marginTop: spacing.l }]}>
+          Dein Recap ist versiegelt. Tipp aufs Siegel, um ihn zu öffnen.
+        </Text>
+      </View>
+    );
+  }
 
   if (phase === 'loading') {
     return (
