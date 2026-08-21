@@ -177,6 +177,33 @@ test('play from the hero repeats the show without a seal, so with start=0', asyn
   });
 });
 
+// Final whole-branch review: unconditional, "Nochmal ansehen" promised a show
+// there was nothing to run, the same precondition canExport/canMap already
+// gate their own controls on.
+test('"Nochmal ansehen" is missing when there is nothing to play', async () => {
+  (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [], error: null });
+  (getPool as jest.Mock).mockResolvedValue({
+    pool: { urls: new Map(), validUntil: Date.now() + 999_999, skipped: 0 },
+    error: null,
+    reason: null,
+  });
+  await wrap();
+  await screen.findByText('Diese Reise ist leer geblieben.');
+  expect(screen.queryByTestId('recap-hero-play')).toBeNull();
+});
+
+test('"Nochmal ansehen" is missing when the load errored', async () => {
+  (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [m1], error: null });
+  (getPool as jest.Mock).mockResolvedValue({
+    pool: null,
+    error: 'Diese Reise ist noch versiegelt.',
+    reason: 'versiegelt',
+  });
+  await wrap();
+  await screen.findByText('Diese Reise ist noch versiegelt.');
+  expect(screen.queryByTestId('recap-hero-play')).toBeNull();
+});
+
 test('groups by days with the place name, and drops it where no moment carries one', async () => {
   (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: COMPLETE, error: null });
   (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });

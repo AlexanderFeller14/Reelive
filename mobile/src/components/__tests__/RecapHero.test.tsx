@@ -38,6 +38,15 @@ test('the play pill starts the show again', async () => {
   expect(onPlay).toHaveBeenCalled();
 });
 
+// Final whole-branch review: the caller (overview.tsx) omits `onPlay`
+// entirely when there is nothing to play, rather than passing a disabled
+// handler, so the pill must not stand there at all in that case.
+test('without onPlay the pill is absent, not merely disabled', async () => {
+  const { onPlay: _onPlay, ...rest } = props;
+  await wrap(<RecapHero {...rest} />);
+  expect(screen.queryByTestId('recap-hero-play')).toBeNull();
+});
+
 test('the back chevron reports back', async () => {
   const onBack = jest.fn();
   await wrap(<RecapHero {...props} onBack={onBack} />);

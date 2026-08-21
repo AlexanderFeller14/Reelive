@@ -24,7 +24,12 @@ export function RecapHero({
   // has no list to stand in, hence optional with the same default.
   position?: number;
   onBack: () => void;
-  onPlay: () => void;
+  // Optional (final whole-branch review): the caller omits it when there is
+  // nothing to play (no visible moment yet, or the load errored), the same
+  // precondition it already gates canExport/canMap on. Absent, not merely
+  // disabled, so the pill does not stand there promising a show it cannot
+  // run.
+  onPlay?: () => void;
 }) {
   return (
     <View style={styles.cover}>
@@ -60,18 +65,20 @@ export function RecapHero({
         </Pill>
       </PressScale>
 
-      <PressScale
-        testID="recap-hero-play"
-        accessibilityRole="button"
-        accessibilityLabel="Recap nochmal ansehen"
-        onPress={onPlay}
-        style={styles.playWrap}
-      >
-        <Pill style={styles.playPill}>
-          <Play size={16} color={palette['bg-0']} strokeWidth={1.75} />
-          <Text style={[type.bodyMedium, { color: palette['bg-0'] }]}>Nochmal ansehen</Text>
-        </Pill>
-      </PressScale>
+      {onPlay && (
+        <PressScale
+          testID="recap-hero-play"
+          accessibilityRole="button"
+          accessibilityLabel="Recap nochmal ansehen"
+          onPress={onPlay}
+          style={styles.playWrap}
+        >
+          <Pill style={styles.playPill}>
+            <Play size={16} color={palette['bg-0']} strokeWidth={1.75} />
+            <Text style={[type.bodyMedium, { color: palette['bg-0'] }]}>Nochmal ansehen</Text>
+          </Pill>
+        </PressScale>
+      )}
 
       <View style={styles.titleBlock}>
         <Text

@@ -513,6 +513,13 @@ export default function RecapOverview() {
 
   const canShare = !!trip && trip.owner_id === userId && trip.status === 'revealed';
   const canExport = !!trip && withImage.length > 0;
+  // Named separately from canExport, not reused, although both read
+  // `withImage.length > 0` today: "something to save" and "something to
+  // play" are different questions that only happen to share one precondition,
+  // and the explicit `!error` spells out the second half of the review's own
+  // wording ("nothing to play, OR the load errored") instead of leaving it
+  // to follow implicitly from how `load()` happens to reset state on failure.
+  const canPlay = !!trip && withImage.length > 0 && !error;
   // Written as a positive list, not as `!== 'active'`: both are the same
   // today, because `TripStatus` knows exactly these three values. Should a
   // fourth ever arrive, the spelling decides what it inherits when it is
@@ -563,7 +570,7 @@ export default function RecapOverview() {
           subtitle={heroSubtitle(trip, withImage.length)}
           coverUrl={coverUrl}
           onBack={goBack}
-          onPlay={() => toPlayer(0)}
+          onPlay={canPlay ? () => toPlayer(0) : undefined}
         />
 
         {/* The two readings of this recap (Spec §5.1) as a segment row of two
