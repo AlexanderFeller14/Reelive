@@ -27,6 +27,7 @@ import { ShutterButton } from '@/components/ShutterButton';
 import { Button } from '@/components/Button';
 import { Pill } from '@/components/Pill';
 import { PressScale } from '@/components/PressScale';
+import { StatusBarCover } from '@/components/StatusBarCover';
 import { ZoomSelector } from '@/components/ZoomSelector';
 import * as nativeCapture from '@/features/camera/nativeCapture';
 import * as nativeZoom from '@/features/camera/nativeZoom';
@@ -474,6 +475,10 @@ function TripPickerScreen({ trips, onSelect }: { trips: CachedTrip[]; onSelect: 
           </PressScale>
         ))}
       </ScrollView>
+      {/* The one scrolling list in this file, so the one place here that
+          needs the opaque strip. The viewfinder and the preview stay without
+          it, there the photo scrim carries the top edge (§1). */}
+      <StatusBarCover />
     </View>
   );
 }

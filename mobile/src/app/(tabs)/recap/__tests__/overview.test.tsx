@@ -791,10 +791,44 @@ describe('the seal on the recap overview', () => {
     await screen.findByText('Der Recap konnte nicht geladen werden.');
     expect(screen.queryByTestId('recap-seal')).toBeNull();
 
-    screen.unmount();
+    // Awaited, because unmounting also runs inside act(): left dangling it
+    // collides with the next render as "overlapping act() calls", which
+    // only ever bit once tests followed this one (found 2026-08-20).
+    await screen.unmount();
     emptyLoadSuccess();
     await wrap();
     await screen.findByText('Diese Reise ist leer geblieben.');
     expect(screen.queryByTestId('recap-seal')).toBeNull();
+  });
+});
+
+// The cover only exists where the device occupies a top strip; the global
+// mock reports insets of 0, so the device measurement is set via the spy
+// pattern from player.test.tsx.
+describe('status bar cover', () => {
+  let insetSpy: jest.SpyInstance;
+
+  beforeEach(() => {
+    const safeAreaModule = require('react-native-safe-area-context');
+    insetSpy = jest
+      .spyOn(safeAreaModule, 'useSafeAreaInsets')
+      .mockReturnValue({ top: 59, bottom: 0, left: 0, right: 0 });
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: COMPLETE, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
+  });
+
+  afterEach(() => insetSpy.mockRestore());
+
+  test('the cover stands on the open recap', async () => {
+    await wrap();
+    await screen.findByText('Tag 1 · Lissabon · 10. August');
+    expect(screen.getByTestId('status-bar-cover')).toBeTruthy();
+  });
+
+  test('the cover already stands while the recap is still sealed', async () => {
+    mockSealAutoPeel = false;
+    await wrap();
+    await screen.findByTestId('recap-seal');
+    expect(screen.getByTestId('status-bar-cover')).toBeTruthy();
   });
 });

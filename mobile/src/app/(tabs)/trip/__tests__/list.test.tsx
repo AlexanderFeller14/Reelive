@@ -168,3 +168,26 @@ test('a planned card continues the cover slots after the running ones', async ()
   await fireEvent.press(await screen.findByText('Island im Winter'));
   expect(mockPush).toHaveBeenCalledWith('/trip/t3?cover=1');
 });
+
+// The cover only exists where the device occupies a top strip; the global
+// mock reports insets of 0, so the device measurement is set via the spy
+// pattern from player.test.tsx.
+describe('status bar cover', () => {
+  let insetSpy: jest.SpyInstance | undefined;
+
+  afterEach(() => {
+    insetSpy?.mockRestore();
+    insetSpy = undefined;
+  });
+
+  test('the cover stands on the trip list', async () => {
+    const safeAreaModule = require('react-native-safe-area-context');
+    insetSpy = jest
+      .spyOn(safeAreaModule, 'useSafeAreaInsets')
+      .mockReturnValue({ top: 59, bottom: 0, left: 0, right: 0 });
+    (fetchTrips as jest.Mock).mockResolvedValue(loaded([trip]));
+    await wrap();
+    await screen.findByText('Norwegen mit dem Camper');
+    expect(screen.getByTestId('status-bar-cover')).toBeTruthy();
+  });
+});
