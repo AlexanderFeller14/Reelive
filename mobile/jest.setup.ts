@@ -94,3 +94,13 @@ jest.mock('@shopify/react-native-skia', () => {
     MipmapMode: { None: 0, Nearest: 1, Linear: 2 },
   };
 });
+
+// react-native-pager-view is a native module: under Jest it has no view
+// manager, and every render inside the tab navigator (TopTabs, which drags
+// the tabs along with the finger) would fail on it. The stand-in keeps the
+// children mounted, which is all the tests here look at; whether the pager
+// really slides is a device question, never a Jest one.
+jest.mock('react-native-pager-view', () => {
+  const { View } = require('react-native');
+  return { __esModule: true, default: View, PagerView: View };
+});
