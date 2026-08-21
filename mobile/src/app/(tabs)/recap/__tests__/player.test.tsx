@@ -2133,6 +2133,18 @@ describe('the seal in front of the show', () => {
     expect(screen.queryByTestId('player-end')).toBeNull();
   });
 
+  // Final whole-branch review: the seal is the loading window for the FIRST
+  // image it reveals. The old slice started at index+1, leaving exactly the
+  // moment the peel uncovers (the current one) cold.
+  test('while the seal stands, the current photo warms up too, not just the ones behind it', async () => {
+    mockParams = { id: 't1' }; // no start param: show mode, seal stands over p1 (index 0)
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
+    await wrap();
+    expect(await screen.findByTestId('player-seal')).toBeTruthy();
+    expect(mockPrefetch).toHaveBeenCalledWith([image('p1').medium_url, image('p3').medium_url]);
+  });
+
   // Final whole-branch review: the seal stage on its own had no way out
   // (no close pill, no tap zones, no swipe), leaving only the OS back
   // gesture, which `animation: 'fade'` on this route may disable. The close

@@ -893,13 +893,19 @@ export default function RecapPlayer() {
   // expo-video buffers on mount by itself.
   useEffect(() => {
     if (phase !== 'ready') return;
+    // Behind a standing seal nothing is on screen yet, so the CURRENT moment
+    // needs the same warm-up as the ones after it: it is the exact frame the
+    // peel reveals, and the seal is the loading window for it. Once the reel
+    // runs the current image is already showing, and prefetching it again
+    // would be pointless, so the window shifts to start only after it.
+    const from = sealed ? state.index : state.index + 1;
     const upcomingUrls = playlist
-      .slice(state.index + 1, state.index + 1 + PRELOAD_COUNT)
+      .slice(from, from + PRELOAD_COUNT)
       .filter((m) => m.type === 'photo')
       .map((m) => urls.get(m.id)?.medium_url)
       .filter((u): u is string => !!u);
     if (upcomingUrls.length > 0) void Image.prefetch(upcomingUrls);
-  }, [phase, state.index, playlist, urls]);
+  }, [phase, state.index, playlist, urls, sealed]);
 
   // A tap SKIPS the interstitial card without also advancing to the next
   // moment: the card is the only `Pressable` at this place on screen, it is
