@@ -37,7 +37,7 @@ import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { AwsClient } from 'npm:aws4fetch@1';
 import { expectedKeys } from './keys.ts';
 import { evaluateReadAccess } from './readAccess.ts';
-import { normalizeTripIds, pickCoverRow, type CoverRow } from './covers.ts';
+import { normalizeTripIds, decideCover, type CoverRow } from './covers.ts';
 import { createErrorReporter } from '../_shared/errorReporter.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
@@ -565,6 +565,18 @@ Deno.serve(async (req: Request): Promise<Response> => {
     const validUntil = new Date(Date.now() + READ_URL_VALIDITY_SECONDS * 1000).toISOString();
     const aws = s3Client();
 
+    // Final-review finding: any per-trip DB/signing failure used to call
+    // `report()` individually, up to MAX_TRIP_IDS times in one request. That
+    // contradicts the "one alert, not N" policy this file already applies
+    // to `read` further up (see the comment there on the combined report for
+    // mismatched storage_key entries): an alert that fires routinely gets
+    // learned to be ignored, and Sentry's own rate limiting would start
+    // dropping some of them anyway, at which point the count is a lie. So
+    // this counts across the whole batch and reports ONCE below.
+    // console.error stays per-trip: local logs are not rate-limited and
+    // carry the per-trip detail this aggregate deliberately drops.
+    let failureCount = 0;
+
     // One independent check chain per trip, run concurrently
     // (Promise.all, not a loop: at up to MAX_TRIP_IDS entries the queries do
     // not depend on each other, and sequential round trips would just add
@@ -590,7 +602,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
         if (tripError) {
           console.error('media-urls: trips select for covers failed', tripError);
-          await report(tripError, { trip_id: tripId });
+          failureCount++;
           return null;
         }
         const rawTrip = trip as TripRow | null;
@@ -606,38 +618,52 @@ Deno.serve(async (req: Request): Promise<Response> => {
             .from('trip_members')
             .select('user_id')
             .eq('trip_id', rawTrip.id)
+            // This filter is what makes `membership` mean "the requesting
+            // person is a member", not merely "a trip_members row exists".
+            // decideCover (covers.ts) only ever checks truthiness of this
+            // value, it cannot tell a targeted membership row from a stray
+            // one, so removing this .eq() would make every authenticated
+            // caller a member of every revealed trip as far as this action
+            // is concerned. No unit test can catch that: it is a property
+            // of this query against a real trip_members table, not of the
+            // pure decision function. Only an integration test against the
+            // real stack could, and there is none for `covers` (same gap as
+            // read_integration_test.ts's ignore: !stackReady for `read`).
             .eq('user_id', requestingUserId)
             .maybeSingle();
           if (membershipError) {
             console.error('media-urls: trip_members select for covers failed', membershipError);
-            await report(membershipError, { trip_id: rawTrip.id, user_id: requestingUserId });
+            failureCount++;
             // membership stays null, same fold as in `read`.
           } else {
             membership = membershipRow;
           }
         }
 
-        // The exact same pure check chain as `read`, so a trip that would
-        // be rejected there is rejected here too. Unlike `read`, the reason
-        // and status the verdict carries are discarded: a per-trip 403/404
-        // in a batch response would be exactly the oracle the header
-        // comment on this action warns about, a rejected trip is only ever
-        // absent, never explained.
-        const verdict = evaluateReadAccess(rawTrip, membership);
-        if (!verdict.allowed) return null;
-        const tripRow = rawTrip as TripRow;
-
-        // Only the earliest moment with a thumbnail is wanted, not the
-        // whole trip. The limit is small on purpose: this looks for the
-        // first of up to 20 uploaded moments (by captured_at, id) that
-        // carries a thumbnail, not the whole recap pool. If none of the
-        // first 20 has one, this trip gets no cover and the app falls back
-        // to its placeholder, an outcome no worse than the status quo
-        // before this action existed.
+        // Posts are fetched regardless of whether the trip will turn out to
+        // be allowed: there is no early return here for a rejected trip,
+        // deliberately. Enforcement is not an inline short-circuit in this
+        // file, it lives entirely in decideCover below, the ONE place that
+        // decides whether this trip's rows may become a cover. A previous
+        // version composed evaluateReadAccess and pickCoverRow inline here;
+        // a final-review finding showed that the single line enforcing the
+        // verdict could be deleted with a fully green test suite, because
+        // nothing exercised that composition on its own. Moving it into
+        // covers.ts as `decideCover` means the same tampering now has to
+        // happen inside a function covers_test.ts exercises directly (three
+        // cases there prove exactly this: sealed-trip, non-member-trip,
+        // and the allowed case), so it fails loudly instead of quietly.
         const { data: postsData, error: postsError } = await supabaseAdmin
           .from('posts')
+          // Only the earliest moment with a thumbnail is wanted, not the
+          // whole trip. The limit is small on purpose: this looks for the
+          // first of up to 20 uploaded moments (by captured_at, id) that
+          // carries a thumbnail, not the whole recap pool. If none of the
+          // first 20 has one, this trip gets no cover and the app falls
+          // back to its placeholder, an outcome no worse than the status
+          // quo before this action existed.
           .select('id, type, media_ext, storage_key, thumb_key')
-          .eq('trip_id', tripRow.id)
+          .eq('trip_id', tripId)
           .eq('upload_status', 'uploaded')
           .order('captured_at', { ascending: true })
           .order('id', { ascending: true })
@@ -645,12 +671,18 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
         if (postsError) {
           console.error('media-urls: posts select for covers failed', postsError);
-          await report(postsError, { trip_id: tripRow.id });
+          failureCount++;
           return null;
         }
 
-        const coverRow = pickCoverRow((postsData ?? []) as CoverRow[]);
+        const coverRow = decideCover(rawTrip, membership, (postsData ?? []) as CoverRow[]);
         if (!coverRow) return null;
+        // Safe: decideCover only returns non-null when evaluateReadAccess
+        // returned allowed: true, which itself requires a non-null trip
+        // (its first branch in readAccess.ts), the same
+        // cast-after-existence-check style as tripRow in the `read` branch
+        // above.
+        const tripRow = rawTrip as TripRow;
 
         // Derived, never taken from storage_key, exactly like `read`: the
         // signed path must be the one this function computes itself, not
@@ -661,6 +693,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
             'media-urls: storage_key deviates from the derived path, trip gets no cover.',
             { trip_id: tripRow.id, post_id: coverRow.id, stored: coverRow.storage_key, derived: derived.storage_key },
           );
+          failureCount++;
           return null;
         }
 
@@ -668,14 +701,28 @@ Deno.serve(async (req: Request): Promise<Response> => {
           return { trip_id: tripRow.id, thumb_url: await presignedGetUrl(aws, derived.thumb_key) };
         } catch (err) {
           // Caught per trip, not around the whole Promise.all: one signing
-          // hiccup must not turn the entire batch into a 502, the other
-          // trip_ids are independent of this one.
+          // failure must not turn the entire batch into a 502, the other
+          // trip_ids are independent of this one. This is NOT a guard
+          // against expired or revoked S3 credentials, those never throw
+          // here: presignedGetUrl/aws.sign is a local WebCrypto HMAC over
+          // the request, no network call, so a bad credential still
+          // produces a syntactically valid signed URL, it only surfaces
+          // later as a 403 from S3 against the client's own GET. What this
+          // catches is a systemic local failure, e.g. a syntactically
+          // broken S3_ENDPOINT reaching `new URL(...)` in s3ObjectUrl.
           console.error('media-urls: signing a cover URL failed', err);
-          await report(err, { trip_id: tripRow.id });
+          failureCount++;
           return null;
         }
       }),
     );
+
+    if (failureCount > 0) {
+      await report(
+        new Error('media-urls: covers hatte fehlerhafte oder ausgelassene Reisen.'),
+        { count: failureCount, requested: normalized.tripIds.length },
+      );
+    }
 
     const covers = settled.filter((entry): entry is CoverEntry => entry !== null);
     return json({ covers, valid_until: validUntil }, 200);
