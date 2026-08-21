@@ -1042,6 +1042,23 @@ export default function RecapPlayer() {
         <Text style={[type.body, styles.centeredTextSecondary, { marginTop: spacing.l }]}>
           Dein Recap ist versiegelt. Tipp aufs Siegel, um ihn zu öffnen.
         </Text>
+        {/* Final whole-branch review: a standing seal has no timer to hand it
+            over eventually (unlike the interstitial card, gone in 1.5 s), so
+            without this the only way out would be the OS back gesture, which
+            `animation: 'fade'` on this route may disable. No tap zones and no
+            swipe here on purpose (recap-show spec): the story navigation must
+            not bite behind the seal, only the exit was missing. */}
+        <PressScale
+          testID="player-close"
+          accessibilityRole="button"
+          accessibilityLabel="Schliessen"
+          onPress={close}
+          style={[styles.closeWrap, { top: topInset }]}
+        >
+          <Pill style={styles.closePill}>
+            <X size={18} color={cinema['text-1']} strokeWidth={1.75} />
+          </Pill>
+        </PressScale>
       </View>
     );
   }

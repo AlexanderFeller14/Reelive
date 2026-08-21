@@ -2132,6 +2132,23 @@ describe('the seal in front of the show', () => {
     expect(screen.getByTestId('player-photo').props.source).toEqual({ uri: image('p1').medium_url });
     expect(screen.queryByTestId('player-end')).toBeNull();
   });
+
+  // Final whole-branch review: the seal stage on its own had no way out
+  // (no close pill, no tap zones, no swipe), leaving only the OS back
+  // gesture, which `animation: 'fade'` on this route may disable. The close
+  // pill is the one exit that belongs here (tap zones and swipe stay out,
+  // the story navigation must not bite behind the seal).
+  test('with the seal standing, the close pill still leaves the player', async () => {
+    mockParams = { id: 't1' }; // no start param: show mode
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
+    await wrap();
+    expect(await screen.findByTestId('player-seal')).toBeTruthy();
+    await fireEvent.press(screen.getByTestId('player-close'));
+    expect(mockReplace).toHaveBeenCalledWith({
+      pathname: '/recap/[id]/overview', params: { id: 't1' },
+    });
+  });
 });
 
 // Device edges (found on a real iPhone, 2026-08-11)
