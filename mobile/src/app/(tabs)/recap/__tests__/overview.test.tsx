@@ -78,6 +78,7 @@ const trip = {
 
 function moment(overrides: Partial<{
   id: string; captured_at: string; place_name: string | null; upload_status: 'pending' | 'uploaded';
+  type: 'photo' | 'video';
 }>) {
   return {
     id: 'p0', trip_id: 't1', author_id: 'u1', type: 'photo' as const, duration_s: null, caption: null,
@@ -180,29 +181,31 @@ test('groups by days with the place name, and drops it where no moment carries o
   (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: COMPLETE, error: null });
   (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
   await wrap();
-  expect(await screen.findByText('Tag 1 · Lissabon · 10. August')).toBeTruthy();
-  expect(screen.getByText('Tag 2 · 11. August')).toBeTruthy();
+  expect(await screen.findByText('Tag 1')).toBeTruthy();
+  expect(screen.getByText('Lissabon · 10. August')).toBeTruthy();
+  expect(screen.getByText('Tag 2')).toBeTruthy();
+  expect(screen.getByText('11. August')).toBeTruthy();
 });
 
 test('the days stand in chronological order, not backwards', async () => {
   (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: COMPLETE, error: null });
   (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
   await wrap();
-  await screen.findByText('Tag 1 · Lissabon · 10. August');
+  await screen.findByText('Tag 1');
 
-  const headings = screen.getAllByText(/^Tag \d/).map((el) => el.props.children);
-  expect(headings).toEqual(['Tag 1 · Lissabon · 10. August', 'Tag 2 · 11. August']);
+  const headings = screen.getAllByText(/^Tag \d$/).map((el) => el.props.children);
+  expect(headings).toEqual(['Tag 1', 'Tag 2']);
 });
 
 test('stragglers and skipped moments get no tile, but each an honest line', async () => {
   (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: COMPLETE, error: null });
   (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
   await wrap();
-  await screen.findByText('Tag 1 · Lissabon · 10. August');
+  await screen.findByText('Tag 1');
 
   expect(screen.getAllByTestId(/^recap-tile-/)).toHaveLength(3);
-  expect(screen.queryByTestId('recap-tile-p4')).toBeNull();
-  expect(screen.queryByTestId('recap-tile-p5')).toBeNull();
+  expect(screen.queryByTestId(/^recap-tile-.*-p4$/)).toBeNull();
+  expect(screen.queryByTestId(/^recap-tile-.*-p5$/)).toBeNull();
 
   expect(screen.getByText('1 Moment ist noch unterwegs.')).toBeTruthy();
   expect(screen.getByText('1 Moment liess sich gerade nicht laden. Schau später nochmal rein.')).toBeTruthy();
@@ -235,12 +238,14 @@ test('a tap on a tile hands over the right start index, counted across the day b
   (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: COMPLETE, error: null });
   (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
   await wrap();
-  await screen.findByText('Tag 1 · Lissabon · 10. August');
+  await screen.findByText('Tag 1');
 
-  await fireEvent.press(screen.getByTestId('recap-tile-p1'));
+  // Day 1 has exactly two visible moments (p1, p2) -> a `pair` row, both
+  // `half`; day 2 has exactly one (p3) -> a `single` row, `wide`.
+  await fireEvent.press(screen.getByTestId('recap-tile-half-p1'));
   expect(mockPush).toHaveBeenCalledWith({ pathname: '/recap/[id]/player', params: { id: 't1', start: '0' } });
 
-  await fireEvent.press(screen.getByTestId('recap-tile-p3'));
+  await fireEvent.press(screen.getByTestId('recap-tile-wide-p3'));
   expect(mockPush).toHaveBeenCalledWith({ pathname: '/recap/[id]/player', params: { id: 't1', start: '2' } });
 });
 
@@ -251,6 +256,128 @@ test('the tile pulls the thumbnail, not the full image', async () => {
   const imageElement = await screen.findByTestId('recap-image-p2');
   expect(imageElement.props.source).toEqual({ uri: image('p2').thumb_url });
   expect(imageElement.props.source).not.toEqual({ uri: image('p2').medium_url });
+});
+
+// Task 10: the uniform three-column grid becomes a mosaic, each shape its
+// own testID (`recap-tile-<shape>-<id>`) so the layout the screen actually
+// produces is part of what these tests assert, not just which moments got
+// a tile at all. `describe('mosaic', …)` on purpose (not just matching test
+// titles): the plan's own verification command filters with `-t "mosaic"`,
+// which matches against the full "describe > test" name.
+describe('mosaic', () => {
+  // Day 1 gets four moments here (COMPLETE only has two), so the mosaic
+  // actually has to pick a `lead` tile instead of laying out a uniform row.
+  // p1 stays the earliest (07:00), the same role it already plays in
+  // COMPLETE, so a tap on it opens the player at index 0.
+  const p1 = moment({ id: 'p1', captured_at: '2026-08-10T07:00:00.000Z' });
+  const p2 = moment({
+    id: 'p2', captured_at: '2026-08-10T08:00:00.000Z', type: 'video' as const,
+  });
+  const p3 = moment({ id: 'p3', captured_at: '2026-08-10T09:00:00.000Z' });
+  const p4 = moment({ id: 'p4', captured_at: '2026-08-10T10:00:00.000Z' });
+  const FOUR_ON_DAY_ONE = [p1, p2, p3, p4];
+  const poolFor = (ids: string[]) => ({
+    urls: new Map(ids.map((id) => [id, image(id)] as const)),
+    validUntil: Date.now() + 999_999,
+    skipped: 0,
+  });
+
+  test('a day heads its moments in two lines, not as one glued string', async () => {
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: FOUR_ON_DAY_ONE, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: poolFor(['p1', 'p2', 'p3', 'p4']), error: null, reason: null });
+    await wrap();
+    expect(await screen.findByText('Tag 1')).toBeTruthy();
+    expect(screen.getByText('Lissabon · 10. August')).toBeTruthy();
+    expect(screen.queryByText('Tag 1 · Lissabon · 10. August')).toBeNull();
+  });
+
+  test('the first moment of a day leads the mosaic', async () => {
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: FOUR_ON_DAY_ONE, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: poolFor(['p1', 'p2', 'p3', 'p4']), error: null, reason: null });
+    await wrap();
+    expect(await screen.findByTestId('recap-tile-lead-p1')).toBeTruthy();
+  });
+
+  test('every moment stays tappable, the lead one too', async () => {
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: FOUR_ON_DAY_ONE, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: poolFor(['p1', 'p2', 'p3', 'p4']), error: null, reason: null });
+    await wrap();
+    fireEvent.press(await screen.findByTestId('recap-tile-lead-p1'));
+    expect(mockPush).toHaveBeenCalledWith({
+      pathname: '/recap/[id]/player', params: { id: 't1', start: '0' },
+    });
+  });
+
+  test('a video tile carries a play badge, a photo does not', async () => {
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: FOUR_ON_DAY_ONE, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: poolFor(['p1', 'p2', 'p3', 'p4']), error: null, reason: null });
+    await wrap();
+    expect(await screen.findByTestId('recap-tile-video-p2')).toBeTruthy();
+    expect(screen.queryByTestId('recap-tile-video-p1')).toBeNull();
+  });
+
+  test('a day with a single moment shows it full width instead of a lonely tile', async () => {
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [p1], error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: poolFor(['p1']), error: null, reason: null });
+    await wrap();
+    expect(await screen.findByTestId('recap-tile-wide-p1')).toBeTruthy();
+  });
+
+  // `fetchTrip` never resolves, so `loaded` never flips to true (see the
+  // `if (!loaded)` guard in the component): the only way to reach the
+  // skeleton branch at all. This assertion is unchanged from the pre-Task-10
+  // skeleton (same testID, still true either way) - it documents that the
+  // skeleton keeps standing in for the loading state after the rewrite, it
+  // does not by itself prove the mosaic-shaped skeleton content; that part
+  // has no distinct testID and is a visual, not a unit-test, concern.
+  test('the skeleton shows hero and mosaic, not the old grid', async () => {
+    (fetchTrip as jest.Mock).mockReturnValue(new Promise(() => {}));
+    (fetchRecapMoments as jest.Mock).mockReturnValue(new Promise(() => {}));
+    (getPool as jest.Mock).mockReturnValue(new Promise(() => {}));
+    await wrap();
+    expect(await screen.findByTestId('recap-skeleton')).toBeTruthy();
+  });
+});
+
+// Task 9's reviewer flagged that nothing tested this phrase's branches even
+// though it is easy to get wrong; `fellowTravellersText`/`heroSubtitle`
+// (overview.tsx) are not exported, so tested through the rendered subtitle.
+describe('heroSubtitle: the fellow-travellers phrase', () => {
+  beforeEach(() => {
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: COMPLETE, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
+  });
+
+  test('a lone traveller gets no phrase at all', async () => {
+    (fetchTrip as jest.Mock).mockResolvedValue({ data: { ...trip, member_count: 1 }, error: null });
+    await wrap();
+    await screen.findByText('Lissabon Städtetrip');
+    expect(screen.queryByText(/zu zweit|zu dritt|zu viert|Mitreisenden/)).toBeNull();
+  });
+
+  test('two travellers: "zu zweit"', async () => {
+    (fetchTrip as jest.Mock).mockResolvedValue({ data: { ...trip, member_count: 2 }, error: null });
+    await wrap();
+    expect(await screen.findByText(/zu zweit/)).toBeTruthy();
+  });
+
+  test('three travellers: "zu dritt"', async () => {
+    (fetchTrip as jest.Mock).mockResolvedValue({ data: { ...trip, member_count: 3 }, error: null });
+    await wrap();
+    expect(await screen.findByText(/zu dritt/)).toBeTruthy();
+  });
+
+  test('four travellers: "zu viert"', async () => {
+    (fetchTrip as jest.Mock).mockResolvedValue({ data: { ...trip, member_count: 4 }, error: null });
+    await wrap();
+    expect(await screen.findByText(/zu viert/)).toBeTruthy();
+  });
+
+  test('five or more travellers: "mit N Mitreisenden"', async () => {
+    (fetchTrip as jest.Mock).mockResolvedValue({ data: { ...trip, member_count: 5 }, error: null });
+    await wrap();
+    expect(await screen.findByText(/mit 5 Mitreisenden/)).toBeTruthy();
+  });
 });
 
 // `skipped: 5` is deliberately higher here than what `uploaded.length -
@@ -313,7 +440,7 @@ test('an error while loading the pool names its cause instead of showing an empt
   });
   await wrap();
   expect(await screen.findByText('Diese Reise ist noch versiegelt.')).toBeTruthy();
-  expect(screen.queryByTestId('recap-tile-p1')).toBeNull();
+  expect(screen.queryByTestId(/^recap-tile-/)).toBeNull();
 });
 
 test('a trip that no longer exists offers a way back instead of an empty screen', async () => {
@@ -714,7 +841,7 @@ describe('status bar cover', () => {
 
   test('the cover stands on the open recap', async () => {
     await wrap();
-    await screen.findByText('Tag 1 · Lissabon · 10. August');
+    await screen.findByText('Tag 1');
     expect(screen.getByTestId('status-bar-cover')).toBeTruthy();
   });
 });

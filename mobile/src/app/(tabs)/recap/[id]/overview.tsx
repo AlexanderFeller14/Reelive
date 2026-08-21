@@ -1,19 +1,21 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator, Animated, ScrollView, Text, View, StyleSheet,
+  type StyleProp, type ViewStyle,
 } from 'react-native';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { Image } from 'expo-image';
 import * as Linking from 'expo-linking';
-import { ChevronLeft, Download, Share2 } from 'lucide-react-native';
+import { ChevronLeft, Download, Play, Share2 } from 'lucide-react-native';
 import { PressScale } from '@/components/PressScale';
+import { Pill } from '@/components/Pill';
 import { Button } from '@/components/Button';
 import { RecapHero } from '@/components/RecapHero';
 import { Sheet } from '@/components/Sheet';
 import { StatusBarCover } from '@/components/StatusBarCover';
 import { useTheme } from '@/theme/ThemeProvider';
 import { useReducedMotion } from '@/theme/useReducedMotion';
-import { motion, radius, spacing, type } from '@/theme/tokens';
+import { motion, palette, radius, spacing, type } from '@/theme/tokens';
 import { useTopInset } from '@/theme/useTopInset';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { fetchTrip } from '@/features/trips/tripsApi';
@@ -22,6 +24,7 @@ import { formatRange } from '@/features/trips/tripDay';
 import { fetchRecapMoments } from '@/features/recap/recapApi';
 import { saveAllToGallery, type AllResult, type AllProgress } from '@/features/recap/exportApi';
 import { groupByDays } from '@/features/recap/days';
+import { mosaicRows, type MosaicRow, type MosaicTile } from '@/features/recap/mosaic';
 import type { RecapMoment, RecapDay } from '@/features/recap/types';
 import {
   getPool,
@@ -41,6 +44,14 @@ function formatDayDate(iso: string): string {
   return `${d}. ${MONTHS_LONG[m - 1]}`;
 }
 
+// Two lines, not one glued string (Task 10): "Tag N" reads as the section's
+// H2, the place/date underneath as its secondary line. Split into two
+// functions instead of one returning a tuple, so each call site (H2 Text,
+// secondary Text) stays a plain string prop.
+function dayTitle(day: RecapDay): string {
+  return `Tag ${day.number}`;
+}
+
 // Deliberately reads ONLY `day.date` and `day.number`, never the
 // `captured_at`/`captured_tz` of a single moment of that day: on a trip
 // heading east across the date line, `day.date` can differ from the local
@@ -48,8 +59,8 @@ function formatDayDate(iso: string): string {
 // this day (see the comment header of days.ts). `day.date` is still the only
 // honest statement about THE DAY as a whole; a heading showing the date of
 // any one of its moments instead would lie about exactly those moments.
-function dayHeading(day: RecapDay): string {
-  const parts = [`Tag ${day.number}`];
+function daySubtitle(day: RecapDay): string {
+  const parts: string[] = [];
   if (day.place) parts.push(day.place);
   parts.push(formatDayDate(day.date));
   return parts.join(' · ');
@@ -127,19 +138,170 @@ function SkeletonBlock({ style }: { style: object }) {
   return <Animated.View style={[style, { backgroundColor: colors['bg-1'], opacity }]} />;
 }
 
+// Mirrors the loaded screen's own shape (hero, then a day head, then a
+// feature row) instead of the generic 9-square grid the old three-column
+// layout used: a skeleton that outlines a DIFFERENT layout than what
+// actually loads afterward reads as a glitch the moment the real content
+// swaps in.
 function SkeletonScreen() {
   const { colors } = useTheme();
   const topInset = useTopInset(spacing.xl);
   return (
     <View testID="recap-skeleton" style={{ flex: 1, backgroundColor: colors['bg-0'] }}>
       <View style={[styles.content, { paddingTop: topInset }]}>
-        <SkeletonBlock style={{ width: 160, height: 30, borderRadius: radius.control }} />
-        <View style={[styles.tileGrid, { marginTop: spacing.xl }]}>
-          {Array.from({ length: 9 }).map((_, i) => (
-            <SkeletonBlock key={i} style={styles.tile} />
+        <SkeletonBlock style={{ aspectRatio: 3 / 2, borderRadius: radius.card }} />
+        <View style={{ gap: spacing.xs, marginTop: spacing.xl }}>
+          <SkeletonBlock style={{ width: 120, height: 26, borderRadius: radius.control }} />
+          <SkeletonBlock style={{ width: 180, height: 18, borderRadius: radius.control }} />
+        </View>
+        <View style={[styles.featureRow, { marginTop: spacing.m }]}>
+          <SkeletonBlock style={[styles.leadPress, styles.leadTile]} />
+          <View style={styles.featureColumn}>
+            <SkeletonBlock style={[styles.featureThirdPress, styles.featureThirdTile]} />
+            <SkeletonBlock style={[styles.featureThirdPress, styles.featureThirdTile]} />
+          </View>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+// One tile of the mosaic. Sizing (`pressStyle`) sits on `PressScale` itself,
+// not on some node buried inside it: only PressScale is an actual flex
+// child of the row/column that lays the tiles out, so a `flex` set any
+// deeper would never reach the row's own distribution. `clipStyle`
+// (aspectRatio or flex, radius, overflow) sits on the plain View PressScale
+// wraps, exactly like every other PressScale user in this codebase (Button,
+// RecapHero, TripCard): that View derives its own height from its own
+// width, so it never depends on how PressScale's internal Animated.View
+// happens to size itself.
+function MosaicTileView({
+  tile, pressStyle, clipStyle, urls, indexById, onTap,
+}: {
+  tile: MosaicTile;
+  pressStyle: StyleProp<ViewStyle>;
+  clipStyle: StyleProp<ViewStyle>;
+  urls: Map<string, MediaUrl>;
+  indexById: Map<string, number>;
+  onTap: (index: number) => void;
+}) {
+  const { colors } = useTheme();
+  const { moment, shape } = tile;
+  const url = urls.get(moment.id);
+  const index = indexById.get(moment.id);
+  // Unreachable by construction, and therefore invisible to any test:
+  // `day.moments` (what `mosaicRows` lays out) comes from
+  // groupByDays(withImage, …), `indexById` is built from that same
+  // `withImage`.
+  if (!url || index === undefined) return null;
+  return (
+    <PressScale
+      scaleTo={0.96}
+      style={pressStyle}
+      accessibilityRole="button"
+      accessibilityLabel={`Moment ${index + 1} öffnen`}
+      testID={`recap-tile-${shape}-${moment.id}`}
+      onPress={() => onTap(index)}
+    >
+      <View style={[clipStyle, { backgroundColor: colors['bg-1'] }]}>
+        <Image
+          testID={`recap-image-${moment.id}`}
+          source={{ uri: url.thumb_url ?? url.medium_url }}
+          style={StyleSheet.absoluteFill}
+          contentFit="cover"
+          transition={150}
+        />
+        {moment.type === 'video' && (
+          // `accessible={false}` on the wrapper, not on `Pill`: the tile's
+          // own PressScale already carries the "Moment N öffnen" label, a
+          // second accessible node on top of it would just repeat/confuse
+          // that for VoiceOver, and `Pill` itself has no `accessible` prop
+          // to begin with (it only owns background/blur, per its own
+          // contract) - so the plain View around it carries both the flag
+          // and this badge's testID.
+          <View testID={`recap-tile-video-${moment.id}`} accessible={false} style={styles.videoBadgeWrap}>
+            <Pill style={styles.videoBadgeFill}>
+              <Play size={12} color={palette['bg-0']} strokeWidth={1.75} />
+            </Pill>
+          </View>
+        )}
+      </View>
+    </PressScale>
+  );
+}
+
+// One row of the mosaic. `feature` is the only row shape with two columns
+// of DIFFERENT height, so it gets its own branch; the other three
+// (`single`/`pair`/`triple`) only differ in which tile shape fills them, an
+// ordinary same-height row of 1-3 tiles.
+function MosaicRowView({
+  row, urls, indexById, onTap,
+}: {
+  row: MosaicRow;
+  urls: Map<string, MediaUrl>;
+  indexById: Map<string, number>;
+  onTap: (index: number) => void;
+}) {
+  if (row.kind === 'feature') {
+    const [lead, ...rightColumn] = row.tiles;
+    return (
+      <View style={styles.featureRow}>
+        <MosaicTileView
+          tile={lead}
+          pressStyle={styles.leadPress}
+          clipStyle={styles.leadTile}
+          urls={urls}
+          indexById={indexById}
+          onTap={onTap}
+        />
+        {/* The right column's own height is never set directly: with three
+            equal columns of width `w` and two gaps `g` between them, the
+            row is `3w + 2g` wide. Lead spans two of those columns plus the
+            gap between them (`2w + g` wide) and, to line up with the right
+            side, must be exactly that tall too (`2w + g`) - so lead is a
+            square, `aspectRatio: 1`, not an arbitrary ratio. Lead's own
+            width+aspectRatio is the ONLY self-contained size in this row
+            (both right-hand tiles below use `flex: 1` with no aspectRatio
+            of their own), so it alone anchors the row's height; the column
+            then stretches to match via the default `alignItems: 'stretch'`,
+            and its two `flex: 1` children split that stretched height
+            evenly. Giving the right-hand tiles their own aspectRatio too,
+            "for safety", would make each pick its OWN square independently
+            and reintroduce exactly the one-gap mismatch this avoids. */}
+        <View style={styles.featureColumn}>
+          {rightColumn.map((t) => (
+            <MosaicTileView
+              key={t.moment.id}
+              tile={t}
+              pressStyle={styles.featureThirdPress}
+              clipStyle={styles.featureThirdTile}
+              urls={urls}
+              indexById={indexById}
+              onTap={onTap}
+            />
           ))}
         </View>
       </View>
+    );
+  }
+  const [pressStyle, clipStyle] = row.kind === 'single'
+    ? [styles.widePress, styles.wideTile]
+    : row.kind === 'pair'
+      ? [styles.halfPress, styles.halfTile]
+      : [styles.thirdPress, styles.thirdTile];
+  return (
+    <View style={styles.tileRow}>
+      {row.tiles.map((t) => (
+        <MosaicTileView
+          key={t.moment.id}
+          tile={t}
+          pressStyle={pressStyle}
+          clipStyle={clipStyle}
+          urls={urls}
+          indexById={indexById}
+          onTap={onTap}
+        />
+      ))}
     </View>
   );
 }
@@ -153,38 +315,20 @@ function DaySection({
   onTap: (index: number) => void;
 }) {
   const { colors } = useTheme();
+  const rows = mosaicRows(day.moments);
   return (
     <View style={{ gap: spacing.m }}>
-      <Text style={[type.h2, { color: colors['text-1'] }]}>{dayHeading(day)}</Text>
-      <View style={styles.tileGrid}>
-        {day.moments.map((m) => {
-          const url = urls.get(m.id);
-          const index = indexById.get(m.id);
-          // Unreachable by construction, and therefore invisible to any
-          // test: `day` comes from groupByDays(withImage, …), `indexById`
-          // is built from that same `withImage`.
-          if (!url || index === undefined) return null;
-          return (
-            <PressScale
-              key={m.id}
-              scaleTo={0.96}
-              accessibilityRole="button"
-              accessibilityLabel={`Moment ${index + 1} öffnen`}
-              testID={`recap-tile-${m.id}`}
-              onPress={() => onTap(index)}
-            >
-              <View style={[styles.tile, { backgroundColor: colors['bg-1'] }]}>
-                <Image
-                  testID={`recap-image-${m.id}`}
-                  source={{ uri: url.thumb_url ?? url.medium_url }}
-                  style={StyleSheet.absoluteFill}
-                  contentFit="cover"
-                  transition={150}
-                />
-              </View>
-            </PressScale>
-          );
-        })}
+      <View style={{ gap: spacing.xs }}>
+        <Text style={[type.h2, { color: colors['text-1'] }]}>{dayTitle(day)}</Text>
+        <Text style={[type.secondary, { color: colors['text-2'] }]}>{daySubtitle(day)}</Text>
+      </View>
+      <View style={{ gap: spacing.xs }}>
+        {rows.map((row, rowIndex) => (
+          // Index as key is safe here: `mosaicRows` is a pure function of
+          // `day.moments`, its rows never reorder or get inserted/removed
+          // independently of that same array changing too.
+          <MosaicRowView key={rowIndex} row={row} urls={urls} indexById={indexById} onTap={onTap} />
+        ))}
       </View>
     </View>
   );
@@ -539,10 +683,34 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.base,
     borderRadius: radius.pill,
   },
-  // Three columns. The gap explicitly via `columnGap`/`rowGap`, NOT via
-  // `justifyContent: 'space-between'` (review Task 10, minor): that let the
-  // gap emerge from the remaining space, differently sized per device width
-  // and never exactly from the 4-grid.
-  tileGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-start', columnGap: spacing.xs, rowGap: spacing.xs },
-  tile: { width: '31.5%', aspectRatio: 1, borderRadius: radius.control, overflow: 'hidden' },
+  // Mosaic rows and columns (Task 10, replaces the old three-column grid).
+  // The gap is always the explicit `gap` property, never
+  // `justifyContent: 'space-between'` (the old grid's review flagged this
+  // once already): that lets the gap emerge from the remaining space,
+  // differently sized per device width and never exactly from the 4-grid.
+  featureRow: { flexDirection: 'row', gap: spacing.xs },
+  tileRow: { flexDirection: 'row', gap: spacing.xs },
+  featureColumn: { flex: 1, flexDirection: 'column', gap: spacing.xs },
+  // `pressStyle` (on PressScale): width/flex participation in the row or
+  // column. `clipStyle` (on the plain View PressScale wraps): radius,
+  // clipping, and, where the tile is self-contained, its aspectRatio - see
+  // the comment on the feature row for why the two right-hand tiles below
+  // deliberately have none.
+  leadPress: { flex: 2 },
+  leadTile: { aspectRatio: 1, borderRadius: radius.control, overflow: 'hidden' },
+  widePress: { flex: 1 },
+  wideTile: { aspectRatio: 3 / 2, borderRadius: radius.control, overflow: 'hidden' },
+  halfPress: { flex: 1 },
+  halfTile: { aspectRatio: 1, borderRadius: radius.control, overflow: 'hidden' },
+  thirdPress: { flex: 1 },
+  thirdTile: { aspectRatio: 1, borderRadius: radius.control, overflow: 'hidden' },
+  featureThirdPress: { flex: 1 },
+  featureThirdTile: { flex: 1, borderRadius: radius.control, overflow: 'hidden' },
+  // Position on the wrapper (see MosaicTileView), size and shape on `Pill`
+  // itself: `Pill` owns its background and blur, callers own only shape,
+  // size and positioning.
+  videoBadgeWrap: { position: 'absolute', bottom: spacing.xs, left: spacing.xs },
+  videoBadgeFill: {
+    width: 24, height: 24, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center',
+  },
 });
