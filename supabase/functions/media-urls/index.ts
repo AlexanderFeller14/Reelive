@@ -37,6 +37,7 @@ import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { AwsClient } from 'npm:aws4fetch@1';
 import { expectedKeys } from './keys.ts';
 import { evaluateReadAccess } from './readAccess.ts';
+import { normalizeTripIds, pickCoverRow, type CoverRow } from './covers.ts';
 import { createErrorReporter } from '../_shared/errorReporter.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
@@ -117,9 +118,19 @@ type MediaEntry = {
   thumb_url?: string;
 };
 
+// One entry per trip that actually has a cover. A trip without one (no
+// uploaded moment carries a thumbnail among the first page, or the trip
+// failed the access chain) is simply missing from the array, see `covers`
+// below.
+type CoverEntry = {
+  trip_id: string;
+  thumb_url: string;
+};
+
 // `sign`/`confirm` work on one moment (post_id), `read` on an entire trip
-// (trip_id), deliberately different parameters.
-type RequestBody = { action?: unknown; post_id?: unknown; trip_id?: unknown };
+// (trip_id), `covers` on several trips at once (trip_ids), deliberately
+// different parameters.
+type RequestBody = { action?: unknown; post_id?: unknown; trip_id?: unknown; trip_ids?: unknown };
 
 function json(payload: unknown, status: number): Response {
   return new Response(JSON.stringify(payload), {
@@ -530,6 +541,144 @@ Deno.serve(async (req: Request): Promise<Response> => {
     // that never existed, and the recap claims a completeness it does not
     // have. With it, it can say that N moments are missing.
     return json({ media, valid_until: validUntil, skipped }, 200);
+  }
+
+  // `covers` branches off here too, BEFORE the post_id check, same reason as
+  // `read`: it works on trip_ids, not on a moment. The recap list needs one
+  // thumbnail per trip, not the trip's whole pool (that stays `read`'s job),
+  // hence its own action instead of a `limit` parameter bolted onto `read`.
+  if (action === 'covers') {
+    const normalized = normalizeTripIds(body.trip_ids);
+    if (!normalized.ok) {
+      return errorResponse(normalized.message, normalized.status);
+    }
+
+    if (!s3ConfigComplete()) {
+      console.error('media-urls: S3 environment variables incomplete.');
+      await report(new Error('media-urls: S3 environment variables incomplete.'));
+      return errorResponse('Server nicht konfiguriert.', 500);
+    }
+
+    // Stamped BEFORE signing, same reasoning as in `read`: every signature's
+    // own X-Amz-Date is never earlier than this moment, so the value is
+    // conservative.
+    const validUntil = new Date(Date.now() + READ_URL_VALIDITY_SECONDS * 1000).toISOString();
+    const aws = s3Client();
+
+    // One independent check chain per trip, run concurrently
+    // (Promise.all, not a loop: at up to MAX_TRIP_IDS entries the queries do
+    // not depend on each other, and sequential round trips would just add
+    // up latency for no benefit).
+    //
+    // A trip that fails ANY step below, be it the access chain or an
+    // unexpected error while querying or signing, resolves to `null` and is
+    // filtered out further down, WITHOUT an error and WITHOUT a distinct
+    // reason. That is deliberate, not merely for the access chain: this
+    // action answers for a whole batch of trip_ids in one response, and the
+    // one property that must hold for every one of them, existing or
+    // guessed, member or not, misconfigured storage or not, is the same
+    // outward behaviour, "this trip has no cover right now". Anything that
+    // let one failure mode look different from another across many trip_ids
+    // would hand a caller a way to tell them apart.
+    const settled = await Promise.all(
+      normalized.tripIds.map(async (tripId): Promise<CoverEntry | null> => {
+        const { data: trip, error: tripError } = await supabaseAdmin
+          .from('trips')
+          .select('id, status')
+          .eq('id', tripId)
+          .maybeSingle();
+
+        if (tripError) {
+          console.error('media-urls: trips select for covers failed', tripError);
+          await report(tripError, { trip_id: tripId });
+          return null;
+        }
+        const rawTrip = trip as TripRow | null;
+
+        // Same short-circuit as `read`: trip_members is only queried once
+        // the trip exists AND is no longer sealed, and for the same reason
+        // is_trip_member() stays unusable here (oracle guard, see the
+        // comment in the sign/confirm branch further below), so this reads
+        // trip_members directly with the service role.
+        let membership: { user_id: string } | null = null;
+        if (rawTrip && (rawTrip.status === 'revealed' || rawTrip.status === 'archived')) {
+          const { data: membershipRow, error: membershipError } = await supabaseAdmin
+            .from('trip_members')
+            .select('user_id')
+            .eq('trip_id', rawTrip.id)
+            .eq('user_id', requestingUserId)
+            .maybeSingle();
+          if (membershipError) {
+            console.error('media-urls: trip_members select for covers failed', membershipError);
+            await report(membershipError, { trip_id: rawTrip.id, user_id: requestingUserId });
+            // membership stays null, same fold as in `read`.
+          } else {
+            membership = membershipRow;
+          }
+        }
+
+        // The exact same pure check chain as `read`, so a trip that would
+        // be rejected there is rejected here too. Unlike `read`, the reason
+        // and status the verdict carries are discarded: a per-trip 403/404
+        // in a batch response would be exactly the oracle the header
+        // comment on this action warns about, a rejected trip is only ever
+        // absent, never explained.
+        const verdict = evaluateReadAccess(rawTrip, membership);
+        if (!verdict.allowed) return null;
+        const tripRow = rawTrip as TripRow;
+
+        // Only the earliest moment with a thumbnail is wanted, not the
+        // whole trip. The limit is small on purpose: this looks for the
+        // first of up to 20 uploaded moments (by captured_at, id) that
+        // carries a thumbnail, not the whole recap pool. If none of the
+        // first 20 has one, this trip gets no cover and the app falls back
+        // to its placeholder, an outcome no worse than the status quo
+        // before this action existed.
+        const { data: postsData, error: postsError } = await supabaseAdmin
+          .from('posts')
+          .select('id, type, media_ext, storage_key, thumb_key')
+          .eq('trip_id', tripRow.id)
+          .eq('upload_status', 'uploaded')
+          .order('captured_at', { ascending: true })
+          .order('id', { ascending: true })
+          .limit(20);
+
+        if (postsError) {
+          console.error('media-urls: posts select for covers failed', postsError);
+          await report(postsError, { trip_id: tripRow.id });
+          return null;
+        }
+
+        const coverRow = pickCoverRow((postsData ?? []) as CoverRow[]);
+        if (!coverRow) return null;
+
+        // Derived, never taken from storage_key, exactly like `read`: the
+        // signed path must be the one this function computes itself, not
+        // whatever a client once wrote into the row.
+        const derived = expectedKeys(tripRow.id, coverRow.id, coverRow.type, coverRow.media_ext);
+        if (coverRow.storage_key !== derived.storage_key) {
+          console.error(
+            'media-urls: storage_key deviates from the derived path, trip gets no cover.',
+            { trip_id: tripRow.id, post_id: coverRow.id, stored: coverRow.storage_key, derived: derived.storage_key },
+          );
+          return null;
+        }
+
+        try {
+          return { trip_id: tripRow.id, thumb_url: await presignedGetUrl(aws, derived.thumb_key) };
+        } catch (err) {
+          // Caught per trip, not around the whole Promise.all: one signing
+          // hiccup must not turn the entire batch into a 502, the other
+          // trip_ids are independent of this one.
+          console.error('media-urls: signing a cover URL failed', err);
+          await report(err, { trip_id: tripRow.id });
+          return null;
+        }
+      }),
+    );
+
+    const covers = settled.filter((entry): entry is CoverEntry => entry !== null);
+    return json({ covers, valid_until: validUntil }, 200);
   }
 
   const postId = body.post_id;
