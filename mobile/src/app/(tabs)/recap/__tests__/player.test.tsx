@@ -345,6 +345,12 @@ describe('header and caption pills (step 3)', () => {
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
     (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
+    // The day card carries faces of its own now; send it off first, this
+    // test is about the moment header underneath.
+    await fireEvent.press(screen.getByTestId('player-interstitial'));
+    await act(async () => {
+      jest.advanceTimersByTime(600);
+    });
     // p1: captured_at 09:00 UTC, captured_tz Europe/Zurich (CEST, UTC+2 in
     // August) -> 11:00 local time, place_name 'Lissabon'.
     expect(screen.getByText('Lea')).toBeTruthy();
@@ -361,6 +367,11 @@ describe('header and caption pills (step 3)', () => {
       reason: null,
     });
     await wrap();
+    // Same as above: the day card's own faces would double the query.
+    await fireEvent.press(screen.getByTestId('player-interstitial'));
+    await act(async () => {
+      jest.advanceTimersByTime(600);
+    });
     expect(await screen.findByTestId('avatar-image')).toBeTruthy();
   });
 
@@ -502,6 +513,27 @@ describe('day interstitial', () => {
     expect(screen.getByText('Lissabon')).toBeTruthy();
     expect(screen.getByText('10. August')).toBeTruthy();
     expect(screen.queryByText('Tag 1 · Lissabon · 10. August')).toBeNull();
+  });
+
+  test('the card tells what the day brings: counts and the faces of its senders', async () => {
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
+    await wrap();
+    // Day 1 carries p1, p2 (the video) and p3: two photos plus one video.
+    expect(screen.getByText('3 Momente · 1 Video')).toBeTruthy();
+    expect(screen.getByTestId('player-interstitial-faces')).toBeTruthy();
+  });
+
+  test('a day without a video counts its moments alone, singular and all', async () => {
+    mockParams = { id: 't1', start: '2' }; // p3, one tap right crosses into day 2
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
+    await wrap();
+    await fireEvent(screen.getByTestId('player-right'), 'pressIn');
+    await fireEvent(screen.getByTestId('player-right'), 'pressOut');
+    // Day 2 is p4 alone: one photo, no video, no video mention.
+    expect(screen.getByText('1 Moment')).toBeTruthy();
+    expect(screen.queryByText(/Video/)).toBeNull();
   });
 
   test('without a place the card carries day number and date alone', async () => {

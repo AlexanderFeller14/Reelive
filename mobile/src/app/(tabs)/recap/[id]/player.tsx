@@ -19,7 +19,7 @@ import { createVideoPlayer, VideoView } from 'expo-video';
 import * as Haptics from 'expo-haptics';
 import * as Linking from 'expo-linking';
 import { Download, MessageCircle, X } from 'lucide-react-native';
-import { Avatar } from '@/components/Avatar';
+import { Avatar, AvatarGroup, type Face } from '@/components/Avatar';
 import { CounterRoll } from '@/components/CounterRoll';
 import { PressScale } from '@/components/PressScale';
 import { ProgressBar } from '@/components/ProgressBar';
@@ -360,6 +360,27 @@ function VideoMoment({
 // card, which covers the card-to-picture hand-off for free. A TAP stays a
 // hard cut on purpose: whoever taps has decided to move on, an animation in
 // the way would make the player feel less responsive, not more polished.
+// What the day brings, told on its card: the count line and the faces of
+// the people who sent something that day. Both come from the moments the
+// player already holds, no extra data is fetched for the cover page.
+function dayFactsText(moments: RecapMoment[]): string {
+  const count = moments.length;
+  const videos = moments.filter((m) => m.type === 'video').length;
+  const parts = [`${count} ${count === 1 ? 'Moment' : 'Momente'}`];
+  if (videos > 0) parts.push(`${videos} ${videos === 1 ? 'Video' : 'Videos'}`);
+  return parts.join(' · ');
+}
+
+function dayFaces(moments: RecapMoment[]): Face[] {
+  const byAuthor = new Map<string, Face>();
+  for (const m of moments) {
+    if (!byAuthor.has(m.author_id)) {
+      byAuthor.set(m.author_id, { name: m.authorName, avatarKey: m.authorAvatarKey });
+    }
+  }
+  return [...byAuthor.values()];
+}
+
 // The day card is the deliberate breather of the show: it covers the whole
 // screen, pauses everything behind it, and STAYS until a tap sends the day
 // off. Its centre carries the app's counter signature (the day number in
@@ -368,7 +389,7 @@ function VideoMoment({
 // through a fade into the waiting story rather than a hard cut: leaving IS
 // the staged transition into the day now, not an interruption of one.
 function DayCard({
-  visible, dayNumber, place, date, onSkip, reducedMotion,
+  visible, dayNumber, place, date, moments, onSkip, reducedMotion,
 }: {
   visible: boolean;
   // null when the day is unknown (a moment the day grouping could not
@@ -376,6 +397,7 @@ function DayCard({
   dayNumber: number | null;
   place: string | null;
   date: string | null;
+  moments: RecapMoment[];
   onSkip: () => void;
   reducedMotion: boolean;
 }) {
@@ -481,6 +503,16 @@ function DayCard({
             >
               {date}
             </Text>
+          )}
+          {moments.length > 0 && (
+            <>
+              <Text style={[type.secondary, styles.centeredTextSecondary, { marginTop: spacing.l }]}>
+                {dayFactsText(moments)}
+              </Text>
+              <View testID="player-interstitial-faces" style={{ marginTop: spacing.m }}>
+                <AvatarGroup faces={dayFaces(moments)} cinemaMode />
+              </View>
+            </>
           )}
         </View>
         <Text style={[type.secondary, styles.centeredTextSecondary, styles.interstitialHint]}>
@@ -1544,6 +1576,7 @@ export default function RecapPlayer() {
           dayNumber={currentDay ? currentDay.number : null}
           place={currentDay?.place ?? null}
           date={currentDay ? formatDayDate(currentDay.date) : null}
+          moments={currentDay?.moments ?? []}
           onSkip={skip}
           reducedMotion={reducedMotion}
         />
