@@ -445,8 +445,15 @@ function MomentView({
   onError: () => void;
 }) {
   if (!failed && url) {
+    // The keys sit HERE, not on MomentView itself: a video (and the failure
+    // fallback below) must start fresh per moment, but a photo following a
+    // photo keeps the very same Image element, so expo-image runs its
+    // transition natively from the old picture to the new one. With a key on
+    // the outside, every advance rebuilt the view tree, and that rebuild was
+    // the stutter that survived the bridge.
     return moment.type === 'video' ? (
       <VideoMoment
+        key={moment.id}
         url={url.medium_url}
         posterUrl={url.thumb_url}
         paused={paused}
@@ -458,7 +465,7 @@ function MomentView({
     );
   }
   return (
-    <View style={StyleSheet.absoluteFill}>
+    <View key={moment.id} style={StyleSheet.absoluteFill}>
       {url?.thumb_url && (
         <Image source={{ uri: url.thumb_url }} style={StyleSheet.absoluteFill} contentFit="cover" />
       )}
@@ -1281,13 +1288,15 @@ export default function RecapPlayer() {
   if (!activeMoment) return null;
   const url = urls.get(activeMoment.id);
   // The still of the moment being LEFT, kept as a bridge under the incoming
-  // one: the key switch below remounts MomentView, and expo-image's fade
-  // starts from TRANSPARENT, so without this layer every advance flashed the
-  // cinema ground even when the next picture was prefetched. Photos bridge
-  // with the picture that was just on screen, videos with their poster (the
-  // only still they have). Derived during render, the documented pattern for
-  // state that depends on the previous render, not an effect: an effect
-  // would set the bridge one frame AFTER the flash it exists to prevent.
+  // one. Photo to photo no longer needs it (the Image element survives the
+  // advance and crossfades natively, see MomentView), but every remounting
+  // transition still does: into or out of a video, and out of the failure
+  // fallback, the fresh view starts from TRANSPARENT and would flash the
+  // cinema ground. Photos bridge with the picture that was just on screen,
+  // videos with their poster (the only still they have). Derived during
+  // render, the documented pattern for state that depends on the previous
+  // render, not an effect: an effect would set the bridge one frame AFTER
+  // the flash it exists to prevent.
   if (bridge.index !== state.index) {
     const left = playlist[bridge.index];
     const leftUrl = left ? urls.get(left.id) : undefined;
@@ -1311,7 +1320,6 @@ export default function RecapPlayer() {
           />
         )}
         <MomentView
-          key={activeMoment.id}
           moment={activeMoment}
           url={url}
           failed={failed.has(activeMoment.id)}
