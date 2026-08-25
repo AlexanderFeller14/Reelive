@@ -405,11 +405,14 @@ function DayCard({
         easing: Easing.bezier(...motion.easeSmooth),
         useNativeDriver: true,
       });
-      // The roll runs alongside the fade and outlasts it a little, so the
-      // number settles while the card already stands; reduced motion skips
-      // the roll entirely (the value is already at 1).
+      // The roll waits for the fade: rolling while the card is still turning
+      // up meant the count was half over before anyone could see it. Only
+      // once the card fully STANDS does the day count up, that is the act
+      // the person is here to watch; reduced motion skips the roll entirely
+      // (the value is already at 1).
       const roll = Animated.timing(rollProgress, {
         toValue: 1,
+        delay: motion.duration.base,
         duration: motion.duration.gentle,
         easing: Easing.bezier(...motion.easeSmooth),
         useNativeDriver: true,
