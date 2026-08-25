@@ -383,11 +383,11 @@ function dayFaces(moments: RecapMoment[]): Face[] {
 
 // The day card is the deliberate breather of the show: it covers the whole
 // screen, pauses everything behind it, and STAYS until a tap sends the day
-// off. Its centre carries the app's counter signature (the day number in
-// the 84 pt light face, rolling up from the day before), its foot carries
-// the quiet invitation onward. Since the tap is the only exit, it leaves
-// through a fade into the waiting story rather than a hard cut: leaving IS
-// the staged transition into the day now, not an interruption of one.
+// off. Editorial staging: the day digit stands as a giant embossed figure,
+// tone on tone and cropped at the right edge, filling the screen as a SHAPE;
+// the readable block sits lower left like a magazine title, and the quiet
+// invitation onward keeps the foot. Since the tap is the only exit, it
+// leaves through a fade into the waiting story rather than a hard cut.
 function DayCard({
   visible, dayNumber, place, date, moments, onSkip, reducedMotion,
 }: {
@@ -401,15 +401,17 @@ function DayCard({
   onSkip: () => void;
   reducedMotion: boolean;
 }) {
+  const { width } = useWindowDimensions();
+  const bottomInset = useBottomInset(spacing.xl);
   // 'shown' fades in, 'leaving' fades out, 'gone' is unmounted. The stage is
   // derived DURING render (same pattern as the player's bridge below): it
   // must flip in the very render that flips `visible`, an effect would show
   // one stale frame first, which is exactly the pop this card is curing.
   const [stage, setStage] = useState<'shown' | 'leaving' | 'gone'>(visible ? 'shown' : 'gone');
   const [opacity] = useState(() => new Animated.Value(0));
-  // Drives the day number's digit roll, the app's counter signature now
-  // standing in the cinema: the day rolls up from the one before it, the
-  // same movement the trip counter makes when a moment is submitted.
+  // Drives the embossed digit's roll, the app's counter signature staged as
+  // scenery: the day rolls up from the one before it, the same movement the
+  // trip counter makes when a moment is submitted.
   const [rollProgress] = useState(() => new Animated.Value(0));
 
   if (visible && stage !== 'shown') setStage('shown');
@@ -464,58 +466,66 @@ function DayCard({
   }, [stage, reducedMotion, opacity, rollProgress]);
 
   if (stage === 'gone') return null;
+  // The embossed figure: sized from the screen, not from the type scale (it
+  // is scenery, see CounterRoll's fontSize note), cropped at the right edge
+  // so it reads as a form, not as a line of text.
+  const giantSize = Math.round(width * 1.25);
   return (
     // Pointer events off as soon as the card is leaving: a tap during the
     // exit fade belongs to the story zones underneath, not to a card that is
     // already gone in all but pixels.
     <Animated.View style={[styles.interstitial, { opacity }]} pointerEvents={visible ? 'auto' : 'none'}>
-      <Pressable testID="player-interstitial" style={styles.interstitialPress} onPress={onSkip}>
-        {/* The centre grows into all the room the screen has; the foot line
-            sits at the bottom, so the card genuinely inhabits the full
-            surface instead of clumping in the middle. */}
-        <View style={styles.interstitialCentre}>
+      <Pressable
+        testID="player-interstitial"
+        style={styles.interstitialPress}
+        onPress={onSkip}
+      >
+        {dayNumber !== null && (
+          <View style={styles.interstitialGiant} pointerEvents="none">
+            <CounterRoll
+              from={Math.max(1, dayNumber - 1)}
+              to={dayNumber}
+              progress={rollProgress}
+              progressWindow={[0, 1]}
+              color={cinema['bg-1']}
+              fontSize={giantSize}
+            />
+          </View>
+        )}
+        <View style={[styles.interstitialBlock, { bottom: bottomInset + 76 }]}>
           {dayNumber !== null ? (
+            <Text style={[type.label, { color: cinema['text-2'] }]}>{`Tag ${dayNumber}`}</Text>
+          ) : (
+            <Text style={[type.h1, { color: cinema['text-1'] }]}>Ein neuer Tag beginnt.</Text>
+          )}
+          {/* The anchor line of the block: the place when there is one, the
+              date grown into its role when there is not. */}
+          {place ? (
             <>
-              <Text style={[type.label, styles.centeredTextSecondary]}>Tag</Text>
-              {/* Day 1 stands still (there was no day before it to roll
-                  from), every later day rolls up from its predecessor. */}
-              <CounterRoll
-                from={Math.max(1, dayNumber - 1)}
-                to={dayNumber}
-                progress={rollProgress}
-                progressWindow={[0, 1]}
-                color={cinema['text-1']}
-              />
+              <Text style={[type.h1, { color: cinema['text-1'], marginTop: spacing.xs }]}>{place}</Text>
+              {date && (
+                <Text style={[type.secondary, { color: cinema['text-2'], marginTop: spacing.xs }]}>
+                  {date}
+                </Text>
+              )}
             </>
           ) : (
-            <Text style={[type.h1, styles.centeredText]}>Ein neuer Tag beginnt.</Text>
-          )}
-          {place && (
-            <Text style={[type.h2, styles.centeredText, { marginTop: spacing.base }]}>{place}</Text>
-          )}
-          {date && (
-            <Text
-              style={[
-                type.secondary,
-                styles.centeredTextSecondary,
-                { marginTop: place ? spacing.xs : spacing.base },
-              ]}
-            >
-              {date}
-            </Text>
+            date && (
+              <Text style={[type.h1, { color: cinema['text-1'], marginTop: spacing.xs }]}>{date}</Text>
+            )
           )}
           {moments.length > 0 && (
             <>
-              <Text style={[type.secondary, styles.centeredTextSecondary, { marginTop: spacing.l }]}>
+              <Text style={[type.secondary, { color: cinema['text-2'], marginTop: spacing.base }]}>
                 {dayFactsText(moments)}
               </Text>
-              <View testID="player-interstitial-faces" style={{ marginTop: spacing.m }}>
+              <View testID="player-interstitial-faces" style={styles.interstitialFaces}>
                 <AvatarGroup faces={dayFaces(moments)} cinemaMode />
               </View>
             </>
           )}
         </View>
-        <Text style={[type.secondary, styles.centeredTextSecondary, styles.interstitialHint]}>
+        <Text style={[type.secondary, { color: cinema['text-2'] }, styles.interstitialHint, { bottom: bottomInset }]}>
           Weiter mit einem Tipp.
         </Text>
       </Pressable>
@@ -1773,25 +1783,40 @@ const styles = StyleSheet.create({
     bottom: 0,
     backgroundColor: cinema['bg-0'],
     zIndex: 2,
+    // Crops the embossed digit at the screen edge (interstitialGiant sticks
+    // out on purpose).
+    overflow: 'hidden',
   },
   // The press target fills the card, the card itself only fades: splitting
   // the two keeps the opacity on a plain Animated.View, which is all the
   // native driver can animate.
   interstitialPress: {
     flex: 1,
-    alignItems: 'center',
-    paddingHorizontal: spacing.xl,
   },
-  // The centre takes all remaining height, so the number really sits in the
-  // middle of the SCREEN while the hint keeps the foot; both together are
-  // what lets the card use the whole surface.
-  interstitialCentre: {
-    flex: 1,
-    alignItems: 'center',
+  // The embossed figure's stage: vertically centred, pushed past the right
+  // edge so the digit is cropped and reads as scenery. The overflow is the
+  // point, the card's own overflow: hidden does the cropping.
+  interstitialGiant: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    right: -46,
     justifyContent: 'center',
   },
+  // The readable block, lower left like a magazine title: the one place in
+  // this staged moment where the app's usual left alignment returns.
+  interstitialBlock: {
+    position: 'absolute',
+    left: spacing.screen,
+    right: spacing.xxl,
+  },
+  interstitialFaces: {
+    flexDirection: 'row',
+    marginTop: spacing.m,
+  },
   interstitialHint: {
-    marginBottom: spacing.xxl,
+    position: 'absolute',
+    left: spacing.screen,
   },
   // Without a zIndex this area lay UNDER the tap zones (zIndex 1, see
   // tapZoneLeft/tapZoneRight below), and every tap on an emoji or the comment

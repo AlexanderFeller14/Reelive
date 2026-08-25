@@ -13,6 +13,12 @@ type Props = {
   // day card rolls the same signature inside the cinema. Colour is the only
   // thing that differs between the two homes, hence a prop, not a copy.
   color?: string;
+  // The day card also stages the digit as scenery: a giant embossed figure
+  // filling the screen, tone on tone. That is an illustration-sized use of
+  // the same signature, not a new TEXT size (the type scale stays what it
+  // is), so the size arrives as a prop and the roll distance grows with it,
+  // or a big digit would barely move while rolling.
+  fontSize?: number;
 };
 
 // How far digits travel while rolling. A motion distance, not a distance
@@ -26,7 +32,12 @@ const ROLL_DISTANCE = 28;
 // are right-aligned on top of each other (ones on ones), so 9 → 10 rolls the
 // ones digit 9 → 0 and the new tens digit comes in alone, instead of "9"
 // being swapped for "10" as a whole.
-export function CounterRoll({ from, to, progress, progressWindow, color = palette['text-1'] }: Props) {
+export function CounterRoll({
+  from, to, progress, progressWindow, color = palette['text-1'], fontSize,
+}: Props) {
+  const size = fontSize ?? type.display.fontSize;
+  const rollDistance = ROLL_DISTANCE * (size / type.display.fontSize);
+  const sizing = fontSize ? { fontSize: size, lineHeight: size } : null;
   const length = Math.max(String(from).length, String(to).length);
   const old = String(from).padStart(length, ' ');
   const next = String(to).padStart(length, ' ');
@@ -39,7 +50,7 @@ export function CounterRoll({ from, to, progress, progressWindow, color = palett
   });
   const oldY = progress.interpolate({
     inputRange: [start, end],
-    outputRange: [0, -ROLL_DISTANCE],
+    outputRange: [0, -rollDistance],
     extrapolate: 'clamp',
   });
   const nextOpacity = progress.interpolate({
@@ -49,7 +60,7 @@ export function CounterRoll({ from, to, progress, progressWindow, color = palett
   });
   const nextY = progress.interpolate({
     inputRange: [start, end],
-    outputRange: [ROLL_DISTANCE, 0],
+    outputRange: [rollDistance, 0],
     extrapolate: 'clamp',
   });
 
@@ -66,7 +77,7 @@ export function CounterRoll({ from, to, progress, progressWindow, color = palett
         const oldDigit = old[i];
         if (oldDigit === nextDigit) {
           return (
-            <Text key={i} testID={`counter-digit-fixed-${i}`} style={[styles.digit, { color }]}>
+            <Text key={i} testID={`counter-digit-fixed-${i}`} style={[styles.digit, { color }, sizing]}>
               {nextDigit}
             </Text>
           );
@@ -75,7 +86,7 @@ export function CounterRoll({ from, to, progress, progressWindow, color = palett
           <View key={i}>
             <Animated.Text
               testID={`counter-digit-new-${i}`}
-              style={[styles.digit, { color }, { opacity: nextOpacity, transform: [{ translateY: nextY }] }]}
+              style={[styles.digit, { color }, sizing, { opacity: nextOpacity, transform: [{ translateY: nextY }] }]}
             >
               {nextDigit}
             </Animated.Text>
@@ -89,6 +100,7 @@ export function CounterRoll({ from, to, progress, progressWindow, color = palett
                 style={[
                   styles.digit,
                   { color },
+                  sizing,
                   styles.oldOverlay,
                   { opacity: oldOpacity, transform: [{ translateY: oldY }] },
                 ]}

@@ -457,7 +457,7 @@ describe('state machine across the screen', () => {
     });
     // p3 -> p4 is a day change, so the day 2 interstitial has to be there.
     expect(screen.getByTestId('player-interstitial')).toBeTruthy();
-    expect(screen.getByText('Tag')).toBeTruthy();
+    expect(screen.getByText('Tag 2')).toBeTruthy();
     expect(screen.getByLabelText('2')).toBeTruthy();
     expect(screen.getByText('11. August')).toBeTruthy();
   });
@@ -506,7 +506,7 @@ describe('day interstitial', () => {
     (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
     expect(await screen.findByTestId('player-interstitial')).toBeTruthy();
-    expect(screen.getByText('Tag')).toBeTruthy();
+    expect(screen.getByText('Tag 1')).toBeTruthy();
     expect(screen.getByLabelText('1')).toBeTruthy();
     // Place and date stand as their own staged lines now, the card owns the
     // whole screen and no longer squeezes them into one.
@@ -544,7 +544,7 @@ describe('day interstitial', () => {
     await fireEvent(screen.getByTestId('player-right'), 'pressIn');
     await fireEvent(screen.getByTestId('player-right'), 'pressOut');
     expect(await screen.findByTestId('player-interstitial')).toBeTruthy();
-    expect(screen.getByText('Tag')).toBeTruthy();
+    expect(screen.getByText('Tag 2')).toBeTruthy();
     expect(screen.getByLabelText('2')).toBeTruthy();
     expect(screen.getByText('11. August')).toBeTruthy();
   });
@@ -554,7 +554,7 @@ describe('day interstitial', () => {
     (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
     expect(screen.getByTestId('player-interstitial')).toBeTruthy();
-    expect(screen.getByText('Tag')).toBeTruthy();
+    expect(screen.getByText('Tag 1')).toBeTruthy();
     expect(screen.getByLabelText('1')).toBeTruthy();
     // The card is the show's breather: long after the old auto duration it
     // still stands, waiting for the person, not for a timer.
