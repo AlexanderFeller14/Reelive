@@ -494,29 +494,46 @@ function DayCard({
         )}
         <View style={[styles.interstitialBlock, { bottom: bottomInset + 76 }]}>
           {dayNumber !== null ? (
-            <Text style={[type.label, { color: cinema['text-2'] }]}>{`Tag ${dayNumber}`}</Text>
+            <Text style={[type.h3, { color: cinema['text-2'] }]}>{`Tag ${dayNumber}`}</Text>
           ) : (
             <Text style={[type.h1, { color: cinema['text-1'] }]}>Ein neuer Tag beginnt.</Text>
           )}
-          {/* The anchor line of the block: the place when there is one, the
-              date grown into its role when there is not. */}
+          {/* The anchor line of the block, grown into the display face: the
+              editorial title wants a WORD at poster size, not a heading. It
+              shrinks to fit on one line, a place like Quinta da Regaleira
+              must not wrap the poster line. The place when there is one, the
+              date in its role when there is not. */}
           {place ? (
             <>
-              <Text style={[type.h1, { color: cinema['text-1'], marginTop: spacing.xs }]}>{place}</Text>
+              <Text
+                style={[type.display, { color: cinema['text-1'], marginTop: spacing.xs }]}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.35}
+              >
+                {place}
+              </Text>
               {date && (
-                <Text style={[type.secondary, { color: cinema['text-2'], marginTop: spacing.xs }]}>
+                <Text style={[type.body, { color: cinema['text-2'], marginTop: spacing.xs }]}>
                   {date}
                 </Text>
               )}
             </>
           ) : (
             date && (
-              <Text style={[type.h1, { color: cinema['text-1'], marginTop: spacing.xs }]}>{date}</Text>
+              <Text
+                style={[type.display, { color: cinema['text-1'], marginTop: spacing.xs }]}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.35}
+              >
+                {date}
+              </Text>
             )
           )}
           {moments.length > 0 && (
             <>
-              <Text style={[type.secondary, { color: cinema['text-2'], marginTop: spacing.base }]}>
+              <Text style={[type.body, { color: cinema['text-2'], marginTop: spacing.base }]}>
                 {dayFactsText(moments)}
               </Text>
               <View testID="player-interstitial-faces" style={styles.interstitialFaces}>
