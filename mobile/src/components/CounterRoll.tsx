@@ -9,6 +9,10 @@ type Props = {
   // `progressWindow` says which fraction of it it rolls during.
   progress: Animated.Value;
   progressWindow: readonly [number, number];
+  // The trip counter lives on the light journal surface; the recap player's
+  // day card rolls the same signature inside the cinema. Colour is the only
+  // thing that differs between the two homes, hence a prop, not a copy.
+  color?: string;
 };
 
 // How far digits travel while rolling. A motion distance, not a distance
@@ -22,7 +26,7 @@ const ROLL_DISTANCE = 28;
 // are right-aligned on top of each other (ones on ones), so 9 → 10 rolls the
 // ones digit 9 → 0 and the new tens digit comes in alone, instead of "9"
 // being swapped for "10" as a whole.
-export function CounterRoll({ from, to, progress, progressWindow }: Props) {
+export function CounterRoll({ from, to, progress, progressWindow, color = palette['text-1'] }: Props) {
   const length = Math.max(String(from).length, String(to).length);
   const old = String(from).padStart(length, ' ');
   const next = String(to).padStart(length, ' ');
@@ -62,7 +66,7 @@ export function CounterRoll({ from, to, progress, progressWindow }: Props) {
         const oldDigit = old[i];
         if (oldDigit === nextDigit) {
           return (
-            <Text key={i} testID={`counter-digit-fixed-${i}`} style={styles.digit}>
+            <Text key={i} testID={`counter-digit-fixed-${i}`} style={[styles.digit, { color }]}>
               {nextDigit}
             </Text>
           );
@@ -71,7 +75,7 @@ export function CounterRoll({ from, to, progress, progressWindow }: Props) {
           <View key={i}>
             <Animated.Text
               testID={`counter-digit-new-${i}`}
-              style={[styles.digit, { opacity: nextOpacity, transform: [{ translateY: nextY }] }]}
+              style={[styles.digit, { color }, { opacity: nextOpacity, transform: [{ translateY: nextY }] }]}
             >
               {nextDigit}
             </Animated.Text>
@@ -84,6 +88,7 @@ export function CounterRoll({ from, to, progress, progressWindow }: Props) {
                 testID={`counter-digit-old-${i}`}
                 style={[
                   styles.digit,
+                  { color },
                   styles.oldOverlay,
                   { opacity: oldOpacity, transform: [{ translateY: oldY }] },
                 ]}

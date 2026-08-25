@@ -20,6 +20,7 @@ import * as Haptics from 'expo-haptics';
 import * as Linking from 'expo-linking';
 import { Download, MessageCircle, X } from 'lucide-react-native';
 import { Avatar } from '@/components/Avatar';
+import { CounterRoll } from '@/components/CounterRoll';
 import { PressScale } from '@/components/PressScale';
 import { ProgressBar } from '@/components/ProgressBar';
 import { Pill } from '@/components/Pill';
@@ -368,10 +369,12 @@ function VideoMoment({
 // hard cut on purpose: whoever taps has decided to move on, an animation in
 // the way would make the player feel less responsive, not more polished.
 function DayCard({
-  visible, heading, subheading, onSkip, reducedMotion,
+  visible, dayNumber, subheading, onSkip, reducedMotion,
 }: {
   visible: boolean;
-  heading: string;
+  // null when the day is unknown (a moment the day grouping could not place);
+  // the card then falls back to plain words instead of a number.
+  dayNumber: number | null;
   subheading: string | null;
   onSkip: () => void;
   reducedMotion: boolean;
@@ -386,6 +389,10 @@ function DayCard({
   // would make the player feel less responsive, not more polished.
   const [skipped, setSkipped] = useState(false);
   const [opacity] = useState(() => new Animated.Value(0));
+  // Drives the day number's digit roll, the app's counter signature now
+  // standing in the cinema: the day rolls up from the one before it, the
+  // same movement the trip counter makes when a moment is submitted.
+  const [rollProgress] = useState(() => new Animated.Value(0));
 
   if (visible && stage !== 'shown') {
     setStage('shown');
@@ -400,14 +407,28 @@ function DayCard({
       // Back to transparent first: after a skipped exit the value still
       // stands at 1, and the next day's card would appear without its fade.
       opacity.setValue(0);
+      rollProgress.setValue(reducedMotion ? 1 : 0);
       const enter = Animated.timing(opacity, {
         toValue: 1,
         duration: reducedMotion ? 200 : motion.duration.base,
         easing: Easing.bezier(...motion.easeSmooth),
         useNativeDriver: true,
       });
+      // The roll runs alongside the fade and outlasts it a little, so the
+      // number settles while the card already stands; reduced motion skips
+      // the roll entirely (the value is already at 1).
+      const roll = Animated.timing(rollProgress, {
+        toValue: 1,
+        duration: motion.duration.gentle,
+        easing: Easing.bezier(...motion.easeSmooth),
+        useNativeDriver: true,
+      });
       enter.start();
-      return () => enter.stop();
+      if (!reducedMotion) roll.start();
+      return () => {
+        enter.stop();
+        roll.stop();
+      };
     }
     if (stage === 'leaving') {
       const exit = Animated.timing(opacity, {
@@ -424,7 +445,7 @@ function DayCard({
       return () => exit.stop();
     }
     return undefined;
-  }, [stage, reducedMotion, opacity]);
+  }, [stage, reducedMotion, opacity, rollProgress]);
 
   if (stage === 'gone') return null;
   return (
@@ -440,7 +461,22 @@ function DayCard({
           onSkip();
         }}
       >
-        <Text style={[type.h1, styles.centeredText]}>{heading}</Text>
+        {dayNumber !== null ? (
+          <>
+            <Text style={[type.label, styles.centeredTextSecondary]}>Tag</Text>
+            {/* Day 1 stands still (there was no day before it to roll from),
+                every later day rolls up from its predecessor. */}
+            <CounterRoll
+              from={Math.max(1, dayNumber - 1)}
+              to={dayNumber}
+              progress={rollProgress}
+              progressWindow={[0, 1]}
+              color={cinema['text-1']}
+            />
+          </>
+        ) : (
+          <Text style={[type.h1, styles.centeredText]}>Ein neuer Tag beginnt.</Text>
+        )}
         {subheading && (
           <Text style={[type.secondary, styles.centeredTextSecondary, { marginTop: spacing.s }]}>
             {subheading}
@@ -1519,7 +1555,7 @@ export default function RecapPlayer() {
 
         <DayCard
           visible={interstitial}
-          heading={currentDay ? `Tag ${currentDay.number}` : 'Ein neuer Tag beginnt.'}
+          dayNumber={currentDay ? currentDay.number : null}
           subheading={currentDay ? daySubheading(currentDay) : null}
           onSkip={skip}
           reducedMotion={reducedMotion}

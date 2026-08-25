@@ -446,7 +446,8 @@ describe('state machine across the screen', () => {
     });
     // p3 -> p4 is a day change, so the day 2 interstitial has to be there.
     expect(screen.getByTestId('player-interstitial')).toBeTruthy();
-    expect(screen.getByText('Tag 2')).toBeTruthy();
+    expect(screen.getByText('Tag')).toBeTruthy();
+    expect(screen.getByLabelText('2')).toBeTruthy();
     expect(screen.getByText('11. August')).toBeTruthy();
   });
 
@@ -494,7 +495,8 @@ describe('day interstitial', () => {
     (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
     expect(await screen.findByTestId('player-interstitial')).toBeTruthy();
-    expect(screen.getByText('Tag 1')).toBeTruthy();
+    expect(screen.getByText('Tag')).toBeTruthy();
+    expect(screen.getByLabelText('1')).toBeTruthy();
     expect(screen.getByText('Lissabon · 10. August')).toBeTruthy();
     // The old single line must be gone, not merely joined differently.
     expect(screen.queryByText('Tag 1 · Lissabon · 10. August')).toBeNull();
@@ -508,7 +510,8 @@ describe('day interstitial', () => {
     await fireEvent(screen.getByTestId('player-right'), 'pressIn');
     await fireEvent(screen.getByTestId('player-right'), 'pressOut');
     expect(await screen.findByTestId('player-interstitial')).toBeTruthy();
-    expect(screen.getByText('Tag 2')).toBeTruthy();
+    expect(screen.getByText('Tag')).toBeTruthy();
+    expect(screen.getByLabelText('2')).toBeTruthy();
     expect(screen.getByText('11. August')).toBeTruthy();
   });
 
@@ -517,7 +520,8 @@ describe('day interstitial', () => {
     (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
     expect(screen.getByTestId('player-interstitial')).toBeTruthy();
-    expect(screen.getByText('Tag 1')).toBeTruthy();
+    expect(screen.getByText('Tag')).toBeTruthy();
+    expect(screen.getByLabelText('1')).toBeTruthy();
     await act(async () => {
       jest.advanceTimersByTime(1500);
     });
