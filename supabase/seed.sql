@@ -154,7 +154,19 @@ insert into public.posts (id, trip_id, author_id, type, media_ext, storage_key, 
   -- abläuft, die Karte muss auch mit lat/lng = null zurechtkommen.
   ('bbbbbbbb-0000-4000-8000-000000000013', 'aaaaaaaa-0000-4000-8000-000000000002', '11111111-1111-4111-8111-111111111111', 'photo', 'jpg', 'trips/lissabon/013.jpg', 'trips/lissabon/013_t.jpg', null, 'Im Museum, kein Empfang', '2026-05-09 15:20:00+01', 'Europe/Lisbon', null, null, null, 'uploaded', '2026-05-09 15:25:00+01'),
   ('bbbbbbbb-0000-4000-8000-000000000014', 'aaaaaaaa-0000-4000-8000-000000000002', '33333333-3333-4333-8333-333333333333', 'photo', 'jpg', 'trips/lissabon/014.jpg', 'trips/lissabon/014_t.jpg', null, null, '2026-05-10 21:40:00+01', 'Europe/Lisbon', null, null, null, 'uploaded', '2026-05-10 21:44:00+01'),
-  ('bbbbbbbb-0000-4000-8000-000000000015', 'aaaaaaaa-0000-4000-8000-000000000002', '44444444-4444-4444-8444-444444444444', 'video', 'mp4', 'trips/lissabon/015.mp4', 'trips/lissabon/015_t.jpg', 9.3, 'U-Bahn, Signal weg', '2026-05-11 19:05:00+01', 'Europe/Lisbon', null, null, null, 'uploaded', '2026-05-11 19:10:00+01')
+  ('bbbbbbbb-0000-4000-8000-000000000015', 'aaaaaaaa-0000-4000-8000-000000000002', '44444444-4444-4444-8444-444444444444', 'video', 'mp4', 'trips/lissabon/015.mp4', 'trips/lissabon/015_t.jpg', 9.3, 'U-Bahn, Signal weg', '2026-05-11 19:05:00+01', 'Europe/Lisbon', null, null, null, 'uploaded', '2026-05-11 19:10:00+01'),
+  -- Verdichtung für das Mosaik der Recap-Übersicht: Tag 2 auf sechs, Tag 3
+  -- auf acht Momente, damit alle Reihenformen sichtbar werden (Aufmacher plus
+  -- volle Dreierreihe am 09.05., zusätzlich eine Zweier-Restreihe am 10.05.).
+  -- Ohne diese Zeilen zeigte kein Seed-Tag mehr als vier Momente, und genau
+  -- die Muster, die die Übersicht seit dem Recap-Show-Umbau trägt, blieben
+  -- lokal unsichtbar.
+  ('bbbbbbbb-0000-4000-8000-000000000016', 'aaaaaaaa-0000-4000-8000-000000000002', '33333333-3333-4333-8333-333333333333', 'photo', 'jpg', 'trips/lissabon/016.jpg', 'trips/lissabon/016_t.jpg', null, 'Ginjinha, klebrig aber gut', '2026-05-09 11:35:00+01', 'Europe/Lisbon', 38.7146, -9.1394, 'Rossio', 'uploaded', '2026-05-09 11:41:00+01'),
+  ('bbbbbbbb-0000-4000-8000-000000000017', 'aaaaaaaa-0000-4000-8000-000000000002', '44444444-4444-4444-8444-444444444444', 'photo', 'jpg', 'trips/lissabon/017.jpg', 'trips/lissabon/017_t.jpg', null, 'Jerónimos, Schlange bis raus', '2026-05-09 12:55:00+01', 'Europe/Lisbon', 38.6979, -9.2063, 'Belém', 'uploaded', '2026-05-09 13:10:00+01'),
+  ('bbbbbbbb-0000-4000-8000-000000000018', 'aaaaaaaa-0000-4000-8000-000000000002', '11111111-1111-4111-8111-111111111111', 'photo', 'jpg', 'trips/lissabon/018.jpg', 'trips/lissabon/018_t.jpg', null, 'Regaleira, Brunnen abwärts', '2026-05-10 10:30:00+01', 'Europe/Lisbon', 38.7963, -9.3958, 'Quinta da Regaleira', 'uploaded', '2026-05-10 10:42:00+01'),
+  ('bbbbbbbb-0000-4000-8000-000000000019', 'aaaaaaaa-0000-4000-8000-000000000002', '33333333-3333-4333-8333-333333333333', 'photo', 'jpg', 'trips/lissabon/019.jpg', 'trips/lissabon/019_t.jpg', null, null, '2026-05-10 11:45:00+01', 'Europe/Lisbon', 38.7972, -9.3904, 'Sintra', 'uploaded', '2026-05-10 12:01:00+01'),
+  ('bbbbbbbb-0000-4000-8000-000000000020', 'aaaaaaaa-0000-4000-8000-000000000002', '44444444-4444-4444-8444-444444444444', 'video', 'mp4', 'trips/lissabon/020.mp4', 'trips/lissabon/020_t.jpg', 7.5, 'Bus zurück, Kurven ohne Ende', '2026-05-10 15:10:00+01', 'Europe/Lisbon', 38.7876, -9.3904, 'Sintra', 'uploaded', '2026-05-10 15:18:00+01'),
+  ('bbbbbbbb-0000-4000-8000-000000000021', 'aaaaaaaa-0000-4000-8000-000000000002', '11111111-1111-4111-8111-111111111111', 'photo', 'jpg', 'trips/lissabon/021.jpg', 'trips/lissabon/021_t.jpg', null, 'Abendlicht am Cais das Colunas', '2026-05-10 19:30:00+01', 'Europe/Lisbon', 38.7075, -9.1364, 'Cais das Colunas', 'uploaded', '2026-05-10 19:36:00+01')
 on conflict do nothing;
 
 -- Sardinien (archiviert)
