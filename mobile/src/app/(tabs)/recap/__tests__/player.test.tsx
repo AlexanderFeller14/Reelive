@@ -1015,11 +1015,17 @@ describe('pool renewal (V10)', () => {
 });
 
 describe('preloading (V8)', () => {
-  test('preloads the next three photos, a video in between does not count', async () => {
+  test('preloads the next three moments: photos in full, the video its poster only', async () => {
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
     (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
-    await wrap(); // start=0 (p1) -> successors p2 (video), p3, p4 -> only p3/p4 are photos
-    expect(mockPrefetch).toHaveBeenCalledWith([image('p3').medium_url, image('p4').medium_url]);
+    await wrap(); // start=0 (p1) -> successors p2 (video), p3, p4
+    expect(mockPrefetch).toHaveBeenCalledWith([
+      image('p2').thumb_url,
+      image('p3').medium_url,
+      image('p3').thumb_url,
+      image('p4').medium_url,
+      image('p4').thumb_url,
+    ]);
   });
 
   // Six photos follow the start here, so a preload count that is too
@@ -1040,7 +1046,14 @@ describe('preloading (V8)', () => {
       reason: null,
     });
     await wrap(); // start=0 (fa) -> successors fb..ff (5 photos) -> only the first THREE (fb,fc,fd)
-    expect(mockPrefetch).toHaveBeenCalledWith([image('fb').medium_url, image('fc').medium_url, image('fd').medium_url]);
+    expect(mockPrefetch).toHaveBeenCalledWith([
+      image('fb').medium_url,
+      image('fb').thumb_url,
+      image('fc').medium_url,
+      image('fc').thumb_url,
+      image('fd').medium_url,
+      image('fd').thumb_url,
+    ]);
     expect(mockPrefetch).not.toHaveBeenCalledWith(
       expect.arrayContaining([image('fe').medium_url, image('ff').medium_url])
     );
@@ -2235,7 +2248,13 @@ describe('the seal in front of the show', () => {
     (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
     expect(await screen.findByTestId('player-seal')).toBeTruthy();
-    expect(mockPrefetch).toHaveBeenCalledWith([image('p1').medium_url, image('p3').medium_url]);
+    expect(mockPrefetch).toHaveBeenCalledWith([
+      image('p1').medium_url,
+      image('p1').thumb_url,
+      image('p2').thumb_url,
+      image('p3').medium_url,
+      image('p3').thumb_url,
+    ]);
   });
 
   // Final whole-branch review: the seal stage on its own had no way out
@@ -2350,15 +2369,25 @@ describe('soft transitions while advancing', () => {
     await fireEvent(screen.getByTestId('player-right'), 'pressOut');
     const bridge = screen.getByTestId('player-bridge');
     expect(bridge.props.source).toEqual({ uri: image('p1').medium_url });
+    // On top of it the incoming moment's preview: the eye should land on
+    // what COMES, the leaving still is only the net under it.
+    expect(screen.getByTestId('player-bridge-arriving').props.source).toEqual({
+      uri: image('p2').thumb_url,
+    });
   });
 
-  test('a video leaves its poster still behind as the bridge, not its file', async () => {
+  test('leaving a video bridges forward, the incoming preview over its opening frame', async () => {
     mockParams = { id: 't1', start: '1' };
     await wrap();
     await fireEvent(screen.getByTestId('player-right'), 'pressIn');
     await fireEvent(screen.getByTestId('player-right'), 'pressOut');
-    // p2 is the video: only its thumbnail is a still the bridge can hold.
+    // p2 is the video: only its thumbnail is a still the bridge can hold,
+    // but that is its OPENING frame, a jump back in time after its last one.
     expect(screen.getByTestId('player-bridge').props.source).toEqual({ uri: image('p2').thumb_url });
+    // So the incoming moment's preview covers it and the cut looks forward.
+    expect(screen.getByTestId('player-bridge-arriving').props.source).toEqual({
+      uri: image('p3').thumb_url,
+    });
   });
 
   test('a video moment covers itself with its poster until the first frame is drawn', async () => {
@@ -2373,6 +2402,12 @@ describe('soft transitions while advancing', () => {
     expect(screen.getByTestId('player-video-poster')).toBeTruthy();
     await act(async () => {
       (screen.getByTestId('player-video').props.onFirstFrameRender as () => void)();
+    });
+    // The poster does not snap away: it fades while the real frame sharpens
+    // under it, and only leaves the tree once that fade is over.
+    expect(screen.getByTestId('player-video-poster')).toBeTruthy();
+    await act(async () => {
+      jest.advanceTimersByTime(150);
     });
     expect(screen.queryByTestId('player-video-poster')).toBeNull();
   });

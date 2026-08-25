@@ -71,8 +71,9 @@ import {
   setReaction,
 } from '@/features/recap/socialApi';
 
-// The next three photos are preloaded via expo-image (V8): tapping onward
-// must never flash black.
+// The next three moments are warmed via expo-image (V8): photos in full,
+// everything's thumbnail (see the prefetch effect). Tapping onward must
+// never flash black.
 const PRELOAD_COUNT = 3;
 // Story convention (Snapchat/Instagram): 250 ms separates a tap from a hold.
 const TAP_THRESHOLD_MS = 250;
@@ -311,6 +312,20 @@ function VideoMoment({
   // setup AFTER the player itself was long ready (preview.tsx), and exactly
   // that gap flashed dark between poster and picture.
   const [posterVisible, setPosterVisible] = useState(posterUrl !== null);
+  // The poster is a 480 px thumbnail blown up to the whole screen; snapping
+  // it away at the first frame made a visible sharpness POP. A short fade
+  // lets the real frame sharpen under it instead.
+  const [posterOpacity] = useState(() => new Animated.Value(1));
+  const dropPoster = () => {
+    Animated.timing(posterOpacity, {
+      toValue: 0,
+      duration: motion.duration.fast,
+      easing: Easing.bezier(...motion.easeSmooth),
+      useNativeDriver: true,
+    }).start(({ finished }) => {
+      if (finished) setPosterVisible(false);
+    });
+  };
 
   useEffect(() => {
     const endedSub = player.addListener('playToEnd', onEnded);
@@ -339,16 +354,21 @@ function VideoMoment({
         contentFit="cover"
         nativeControls={false}
         allowsPictureInPicture={false}
-        onFirstFrameRender={() => setPosterVisible(false)}
+        onFirstFrameRender={dropPoster}
       />
       {posterVisible && posterUrl && (
-        <Image
-          testID="player-video-poster"
-          source={{ uri: posterUrl }}
-          style={StyleSheet.absoluteFill}
-          contentFit="cover"
-          accessible={false}
-        />
+        <Animated.View
+          style={[StyleSheet.absoluteFill, { opacity: posterOpacity }]}
+          pointerEvents="none"
+        >
+          <Image
+            testID="player-video-poster"
+            source={{ uri: posterUrl }}
+            style={StyleSheet.absoluteFill}
+            contentFit="cover"
+            accessible={false}
+          />
+        </Animated.View>
       )}
     </View>
   );
@@ -618,10 +638,19 @@ export default function RecapPlayer() {
   // player visible without its seal for one frame after mount.
   const [sealed, setSealed] = useState(() => mode === 'show');
   // See the derivation right before the render below; starts empty, the very
-  // first moment has nothing to bridge over.
-  const [bridge, setBridge] = useState<{ index: number; uri: string | null }>(
-    () => ({ index: parseStartIndex(startParam, Number.MAX_SAFE_INTEGER), uri: null })
-  );
+  // first moment has nothing to bridge over. Two layers: `leavingUri` is the
+  // still of the moment being left (the safety net against the cinema ground
+  // flashing), `arrivingUri` is the incoming moment's thumbnail on top of it
+  // (the preview the eye should land on while the full picture loads).
+  const [bridge, setBridge] = useState<{
+    index: number;
+    leavingUri: string | null;
+    arrivingUri: string | null;
+  }>(() => ({
+    index: parseStartIndex(startParam, Number.MAX_SAFE_INTEGER),
+    leavingUri: null,
+    arrivingUri: null,
+  }));
 
   const [phase, setPhase] = useState<LoadPhase>('loading');
   // The error and the question whether a second attempt achieves anything in
@@ -1150,10 +1179,20 @@ export default function RecapPlayer() {
     // runs the current image is already showing, and prefetching it again
     // would be pointless, so the window shifts to start only after it.
     const from = sealed ? state.index : state.index + 1;
+    // Photos warm their full picture AND their thumbnail, videos their
+    // thumbnail only (their full file is the player's business, warmed in
+    // videoWarm below). The thumbnails feed the bridge's arriving layer and
+    // the video poster: both must draw on the very frame of the advance, a
+    // network round trip there IS the flash they exist to prevent.
     const upcomingUrls = playlist
       .slice(from, from + PRELOAD_COUNT)
-      .filter((m) => m.type === 'photo')
-      .map((m) => urls.get(m.id)?.medium_url)
+      .flatMap((m) => {
+        const mediaUrl = urls.get(m.id);
+        if (!mediaUrl) return [];
+        return m.type === 'photo'
+          ? [mediaUrl.medium_url, mediaUrl.thumb_url]
+          : [mediaUrl.thumb_url];
+      })
       .filter((u): u is string => !!u);
     if (upcomingUrls.length > 0) void Image.prefetch(upcomingUrls);
   }, [phase, state.index, playlist, urls, sealed]);
@@ -1435,7 +1474,16 @@ export default function RecapPlayer() {
     const left = playlist[bridge.index];
     const leftUrl = left ? urls.get(left.id) : undefined;
     const still = left?.type === 'video' ? leftUrl?.thumb_url : leftUrl?.medium_url;
-    setBridge({ index: state.index, uri: still ?? null });
+    // The arriving layer lies ABOVE the leaving one: leaving a video used to
+    // bridge with that video's OPENING frame (its only still), a visible jump
+    // back in time after its last frame. The incoming moment's thumbnail
+    // looks FORWARD instead; the leaving still below only shows if that
+    // thumbnail has not arrived yet (it is prefetched, so rarely).
+    setBridge({
+      index: state.index,
+      leavingUri: still ?? null,
+      arrivingUri: url?.thumb_url ?? null,
+    });
   }
   const placeTimeText = activeMoment.place_name
     ? `${activeMoment.place_name} · ${timeInZone(activeMoment.captured_at, activeMoment.captured_tz)}`
@@ -1444,10 +1492,19 @@ export default function RecapPlayer() {
   return (
     <View testID="player-ready" style={styles.screen}>
       <Animated.View style={[styles.content, { transform: pan.getTranslateTransform() }]} {...panResponder.panHandlers}>
-        {bridge.uri && (
+        {bridge.leavingUri && (
           <Image
             testID="player-bridge"
-            source={{ uri: bridge.uri }}
+            source={{ uri: bridge.leavingUri }}
+            style={StyleSheet.absoluteFill}
+            contentFit="cover"
+            accessible={false}
+          />
+        )}
+        {bridge.arrivingUri && (
+          <Image
+            testID="player-bridge-arriving"
+            source={{ uri: bridge.arrivingUri }}
             style={StyleSheet.absoluteFill}
             contentFit="cover"
             accessible={false}
