@@ -15,7 +15,7 @@ import {
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { setStatusBarStyle } from 'expo-status-bar';
 import { Image } from 'expo-image';
-import { useVideoPlayer, VideoView } from 'expo-video';
+import { createVideoPlayer, VideoView } from 'expo-video';
 import * as Haptics from 'expo-haptics';
 import * as Linking from 'expo-linking';
 import { Download, MessageCircle, X } from 'lucide-react-native';
@@ -43,6 +43,12 @@ import {
   retryHelps,
   type MediaUrl,
 } from '@/features/recap/urlPool';
+import {
+  adoptWarmVideo,
+  holdWarmVideo,
+  releaseWarmVideo,
+  warmVideoUrl,
+} from '@/features/recap/videoWarm';
 import {
   blocksAutoAdvance,
   durationFor,
@@ -293,25 +299,35 @@ function VideoMoment({
   onEnded: () => void;
   onError: () => void;
 }) {
-  const player = useVideoPlayer(url, (p) => {
-    p.loop = false;
-    p.play();
+  // Adopts the preloaded player when the screen warmed one for exactly this
+  // url (the ordinary forward advance); otherwise builds its own on the spot
+  // (entering backwards, deep starts). Either way THIS component owns the
+  // player from here on and releases it on unmount, the slot's ownership
+  // ended with the adoption.
+  const [player] = useState(() => {
+    const warm = adoptWarmVideo(url);
+    if (warm) return warm;
+    const fresh = createVideoPlayer(url);
+    fresh.loop = false;
+    return fresh;
   });
   // The native view stands opaque before it has frames, so the bridge under
   // this moment cannot help here: the cover must lie ON TOP of the view and
-  // step aside once the player reports it is ready. Same poster-bridge idea
-  // as the capture preview (see the Video-Vorschau notes), just one-way.
+  // step aside only once the first frame is really DRAWN. `readyToPlay`
+  // would be too early: the capture preview measured ~0.8 s of native view
+  // setup AFTER the player itself was long ready (preview.tsx), and exactly
+  // that gap flashed dark between poster and picture.
   const [posterVisible, setPosterVisible] = useState(posterUrl !== null);
 
   useEffect(() => {
     const endedSub = player.addListener('playToEnd', onEnded);
     const statusSub = player.addListener('statusChange', (payload: { status: string }) => {
       if (payload.status === 'error') onError();
-      if (payload.status === 'readyToPlay') setPosterVisible(false);
     });
     return () => {
       endedSub.remove();
       statusSub.remove();
+      player.release();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [player]);
@@ -330,6 +346,7 @@ function VideoMoment({
         contentFit="cover"
         nativeControls={false}
         allowsPictureInPicture={false}
+        onFirstFrameRender={() => setPosterVisible(false)}
       />
       {posterVisible && posterUrl && (
         <Image
@@ -941,6 +958,21 @@ export default function RecapPlayer() {
   // MUST take back MOMENT_CHANGE_REASONS itself here, otherwise the NEXT
   // moment would stand still silently after a preceding hold gesture or while
   // a retry was running.
+  // The day card's pause reason travels WITH the index change: the setting
+  // effect below only runs after the commit, and that one frame showed the
+  // new moment bare before the card covered it, a visible blink on every
+  // day change. The effect still owns the card's 1.5 s timer and the
+  // removal; finding the reason already present is a no-op for it.
+  const pausedAfterMove = useCallback(
+    (paused: ReadonlySet<PauseReason>, nextIndex: number) => {
+      const cleared = withoutReasons(paused, MOMENT_CHANGE_REASONS);
+      return dayChanges(playlist, startDate, nextIndex)
+        ? withReason(cleared, 'zwischenkarte')
+        : cleared;
+    },
+    [playlist, startDate]
+  );
+
   const advanceAutomatically = useCallback(() => {
     void checkAndRefreshPoolInBackground();
     const result = advance(state, playlist.length);
@@ -948,8 +980,8 @@ export default function RecapPlayer() {
       setPhase('ended');
       return;
     }
-    setState({ ...result, paused: withoutReasons(result.paused, MOMENT_CHANGE_REASONS) });
-  }, [state, playlist.length, checkAndRefreshPoolInBackground]);
+    setState({ ...result, paused: pausedAfterMove(result.paused, result.index) });
+  }, [state, playlist.length, checkAndRefreshPoolInBackground, pausedAfterMove]);
   // Ref indirection (same pattern as SealAnimation.tsx/onFinishedRef): the
   // auto-advance timer and the video-end event always call the newest version
   // without their own effects having to be set up again on every render.
@@ -1045,6 +1077,27 @@ export default function RecapPlayer() {
     if (upcomingUrls.length > 0) void Image.prefetch(upcomingUrls);
   }, [phase, state.index, playlist, urls, sealed]);
 
+  // The image prefetch above cannot help a VIDEO: its cost is not the bytes
+  // but building and loading the native player, which used to happen on the
+  // tap itself, the stutter every advance into a video carried. The NEXT
+  // video's player is therefore built here, while the current story still
+  // runs, and the video moment adopts it (videoWarm.ts) instead of building
+  // its own. Held without play(): starting belongs to the moment, a warm
+  // player must neither sound nor run its timeline in the background.
+  useEffect(() => {
+    if (sealed || phase !== 'ready') return;
+    const next = playlist[state.index + 1];
+    const nextUrl = next?.type === 'video' ? urls.get(next.id)?.medium_url : undefined;
+    if (!nextUrl || warmVideoUrl() === nextUrl) return;
+    const player = createVideoPlayer(nextUrl);
+    player.loop = false;
+    holdWarmVideo(nextUrl, player);
+  }, [sealed, phase, state.index, playlist, urls]);
+
+  // Whatever is still warm when the player screen goes belongs to nobody
+  // else: release it, or the native player leaks past the screen.
+  useEffect(() => () => releaseWarmVideo(), []);
+
   // A tap SKIPS the interstitial card without also advancing to the next
   // moment: the card is the only `Pressable` at this place on screen, it is
   // rendered LAST and structurally lies above the two tap zones below it, so a
@@ -1108,12 +1161,12 @@ export default function RecapPlayer() {
           setPhase('ended');
           return;
         }
-        setState({ ...result, paused: withoutReasons(result.paused, MOMENT_CHANGE_REASONS) });
+        setState({ ...result, paused: pausedAfterMove(result.paused, result.index) });
         return;
       }
       void checkAndRefreshPoolInBackground();
       const backResult = goBack(state);
-      setState({ ...backResult, paused: withoutReasons(backResult.paused, MOMENT_CHANGE_REASONS) });
+      setState({ ...backResult, paused: pausedAfterMove(backResult.paused, backResult.index) });
       return;
     }
     setState((s) => ({ ...s, paused: withoutReason(s.paused, 'halten') }));

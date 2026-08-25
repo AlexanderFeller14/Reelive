@@ -89,26 +89,35 @@ const mockVideoPlayer = {
   loop: false,
   play: jest.fn(),
   pause: jest.fn(),
+  release: jest.fn(),
   addListener: jest.fn((event: string, cb: (payload?: unknown) => void) => {
     mockListeners[event] = mockListeners[event] ?? [];
     mockListeners[event].push(cb);
     return { remove: jest.fn() };
   }),
 };
-const mockUseVideoPlayer = jest.fn((source: unknown, setup?: (p: typeof mockVideoPlayer) => void) => {
+// One shared player object for every create: the warm slot and the adopting
+// moment must end up talking to the SAME player, which this mirrors. The
+// fixture list carries a single video, so a warm-up for a coming video and
+// the listeners of a currently playing one never overlap here.
+const mockCreateVideoPlayer = jest.fn((source: unknown) => {
   if (source !== mockLastSource) {
     for (const key of Object.keys(mockListeners)) delete mockListeners[key];
     mockLastSource = source;
-    setup?.(mockVideoPlayer);
   }
   return mockVideoPlayer;
 });
 jest.mock('expo-video', () => ({
-  useVideoPlayer: (source: unknown, setup?: (p: unknown) => void) => mockUseVideoPlayer(source, setup),
+  createVideoPlayer: (source: unknown) => mockCreateVideoPlayer(source),
   VideoView: (props: Record<string, unknown>) => {
     const ReactActual = require('react');
     const { View } = require('react-native');
-    return ReactActual.createElement(View, { testID: props.testID });
+    return ReactActual.createElement(View, {
+      testID: props.testID,
+      // The poster falls only on the really drawn first frame; tests fire
+      // this the way the native view would.
+      onFirstFrameRender: props.onFirstFrameRender,
+    });
   },
 }));
 
@@ -184,6 +193,7 @@ import {
 import type { RecapMoment } from '@/features/recap/types';
 import { saveMomentToGallery } from '@/features/recap/exportApi';
 import { reportMoment } from '@/features/recap/reportApi';
+import { releaseWarmVideo } from '@/features/recap/videoWarm';
 
 const trip = {
   id: 't1', name: 'Lissabon Städtetrip', start_date: '2026-08-10', end_date: '2026-08-14',
@@ -232,6 +242,9 @@ async function wrap() {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  // The warm slot is a real module with real state; a player held by one
+  // test must not leak into the next.
+  releaseWarmVideo();
   for (const key of Object.keys(mockListeners)) delete mockListeners[key];
   mockLastSource = undefined;
   mockCanGoBack = true;
@@ -2316,14 +2329,52 @@ describe('soft transitions while advancing', () => {
     expect(screen.getByTestId('player-bridge').props.source).toEqual({ uri: image('p2').thumb_url });
   });
 
-  test('a video moment covers itself with its poster until it can play', async () => {
+  test('a video moment covers itself with its poster until the first frame is drawn', async () => {
     mockParams = { id: 't1', start: '1' };
     await wrap();
     expect(screen.getByTestId('player-video-poster').props.source).toEqual({ uri: image('p2').thumb_url });
+    // readyToPlay is deliberately NOT the trigger: the native view needs its
+    // own setup time after that, and the poster must outlast it.
     await act(async () => {
       mockListeners.statusChange?.forEach((cb) => cb({ status: 'readyToPlay' }));
     });
+    expect(screen.getByTestId('player-video-poster')).toBeTruthy();
+    await act(async () => {
+      (screen.getByTestId('player-video').props.onFirstFrameRender as () => void)();
+    });
     expect(screen.queryByTestId('player-video-poster')).toBeNull();
+  });
+
+  test("the next video's player is warmed while the photo before it still stands", async () => {
+    mockParams = { id: 't1', start: '0' };
+    await wrap();
+    // p1 (a photo) is on screen, p2 (the video) is next: its player already
+    // exists, built during p1's screen time instead of on the tap.
+    expect(mockCreateVideoPlayer).toHaveBeenCalledWith(image('p2').medium_url);
+    expect(screen.queryByTestId('player-video')).toBeNull();
+  });
+
+  test('advancing into the video adopts the warm player instead of building a second one', async () => {
+    mockParams = { id: 't1', start: '0' };
+    await wrap();
+    await fireEvent.press(screen.getByTestId('player-interstitial'));
+    const createsWhileWarming = mockCreateVideoPlayer.mock.calls.length;
+    await fireEvent(screen.getByTestId('player-right'), 'pressIn');
+    await fireEvent(screen.getByTestId('player-right'), 'pressOut');
+    expect(screen.getByTestId('player-video')).toBeTruthy();
+    expect(mockCreateVideoPlayer.mock.calls.length).toBe(createsWhileWarming);
+  });
+
+  test('leaving the screen releases whatever is still warm, nothing leaks', async () => {
+    mockParams = { id: 't1', start: '0' };
+    const utils = await wrap();
+    expect(mockCreateVideoPlayer).toHaveBeenCalled();
+    // Unmount effects flush asynchronously; without the act the assertion
+    // would race the cleanup it asserts.
+    await act(async () => {
+      utils.unmount();
+    });
+    expect(mockVideoPlayer.release).toHaveBeenCalled();
   });
 
   test('the day card fades in instead of popping', async () => {
