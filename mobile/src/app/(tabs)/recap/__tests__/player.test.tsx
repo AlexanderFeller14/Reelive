@@ -497,8 +497,10 @@ describe('day interstitial', () => {
     expect(await screen.findByTestId('player-interstitial')).toBeTruthy();
     expect(screen.getByText('Tag')).toBeTruthy();
     expect(screen.getByLabelText('1')).toBeTruthy();
-    expect(screen.getByText('Lissabon · 10. August')).toBeTruthy();
-    // The old single line must be gone, not merely joined differently.
+    // Place and date stand as their own staged lines now, the card owns the
+    // whole screen and no longer squeezes them into one.
+    expect(screen.getByText('Lissabon')).toBeTruthy();
+    expect(screen.getByText('10. August')).toBeTruthy();
     expect(screen.queryByText('Tag 1 · Lissabon · 10. August')).toBeNull();
   });
 
@@ -515,25 +517,27 @@ describe('day interstitial', () => {
     expect(screen.getByText('11. August')).toBeTruthy();
   });
 
-  test('appears before the very first moment and disappears on its own after 1.5 seconds', async () => {
+  test('appears before the very first moment and stands until it is tapped, it has no clock', async () => {
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
     (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
     expect(screen.getByTestId('player-interstitial')).toBeTruthy();
     expect(screen.getByText('Tag')).toBeTruthy();
     expect(screen.getByLabelText('1')).toBeTruthy();
+    // The card is the show's breather: long after the old auto duration it
+    // still stands, waiting for the person, not for a timer.
     await act(async () => {
-      jest.advanceTimersByTime(1500);
+      jest.advanceTimersByTime(60_000);
     });
-    // The pause reason is gone, but the card itself leaves through a fade:
-    // it may still stand in the tree for the fade's duration.
+    expect(screen.getByTestId('player-interstitial')).toBeTruthy();
+    await fireEvent.press(screen.getByTestId('player-interstitial'));
+    // Leaving happens through the exit fade, the staged hand-off into the day.
     await act(async () => {
       jest.advanceTimersByTime(600);
     });
     expect(screen.queryByTestId('player-interstitial')).toBeNull();
-    // The normal auto advance runs on from HERE (not from the reason's end,
-    // minus what the fade already consumed): p1 moves to p2 one photo
-    // duration after the 1500 ms.
+    // The story's own clock starts with the tap: p1 moves to p2 one photo
+    // duration later (600 ms of it already spent during the fade).
     await act(async () => {
       jest.advanceTimersByTime(4400);
     });
@@ -556,6 +560,11 @@ describe('day interstitial', () => {
     (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
     await fireEvent.press(screen.getByTestId('player-interstitial'));
+    // The card leaves through its fade; what matters is that the STORY did
+    // not advance along with the skip.
+    await act(async () => {
+      jest.advanceTimersByTime(600);
+    });
     expect(screen.queryByTestId('player-interstitial')).toBeNull();
     expect(screen.getByTestId('player-photo').props.source).toEqual({ uri: image('p1').medium_url });
   });
@@ -621,7 +630,8 @@ describe('day interstitial', () => {
     expect(mockVideoPlayer.pause).toHaveBeenCalled();
 
     // Even after durationFor(p2v) = 1000 ms AND playToEnd, the moment stays
-    // put while the interstitial is still standing (1.5 s > 1 s).
+    // put: the standing card blocks every advance, and it has no clock of
+    // its own that could open the gate behind the person's back.
     await act(async () => {
       jest.advanceTimersByTime(1000);
       mockListeners.playToEnd?.forEach((cb) => cb());
@@ -629,10 +639,8 @@ describe('day interstitial', () => {
     expect(screen.getByTestId('player-interstitial')).toBeTruthy();
     expect(screen.getByTestId('player-video')).toBeTruthy();
 
-    await act(async () => {
-      jest.advanceTimersByTime(500); // 1500 ms in total since the day change
-    });
-    // The card leaves through its fade now, so give it that time as well.
+    // Only the tap sends the day off, through the exit fade.
+    await fireEvent.press(screen.getByTestId('player-interstitial'));
     await act(async () => {
       jest.advanceTimersByTime(600);
     });
@@ -645,11 +653,11 @@ describe('day interstitial', () => {
     expect(screen.getByTestId('player-end')).toBeTruthy();
   });
 
-  // Skipping the interstitial by tap leaves its timer orphaned: the deps of
-  // that effect do not change, so there is no cleanup and no rerun, and the
-  // timer still fires later, when the player may be paused for a completely
-  // different reason.
-  test('skipping the interstitial and then opening the comment sheet keeps the player paused when the orphaned timer fires', async () => {
+  // The card used to run a 1.5 s clock whose orphaned timer once unpaused an
+  // open comment sheet, a whole class of bugs. The clock is gone: the card
+  // waits for the person. This guard keeps anyone from quietly giving it a
+  // clock again.
+  test('skipping the card and opening the comment sheet stays paused, no leftover clock interferes', async () => {
     const p2v = moment({
       id: 'p2v', type: 'video', duration_s: 3, captured_at: '2026-08-11T09:00:00.000Z', place_name: null,
     });
@@ -665,35 +673,23 @@ describe('day interstitial', () => {
       reason: null,
     });
     await wrap();
-    // Step 1: the day change shows the day 2 interstitial and starts its
-    // 1.5 s timer T (t=0 from here on).
     await fireEvent(screen.getByTestId('player-right'), 'pressIn');
     await fireEvent(screen.getByTestId('player-right'), 'pressOut');
     expect(screen.getByTestId('player-interstitial')).toBeTruthy();
 
-    // Step 2: tap the interstitial at t=200 ms (skip). T lives on, orphaned.
-    await act(async () => {
-      jest.advanceTimersByTime(200);
-    });
     await fireEvent.press(screen.getByTestId('player-interstitial'));
-    expect(screen.queryByTestId('player-interstitial')).toBeNull();
-
-    // Step 3: at t=400 ms open the comment sheet, which really pauses the
-    // video (player.pause()).
     await act(async () => {
-      jest.advanceTimersByTime(200);
+      jest.advanceTimersByTime(600); // the exit fade
     });
     await fireEvent.press(screen.getByTestId('player-comments-open'));
     expect(screen.getByTestId('comment-input')).toBeTruthy(); // sheet is open
     const playCallsOnOpen = mockVideoPlayer.play.mock.calls.length;
     const pauseCallsOnOpen = mockVideoPlayer.pause.mock.calls.length;
 
-    // Step 4: at t=1500 ms in total the orphaned timer T fires. It may only
-    // take back its own pause reason, never the one the sheet set.
+    // Nothing may unpause the sheet from the background, however long we wait.
     await act(async () => {
-      jest.advanceTimersByTime(1100); // 200 + 200 + 1100 = 1500
+      jest.advanceTimersByTime(10_000);
     });
-
     expect(mockVideoPlayer.play.mock.calls.length).toBe(playCallsOnOpen);
     expect(mockVideoPlayer.pause.mock.calls.length).toBe(pauseCallsOnOpen);
     expect(screen.getByTestId('comment-input')).toBeTruthy(); // sheet still open
@@ -2394,11 +2390,18 @@ describe('soft transitions while advancing', () => {
     timingSpy.mockRestore();
   });
 
-  test('a tap on the day card still cuts hard: whoever taps wants to move on now', async () => {
+  test('the tap sends the day off through a fade, the staged hand-off into the story', async () => {
     mockParams = { id: 't1', start: '0' };
     await wrap();
     expect(screen.getByTestId('player-interstitial')).toBeTruthy();
     await fireEvent.press(screen.getByTestId('player-interstitial'));
+    // Still in the tree right after the tap: the fade carries it out. Since
+    // the tap is the ONLY exit now, it deserves the transition; the old
+    // hard cut belonged to a card that also left on its own clock.
+    expect(screen.getByTestId('player-interstitial')).toBeTruthy();
+    await act(async () => {
+      jest.advanceTimersByTime(600);
+    });
     expect(screen.queryByTestId('player-interstitial')).toBeNull();
   });
 });

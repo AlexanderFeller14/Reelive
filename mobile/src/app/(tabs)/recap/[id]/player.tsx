@@ -37,7 +37,7 @@ import { saveMomentToGallery } from '@/features/recap/exportApi';
 import { reportMoment, REPORT_MAX_LENGTH } from '@/features/recap/reportApi';
 import { groupByDays } from '@/features/recap/days';
 import { playerMode } from '@/features/recap/playerEntry';
-import type { Comment, Reaction, RecapMoment, RecapDay } from '@/features/recap/types';
+import type { Comment, Reaction, RecapMoment } from '@/features/recap/types';
 import {
   getPool,
   isSoonExpiring,
@@ -74,7 +74,6 @@ import {
 // The next three photos are preloaded via expo-image (V8): tapping onward
 // must never flash black.
 const PRELOAD_COUNT = 3;
-const INTERSTITIAL_DURATION_MS = 1500;
 // Story convention (Snapchat/Instagram): 250 ms separates a tap from a hold.
 const TAP_THRESHOLD_MS = 250;
 // Task 8, Phase 6: a long press opens "report this moment". Deliberately
@@ -111,8 +110,8 @@ const SEAL_STAGE_MAX = 416;
 // Reasons that belong to the moment being LEFT and are taken back on every
 // ACTUAL index change, never carried over to the NEW moment. 'kommentare'
 // and 'zwischenkarte' deliberately do NOT belong here: 'kommentare' hangs on
-// the sheet (it is taken back by closeComments), 'zwischenkarte' manages
-// itself through its own effect.
+// the sheet (it is taken back by closeComments), 'zwischenkarte' is only
+// ever taken back by the day card's own tap, the card has no clock.
 const MOMENT_CHANGE_REASONS: PauseReason[] = ['halten', 'neuversuch'];
 
 // Fixed small emoji bar (Task-12 brief: no picker, no new package). `id` is
@@ -147,13 +146,6 @@ function formatDayDate(iso: string): string {
   const [, m, d] = iso.split('-').map(Number);
   return `${d}. ${MONTHS_LONG[m - 1]}`;
 }
-// Second line of the interstitial card, staged BELOW the day number rather
-// than joined onto it (recap-show plan, Task 3): this is the staging the
-// overview's own day headings are meant to move to as well, later.
-function daySubheading(day: RecapDay): string {
-  return day.place ? `${day.place} · ${formatDayDate(day.date)}` : formatDayDate(day.date);
-}
-
 // Unlike preview.tsx (where moment time and device time are the same, because
 // the shot is taken live) this strictly needs Intl.DateTimeFormat with
 // `timeZone`, there is no Intl-free way.
@@ -368,14 +360,22 @@ function VideoMoment({
 // card, which covers the card-to-picture hand-off for free. A TAP stays a
 // hard cut on purpose: whoever taps has decided to move on, an animation in
 // the way would make the player feel less responsive, not more polished.
+// The day card is the deliberate breather of the show: it covers the whole
+// screen, pauses everything behind it, and STAYS until a tap sends the day
+// off. Its centre carries the app's counter signature (the day number in
+// the 84 pt light face, rolling up from the day before), its foot carries
+// the quiet invitation onward. Since the tap is the only exit, it leaves
+// through a fade into the waiting story rather than a hard cut: leaving IS
+// the staged transition into the day now, not an interruption of one.
 function DayCard({
-  visible, dayNumber, subheading, onSkip, reducedMotion,
+  visible, dayNumber, place, date, onSkip, reducedMotion,
 }: {
   visible: boolean;
-  // null when the day is unknown (a moment the day grouping could not place);
-  // the card then falls back to plain words instead of a number.
+  // null when the day is unknown (a moment the day grouping could not
+  // place); the card then falls back to plain words instead of a number.
   dayNumber: number | null;
-  subheading: string | null;
+  place: string | null;
+  date: string | null;
   onSkip: () => void;
   reducedMotion: boolean;
 }) {
@@ -384,28 +384,19 @@ function DayCard({
   // must flip in the very render that flips `visible`, an effect would show
   // one stale frame first, which is exactly the pop this card is curing.
   const [stage, setStage] = useState<'shown' | 'leaving' | 'gone'>(visible ? 'shown' : 'gone');
-  // A tap is the second, deliberately different exit: whoever taps has
-  // decided to move on, so the card cuts instead of fading, anything else
-  // would make the player feel less responsive, not more polished.
-  const [skipped, setSkipped] = useState(false);
   const [opacity] = useState(() => new Animated.Value(0));
   // Drives the day number's digit roll, the app's counter signature now
   // standing in the cinema: the day rolls up from the one before it, the
   // same movement the trip counter makes when a moment is submitted.
   const [rollProgress] = useState(() => new Animated.Value(0));
 
-  if (visible && stage !== 'shown') {
-    setStage('shown');
-    if (skipped) setSkipped(false);
-  }
-  if (!visible && stage === 'shown') {
-    setStage(skipped ? 'gone' : 'leaving');
-  }
+  if (visible && stage !== 'shown') setStage('shown');
+  if (!visible && stage === 'shown') setStage('leaving');
 
   useEffect(() => {
     if (stage === 'shown') {
-      // Back to transparent first: after a skipped exit the value still
-      // stands at 1, and the next day's card would appear without its fade.
+      // Back to transparent first: after an exit the value stands at 0
+      // already, but a re-entry interrupted mid-fade must not start bright.
       opacity.setValue(0);
       rollProgress.setValue(reducedMotion ? 1 : 0);
       const enter = Animated.timing(opacity, {
@@ -453,35 +444,45 @@ function DayCard({
     // exit fade belongs to the story zones underneath, not to a card that is
     // already gone in all but pixels.
     <Animated.View style={[styles.interstitial, { opacity }]} pointerEvents={visible ? 'auto' : 'none'}>
-      <Pressable
-        testID="player-interstitial"
-        style={styles.interstitialPress}
-        onPress={() => {
-          setSkipped(true);
-          onSkip();
-        }}
-      >
-        {dayNumber !== null ? (
-          <>
-            <Text style={[type.label, styles.centeredTextSecondary]}>Tag</Text>
-            {/* Day 1 stands still (there was no day before it to roll from),
-                every later day rolls up from its predecessor. */}
-            <CounterRoll
-              from={Math.max(1, dayNumber - 1)}
-              to={dayNumber}
-              progress={rollProgress}
-              progressWindow={[0, 1]}
-              color={cinema['text-1']}
-            />
-          </>
-        ) : (
-          <Text style={[type.h1, styles.centeredText]}>Ein neuer Tag beginnt.</Text>
-        )}
-        {subheading && (
-          <Text style={[type.secondary, styles.centeredTextSecondary, { marginTop: spacing.s }]}>
-            {subheading}
-          </Text>
-        )}
+      <Pressable testID="player-interstitial" style={styles.interstitialPress} onPress={onSkip}>
+        {/* The centre grows into all the room the screen has; the foot line
+            sits at the bottom, so the card genuinely inhabits the full
+            surface instead of clumping in the middle. */}
+        <View style={styles.interstitialCentre}>
+          {dayNumber !== null ? (
+            <>
+              <Text style={[type.label, styles.centeredTextSecondary]}>Tag</Text>
+              {/* Day 1 stands still (there was no day before it to roll
+                  from), every later day rolls up from its predecessor. */}
+              <CounterRoll
+                from={Math.max(1, dayNumber - 1)}
+                to={dayNumber}
+                progress={rollProgress}
+                progressWindow={[0, 1]}
+                color={cinema['text-1']}
+              />
+            </>
+          ) : (
+            <Text style={[type.h1, styles.centeredText]}>Ein neuer Tag beginnt.</Text>
+          )}
+          {place && (
+            <Text style={[type.h2, styles.centeredText, { marginTop: spacing.base }]}>{place}</Text>
+          )}
+          {date && (
+            <Text
+              style={[
+                type.secondary,
+                styles.centeredTextSecondary,
+                { marginTop: place ? spacing.xs : spacing.base },
+              ]}
+            >
+              {date}
+            </Text>
+          )}
+        </View>
+        <Text style={[type.secondary, styles.centeredTextSecondary, styles.interstitialHint]}>
+          Weiter mit einem Tipp.
+        </Text>
       </Pressable>
     </Animated.View>
   );
@@ -1064,35 +1065,17 @@ export default function RecapPlayer() {
     return () => clearTimeout(timer);
   }, [sealed, phase, state.paused, state.index, state.progress, playlist]);
 
-  // Day interstitial card: appears BEFORE the first moment of a new day and
-  // stands for 1.5 s before advancing on its own.
-  //
-  // `skip()` (a tap on the card) changes none of this effect's deps, so no
-  // cleanup and no rerun happen when the card is skipped by tap. The timer set
-  // here then stays orphaned until its regular expiry and still fires; that is
-  // deliberately accepted, not designed away. What made the earlier bug was NOT
-  // the orphaned timer itself but that its body reset `paused`
-  // UNCONDITIONALLY instead of only its own reason.
+  // Day card: appears BEFORE the first moment of a new day and STAYS until a
+  // tap. The card is a deliberate breather between two days, not a slide in
+  // the reel: nothing here runs a clock, the only way onward is `skip()` (a
+  // tap on the card), and the card covers the whole screen, so the story
+  // zones cannot be reached past it. This effect only covers the entries no
+  // advance call decorates: the very first moment after load or peel
+  // (`pausedAfterMove` handles every actual move and is a no-op to re-find).
   useEffect(() => {
-    // Same `sealed` guard as the auto-advance timer above and for the same
-    // reason: this effect starts its own 1.5 s timer, which must not begin
-    // ticking behind a standing seal either.
     if (sealed || phase !== 'ready') return;
-    if (!dayChanges(playlist, startDate, state.index)) {
-      // This branch runs on EVERY index change that is NOT a day change, the
-      // ordinary case. `withoutReason` itself is no-op safe (it returns the same
-      // set reference), but `setState` would still receive a NEW `state` object on
-      // every call and trigger a render even when 'zwischenkarte' is absent
-      // anyway. The explicit `.has()` check keeps `setState` out of this most
-      // frequent case entirely, so React bails out completely.
-      setState((s) => (s.paused.has('zwischenkarte') ? { ...s, paused: withoutReason(s.paused, 'zwischenkarte') } : s));
-      return;
-    }
+    if (!dayChanges(playlist, startDate, state.index)) return;
     setState((s) => ({ ...s, paused: withReason(s.paused, 'zwischenkarte') }));
-    const timer = setTimeout(() => {
-      setState((s) => ({ ...s, paused: withoutReason(s.paused, 'zwischenkarte') }));
-    }, INTERSTITIAL_DURATION_MS);
-    return () => clearTimeout(timer);
   }, [sealed, phase, playlist, startDate, state.index]);
 
   // Videos are deliberately not preloaded: the brief does not ask for it and
@@ -1556,7 +1539,8 @@ export default function RecapPlayer() {
         <DayCard
           visible={interstitial}
           dayNumber={currentDay ? currentDay.number : null}
-          subheading={currentDay ? daySubheading(currentDay) : null}
+          place={currentDay?.place ?? null}
+          date={currentDay ? formatDayDate(currentDay.date) : null}
           onSkip={skip}
           reducedMotion={reducedMotion}
         />
@@ -1760,8 +1744,18 @@ const styles = StyleSheet.create({
   interstitialPress: {
     flex: 1,
     alignItems: 'center',
-    justifyContent: 'center',
     paddingHorizontal: spacing.xl,
+  },
+  // The centre takes all remaining height, so the number really sits in the
+  // middle of the SCREEN while the hint keeps the foot; both together are
+  // what lets the card use the whole surface.
+  interstitialCentre: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  interstitialHint: {
+    marginBottom: spacing.xxl,
   },
   // Without a zIndex this area lay UNDER the tap zones (zIndex 1, see
   // tapZoneLeft/tapZoneRight below), and every tap on an emoji or the comment
