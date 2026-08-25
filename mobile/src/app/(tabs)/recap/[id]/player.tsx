@@ -20,7 +20,6 @@ import * as Haptics from 'expo-haptics';
 import * as Linking from 'expo-linking';
 import { Download, MessageCircle, X } from 'lucide-react-native';
 import { Avatar, AvatarGroup, type Face } from '@/components/Avatar';
-import { CounterRoll } from '@/components/CounterRoll';
 import { PressScale } from '@/components/PressScale';
 import { ProgressBar } from '@/components/ProgressBar';
 import { Pill } from '@/components/Pill';
@@ -374,12 +373,6 @@ function VideoMoment({
   );
 }
 
-// The day card used to pop in and out while everything else in the player
-// moves softly. It now fades on its own schedule: in when the day changes,
-// out when its 1.5 s are over, and the next moment appears under the fading
-// card, which covers the card-to-picture hand-off for free. A TAP stays a
-// hard cut on purpose: whoever taps has decided to move on, an animation in
-// the way would make the player feel less responsive, not more polished.
 // What the day brings, told on its card: the count line and the faces of
 // the people who sent something that day. Both come from the moments the
 // player already holds, no extra data is fetched for the cover page.
@@ -403,17 +396,30 @@ function dayFaces(moments: RecapMoment[]): Face[] {
 
 // The day card is the deliberate breather of the show: it covers the whole
 // screen, pauses everything behind it, and STAYS until a tap sends the day
-// off. Editorial staging: the day digit stands as a giant embossed figure,
-// tone on tone and cropped at the right edge, filling the screen as a SHAPE;
-// the readable block sits lower left like a magazine title, and the quiet
-// invitation onward keeps the foot. Since the tap is the only exit, it
-// leaves through a fade into the waiting story rather than a hard cut.
+// off. Staged as a film's opening title card: a short rule, the chapter line,
+// then the place as the title itself, date, facts and the faces of the day's
+// senders, closing on a second rule. The lines do not stand there, they STEP
+// ON STAGE one after another (the staggered entrance of opening credits),
+// and the title grows imperceptibly while it appears. Since the tap is the
+// only exit, it leaves through a fade into the waiting story.
+//
+// One value walks 0..1 once the card stands; every line fades in over its
+// own window of that walk. 1400 ms covers the full entrance.
+const TITLE_STAGING_MS = 1400;
+// The title's growth runs past the staging on purpose: a cinema title keeps
+// breathing after the credits have settled. Uniform scale, so the letters
+// drift apart from the centre, entirely on the native driver (an animated
+// letterSpacing would need the JS driver, and a busy JS thread would make
+// exactly this signature move stutter).
+const TITLE_GROW_MS = 2400;
+const TITLE_GROW_FROM = 0.97;
+
 function DayCard({
   visible, dayNumber, place, date, moments, onSkip, reducedMotion,
 }: {
   visible: boolean;
   // null when the day is unknown (a moment the day grouping could not
-  // place); the card then falls back to plain words instead of a number.
+  // place); the chapter line then falls back to plain words.
   dayNumber: number | null;
   place: string | null;
   date: string | null;
@@ -421,7 +427,6 @@ function DayCard({
   onSkip: () => void;
   reducedMotion: boolean;
 }) {
-  const { width } = useWindowDimensions();
   const bottomInset = useBottomInset(spacing.xl);
   // 'shown' fades in, 'leaving' fades out, 'gone' is unmounted. The stage is
   // derived DURING render (same pattern as the player's bridge below): it
@@ -429,10 +434,8 @@ function DayCard({
   // one stale frame first, which is exactly the pop this card is curing.
   const [stage, setStage] = useState<'shown' | 'leaving' | 'gone'>(visible ? 'shown' : 'gone');
   const [opacity] = useState(() => new Animated.Value(0));
-  // Drives the embossed digit's roll, the app's counter signature staged as
-  // scenery: the day rolls up from the one before it, the same movement the
-  // trip counter makes when a moment is submitted.
-  const [rollProgress] = useState(() => new Animated.Value(0));
+  const [staging] = useState(() => new Animated.Value(0));
+  const [titleScale] = useState(() => new Animated.Value(TITLE_GROW_FROM));
 
   if (visible && stage !== 'shown') setStage('shown');
   if (!visible && stage === 'shown') setStage('leaving');
@@ -442,30 +445,42 @@ function DayCard({
       // Back to transparent first: after an exit the value stands at 0
       // already, but a re-entry interrupted mid-fade must not start bright.
       opacity.setValue(0);
-      rollProgress.setValue(reducedMotion ? 1 : 0);
+      staging.setValue(reducedMotion ? 1 : 0);
+      titleScale.setValue(reducedMotion ? 1 : TITLE_GROW_FROM);
       const enter = Animated.timing(opacity, {
         toValue: 1,
         duration: reducedMotion ? 200 : motion.duration.base,
         easing: Easing.bezier(...motion.easeSmooth),
         useNativeDriver: true,
       });
-      // The roll waits for the fade: rolling while the card is still turning
-      // up meant the count was half over before anyone could see it. Only
-      // once the card fully STANDS does the day count up, that is the act
-      // the person is here to watch; reduced motion skips the roll entirely
-      // (the value is already at 1).
-      const roll = Animated.timing(rollProgress, {
+      // The entrance waits for the fade: lines stepping on stage while the
+      // card is still turning up meant the play was half over before anyone
+      // could see it. Only once the card fully STANDS does the title
+      // sequence begin; reduced motion skips it entirely (both values are
+      // already at their end).
+      const lines = Animated.timing(staging, {
         toValue: 1,
         delay: motion.duration.base,
-        duration: motion.duration.gentle,
+        duration: TITLE_STAGING_MS,
+        easing: Easing.bezier(...motion.easeSmooth),
+        useNativeDriver: true,
+      });
+      const grow = Animated.timing(titleScale, {
+        toValue: 1,
+        delay: motion.duration.base,
+        duration: TITLE_GROW_MS,
         easing: Easing.bezier(...motion.easeSmooth),
         useNativeDriver: true,
       });
       enter.start();
-      if (!reducedMotion) roll.start();
+      if (!reducedMotion) {
+        lines.start();
+        grow.start();
+      }
       return () => {
         enter.stop();
-        roll.stop();
+        lines.stop();
+        grow.stop();
       };
     }
     if (stage === 'leaving') {
@@ -483,13 +498,19 @@ function DayCard({
       return () => exit.stop();
     }
     return undefined;
-  }, [stage, reducedMotion, opacity, rollProgress]);
+  }, [stage, reducedMotion, opacity, staging, titleScale]);
 
   if (stage === 'gone') return null;
-  // The embossed figure: sized from the screen, not from the type scale (it
-  // is scenery, see CounterRoll's fontSize note), cropped at the right edge
-  // so it reads as a form, not as a line of text.
-  const giantSize = Math.round(width * 1.25);
+  // Each line's window of the staging walk, clamped so a line stands still
+  // before and after its own entrance.
+  const lineIn = (from: number, to: number) => ({
+    opacity: staging.interpolate({
+      inputRange: [from, to],
+      outputRange: [0, 1],
+      extrapolate: 'clamp' as const,
+    }),
+  });
+  const title = place ?? date;
   return (
     // Pointer events off as soon as the card is leaving: a tap during the
     // exit fade belongs to the story zones underneath, not to a card that is
@@ -500,69 +521,49 @@ function DayCard({
         style={styles.interstitialPress}
         onPress={onSkip}
       >
-        {dayNumber !== null && (
-          <View style={styles.interstitialGiant} pointerEvents="none">
-            <CounterRoll
-              from={Math.max(1, dayNumber - 1)}
-              to={dayNumber}
-              progress={rollProgress}
-              progressWindow={[0, 1]}
-              color={cinema['bg-1']}
-              fontSize={giantSize}
-            />
-          </View>
-        )}
-        <View style={[styles.interstitialBlock, { bottom: bottomInset + 76 }]}>
-          {dayNumber !== null ? (
-            <Text style={[type.h3, { color: cinema['text-2'] }]}>{`Tag ${dayNumber}`}</Text>
-          ) : (
-            <Text style={[type.h1, { color: cinema['text-1'] }]}>Ein neuer Tag beginnt.</Text>
+        <View style={styles.titleCardCentre} pointerEvents="none">
+          <Animated.View style={[styles.titleRule, lineIn(0, 0.18)]} />
+          <Animated.Text style={[type.bodyMedium, styles.titleChapter, lineIn(0.08, 0.3)]}>
+            {dayNumber !== null ? `Tag ${dayNumber}` : 'Ein neuer Tag'}
+          </Animated.Text>
+          {title && (
+            <Animated.View
+              style={[styles.titleWrap, lineIn(0.16, 0.45), { transform: [{ scale: titleScale }] }]}
+            >
+              {/* The place carries the title role, the date stands in when
+                  there is none. Poster size, shrunk to fit on one line: a
+                  place like Quinta da Regaleira must not wrap the title. */}
+              <Text
+                style={[type.display, styles.titleText]}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.35}
+              >
+                {title}
+              </Text>
+            </Animated.View>
           )}
-          {/* The anchor line of the block, grown into the display face: the
-              editorial title wants a WORD at poster size, not a heading. It
-              shrinks to fit on one line, a place like Quinta da Regaleira
-              must not wrap the poster line. The place when there is one, the
-              date in its role when there is not. */}
-          {place ? (
-            <>
-              <Text
-                style={[type.display, { color: cinema['text-1'], marginTop: spacing.xs }]}
-                numberOfLines={1}
-                adjustsFontSizeToFit
-                minimumFontScale={0.35}
-              >
-                {place}
-              </Text>
-              {date && (
-                <Text style={[type.body, { color: cinema['text-2'], marginTop: spacing.xs }]}>
-                  {date}
-                </Text>
-              )}
-            </>
-          ) : (
-            date && (
-              <Text
-                style={[type.display, { color: cinema['text-1'], marginTop: spacing.xs }]}
-                numberOfLines={1}
-                adjustsFontSizeToFit
-                minimumFontScale={0.35}
-              >
-                {date}
-              </Text>
-            )
+          {place && date && (
+            <Animated.Text style={[type.body, styles.titleDate, lineIn(0.34, 0.6)]}>
+              {date}
+            </Animated.Text>
           )}
           {moments.length > 0 && (
             <>
-              <Text style={[type.body, { color: cinema['text-2'], marginTop: spacing.base }]}>
+              <Animated.Text style={[type.body, styles.titleFacts, lineIn(0.34, 0.6)]}>
                 {dayFactsText(moments)}
-              </Text>
-              <View testID="player-interstitial-faces" style={styles.interstitialFaces}>
+              </Animated.Text>
+              <Animated.View
+                testID="player-interstitial-faces"
+                style={[styles.titleCast, lineIn(0.5, 0.8)]}
+              >
                 <AvatarGroup faces={dayFaces(moments)} cinemaMode />
-              </View>
+              </Animated.View>
             </>
           )}
+          <Animated.View style={[styles.titleRule, styles.titleRuleBottom, lineIn(0.5, 0.8)]} />
         </View>
-        <Text style={[type.secondary, { color: cinema['text-2'] }, styles.interstitialHint, { bottom: bottomInset }]}>
+        <Text style={[type.secondary, styles.interstitialHint, { bottom: bottomInset }]}>
           Weiter mit einem Tipp.
         </Text>
       </Pressable>
@@ -1867,30 +1868,62 @@ const styles = StyleSheet.create({
   interstitialPress: {
     flex: 1,
   },
-  // The embossed figure's stage: vertically centred, pushed past the right
-  // edge so the digit is cropped and reads as scenery. The overflow is the
-  // point, the card's own overflow: hidden does the cropping.
-  interstitialGiant: {
-    position: 'absolute',
-    top: 0,
-    bottom: 0,
-    right: -46,
+  // The title card's stage: everything centred, the way a film's opening
+  // titles stand alone on the screen.
+  titleCardCentre: {
+    flex: 1,
+    alignItems: 'center',
     justifyContent: 'center',
+    paddingHorizontal: spacing.screen,
   },
-  // The readable block, lower left like a magazine title: the one place in
-  // this staged moment where the app's usual left alignment returns.
-  interstitialBlock: {
-    position: 'absolute',
-    left: spacing.screen,
-    right: spacing.xxl,
+  // The short rule framing the card, top and bottom: the quiet ornament of a
+  // classic title card, one hairline in the muted tone.
+  titleRule: {
+    width: 44,
+    height: 1,
+    backgroundColor: cinema['text-2'],
   },
-  interstitialFaces: {
+  titleRuleBottom: {
+    marginTop: spacing.l,
+  },
+  // The chapter line, tracked wide the way film chapters are set. The
+  // letterSpacing is STATIC on purpose, only its opacity animates (see
+  // TITLE_GROW_MS above for why nothing here may run on the JS driver).
+  titleChapter: {
+    color: cinema['text-2'],
+    letterSpacing: 3.5,
+    marginTop: spacing.l,
+  },
+  // Stretched so adjustsFontSizeToFit measures the full width, the title
+  // itself centred within it.
+  titleWrap: {
+    alignSelf: 'stretch',
+    marginTop: spacing.s,
+  },
+  titleText: {
+    color: cinema['text-1'],
+    textAlign: 'center',
+  },
+  titleDate: {
+    color: cinema['text-2'],
+    marginTop: spacing.base,
+  },
+  titleFacts: {
+    color: cinema['text-2'],
+    marginTop: spacing.xs,
+  },
+  titleCast: {
     flexDirection: 'row',
     marginTop: spacing.m,
   },
+  // The invitation onward keeps the foot of the card, centred like the rest
+  // of the staging.
   interstitialHint: {
     position: 'absolute',
-    left: spacing.screen,
+    left: 0,
+    right: 0,
+    textAlign: 'center',
+    color: cinema['text-2'],
   },
   // Without a zIndex this area lay UNDER the tap zones (zIndex 1, see
   // tapZoneLeft/tapZoneRight below), and every tap on an emoji or the comment

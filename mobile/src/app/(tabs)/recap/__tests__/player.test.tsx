@@ -458,7 +458,6 @@ describe('state machine across the screen', () => {
     // p3 -> p4 is a day change, so the day 2 interstitial has to be there.
     expect(screen.getByTestId('player-interstitial')).toBeTruthy();
     expect(screen.getByText('Tag 2')).toBeTruthy();
-    expect(screen.getByLabelText('2')).toBeTruthy();
     expect(screen.getByText('11. August')).toBeTruthy();
   });
 
@@ -501,15 +500,14 @@ describe('state machine across the screen', () => {
 });
 
 describe('day interstitial', () => {
-  test('the interstitial card stages day number above place and date', async () => {
+  test('the interstitial card stages the day as a film title card', async () => {
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
     (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
     expect(await screen.findByTestId('player-interstitial')).toBeTruthy();
+    // Chapter line above, the place as the title, the date as its own staged
+    // line under it, never squeezed into one.
     expect(screen.getByText('Tag 1')).toBeTruthy();
-    expect(screen.getByLabelText('1')).toBeTruthy();
-    // Place and date stand as their own staged lines now, the card owns the
-    // whole screen and no longer squeezes them into one.
     expect(screen.getByText('Lissabon')).toBeTruthy();
     expect(screen.getByText('10. August')).toBeTruthy();
     expect(screen.queryByText('Tag 1 · Lissabon · 10. August')).toBeNull();
@@ -545,7 +543,7 @@ describe('day interstitial', () => {
     await fireEvent(screen.getByTestId('player-right'), 'pressOut');
     expect(await screen.findByTestId('player-interstitial')).toBeTruthy();
     expect(screen.getByText('Tag 2')).toBeTruthy();
-    expect(screen.getByLabelText('2')).toBeTruthy();
+    // Without a place the date carries the title role itself.
     expect(screen.getByText('11. August')).toBeTruthy();
   });
 
@@ -555,7 +553,6 @@ describe('day interstitial', () => {
     await wrap();
     expect(screen.getByTestId('player-interstitial')).toBeTruthy();
     expect(screen.getByText('Tag 1')).toBeTruthy();
-    expect(screen.getByLabelText('1')).toBeTruthy();
     // The card is the show's breather: long after the old auto duration it
     // still stands, waiting for the person, not for a timer.
     await act(async () => {
