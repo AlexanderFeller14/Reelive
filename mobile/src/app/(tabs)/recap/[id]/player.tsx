@@ -285,9 +285,10 @@ function PhotoMoment({ url, onError }: { url: string; onError: () => void }) {
 // stop at freezing the progress bar, otherwise picture AND sound of a video
 // would keep running while the display stood still.
 function VideoMoment({
-  url, paused, onEnded, onError,
+  url, posterUrl, paused, onEnded, onError,
 }: {
   url: string;
+  posterUrl: string | null;
   paused: boolean;
   onEnded: () => void;
   onError: () => void;
@@ -296,11 +297,17 @@ function VideoMoment({
     p.loop = false;
     p.play();
   });
+  // The native view stands opaque before it has frames, so the bridge under
+  // this moment cannot help here: the cover must lie ON TOP of the view and
+  // step aside once the player reports it is ready. Same poster-bridge idea
+  // as the capture preview (see the Video-Vorschau notes), just one-way.
+  const [posterVisible, setPosterVisible] = useState(posterUrl !== null);
 
   useEffect(() => {
     const endedSub = player.addListener('playToEnd', onEnded);
     const statusSub = player.addListener('statusChange', (payload: { status: string }) => {
       if (payload.status === 'error') onError();
+      if (payload.status === 'readyToPlay') setPosterVisible(false);
     });
     return () => {
       endedSub.remove();
@@ -315,14 +322,115 @@ function VideoMoment({
   }, [paused, player]);
 
   return (
-    <VideoView
-      testID="player-video"
-      player={player}
-      style={StyleSheet.absoluteFill}
-      contentFit="cover"
-      nativeControls={false}
-      allowsPictureInPicture={false}
-    />
+    <View style={StyleSheet.absoluteFill}>
+      <VideoView
+        testID="player-video"
+        player={player}
+        style={StyleSheet.absoluteFill}
+        contentFit="cover"
+        nativeControls={false}
+        allowsPictureInPicture={false}
+      />
+      {posterVisible && posterUrl && (
+        <Image
+          testID="player-video-poster"
+          source={{ uri: posterUrl }}
+          style={StyleSheet.absoluteFill}
+          contentFit="cover"
+          accessible={false}
+        />
+      )}
+    </View>
+  );
+}
+
+// The day card used to pop in and out while everything else in the player
+// moves softly. It now fades on its own schedule: in when the day changes,
+// out when its 1.5 s are over, and the next moment appears under the fading
+// card, which covers the card-to-picture hand-off for free. A TAP stays a
+// hard cut on purpose: whoever taps has decided to move on, an animation in
+// the way would make the player feel less responsive, not more polished.
+function DayCard({
+  visible, heading, subheading, onSkip, reducedMotion,
+}: {
+  visible: boolean;
+  heading: string;
+  subheading: string | null;
+  onSkip: () => void;
+  reducedMotion: boolean;
+}) {
+  // 'shown' fades in, 'leaving' fades out, 'gone' is unmounted. The stage is
+  // derived DURING render (same pattern as the player's bridge below): it
+  // must flip in the very render that flips `visible`, an effect would show
+  // one stale frame first, which is exactly the pop this card is curing.
+  const [stage, setStage] = useState<'shown' | 'leaving' | 'gone'>(visible ? 'shown' : 'gone');
+  // A tap is the second, deliberately different exit: whoever taps has
+  // decided to move on, so the card cuts instead of fading, anything else
+  // would make the player feel less responsive, not more polished.
+  const [skipped, setSkipped] = useState(false);
+  const [opacity] = useState(() => new Animated.Value(0));
+
+  if (visible && stage !== 'shown') {
+    setStage('shown');
+    if (skipped) setSkipped(false);
+  }
+  if (!visible && stage === 'shown') {
+    setStage(skipped ? 'gone' : 'leaving');
+  }
+
+  useEffect(() => {
+    if (stage === 'shown') {
+      // Back to transparent first: after a skipped exit the value still
+      // stands at 1, and the next day's card would appear without its fade.
+      opacity.setValue(0);
+      const enter = Animated.timing(opacity, {
+        toValue: 1,
+        duration: reducedMotion ? 200 : motion.duration.base,
+        easing: Easing.bezier(...motion.easeSmooth),
+        useNativeDriver: true,
+      });
+      enter.start();
+      return () => enter.stop();
+    }
+    if (stage === 'leaving') {
+      const exit = Animated.timing(opacity, {
+        toValue: 0,
+        duration: reducedMotion ? 200 : motion.duration.base,
+        easing: Easing.bezier(...motion.easeSmooth),
+        useNativeDriver: true,
+      });
+      // Unmounting happens in the completion callback, asynchronously, never
+      // synchronously inside this effect.
+      exit.start(({ finished }) => {
+        if (finished) setStage('gone');
+      });
+      return () => exit.stop();
+    }
+    return undefined;
+  }, [stage, reducedMotion, opacity]);
+
+  if (stage === 'gone') return null;
+  return (
+    // Pointer events off as soon as the card is leaving: a tap during the
+    // exit fade belongs to the story zones underneath, not to a card that is
+    // already gone in all but pixels.
+    <Animated.View style={[styles.interstitial, { opacity }]} pointerEvents={visible ? 'auto' : 'none'}>
+      <Pressable
+        testID="player-interstitial"
+        style={styles.interstitialPress}
+        onPress={() => {
+          setSkipped(true);
+          onSkip();
+        }}
+      >
+        <Text style={[type.h1, styles.centeredText]}>{heading}</Text>
+        {subheading && (
+          <Text style={[type.secondary, styles.centeredTextSecondary, { marginTop: spacing.s }]}>
+            {subheading}
+          </Text>
+        )}
+      </Pressable>
+    </Animated.View>
   );
 }
 
@@ -338,7 +446,13 @@ function MomentView({
 }) {
   if (!failed && url) {
     return moment.type === 'video' ? (
-      <VideoMoment url={url.medium_url} paused={paused} onEnded={onVideoEnded} onError={onError} />
+      <VideoMoment
+        url={url.medium_url}
+        posterUrl={url.thumb_url}
+        paused={paused}
+        onEnded={onVideoEnded}
+        onError={onError}
+      />
     ) : (
       <PhotoMoment url={url.medium_url} onError={onError} />
     );
@@ -380,6 +494,11 @@ export default function RecapPlayer() {
   // As a useState INITIALIZER, not an effect: an effect would leave the
   // player visible without its seal for one frame after mount.
   const [sealed, setSealed] = useState(() => mode === 'show');
+  // See the derivation right before the render below; starts empty, the very
+  // first moment has nothing to bridge over.
+  const [bridge, setBridge] = useState<{ index: number; uri: string | null }>(
+    () => ({ index: parseStartIndex(startParam, Number.MAX_SAFE_INTEGER), uri: null })
+  );
 
   const [phase, setPhase] = useState<LoadPhase>('loading');
   // The error and the question whether a second attempt achieves anything in
@@ -1161,6 +1280,20 @@ export default function RecapPlayer() {
   // never empty at this point, see load()).
   if (!activeMoment) return null;
   const url = urls.get(activeMoment.id);
+  // The still of the moment being LEFT, kept as a bridge under the incoming
+  // one: the key switch below remounts MomentView, and expo-image's fade
+  // starts from TRANSPARENT, so without this layer every advance flashed the
+  // cinema ground even when the next picture was prefetched. Photos bridge
+  // with the picture that was just on screen, videos with their poster (the
+  // only still they have). Derived during render, the documented pattern for
+  // state that depends on the previous render, not an effect: an effect
+  // would set the bridge one frame AFTER the flash it exists to prevent.
+  if (bridge.index !== state.index) {
+    const left = playlist[bridge.index];
+    const leftUrl = left ? urls.get(left.id) : undefined;
+    const still = left?.type === 'video' ? leftUrl?.thumb_url : leftUrl?.medium_url;
+    setBridge({ index: state.index, uri: still ?? null });
+  }
   const placeTimeText = activeMoment.place_name
     ? `${activeMoment.place_name} · ${timeInZone(activeMoment.captured_at, activeMoment.captured_tz)}`
     : timeInZone(activeMoment.captured_at, activeMoment.captured_tz);
@@ -1168,6 +1301,15 @@ export default function RecapPlayer() {
   return (
     <View testID="player-ready" style={styles.screen}>
       <Animated.View style={[styles.content, { transform: pan.getTranslateTransform() }]} {...panResponder.panHandlers}>
+        {bridge.uri && (
+          <Image
+            testID="player-bridge"
+            source={{ uri: bridge.uri }}
+            style={StyleSheet.absoluteFill}
+            contentFit="cover"
+            accessible={false}
+          />
+        )}
         <MomentView
           key={activeMoment.id}
           moment={activeMoment}
@@ -1314,18 +1456,13 @@ export default function RecapPlayer() {
           </Pill>
         </PressScale>
 
-        {interstitial && (
-          <Pressable testID="player-interstitial" style={styles.interstitial} onPress={skip}>
-            <Text style={[type.h1, styles.centeredText]}>
-              {currentDay ? `Tag ${currentDay.number}` : 'Ein neuer Tag beginnt.'}
-            </Text>
-            {currentDay && (
-              <Text style={[type.secondary, styles.centeredTextSecondary, { marginTop: spacing.s }]}>
-                {daySubheading(currentDay)}
-              </Text>
-            )}
-          </Pressable>
-        )}
+        <DayCard
+          visible={interstitial}
+          heading={currentDay ? `Tag ${currentDay.number}` : 'Ein neuer Tag beginnt.'}
+          subheading={currentDay ? daySubheading(currentDay) : null}
+          onSkip={skip}
+          reducedMotion={reducedMotion}
+        />
       </Animated.View>
 
       <Animated.View
@@ -1517,11 +1654,17 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
+    backgroundColor: cinema['bg-0'],
+    zIndex: 2,
+  },
+  // The press target fills the card, the card itself only fades: splitting
+  // the two keeps the opacity on a plain Animated.View, which is all the
+  // native driver can animate.
+  interstitialPress: {
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: spacing.xl,
-    backgroundColor: cinema['bg-0'],
-    zIndex: 2,
   },
   // Without a zIndex this area lay UNDER the tap zones (zIndex 1, see
   // tapZoneLeft/tapZoneRight below), and every tap on an emoji or the comment

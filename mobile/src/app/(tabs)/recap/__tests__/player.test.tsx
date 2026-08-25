@@ -508,11 +508,17 @@ describe('day interstitial', () => {
     await act(async () => {
       jest.advanceTimersByTime(1500);
     });
-    expect(screen.queryByTestId('player-interstitial')).toBeNull();
-    // The normal auto advance runs on from HERE (not from the mount): p1
-    // moves to p2 one photo duration later.
+    // The pause reason is gone, but the card itself leaves through a fade:
+    // it may still stand in the tree for the fade's duration.
     await act(async () => {
-      jest.advanceTimersByTime(5000);
+      jest.advanceTimersByTime(600);
+    });
+    expect(screen.queryByTestId('player-interstitial')).toBeNull();
+    // The normal auto advance runs on from HERE (not from the reason's end,
+    // minus what the fade already consumed): p1 moves to p2 one photo
+    // duration after the 1500 ms.
+    await act(async () => {
+      jest.advanceTimersByTime(4400);
     });
     expect(screen.getByTestId('player-video')).toBeTruthy();
   });
@@ -543,7 +549,10 @@ describe('day interstitial', () => {
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
     (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
-    const card = StyleSheet.flatten(screen.getByTestId('player-interstitial').props.style);
+    // Since the card fades, the zIndex sits on its fading container, the
+    // press target inside only fills it: measured on the parent therefore.
+    const cardContainer = screen.getByTestId('player-interstitial').parent;
+    const card = StyleSheet.flatten(cardContainer?.props.style);
     const left = StyleSheet.flatten(screen.getByTestId('player-left').props.style);
     const right = StyleSheet.flatten(screen.getByTestId('player-right').props.style);
     expect(card.zIndex).toBeGreaterThan(left.zIndex ?? 0);
@@ -605,6 +614,10 @@ describe('day interstitial', () => {
 
     await act(async () => {
       jest.advanceTimersByTime(500); // 1500 ms in total since the day change
+    });
+    // The card leaves through its fade now, so give it that time as well.
+    await act(async () => {
+      jest.advanceTimersByTime(600);
     });
     expect(screen.queryByTestId('player-interstitial')).toBeNull();
     expect(screen.getByTestId('player-video')).toBeTruthy();
@@ -2270,5 +2283,67 @@ describe('safe area of the device', () => {
     const bottomStyle = StyleSheet.flatten(screen.getByTestId('player-social-area').props.style);
     expect(topStyle.top).toBe(32);
     expect(bottomStyle.bottom).toBe(32);
+  });
+});
+
+// The polish pass after the first device run of the show: advancing must not
+// flash the cinema ground between two moments, and the day card must not pop.
+describe('soft transitions while advancing', () => {
+  beforeEach(() => {
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
+  });
+
+  test('advancing keeps the previous still as a bridge under the new moment', async () => {
+    mockParams = { id: 't1', start: '0' };
+    await wrap();
+    // No index change yet, so there is nothing to bridge over.
+    expect(screen.queryByTestId('player-bridge')).toBeNull();
+    // The day-1 card stands in front of the story zones; a tap only skips it.
+    await fireEvent.press(screen.getByTestId('player-interstitial'));
+    await fireEvent(screen.getByTestId('player-right'), 'pressIn');
+    await fireEvent(screen.getByTestId('player-right'), 'pressOut');
+    const bridge = screen.getByTestId('player-bridge');
+    expect(bridge.props.source).toEqual({ uri: image('p1').medium_url });
+  });
+
+  test('a video leaves its poster still behind as the bridge, not its file', async () => {
+    mockParams = { id: 't1', start: '1' };
+    await wrap();
+    await fireEvent(screen.getByTestId('player-right'), 'pressIn');
+    await fireEvent(screen.getByTestId('player-right'), 'pressOut');
+    // p2 is the video: only its thumbnail is a still the bridge can hold.
+    expect(screen.getByTestId('player-bridge').props.source).toEqual({ uri: image('p2').thumb_url });
+  });
+
+  test('a video moment covers itself with its poster until it can play', async () => {
+    mockParams = { id: 't1', start: '1' };
+    await wrap();
+    expect(screen.getByTestId('player-video-poster').props.source).toEqual({ uri: image('p2').thumb_url });
+    await act(async () => {
+      mockListeners.statusChange?.forEach((cb) => cb({ status: 'readyToPlay' }));
+    });
+    expect(screen.queryByTestId('player-video-poster')).toBeNull();
+  });
+
+  test('the day card fades in instead of popping', async () => {
+    const timingSpy = jest.spyOn(Animated, 'timing');
+    mockParams = { id: 't1' };
+    // The mock seal peels itself on mount, so the day-1 card stands right
+    // after the wrap, no tap needed.
+    await wrap();
+    const fadeIn = timingSpy.mock.calls.find(
+      ([, config]) => config.toValue === 1 && config.duration === 250
+    );
+    expect(fadeIn).toBeTruthy();
+    timingSpy.mockRestore();
+  });
+
+  test('a tap on the day card still cuts hard: whoever taps wants to move on now', async () => {
+    mockParams = { id: 't1', start: '0' };
+    await wrap();
+    expect(screen.getByTestId('player-interstitial')).toBeTruthy();
+    await fireEvent.press(screen.getByTestId('player-interstitial'));
+    expect(screen.queryByTestId('player-interstitial')).toBeNull();
   });
 });
