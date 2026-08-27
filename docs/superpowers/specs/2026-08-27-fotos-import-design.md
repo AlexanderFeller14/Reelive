@@ -1,0 +1,154 @@
+# Momente aus Fotos einsenden (Mehrfachauswahl)
+
+Stand: 2026-08-27, im Gespräch freigegeben.
+
+## Problem
+
+Snaps leben in Snapchats Sandbox. iOS gibt keiner anderen App Zugriff auf
+diesen Container, und Snapchat bietet keine API, um Memories auszulesen. Was
+es gibt: «In Kamerarolle speichern» in Snapchat, danach liegt der Snap in
+Fotos. Reelive kennt heute genau einen Einsendeweg (Kamera → Preview →
+Queue); wer einen gesicherten Snap einsenden will, hat keinen.
+
+## Entscheide
+
+- **Weg A, Galerie-Import**, keine Share Extension: nutzt `expo-image-picker`
+  und `expo-media-library`, die beide schon im Build sind (Profilbild,
+  Recap-Export). Kein neues natives Target, läuft im heutigen Dev-Client.
+  Einzige Ausnahme: geänderte Berechtigungstexte in `app.json` wirken erst
+  mit dem nächsten Native-Build.
+- **Mehrfachauswahl, ohne Preview.** Die gewählten Elemente laufen direkt
+  in die Upload-Queue, ohne Caption. Die Preview bleibt der Kamera
+  vorbehalten. Obergrenze 20 Elemente pro Runde: der Picker kopiert (und im
+  Modus «compatible» transkodiert) jedes Element, bevor er die Liste
+  übergibt, ohne eigene Fortschrittsanzeige.
+- **Import nur in den Reisezeitraum.** Der Kalendertag der Aufnahme muss in
+  `[start_date, end_date]` der gewählten Reise liegen. Die Versiegelung lebt
+  von «spontan, ungefiltert»; ohne diese Grenze würde die Reise zum Album für
+  beliebiges Material. Der Server prüft das heute nicht (RLS lässt jedes
+  `captured_at` zu, solange die Reise `active` ist); die Grenze gilt im
+  Client, wie das Videolimit.
+- **Kein Datum, kein Import.** Ohne ermittelbares Aufnahmedatum ist die
+  Zeitraum-Regel nicht prüfbar; das Element wird abgelehnt und erklärt.
+- **Videos über `MAX_VIDEO_SECONDS`** (heute 90 in `capture/index.tsx`)
+  werden abgelehnt, nicht gekürzt.
+- **Ort nur aus dem Element**, nie vom aktuellen Standort: der Moment war
+  woanders. Koordinaten aus der Fotobibliothek oder aus EXIF, der Ortsname per
+  Reverse-Geocoding daraus; fehlt beides, bleibt der Moment ohne Ort.
+- **Live Photos** kommen als Foto (Standbild). Der Picker wird ohne
+  `livePhotos` geöffnet, dann liefert iOS den Typ `image`.
+
+## Woher das Aufnahmedatum kommt
+
+Reihenfolge, das erste Ergebnis gewinnt:
+
+1. EXIF `DateTimeOriginal` (`YYYY:MM:DD HH:MM:SS`), zusammen mit
+   `OffsetTimeOriginal` (`+02:00`), falls vorhanden. Ohne Offset wird die
+   EXIF-Uhr als Gerätezeit gelesen, dieselbe Annahme wie bei der
+   Live-Aufnahme. Der Picker liest EXIF direkt aus der Datei, ohne
+   Bibliotheks-Berechtigung, nur bei Fotos.
+2. `creationTime` aus `MediaLibrary.getAssetInfoAsync(assetId)`. Dafür fragt
+   Reelive vor dem Picker die Leseberechtigung an (Legacy-Einstieg
+   `expo-media-library/legacy`, aus demselben Grund wie in `exportApi.ts`).
+   Ohne sie liefert der Picker keine `assetId`; Videos ohne EXIF fallen dann
+   unter «kein Datum».
+3. Nichts: abgelehnt.
+
+`captured_tz` ist immer die Gerätezeitzone; aus einem EXIF-Offset lässt sich
+keine IANA-Zone ableiten. Der Kalendertag für die Zeitraum-Prüfung wird aus
+`captured_at` in der Gerätezone gebildet (`todaysCalendarDay(new Date(iso))`).
+
+Bekannte Grenze: Snapchat-Sicherungen tragen vermutlich kein EXIF; ihr Datum
+ist dann der Speicherzeitpunkt (Punkt 2). Wer den Snap gleich sichert, liegt
+richtig. Am Gerät zu prüfen.
+
+## Ablauf in der Kamera
+
+1. Neuer Pill-Knopf in der rechten Steuerspalte (nach Kamera wechseln und
+   Blitz, vor der Stabilisierung), Lucide-Icon `Images`, Label «Momente aus
+   Fotos einsenden». Wie die anderen Knöpfe nur sichtbar, wenn keine
+   Aufnahme läuft.
+2. Tipp → Leseberechtigung anfragen (eine Ablehnung stoppt nichts) → iOS-Picker
+   mit `mediaTypes: ['images', 'videos']`, `allowsMultipleSelection`,
+   `selectionLimit: 20`, `orderedSelection`, `exif: true`, `quality: 1`,
+   `preferredAssetRepresentationMode: Compatible` (HEIC → JPEG, HEVC → H.264,
+   damit der Web-Player die Videos abspielt), **kein `allowsEditing`** (der
+   Avatar-Bug vom 2026-08-13).
+3. Abbruch im Picker: nichts passiert.
+4. Jedes Element wird bewertet (Datum, Zeitraum, Videolänge). Abgelehnte
+   Picker-Kopien werden sofort gelöscht.
+5. Sind alle abgelehnt: Zusammenfassung in der Fehler-Pille, fertig.
+6. Sonst Batch: Kopfzeile (Reise-Wechsler, Steuerspalte) und Auslöser sind
+   entfernt wie während einer Aufnahme, `captureLock` gesetzt (kein
+   Tab-Wechsel mitten im Batch). Unten steht eine translucente Pille mit
+   ActivityIndicator: «3 von 8 Momenten eingesendet». Die Elemente laufen
+   strikt nacheinander durch `preparePhoto`/`prepareVideo` →
+   `persistDurably` → `enqueueJob`, exakt der Queue-Pfad von `preview.tsx`.
+   Ein scheiterndes Element kostet nur sich selbst.
+7. Danach `MomentSubmissionAnimation` als Overlay über der Kamera mit dem
+   Zählerstand von vor dem Batch und `added = N`: Zähler rollt um N, Titel im
+   Plural «Momente eingesendet». Nach der Animation wird der Zähler frisch
+   geladen (Focus-Tick), und eine zurückgehaltene Zusammenfassung der
+   Ablehnungen bekommt die Pille.
+8. Wurde nichts eingesendet (alle gescheitert), entfällt die Animation, die
+   Zusammenfassung steht sofort.
+
+## Copy (sichtbar, Deutsch, Du-Form, keine Gedankenstriche)
+
+- Knopf: «Momente aus Fotos einsenden»
+- Fortschritt: «{done} von {total} Momenten eingesendet»
+- Picker-Fehler: «Deine Fotos liessen sich nicht öffnen. Probier es nochmal.»
+- Ohne Session: «Du bist nicht angemeldet. Melde dich an und probier es nochmal.»
+- Zusammenfassung, Einleitung:
+  - ein Element: «Der Moment wurde nicht eingesendet: …»
+  - alle abgelehnt: «Keiner der {total} Momente wurde eingesendet: …»
+  - sonst: «{refused} von {total} Momenten wurden nicht eingesendet: …»
+- Gründe (bei gemischten Gründen mit Anzahl davor, mit Komma gereiht):
+  - «ausserhalb des Reisezeitraums (1.–14. Aug 2026)» (Bis-Strich aus
+    `formatRange`, erlaubt)
+  - «Video länger als 90 Sekunden» / «Videos länger als 90 Sekunden»
+  - «Aufnahmedatum unbekannt», dazu der Hinweis «Mit Zugriff auf deine Fotos
+    kommt das Aufnahmedatum meist mit.»
+  - «beim Sichern gescheitert»
+- Animation im Plural: «Momente eingesendet», «Deine Momente sind unterwegs
+  und bleiben bis zum Recap versiegelt.», Vorlese-Text «Momente erfolgreich
+  eingesendet».
+- Berechtigungstexte (`app.json`, beide Plugins): erwähnen neu auch das
+  Einsenden aus Fotos.
+
+## Module
+
+- `features/moments/libraryImport.ts` (pur): `PickedMedia`,
+  `resolveCaptureTime`, `resolveLocation`, `assess`, `refusalSummary`.
+- `features/moments/libraryPicker.ts` (I/O): Berechtigung, Picker,
+  Asset-Infos je `assetId`, liefert `PickedMedia[]`.
+- `features/moments/libraryImportSubmit.ts` (I/O): `submitImports`
+  (sequenziell, Fortschritts-Callback, Aufräumen), `discardRefused`.
+- `features/moments/placeAndTime.ts`: `describePlace(lat, lng)` herausgelöst,
+  `determinePlace` nutzt es.
+- `components/MomentSubmissionAnimation.tsx`: Prop `added` (Default 1).
+- `app/(tabs)/capture/index.tsx`: Knopf, `importing`/`importDone`-Zustand,
+  Fortschritts-Pille, Overlay, Zusammenfassung, Zähler-Refresh.
+- `app.json`: Berechtigungstexte.
+
+## Tests
+
+Jest deckt die Regeln (Datum, Zeitraum, Länge, Zusammenfassung), den Picker
+(Optionen, Normalisierung, Fallbacks), das Batch-Einsenden (Jobs, Fortschritt,
+Aufräumen, Teilfehler), die Animation (`added`) und den Kamera-Screen (Knopf,
+Ablehnung, Batch mit Fortschritt und Animation, Teilbatch, Picker-Fehler).
+
+## Am Gerät zu prüfen (kann Jest nicht)
+
+- Liefert der Picker im Modus «compatible» EXIF und `assetId` wie erwartet?
+- Wird HEVC wirklich zu H.264, und spielt der Web-Player das Ergebnis?
+- Bleibt die Kamera-Session unter dem System-Sheet ruhig
+  (Betreten-Effekt-Falle aus dem MultiKamera-Umbau)?
+- Welches Datum tragen Snapchat-Sicherungen tatsächlich (EXIF oder
+  Speicherzeitpunkt)?
+- Wie lange braucht der Picker bei 20 Videos, ist die Obergrenze richtig?
+
+## Nicht drin
+
+Caption je Import, Zuschneiden langer Videos, Import in nicht-aktive Reisen,
+serverseitige Zeitraum-Prüfung, Teilen-Ziel (Share Extension, Weg B).
