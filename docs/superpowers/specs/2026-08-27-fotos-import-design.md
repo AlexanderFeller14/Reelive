@@ -19,9 +19,15 @@ Queue); wer einen gesicherten Snap einsenden will, hat keinen.
   mit dem nächsten Native-Build.
 - **Mehrfachauswahl, ohne Preview.** Die gewählten Elemente laufen direkt
   in die Upload-Queue, ohne Caption. Die Preview bleibt der Kamera
-  vorbehalten. Obergrenze 20 Elemente pro Runde: der Picker kopiert (und im
-  Modus «compatible» transkodiert) jedes Element, bevor er die Liste
-  übergibt, ohne eigene Fortschrittsanzeige.
+  vorbehalten. Obergrenze 20 Elemente pro Runde: der Picker kopiert jedes
+  Element, bevor er die Liste übergibt, ohne eigene Fortschrittsanzeige.
+- **HEVC → H.264 erzwungen.** `preferredAssetRepresentationMode: Compatible`
+  wandelt HEIC in JPEG, transkodiert Videos aber NICHT von sich aus: das
+  native Modul nimmt für `videoExportPreset` standardmässig `.passthrough`
+  und kopiert dann, sobald Bibliothekszugriff besteht, die HEVC-Originaldatei
+  unverändert (Final-Review, Important 1). Erst
+  `videoExportPreset: H264_1920x1080` erzwingt den Export (Ergebnis `.mp4`),
+  das der Web-Player braucht.
 - **Import nur in den Reisezeitraum.** Der Kalendertag der Aufnahme muss in
   `[start_date, end_date]` der gewählten Reise liegen. Die Versiegelung lebt
   von «spontan, ungefiltert»; ohne diese Grenze würde die Reise zum Album für
@@ -32,6 +38,9 @@ Queue); wer einen gesicherten Snap einsenden will, hat keinen.
   Zeitraum-Regel nicht prüfbar; das Element wird abgelehnt und erklärt.
 - **Videos über `MAX_VIDEO_SECONDS`** (heute 90 in `capture/index.tsx`)
   werden abgelehnt, nicht gekürzt.
+- **Videos ohne bekannte Länge werden abgelehnt.** Der Server verlangt
+  `duration_s` für Videos; ein Job ohne Länge bliebe ewig in der Queue
+  (Final-Review, Important 2).
 - **Ort nur aus dem Element**, nie vom aktuellen Standort: der Moment war
   woanders. Koordinaten aus der Fotobibliothek oder aus EXIF, der Ortsname per
   Reverse-Geocoding daraus; fehlt beides, bleibt der Moment ohne Ort.
@@ -71,9 +80,9 @@ richtig. Am Gerät zu prüfen.
 2. Tipp → Leseberechtigung anfragen (eine Ablehnung stoppt nichts) → iOS-Picker
    mit `mediaTypes: ['images', 'videos']`, `allowsMultipleSelection`,
    `selectionLimit: 20`, `orderedSelection`, `exif: true`, `quality: 1`,
-   `preferredAssetRepresentationMode: Compatible` (HEIC → JPEG, HEVC → H.264,
-   damit der Web-Player die Videos abspielt), **kein `allowsEditing`** (der
-   Avatar-Bug vom 2026-08-13).
+   `preferredAssetRepresentationMode: Compatible` (HEIC → JPEG),
+   `videoExportPreset: H264_1920x1080` (erzwingt HEVC → H.264, siehe
+   Entscheide), **kein `allowsEditing`** (der Avatar-Bug vom 2026-08-13).
 3. Abbruch im Picker: nichts passiert.
 4. Jedes Element wird bewertet (Datum, Zeitraum, Videolänge). Abgelehnte
    Picker-Kopien werden sofort gelöscht.
@@ -87,9 +96,12 @@ richtig. Am Gerät zu prüfen.
    Ein scheiterndes Element kostet nur sich selbst.
 7. Danach `MomentSubmissionAnimation` als Overlay über der Kamera mit dem
    Zählerstand von vor dem Batch und `added = N`: Zähler rollt um N, Titel im
-   Plural «Momente eingesendet». Nach der Animation wird der Zähler frisch
-   geladen (Focus-Tick), und eine zurückgehaltene Zusammenfassung der
-   Ablehnungen bekommt die Pille.
+   Plural «Momente eingesendet». Der `captureLock` bleibt bis zum Ende der
+   Animation gesetzt (Final-Review, Important 4): die Kino-Tableiste liegt
+   über dem Screen, ein Tab-Tipp während der 3,6 s würde sonst mitten in die
+   Feier blenden. Nach der Animation wird der Zähler frisch geladen
+   (Focus-Tick), und eine zurückgehaltene Zusammenfassung der Ablehnungen
+   bekommt die Pille.
 8. Wurde nichts eingesendet (alle gescheitert), entfällt die Animation, die
    Zusammenfassung steht sofort.
 
@@ -107,9 +119,12 @@ richtig. Am Gerät zu prüfen.
   - «ausserhalb des Reisezeitraums (1.–14. Aug 2026)» (Bis-Strich aus
     `formatRange`, erlaubt)
   - «Video länger als 90 Sekunden» / «Videos länger als 90 Sekunden»
+  - «Videolänge unbekannt» (derselbe Text für jede Anzahl)
   - «Aufnahmedatum unbekannt», dazu der Hinweis «Mit Zugriff auf deine Fotos
     kommt das Aufnahmedatum meist mit.»
   - «beim Sichern gescheitert»
+- Die Fehler-Pille steht mindestens 4 s, bei langen Zusammenfassungen 50 ms
+  je Zeichen, höchstens 12 s.
 - Animation im Plural: «Momente eingesendet», «Deine Momente sind unterwegs
   und bleiben bis zum Recap versiegelt.», Vorlese-Text «Momente erfolgreich
   eingesendet».
@@ -147,6 +162,23 @@ Ablehnung, Batch mit Fortschritt und Animation, Teilbatch, Picker-Fehler).
 - Welches Datum tragen Snapchat-Sicherungen tatsächlich (EXIF oder
   Speicherzeitpunkt)?
 - Wie lange braucht der Picker bei 20 Videos, ist die Obergrenze richtig?
+- HEVC-Import in beiden Berechtigungszuständen (Codec des hochgeladenen
+  Objekts prüfen).
+- Eingeschränkter Fotozugriff («Ausgewählte Fotos») mit einem Element
+  ausserhalb der Auswahl.
+- Tab-Tipp während der Animation.
+- Ein 31 bis 90 s langes Video gegen die Server-Grenze.
+- 20 grosse HEIC-Fotos (Rückkehrzeit, stilles `canceled`).
+- App-Wechsel mitten im Batch.
+
+## Bekannte Server-Grenze (ausserhalb dieses Branches)
+
+`posts_duration_s_check` erlaubt 0 bis 30 s
+(`supabase/migrations/20260803090600_role_hardening.sql`), der Client nimmt
+seit 2026-08-14 bis 90 s auf. Videos von 31 bis 90 s (Kamera wie Import)
+bleiben mit 23514 in der Queue hängen; braucht eine Migration plus pgTAP in
+einem eigenen PR, und 23514 gehört in `momentsApi.ts` zu den dauerhaften
+Ablehnungen.
 
 ## Nicht drin
 
