@@ -41,6 +41,13 @@ export function tripLength(startIso: string, endIso: string): number {
   return Math.round((toUtc(endIso) - toUtc(startIso)) / MS_PER_DAY) + 1;
 }
 
+// How many calendar days remain until the trip's end: 0 on the end day
+// itself, negative once it lies in the past. The hero card turns this into
+// its "Noch X Tage" badge.
+export function daysUntilEnd(endIso: string, todayIso: string): number {
+  return Math.round((toUtc(endIso) - toUtc(todayIso)) / MS_PER_DAY);
+}
+
 export function formatRange(startIso: string, endIso: string): string {
   const [sy, sm, sd] = startIso.split('-').map(Number);
   const [ey, em, ed] = endIso.split('-').map(Number);

@@ -1,5 +1,5 @@
 import { todaysCalendarDay, validateDateRange,
-  tripDay, tripLength, formatRange, groupTrips,
+  tripDay, tripLength, daysUntilEnd, formatRange, groupTrips,
 } from '../tripDay';
 
 test.each([
@@ -95,4 +95,14 @@ test('todaysCalendarDay takes the local clock, not UTC', () => {
 
 test('todaysCalendarDay pads month and day to two digits', () => {
   expect(todaysCalendarDay(new Date(2026, 0, 5, 12, 0, 0))).toBe('2026-01-05');
+});
+
+test.each([
+  ['2026-08-14', '2026-08-10', 4],
+  ['2026-08-14', '2026-08-13', 1],
+  ['2026-08-14', '2026-08-14', 0],
+  ['2026-08-14', '2026-08-16', -2],
+  ['2026-09-02', '2026-08-30', 3],
+])('daysUntilEnd(%s, today %s) = %i', (end, today, expected) => {
+  expect(daysUntilEnd(end, today)).toBe(expected);
 });
