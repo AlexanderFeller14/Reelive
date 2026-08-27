@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
+import { Image } from 'expo-image';
 import { AvatarGroup, type Face } from '@/components/Avatar';
 import { SealPeel } from '@/components/SealPeel';
 import { DISSOLVE_MS } from '@/features/recap/sealPeel';
-import { motion, palette, radius, spacing, type } from '@/theme/tokens';
+import { motion, palette, spacing, type } from '@/theme/tokens';
 import { useReducedMotion } from '@/theme/useReducedMotion';
 
 // How long the card takes to withdraw. It starts the MOMENT the seal comes
@@ -13,6 +14,12 @@ import { useReducedMotion } from '@/theme/useReducedMotion';
 // Deliberately not a motion token: this duration is not a choice of its own,
 // it IS the seal's.
 export const HANDOVER_MS = DISSOLVE_MS;
+// How long the LINES take to clear the stage once the handover begins. The
+// day card underneath is staged like this letter on purpose, and its credits
+// start stepping in one `base` after the seal comes off: two title cards
+// crossfading in place read as doubled text, so the text leaves first, fast,
+// and only the empty card surface keeps withdrawing alongside the seal.
+export const CONTENT_OUT_MS = motion.duration.base;
 // DESIGN-LANGUAGE §5: with reduced motion everything becomes a 200 ms fade.
 // No hold either, the pause only earns its keep alongside the movement.
 export const REDUCED_HANDOVER_MS = 200;
@@ -24,12 +31,24 @@ export const REDUCED_HANDOVER_MS = 200;
 const WAX_SHARE = 0.42;
 const SEAL_IN_STAGE = 500 / 720;
 
-// The stage the letter is sealed with: a portrait card in the light palette
-// carrying what the trip IS (title, span, facts, the faces of its senders),
-// with the wax sitting across its lower closing edge. Staged like the day
-// card that follows it seconds later, deliberately: rule, chapter line, title,
-// facts, faces, rule. Two title cards in the same hand, so the show reads as
-// one film rather than a seal followed by an unrelated opening.
+// The ticket asset's geometry, measured from the PNG (assets/images/
+// reelive-kino-ticket.png, cropped to its own bounding box). Everything the
+// layout needs to know about the picture lives here as fractions of its
+// size, so a re-export of the asset only has to update these three numbers.
+export const TICKET_ASPECT = 758 / 1098;
+// Centre of the dotted tear line between ticket and stub: the wax sits ON
+// it, sealing the tear. Peeling the wax off is tearing the ticket.
+export const TICKET_PERFORATION_Y = 852 / 1098;
+// Where the main compartment's lower keyline runs: the lines stay above it,
+// the stub below keeps the asset's punched holes and camera emboss.
+const TICKET_MAIN_END = 820 / 1098;
+
+// The stage the letter is sealed with: a vintage cinema ticket (Alex's
+// asset, 27.08.) carrying what the trip IS (title, span, facts, the faces of
+// its senders) in its main compartment, with the wax sealing the perforated
+// tear line to the stub. The lines keep the day card's staging (chapter
+// line, title, facts, faces), so the show still reads as one film rather
+// than a ticket followed by an unrelated opening.
 //
 // The letter is ALSO the loading window for the trip behind it (the player
 // renders it while the load is still running), which is why every line below
@@ -65,6 +84,7 @@ export function SealedLetter({
   const [mode, setMode] = useState<Mode>('sealed');
   const [opacity] = useState(() => new Animated.Value(1));
   const [scale] = useState(() => new Animated.Value(1));
+  const [contentOut] = useState(() => new Animated.Value(1));
   // Starts opaque when the trip was already loaded at mount: the fade below
   // belongs to content ARRIVING, and a letter that has everything from the
   // first frame has nothing to fade in.
@@ -82,6 +102,7 @@ export function SealedLetter({
   }, [onOpening]);
 
   const stage = (width * WAX_SHARE) / SEAL_IN_STAGE;
+  const cardHeight = width / TICKET_ASPECT;
   const hasContent = title !== null;
 
   // The lines do not pop in when the load finishes, they arrive. No title
@@ -119,10 +140,18 @@ export function SealedLetter({
         easing,
         useNativeDriver: true,
       }),
+      // The lines go first (see CONTENT_OUT_MS): they multiply with the
+      // card's own opacity, so this only ever runs AHEAD of it.
+      Animated.timing(contentOut, {
+        toValue: 0,
+        duration: reduced ? REDUCED_HANDOVER_MS : CONTENT_OUT_MS,
+        easing,
+        useNativeDriver: true,
+      }),
     ]);
     leaving.start();
     return () => leaving.stop();
-  }, [mode, opacity, scale]);
+  }, [mode, opacity, scale, contentOut]);
 
   // Both moments come from the seal, so there is only ONE clock: it comes off
   // (the card withdraws, the show starts), and later nothing of it is left
@@ -141,19 +170,37 @@ export function SealedLetter({
     // show through around the card from the first frame.
     <View testID={testID} style={StyleSheet.absoluteFill} pointerEvents="box-none">
       {/* Withdraws on the SAME opacity as the card, so the show fades in
-          rather than being uncovered in one cut. */}
+          rather than being uncovered in one cut. The ground is the cinema
+          hall the ticket admits into (trial, 27.08.); the painted colour
+          stays underneath so nothing shines through during its first
+          decode. */}
       <Animated.View
         testID="letter-backdrop"
         style={[StyleSheet.absoluteFill, { backgroundColor: palette['bg-0'], opacity }]}
         pointerEvents="none"
-      />
+      >
+        <Image
+          testID="letter-backdrop-image"
+          source={require('@/assets/images/kino.png')}
+          style={StyleSheet.absoluteFill}
+          contentFit="cover"
+        />
+      </Animated.View>
       {/* The wax is a SIBLING of the card, not a child: it hangs over the
           lower edge, and a rounded card that clips (Android) would cut it in
           half. */}
       <View style={[styles.stage, { width }]}>
       <Animated.View testID="letter-card" style={[styles.card, { opacity, transform: [{ scale }] }]}>
-        <View style={styles.rule} />
-        <Text style={[type.bodyMedium, styles.chapter]}>Deine Filmrolle</Text>
+        {/* The picture IS the card: frame, embossing, perforation and stub
+            all come from the asset, no surface or hairline of our own. */}
+        <Image
+          testID="letter-ticket"
+          source={require('@/assets/images/reelive-kino-ticket.png')}
+          style={StyleSheet.absoluteFill}
+          contentFit="fill"
+        />
+        <Animated.View testID="letter-inner" style={[styles.inner, { opacity: contentOut }]}>
+        <Text style={[type.bodyMedium, styles.chapter]}>Dein Recap</Text>
 
         {hasContent && (
           <Animated.View style={[styles.content, { opacity: contentIn }]}>
@@ -185,16 +232,23 @@ export function SealedLetter({
           </Animated.View>
         )}
 
-        <View style={[styles.rule, styles.ruleBottom]} />
+        </Animated.View>
       </Animated.View>
 
       {/* Deliberately NOT under the card's `opacity`: the card withdraws while
           the seal is still dissolving over it, and fading the wax along with
-          it would cut its own dissolve short. */}
+          it would cut its own dissolve short. Centred on the perforation, so
+          the peel reads as tearing the ticket open. */}
       <View
+        testID="letter-wax"
         style={[
           styles.wax,
-          { width: stage, height: stage, marginLeft: -stage / 2, bottom: -stage / 2 },
+          {
+            width: stage,
+            height: stage,
+            marginLeft: -stage / 2,
+            top: cardHeight * TICKET_PERFORATION_Y - stage / 2,
+          },
         ]}
       >
         <SealPeel
@@ -212,25 +266,27 @@ export function SealedLetter({
 const styles = StyleSheet.create({
   // Centred in the full-screen root above.
   stage: { alignItems: 'center', alignSelf: 'center', marginTop: 'auto', marginBottom: 'auto' },
-  // The card lies on the light ground, it does not float: a hairline, no
-  // shadow (DESIGN-LANGUAGE §3).
+  // The ticket dictates the card's shape; height follows the asset so the
+  // perforation maths above holds at any width.
   card: {
     alignSelf: 'stretch',
-    alignItems: 'center',
-    backgroundColor: palette['bg-1'],
-    borderRadius: radius.card,
-    borderWidth: 1,
-    borderColor: palette.line,
-    paddingTop: spacing.xl,
-    paddingHorizontal: spacing.base,
-    // Room for the wax, which sits halfway over this edge.
-    paddingBottom: spacing.xxl,
+    aspectRatio: TICKET_ASPECT,
   },
-  // The quiet ornament of a classic title card, identical to the day card's.
-  rule: { width: 44, height: 1, backgroundColor: palette['text-2'] },
-  ruleBottom: { marginTop: spacing.l },
+  // The lines live in the ticket's main compartment, above the perforation,
+  // centred clear of the notch cut into the top edge. Own node with its own
+  // opacity, so they can leave ahead of the card.
+  inner: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: `${TICKET_MAIN_END * 100}%`,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: '11%',
+  },
   // Tracked wide the way film chapters are set.
-  chapter: { color: palette['text-2'], letterSpacing: 3.5, marginTop: spacing.l },
+  chapter: { color: palette['text-2'], letterSpacing: 3.5 },
   content: { alignSelf: 'stretch', alignItems: 'center' },
   titleWrap: { alignSelf: 'stretch', marginTop: spacing.s },
   title: { color: palette['text-1'], textAlign: 'center' },

@@ -57,7 +57,10 @@ jest.mock('@/theme/useReducedMotion', () => ({
   useReducedMotion: () => mockUseReducedMotion(),
 }));
 
-import { SealedLetter, HANDOVER_MS, REDUCED_HANDOVER_MS } from '../SealedLetter';
+import {
+  SealedLetter, CONTENT_OUT_MS, HANDOVER_MS, REDUCED_HANDOVER_MS,
+  TICKET_ASPECT, TICKET_PERFORATION_Y,
+} from '../SealedLetter';
 import { DISSOLVE_MS } from '@/features/recap/sealPeel';
 
 jest.useFakeTimers();
@@ -93,7 +96,7 @@ beforeEach(() => {
 test('the letter carries the chapter line, the trip and the faces of its senders', async () => {
   await render(letter());
 
-  expect(screen.getByText('Deine Filmrolle')).toBeTruthy();
+  expect(screen.getByText('Dein Recap')).toBeTruthy();
   expect(screen.getByText('Portugal')).toBeTruthy();
   expect(screen.getByText('1.–14. Aug 2026')).toBeTruthy();
   expect(screen.getByText('48 Momente · zu dritt')).toBeTruthy();
@@ -106,7 +109,7 @@ test('the letter carries the chapter line, the trip and the faces of its senders
 test('while the trip is still loading only the chapter line stands, no empty lines', async () => {
   await render(letter({ title: null, range: null, facts: null, faces: [] }));
 
-  expect(screen.getByText('Deine Filmrolle')).toBeTruthy();
+  expect(screen.getByText('Dein Recap')).toBeTruthy();
   expect(screen.queryByTestId('letter-title')).toBeNull();
   expect(screen.queryByTestId('letter-range')).toBeNull();
   expect(screen.queryByTestId('letter-facts')).toBeNull();
@@ -198,19 +201,70 @@ test('an unmount during the handover: onOpened no longer arrives', async () => {
   expect(onOpened).not.toHaveBeenCalled();
 });
 
-// The letter left the cinema together with the day pages (Alex, 27.08.):
-// a light card with dark text, the same look the day card carries now.
-test('the letter stands in the light look, not the cinema', async () => {
+// The day card underneath begins its own credits the moment the card starts
+// withdrawing, and it is staged like this letter on purpose: two title cards
+// crossfading in place read as doubled text. So the lines clear the stage
+// ahead of the card, and only the empty surface keeps leaving with the seal.
+test('the lines ride their own exit, ahead of the card', async () => {
   await render(letter());
 
-  const chapter = screen.getByText('Deine Filmrolle');
-  const card = StyleSheet.flatten(chapter.parent?.props.style);
-  expect(card.backgroundColor).toBe(palette['bg-1']);
+  // ALL the lines live inside the inner stage: one straggler outside it
+  // would stand through the whole handover.
+  const inner = screen.getByTestId('letter-inner');
+  expect(within(inner).getByText('Dein Recap')).toBeTruthy();
+  expect(within(inner).getByTestId('letter-title')).toBeTruthy();
+  expect(within(inner).getByTestId('letter-range')).toBeTruthy();
+  expect(within(inner).getByTestId('letter-facts')).toBeTruthy();
+  expect(within(inner).getByTestId('letter-faces')).toBeTruthy();
+
+  // The inner stage carries its own opacity entry (resolved to its starting
+  // value here; the run itself is invisible to Jest, native driver). Without
+  // it the lines could only leave on the card's slower clock.
+  expect(StyleSheet.flatten(inner.props.style).opacity).toBe(1);
+
+  // And its exit is faster than the card's: the day card's staging starts
+  // one `base` after the handover begins, and it must never meet standing
+  // letter text.
+  expect(CONTENT_OUT_MS).toBeLessThan(HANDOVER_MS);
+});
+
+// The letter left the cinema together with the day pages (Alex, 27.08.):
+// a light card with dark text, the same look the day card carries now.
+test('the letter stands on the ticket, in the light palette', async () => {
+  await render(letter());
+
+  // The card face IS the ticket asset, filling the card; the old bg-1
+  // surface with its hairline is gone with it.
+  const card = screen.getByTestId('letter-card');
+  const ticket = within(card).getByTestId('letter-ticket');
+  expect(StyleSheet.flatten(ticket.props.style)).toEqual(
+    expect.objectContaining({ position: 'absolute', top: 0, bottom: 0, left: 0, right: 0 })
+  );
+  expect(StyleSheet.flatten(card.props.style).backgroundColor).toBeUndefined();
+
+  const chapter = screen.getByText('Dein Recap');
   expect(StyleSheet.flatten(chapter.props.style).color).toBe(palette['text-2']);
   expect(StyleSheet.flatten(screen.getByTestId('letter-title').props.style).color)
     .toBe(palette['text-1']);
   const faces = within(screen.getByTestId('letter-faces')).getAllByTestId('avatar-circle');
   expect(StyleSheet.flatten(faces[0].props.style).backgroundColor).toBe(palette['bg-1']);
+});
+
+// The seal seals the TEAR LINE, not the envelope's closing edge any more:
+// the ticket asset brings a perforated stub, and peeling the wax off is
+// tearing the ticket. Its centre therefore sits exactly on the perforation,
+// whose position is measured from the PNG.
+test('the wax sits on the ticket\'s perforation', async () => {
+  const width = 280;
+  await render(letter({ width }));
+
+  const wax = StyleSheet.flatten(screen.getByTestId('letter-wax').props.style);
+  const stage = StyleSheet.flatten(
+    screen.getByRole('button', { name: 'Siegel abziehen' }).props.style
+  ).width;
+  const cardHeight = width / TICKET_ASPECT;
+  expect(wax.top).toBeCloseTo(cardHeight * TICKET_PERFORATION_Y - stage / 2);
+  expect(wax.bottom).toBeUndefined();
 });
 
 // The letter lies OVER the show once the seal is off, and the show is already
@@ -221,7 +275,17 @@ test('the letter brings its own ground, which withdraws with the card', async ()
   const { unmount } = await render(letter());
 
   const backdrop = screen.getByTestId('letter-backdrop');
+  // The ground under the picture stays painted: an image needs a first
+  // decode, and the show must not shine through around the card meanwhile.
   expect(StyleSheet.flatten(backdrop.props.style).backgroundColor).toBe(palette['bg-0']);
+
+  // The ground itself is the cinema hall (Alex, 27.08., trial): full-bleed,
+  // cropped to the screen, inside the withdrawing node so it leaves along.
+  const hall = within(backdrop).getByTestId('letter-backdrop-image');
+  expect(hall.props.contentFit).toBe('cover');
+  expect(StyleSheet.flatten(hall.props.style)).toEqual(
+    expect.objectContaining({ position: 'absolute', top: 0, bottom: 0, left: 0, right: 0 })
+  );
 
   // Same opacity as the card: they withdraw together, so the show fades in
   // rather than being uncovered in one cut.
