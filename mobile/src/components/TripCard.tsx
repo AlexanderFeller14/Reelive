@@ -1,11 +1,11 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
 import { Play } from 'lucide-react-native';
 import { PressScale } from '@/components/PressScale';
 import { TripCover } from '@/components/TripCover';
-import { Pill } from '@/components/Pill';
+import { ReliefBadge } from '@/components/ReliefBadge';
 import { AvatarGroup } from '@/components/Avatar';
 import { useTheme } from '@/theme/ThemeProvider';
-import { palette, radius, spacing, type } from '@/theme/tokens';
+import { palette, spacing, type } from '@/theme/tokens';
 import { formatRange } from '@/features/trips/tripDay';
 import type { Trip } from '@/features/trips/types';
 
@@ -29,14 +29,13 @@ import type { Trip } from '@/features/trips/types';
 // and keeps showing revealed trips without any pill, exactly the state
 // before this task.
 //
-// Task 5 (recap-show plan): the pill moved from a solid `bg-1` badge top
-// left to a translucent `Pill` bottom left, on the photo scrim `TripCover`
-// now draws for it, and its tap target changed from the overview to the
-// player without a `start` param, so that the card promises a show and the
-// tap actually opens one. Its icon and text come from `palette['bg-0']`,
-// not `cinema['text-1']` or `accent-text`: the card itself still lives in
-// the light UI, the pill is only its window onto a photo, the same reason
-// any other UI on a photo stays translucent (§1).
+// Task 5 (recap-show plan): the pill sits bottom left on the photo scrim
+// `TripCover` draws for it, and its tap target is the player without a
+// `start` param, so that the card promises a show and the tap actually
+// opens one. Since the trip tab redesign (2026-08-27) it wears the same
+// raised white `ReliefBadge` as the hero card's badges, one badge language
+// across both tabs; icon and text in `text-1`, dark on the light badge.
+// The scrim stays: it grounds the badge on busy photos.
 export function TripCard({
   trip, onPress, asRecap = false, position = 0, coverUrl,
 }: {
@@ -66,10 +65,10 @@ export function TripCard({
       <View style={{ gap: spacing.m }}>
         <TripCover position={position} sealed={trip.status === 'active'} scrim={revealed} coverUrl={coverUrl}>
           {revealed && (
-            <Pill testID="recap-card-play" style={styles.playPill}>
-              <Play size={16} color={palette['bg-0']} strokeWidth={1.75} />
-              <Text style={[type.bodyMedium, { color: palette['bg-0'] }]}>Recap ansehen</Text>
-            </Pill>
+            <ReliefBadge testID="recap-card-play">
+              <Play size={16} color={palette['text-1']} strokeWidth={1.75} />
+              <Text style={[type.bodyMedium, { color: palette['text-1'] }]}>Recap ansehen</Text>
+            </ReliefBadge>
           )}
         </TripCover>
         <View style={{ gap: spacing.xs }}>
@@ -86,23 +85,3 @@ export function TripCard({
     </PressScale>
   );
 }
-
-const styles = StyleSheet.create({
-  // Shape and placement only, never a background: `Pill` owns the
-  // translucent fill (DESIGN-LANGUAGE §1), duplicating it here would risk
-  // the two drifting apart.
-  // Sized as an invitation, not as a badge: `bodyMedium` is the role this
-  // design language gives button labels, and the pill is exactly that, the
-  // promise of what a tap on the card does. The 12 px `label` it carried
-  // first read as a status marker sitting on the photo rather than as
-  // something to press.
-  playPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.s,
-    alignSelf: 'flex-start',
-    paddingHorizontal: spacing.base,
-    paddingVertical: spacing.s,
-    borderRadius: radius.pill,
-  },
-});

@@ -6,7 +6,7 @@ import { Image } from 'expo-image';
 import { Ellipsis, Flag, Share2, X } from 'lucide-react-native';
 import { PressScale } from '@/components/PressScale';
 import { Avatar, AvatarGroup } from '@/components/Avatar';
-import { Pill } from '@/components/Pill';
+import { ReliefBadge } from '@/components/ReliefBadge';
 import { SealedStack } from '@/components/SealedStack';
 import { Button } from '@/components/Button';
 import { TripCover } from '@/components/TripCover';
@@ -14,7 +14,7 @@ import { RevealSequence } from '@/components/RevealSequence';
 import { Sheet, SHEET_SCROLL_RATIO } from '@/components/Sheet';
 import { StatusBarCover } from '@/components/StatusBarCover';
 import { useTheme } from '@/theme/ThemeProvider';
-import { cinema, radius, spacing, type } from '@/theme/tokens';
+import { radius, spacing, type } from '@/theme/tokens';
 import { useTopInset } from '@/theme/useTopInset';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { deleteTrip, fetchMembers, fetchTrip, removeMember } from '@/features/trips/tripsApi';
@@ -491,8 +491,8 @@ export default function TripDetail() {
       <TripCover position={coverPosition} sealed={isActive}>
         {/* Everything that manages the trip lives behind this one pill, so
             the screen below can end on a single call to action instead of
-            a stack of four buttons. It sits ON the cover and is therefore
-            translucent, the only way §1 allows UI on a photo. */}
+            a stack of four buttons. It wears the raised white ReliefBadge,
+            the badge language of the light UI on covers (§4). */}
         <PressScale
           testID="manage-open"
           accessibilityRole="button"
@@ -500,9 +500,9 @@ export default function TripDetail() {
           style={styles.manageAnchor}
           onPress={() => setManageVisible(true)}
         >
-          <Pill style={styles.managePill}>
-            <Ellipsis size={24} color={cinema['text-1']} strokeWidth={1.75} />
-          </Pill>
+          <ReliefBadge contentStyle={styles.managePill}>
+            <Ellipsis size={24} color={colors['text-1']} strokeWidth={1.75} />
+          </ReliefBadge>
         </PressScale>
       </TripCover>
 
@@ -765,11 +765,13 @@ const styles = StyleSheet.create({
   // child against the parent's padding box, so `0/0` lands exactly on the
   // overlay's 12 px inset.
   manageAnchor: { position: 'absolute', top: 0, right: 0 },
+  // Fixed round 44 box instead of the badge's text padding; look and
+  // relief stay ReliefBadge's business.
   managePill: {
     width: 44,
     height: 44,
-    borderRadius: radius.pill,
-    alignItems: 'center',
+    paddingHorizontal: 0,
+    paddingVertical: 0,
     justifyContent: 'center',
   },
   // A set-off surface instead of a shadow (DESIGN-LANGUAGE §3: a shadow

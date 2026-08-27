@@ -47,9 +47,12 @@ Text `#F2EEE8` / `#A79F96` · `seal-glow` `#E8A13C` (Gold darf hier glühen).
 Regeln:
 - `accent` = Interaktion, `seal` = Versiegelungs-Symbolik. Nie mischen.
 - Kein Blau, Violett, Türkis; kein Grün als Erfolgsfarbe.
-- Auf Fotos liegt UI ausschliesslich als translucente Pille: `rgba(19,17,16,0.55)` + Blur 10.
+- Auf Fotos in den Medien-Screens liegt UI ausschliesslich als translucente Pille:
+  `rgba(19,17,16,0.55)` + Blur 10. Auf Covern im hellen UI tragen Status- und
+  Aktions-Badges stattdessen das Relief-Badge (§4).
 - Foto-Scrims (oben/unten `rgba(0,0,0,0.35) → transparent`) sind der EINZIGE erlaubte
-  Gradient der App.
+  Gradient auf Flächen. Einzige weitere Ausnahme: das Material des Relief-Badges,
+  fest verbaut in `ReliefBadge.tsx` (§4).
 
 ## 2. Typografie
 
@@ -81,7 +84,9 @@ immer `tabular-nums`. Headlines dürfen zweizeilig umbrechen.
   - `shadow-2` `0 6 16 rgba(0,0,0,0.12)` — Schwebendes (FAB, Sticky-CTA)
   - `shadow-3` `0 8 28 rgba(0,0,0,0.28)` — Sheets, Modals
 - Flächentrennung primär über Weissraum und Hairlines. Ein Schatten heisst «schwebt» —
-  nie Dekoration. Randlose Reise-Karten haben KEINEN Schatten.
+  nie Dekoration. Randlose Reise-Karten haben KEINEN Schatten. (Ausnahme: das
+  Relief-Badge bringt sein eigenes, in `ReliefBadge.tsx` festgelegtes Schattenpaar
+  mit, §4.)
 - **Fotos randlos** in Medien-Screens; im hellen UI Radius 24 (Cover) / 12 (Thumbnails).
 
 ## 4. Komponenten
@@ -92,16 +97,26 @@ Maximal 2–3 Komponentenarten pro Screen. Bestand:
   `accent-pressed`. Genau EINER pro Screen.
 - **Button sekundär (Outline):** `bg-0`, 1 px Rand `#222222`, Text `text-1`, Radius 12.
 - **Text-Link:** `text-1` unterstrichen; `accent-text` nur für hervorgehobene Aktionen.
-- **Reise-Karte (randlos):** Cover 3:2 Radius 24, darunter ohne Rahmen: Titel
-  Body-Medium, Zeitraum Sekundär, Avatare (−8 px Overlap) + Momente-Chip. Versiegelt-
-  Badge als Pille auf dem Cover (Icon in `seal-glow`).
+- **Reise-Karte (randlos):** Cover 3:2 Radius 24, darunter ohne Rahmen: Titel,
+  Zeitraum Sekundär, Personenzeile mit Momente-Zähler. Laufende Reisen tragen
+  Relief-Badges («Aktiv», «Noch X Tage») und den Stapel verdeckter Momente auf dem
+  Cover; geplante Reisen stehen im Zwei-Spalten-Raster. Das Wachssiegel-Bild gehört
+  dem Recap (Peel) und dem Reise-Detail, nicht der Liste.
+- **Relief-Badge (`ReliefBadge`):** DIE Badge-Sprache des hellen UI für Status und
+  Einladungen auf Covern («Aktiv», «Noch 5 Tage», «Recap ansehen», das
+  Verwaltungs-Rondell im Reise-Detail). Fast weisse Fläche mit hauchzartem Verlauf,
+  weicher Weissring mit dunklem Saum, Doppelschatten (Kontakt + Abhebung). Rezept und
+  Werte wohnen ausschliesslich in `ReliefBadge.tsx` und werden nie nachgebaut. NIE in
+  den Medien-Screens und nicht für Mini-Badges unter ~32 px, dort gilt die
+  translucente Pille.
 - **Input:** Höhe 56, Radius 12, Rand 1 px `line-strong`, Floating Label. Fokus: Rand
   2 px `#222222` (nicht Akzent). Fehler: Rand + Text `danger`.
 - **Tab-Bar:** volle Breite, `bg-0`, Hairline oben, keine Rundung. Aktiv `accent`,
   inaktiv `text-2`. Tabs: **Aufnehmen · Reise · Recap · Profil**.
 - **Sheet:** von unten, Radius 24 oben, Grabber, `shadow-3`, öffnet per `spring-ui`.
-- **FAB «Neue Reise»:** `accent`, 56 px, Radius 999, `shadow-2`, unten rechts.
-- **Pill-Control (auf Fotos):** translucent + Blur, Radius 999.
+- **Knopf «Neue Reise»:** runder `accent`-Knopf 40 px, Radius 999, im Screen-Kopf
+  rechts neben dem H1 (hat den FAB abgelöst). Press: Scale 0.94.
+- **Pill-Control (auf Fotos in Medien-Screens):** translucent + Blur, Radius 999.
 - **Avatare:** rund, 32–44 px, 2 px weisser Ring, Gruppen −8 px überlappend.
 - **Skeleton:** `bg-1`-Blöcke, Opacity-Puls 0.6 ↔ 1.0 (kein Gradient-Shimmer).
 
