@@ -5,7 +5,6 @@ import {
   Dimensions,
   useWindowDimensions,
   Easing,
-  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -30,11 +29,11 @@ import { MomentSubmissionAnimation } from '@/components/MomentSubmissionAnimatio
 import { Button } from '@/components/Button';
 import { Pill } from '@/components/Pill';
 import { PressScale } from '@/components/PressScale';
-import { StatusBarCover } from '@/components/StatusBarCover';
 import { ZoomSelector } from '@/components/ZoomSelector';
 import * as nativeCapture from '@/features/camera/nativeCapture';
 import * as nativeZoom from '@/features/camera/nativeZoom';
 import * as multiCamera from '@/features/camera/multiCamera';
+import { TripPickerScreen } from '@/features/camera/TripPickerScreen';
 import {
   clamp,
   fingerDistance,
@@ -50,6 +49,7 @@ import { useReducedMotion } from '@/theme/useReducedMotion';
 import { fetchTrips } from '@/features/trips/tripsApi';
 import * as tripsCache from '@/features/trips/tripsCache';
 import type { CachedTrip } from '@/features/trips/tripsCache';
+import { formatDay, groupTrips, todaysCalendarDay } from '@/features/trips/tripDay';
 import { ownMomentCount } from '@/features/moments/counter';
 import {
   assess,
@@ -225,6 +225,21 @@ function errorBottom(withZoomRow: boolean): number {
 
 function momentsText(count: number): string {
   return `${count} ${count === 1 ? 'Moment' : 'Momente'}`;
+}
+
+// Name and counter in the head pill, stacked; shared by the switcher (with
+// chevron) and the plain label (without).
+function HeaderTripTexts({ name, count }: { name: string; count: number }) {
+  return (
+    <View style={styles.headerTexts}>
+      {/* numberOfLines: a single long word (trip names are free text) would
+          otherwise overflow the shrunken pill instead of being truncated. */}
+      <Text numberOfLines={1} style={[type.bodyMedium, { color: cinema['text-1'] }]}>
+        {name}
+      </Text>
+      <Text style={[type.secondary, { color: cinema['text-2'] }]}>{momentsText(count)}</Text>
+    </View>
+  );
 }
 
 // Whether there is an ultra-wide among these lenses: as a lens of its own or
@@ -449,7 +464,10 @@ function FloatingFlightTicket() {
   );
 }
 
-function NoTripScreen({ onCreate }: { onCreate: () => void }) {
+// `nextTrip`: the soonest planned trip, if any. A planned trip is `active`
+// but not running (groupTrips), so the camera stays shut; the text then
+// names the day it opens instead of asking for a first trip.
+function NoTripScreen({ nextTrip, onCreate }: { nextTrip: CachedTrip | null; onCreate: () => void }) {
   return (
     <View style={[styles.light, styles.center]}>
       {/* The third empty state with an image of its own, after the camper
@@ -458,8 +476,9 @@ function NoTripScreen({ onCreate }: { onCreate: () => void }) {
       <FloatingFlightTicket />
       <Text style={[type.h2, styles.title]}>Keine laufende Reise</Text>
       <Text style={[type.body, styles.text, { marginTop: spacing.s }]}>
-        Leg deine erste Reise an oder tritt einer per Einladungslink bei. Sobald sie läuft,
-        fängt hier deine Kamera an.
+        {nextTrip
+          ? `«${nextTrip.name}» beginnt am ${formatDay(nextTrip.start_date)}. Sobald sie läuft, fängt hier deine Kamera an.`
+          : 'Leg deine erste Reise an oder tritt einer per Einladungslink bei. Sobald sie läuft, fängt hier deine Kamera an.'}
       </Text>
       <View style={{ marginTop: spacing.xl }}>
         <Button variant="primary" label="Neue Reise anlegen" onPress={onCreate} />
@@ -483,35 +502,6 @@ function PermissionScreen() {
           onPress={() => void Linking.openSettings()}
         />
       </View>
-    </View>
-  );
-}
-
-function TripPickerScreen({ trips, onSelect }: { trips: CachedTrip[]; onSelect: (id: string) => void }) {
-  // Read top to bottom, and therefore in need of the spared top edge. The
-  // viewfinder needs it just as much these days: edge-to-edge there is the
-  // camera image (§3, "photos edge-to-edge in media screens"), not the
-  // controls lying on top of it. As long as "the viewfinder has nothing to
-  // spare at the top" stood here, the trip pill stuck to the clock on devices
-  // with a Dynamic Island.
-  const topInset = useTopInset(spacing.xl);
-  return (
-    <View style={styles.light}>
-      <ScrollView contentContainerStyle={[styles.pickerContent, { paddingTop: topInset }]}>
-        <Text style={[type.h2, styles.title, { marginBottom: spacing.l }]}>Für welche Reise?</Text>
-        {trips.map((trip) => (
-          <PressScale key={trip.id} accessibilityRole="button" onPress={() => onSelect(trip.id)}>
-            <View style={styles.pickerRow}>
-              <Text style={[type.bodyMedium, styles.title]}>{trip.name}</Text>
-              <Text style={[type.secondary, styles.text]}>{momentsText(trip.my_post_count)}</Text>
-            </View>
-          </PressScale>
-        ))}
-      </ScrollView>
-      {/* The one scrolling list in this file, so the one place here that
-          needs the opaque strip. The viewfinder and the preview stay without
-          it, there the photo scrim carries the top edge (§1). */}
-      <StatusBarCover />
     </View>
   );
 }
@@ -697,17 +687,23 @@ export default function CaptureScreen() {
   // Computed before the early returns (rules of hooks: the effect below needs
   // `trip?.id` as a dependency, and hooks must not sit behind a conditional
   // return). `trips` can still be `null` here (not loaded yet), then
-  // `activeTrips` stays empty and `trip` `null`, which the effect below and
-  // the later returns already catch.
-  const activeTrips = (trips ?? []).filter((t) => t.status === 'active');
+  // `running` stays empty and `trip` `null`, which the effect below and the
+  // later returns already catch.
+  //
+  // Only RUNNING trips (spec 2026-08-27 "Reisewahl"): `active` is the
+  // lifecycle status and also covers trips that have not started yet
+  // (groupTrips, the trip tab's split). A planned trip is no place for a
+  // moment, and it must not push the picker in front of the camera every
+  // time one is created.
+  const today = todaysCalendarDay();
+  const { running, planned } = groupTrips(trips ?? [], today);
+  // With one running trip the choice is made; with several it is the
+  // remembered one, or nobody's yet.
+  const currentTripId =
+    running.length === 1 ? running[0].id : (running.find((t) => t.id === selectedTripId)?.id ?? null);
   // `pickerOpen` beats everything: whoever taps the trip name wants to see the
-  // picker, even if only one trip is running and the automatic would otherwise
-  // put it right back in.
-  const trip = pickerOpen
-    ? null
-    : activeTrips.length === 1
-      ? activeTrips[0]
-      : (activeTrips.find((t) => t.id === selectedTripId) ?? null);
+  // picker; the current trip then only tells it which row to mark.
+  const trip = pickerOpen ? null : (running.find((t) => t.id === currentTripId) ?? null);
 
   // The core of this phase's offline promise (final review, critical 1):
   // "capturing works fully offline", but the viewfinder only appears once a
@@ -1170,18 +1166,25 @@ export default function CaptureScreen() {
     );
   }
 
-  if (activeTrips.length === 0) {
-    return <NoTripScreen onCreate={() => router.push('/trip/new')} />;
+  if (running.length === 0) {
+    return <NoTripScreen nextTrip={planned[0] ?? null} onCreate={() => router.push('/trip/new')} />;
   }
 
   if (!trip) {
     return (
       <TripPickerScreen
-        trips={activeTrips}
+        trips={running}
+        today={today}
+        // Opened from the viewfinder the picker marks the trip it shows and
+        // offers the way back; opened automatically there is nothing to
+        // return to, so neither.
+        selectedId={pickerOpen ? currentTripId : null}
         onSelect={(id) => {
           setSelectedTripId(id);
           setPickerOpen(false);
         }}
+        onClose={pickerOpen ? () => setPickerOpen(false) : undefined}
+        onCreate={() => router.push('/trip/new')}
       />
     );
   }
@@ -1937,30 +1940,29 @@ export default function CaptureScreen() {
           right now. */}
       {!capturing && !importing && (
         <View testID="viewfinder-header" style={[styles.headerRow, { top: viewfinderTopInset }]}>
-          {/* The trip switcher (product concept): the trip name IS the button,
-              no extra control on the image. The chevron makes that visible
-              without asking for more room than an icon. */}
-          <PressScale
-            style={styles.headerPicker}
-            accessibilityRole="button"
-            accessibilityLabel={`Reise wechseln, ${trip.name}`}
-            onPress={() => setPickerOpen(true)}
-          >
-            <Pill style={styles.headerPill}>
-              <View style={styles.headerTexts}>
-                {/* numberOfLines: a single long word (trip names are free
-                    text) would otherwise overflow the shrunken pill instead of
-                    being truncated. */}
-                <Text numberOfLines={1} style={[type.bodyMedium, { color: cinema['text-1'] }]}>
-                  {trip.name}
-                </Text>
-                <Text style={[type.secondary, { color: cinema['text-2'] }]}>
-                  {momentsText(counter ?? trip.my_post_count)}
-                </Text>
-              </View>
-              <ChevronDown size={18} color={cinema['text-2']} strokeWidth={1.75} />
+          {/* The trip switcher (product concept: "switchable when several
+              trips are running"): the trip name IS the button, no extra
+              control on the image. The chevron makes that visible without
+              asking for more room than an icon. With one running trip there
+              is nothing to switch to, so the name is a label: no chevron, no
+              press, and nothing for VoiceOver to offer. */}
+          {running.length > 1 ? (
+            <PressScale
+              style={styles.headerPicker}
+              accessibilityRole="button"
+              accessibilityLabel={`Reise wechseln, ${trip.name}`}
+              onPress={() => setPickerOpen(true)}
+            >
+              <Pill style={styles.headerPill}>
+                <HeaderTripTexts name={trip.name} count={counter ?? trip.my_post_count} />
+                <ChevronDown size={18} color={cinema['text-2']} strokeWidth={1.75} />
+              </Pill>
+            </PressScale>
+          ) : (
+            <Pill style={[styles.headerPicker, styles.headerPill]}>
+              <HeaderTripTexts name={trip.name} count={counter ?? trip.my_post_count} />
             </Pill>
-          </PressScale>
+          )}
           <View style={styles.controls}>
             <PillButton label="Kamera wechseln" onPress={switchCamera}>
               <SwitchCamera size={22} color={cinema['text-1']} strokeWidth={1.75} />
@@ -2083,15 +2085,6 @@ const styles = StyleSheet.create({
   flightTicket: { width: '100%', aspectRatio: 3 / 2 },
   title: { color: palette['text-1'] },
   text: { color: palette['text-2'] },
-  pickerContent: { padding: spacing.screen, paddingTop: spacing.xl },
-  pickerRow: {
-    padding: spacing.base,
-    borderRadius: radius.control,
-    // §1: `bg-1` is the raised surface on a light ground.
-    backgroundColor: palette['bg-1'],
-    marginBottom: spacing.m,
-    gap: spacing.xs,
-  },
   // One row for everything that lies on top of the viewfinder: the header pill
   // on the left, the controls on the right (re-review, minor 1). Before, both
   // were positioned absolutely on their own; as long as nothing was on the

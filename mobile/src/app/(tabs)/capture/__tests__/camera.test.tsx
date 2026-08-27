@@ -71,6 +71,20 @@ jest.mock('@/theme/useReducedMotion', () => ({
 
 jest.mock('@/features/trips/tripsApi', () => ({ fetchTrips: jest.fn() }));
 
+// The picker derives «running» from the real clock via todaysCalendarDay()
+// (groupTrips, the same split as the trip tab); pinned so the fixtures below
+// never age out of their group. Everything else in the module stays real,
+// including the same function WITH an argument: libraryImport turns a
+// capture timestamp into its calendar day that way, and a pinned answer
+// there would put every import inside the trip period.
+jest.mock('@/features/trips/tripDay', () => {
+  const actual = jest.requireActual('@/features/trips/tripDay');
+  return {
+    ...actual,
+    todaysCalendarDay: (now?: Date) => (now ? actual.todaysCalendarDay(now) : '2026-08-10'),
+  };
+});
+
 // The local trip cache is NOT mocked here but really used, only AsyncStorage
 // underneath is a double. That way the offline test really walks the path "a
 // successful fetch writes the cache, a failed fetch falls back on it".
@@ -1041,7 +1055,7 @@ test('when only the counter fetch fails, the last known count applies instead of
   (fetchTrips as jest.Mock).mockResolvedValue(loaded([a, b]));
   const firstSession = await render(<CaptureScreen />);
   await screen.findByText('Für welche Reise?');
-  expect(screen.getByText('40 Momente')).toBeTruthy();
+  expect(screen.getByText('Noch 4 Tage · 40 Momente')).toBeTruthy();
   await firstSession.unmount();
 
   (fetchTrips as jest.Mock).mockResolvedValue({
@@ -1055,9 +1069,9 @@ test('when only the counter fetch fails, the last known count applies instead of
   await render(<CaptureScreen />);
 
   expect(await screen.findByText('Für welche Reise?')).toBeTruthy();
-  expect(screen.getByText('40 Momente')).toBeTruthy();
-  expect(screen.getByText('7 Momente')).toBeTruthy();
-  expect(screen.queryByText('0 Momente')).toBeNull();
+  expect(screen.getByText('Noch 4 Tage · 40 Momente')).toBeTruthy();
+  expect(screen.getByText('Noch 4 Tage · 7 Momente')).toBeTruthy();
+  expect(screen.queryByText(/Noch kein Moment/)).toBeNull();
 });
 
 // "Bright travel journal, dark cinema" (DESIGN-LANGUAGE, guiding idea): the
@@ -1288,16 +1302,88 @@ test('the trip name in the head pill leads back into the picker', async () => {
   expect(await screen.findByLabelText('Reise wechseln, Norwegen')).toBeTruthy();
 });
 
-test('even with only one running trip the name opens the picker', async () => {
+// Product concept: "switchable when several trips are running". With one
+// trip there is nothing to switch to, so the name is a label, not a button.
+test('with one running trip the head pill is no switcher', async () => {
   (fetchTrips as jest.Mock).mockResolvedValue(loaded([trip()]));
   await render(<CaptureScreen />);
   await screen.findByLabelText('Auslöser');
 
-  await fireEvent.press(screen.getByLabelText('Reise wechseln, Norwegen mit dem Camper'));
-  expect(await screen.findByText('Für welche Reise?')).toBeTruthy();
-
+  expect(screen.queryByLabelText('Reise wechseln, Norwegen mit dem Camper')).toBeNull();
   await fireEvent.press(screen.getByText('Norwegen mit dem Camper'));
+  expect(screen.queryByText('Für welche Reise?')).toBeNull();
+  expect(screen.getByLabelText('Auslöser')).toBeTruthy();
+});
+
+test('the picker opened from the head pill marks the current trip and can be closed', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(
+    loaded([trip({ id: 'a', name: 'Norwegen' }), trip({ id: 'b', name: 'Lissabon' })])
+  );
+  await render(<CaptureScreen />);
+  await screen.findByText('Für welche Reise?');
+  // Opened automatically there is nothing to go back to: no close button.
+  expect(screen.queryByLabelText('Schliessen')).toBeNull();
+  await fireEvent.press(screen.getByText('Lissabon'));
+  await screen.findByLabelText('Auslöser');
+
+  await fireEvent.press(screen.getByLabelText('Reise wechseln, Lissabon'));
+  await screen.findByText('Für welche Reise?');
+  expect(screen.getByRole('button', { name: /^Lissabon/, selected: true })).toBeTruthy();
+  expect(screen.queryByRole('button', { name: /^Norwegen/, selected: true })).toBeNull();
+
+  await fireEvent.press(screen.getByLabelText('Schliessen'));
+  expect(await screen.findByLabelText('Reise wechseln, Lissabon')).toBeTruthy();
+  expect(screen.queryByText('Für welche Reise?')).toBeNull();
+});
+
+test('the picker shows date range, remaining days and count per trip', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(
+    loaded([trip({ id: 'a', name: 'Norwegen' }), trip({ id: 'b', name: 'Lissabon', my_post_count: 2 })])
+  );
+  await render(<CaptureScreen />);
+  await screen.findByText('Für welche Reise?');
+
+  expect(screen.getAllByText('1.–14. Aug 2026')).toHaveLength(2);
+  expect(screen.getByText('Noch 4 Tage · 4 Momente')).toBeTruthy();
+  expect(screen.getByText('Noch 4 Tage · 2 Momente')).toBeTruthy();
+});
+
+test('the picker offers creating a trip for a moment that fits none', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(
+    loaded([trip({ id: 'a', name: 'Norwegen' }), trip({ id: 'b', name: 'Lissabon' })])
+  );
+  await render(<CaptureScreen />);
+  await screen.findByText('Für welche Reise?');
+
+  await fireEvent.press(screen.getByText('Neue Reise anlegen'));
+  expect(mockPush).toHaveBeenCalledWith('/trip/new');
+});
+
+// === Planned trips ===
+// `active` is the lifecycle status and also covers trips that have not
+// started yet (groupTrips). Those are no place for a moment: the camera
+// only knows running trips.
+test('a planned trip does not count: the running one is chosen without a picker', async () => {
+  const running = trip({ id: 'a', name: 'Norwegen' });
+  const planned = trip({ id: 'b', name: 'Lissabon', start_date: '2026-09-01', end_date: '2026-09-10' });
+  (fetchTrips as jest.Mock).mockResolvedValue(loaded([running, planned]));
+  await render(<CaptureScreen />);
+
   expect(await screen.findByLabelText('Auslöser')).toBeTruthy();
+  expect(screen.getByText('Norwegen')).toBeTruthy();
+  expect(screen.queryByText('Für welche Reise?')).toBeNull();
+  expect(screen.queryByText('Lissabon')).toBeNull();
+});
+
+test('with only a planned trip the screen names its start instead of the camera', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(
+    loaded([trip({ start_date: '2026-09-01', end_date: '2026-09-10' })])
+  );
+  await render(<CaptureScreen />);
+
+  expect(await screen.findByText('Keine laufende Reise')).toBeTruthy();
+  expect(screen.getByText(/beginnt am 1\. Sep 2026/)).toBeTruthy();
+  expect(screen.queryByLabelText('Auslöser')).toBeNull();
 });
 
 // === The header row during a capture ===
@@ -1306,7 +1392,7 @@ test('during a running capture the controls in the head disappear', async () => 
   mockRecordAsync.mockImplementation(() => new Promise(() => {}));
   await render(<CaptureScreen />);
   await screen.findByLabelText('Auslöser');
-  expect(screen.getByLabelText('Reise wechseln, Norwegen mit dem Camper')).toBeTruthy();
+  expect(screen.getByText('Norwegen mit dem Camper')).toBeTruthy();
   expect(screen.getByLabelText('Kamera wechseln')).toBeTruthy();
 
   jest.useFakeTimers();
@@ -1316,7 +1402,7 @@ test('during a running capture the controls in the head disappear', async () => 
   });
   jest.useRealTimers();
 
-  expect(screen.queryByLabelText('Reise wechseln, Norwegen mit dem Camper')).toBeNull();
+  expect(screen.queryByText('Norwegen mit dem Camper')).toBeNull();
   expect(screen.queryByLabelText('Kamera wechseln')).toBeNull();
   expect(screen.queryByLabelText('Blitz einschalten')).toBeNull();
   expect(screen.queryByLabelText('Momente aus Fotos einsenden')).toBeNull();
@@ -1346,7 +1432,7 @@ test('after the capture the header row stands again', async () => {
     resolveRecord({ uri: 'file://video.mp4' });
   });
 
-  expect(await screen.findByLabelText('Reise wechseln, Norwegen mit dem Camper')).toBeTruthy();
+  expect(await screen.findByText('Norwegen mit dem Camper')).toBeTruthy();
   expect(screen.getByLabelText('Kamera wechseln')).toBeTruthy();
 });
 
@@ -1370,7 +1456,7 @@ test('a failed capture brings the header row back instead of leaving it gone', a
   jest.useRealTimers();
   await fireEvent(screen.getByLabelText('Auslöser'), 'pressOut');
 
-  expect(await screen.findByLabelText('Reise wechseln, Norwegen mit dem Camper')).toBeTruthy();
+  expect(await screen.findByText('Norwegen mit dem Camper')).toBeTruthy();
 });
 
 test('after a failed capture the next attempt starts a capture again', async () => {
@@ -1387,7 +1473,7 @@ test('after a failed capture the next attempt starts a capture again', async () 
   await runStartAttempts();
   jest.useRealTimers();
   await fireEvent(screen.getByLabelText('Auslöser'), 'pressOut');
-  await screen.findByLabelText('Reise wechseln, Norwegen mit dem Camper');
+  await screen.findByText('Norwegen mit dem Camper');
   const afterTheFailure = mockRecordAsync.mock.calls.length;
   expect(afterTheFailure).toBeGreaterThan(0);
 
@@ -3132,7 +3218,7 @@ test('accepted elements go through submitImports for the trip; meanwhile the shu
   // During the batch: no shutter, no header, no tab switch, a progress pill.
   expect(screen.queryByLabelText('Auslöser')).toBeNull();
   expect(screen.queryByLabelText('Momente aus Fotos einsenden')).toBeNull();
-  expect(screen.queryByLabelText('Reise wechseln, Norwegen mit dem Camper')).toBeNull();
+  expect(screen.queryByText('Norwegen mit dem Camper')).toBeNull();
   expect(screen.getByTestId('import-progress')).toBeTruthy();
   expect(screen.getByText('1 von 2 Momenten eingesendet')).toBeTruthy();
   expect(captureLock.isLocked()).toBe(true);

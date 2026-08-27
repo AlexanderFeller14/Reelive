@@ -205,7 +205,6 @@ describe('the sheet building blocks live in exactly one place', () => {
     'ClusterSheetContent',
     'ClusterEntry',
     'SheetScroll',
-    'FadeIn',
     'pinImageUrl',
     'sheetImageUrl',
     'usableUrl',
@@ -218,6 +217,19 @@ describe('the sheet building blocks live in exactly one place', () => {
     const source = readFileSync(path.join(__dirname, '..', 'MomentSheet.tsx'), 'utf8');
     for (const name of BUILDING_BLOCKS) {
       expect(source).toMatch(new RegExp(`export function ${name}\\b`));
+    }
+  });
+
+  // FadeIn grew up here and moved to components/ once the trip picker
+  // needed the same rhythm: one home, and the map file only re-exports it.
+  test('FadeIn lives in components/FadeIn.tsx, the map file only re-exports it', async () => {
+    const shared = readFileSync(path.join(SRC, 'components', 'FadeIn.tsx'), 'utf8');
+    expect(shared).toMatch(/export function FadeIn\b/);
+    const sheet = readFileSync(path.join(__dirname, '..', 'MomentSheet.tsx'), 'utf8');
+    expect(definesItself(sheet, 'FadeIn')).toBe(false);
+    expect(sheet).toMatch(/export \{ FadeIn \}/);
+    for (const screenPath of SCREENS) {
+      expect(definesItself(readFileSync(screenPath, 'utf8'), 'FadeIn')).toBe(false);
     }
   });
 

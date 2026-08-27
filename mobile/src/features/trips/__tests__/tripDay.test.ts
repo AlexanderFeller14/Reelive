@@ -1,6 +1,23 @@
 import { todaysCalendarDay, validateDateRange,
-  tripDay, tripLength, daysUntilEnd, formatRange, groupTrips,
+  tripDay, tripLength, daysUntilEnd, daysLeftLabel, formatRange, formatDay, groupTrips,
 } from '../tripDay';
+
+test.each([
+  ['2026-08-14', '2026-08-10', 'Noch 4 Tage'],
+  ['2026-08-14', '2026-08-13', 'Noch 1 Tag'],
+  ['2026-08-14', '2026-08-14', 'Letzter Tag'],
+  // Past its end but not yet revealed: "Letzter Tag" beats a negative count.
+  ['2026-08-14', '2026-08-16', 'Letzter Tag'],
+])('daysLeftLabel(%s, %s) → %s', (end, today, expected) => {
+  expect(daysLeftLabel(end, today)).toBe(expected);
+});
+
+test.each([
+  ['2026-09-01', '1. Sep 2026'],
+  ['2026-12-24', '24. Dez 2026'],
+])('formatDay(%s) → %s', (iso, expected) => {
+  expect(formatDay(iso)).toBe(expected);
+});
 
 test.each([
   ['2026-08-01', '2026-08-14', null],

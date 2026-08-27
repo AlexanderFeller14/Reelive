@@ -1,7 +1,5 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import {
-  Animated,
-  Easing,
   ScrollView,
   StyleSheet,
   Text,
@@ -10,11 +8,11 @@ import {
 } from 'react-native';
 import { Image } from 'expo-image';
 import { Button } from '@/components/Button';
+import { FadeIn } from '@/components/FadeIn';
 import { PressScale } from '@/components/PressScale';
 import { SHEET_SCROLL_RATIO } from '@/components/Sheet';
 import { useTheme } from '@/theme/ThemeProvider';
 import { motion, radius, spacing, type } from '@/theme/tokens';
-import { useReducedMotion } from '@/theme/useReducedMotion';
 import type { RecapMoment } from '@/features/recap/types';
 import { timeInZone } from '@/features/recap/timeOfDay';
 import { momentLabel } from './pin';
@@ -84,13 +82,6 @@ export function authorAndTime(moment: RecapMoment): string {
   return `${moment.authorName} · ${timeInZone(moment.captured_at, moment.captured_tz)}`;
 }
 
-// DESIGN-LANGUAGE §5: "lists = 40ms stagger", the rows of a list appear one
-// after another, not as a block. And "prefers-reduced-motion: everything
-// becomes a 200ms fade", the same value as in Sheet.tsx (module-private
-// there).
-const STAGGER_MS = 40;
-const REDUCED_DURATION_MS = 200;
-
 // The scrolling area of a sheet. Both sheets use it: the list of a
 // cluster, because it can grow arbitrarily long, and the single moment,
 // because image (3:2), place and caption together get taller than the
@@ -116,33 +107,10 @@ export function SheetScroll({ testID, children }: { testID: string; children: Re
   );
 }
 
-// A row that fades in. Its own component because every row needs its own
-// Animated.Value: §5 requires a 40ms stagger for lists, and that's its own
-// delay per row. All lists of the map sheets use it (moments of a cluster,
-// trip days, tiles of moments without a place), copies eventually ran at
-// different rhythms.
-export function FadeIn({ position, children }: { position: number; children: ReactNode }) {
-  const reducedMotion = useReducedMotion();
-  // `useState` with an initializer instead of `useRef(...).current`: both
-  // create the value exactly once, but reading a ref while rendering is a
-  // lint error (react-hooks/refs).
-  const [opacity] = useState(() => new Animated.Value(0));
-
-  useEffect(() => {
-    // §5: with reduced motion everything becomes a single 200ms fade, the
-    // rows then appear together, without staggering. Only `opacity` is
-    // animated, so it runs on the UI thread.
-    Animated.timing(opacity, {
-      toValue: 1,
-      duration: reducedMotion ? REDUCED_DURATION_MS : motion.duration.base,
-      delay: reducedMotion ? 0 : position * STAGGER_MS,
-      easing: Easing.bezier(...motion.easeSmooth),
-      useNativeDriver: true,
-    }).start();
-  }, [opacity, reducedMotion, position]);
-
-  return <Animated.View style={{ opacity }}>{children}</Animated.View>;
-}
+// The fading row (§5, 40 ms stagger) lives in components/FadeIn.tsx since
+// the trip picker needed the same rhythm; re-exported so the map screen
+// keeps its import.
+export { FadeIn };
 
 // What the two screens make differently at their sheets, as ONE value.
 //

@@ -48,6 +48,21 @@ export function daysUntilEnd(endIso: string, todayIso: string): number {
   return Math.round((toUtc(endIso) - toUtc(todayIso)) / MS_PER_DAY);
 }
 
+// The remaining-days label of a running trip: "Noch 4 Tage", "Noch 1 Tag",
+// and on the end day "Letzter Tag". A trip past its end stays `active`
+// until the auto-reveal picks it up, and "Letzter Tag" is closer to the
+// truth than a negative count. Shared by the hero card and the picker row.
+export function daysLeftLabel(endIso: string, todayIso: string): string {
+  const left = daysUntilEnd(endIso, todayIso);
+  return left <= 0 ? 'Letzter Tag' : left === 1 ? 'Noch 1 Tag' : `Noch ${left} Tage`;
+}
+
+// A single calendar day, "1. Sep 2026": the start of a planned trip.
+export function formatDay(iso: string): string {
+  const [y, m, d] = iso.split('-').map(Number);
+  return `${d}. ${MONTHS[m - 1]} ${y}`;
+}
+
 export function formatRange(startIso: string, endIso: string): string {
   const [sy, sm, sd] = startIso.split('-').map(Number);
   const [ey, em, ed] = endIso.split('-').map(Number);

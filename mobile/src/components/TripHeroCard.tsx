@@ -7,7 +7,7 @@ import { TripCover } from '@/components/TripCover';
 import { Avatar } from '@/components/Avatar';
 import { useTheme } from '@/theme/ThemeProvider';
 import { cinema, radius, spacing, type } from '@/theme/tokens';
-import { daysUntilEnd, formatRange } from '@/features/trips/tripDay';
+import { daysLeftLabel, formatRange } from '@/features/trips/tripDay';
 import type { Trip } from '@/features/trips/types';
 
 // The big card for a RUNNING trip on the trip tab (mockup 2026-08-27):
@@ -34,11 +34,7 @@ export function TripHeroCard({
   position?: number;
 }) {
   const { colors } = useTheme();
-  const left = daysUntilEnd(trip.end_date, today);
-  // `left <= 0` also covers a trip past its end that the auto-reveal has
-  // not picked up yet: "Letzter Tag" is closer to the truth than a
-  // negative count.
-  const daysLabel = left <= 0 ? 'Letzter Tag' : left === 1 ? 'Noch 1 Tag' : `Noch ${left} Tage`;
+  const daysLabel = daysLeftLabel(trip.end_date, today);
   const momentsLabel = `${trip.my_post_count} ${trip.my_post_count === 1 ? 'Moment' : 'Momente'}`;
   const first = trip.members[0];
   const companions = Math.max(0, trip.member_count - 1);
