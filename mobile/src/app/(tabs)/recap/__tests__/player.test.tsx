@@ -347,7 +347,7 @@ describe('header and caption pills (step 3)', () => {
     await wrap();
     // The day card carries faces of its own now; send it off first, this
     // test is about the moment header underneath.
-    await fireEvent.press(screen.getByTestId('player-interstitial'));
+    await fireEvent.press(screen.getByTestId('player-interstitial-right'));
     await act(async () => {
       jest.advanceTimersByTime(600);
     });
@@ -368,7 +368,7 @@ describe('header and caption pills (step 3)', () => {
     });
     await wrap();
     // Same as above: the day card's own faces would double the query.
-    await fireEvent.press(screen.getByTestId('player-interstitial'));
+    await fireEvent.press(screen.getByTestId('player-interstitial-right'));
     await act(async () => {
       jest.advanceTimersByTime(600);
     });
@@ -440,7 +440,7 @@ describe('state machine across the screen', () => {
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
     (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
-    await fireEvent.press(screen.getByTestId('player-interstitial')); // day 1 interstitial gone
+    await fireEvent.press(screen.getByTestId('player-interstitial-right')); // day 1 interstitial gone
     await fireEvent(screen.getByTestId('player-left'), 'pressIn');
     await fireEvent(screen.getByTestId('player-left'), 'pressOut');
     expect(screen.getByTestId('player-photo').props.source).toEqual({ uri: image('p1').medium_url });
@@ -466,7 +466,7 @@ describe('state machine across the screen', () => {
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
     (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
-    await fireEvent.press(screen.getByTestId('player-interstitial')); // day 2 interstitial gone
+    await fireEvent.press(screen.getByTestId('player-interstitial-right')); // day 2 interstitial gone
     await fireEvent(screen.getByTestId('player-right'), 'pressIn');
     await fireEvent(screen.getByTestId('player-right'), 'pressOut');
     expect(screen.getByTestId('player-end')).toBeTruthy();
@@ -559,7 +559,7 @@ describe('day interstitial', () => {
       jest.advanceTimersByTime(60_000);
     });
     expect(screen.getByTestId('player-interstitial')).toBeTruthy();
-    await fireEvent.press(screen.getByTestId('player-interstitial'));
+    await fireEvent.press(screen.getByTestId('player-interstitial-right'));
     // Leaving happens through the exit fade, the staged hand-off into the day.
     await act(async () => {
       jest.advanceTimersByTime(600);
@@ -588,7 +588,7 @@ describe('day interstitial', () => {
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
     (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
-    await fireEvent.press(screen.getByTestId('player-interstitial'));
+    await fireEvent.press(screen.getByTestId('player-interstitial-right'));
     // The card leaves through its fade; what matters is that the STORY did
     // not advance along with the skip.
     await act(async () => {
@@ -655,6 +655,13 @@ describe('day interstitial', () => {
     await fireEvent(screen.getByTestId('player-right'), 'pressIn');
     await fireEvent(screen.getByTestId('player-right'), 'pressOut');
     expect(screen.getByTestId('player-interstitial')).toBeTruthy();
+    // The swap behind the card is postponed until the card stands opaque:
+    // for the cover timer's 300 ms the old photo is still the mounted
+    // moment, no video view builds under the half-transparent fade.
+    expect(screen.queryByTestId('player-video')).toBeNull();
+    await act(async () => {
+      jest.advanceTimersByTime(300); // DAY_CARD_COVER_MS
+    });
     expect(screen.getByTestId('player-video')).toBeTruthy();
     expect(mockVideoPlayer.pause).toHaveBeenCalled();
 
@@ -669,7 +676,7 @@ describe('day interstitial', () => {
     expect(screen.getByTestId('player-video')).toBeTruthy();
 
     // Only the tap sends the day off, through the exit fade.
-    await fireEvent.press(screen.getByTestId('player-interstitial'));
+    await fireEvent.press(screen.getByTestId('player-interstitial-right'));
     await act(async () => {
       jest.advanceTimersByTime(600);
     });
@@ -680,6 +687,78 @@ describe('day interstitial', () => {
     });
     expect(screen.queryByTestId('player-video')).toBeNull(); // last moment reached, end screen
     expect(screen.getByTestId('player-end')).toBeTruthy();
+  });
+
+  // The day screen's flicker: the moment swap used to run under the card
+  // while it was still fading in, and the incoming picture showed through.
+  test('the swap into the new day waits behind the opaque card, the old moment stands until then', async () => {
+    mockParams = { id: 't1', start: '2' }; // p3, the last moment of day 1
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
+    await wrap();
+    await fireEvent(screen.getByTestId('player-right'), 'pressIn');
+    await fireEvent(screen.getByTestId('player-right'), 'pressOut');
+    // The card announces day 2 while p3 is still the mounted moment.
+    expect(screen.getByTestId('player-interstitial')).toBeTruthy();
+    expect(screen.getByText('Tag 2')).toBeTruthy();
+    expect(screen.getByTestId('player-photo').props.source).toEqual({ uri: image('p3').medium_url });
+    // Once the cover timer has run, the swap has happened behind the card.
+    await act(async () => {
+      jest.advanceTimersByTime(300); // DAY_CARD_COVER_MS
+    });
+    expect(screen.getByTestId('player-photo').props.source).toEqual({ uri: image('p4').medium_url });
+    expect(screen.getByTestId('player-interstitial')).toBeTruthy(); // the card itself still stands
+  });
+
+  test('the left half of the card abandons an uncommitted announcement, back on the old moment', async () => {
+    mockParams = { id: 't1', start: '2' };
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
+    await wrap();
+    await fireEvent(screen.getByTestId('player-right'), 'pressIn');
+    await fireEvent(screen.getByTestId('player-right'), 'pressOut');
+    // Back BEFORE the cover timer: the announcement is simply abandoned.
+    await fireEvent.press(screen.getByTestId('player-interstitial-left'));
+    await act(async () => {
+      jest.advanceTimersByTime(600); // exit fade
+    });
+    expect(screen.queryByTestId('player-interstitial')).toBeNull();
+    expect(screen.getByTestId('player-photo').props.source).toEqual({ uri: image('p3').medium_url });
+  });
+
+  test('the left half of a committed card steps back into the previous day', async () => {
+    mockParams = { id: 't1', start: '2' };
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
+    await wrap();
+    await fireEvent(screen.getByTestId('player-right'), 'pressIn');
+    await fireEvent(screen.getByTestId('player-right'), 'pressOut');
+    await act(async () => {
+      jest.advanceTimersByTime(300); // DAY_CARD_COVER_MS, the swap commits
+    });
+    await fireEvent.press(screen.getByTestId('player-interstitial-left'));
+    await act(async () => {
+      jest.advanceTimersByTime(600); // exit fade
+    });
+    expect(screen.queryByTestId('player-interstitial')).toBeNull();
+    expect(screen.getByTestId('player-photo').props.source).toEqual({ uri: image('p3').medium_url });
+  });
+
+  test('a forward tap faster than the cover timer still lands in the new day', async () => {
+    mockParams = { id: 't1', start: '2' };
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
+    await wrap();
+    await fireEvent(screen.getByTestId('player-right'), 'pressIn');
+    await fireEvent(screen.getByTestId('player-right'), 'pressOut');
+    // Tapped on immediately, no 300 ms have passed: the forward tap commits
+    // the announced day itself instead of stranding the player on p3.
+    await fireEvent.press(screen.getByTestId('player-interstitial-right'));
+    expect(screen.getByTestId('player-photo').props.source).toEqual({ uri: image('p4').medium_url });
+    await act(async () => {
+      jest.advanceTimersByTime(600); // exit fade
+    });
+    expect(screen.queryByTestId('player-interstitial')).toBeNull();
   });
 
   // The card used to run a 1.5 s clock whose orphaned timer once unpaused an
@@ -706,7 +785,7 @@ describe('day interstitial', () => {
     await fireEvent(screen.getByTestId('player-right'), 'pressOut');
     expect(screen.getByTestId('player-interstitial')).toBeTruthy();
 
-    await fireEvent.press(screen.getByTestId('player-interstitial'));
+    await fireEvent.press(screen.getByTestId('player-interstitial-right'));
     await act(async () => {
       jest.advanceTimersByTime(600); // the exit fade
     });
@@ -925,11 +1004,16 @@ describe('video moments', () => {
       resolveRetry({ pool: POOL_OK });
     });
 
-    // p3 -> p4 crosses a day change, so the day 2 interstitial covers p4,
-    // but p4's photo is already mounted and carries its source: that is the
-    // proof that the auto advance fired at all.
+    // p3 -> p4 crosses a day change, so the day 2 interstitial covers p4;
+    // the announced moment mounts behind the opaque card once the cover
+    // timer has run, and its source is the proof that the auto advance
+    // fired at all.
     await act(async () => {
       jest.advanceTimersByTime(5000); // PHOTO_DURATION_MS
+    });
+    expect(screen.getByTestId('player-interstitial')).toBeTruthy();
+    await act(async () => {
+      jest.advanceTimersByTime(300); // DAY_CARD_COVER_MS
     });
     expect(screen.getByTestId('player-photo').props.source).toEqual({ uri: image('p4').medium_url });
   });
@@ -999,7 +1083,7 @@ describe('pool renewal (V10)', () => {
       .mockResolvedValueOnce({ pool: soonExpiring, error: null, reason: null })
       .mockReturnValueOnce(new Promise((resolve) => { resolvePool = resolve; }));
     await wrap();
-    await fireEvent.press(screen.getByTestId('player-interstitial'));
+    await fireEvent.press(screen.getByTestId('player-interstitial-right'));
     await fireEvent(screen.getByTestId('player-right'), 'pressIn');
     await fireEvent(screen.getByTestId('player-right'), 'pressOut'); // triggers the hanging renewal
     await fireEvent(screen.getByTestId('player-right'), 'pressIn');
@@ -1064,7 +1148,7 @@ describe('stragglers and skipped moments on the end screen', () => {
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [...MOMENTS, p6], error: null });
     (getPool as jest.Mock).mockResolvedValue({ pool: { ...POOL_OK, skipped: 1 }, error: null, reason: null });
     await wrap();
-    await fireEvent.press(screen.getByTestId('player-interstitial'));
+    await fireEvent.press(screen.getByTestId('player-interstitial-right'));
     await fireEvent(screen.getByTestId('player-right'), 'pressIn');
     await fireEvent(screen.getByTestId('player-right'), 'pressOut');
     expect(screen.getByTestId('player-end')).toBeTruthy();
@@ -1125,7 +1209,7 @@ describe('closing the player', () => {
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
     (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
-    await fireEvent.press(screen.getByTestId('player-interstitial')); // interstitial gone, tap zones free
+    await fireEvent.press(screen.getByTestId('player-interstitial-right')); // interstitial gone, tap zones free
     const config = createSpy.mock.calls[0][0];
     // The touch has to start on the tap zone: without this pressIn the
     // recorded touch start would stay at 0, the gesture would count as a
@@ -1145,7 +1229,7 @@ describe('closing the player', () => {
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
     (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
-    await fireEvent.press(screen.getByTestId('player-interstitial'));
+    await fireEvent.press(screen.getByTestId('player-interstitial-right'));
     const config = createSpy.mock.calls[0][0];
     await fireEvent(screen.getByTestId('player-right'), 'pressIn');
     await act(async () => {
@@ -1199,14 +1283,14 @@ describe('the show hands over to the overview', () => {
     // Walk the whole reel: the day 1 interstitial (before p1), taps through
     // to p4 (POOL_OK carries four moments, p1..p4), the day 2 interstitial
     // (before p4, a day change), and a last tap past the end.
-    await fireEvent.press(await screen.findByTestId('player-interstitial'));
+    await fireEvent.press(await screen.findByTestId('player-interstitial-right'));
     await fireEvent(screen.getByTestId('player-right'), 'pressIn');
     await fireEvent(screen.getByTestId('player-right'), 'pressOut'); // p1 -> p2
     await fireEvent(screen.getByTestId('player-right'), 'pressIn');
     await fireEvent(screen.getByTestId('player-right'), 'pressOut'); // p2 -> p3
     await fireEvent(screen.getByTestId('player-right'), 'pressIn');
     await fireEvent(screen.getByTestId('player-right'), 'pressOut'); // p3 -> p4, day change
-    await fireEvent.press(screen.getByTestId('player-interstitial'));
+    await fireEvent.press(screen.getByTestId('player-interstitial-right'));
     await fireEvent(screen.getByTestId('player-right'), 'pressIn');
     await fireEvent(screen.getByTestId('player-right'), 'pressOut'); // past p4, the end
 
@@ -1238,14 +1322,14 @@ describe('the show hands over to the overview', () => {
     (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
 
-    await fireEvent.press(await screen.findByTestId('player-interstitial'));
+    await fireEvent.press(await screen.findByTestId('player-interstitial-right'));
     await fireEvent(screen.getByTestId('player-right'), 'pressIn');
     await fireEvent(screen.getByTestId('player-right'), 'pressOut');
     await fireEvent(screen.getByTestId('player-right'), 'pressIn');
     await fireEvent(screen.getByTestId('player-right'), 'pressOut');
     await fireEvent(screen.getByTestId('player-right'), 'pressIn');
     await fireEvent(screen.getByTestId('player-right'), 'pressOut');
-    await fireEvent.press(screen.getByTestId('player-interstitial'));
+    await fireEvent.press(screen.getByTestId('player-interstitial-right'));
     await fireEvent(screen.getByTestId('player-right'), 'pressIn');
     await fireEvent(screen.getByTestId('player-right'), 'pressOut');
 
@@ -1295,14 +1379,14 @@ describe('the show hands over to the overview', () => {
     (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
 
-    await fireEvent.press(await screen.findByTestId('player-interstitial'));
+    await fireEvent.press(await screen.findByTestId('player-interstitial-right'));
     await fireEvent(screen.getByTestId('player-right'), 'pressIn');
     await fireEvent(screen.getByTestId('player-right'), 'pressOut');
     await fireEvent(screen.getByTestId('player-right'), 'pressIn');
     await fireEvent(screen.getByTestId('player-right'), 'pressOut');
     await fireEvent(screen.getByTestId('player-right'), 'pressIn');
     await fireEvent(screen.getByTestId('player-right'), 'pressOut');
-    await fireEvent.press(screen.getByTestId('player-interstitial'));
+    await fireEvent.press(screen.getByTestId('player-interstitial-right'));
     await fireEvent(screen.getByTestId('player-right'), 'pressIn');
     await fireEvent(screen.getByTestId('player-right'), 'pressOut');
 
@@ -1619,7 +1703,7 @@ describe('comment sheet (Task 12)', () => {
     (writeComment as jest.Mock).mockReturnValue(promise); // hangs for p1
 
     await wrap(); // start=0 -> p1
-    await fireEvent.press(screen.getByTestId('player-interstitial')); // day 1 interstitial gone
+    await fireEvent.press(screen.getByTestId('player-interstitial-right')); // day 1 interstitial gone
     await fireEvent.press(screen.getByTestId('player-comments-open')); // opens for p1
     await act(async () => {});
     await fireEvent.changeText(screen.getByTestId('comment-input'), 'Hallo');
@@ -1642,7 +1726,7 @@ describe('comment sheet (Task 12)', () => {
     (writeComment as jest.Mock).mockReturnValue(promise); // hangs for p1
 
     await wrap(); // start=0 -> p1
-    await fireEvent.press(screen.getByTestId('player-interstitial')); // day 1 interstitial gone
+    await fireEvent.press(screen.getByTestId('player-interstitial-right')); // day 1 interstitial gone
     await fireEvent.press(screen.getByTestId('player-comments-open')); // opens for p1
     await act(async () => {});
     await fireEvent.changeText(screen.getByTestId('comment-input'), 'Hallo');
@@ -1720,7 +1804,7 @@ describe('comment sheet (Task 12)', () => {
       });
 
     await wrap(); // start=0 -> p1
-    await fireEvent.press(screen.getByTestId('player-interstitial')); // day 1 interstitial gone
+    await fireEvent.press(screen.getByTestId('player-interstitial-right')); // day 1 interstitial gone
     await fireEvent.press(screen.getByTestId('player-comments-open')); // opens for p1, hangs
     await fireEvent.press(screen.getByTestId('sheet-backdrop')); // close, the request runs on
 
@@ -2361,7 +2445,7 @@ describe('soft transitions while advancing', () => {
     // No index change yet, so there is nothing to bridge over.
     expect(screen.queryByTestId('player-bridge')).toBeNull();
     // The day-1 card stands in front of the story zones; a tap only skips it.
-    await fireEvent.press(screen.getByTestId('player-interstitial'));
+    await fireEvent.press(screen.getByTestId('player-interstitial-right'));
     await fireEvent(screen.getByTestId('player-right'), 'pressIn');
     await fireEvent(screen.getByTestId('player-right'), 'pressOut');
     const bridge = screen.getByTestId('player-bridge');
@@ -2421,7 +2505,7 @@ describe('soft transitions while advancing', () => {
   test('advancing into the video adopts the warm player instead of building a second one', async () => {
     mockParams = { id: 't1', start: '0' };
     await wrap();
-    await fireEvent.press(screen.getByTestId('player-interstitial'));
+    await fireEvent.press(screen.getByTestId('player-interstitial-right'));
     const createsWhileWarming = mockCreateVideoPlayer.mock.calls.length;
     await fireEvent(screen.getByTestId('player-right'), 'pressIn');
     await fireEvent(screen.getByTestId('player-right'), 'pressOut');
@@ -2458,7 +2542,7 @@ describe('soft transitions while advancing', () => {
     mockParams = { id: 't1', start: '0' };
     await wrap();
     expect(screen.getByTestId('player-interstitial')).toBeTruthy();
-    await fireEvent.press(screen.getByTestId('player-interstitial'));
+    await fireEvent.press(screen.getByTestId('player-interstitial-right'));
     // Still in the tree right after the tap: the fade carries it out. Since
     // the tap is the ONLY exit now, it deserves the transition; the old
     // hard cut belonged to a card that also left on its own clock.

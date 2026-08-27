@@ -82,6 +82,12 @@ const TAP_THRESHOLD_MS = 250;
 // RN Pressable's own default for `delayLongPress`).
 const LONG_PRESS_MS = 500;
 const CLOSE_THRESHOLD_PX = 120;
+// How long after a day announcement the POSTPONED index change commits: the
+// card's enter fade (250 ms, and 200 ms under reduced motion) plus a small
+// buffer, so the moment swap happens behind a card that is really opaque
+// already. Not the card's own clock: the card itself still stands until a
+// tap, only the swap hidden behind it is scheduled here.
+const DAY_CARD_COVER_MS = 300;
 // DESIGN-LANGUAGE §5: "light to cinema = fade through dark, 350 ms" ("the
 // lights go out"). Only describes JUMP mode (final whole-branch review): the
 // Animated.View that shows this sits inside the 'ready' branch, but the
@@ -400,8 +406,9 @@ function dayFaces(moments: RecapMoment[]): Face[] {
 // then the place as the title itself, date, facts and the faces of the day's
 // senders, closing on a second rule. The lines do not stand there, they STEP
 // ON STAGE one after another (the staggered entrance of opening credits),
-// and the title grows imperceptibly while it appears. Since the tap is the
-// only exit, it leaves through a fade into the waiting story.
+// and the title grows imperceptibly while it appears. The card reads like
+// the story: the right half moves on into the announced day, the left half
+// steps back. Both exits leave through a fade, never a hard cut.
 //
 // One value walks 0..1 once the card stands; every line fades in over its
 // own window of that walk. 1400 ms covers the full entrance.
@@ -415,7 +422,7 @@ const TITLE_GROW_MS = 2400;
 const TITLE_GROW_FROM = 0.97;
 
 function DayCard({
-  visible, dayNumber, place, date, moments, onSkip, reducedMotion,
+  visible, dayNumber, place, date, moments, onBack, onForward, reducedMotion,
 }: {
   visible: boolean;
   // null when the day is unknown (a moment the day grouping could not
@@ -424,7 +431,8 @@ function DayCard({
   place: string | null;
   date: string | null;
   moments: RecapMoment[];
-  onSkip: () => void;
+  onBack: () => void;
+  onForward: () => void;
   reducedMotion: boolean;
 }) {
   const bottomInset = useBottomInset(spacing.xl);
@@ -516,12 +524,25 @@ function DayCard({
     // exit fade belongs to the story zones underneath, not to a card that is
     // already gone in all but pixels.
     <Animated.View style={[styles.interstitial, { opacity }]} pointerEvents={visible ? 'auto' : 'none'}>
+      {/* The zones sit BEFORE the staged content in the tree, but the
+          content ignores pointers entirely, so every tap falls through to
+          exactly one of them. */}
       <Pressable
-        testID="player-interstitial"
-        style={styles.interstitialPress}
-        onPress={onSkip}
-      >
-        <View style={styles.titleCardCentre} pointerEvents="none">
+        testID="player-interstitial-left"
+        accessibilityRole="button"
+        accessibilityLabel="Zurück zum vorherigen Moment"
+        style={styles.interstitialZoneLeft}
+        onPress={onBack}
+      />
+      <Pressable
+        testID="player-interstitial-right"
+        accessibilityRole="button"
+        accessibilityLabel="Weiter in den Tag"
+        style={styles.interstitialZoneRight}
+        onPress={onForward}
+      />
+      <View testID="player-interstitial" style={styles.interstitialPress} pointerEvents="none">
+        <View style={styles.titleCardCentre}>
           <Animated.View style={[styles.titleRule, lineIn(0, 0.18)]} />
           <Animated.Text style={[type.bodyMedium, styles.titleChapter, lineIn(0.08, 0.3)]}>
             {dayNumber !== null ? `Tag ${dayNumber}` : 'Ein neuer Tag'}
@@ -566,7 +587,7 @@ function DayCard({
         <Text style={[type.secondary, styles.interstitialHint, { bottom: bottomInset }]}>
           Weiter mit einem Tipp.
         </Text>
-      </Pressable>
+      </View>
     </Animated.View>
   );
 }
@@ -652,6 +673,13 @@ export default function RecapPlayer() {
     leavingUri: null,
     arrivingUri: null,
   }));
+
+  // The index the day card is ANNOUNCING while the actual change is still
+  // postponed behind it (see applyMove below); null whenever no announcement
+  // is on stage. The ref mirrors it eagerly so tap handlers and the commit
+  // can settle the question synchronously, before React re-renders.
+  const [pendingIndex, setPendingIndex] = useState<number | null>(null);
+  const pendingIndexRef = useRef<number | null>(null);
 
   const [phase, setPhase] = useState<LoadPhase>('loading');
   // The error and the question whether a second attempt achieves anything in
@@ -768,6 +796,8 @@ export default function RecapPlayer() {
       setPhase('empty');
       return;
     }
+    pendingIndexRef.current = null;
+    setPendingIndex(null);
     setState({ index: parseStartIndex(startParam, withUrl.length), paused: new Set(), progress: 0 });
     setPhase('ready');
   }, [tripId, startParam]);
@@ -831,10 +861,14 @@ export default function RecapPlayer() {
   // `startDate`, so it need not be recomputed on every progress tick, the same
   // performance consideration as dayChanges.
   const days = useMemo(() => groupByDays(playlist, startDate), [playlist, startDate]);
-  const currentDay = useMemo(() => {
-    if (!activeMoment) return null;
-    return days.find((d) => d.moments.some((m) => m.id === activeMoment.id)) ?? null;
-  }, [days, activeMoment]);
+  // The card announces the day of the moment the player is HEADING TO: the
+  // pending one while an announcement stands, the active one otherwise (the
+  // card before the very first moment, or after the commit).
+  const cardMoment = (pendingIndex !== null ? playlist[pendingIndex] : undefined) ?? activeMoment;
+  const cardDay = useMemo(() => {
+    if (!cardMoment) return null;
+    return days.find((d) => d.moments.some((m) => m.id === cardMoment.id)) ?? null;
+  }, [days, cardMoment]);
 
   useEffect(() => {
     if (playlist.length === 0) return;
@@ -1082,25 +1116,57 @@ export default function RecapPlayer() {
     }
   }, [tripId, urls, validUntil, skippedCount]);
 
-  // Programmatic advance (timer expiry OR video end), both end up here.
-  // Contract 4: `advance()` leaves `paused` untouched, so a programmatic call
-  // MUST take back MOMENT_CHANGE_REASONS itself here, otherwise the NEXT
-  // moment would stand still silently after a preceding hold gesture or while
-  // a retry was running.
-  // The day card's pause reason travels WITH the index change: the setting
-  // effect below only runs after the commit, and that one frame showed the
-  // new moment bare before the card covered it, a visible blink on every
-  // day change. The effect still owns the card's 1.5 s timer and the
-  // removal; finding the reason already present is a no-op for it.
-  const pausedAfterMove = useCallback(
-    (paused: ReadonlySet<PauseReason>, nextIndex: number) => {
-      const cleared = withoutReasons(paused, MOMENT_CHANGE_REASONS);
-      return dayChanges(playlist, startDate, nextIndex)
-        ? withReason(cleared, 'zwischenkarte')
-        : cleared;
+  // Every ACTUAL move funnels through here (tap zones, timer expiry, video
+  // end). Contract 4: `advance()` leaves `paused` untouched, so the move
+  // MUST take back MOMENT_CHANGE_REASONS itself, otherwise the next moment
+  // would stand still silently after a hold gesture or a running retry.
+  //
+  // A move into a new day does NOT commit its index yet: the day card first
+  // fades in OVER the still standing last moment, and only once it is opaque
+  // does the swap happen behind it (commitPending, scheduled by the cover
+  // timer below or fired by the card's own forward tap). The swap used to
+  // run under the HALF-TRANSPARENT card, and the incoming picture, the
+  // bridge switch and the video view's expensive native build all showed
+  // through the fade, the day screen's flicker.
+  const applyMove = useCallback(
+    (result: PlayerState) => {
+      const cleared = withoutReason(
+        withoutReasons(result.paused, MOMENT_CHANGE_REASONS),
+        'zwischenkarte'
+      );
+      if (dayChanges(playlist, startDate, result.index)) {
+        pendingIndexRef.current = result.index;
+        setPendingIndex(result.index);
+        setState((s) => ({ ...s, paused: withReason(cleared, 'zwischenkarte') }));
+        return;
+      }
+      pendingIndexRef.current = null;
+      setPendingIndex(null);
+      setState({ ...result, paused: cleared });
     },
     [playlist, startDate]
   );
+
+  // Performs the postponed change. Idempotent on purpose: the cover timer,
+  // the card's forward tap and a re-render can race, whoever comes second
+  // finds the ref empty and does nothing.
+  const commitPending = useCallback(() => {
+    const target = pendingIndexRef.current;
+    if (target === null) return;
+    pendingIndexRef.current = null;
+    setPendingIndex(null);
+    setState((s) => ({ ...s, index: target, progress: 0 }));
+  }, []);
+
+  // The cover timer: a ONE-SHOT that commits the announced day shortly after
+  // the card's enter fade has made it opaque. Deliberately not the card's
+  // exit (the card has no clock, see the guard test): only the swap hidden
+  // behind the standing card is scheduled here.
+  useEffect(() => {
+    if (pendingIndex === null) return;
+    const timer = setTimeout(commitPending, DAY_CARD_COVER_MS);
+    return () => clearTimeout(timer);
+  }, [pendingIndex, commitPending]);
 
   const advanceAutomatically = useCallback(() => {
     void checkAndRefreshPoolInBackground();
@@ -1109,8 +1175,8 @@ export default function RecapPlayer() {
       setPhase('ended');
       return;
     }
-    setState({ ...result, paused: pausedAfterMove(result.paused, result.index) });
-  }, [state, playlist.length, checkAndRefreshPoolInBackground, pausedAfterMove]);
+    applyMove(result);
+  }, [state, playlist.length, checkAndRefreshPoolInBackground, applyMove]);
   // Ref indirection (same pattern as SealAnimation.tsx/onFinishedRef): the
   // auto-advance timer and the video-end event always call the newest version
   // without their own effects having to be set up again on every render.
@@ -1163,12 +1229,18 @@ export default function RecapPlayer() {
   // tap on the card), and the card covers the whole screen, so the story
   // zones cannot be reached past it. This effect only covers the entries no
   // advance call decorates: the very first moment after load or peel
-  // (`pausedAfterMove` handles every actual move and is a no-op to re-find).
+  // (`applyMove` handles every actual move and is a no-op to re-find).
+  // `state.index` is read but deliberately NOT a dependency: this effect
+  // must fire on load and on the peel ONLY. With the index in the deps it
+  // also fired on commitPending's postponed change and put the card RIGHT
+  // BACK after a forward tap had just sent it away (the tap commits and
+  // removes the reason in one batch, the effect ran after and re-added it).
   useEffect(() => {
     if (sealed || phase !== 'ready') return;
     if (!dayChanges(playlist, startDate, state.index)) return;
     setState((s) => ({ ...s, paused: withReason(s.paused, 'zwischenkarte') }));
-  }, [sealed, phase, playlist, startDate, state.index]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sealed, phase, playlist, startDate]);
 
   // Videos are deliberately not preloaded: the brief does not ask for it and
   // expo-video buffers on mount by itself.
@@ -1219,13 +1291,31 @@ export default function RecapPlayer() {
   // else: release it, or the native player leaks past the screen.
   useEffect(() => () => releaseWarmVideo(), []);
 
-  // A tap SKIPS the interstitial card without also advancing to the next
-  // moment: the card is the only `Pressable` at this place on screen, it is
-  // rendered LAST and structurally lies above the two tap zones below it, so a
-  // touch during the card physically reaches only its own onPress handler. It
-  // is the render order that prevents this, not a flag check.
-  const skip = () => {
+  // The card's own zones lie structurally above the story zones (the card
+  // renders LAST and carries the higher zIndex), so a touch during the card
+  // physically reaches only these two handlers, never the story navigation
+  // underneath. Same reading direction as the story: right on, left back.
+  const dayCardForward = () => {
+    // A tap faster than the cover timer must not strand the player on the
+    // old moment: the postponed change commits right here first.
+    commitPending();
     setState((s) => ({ ...s, paused: withoutReason(s.paused, 'zwischenkarte') }));
+  };
+
+  const dayCardBack = () => {
+    if (pendingIndexRef.current !== null) {
+      // The announced day has not been committed yet: going back is simply
+      // abandoning the announcement, the last moment of the previous day
+      // still stands untouched behind the card.
+      pendingIndexRef.current = null;
+      setPendingIndex(null);
+      setState((s) => ({ ...s, paused: withoutReason(s.paused, 'zwischenkarte') }));
+      return;
+    }
+    // Committed already (a longer-standing card, or the one before the very
+    // first moment): a real step back, the same move as the left story zone.
+    void checkAndRefreshPoolInBackground();
+    applyMove(goBack(state));
   };
 
   const onLoadError = useCallback(
@@ -1282,12 +1372,11 @@ export default function RecapPlayer() {
           setPhase('ended');
           return;
         }
-        setState({ ...result, paused: pausedAfterMove(result.paused, result.index) });
+        applyMove(result);
         return;
       }
       void checkAndRefreshPoolInBackground();
-      const backResult = goBack(state);
-      setState({ ...backResult, paused: pausedAfterMove(backResult.paused, backResult.index) });
+      applyMove(goBack(state));
       return;
     }
     setState((s) => ({ ...s, paused: withoutReason(s.paused, 'halten') }));
@@ -1658,11 +1747,12 @@ export default function RecapPlayer() {
 
         <DayCard
           visible={interstitial}
-          dayNumber={currentDay ? currentDay.number : null}
-          place={currentDay?.place ?? null}
-          date={currentDay ? formatDayDate(currentDay.date) : null}
-          moments={currentDay?.moments ?? []}
-          onSkip={skip}
+          dayNumber={cardDay ? cardDay.number : null}
+          place={cardDay?.place ?? null}
+          date={cardDay ? formatDayDate(cardDay.date) : null}
+          moments={cardDay?.moments ?? []}
+          onBack={dayCardBack}
+          onForward={dayCardForward}
           reducedMotion={reducedMotion}
         />
       </Animated.View>
@@ -1868,6 +1958,8 @@ const styles = StyleSheet.create({
   interstitialPress: {
     flex: 1,
   },
+  interstitialZoneLeft: { position: 'absolute', top: 0, bottom: 0, left: 0, width: '50%' },
+  interstitialZoneRight: { position: 'absolute', top: 0, bottom: 0, right: 0, width: '50%' },
   // The title card's stage: everything centred, the way a film's opening
   // titles stand alone on the screen.
   titleCardCentre: {
