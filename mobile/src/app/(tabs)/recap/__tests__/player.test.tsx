@@ -1,5 +1,5 @@
 import { Alert, Animated, PanResponder, StyleSheet } from 'react-native';
-import { render, screen, fireEvent, act } from '@testing-library/react-native';
+import { render, screen, fireEvent, act, within } from '@testing-library/react-native';
 
 type AlertButton = { text?: string; style?: string; onPress?: () => void };
 const mockAlertSpy = jest.fn();
@@ -158,27 +158,60 @@ jest.mock('@/features/recap/reportApi', () => ({
   reportMoment: jest.fn(),
 }));
 
-// A stand-in for SealPeel (it has its own test file: skia, timers, haptics),
-// not a real seal that needs an actual peel gesture to get out of the way.
-// Auto-peel defaults to true so every EXISTING test below keeps finding the
-// player as before, without a seal in front of it; only the seal describe
-// block below switches it off to look at the standing seal. The seal moved
-// out of the overview and into this screen (Task 2-4), so overview.test.tsx
-// no longer needs a mock of its own to have moved along with it.
+// A stand-in for SealedLetter (it has its own test file: skia via SealPeel,
+// timers, the hold before the handover), not a real letter that would first
+// have to peel and fade to get out of the way. Auto-open defaults to true so
+// every EXISTING test below keeps finding the player as before, without a
+// seal in front of it; only the seal describe block below switches it off to
+// look at the letter standing.
+//
+// It renders the lines it is HANDED, so the tests can check what the player
+// puts on the letter; how the letter arranges them is SealedLetter's own
+// test file's business.
 let mockSealAutoPeel = true;
-jest.mock('@/components/SealPeel', () => {
+jest.mock('@/components/SealedLetter', () => {
   const ReactActual = require('react');
-  const { Pressable } = require('react-native');
+  const { Pressable, Text } = require('react-native');
   return {
-    SealPeel: ({ size, onPeeled, testID }: { size: number; onPeeled: () => void; testID?: string }) => {
+    SealedLetter: ({
+      title, range, facts, faces, onOpening, onOpened, testID,
+    }: {
+      title: string | null; range: string | null; facts: string | null;
+      faces: { name: string }[]; onOpening: () => void; onOpened: () => void;
+      testID?: string;
+    }) => {
       ReactActual.useEffect(() => {
-        if (mockSealAutoPeel) onPeeled();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
+        if (mockSealAutoPeel) {
+          // Both at once: tests that are not about the letter want the player
+          // as if no seal had ever stood there.
+          onOpening();
+          onOpened();
+        }
       }, []);
-      return ReactActual.createElement(Pressable, {
-        testID, accessibilityRole: 'button', accessibilityLabel: 'Siegel abziehen',
-        onPress: onPeeled, style: { width: size, height: size },
-      });
+      return ReactActual.createElement(
+        Pressable,
+        {
+          testID,
+          accessibilityRole: 'button',
+          accessibilityLabel: 'Siegel abziehen',
+          // A press is the seal coming OFF: the show may start behind the
+          // letter from here. The letter reports itself gone a while later,
+          // once the seal has finished dissolving over it (600 is the mock's
+          // own clock; the real one lives in SealPeel's tests).
+          onPress: () => {
+            onOpening();
+            setTimeout(() => onOpened(), 600);
+          },
+        },
+        ReactActual.createElement(Text, { testID: 'letter-title' }, title ?? ''),
+        ReactActual.createElement(Text, { testID: 'letter-range' }, range ?? ''),
+        ReactActual.createElement(Text, { testID: 'letter-facts' }, facts ?? ''),
+        ReactActual.createElement(
+          Text,
+          { testID: 'letter-faces' },
+          faces.map((f) => f.name).join(', ')
+        ),
+      );
     },
   };
 });
@@ -194,6 +227,7 @@ import type { RecapMoment } from '@/features/recap/types';
 import { saveMomentToGallery } from '@/features/recap/exportApi';
 import { reportMoment } from '@/features/recap/reportApi';
 import { releaseWarmVideo } from '@/features/recap/videoWarm';
+import { palette } from '@/theme/tokens';
 
 const trip = {
   id: 't1', name: 'Lissabon Städtetrip', start_date: '2026-08-10', end_date: '2026-08-14',
@@ -837,18 +871,21 @@ describe('day interstitial', () => {
     expect(screen.getByTestId('player-photo').props.source).toEqual({ uri: image('p3').medium_url });
   });
 
-  test('the very first card has nothing before it, its left half keeps it standing', async () => {
+  // The very first card has nothing before it, so its left half used to do
+  // NOTHING on purpose. On the device that reads as a dead screen: whoever
+  // taps the wrong half is left wondering whether the app is stuck (Alex,
+  // 27.08.). Here, and only here, both halves move on.
+  test('on the very first card a tap anywhere moves on, not just the right half', async () => {
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
     (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
     expect(screen.getByTestId('player-interstitial')).toBeTruthy();
     await fireEvent.press(screen.getByTestId('player-interstitial-left'));
     await act(async () => {
-      jest.advanceTimersByTime(600);
+      jest.advanceTimersByTime(600); // exit fade
     });
-    // No exit fade began: the card still stands, day 1 has not started.
-    expect(screen.getByTestId('player-interstitial')).toBeTruthy();
-    expect(screen.getByText('Tag 1')).toBeTruthy();
+    expect(screen.queryByTestId('player-interstitial')).toBeNull();
+    expect(screen.getByTestId('player-photo').props.source).toEqual({ uri: image('p1').medium_url });
   });
 
   // Going back commits the index change first, so the fading card's props
@@ -2436,8 +2473,44 @@ describe('the seal in front of the show', () => {
     (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
     expect(await screen.findByTestId('player-seal')).toBeTruthy();
-    expect(screen.getByText('Dein Recap ist versiegelt. Tipp aufs Siegel, um ihn zu öffnen.')).toBeTruthy();
     expect(screen.queryByTestId('player-ready')).toBeNull();
+  });
+
+  // The letter replaces the bare seal on black plus its instruction line: it
+  // says WHICH trip is about to run, in the same words the day card behind it
+  // uses seconds later.
+  test('the letter carries the trip: title, span, what it holds and its senders', async () => {
+    mockParams = { id: 't1' };
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
+    await wrap();
+
+    expect(await screen.findByTestId('player-seal')).toBeTruthy();
+    expect(screen.getByTestId('letter-title')).toHaveTextContent('Lissabon Städtetrip');
+    expect(screen.getByTestId('letter-range')).toHaveTextContent('10.–14. Aug 2026');
+    // Four loadable moments (p5 is still uploading), two travellers.
+    expect(screen.getByTestId('letter-facts')).toHaveTextContent('4 Momente · zu zweit');
+    expect(screen.getByTestId('letter-faces')).toHaveTextContent('Lea');
+  });
+
+  // Before the trip is loaded the letter already stands: it is the loading
+  // window. It must stand EMPTY then rather than with a stale or invented
+  // title.
+  test('while the load is still running the letter stands without a title', async () => {
+    mockParams = { id: 't1' };
+    let releaseTrip: (value: unknown) => void = () => {};
+    (fetchTrip as jest.Mock).mockReturnValue(new Promise((resolve) => { releaseTrip = resolve; }));
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
+    await wrap();
+
+    expect(await screen.findByTestId('player-seal')).toBeTruthy();
+    expect(screen.getByTestId('letter-title')).toHaveTextContent('');
+
+    await act(async () => {
+      releaseTrip({ data: trip, error: null });
+    });
+    expect(screen.getByTestId('letter-title')).toHaveTextContent('Lissabon Städtetrip');
   });
 
   test('peeled off, the reel runs', async () => {
@@ -2447,6 +2520,11 @@ describe('the seal in front of the show', () => {
     await wrap();
     await fireEvent.press(await screen.findByTestId('player-seal'));
     expect(await screen.findByTestId('player-ready')).toBeTruthy();
+    // The letter is still lying on top here, withdrawing while the seal
+    // dissolves over it; it goes on its own (see the overlap test below).
+    await act(async () => {
+      jest.advanceTimersByTime(600);
+    });
     expect(screen.queryByTestId('player-seal')).toBeNull();
   });
 
@@ -2546,16 +2624,65 @@ describe('the seal in front of the show', () => {
   // gesture, which `animation: 'fade'` on this route may disable. The close
   // pill is the one exit that belongs here (tap zones and swipe stay out,
   // the story navigation must not bite behind the seal).
-  test('with the seal standing, the close pill still leaves the player', async () => {
+  // The seal is a THRESHOLD: whoever turns around at it has seen nothing, so
+  // the way out leads back where they came from, not on to the overview,
+  // which lays the whole reel out. Once the letter is open the show is under
+  // way and leaving lands on the overview (see the handover suite above).
+  test('with the letter standing, the close pill goes back instead of on to the overview', async () => {
     mockParams = { id: 't1' }; // no start param: show mode
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
     (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
     expect(await screen.findByTestId('player-seal')).toBeTruthy();
     await fireEvent.press(screen.getByTestId('player-close'));
-    expect(mockReplace).toHaveBeenCalledWith({
-      pathname: '/recap/[id]/overview', params: { id: 't1' },
+    expect(mockBack).toHaveBeenCalled();
+    expect(mockReplace).not.toHaveBeenCalled();
+  });
+
+  // The overlap Alex asked for on 27.08.: Tag 1 has to arrive WHILE the seal
+  // is still falling apart over it, not after it. So the letter reports the
+  // seal coming OFF and being GONE separately, and the show starts on the
+  // first of those, with the letter still standing on top.
+  test('the show starts behind the letter while the seal is still dissolving', async () => {
+    mockParams = { id: 't1' };
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
+    await wrap();
+
+    expect(await screen.findByTestId('player-seal')).toBeTruthy();
+    expect(screen.queryByTestId('player-ready')).toBeNull();
+
+    // The seal comes off: the show appears, the letter stays.
+    await fireEvent.press(screen.getByTestId('player-seal'));
+    expect(await screen.findByTestId('player-ready')).toBeTruthy();
+    expect(screen.getByTestId('player-seal')).toBeTruthy();
+
+    // And Tag 1 stands in that very SAME render. Left to the effect that
+    // normally announces a new day, the show's first frame would be the bare
+    // first moment and the card would arrive one render later: on the device
+    // that read as a flash of content and a day card appearing twice.
+    expect(screen.getByTestId('player-interstitial')).toBeTruthy();
+
+    // Only once the seal has finished dissolving does the letter go.
+    await act(async () => {
+      jest.advanceTimersByTime(600);
     });
+    expect(screen.queryByTestId('player-seal')).toBeNull();
+    expect(screen.getByTestId('player-ready')).toBeTruthy();
+  });
+
+  // Same threshold, but entered from a deep link, where there is no screen
+  // behind this one to go back to.
+  test('with the letter standing and nothing to go back to, the way out is the recap tab', async () => {
+    mockParams = { id: 't1' };
+    mockCanGoBack = false;
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
+    await wrap();
+    expect(await screen.findByTestId('player-seal')).toBeTruthy();
+    await fireEvent.press(screen.getByTestId('player-close'));
+    expect(mockReplace).toHaveBeenCalledWith('/recap');
+    expect(mockBack).not.toHaveBeenCalled();
   });
 });
 
@@ -2754,5 +2881,55 @@ describe('soft transitions while advancing', () => {
       jest.advanceTimersByTime(600);
     });
     expect(screen.queryByTestId('player-interstitial')).toBeNull();
+  });
+});
+
+// The day pages left the cinema (Alex, 27.08.): the card between two days
+// stands as a light page, the way the submit-success screen already does,
+// while the story around it keeps the cinema.
+describe('the day card and the letter stand in the light look', () => {
+  beforeEach(() => {
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
+  });
+
+  test('the day card stands on the light ground with dark text', async () => {
+    mockParams = { id: 't1', start: '0' };
+    await wrap();
+    // The ground sits on the fading container around the press target, the
+    // same node the zIndex tests measure.
+    const ground = StyleSheet.flatten(
+      screen.getByTestId('player-interstitial').parent?.props.style
+    );
+    expect(ground.backgroundColor).toBe(palette['bg-0']);
+    const card = within(screen.getByTestId('player-interstitial'));
+    expect(StyleSheet.flatten(card.getByText('Tag 1').props.style).color)
+      .toBe(palette['text-2']);
+    expect(StyleSheet.flatten(card.getByText('Lissabon').props.style).color)
+      .toBe(palette['text-1']);
+  });
+
+  test('the faces on the day card wear the light look, not the cinema', async () => {
+    mockParams = { id: 't1', start: '0' };
+    await wrap();
+    const faces = within(screen.getByTestId('player-interstitial-faces'))
+      .getAllByTestId('avatar-circle');
+    expect(StyleSheet.flatten(faces[0].props.style).backgroundColor)
+      .toBe(palette['bg-1']);
+  });
+
+  test('the letter stands on the light ground, the story keeps the cinema', async () => {
+    // Hold the seal (same switch as the seal describe block): the stage only
+    // stands while the letter does.
+    mockSealAutoPeel = false;
+    try {
+      await wrap();
+      const stage = StyleSheet.flatten(
+        (await screen.findByTestId('player-seal-stage')).props.style
+      );
+      expect(stage.backgroundColor).toBe(palette['bg-0']);
+    } finally {
+      mockSealAutoPeel = true;
+    }
   });
 });

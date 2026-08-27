@@ -25,12 +25,15 @@ import { ProgressBar } from '@/components/ProgressBar';
 import { Pill } from '@/components/Pill';
 import { Sheet } from '@/components/Sheet';
 import { Input } from '@/components/Input';
-import { SealPeel } from '@/components/SealPeel';
+import { SealedLetter } from '@/components/SealedLetter';
 import { cinema, motion, palette, radius, spacing, type } from '@/theme/tokens';
 import { useTopInset, useBottomInset } from '@/theme/useTopInset';
 import { useReducedMotion } from '@/theme/useReducedMotion';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { fetchTrip } from '@/features/trips/tripsApi';
+import type { Trip } from '@/features/trips/types';
+import { formatRange } from '@/features/trips/tripDay';
+import { fellowTravellersText } from '@/features/trips/travellers';
 import { fetchRecapMoments } from '@/features/recap/recapApi';
 import { saveMomentToGallery } from '@/features/recap/exportApi';
 import { reportMoment, REPORT_MAX_LENGTH } from '@/features/recap/reportApi';
@@ -105,13 +108,14 @@ const CINEMA_FADE_REDUCED_MS = 200;
 // Recap.", not a motion duration, so `useReducedMotion()` must NOT shorten
 // it the way CINEMA_FADE_REDUCED_MS shortens the fade above.
 const END_CARD_MS = 2000;
-// Same sharpness-limit rationale as FILM_REEL_MAX in recap/index.tsx (see
-// there): the seal is drawn from the same 1254 px source (SealPeel.tsx), so
-// it goes soft at the same width. Only bites on an iPad, every iPhone stays
-// below it anyway. (The seal used to stand in recap/[id]/overview.tsx before
-// Task 2 of the recap-show plan moved it here; that is not where this
-// rationale lives any more.)
-const SEAL_STAGE_MAX = 416;
+// The letter takes the width of a letter, not of the screen: air on both
+// sides is what makes the card read as an object lying there rather than as
+// another full-bleed panel. The cap only bites on an iPad; every iPhone stays
+// under it anyway. The wax on it is a fraction of this again (SealedLetter,
+// WAX_SHARE), so it stays far below the width at which its 1254 px source
+// would go soft, the sharpness limit FILM_REEL_MAX guards in recap/index.tsx.
+const LETTER_SHARE = 0.78;
+const LETTER_MAX_WIDTH = 320;
 
 // Reasons that belong to the moment being LEFT and are taken back on every
 // ACTUAL index change, never carried over to the NEW moment. 'kommentare'
@@ -390,7 +394,19 @@ function dayFactsText(moments: RecapMoment[]): string {
   return parts.join(' · ');
 }
 
-function dayFaces(moments: RecapMoment[]): Face[] {
+// Deliberately not called dayFaces any more: the letter asks the same
+// question of a whole trip that the day card asks of one day.
+// What the letter says the trip HOLDS. Not dayFactsText above: that one
+// counts the videos of a SINGLE day, this one describes the trip as a whole,
+// and there the company matters more than the media types.
+function letterFacts(momentCount: number, memberCount: number): string {
+  const parts = [`${momentCount} ${momentCount === 1 ? 'Moment' : 'Momente'}`];
+  const companions = fellowTravellersText(memberCount);
+  if (companions) parts.push(companions);
+  return parts.join(' · ');
+}
+
+function facesOf(moments: RecapMoment[]): Face[] {
   const byAuthor = new Map<string, Face>();
   for (const m of moments) {
     if (!byAuthor.has(m.author_id)) {
@@ -593,7 +609,7 @@ function DayCard({
                 testID="player-interstitial-faces"
                 style={[styles.titleCast, lineIn(0.5, 0.8)]}
               >
-                <AvatarGroup faces={dayFaces(content.moments)} cinemaMode />
+                <AvatarGroup faces={facesOf(content.moments)} />
               </Animated.View>
             </>
           )}
@@ -674,6 +690,20 @@ export default function RecapPlayer() {
   // As a useState INITIALIZER, not an effect: an effect would leave the
   // player visible without its seal for one frame after mount.
   const [sealed, setSealed] = useState(() => mode === 'show');
+  // The letter OUTLIVES `sealed`: the seal comes off, the show starts behind
+  // it (`sealed` false), and the letter is still lying on top withdrawing
+  // while the seal finishes dissolving over it. Only then does it go.
+  const [letterStanding, setLetterStanding] = useState(() => mode === 'show');
+  // The swipe's PanResponder is built ONCE (useRef below) and therefore holds
+  // the close() of the FIRST render, where the seal was still standing. Read
+  // through a ref, that stale closure still sees the current answer. Kept in
+  // an effect rather than during the render pass (unlike pausedRef further
+  // down): effects run long before any tap or swipe can arrive, and this way
+  // the render stays free of ref writes.
+  const sealedRef = useRef(sealed);
+  useEffect(() => {
+    sealedRef.current = sealed;
+  }, [sealed]);
   // See the derivation right before the render below; starts empty, the very
   // first moment has nothing to bridge over. Two layers: `leavingUri` is the
   // still of the moment being left (the safety net against the cinema ground
@@ -704,6 +734,11 @@ export default function RecapPlayer() {
   // promise something it cannot keep again.
   const [error, setError] = useState<{ text: string; canRetry: boolean } | null>(null);
   const [startDate, setStartDate] = useState('');
+  // The whole trip, for the letter in front of the show (title, span,
+  // company). `startDate` stays its own primitive state next to it: several
+  // effects below depend on it, and an object identity in their deps would
+  // re-run them on every load.
+  const [trip, setTrip] = useState<Trip | null>(null);
   // Reference-stable from the moment `load()` sets it once (contract 1:
   // dayChanges memoises over the ARRAY REFERENCE, not over content or length,
   // so this list is NEVER rebuilt inline, only replaced exactly once per
@@ -799,6 +834,7 @@ export default function RecapPlayer() {
     const withUrl = uploaded.filter((m) => urlsMap.has(m.id));
 
     setStartDate(trip.start_date);
+    setTrip(trip);
     setUrls(urlsMap);
     setValidUntil(pool?.validUntil ?? 0);
     setPendingCount(moments.length - uploaded.length);
@@ -1341,9 +1377,14 @@ export default function RecapPlayer() {
       setState((s) => ({ ...s, paused: releaseCard(s.paused) }));
       return;
     }
-    // The very first card: there is nothing before it, going back keeps it
-    // standing instead of quietly acting like the forward tap.
-    if (state.index === 0) return;
+    // The very first card: there is nothing before it. A half of the screen
+    // that does NOTHING reads as a dead app to whoever tapped it, so here,
+    // and only here, both halves move on (Alex, 27.08.). Every later card
+    // keeps its left half as the way back.
+    if (state.index === 0) {
+      dayCardForward();
+      return;
+    }
     // Committed already (a longer-standing card): a real step back, the same
     // move as the left story zone.
     void checkAndRefreshPoolInBackground();
@@ -1449,7 +1490,12 @@ export default function RecapPlayer() {
   }, [router, tripId]);
 
   const close = () => {
-    if (mode === 'show') {
+    // A STANDING seal is a threshold, not a station of the show: whoever
+    // turns around at it has seen nothing, and handing them the overview
+    // would lay out the very reel they just declined. So only an OPENED show
+    // hands over there; behind the seal the way out leads back where it came
+    // from, and the trip may greet the next visit sealed again.
+    if (mode === 'show' && !sealedRef.current) {
       toOverview();
       return;
     }
@@ -1499,111 +1545,12 @@ export default function RecapPlayer() {
   // auto-advance timer, tap zones) render at all, they simply never get to
   // their own `return`. The two phases excepted here are exactly the ones
   // with nothing behind the seal worth revealing.
-  if (sealed && phase !== 'error' && phase !== 'empty') {
-    const sealStageSize = Math.min(windowWidth - 2 * spacing.screen, SEAL_STAGE_MAX);
-    return (
-      <View testID="player-seal-stage" style={[styles.screen, styles.center]}>
-        <SealPeel testID="player-seal" size={sealStageSize} onPeeled={() => setSealed(false)} />
-        <Text style={[type.body, styles.centeredTextSecondary, { marginTop: spacing.l }]}>
-          Dein Recap ist versiegelt. Tipp aufs Siegel, um ihn zu öffnen.
-        </Text>
-        {/* Final whole-branch review: a standing seal has no timer to hand it
-            over eventually (unlike the interstitial card, gone in 1.5 s), so
-            without this the only way out would be the OS back gesture, which
-            `animation: 'fade'` on this route may disable. No tap zones and no
-            swipe here on purpose (recap-show spec): the story navigation must
-            not bite behind the seal, only the exit was missing. */}
-        <PressScale
-          testID="player-close"
-          accessibilityRole="button"
-          accessibilityLabel="Schliessen"
-          onPress={close}
-          style={[styles.closeWrap, { top: topInset }]}
-        >
-          <Pill style={styles.closePill}>
-            <X size={18} color={cinema['text-1']} strokeWidth={1.75} />
-          </Pill>
-        </PressScale>
-      </View>
-    );
-  }
-
-  if (phase === 'loading') {
-    return (
-      <View testID="player-loading" style={styles.screen}>
-        <ActivityIndicator color={cinema['text-1']} />
-      </View>
-    );
-  }
-
-  // Show mode never WAS on the overview (it comes straight from the recap
-  // tab) and close() there `replace`s onto it rather than going back, so
-  // "Zurück" would claim a place this person has never been. Jump mode's
-  // own close() genuinely does go back (canGoBack()) to the overview it
-  // jumped in from, where the label stays accurate as it is.
-  const wayBackLabel = mode === 'show' ? 'Zur Übersicht' : 'Zurück zur Übersicht';
-
-  if (phase === 'error') {
-    return (
-      <View testID="player-error" style={[styles.screen, styles.center]}>
-        <Text style={[type.h2, styles.centeredText]}>{error?.text}</Text>
-        <View style={{ marginTop: spacing.xl, gap: spacing.base, alignItems: 'center' }}>
-          {/* Only where a second attempt can achieve anything
-              (features/recap/urlPool.ts). The way back below stays in any case, it is
-              then the only action there is. */}
-          {error?.canRetry && (
-            <CinemaButton label="Nochmal versuchen" onPress={() => void load()} />
-          )}
-          <TextLink label={wayBackLabel} onPress={close} />
-        </View>
-      </View>
-    );
-  }
-
-  if (phase === 'empty') {
-    return (
-      <View testID="player-empty" style={[styles.screen, styles.center]}>
-        <Text style={[type.h2, styles.centeredText]}>Diese Reise ist leer geblieben.</Text>
-        <View style={{ marginTop: spacing.xl }}>
-          <TextLink label={wayBackLabel} onPress={close} />
-        </View>
-      </View>
-    );
-  }
-
-  if (phase === 'ended') {
-    const stragglers = (pendingCount > 0 || skippedCount > 0) && (
-      <View style={{ marginTop: spacing.base, gap: spacing.xs, alignItems: 'center' }}>
-        {pendingCount > 0 && (
-          <Text style={[type.secondary, styles.centeredTextSecondary]}>{pendingText(pendingCount)}</Text>
-        )}
-        {skippedCount > 0 && (
-          <Text style={[type.secondary, styles.centeredTextSecondary]}>{skippedText(skippedCount)}</Text>
-        )}
-      </View>
-    );
-    // Show mode hands itself over on its own (the timer above), so the card
-    // is just an early exit for a tap, with no button to press. Jump mode
-    // keeps today's dead end with a button and close()'s back()/'/recap'.
-    if (mode === 'show') {
-      return (
-        <Pressable testID="player-end" style={[styles.screen, styles.center]} onPress={toOverview}>
-          <Text style={[type.h2, styles.centeredText]}>Das war der Recap.</Text>
-          {stragglers}
-        </Pressable>
-      );
-    }
-    return (
-      <View testID="player-end" style={[styles.screen, styles.center]}>
-        <Text style={[type.h2, styles.centeredText]}>Das war der Recap.</Text>
-        {stragglers}
-        <View style={{ marginTop: spacing.xl }}>
-          <CinemaButton label="Zurück zur Übersicht" onPress={close} />
-        </View>
-      </View>
-    );
-  }
-
+  // The show itself, as a function rather than a `return`: the sealed
+  // letter needs it too. The letter withdraws WHILE the seal is still
+  // dissolving over it, so both have to live in one and the same subtree,
+  // otherwise React would unmount the letter mid-animation and it would
+  // start over with the wax back on.
+  const storyScreen = () => {
   // phase === 'ready', so activeMoment is guaranteed to be set (the list is
   // never empty at this point, see load()).
   if (!activeMoment) return null;
@@ -1637,7 +1584,7 @@ export default function RecapPlayer() {
     ? `${activeMoment.place_name} · ${timeInZone(activeMoment.captured_at, activeMoment.captured_tz)}`
     : timeInZone(activeMoment.captured_at, activeMoment.captured_tz);
 
-  return (
+    return (
     <View testID="player-ready" style={styles.screen}>
       <Animated.View style={[styles.content, { transform: pan.getTranslateTransform() }]} {...panResponder.panHandlers}>
         {bridge.leavingUri && (
@@ -1926,11 +1873,179 @@ export default function RecapPlayer() {
         )}
       </Sheet>
     </View>
+    );
+  };
+
+  // Rendered ONCE and shared by both ways out below: under the withdrawing
+  // letter, and on its own afterwards. Calling it twice would run everything
+  // it derives (the bridge above all) a second time per render.
+  const story = phase === 'ready' && !sealed ? storyScreen() : null;
+
+  // ONE node, rendered from ONE place: the show and the letter have to keep
+  // their position in the tree across the whole handover. Rendering them from
+  // two different returns (one while the letter stands, one after) makes React
+  // throw the subtree away and build it again, and the day card starts over:
+  // on the device that was Tag 1 appearing twice.
+  const letterWidth = Math.min(
+    (windowWidth - 2 * spacing.screen) * LETTER_SHARE,
+    LETTER_MAX_WIDTH
+  );
+  const letterOverlay = letterStanding && phase !== 'error' && phase !== 'empty' ? (
+    <View
+      testID="player-seal-stage"
+      // The light ground belongs to the STANDING letter; once it is only
+      // withdrawing, its own backdrop carries it and fades with it.
+      style={[StyleSheet.absoluteFill, sealed && styles.sealStage]}
+      pointerEvents={sealed ? 'auto' : 'none'}
+    >
+        {/* Lets taps through once it is only withdrawing: from then on they
+            belong to the show underneath. */}
+        <View
+          style={[StyleSheet.absoluteFill, styles.center]}
+          pointerEvents={sealed ? 'auto' : 'none'}
+        >
+          {/* Everything below the chapter line is null until the load
+              returns: the letter IS the loading window, and it stands with
+              what it has rather than with empty rows (see SealedLetter). */}
+          <SealedLetter
+            testID="player-seal"
+            width={letterWidth}
+            title={trip?.name ?? null}
+            range={trip ? formatRange(trip.start_date, trip.end_date) : null}
+            facts={trip ? letterFacts(playlist.length, trip.member_count) : null}
+            faces={facesOf(playlist)}
+            onOpening={() => {
+              // Announce the day in the SAME batch as opening the show.
+              // Left to the effect below, the show's first render would be
+              // the bare first moment and the day card would only arrive on
+              // the next one: on the device that read as a flash of content
+              // between the seal and Tag 1. Jest cannot catch this, act()
+              // flushes effects before a test can look, so this stands on
+              // the device finding alone.
+              if (dayChanges(playlist, startDate, state.index)) {
+                setState((prev) => ({
+                  ...prev,
+                  paused: withReason(prev.paused, 'zwischenkarte'),
+                }));
+              }
+              setSealed(false);
+            }}
+            onOpened={() => setLetterStanding(false)}
+          />
+        </View>
+        {/* Final whole-branch review: a standing seal has no timer to hand it
+            over eventually (unlike the interstitial card, gone in 1.5 s), so
+            without this the only way out would be the OS back gesture, which
+            `animation: 'fade'` on this route may disable. No tap zones and no
+            swipe here on purpose (recap-show spec): the story navigation must
+            not bite behind the seal, only the exit was missing. Gone once the
+            seal is off, because the show underneath brings its own. */}
+        {sealed && (
+          <PressScale
+            testID="player-close"
+            accessibilityRole="button"
+            accessibilityLabel="Schliessen"
+            onPress={close}
+            style={[styles.closeWrap, { top: topInset }]}
+          >
+            <Pill style={styles.closePill}>
+              <X size={18} color={cinema['text-1']} strokeWidth={1.75} />
+            </Pill>
+          </PressScale>
+        )}
+    </View>
+  ) : null;
+
+  // Show mode never WAS on the overview (it comes straight from the recap
+  // tab) and close() there `replace`s onto it rather than going back, so
+  // "Zurück" would claim a place this person has never been. Jump mode's
+  // own close() genuinely does go back (canGoBack()) to the overview it
+  // jumped in from, where the label stays accurate as it is.
+  const wayBackLabel = mode === 'show' ? 'Zur Übersicht' : 'Zurück zur Übersicht';
+
+  if (phase === 'error') {
+    return (
+      <View testID="player-error" style={[styles.screen, styles.center]}>
+        <Text style={[type.h2, styles.centeredText]}>{error?.text}</Text>
+        <View style={{ marginTop: spacing.xl, gap: spacing.base, alignItems: 'center' }}>
+          {/* Only where a second attempt can achieve anything
+              (features/recap/urlPool.ts). The way back below stays in any case, it is
+              then the only action there is. */}
+          {error?.canRetry && (
+            <CinemaButton label="Nochmal versuchen" onPress={() => void load()} />
+          )}
+          <TextLink label={wayBackLabel} onPress={close} />
+        </View>
+      </View>
+    );
+  }
+
+  if (phase === 'empty') {
+    return (
+      <View testID="player-empty" style={[styles.screen, styles.center]}>
+        <Text style={[type.h2, styles.centeredText]}>Diese Reise ist leer geblieben.</Text>
+        <View style={{ marginTop: spacing.xl }}>
+          <TextLink label={wayBackLabel} onPress={close} />
+        </View>
+      </View>
+    );
+  }
+
+  if (phase === 'ended') {
+    const stragglers = (pendingCount > 0 || skippedCount > 0) && (
+      <View style={{ marginTop: spacing.base, gap: spacing.xs, alignItems: 'center' }}>
+        {pendingCount > 0 && (
+          <Text style={[type.secondary, styles.centeredTextSecondary]}>{pendingText(pendingCount)}</Text>
+        )}
+        {skippedCount > 0 && (
+          <Text style={[type.secondary, styles.centeredTextSecondary]}>{skippedText(skippedCount)}</Text>
+        )}
+      </View>
+    );
+    // Show mode hands itself over on its own (the timer above), so the card
+    // is just an early exit for a tap, with no button to press. Jump mode
+    // keeps today's dead end with a button and close()'s back()/'/recap'.
+    if (mode === 'show') {
+      return (
+        <Pressable testID="player-end" style={[styles.screen, styles.center]} onPress={toOverview}>
+          <Text style={[type.h2, styles.centeredText]}>Das war der Recap.</Text>
+          {stragglers}
+        </Pressable>
+      );
+    }
+    return (
+      <View testID="player-end" style={[styles.screen, styles.center]}>
+        <Text style={[type.h2, styles.centeredText]}>Das war der Recap.</Text>
+        {stragglers}
+        <View style={{ marginTop: spacing.xl }}>
+          <CinemaButton label="Zurück zur Übersicht" onPress={close} />
+        </View>
+      </View>
+    );
+  }
+
+
+  // Loading and the show share this frame, so the letter above them never
+  // changes place while the load finishes underneath it.
+  return (
+    <View style={styles.screen}>
+      {phase === 'loading' ? (
+        <View testID="player-loading" style={styles.screen}>
+          <ActivityIndicator color={cinema['text-1']} />
+        </View>
+      ) : (
+        story
+      )}
+      {letterOverlay}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: cinema['bg-0'] },
+  // The letter's ground, light like the day card behind it: the cinema only
+  // starts once the story stands, which brings its own ground (player-ready).
+  sealStage: { flex: 1, backgroundColor: palette['bg-0'] },
   content: { flex: 1 },
   center: { alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.screen },
   centeredText: { color: cinema['text-1'], textAlign: 'center' },
@@ -2004,7 +2119,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: cinema['bg-0'],
+    backgroundColor: palette['bg-0'],
     zIndex: 2,
     // Crops the embossed digit at the screen edge (interstitialGiant sticks
     // out on purpose).
@@ -2031,7 +2146,7 @@ const styles = StyleSheet.create({
   titleRule: {
     width: 44,
     height: 1,
-    backgroundColor: cinema['text-2'],
+    backgroundColor: palette['text-2'],
   },
   titleRuleBottom: {
     marginTop: spacing.l,
@@ -2040,7 +2155,7 @@ const styles = StyleSheet.create({
   // letterSpacing is STATIC on purpose, only its opacity animates (see
   // TITLE_GROW_MS above for why nothing here may run on the JS driver).
   titleChapter: {
-    color: cinema['text-2'],
+    color: palette['text-2'],
     letterSpacing: 3.5,
     marginTop: spacing.l,
   },
@@ -2051,15 +2166,15 @@ const styles = StyleSheet.create({
     marginTop: spacing.s,
   },
   titleText: {
-    color: cinema['text-1'],
+    color: palette['text-1'],
     textAlign: 'center',
   },
   titleDate: {
-    color: cinema['text-2'],
+    color: palette['text-2'],
     marginTop: spacing.base,
   },
   titleFacts: {
-    color: cinema['text-2'],
+    color: palette['text-2'],
     marginTop: spacing.xs,
   },
   titleCast: {
@@ -2073,7 +2188,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     textAlign: 'center',
-    color: cinema['text-2'],
+    color: palette['text-2'],
   },
   // Without a zIndex this area lay UNDER the tap zones (zIndex 1, see
   // tapZoneLeft/tapZoneRight below), and every tap on an emoji or the comment

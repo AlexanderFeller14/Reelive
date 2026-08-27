@@ -19,14 +19,58 @@
 
 export const STAGE = 720;
 export const SEAL = { x: 110, y: 105, size: 500 } as const;
-export const DURATION_MS = 2700;
+// The prototype's clock was 2700 ms, which left the seal barely lifted after
+// a second. Straffed so the peel PLAYS inside roughly that first second, then
+// eased back out again because 1500 ran hectically (Alex, 27.08.). The
+// movement curve itself is the prototype's, only its clock is ours.
+export const DURATION_MS = 1900;
 
-// From 85% of the duration onward, not a single node is left within the
-// stage (see test): the seal is gone, only the shadow is still fading out.
-// For the person watching, that's the moment the recap may appear; the
-// remaining 400 ms would otherwise have been spent waiting in front of an
-// empty area.
-export const PEELED_AT_MS = Math.round(DURATION_MS * 0.85);
+// The seal does not fly out of frame any more, it BREAKS UP where it lies:
+// along the diagonal from top left to bottom right, and early enough that it
+// never climbs over the faces of the senders sitting just above the wax on
+// the letter (measured: from about p=0.5 it would start leaving its stage).
+//
+// Because it now travels for a full second before breaking up, it leaves its
+// stage on the way, and the canvas has to reach out that far: a canvas cut to
+// the stage slices the seal off along a straight edge in mid-picture.
+// Where the two phases meet. The dissolve sets in around the moment the seal
+// LIFTS OFF (measured: from about p=0.5 it leaves its resting height), so the
+// breaking up and the flying are one movement rather than two acts.
+const DISSOLVE_LIFTS_OFF_AT = 0.5;
+// How wide the half-gone zone is, in stage units, at the start and at the end
+// of the dissolve. It WIDENS as it travels, which is what makes the seal fray
+// out instead of being wiped away behind a ruler.
+const SOFT_FROM = 170;
+const SOFT_TO = 430;
+export const FLIGHT_ROOM = { left: 370, top: 800 } as const;
+
+export const DISSOLVE_SPAN = {
+  from: DISSOLVE_LIFTS_OFF_AT,
+  // Ends before `travel` saturates at 0.95, so the seal is gone while still
+  // moving rather than parking in mid-air and fading on the spot. It does
+  // climb past the faces on the letter on its way, which is the price of
+  // seeing the peel at all (Alex chose that trade on 27.08.).
+  to: 0.85,
+} as const;
+// The moment the seal counts as gone, and therefore the moment the recap may
+// appear. That is 99% into the DISSOLVE: what is left of the seal by then is
+// a hair's breadth, and waiting for the last percent (let alone for the seal
+// to leave the frame, as this once did) would put a standstill between the
+// seal going and the letter starting to make room.
+const HANDOVER_AT = 0.99;
+export const PEELED_AT_MS = Math.round(
+  DURATION_MS * (DISSOLVE_SPAN.from + HANDOVER_AT * (DISSOLVE_SPAN.to - DISSOLVE_SPAN.from))
+);
+
+// When the seal has COME OFF and starts to break up: long before the last of
+// it has dissolved, and the moment the show behind it may begin.
+export const LIFT_OFF_MS = Math.round(DURATION_MS * DISSOLVE_SPAN.from);
+
+// How long the seal spends falling apart. The letter withdraws over exactly
+// this stretch, so the card, its ground and the seal all leave together and
+// the whole thing reads as ONE movement instead of a card that goes and a
+// seal that is still there afterwards.
+export const DISSOLVE_MS = PEELED_AT_MS - LIFT_OFF_MS;
 
 // Mesh resolution (nodes per edge). The prototype uses 42; on the device 36
 // is enough (1369 nodes, 2592 triangles): just under 14 units per cell,
@@ -50,6 +94,31 @@ function smooth(t: number): number {
   'worklet';
   const c = clamp(t);
   return c * c * (3 - 2 * c);
+}
+
+// The moving edge of the dissolve, as the two points of a linear gradient
+// running along the diagonal (1,1): everything before `start` is already
+// gone, everything after `end` still stands, and in between it breaks up.
+//
+// Sits below `clamp` on purpose: a worklet captures its closure where it is
+// defined, and a helper declared further down is not in it.
+export function dissolveEdge(p: number): { start: Point; end: Point } {
+  'worklet';
+  const t = clamp((p - DISSOLVE_SPAN.from) / (DISSOLVE_SPAN.to - DISSOLVE_SPAN.from));
+  // Quadratic ease-in: the front sets in gently and then carries through,
+  // rather than starting at full speed like a wipe.
+  const eased = t * t;
+  const soft = SOFT_FROM + (SOFT_TO - SOFT_FROM) * eased;
+  // Where the seal begins and ends along that diagonal, at rest.
+  const restFrom = (SEAL.x + SEAL.y) / SQRT2;
+  const restTo = (SEAL.x + SEAL.size + SEAL.y + SEAL.size) / SQRT2;
+  // Starts one soft zone BEFORE the seal (nothing gone yet) and finishes one
+  // past it (nothing left).
+  const s = restFrom - soft + eased * (restTo - restFrom + 2 * soft);
+  return {
+    start: { x: s / SQRT2, y: s / SQRT2 },
+    end: { x: (s + soft) / SQRT2, y: (s + soft) / SQRT2 },
+  };
 }
 
 export function restNodes(n: number): Point[] {
@@ -132,30 +201,7 @@ export function nodePositions(p: number, n: number): Point[] {
   return nodes;
 }
 
-export type Shadow = {
-  x: number;
-  y: number;
-  rx: number;
-  ry: number;
-  opacity: number;
-  // Gaussian sigma in stage units (the prototype: CSS blur(px)).
-  softness: number;
-};
-
-// The floor shadow under the seal, keeps up with it lifting off toward the
-// top right; the prototype's remaining 0.09 at p=1 fades to zero here over
-// the last 15% instead, because the screen's content takes over that spot
-// afterwards and a lingering shadow veil has no business being there.
-export function shadowParameters(p: number): Shadow {
-  'worklet';
-  const sp = smooth((p - 0.05) / 0.85);
-  const fadeOut = 1 - smooth((p - 0.85) / 0.15);
-  return {
-    x: 360 + 80 * sp,
-    y: 590 - 70 * sp,
-    rx: 215 - 70 * sp,
-    ry: 45 - 17 * sp,
-    opacity: 0.2 * (1 - 0.55 * sp) * fadeOut,
-    softness: 16 + 22 * sp,
-  };
-}
+// The prototype's floor shadow is gone: it was drawn for red wax lying on a
+// LIGHT background, and on the letter's dark card the warm brown blur read as
+// a dirty rim around the seal rather than as a shadow. Only the seal itself
+// is on that stage now.

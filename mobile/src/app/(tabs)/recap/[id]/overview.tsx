@@ -21,6 +21,7 @@ import { useAuth } from '@/features/auth/AuthProvider';
 import { fetchTrip } from '@/features/trips/tripsApi';
 import type { Trip } from '@/features/trips/types';
 import { formatRange } from '@/features/trips/tripDay';
+import { fellowTravellersText } from '@/features/trips/travellers';
 import { fetchRecapMoments } from '@/features/recap/recapApi';
 import { saveAllToGallery, type AllResult, type AllProgress } from '@/features/recap/exportApi';
 import { groupByDays } from '@/features/recap/days';
@@ -86,16 +87,6 @@ function summaryText(outcome: Extract<AllResult, { status: 'finished' }>): strin
     return `${outcome.saved} von ${outcome.total} Momenten gesichert.`;
   }
   return `${outcome.saved} von ${outcome.total} Momenten gesichert. ${outcome.failed} ${outcome.failed === 1 ? 'ist' : 'sind'} fehlgeschlagen.`;
-}
-
-// Returns null for a lone traveller, so `heroSubtitle` below can simply drop
-// this part instead of stitching it onto an empty phrase.
-function fellowTravellersText(memberCount: number): string | null {
-  if (memberCount <= 1) return null;
-  if (memberCount === 2) return 'zu zweit';
-  if (memberCount === 3) return 'zu dritt';
-  if (memberCount === 4) return 'zu viert';
-  return `mit ${memberCount} Mitreisenden`;
 }
 
 // `displayedMomentCount` is a parameter, not `trip.my_post_count`: the tab

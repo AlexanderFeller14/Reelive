@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  BlurMask,
   Canvas,
   FilterMode,
   Group,
   ImageShader,
+  LinearGradient,
   MipmapMode,
-  Oval,
+  Rect,
   Vertices,
   useImage,
 } from '@shopify/react-native-skia';
@@ -22,32 +22,45 @@ import { PressScale } from '@/components/PressScale';
 import { motion } from '@/theme/tokens';
 import { useReducedMotion } from '@/theme/useReducedMotion';
 import {
+  FLIGHT_ROOM,
+  LIFT_OFF_MS,
   PEELED_AT_MS,
   STAGE,
   DURATION_MS,
   GRID_RESOLUTION,
+  dissolveEdge,
   triangleIndices,
   nodePositions,
-  shadowParameters,
   textureCoordinates,
 } from '@/features/recap/sealPeel';
 
 const REDUCED_DURATION_MS = 200;
 
-// Color of the floor shadow from the prototype (warm dark brown, not a
-// neutral black: the shadow sits under red wax on a light background).
-const SHADOW_COLOR = '#36150D';
-// Tilt of the shadow ellipse (radians), also from the prototype.
-const SHADOW_ROTATION = [{ rotate: -0.18 }];
+// The canvas the seal needs at a given stage size, and where the stage sits
+// inside it. The seal flies far up and to the left out of its stage
+// (sealPeel.FLIGHT_ROOM) before it breaks up, so the drawing area has to
+// reach out that far too, otherwise the flying seal is sliced off along the
+// canvas edge. Exported so a caller can position the STAGE, not the canvas.
+export function peelCanvas(size: number) {
+  const stageScale = size / STAGE;
+  return {
+    width: (STAGE + FLIGHT_ROOM.left) * stageScale,
+    height: (STAGE + FLIGHT_ROOM.top) * stageScale,
+    stageLeft: FLIGHT_ROOM.left * stageScale,
+    stageTop: FLIGHT_ROOM.top * stageScale,
+  };
+}
 
 type Props = {
   // Edge length of the square stage in points. The seal itself takes up
   // 500/720 of it (sealPeel.SEAL), the rest is air it rolls itself into
   // while peeling off.
   size: number;
-  // Reported as soon as the stage is empty (sealPeel.PEELED_AT_MS), not
-  // only at the end of the shadow fade-out; with reduced motion, after the
-  // 200 ms fade.
+  // Reported once the seal has come off and begins to break up (LIFT_OFF_MS).
+  // With reduced motion there is nothing to watch, so it arrives at once.
+  onLiftOff?: () => void;
+  // Reported once nothing of the seal is left to see (PEELED_AT_MS); with
+  // reduced motion, after the 200 ms fade.
   onPeeled: () => void;
   testID?: string;
 };
@@ -81,7 +94,7 @@ type Props = {
 // UI thread.
 type Mode = 'idle' | 'peel' | 'fade';
 
-export function SealPeel({ size, onPeeled, testID }: Props) {
+export function SealPeel({ size, onLiftOff, onPeeled, testID }: Props) {
   const reducedMotion = useReducedMotion();
   const image = useImage(require('@/assets/images/rotes-brief-wachssiegel-transparent.png'));
   const progress = useSharedValue(0);
@@ -94,6 +107,10 @@ export function SealPeel({ size, onPeeled, testID }: Props) {
   useEffect(() => {
     onPeeledRef.current = onPeeled;
   }, [onPeeled]);
+  const onLiftOffRef = useRef(onLiftOff);
+  useEffect(() => {
+    onLiftOffRef.current = onLiftOff;
+  }, [onLiftOff]);
 
   useEffect(() => {
     if (mode === 'idle') return;
@@ -109,8 +126,15 @@ export function SealPeel({ size, onPeeled, testID }: Props) {
       progress.value = withTiming(1, { duration: DURATION_MS, easing: Easing.linear });
     }
     const timer = setTimeout(() => onPeeledRef.current(), duration);
+    // Its own timer, on the same clock: with reduced motion nothing is being
+    // watched, so the show may start immediately (delay 0).
+    const liftOff = setTimeout(
+      () => onLiftOffRef.current?.(),
+      mode === 'fade' ? 0 : LIFT_OFF_MS
+    );
     return () => {
       clearTimeout(timer);
+      clearTimeout(liftOff);
       cancelAnimation(progress);
       cancelAnimation(opacity);
     };
@@ -126,22 +150,18 @@ export function SealPeel({ size, onPeeled, testID }: Props) {
     [image]
   );
 
+  // The two points of the dissolve edge (sealPeel.dissolveEdge), which walks
+  // the diagonal from top left to bottom right and takes the seal apart on
+  // the way. Direction and timing live in the physics module, this only
+  // hands them to Skia.
+  const dissolveStart = useDerivedValue(() => dissolveEdge(progress.value).start);
+  const dissolveEnd = useDerivedValue(() => dissolveEdge(progress.value).end);
   const nodes = useDerivedValue(() => nodePositions(progress.value, GRID_RESOLUTION));
-  const shadowRect = useDerivedValue(() => {
-    const s = shadowParameters(progress.value);
-    return { x: s.x - s.rx, y: s.y - s.ry, width: 2 * s.rx, height: 2 * s.ry };
-  });
-  const shadowCenter = useDerivedValue(() => {
-    const s = shadowParameters(progress.value);
-    return { x: s.x, y: s.y };
-  });
-  const shadowOpacity = useDerivedValue(() => shadowParameters(progress.value).opacity);
-  const shadowSoftness = useDerivedValue(() => shadowParameters(progress.value).softness);
-
   // Everything is computed in stage units (720) and scaled onto the point
   // size as a whole; the shadow's softness scales along with it (BlurMask
   // respectCTM, the default), so every number stays the prototype's number.
   const scale = size / STAGE;
+  const canvas = peelCanvas(size);
 
   const peel = () => {
     if (running) return;
@@ -169,35 +189,69 @@ export function SealPeel({ size, onPeeled, testID }: Props) {
       testID={testID}
       style={{ width: size, height: size }}
     >
-      <Canvas testID="seal-stage" style={{ width: size, height: size }}>
+      {/* Reaches out of the component up and to the left, so the flight has
+          room. React Native does not clip it (overflow is visible), and
+          because the canvas is NOT the press target, a tap on the card up
+          there stays the card's. */}
+      <Canvas
+        testID="seal-stage"
+        style={{
+          position: 'absolute',
+          left: -canvas.stageLeft,
+          top: -canvas.stageTop,
+          width: canvas.width,
+          height: canvas.height,
+        }}
+      >
         {image && textures && (
-          <Group transform={[{ scale }]} opacity={opacity}>
-            <Oval
-              rect={shadowRect}
-              color={SHADOW_COLOR}
-              opacity={shadowOpacity}
-              origin={shadowCenter}
-              transform={SHADOW_ROTATION}
-            >
-              <BlurMask blur={shadowSoftness} style="normal" />
-            </Oval>
-            <Vertices
-              vertices={nodes}
-              textures={textures}
-              indices={indices}
-              mode="triangles"
-            >
-              {/* Mipmaps, because the PNG (1254 px) is drawn scaled down on
-                  the device; without them the wax relief shimmers while
-                  rolling up. Clamp instead of decal: the mesh's edges sit
-                  in the PNG's transparent border, there's nothing to tile. */}
-              <ImageShader
-                image={image}
-                tx="clamp"
-                ty="clamp"
-                sampling={{ filter: FilterMode.Linear, mipmap: MipmapMode.Linear }}
-              />
-            </Vertices>
+          <Group
+            transform={[
+              { translateX: canvas.stageLeft },
+              { translateY: canvas.stageTop },
+              { scale },
+            ]}
+            opacity={opacity}
+          >
+            {/* Its own layer, so the dissolve below reaches the seal and
+                nothing else. */}
+            <Group layer>
+              <Vertices
+                vertices={nodes}
+                textures={textures}
+                indices={indices}
+                mode="triangles"
+              >
+                {/* Mipmaps, because the PNG (1254 px) is drawn scaled down on
+                    the device; without them the wax relief shimmers while
+                    rolling up. Clamp instead of decal: the mesh's edges sit
+                    in the PNG's transparent border, there's nothing to tile. */}
+                <ImageShader
+                  image={image}
+                  tx="clamp"
+                  ty="clamp"
+                  sampling={{ filter: FilterMode.Linear, mipmap: MipmapMode.Linear }}
+                />
+              </Vertices>
+              {/* The dissolve: a gradient drawn over the seal in `dstIn`,
+                  which multiplies what is already there by the gradient's
+                  alpha. `dstIn` paints no colour of its own, so unlike a mask
+                  there is no rectangle that could ever show as an edge. It
+                  spans the whole flight room, because dstIn only touches the
+                  pixels it actually covers. */}
+              <Rect
+                x={-FLIGHT_ROOM.left}
+                y={-FLIGHT_ROOM.top}
+                width={STAGE + FLIGHT_ROOM.left}
+                height={STAGE + FLIGHT_ROOM.top}
+                blendMode="dstIn"
+              >
+                <LinearGradient
+                  start={dissolveStart}
+                  end={dissolveEnd}
+                  colors={['#FFFFFF00', '#FFFFFFFF']}
+                />
+              </Rect>
+            </Group>
           </Group>
         )}
       </Canvas>
