@@ -273,6 +273,38 @@ jest.mock('@/features/camera/multiCamera', () => {
   };
 });
 
+// The library import (spec 2026-08-27): picker and batch submission are
+// native I/O with their own tests; here only the orchestration counts.
+const mockPickFromLibrary = jest.fn();
+jest.mock('@/features/moments/libraryPicker', () => ({
+  pickFromLibrary: () => mockPickFromLibrary(),
+}));
+
+const mockSubmitImports = jest.fn();
+const mockDiscardRefused = jest.fn();
+jest.mock('@/features/moments/libraryImportSubmit', () => ({
+  submitImports: (...args: unknown[]) => mockSubmitImports(...args),
+  discardRefused: (refused: unknown[]) => mockDiscardRefused(refused),
+}));
+
+// The success cover is a Reanimated choreography with its own test; the
+// screen only hands it props and waits for "finished", which the tests
+// trigger by hand through mockFinishAnimation.
+const mockAnimationProps = jest.fn();
+let mockFinishAnimation: (() => void) | null = null;
+jest.mock('@/components/MomentSubmissionAnimation', () => ({
+  MomentSubmissionAnimation: (props: {
+    visible: boolean;
+    onFinished: () => void;
+    counter?: number | null;
+    added?: number;
+  }) => {
+    mockAnimationProps(props);
+    mockFinishAnimation = props.visible ? props.onFinished : null;
+    return null;
+  },
+}));
+
 import CaptureScreen from '../index';
 import { fetchTrips } from '@/features/trips/tripsApi';
 import * as handoff from '@/features/camera/handoff';
@@ -293,6 +325,15 @@ const trip = (over: Partial<Trip> = {}): Trip => ({
 });
 
 const loaded = (data: Trip[]) => ({ data, error: null, countsError: null });
+
+const pickedPhoto = (uri: string, creationTime: number) => ({
+  uri,
+  kind: 'photo' as const,
+  durationMs: null,
+  exif: null,
+  creationTime,
+  location: null,
+});
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -330,6 +371,9 @@ beforeEach(() => {
   mockMultiCamera.start.mockResolvedValue(true);
   mockMultiCamera.switchCamera.mockResolvedValue('front');
   mockMultiCamera.onPressureChange.mockImplementation(() => () => {});
+  mockPickFromLibrary.mockResolvedValue({ canceled: true });
+  mockSubmitImports.mockResolvedValue({ submitted: 0, failed: 0 });
+  mockFinishAnimation = null;
   // Unlike the native capture above, SUCCESS is the default here: the MultiCam
   // branch has no way back over recordAsync (there is no CameraView), so a
   // permanently refusing start would be a permanent error, not a starting state.
@@ -1275,6 +1319,7 @@ test('during a running capture the controls in the head disappear', async () => 
   expect(screen.queryByLabelText('Reise wechseln, Norwegen mit dem Camper')).toBeNull();
   expect(screen.queryByLabelText('Kamera wechseln')).toBeNull();
   expect(screen.queryByLabelText('Blitz einschalten')).toBeNull();
+  expect(screen.queryByLabelText('Momente aus Fotos einsenden')).toBeNull();
   expect(screen.getByLabelText('Auslöser')).toBeTruthy();
 });
 
@@ -3007,4 +3052,211 @@ test('a silent multicam lens without switch points falls back to a maximum of 8x
     nativeEvent: { pageX: 100, pageY: -1000, identifier: 1 },
   });
   expect(mockMultiCamera.setZoom).toHaveBeenLastCalledWith({ camera: 'front', factor: 8 }, false);
+});
+
+// === Library import (spec 2026-08-27) ===
+
+test('the import button offers the library, and a canceled picker leaves the viewfinder untouched', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(loaded([trip()]));
+  await render(<CaptureScreen />);
+  await screen.findByLabelText('Auslöser');
+
+  await act(async () => {
+    fireEvent.press(screen.getByLabelText('Momente aus Fotos einsenden'));
+  });
+
+  expect(mockPickFromLibrary).toHaveBeenCalledTimes(1);
+  expect(mockSubmitImports).not.toHaveBeenCalled();
+  expect(mockDiscardRefused).not.toHaveBeenCalled();
+  expect(screen.getByLabelText('Auslöser')).toBeTruthy();
+  expect(screen.queryByTestId('import-progress')).toBeNull();
+  expect(captureLock.isLocked()).toBe(false);
+});
+
+test('elements outside the trip period are refused with the period in the pill, nothing is submitted', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(loaded([trip()]));
+  mockPickFromLibrary.mockResolvedValue({
+    canceled: false,
+    media: [pickedPhoto('file:///old.jpg', Date.UTC(2026, 6, 20, 12))],
+  });
+  await render(<CaptureScreen />);
+  await screen.findByLabelText('Auslöser');
+
+  await act(async () => {
+    fireEvent.press(screen.getByLabelText('Momente aus Fotos einsenden'));
+  });
+
+  expect(mockSubmitImports).not.toHaveBeenCalled();
+  expect(mockDiscardRefused).toHaveBeenCalledWith([expect.objectContaining({ uri: 'file:///old.jpg' })]);
+  expect(
+    screen.getByText('Der Moment wurde nicht eingesendet: ausserhalb des Reisezeitraums (1.–14. Aug 2026).')
+  ).toBeTruthy();
+  expect(mockAnimationProps).not.toHaveBeenCalledWith(expect.objectContaining({ visible: true }));
+});
+
+test('accepted elements go through submitImports for the trip; meanwhile the shutter yields to the progress pill', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(loaded([trip()]));
+  mockOwnCounter.mockImplementation(async () => 4);
+  mockPickFromLibrary.mockResolvedValue({
+    canceled: false,
+    media: [
+      pickedPhoto('file:///a.jpg', Date.UTC(2026, 7, 5, 12)),
+      pickedPhoto('file:///b.jpg', Date.UTC(2026, 7, 6, 12)),
+    ],
+  });
+  let finishSubmit: (outcome: { submitted: number; failed: number }) => void = () => {};
+  mockSubmitImports.mockImplementation(
+    (_accepted: unknown, _target: unknown, onProgress: (done: number, total: number) => void) =>
+      new Promise<{ submitted: number; failed: number }>((resolve) => {
+        onProgress(1, 2);
+        finishSubmit = resolve;
+      })
+  );
+  await render(<CaptureScreen />);
+  await screen.findByLabelText('Auslöser');
+  await screen.findByText('4 Momente');
+
+  await act(async () => {
+    fireEvent.press(screen.getByLabelText('Momente aus Fotos einsenden'));
+  });
+
+  expect(mockSubmitImports).toHaveBeenCalledWith(
+    [
+      expect.objectContaining({ accepted: true, captured_at: '2026-08-05T12:00:00.000Z' }),
+      expect.objectContaining({ accepted: true, captured_at: '2026-08-06T12:00:00.000Z' }),
+    ],
+    { tripId: 't1', authorId: 'u1' },
+    expect.any(Function)
+  );
+  expect(mockDiscardRefused).toHaveBeenCalledWith([]);
+  // During the batch: no shutter, no header, no tab switch, a progress pill.
+  expect(screen.queryByLabelText('Auslöser')).toBeNull();
+  expect(screen.queryByLabelText('Momente aus Fotos einsenden')).toBeNull();
+  expect(screen.queryByLabelText('Reise wechseln, Norwegen mit dem Camper')).toBeNull();
+  expect(screen.getByTestId('import-progress')).toBeTruthy();
+  expect(screen.getByText('1 von 2 Momenten eingesendet')).toBeTruthy();
+  expect(captureLock.isLocked()).toBe(true);
+
+  await act(async () => {
+    finishSubmit({ submitted: 2, failed: 0 });
+  });
+
+  expect(captureLock.isLocked()).toBe(false);
+  expect(screen.queryByTestId('import-progress')).toBeNull();
+  // The animation rolls from the count BEFORE the batch by the batch size.
+  expect(mockAnimationProps).toHaveBeenLastCalledWith(
+    expect.objectContaining({ visible: true, counter: 4, added: 2 })
+  );
+
+  mockOwnCounter.mockImplementation(async () => 6);
+  await act(async () => {
+    mockFinishAnimation?.();
+  });
+
+  expect(mockAnimationProps).toHaveBeenLastCalledWith(expect.objectContaining({ visible: false }));
+  expect(screen.getByLabelText('Auslöser')).toBeTruthy();
+  expect(screen.getByLabelText('Momente aus Fotos einsenden')).toBeTruthy();
+  // The counter is fetched afresh after the batch.
+  await screen.findByText('6 Momente');
+  expect(screen.queryByText(/nicht eingesendet/)).toBeNull();
+});
+
+test('a partial batch plays the animation first and explains the refusals afterwards', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(loaded([trip()]));
+  mockPickFromLibrary.mockResolvedValue({
+    canceled: false,
+    media: [
+      pickedPhoto('file:///a.jpg', Date.UTC(2026, 7, 5, 12)),
+      {
+        uri: 'file:///long.mov',
+        kind: 'video' as const,
+        durationMs: 120_000,
+        exif: null,
+        creationTime: Date.UTC(2026, 7, 5, 12),
+        location: null,
+      },
+      pickedPhoto('file:///c.jpg', Date.UTC(2026, 7, 5, 12)),
+    ],
+  });
+  mockSubmitImports.mockResolvedValue({ submitted: 1, failed: 1 });
+  await render(<CaptureScreen />);
+  await screen.findByLabelText('Auslöser');
+
+  await act(async () => {
+    fireEvent.press(screen.getByLabelText('Momente aus Fotos einsenden'));
+  });
+
+  expect(mockDiscardRefused).toHaveBeenCalledWith([expect.objectContaining({ uri: 'file:///long.mov' })]);
+  expect(mockSubmitImports.mock.calls[0][0]).toHaveLength(2);
+  expect(mockAnimationProps).toHaveBeenLastCalledWith(expect.objectContaining({ visible: true, added: 1 }));
+  // The summary waits until the cover is gone.
+  expect(screen.queryByText(/nicht eingesendet/)).toBeNull();
+
+  await act(async () => {
+    mockFinishAnimation?.();
+  });
+
+  expect(
+    screen.getByText(
+      '2 von 3 Momenten wurden nicht eingesendet: 1 Video länger als 90 Sekunden, 1 beim Sichern gescheitert.'
+    )
+  ).toBeTruthy();
+});
+
+test('when every accepted element fails there is no animation, only the summary', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(loaded([trip()]));
+  mockPickFromLibrary.mockResolvedValue({
+    canceled: false,
+    media: [pickedPhoto('file:///a.jpg', Date.UTC(2026, 7, 5, 12))],
+  });
+  mockSubmitImports.mockResolvedValue({ submitted: 0, failed: 1 });
+  await render(<CaptureScreen />);
+  await screen.findByLabelText('Auslöser');
+
+  await act(async () => {
+    fireEvent.press(screen.getByLabelText('Momente aus Fotos einsenden'));
+  });
+
+  expect(mockAnimationProps).not.toHaveBeenCalledWith(expect.objectContaining({ visible: true }));
+  expect(screen.getByText('Der Moment wurde nicht eingesendet: beim Sichern gescheitert.')).toBeTruthy();
+  expect(screen.getByLabelText('Auslöser')).toBeTruthy();
+  expect(captureLock.isLocked()).toBe(false);
+});
+
+test('a failing picker says so in the pill', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(loaded([trip()]));
+  mockPickFromLibrary.mockRejectedValue(new Error('picker broke'));
+  await render(<CaptureScreen />);
+  await screen.findByLabelText('Auslöser');
+
+  await act(async () => {
+    fireEvent.press(screen.getByLabelText('Momente aus Fotos einsenden'));
+  });
+
+  expect(screen.getByText('Deine Fotos liessen sich nicht öffnen. Probier es nochmal.')).toBeTruthy();
+  expect(mockSubmitImports).not.toHaveBeenCalled();
+});
+
+test('without a session the picked elements are released and the pill says so', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(loaded([trip()]));
+  mockPickFromLibrary.mockResolvedValue({
+    canceled: false,
+    media: [pickedPhoto('file:///a.jpg', Date.UTC(2026, 7, 5, 12))],
+  });
+  await render(<CaptureScreen />);
+  await screen.findByLabelText('Auslöser');
+  // The session goes away AFTER the viewfinder stands (a screen without a
+  // session would not load its trips); the refocus re-renders the screen so
+  // the handler closes over the missing user id.
+  mockAuth.userId = null;
+  await refocusScreen();
+  await screen.findByLabelText('Auslöser');
+
+  await act(async () => {
+    fireEvent.press(screen.getByLabelText('Momente aus Fotos einsenden'));
+  });
+
+  expect(mockDiscardRefused).toHaveBeenCalledWith([expect.objectContaining({ uri: 'file:///a.jpg' })]);
+  expect(mockSubmitImports).not.toHaveBeenCalled();
+  expect(screen.getByText('Du bist nicht angemeldet. Melde dich an und probier es nochmal.')).toBeTruthy();
 });

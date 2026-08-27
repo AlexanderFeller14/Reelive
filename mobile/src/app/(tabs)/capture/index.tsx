@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import {
+  ActivityIndicator,
   Animated,
   Dimensions,
   useWindowDimensions,
@@ -23,8 +24,9 @@ import {
 } from 'expo-camera';
 import { createVideoPlayer, type VideoPlayer } from 'expo-video';
 import { getThumbnailAsync } from 'expo-video-thumbnails';
-import { ChevronDown, SwitchCamera, Vibrate, VibrateOff, Zap, ZapOff } from 'lucide-react-native';
+import { ChevronDown, Images, SwitchCamera, Vibrate, VibrateOff, Zap, ZapOff } from 'lucide-react-native';
 import { ShutterButton } from '@/components/ShutterButton';
+import { MomentSubmissionAnimation } from '@/components/MomentSubmissionAnimation';
 import { Button } from '@/components/Button';
 import { Pill } from '@/components/Pill';
 import { PressScale } from '@/components/PressScale';
@@ -49,6 +51,19 @@ import { fetchTrips } from '@/features/trips/tripsApi';
 import * as tripsCache from '@/features/trips/tripsCache';
 import type { CachedTrip } from '@/features/trips/tripsCache';
 import { ownMomentCount } from '@/features/moments/counter';
+import {
+  assess,
+  refusalSummary,
+  type AcceptedMedia,
+  type PickedMedia,
+  type RefusalReason,
+} from '@/features/moments/libraryImport';
+import { pickFromLibrary } from '@/features/moments/libraryPicker';
+import {
+  discardRefused,
+  submitImports,
+  type ImportOutcome,
+} from '@/features/moments/libraryImportSubmit';
 import { useAuth } from '@/features/auth/AuthProvider';
 import * as handoff from '@/features/camera/handoff';
 import * as captureLock from '@/features/camera/captureLock';
@@ -128,6 +143,13 @@ const ERROR_TEXT = 'Das Video hat nicht geklappt. Versuch es nochmal.';
 // on device with full storage or a revoked permission), you stay in the
 // viewfinder and the pill says so (DESIGN-LANGUAGE §6).
 const PHOTO_ERROR_TEXT = 'Das Foto hat nicht geklappt. Versuch es nochmal.';
+
+// The library picker itself failed (not a refusal by our rules): iOS could
+// not present it, or the copy of a selected asset broke off.
+const IMPORT_PICKER_ERROR_TEXT = 'Deine Fotos liessen sich nicht öffnen. Probier es nochmal.';
+// Same wording as the preview's WITHOUT_SESSION_MESSAGE: the job carries
+// the author id, and without a session there is none to carry.
+const IMPORT_WITHOUT_SESSION_TEXT = 'Du bist nicht angemeldet. Melde dich an und probier es nochmal.';
 
 // How often the start of a video capture is retried, and how long is waited in
 // between.
@@ -534,6 +556,20 @@ export default function CaptureScreen() {
   // The text of the message, or null: since the instant photo there are two
   // sources (photo and video), and the pill shows whatever went wrong last.
   const [captureError, setCaptureError] = useState<string | null>(null);
+  // The running library import, or null: how many of the accepted elements
+  // have been enqueued so far. While it runs, shutter and header are removed
+  // (like during a capture) and the progress pill stands in for them.
+  const [importing, setImporting] = useState<{ done: number; total: number } | null>(null);
+  // A finished import waiting for its success animation: the batch size and
+  // the counter value from before the batch, which the animation rolls up
+  // from. Back to null once the animation has played.
+  const [importDone, setImportDone] = useState<{
+    added: number;
+    counterBefore: number | null;
+  } | null>(null);
+  // The refusal summary of the last import, held back until the success
+  // animation has played so the two do not stack on top of each other.
+  const heldSummary = useRef<string | null>(null);
   // The DISPLAYED factor (0.5 / 1 / 4 ...), not the device's. Between the two
   // lies the base, see zoom.ts.
   const [factor, setFactor] = useState(1);
@@ -1152,6 +1188,95 @@ export default function CaptureScreen() {
     router.push({ pathname: '/preview', params } as unknown as Href);
   };
 
+  // The library import (spec 2026-08-27): pick, assess against the trip
+  // period and the video limit, submit the accepted ones one after the
+  // other, then celebrate and explain. `trip` is a const narrowed above, so
+  // the closure keeps it non-null across the awaits.
+  const importFromLibrary = async () => {
+    if (importing || capturing) return;
+    setCaptureError(null);
+    let picked: Awaited<ReturnType<typeof pickFromLibrary>>;
+    try {
+      picked = await pickFromLibrary();
+    } catch (error) {
+      console.error('[capture] library picker failed', error);
+      if (active.current) setCaptureError(IMPORT_PICKER_ERROR_TEXT);
+      return;
+    }
+    if (picked.canceled || picked.media.length === 0 || !active.current) return;
+    if (!userId) {
+      discardRefused(picked.media);
+      setCaptureError(IMPORT_WITHOUT_SESSION_TEXT);
+      return;
+    }
+
+    const deviceTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const assessed = picked.media.map((item) => assess(item, trip, MAX_VIDEO_SECONDS, deviceTz));
+    const accepted = assessed.filter((item): item is AcceptedMedia => item.accepted);
+    const reasons: RefusalReason[] = [];
+    const refused: PickedMedia[] = [];
+    for (const item of assessed) {
+      if (!item.accepted) {
+        reasons.push(item.reason);
+        refused.push(item.media);
+      }
+    }
+    // Refused copies leave tmp right away; the accepted ones are released by
+    // submitImports once they are safely in the queue.
+    discardRefused(refused);
+    const total = picked.media.length;
+    if (accepted.length === 0) {
+      setCaptureError(refusalSummary(reasons, total, trip, MAX_VIDEO_SECONDS));
+      return;
+    }
+
+    // No tab switch in the middle of the batch (captureLock.ts), for the
+    // same reason as during a capture: the focus cleanup must not interrupt
+    // it.
+    captureLock.lock(true);
+    const counterBefore = counter;
+    setImporting({ done: 0, total: accepted.length });
+    let outcome: ImportOutcome;
+    try {
+      outcome = await submitImports(
+        accepted,
+        { tripId: trip.id, authorId: userId },
+        (done, count) => {
+          if (active.current) setImporting({ done, total: count });
+        }
+      );
+    } catch (error) {
+      // submitImports catches per element; this is the queue itself failing
+      // to initialize. Every accepted element then counts as failed.
+      console.error('[capture] library import failed', error);
+      outcome = { submitted: 0, failed: accepted.length };
+    } finally {
+      captureLock.lock(false);
+    }
+    if (!active.current) return;
+    setImporting(null);
+    for (let i = 0; i < outcome.failed; i += 1) reasons.push('failed');
+    const summary = refusalSummary(reasons, total, trip, MAX_VIDEO_SECONDS);
+    if (outcome.submitted === 0) {
+      setCaptureError(summary);
+      return;
+    }
+    heldSummary.current = summary;
+    setImportDone({ added: outcome.submitted, counterBefore });
+  };
+
+  // The success animation has played: the counter effect above re-runs on
+  // the focus tick and picks up the fresh queue jobs, and a held summary of
+  // the refusals gets its turn in the pill.
+  const finishImport = () => {
+    setImportDone(null);
+    setFocusState((n) => n + 1);
+    if (heldSummary.current) {
+      setCaptureError(heldSummary.current);
+      heldSummary.current = null;
+    }
+  };
+
   // During a HELD capture the finger lies on the shutter. React Native knows
   // exactly one responder: a second finger on the row would take the touch
   // away from the press, the release would arrive, and the capture would end
@@ -1756,7 +1881,7 @@ export default function CaptureScreen() {
           of recordAsync can abort the running recording. Removed rather than
           just hidden, so that VoiceOver offers nothing that cannot be operated
           right now. */}
-      {!capturing && (
+      {!capturing && !importing && (
         <View testID="viewfinder-header" style={[styles.headerRow, { top: viewfinderTopInset }]}>
           {/* The trip switcher (product concept): the trip name IS the button,
               no extra control on the image. The chevron makes that visible
@@ -1796,6 +1921,9 @@ export default function CaptureScreen() {
                 <ZapOff size={22} color={cinema['text-2']} strokeWidth={1.75} />
             )}
           </PillButton>
+            <PillButton label="Momente aus Fotos einsenden" onPress={() => void importFromLibrary()}>
+              <Images size={22} color={cinema['text-1']} strokeWidth={1.75} />
+            </PillButton>
             {multiCam && (
               <PillButton
                 label={
@@ -1822,6 +1950,17 @@ export default function CaptureScreen() {
           <Text style={[type.secondary, styles.errorText]}>{captureError}</Text>
         </Pill>
       )}
+      {importing && (
+        <Pill
+          testID="import-progress"
+          style={[styles.errorPill, styles.importPill, { bottom: errorBottom(zoomVisible) + barHeight }]}
+        >
+          <ActivityIndicator color={cinema['text-1']} />
+          <Text style={[type.secondary, styles.errorText]}>
+            {`${importing.done} von ${importing.total} Momenten eingesendet`}
+          </Text>
+        </Pill>
+      )}
       {zoomVisible && zoom && (
         <View
           style={[
@@ -1836,19 +1975,27 @@ export default function CaptureScreen() {
           />
         </View>
       )}
-      <View
-        testID="shutter-stage"
-        style={[styles.shutterWrap, { bottom: SHUTTER_BOTTOM + barHeight }]}
-      >
-        <ShutterButton
-          onPhoto={() => void handlePhoto()}
-          onVideoStart={handleVideoStart}
-          onVideoStop={() => void handleVideoStop()}
-          onZoomDrag={zoomDrag}
-          maxSeconds={MAX_VIDEO_SECONDS}
-          onLockChange={setCaptureLocked}
-        />
-      </View>
+      {!importing && (
+        <View
+          testID="shutter-stage"
+          style={[styles.shutterWrap, { bottom: SHUTTER_BOTTOM + barHeight }]}
+        >
+          <ShutterButton
+            onPhoto={() => void handlePhoto()}
+            onVideoStart={handleVideoStart}
+            onVideoStop={() => void handleVideoStop()}
+            onZoomDrag={zoomDrag}
+            maxSeconds={MAX_VIDEO_SECONDS}
+            onLockChange={setCaptureLocked}
+          />
+        </View>
+      )}
+      <MomentSubmissionAnimation
+        visible={importDone !== null}
+        onFinished={finishImport}
+        counter={importDone?.counterBefore ?? null}
+        added={importDone?.added ?? 1}
+      />
     </View>
   );
 }
@@ -1970,6 +2117,9 @@ const styles = StyleSheet.create({
   // Centered, because a single short sentence in a pill is not the wall of
   // text §7 is about but a label.
   errorText: { color: cinema['text-1'], textAlign: 'center' },
+  // The progress pill during a library import: spinner and text side by
+  // side in the error pill's frame.
+  importPill: { flexDirection: 'row', justifyContent: 'center', gap: spacing.s },
   // The focus ring: a fine light line on the camera image, radius 999 (§4).
   // `left`/`top` are deliberately missing, they come from the tap point.
   focusRing: {
