@@ -3260,3 +3260,140 @@ test('without a session the picked elements are released and the pill says so', 
   expect(mockSubmitImports).not.toHaveBeenCalled();
   expect(screen.getByText('Du bist nicht angemeldet. Melde dich an und probier es nochmal.')).toBeTruthy();
 });
+
+test('a second press while the picker is still open starts no second import', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(loaded([trip()]));
+  let resolvePicker: (result: { canceled: true } | { canceled: false; media: unknown[] }) => void =
+    () => {};
+  mockPickFromLibrary.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        resolvePicker = resolve;
+      })
+  );
+  await render(<CaptureScreen />);
+  await screen.findByLabelText('Auslöser');
+
+  // The picker itself is still a pending native round trip (requestReadAccess
+  // awaits a permission check before launchImageLibraryAsync even presents):
+  // the header, and with it the button, is still on screen and tappable.
+  await act(async () => {
+    fireEvent.press(screen.getByLabelText('Momente aus Fotos einsenden'));
+  });
+  await act(async () => {
+    fireEvent.press(screen.getByLabelText('Momente aus Fotos einsenden'));
+  });
+
+  await act(async () => {
+    resolvePicker({ canceled: true });
+  });
+
+  expect(mockPickFromLibrary).toHaveBeenCalledTimes(1);
+
+  // Same guarantee once a batch is actually running: a fresh pending picker,
+  // resolved with one accepted photo, and a hand-resolved submitImports so
+  // the batch stays open long enough to check.
+  mockPickFromLibrary.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        resolvePicker = resolve;
+      })
+  );
+  let resolveSubmit: (outcome: { submitted: number; failed: number }) => void = () => {};
+  mockSubmitImports.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        resolveSubmit = resolve;
+      })
+  );
+
+  await act(async () => {
+    fireEvent.press(screen.getByLabelText('Momente aus Fotos einsenden'));
+  });
+  await act(async () => {
+    resolvePicker({
+      canceled: false,
+      media: [pickedPhoto('file:///a.jpg', Date.UTC(2026, 7, 5, 12))],
+    });
+  });
+
+  // During the batch the header (and with it the button) is removed, not
+  // just hidden: there is nothing left to press a second time.
+  expect(screen.queryByLabelText('Momente aus Fotos einsenden')).toBeNull();
+  expect(mockSubmitImports).toHaveBeenCalledTimes(1);
+
+  await act(async () => {
+    resolveSubmit({ submitted: 1, failed: 0 });
+  });
+});
+
+test('a blur during the batch clears the import state so the viewfinder comes back', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(loaded([trip()]));
+  mockPickFromLibrary.mockResolvedValue({
+    canceled: false,
+    media: [pickedPhoto('file:///a.jpg', Date.UTC(2026, 7, 5, 12))],
+  });
+  let resolveSubmit: (outcome: { submitted: number; failed: number }) => void = () => {};
+  mockSubmitImports.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        resolveSubmit = resolve;
+      })
+  );
+  await render(<CaptureScreen />);
+  await screen.findByLabelText('Auslöser');
+
+  await act(async () => {
+    fireEvent.press(screen.getByLabelText('Momente aus Fotos einsenden'));
+  });
+  expect(screen.getByTestId('import-progress')).toBeTruthy();
+
+  // A deep link or a router push away from the tab, not a tab switch: the
+  // capture lock only blocks tab taps and swipes. The blur cleanup that
+  // already exists for the capture flow (index.tsx, the effect around
+  // active.current = false) catches this the same way it does for a running
+  // capture.
+  await blurScreen();
+
+  await act(async () => {
+    resolveSubmit({ submitted: 1, failed: 0 });
+  });
+
+  await refocusScreen();
+  await screen.findByLabelText('Auslöser');
+
+  expect(screen.queryByTestId('import-progress')).toBeNull();
+  expect(screen.getByLabelText('Auslöser')).toBeTruthy();
+  // No animation for a batch nobody is there to watch: active.current was
+  // already false when the outcome came back.
+  expect(mockAnimationProps).not.toHaveBeenCalledWith(expect.objectContaining({ visible: true }));
+});
+
+test('a blur while the picker is open releases the picked copies', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(loaded([trip()]));
+  let resolvePicker: (result: { canceled: false; media: unknown[] }) => void = () => {};
+  mockPickFromLibrary.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        resolvePicker = resolve;
+      })
+  );
+  await render(<CaptureScreen />);
+  await screen.findByLabelText('Auslöser');
+
+  await act(async () => {
+    fireEvent.press(screen.getByLabelText('Momente aus Fotos einsenden'));
+  });
+
+  await blurScreen();
+
+  await act(async () => {
+    resolvePicker({
+      canceled: false,
+      media: [pickedPhoto('file:///a.jpg', Date.UTC(2026, 7, 5, 12))],
+    });
+  });
+
+  expect(mockDiscardRefused).toHaveBeenCalledWith([expect.objectContaining({ uri: 'file:///a.jpg' })]);
+  expect(mockSubmitImports).not.toHaveBeenCalled();
+});

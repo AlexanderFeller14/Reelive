@@ -570,6 +570,13 @@ export default function CaptureScreen() {
   // The refusal summary of the last import, held back until the success
   // animation has played so the two do not stack on top of each other.
   const heldSummary = useRef<string | null>(null);
+  // Re-entry guard for importFromLibrary (same pattern as photoRunning
+  // above): `importing` stays null for the whole picker round trip
+  // (requestReadAccess awaits a permission check before the picker even
+  // presents), so the button is still tappable then. A ref, because the
+  // value has to be read synchronously within the same tick, before any
+  // state update from the first press has landed.
+  const importRunning = useRef(false);
   // The DISPLAYED factor (0.5 / 1 / 4 ...), not the device's. Between the two
   // lies the base, see zoom.ts.
   const [factor, setFactor] = useState(1);
@@ -1194,75 +1201,96 @@ export default function CaptureScreen() {
   // the closure keeps it non-null across the awaits.
   const importFromLibrary = async () => {
     if (importing || capturing) return;
-    setCaptureError(null);
-    let picked: Awaited<ReturnType<typeof pickFromLibrary>>;
+    // Re-entry guard (same pattern as photoRunning above): pickFromLibrary
+    // awaits a permission check (requestReadAccess in libraryPicker.ts)
+    // before it even presents, so the screen stays fully interactive for
+    // that whole native round trip; `importing` alone does not cover it.
+    if (importRunning.current) return;
+    importRunning.current = true;
     try {
-      picked = await pickFromLibrary();
-    } catch (error) {
-      console.error('[capture] library picker failed', error);
-      if (active.current) setCaptureError(IMPORT_PICKER_ERROR_TEXT);
-      return;
-    }
-    if (picked.canceled || picked.media.length === 0 || !active.current) return;
-    if (!userId) {
-      discardRefused(picked.media);
-      setCaptureError(IMPORT_WITHOUT_SESSION_TEXT);
-      return;
-    }
-
-    const deviceTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    const assessed = picked.media.map((item) => assess(item, trip, MAX_VIDEO_SECONDS, deviceTz));
-    const accepted = assessed.filter((item): item is AcceptedMedia => item.accepted);
-    const reasons: RefusalReason[] = [];
-    const refused: PickedMedia[] = [];
-    for (const item of assessed) {
-      if (!item.accepted) {
-        reasons.push(item.reason);
-        refused.push(item.media);
+      setCaptureError(null);
+      let picked: Awaited<ReturnType<typeof pickFromLibrary>>;
+      try {
+        picked = await pickFromLibrary();
+      } catch (error) {
+        console.error('[capture] library picker failed', error);
+        if (active.current) setCaptureError(IMPORT_PICKER_ERROR_TEXT);
+        return;
       }
-    }
-    // Refused copies leave tmp right away; the accepted ones are released by
-    // submitImports once they are safely in the queue.
-    discardRefused(refused);
-    const total = picked.media.length;
-    if (accepted.length === 0) {
-      setCaptureError(refusalSummary(reasons, total, trip, MAX_VIDEO_SECONDS));
-      return;
-    }
+      if (picked.canceled || picked.media.length === 0) return;
+      if (!active.current) {
+        // A blur while the picker was open (deep link, back navigation): the
+        // picked copies still sit in tmp and have to leave, same as any
+        // other refusal path.
+        discardRefused(picked.media);
+        return;
+      }
+      if (!userId) {
+        discardRefused(picked.media);
+        setCaptureError(IMPORT_WITHOUT_SESSION_TEXT);
+        return;
+      }
 
-    // No tab switch in the middle of the batch (captureLock.ts), for the
-    // same reason as during a capture: the focus cleanup must not interrupt
-    // it.
-    captureLock.lock(true);
-    const counterBefore = counter;
-    setImporting({ done: 0, total: accepted.length });
-    let outcome: ImportOutcome;
-    try {
-      outcome = await submitImports(
-        accepted,
-        { tripId: trip.id, authorId: userId },
-        (done, count) => {
-          if (active.current) setImporting({ done, total: count });
+      const deviceTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      const assessed = picked.media.map((item) => assess(item, trip, MAX_VIDEO_SECONDS, deviceTz));
+      const accepted = assessed.filter((item): item is AcceptedMedia => item.accepted);
+      const reasons: RefusalReason[] = [];
+      const refused: PickedMedia[] = [];
+      for (const item of assessed) {
+        if (!item.accepted) {
+          reasons.push(item.reason);
+          refused.push(item.media);
         }
-      );
-    } catch (error) {
-      // submitImports catches per element; this is the queue itself failing
-      // to initialize. Every accepted element then counts as failed.
-      console.error('[capture] library import failed', error);
-      outcome = { submitted: 0, failed: accepted.length };
+      }
+      // Refused copies leave tmp right away; the accepted ones are released by
+      // submitImports once they are safely in the queue.
+      discardRefused(refused);
+      const total = picked.media.length;
+      if (accepted.length === 0) {
+        setCaptureError(refusalSummary(reasons, total, trip, MAX_VIDEO_SECONDS));
+        return;
+      }
+
+      // No tab switch in the middle of the batch (captureLock.ts), for the
+      // same reason as during a capture: the focus cleanup must not interrupt
+      // it.
+      captureLock.lock(true);
+      const counterBefore = counter;
+      setImporting({ done: 0, total: accepted.length });
+      let outcome: ImportOutcome;
+      try {
+        outcome = await submitImports(
+          accepted,
+          { tripId: trip.id, authorId: userId },
+          (done, count) => {
+            if (active.current) setImporting({ done, total: count });
+          }
+        );
+      } catch (error) {
+        // submitImports catches per element; this is the queue itself failing
+        // to initialize. Every accepted element then counts as failed.
+        console.error('[capture] library import failed', error);
+        outcome = { submitted: 0, failed: accepted.length };
+      } finally {
+        captureLock.lock(false);
+      }
+      // Cleared unconditionally: a blur during the batch (deep link, router
+      // push) sets active.current false but never re-enters this handler,
+      // and `importing` is the only thing keeping shutter and header gone.
+      // Left set, the viewfinder would stay dead for the rest of the session.
+      setImporting(null);
+      if (!active.current) return;
+      for (let i = 0; i < outcome.failed; i += 1) reasons.push('failed');
+      const summary = refusalSummary(reasons, total, trip, MAX_VIDEO_SECONDS);
+      if (outcome.submitted === 0) {
+        setCaptureError(summary);
+        return;
+      }
+      heldSummary.current = summary;
+      setImportDone({ added: outcome.submitted, counterBefore });
     } finally {
-      captureLock.lock(false);
+      importRunning.current = false;
     }
-    if (!active.current) return;
-    setImporting(null);
-    for (let i = 0; i < outcome.failed; i += 1) reasons.push('failed');
-    const summary = refusalSummary(reasons, total, trip, MAX_VIDEO_SECONDS);
-    if (outcome.submitted === 0) {
-      setCaptureError(summary);
-      return;
-    }
-    heldSummary.current = summary;
-    setImportDone({ added: outcome.submitted, counterBefore });
   };
 
   // The success animation has played: the counter effect above re-runs on
