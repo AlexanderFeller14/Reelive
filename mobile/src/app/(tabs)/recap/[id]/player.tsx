@@ -1375,6 +1375,15 @@ export default function RecapPlayer() {
         applyMove(result);
         return;
       }
+      // Going back FROM a day's first moment reaches that day's card again:
+      // the card is a station of the sequence, the same one it held on the
+      // way forward, so one step back must not overshoot into the previous
+      // day. Only the card's own left half then steps further back. The
+      // moment restarts fresh under the returning card.
+      if (dayChanges(playlist, startDate, state.index)) {
+        setState((s) => ({ ...s, progress: 0, paused: withReason(s.paused, 'zwischenkarte') }));
+        return;
+      }
       void checkAndRefreshPoolInBackground();
       applyMove(goBack(state));
       return;

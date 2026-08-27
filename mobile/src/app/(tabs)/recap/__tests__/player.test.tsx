@@ -436,13 +436,16 @@ describe('state machine across the screen', () => {
     expect(screen.getByTestId('player-photo').props.source).toEqual({ uri: image('p3').medium_url });
   });
 
-  test('a tap on the left half at the first moment stays at the first moment', async () => {
+  test('a tap on the left half at the first moment returns to the day card, not past it', async () => {
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
     (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
     await fireEvent.press(screen.getByTestId('player-interstitial-right')); // day 1 interstitial gone
     await fireEvent(screen.getByTestId('player-left'), 'pressIn');
     await fireEvent(screen.getByTestId('player-left'), 'pressOut');
+    // The first moment stays mounted, its day card stands over it again.
+    expect(screen.getByTestId('player-interstitial')).toBeTruthy();
+    expect(screen.getByText('Tag 1')).toBeTruthy();
     expect(screen.getByTestId('player-photo').props.source).toEqual({ uri: image('p1').medium_url });
   });
 
@@ -759,6 +762,38 @@ describe('day interstitial', () => {
       jest.advanceTimersByTime(600); // exit fade
     });
     expect(screen.queryByTestId('player-interstitial')).toBeNull();
+  });
+
+  test('going back from the first moment of a day reaches its card, the card then steps into the previous day', async () => {
+    mockParams = { id: 't1', start: '2' }; // p3, the last moment of day 1
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
+    await wrap();
+    // Forward across the day change, commit, and into day 2.
+    await fireEvent(screen.getByTestId('player-right'), 'pressIn');
+    await fireEvent(screen.getByTestId('player-right'), 'pressOut');
+    await act(async () => {
+      jest.advanceTimersByTime(300); // DAY_CARD_COVER_MS
+    });
+    await fireEvent.press(screen.getByTestId('player-interstitial-right'));
+    await act(async () => {
+      jest.advanceTimersByTime(600); // exit fade
+    });
+    expect(screen.queryByTestId('player-interstitial')).toBeNull();
+    expect(screen.getByTestId('player-photo').props.source).toEqual({ uri: image('p4').medium_url });
+    // One step back from p4: the day 2 card again, p4 still mounted under it.
+    await fireEvent(screen.getByTestId('player-left'), 'pressIn');
+    await fireEvent(screen.getByTestId('player-left'), 'pressOut');
+    expect(screen.getByTestId('player-interstitial')).toBeTruthy();
+    expect(screen.getByText('Tag 2')).toBeTruthy();
+    expect(screen.getByTestId('player-photo').props.source).toEqual({ uri: image('p4').medium_url });
+    // The card's left half then really steps back, into day 1's last moment.
+    await fireEvent.press(screen.getByTestId('player-interstitial-left'));
+    await act(async () => {
+      jest.advanceTimersByTime(600); // exit fade
+    });
+    expect(screen.queryByTestId('player-interstitial')).toBeNull();
+    expect(screen.getByTestId('player-photo').props.source).toEqual({ uri: image('p3').medium_url });
   });
 
   // The card used to run a 1.5 s clock whose orphaned timer once unpaused an
