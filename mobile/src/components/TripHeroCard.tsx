@@ -15,7 +15,7 @@ import type { Trip } from '@/features/trips/types';
 // sealed moments as a small stack of face-down cards in its lower corner,
 // and below it name, date range and the people row with the moment
 // counter. The wax seal image left the list with this card; its stage
-// stays the recap overview (SealPeel) and the trip detail.
+// stays the recap (SealPeel on the overview, the sealed recap-tab card).
 //
 // The recap tab keeps TripCard: its cards promise a show, this one
 // promises the trip itself. Both wear the same raised white badge

@@ -649,9 +649,13 @@ test('before the end date «Freunde einladen» carries the accent while finishin
   // Finishing early is the exception, it lies in the management and stays a
   // secondary surface there.
   await openManagement();
-  const finish = StyleSheet.flatten(screen.getByText('Reise abschliessen').parent?.props.style);
-  expect(finish.borderWidth).toBe(1);
-  expect(finish.backgroundColor).toBe(palette['bg-0']);
+  // Two now: the page's own white button and the management's entry. Both
+  // wear the outline dress, neither touches the accent.
+  for (const label of screen.getAllByText('Reise abschliessen')) {
+    const finish = StyleSheet.flatten(label.parent?.props.style);
+    expect(finish.borderWidth).toBe(1);
+    expect(finish.backgroundColor).toBe(palette['bg-0']);
+  }
 });
 
 test('from the end date on «Reise abschliessen» takes the accent and inviting steps into the management', async () => {
@@ -1032,11 +1036,11 @@ test('the management pill hangs in the top corner, independent of the cover over
     (await screen.findByTestId('manage-open')).props.style
   ) as { position?: string; top?: number; right?: number };
   expect(anchor.position).toBe('absolute');
-  // xs on top of the overlay's 12 px inset makes 16: the round relief
-  // badge has to clear the cover's 24 px corner curve instead of hanging
-  // in it (user feedback 2026-08-27).
-  expect(anchor.top).toBe(spacing.xs);
-  expect(anchor.right).toBe(spacing.xs);
+  // m on top of the overlay's 12 px inset makes 24, the same air the
+  // sealed badge got: both corners stand clear of the cover's 24 px curve
+  // instead of hugging it (user feedback 2026-08-27, second round).
+  expect(anchor.top).toBe(spacing.m);
+  expect(anchor.right).toBe(spacing.m);
 });
 
 test('the owner of a finished trip invites from the management', async () => {
@@ -1046,17 +1050,21 @@ test('the owner of a finished trip invites from the management', async () => {
   expect(mockPush).toHaveBeenCalledWith('/trip/t1/invite');
 });
 
-test('while the trip is still running, inviting stays on the screen and finishing steps into the management', async () => {
+test('while the trip is still running, the screen pairs inviting with finishing in white', async () => {
   (fetchTrip as jest.Mock).mockResolvedValue(tripBeforeEndOk);
   await wrap();
   await screen.findByText('Norwegen mit dem Camper');
 
   const invite = StyleSheet.flatten(screen.getByText('Freunde einladen').parent?.props.style);
   expect(invite.backgroundColor).toBe(palette.accent);
-  expect(screen.queryByText('Reise abschliessen')).toBeNull();
+  // Right under the invite, on the page itself: the white secondary dress,
+  // the accent stays with the one primary (user feedback 2026-08-27).
+  const finish = StyleSheet.flatten(screen.getByText('Reise abschliessen').parent?.props.style);
+  expect(finish.backgroundColor).toBe(palette['bg-0']);
 
   await openManagement();
-  expect(screen.getByText('Reise abschliessen')).toBeTruthy();
+  // The management keeps its own entry, the same doubling inviting has.
+  expect(screen.getAllByText('Reise abschliessen')).toHaveLength(2);
 });
 
 test('a member finds leaving in the management, and nothing else', async () => {
@@ -1358,7 +1366,12 @@ describe('status bar cover', () => {
   let insetSpy: jest.SpyInstance | undefined;
 
   afterEach(() => {
-    insetSpy?.mockRestore();
+    // NOT mockRestore(): the global mock's useSafeAreaInsets is already a
+    // jest.fn, so there is no unmocked original to go back to and restore
+    // silently degrades to a reset, leaving undefined for every test that
+    // renders afterwards (full story at player.test.tsx's inset spy).
+    // Re-asserting the all-zero default keeps it alive instead.
+    insetSpy?.mockReturnValue({ top: 0, bottom: 0, left: 0, right: 0 });
     insetSpy = undefined;
   });
 
@@ -1370,5 +1383,29 @@ describe('status bar cover', () => {
     await wrap();
     await screen.findByText('Norwegen mit dem Camper');
     expect(screen.getByTestId('status-bar-cover')).toBeTruthy();
+  });
+});
+
+// The wax seal image left the trip detail (Alex, 27.08.): while the trip
+// runs, the cover's top-left corner now carries the raised white badge
+// saying the same thing in the light UI's badge language (§4).
+describe('the sealed badge on the cover', () => {
+  test('a running trip wears the sealed badge instead of the wax seal', async () => {
+    await wrap();
+    await screen.findByText('Norwegen mit dem Camper');
+    const badge = within(screen.getByTestId('sealed-badge'));
+    expect(badge.getByText('Versiegelt')).toBeTruthy();
+    // The badge leads with the wax seal itself in miniature, not a dot.
+    expect(badge.getByTestId('sealed-badge-seal')).toBeTruthy();
+    // The big corner wax stays gone.
+    expect(screen.queryByTestId('wax-seal')).toBeNull();
+  });
+
+  test('a revealed trip wears neither badge nor wax', async () => {
+    (fetchTrip as jest.Mock).mockResolvedValue(tripRevealedOk);
+    await wrap();
+    await screen.findByText('Norwegen mit dem Camper');
+    expect(screen.queryByText('Versiegelt')).toBeNull();
+    expect(screen.queryByTestId('wax-seal')).toBeNull();
   });
 });

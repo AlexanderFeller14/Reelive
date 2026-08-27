@@ -488,7 +488,24 @@ export default function TripDetail() {
       style={{ backgroundColor: colors['bg-0'] }}
       contentContainerStyle={[styles.content, { paddingTop: topInset }]}
     >
-      <TripCover position={coverPosition} sealed={isActive}>
+      <TripCover position={coverPosition}>
+        {/* The wax seal image left this corner for the recap overview's
+            peel: while the trip runs, the raised white badge says the same
+            thing in the badge language of the light UI on covers (§4). */}
+        {isActive && (
+          <View style={styles.sealedAnchor}>
+            <ReliefBadge testID="sealed-badge" contentStyle={styles.sealedBadgeBox}>
+              <Image
+                testID="sealed-badge-seal"
+                source={require('@/assets/images/rotes-brief-wachssiegel-transparent.png')}
+                style={styles.sealedBadgeSeal}
+                contentFit="contain"
+                accessible={false}
+              />
+              <Text style={[type.bodyMedium, { color: colors['text-1'] }]}>Versiegelt</Text>
+            </ReliefBadge>
+          </View>
+        )}
         {/* Everything that manages the trip lives behind this one pill, so
             the screen below can end on a single call to action instead of
             a stack of four buttons. It wears the raised white ReliefBadge,
@@ -501,7 +518,7 @@ export default function TripDetail() {
           onPress={() => setManageVisible(true)}
         >
           <ReliefBadge contentStyle={styles.managePill}>
-            <Ellipsis size={24} color={colors['text-1']} strokeWidth={1.75} />
+            <Ellipsis size={20} color={colors['text-1']} strokeWidth={1.75} />
           </ReliefBadge>
         </PressScale>
       </TripCover>
@@ -606,15 +623,15 @@ export default function TripDetail() {
         </PressScale>
       )}
 
-      {/* Exactly ONE button closes the screen, the one thing that is due
-          right now. Everything else went into the management behind the
-          pill on the cover. Which one is due follows the trip's state, and
-          they exclude each other: a revealed trip is no longer active, and
-          before the closing day there is nothing to finish yet.
-          `membersVisible`/`confirmVisible` let it step back while a panel
-          with an accent surface of its own stands over it (§4: at most one
-          per screen). The management needs no such exception, it carries no
-          accent surface. */}
+      {/* ONE primary closes the screen, the one thing that is due right
+          now; a running trip pairs it with finishing in the white secondary
+          dress underneath (the same doubling the management sheet keeps).
+          Which primary is due follows the trip's state, and the states
+          exclude each other: a revealed trip is no longer active.
+          `membersVisible`/`confirmVisible` let the primary step back while
+          a panel with an accent surface of its own stands over it (§4: at
+          most one per screen). The management needs no such exception, it
+          carries no accent surface. */}
       {revealReady ? (
         <Button
           variant={confirmVisible ? 'secondary' : 'primary'}
@@ -633,11 +650,14 @@ export default function TripDetail() {
           />
         </View>
       ) : isOwner && isActive ? (
-        <Button
-          variant={confirmVisible || membersVisible ? 'secondary' : 'primary'}
-          label="Freunde einladen"
-          onPress={invite}
-        />
+        <View style={{ gap: spacing.m }}>
+          <Button
+            variant={confirmVisible || membersVisible ? 'secondary' : 'primary'}
+            label="Freunde einladen"
+            onPress={invite}
+          />
+          <Button variant="secondary" label="Reise abschliessen" onPress={openFinishSheet} />
+        </View>
       ) : null}
     </ScrollView>
     {/* Before the sheets and the reveal overlay: their backdrop must keep
@@ -760,17 +780,30 @@ const styles = StyleSheet.create({
   // Positioned absolutely instead of riding the overlay's flow: TripCover
   // is shared with the recap card, whose play pill sits at the BOTTOM edge,
   // so the overlay pushes its children down (justifyContent: 'flex-end'
-  // there). This pill belongs into the corner opposite the seal and has to
+  // there). This pill belongs into the corner opposite the sealed badge and has to
   // stay there no matter how that flow is set. Yoga positions an absolute
-  // child against the parent's padding box; the extra xs on top of the
-  // overlay's 12 px inset makes 16, so the round badge clears the cover's
-  // 24 px corner curve instead of hanging in it.
-  manageAnchor: { position: 'absolute', top: spacing.xs, right: spacing.xs },
-  // Fixed round 44 box instead of the badge's text padding; look and
-  // relief stay ReliefBadge's business.
+  // child against the parent's padding box; the extra m on top of the
+  // overlay's 12 px inset makes 24, the same air the sealed badge keeps,
+  // so both corners stand clear of the cover's 24 px curve.
+  manageAnchor: { position: 'absolute', top: spacing.m, right: spacing.m },
+  // The badge holds the corner the wax seal used to hang over. More air
+  // than the manage pill's xs: with the overlay's 12 px this makes 24, so
+  // the badge stands clear of the corner curve instead of hugging it.
+  sealedAnchor: { position: 'absolute', top: spacing.m, left: spacing.m },
+  // Tighter than the badge's default text padding: this badge is quieter
+  // than the hero card's pair, the seal carries it, not the box.
+  sealedBadgeBox: { paddingHorizontal: spacing.s, paddingVertical: spacing.xs },
+  // The badge leads with the wax seal itself in miniature (the hero card's
+  // liveDot slot). 22 px lets the wax read as a seal while staying close to
+  // the text line's 24 px, so the compact box stays text-tall.
+  sealedBadgeSeal: { width: 22, height: 22 },
+  // Fixed round box instead of the badge's text padding; look and
+  // relief stay ReliefBadge's business. 32 matches the sealed badge's
+  // height exactly, so the two corners sit on one line, and stays on the
+  // avatar scale's small end (§4).
   managePill: {
-    width: 44,
-    height: 44,
+    width: 32,
+    height: 32,
     paddingHorizontal: 0,
     paddingVertical: 0,
     justifyContent: 'center',

@@ -101,10 +101,11 @@ Maximal 2–3 Komponentenarten pro Screen. Bestand:
   Zeitraum Sekundär, Personenzeile mit Momente-Zähler. Laufende Reisen tragen
   Relief-Badges («Aktiv», «Noch X Tage») und den Stapel verdeckter Momente auf dem
   Cover; geplante Reisen stehen im Zwei-Spalten-Raster. Das Wachssiegel-Bild gehört
-  dem Recap (Peel) und dem Reise-Detail, nicht der Liste.
+  dem Recap (Peel und Recap-Tab-Karte); Reiseliste und Reise-Detail tragen
+  stattdessen Relief-Badges (im Detail: «Versiegelt»).
 - **Relief-Badge (`ReliefBadge`):** DIE Badge-Sprache des hellen UI für Status und
   Einladungen auf Covern («Aktiv», «Noch 5 Tage», «Recap ansehen», das
-  Verwaltungs-Rondell im Reise-Detail). Fast weisse Fläche mit hauchzartem Verlauf,
+  Verwaltungs-Rondell und «Versiegelt» im Reise-Detail). Fast weisse Fläche mit hauchzartem Verlauf,
   weicher Weissring mit dunklem Saum, Doppelschatten (Kontakt + Abhebung). Rezept und
   Werte wohnen ausschliesslich in `ReliefBadge.tsx` und werden nie nachgebaut. NIE in
   den Medien-Screens und nicht für Mini-Badges unter ~32 px, dort gilt die
