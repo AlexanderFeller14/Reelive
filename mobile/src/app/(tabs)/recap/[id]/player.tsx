@@ -441,12 +441,27 @@ function DayCard({
   // must flip in the very render that flips `visible`, an effect would show
   // one stale frame first, which is exactly the pop this card is curing.
   const [stage, setStage] = useState<'shown' | 'leaving' | 'gone'>(visible ? 'shown' : 'gone');
+  // The leaving card keeps showing WHAT it showed: its props follow the
+  // player's index the moment an exit begins (going back commits the index
+  // change first), and rendering the fade from fresh props flashed the
+  // PREVIOUS day's data into the farewell of the announced one. Frozen as
+  // derived state during render (same pattern as `stage` below): while the
+  // card is visible the content follows the props, a leaving card keeps the
+  // last content it stood with.
+  const [content, setContent] = useState({ dayNumber, place, date, moments });
   const [opacity] = useState(() => new Animated.Value(0));
   const [staging] = useState(() => new Animated.Value(0));
   const [titleScale] = useState(() => new Animated.Value(TITLE_GROW_FROM));
 
   if (visible && stage !== 'shown') setStage('shown');
   if (!visible && stage === 'shown') setStage('leaving');
+  if (
+    visible
+    && (content.dayNumber !== dayNumber || content.place !== place
+      || content.date !== date || content.moments !== moments)
+  ) {
+    setContent({ dayNumber, place, date, moments });
+  }
 
   useEffect(() => {
     if (stage === 'shown') {
@@ -518,7 +533,7 @@ function DayCard({
       extrapolate: 'clamp' as const,
     }),
   });
-  const title = place ?? date;
+  const title = content.place ?? content.date;
   return (
     // Pointer events off as soon as the card is leaving: a tap during the
     // exit fade belongs to the story zones underneath, not to a card that is
@@ -545,7 +560,7 @@ function DayCard({
         <View style={styles.titleCardCentre}>
           <Animated.View style={[styles.titleRule, lineIn(0, 0.18)]} />
           <Animated.Text style={[type.bodyMedium, styles.titleChapter, lineIn(0.08, 0.3)]}>
-            {dayNumber !== null ? `Tag ${dayNumber}` : 'Ein neuer Tag'}
+            {content.dayNumber !== null ? `Tag ${content.dayNumber}` : 'Ein neuer Tag'}
           </Animated.Text>
           {title && (
             <Animated.View
@@ -564,21 +579,21 @@ function DayCard({
               </Text>
             </Animated.View>
           )}
-          {place && date && (
+          {content.place && content.date && (
             <Animated.Text style={[type.body, styles.titleDate, lineIn(0.34, 0.6)]}>
-              {date}
+              {content.date}
             </Animated.Text>
           )}
-          {moments.length > 0 && (
+          {content.moments.length > 0 && (
             <>
               <Animated.Text style={[type.body, styles.titleFacts, lineIn(0.34, 0.6)]}>
-                {dayFactsText(moments)}
+                {dayFactsText(content.moments)}
               </Animated.Text>
               <Animated.View
                 testID="player-interstitial-faces"
                 style={[styles.titleCast, lineIn(0.5, 0.8)]}
               >
-                <AvatarGroup faces={dayFaces(moments)} cinemaMode />
+                <AvatarGroup faces={dayFaces(content.moments)} cinemaMode />
               </Animated.View>
             </>
           )}

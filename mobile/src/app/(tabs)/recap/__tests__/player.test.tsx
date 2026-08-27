@@ -796,6 +796,47 @@ describe('day interstitial', () => {
     expect(screen.getByTestId('player-photo').props.source).toEqual({ uri: image('p3').medium_url });
   });
 
+  // Going back commits the index change first, so the fading card's props
+  // already belong to the PREVIOUS day; rendering the fade from them
+  // flashed day 1's data into the farewell of the day 2 card.
+  test('the leaving card keeps the announced day, never flashing the previous one (uncommitted)', async () => {
+    mockParams = { id: 't1', start: '2' }; // p3, the last moment of day 1
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
+    await wrap();
+    await fireEvent(screen.getByTestId('player-right'), 'pressIn');
+    await fireEvent(screen.getByTestId('player-right'), 'pressOut');
+    // Back BEFORE the cover timer: the announcement is abandoned, and the
+    // card fades out still reading day 2, not day 1.
+    await fireEvent.press(screen.getByTestId('player-interstitial-left'));
+    expect(screen.getByText('Tag 2')).toBeTruthy();
+    expect(screen.queryByText('Tag 1')).toBeNull();
+    await act(async () => {
+      jest.advanceTimersByTime(600); // exit fade
+    });
+    expect(screen.queryByTestId('player-interstitial')).toBeNull();
+  });
+
+  test('the leaving card keeps the announced day, never flashing the previous one (committed)', async () => {
+    mockParams = { id: 't1', start: '2' };
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
+    await wrap();
+    await fireEvent(screen.getByTestId('player-right'), 'pressIn');
+    await fireEvent(screen.getByTestId('player-right'), 'pressOut');
+    await act(async () => {
+      jest.advanceTimersByTime(300); // DAY_CARD_COVER_MS, the swap commits
+    });
+    // The real step back into day 1: the card still fades out as day 2.
+    await fireEvent.press(screen.getByTestId('player-interstitial-left'));
+    expect(screen.getByText('Tag 2')).toBeTruthy();
+    expect(screen.queryByText('Tag 1')).toBeNull();
+    await act(async () => {
+      jest.advanceTimersByTime(600); // exit fade
+    });
+    expect(screen.queryByTestId('player-interstitial')).toBeNull();
+  });
+
   // The card used to run a 1.5 s clock whose orphaned timer once unpaused an
   // open comment sheet, a whole class of bugs. The clock is gone: the card
   // waits for the person. This guard keeps anyone from quietly giving it a
