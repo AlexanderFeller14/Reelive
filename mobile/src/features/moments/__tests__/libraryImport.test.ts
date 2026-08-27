@@ -246,4 +246,25 @@ describe('refusalSummary', () => {
       'Keiner der 2 Momente wurde eingesendet: 1 Video länger als 90 Sekunden, 1 Videolänge unbekannt.'
     );
   });
+
+  test('the preview mode speaks in the present tense, before anything is submitted', () => {
+    expect(refusalSummary(['outside_period'], 1, PERIOD, MAX_SECONDS, 'preview')).toBe(
+      'Der Moment kommt nicht mit: ausserhalb des Reisezeitraums (1.–14. Aug 2026).'
+    );
+    expect(refusalSummary(['too_long'], 3, PERIOD, MAX_SECONDS, 'preview')).toBe(
+      '1 von 3 Momenten kommt nicht mit: Video länger als 90 Sekunden.'
+    );
+    expect(refusalSummary(['outside_period', 'outside_period'], 5, PERIOD, MAX_SECONDS, 'preview')).toBe(
+      '2 von 5 Momenten kommen nicht mit: ausserhalb des Reisezeitraums (1.–14. Aug 2026).'
+    );
+    expect(refusalSummary(['too_long', 'unknown_date'], 2, PERIOD, MAX_SECONDS, 'preview')).toBe(
+      'Keiner der 2 Momente kommt mit: 1 Video länger als 90 Sekunden, 1 Aufnahmedatum unbekannt. Mit Zugriff auf deine Fotos kommt das Aufnahmedatum meist mit.'
+    );
+  });
+
+  test('the default mode stays the past tense of the result', () => {
+    expect(refusalSummary(['outside_period'], 1, PERIOD, MAX_SECONDS)).toBe(
+      refusalSummary(['outside_period'], 1, PERIOD, MAX_SECONDS, 'result')
+    );
+  });
 });
