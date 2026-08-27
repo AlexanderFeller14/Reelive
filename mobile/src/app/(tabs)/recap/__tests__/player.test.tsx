@@ -796,6 +796,61 @@ describe('day interstitial', () => {
     expect(screen.getByTestId('player-photo').props.source).toEqual({ uri: image('p3').medium_url });
   });
 
+  // The loop that made fast back-tapping hang: stepping back ONTO a day's
+  // first moment (from its second) announced the card, whose left half
+  // abandoned the announcement back onto the second moment, forever.
+  test('going back within a day onto its first moment shows no card, the card comes only after it', async () => {
+    const p5 = moment({
+      id: 'p5', captured_at: '2026-08-11T10:00:00.000Z', place_name: null,
+    });
+    mockParams = { id: 't1', start: '4' }; // p5, the SECOND moment of day 2
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: [p1, p2, p3, p4, p5], error: null });
+    (getPool as jest.Mock).mockResolvedValue({
+      pool: {
+        urls: new Map([
+          ['p1', image('p1')], ['p2', image('p2')], ['p3', image('p3')],
+          ['p4', image('p4')], ['p5', image('p5')],
+        ]),
+        validUntil: Date.now() + 999_999,
+        skipped: 0,
+      },
+      error: null,
+      reason: null,
+    });
+    await wrap();
+    // p5 -> p4: one plain step back WITHIN day 2, no card in between.
+    await fireEvent(screen.getByTestId('player-left'), 'pressIn');
+    await fireEvent(screen.getByTestId('player-left'), 'pressOut');
+    expect(screen.queryByTestId('player-interstitial')).toBeNull();
+    expect(screen.getByTestId('player-photo').props.source).toEqual({ uri: image('p4').medium_url });
+    // p4 is the day's first moment: only the NEXT step back reaches the card.
+    await fireEvent(screen.getByTestId('player-left'), 'pressIn');
+    await fireEvent(screen.getByTestId('player-left'), 'pressOut');
+    expect(screen.getByTestId('player-interstitial')).toBeTruthy();
+    expect(screen.getByText('Tag 2')).toBeTruthy();
+    // And its left half steps into day 1, never back onto p5.
+    await fireEvent.press(screen.getByTestId('player-interstitial-left'));
+    await act(async () => {
+      jest.advanceTimersByTime(600); // exit fade
+    });
+    expect(screen.queryByTestId('player-interstitial')).toBeNull();
+    expect(screen.getByTestId('player-photo').props.source).toEqual({ uri: image('p3').medium_url });
+  });
+
+  test('the very first card has nothing before it, its left half keeps it standing', async () => {
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
+    await wrap();
+    expect(screen.getByTestId('player-interstitial')).toBeTruthy();
+    await fireEvent.press(screen.getByTestId('player-interstitial-left'));
+    await act(async () => {
+      jest.advanceTimersByTime(600);
+    });
+    // No exit fade began: the card still stands, day 1 has not started.
+    expect(screen.getByTestId('player-interstitial')).toBeTruthy();
+    expect(screen.getByText('Tag 1')).toBeTruthy();
+  });
+
   // Going back commits the index change first, so the fading card's props
   // already belong to the PREVIOUS day; rendering the fade from them
   // flashed day 1's data into the farewell of the day 2 card.

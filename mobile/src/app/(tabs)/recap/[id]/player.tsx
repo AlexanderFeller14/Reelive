@@ -1136,20 +1136,27 @@ export default function RecapPlayer() {
   // MUST take back MOMENT_CHANGE_REASONS itself, otherwise the next moment
   // would stand still silently after a hold gesture or a running retry.
   //
-  // A move into a new day does NOT commit its index yet: the day card first
-  // fades in OVER the still standing last moment, and only once it is opaque
-  // does the swap happen behind it (commitPending, scheduled by the cover
-  // timer below or fired by the card's own forward tap). The swap used to
-  // run under the HALF-TRANSPARENT card, and the incoming picture, the
-  // bridge switch and the video view's expensive native build all showed
+  // A FORWARD move into a new day does NOT commit its index yet: the day
+  // card first fades in OVER the still standing last moment, and only once
+  // it is opaque does the swap happen behind it (commitPending, scheduled by
+  // the cover timer below or fired by the card's own forward tap). The swap
+  // used to run under the HALF-TRANSPARENT card, and the incoming picture,
+  // the bridge switch and the video view's expensive native build all showed
   // through the fade, the day screen's flicker.
+  //
+  // Only forward on purpose: BACKWARDS the card is the station AFTER a
+  // day's first moment (endTouch shows it on the step back FROM that
+  // moment), never an announcement. Announcing it on the step ONTO the
+  // first moment trapped the reel in a loop: the card appeared over the
+  // second moment, its left half abandoned the announcement back onto that
+  // very moment, and the first moment stayed unreachable going back.
   const applyMove = useCallback(
-    (result: PlayerState) => {
+    (result: PlayerState, from: number) => {
       const cleared = withoutReason(
         withoutReasons(result.paused, MOMENT_CHANGE_REASONS),
         'zwischenkarte'
       );
-      if (dayChanges(playlist, startDate, result.index)) {
+      if (result.index > from && dayChanges(playlist, startDate, result.index)) {
         pendingIndexRef.current = result.index;
         setPendingIndex(result.index);
         setState((s) => ({ ...s, paused: withReason(cleared, 'zwischenkarte') }));
@@ -1190,7 +1197,7 @@ export default function RecapPlayer() {
       setPhase('ended');
       return;
     }
-    applyMove(result);
+    applyMove(result, state.index);
   }, [state, playlist.length, checkAndRefreshPoolInBackground, applyMove]);
   // Ref indirection (same pattern as SealAnimation.tsx/onFinishedRef): the
   // auto-advance timer and the video-end event always call the newest version
@@ -1334,10 +1341,13 @@ export default function RecapPlayer() {
       setState((s) => ({ ...s, paused: releaseCard(s.paused) }));
       return;
     }
-    // Committed already (a longer-standing card, or the one before the very
-    // first moment): a real step back, the same move as the left story zone.
+    // The very first card: there is nothing before it, going back keeps it
+    // standing instead of quietly acting like the forward tap.
+    if (state.index === 0) return;
+    // Committed already (a longer-standing card): a real step back, the same
+    // move as the left story zone.
     void checkAndRefreshPoolInBackground();
-    applyMove(goBack(state));
+    applyMove(goBack(state), state.index);
   };
 
   const onLoadError = useCallback(
@@ -1404,7 +1414,7 @@ export default function RecapPlayer() {
           setPhase('ended');
           return;
         }
-        applyMove(result);
+        applyMove(result, state.index);
         return;
       }
       // Going back FROM a day's first moment reaches that day's card again:
@@ -1424,7 +1434,7 @@ export default function RecapPlayer() {
         return;
       }
       void checkAndRefreshPoolInBackground();
-      applyMove(goBack(state));
+      applyMove(goBack(state), state.index);
       return;
     }
     setState((s) => ({ ...s, paused: withoutReason(s.paused, 'halten') }));
