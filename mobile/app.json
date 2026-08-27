@@ -50,7 +50,7 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Reelive braucht Zugriff auf deine Fotos, damit du ein Profilbild auswählen kannst.",
+          "photosPermission": "Reelive braucht Zugriff auf deine Fotos, damit du ein Profilbild auswählen und Momente aus deinen Fotos einsenden kannst.",
           "cameraPermission": "Reelive braucht die Kamera, damit du ein Selfie als Profilbild aufnehmen kannst."
         }
       ],
@@ -65,7 +65,7 @@
       [
         "expo-media-library",
         {
-          "photosPermission": "Reelive braucht Zugriff auf deine Fotobibliothek, um Momente aus dem Recap dort zu sichern.",
+          "photosPermission": "Reelive braucht Zugriff auf deine Fotobibliothek, um Momente aus dem Recap dort zu sichern und Momente aus deinen Fotos einzusenden.",
           "savePhotosPermission": "Reelive speichert Momente aus dem Recap in deiner Fotobibliothek.",
           "isAccessMediaLocationEnabled": false,
           "granularPermissions": [

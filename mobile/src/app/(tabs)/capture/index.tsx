@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import {
+  ActivityIndicator,
   Animated,
   Dimensions,
   useWindowDimensions,
@@ -23,8 +24,9 @@ import {
 } from 'expo-camera';
 import { createVideoPlayer, type VideoPlayer } from 'expo-video';
 import { getThumbnailAsync } from 'expo-video-thumbnails';
-import { ChevronDown, SwitchCamera, Vibrate, VibrateOff, Zap, ZapOff } from 'lucide-react-native';
+import { ChevronDown, Images, SwitchCamera, Vibrate, VibrateOff, Zap, ZapOff } from 'lucide-react-native';
 import { ShutterButton } from '@/components/ShutterButton';
+import { MomentSubmissionAnimation } from '@/components/MomentSubmissionAnimation';
 import { Button } from '@/components/Button';
 import { Pill } from '@/components/Pill';
 import { PressScale } from '@/components/PressScale';
@@ -49,6 +51,19 @@ import { fetchTrips } from '@/features/trips/tripsApi';
 import * as tripsCache from '@/features/trips/tripsCache';
 import type { CachedTrip } from '@/features/trips/tripsCache';
 import { ownMomentCount } from '@/features/moments/counter';
+import {
+  assess,
+  refusalSummary,
+  type AcceptedMedia,
+  type PickedMedia,
+  type RefusalReason,
+} from '@/features/moments/libraryImport';
+import { pickFromLibrary, type PickResult } from '@/features/moments/libraryPicker';
+import {
+  discardRefused,
+  submitImports,
+  type ImportOutcome,
+} from '@/features/moments/libraryImportSubmit';
 import { useAuth } from '@/features/auth/AuthProvider';
 import * as handoff from '@/features/camera/handoff';
 import * as captureLock from '@/features/camera/captureLock';
@@ -118,6 +133,15 @@ function playerReady(player: VideoPlayer): Promise<void> {
 // times.
 const ERROR_MS = 4000;
 
+// A single capture error is one short sentence; ERROR_MS alone covers that.
+// A library-import refusalSummary of a large batch can reach roughly two
+// hundred characters (Final-Review, Important 5), and 4 s is not enough to
+// read that much. 50 ms per character is a comfortable reading pace; the
+// ceiling keeps even the largest batch (20 elements) from parking the pill
+// over the viewfinder indefinitely.
+const ERROR_MS_PER_CHARACTER = 50;
+const ERROR_MAX_MS = 12_000;
+
 // On the simulator every video capture fails (there is no camera there), on
 // device a call can come in or the storage can be full. Without this message
 // you tap stop and face a screen that says nothing (DESIGN-LANGUAGE §6: errors
@@ -128,6 +152,13 @@ const ERROR_TEXT = 'Das Video hat nicht geklappt. Versuch es nochmal.';
 // on device with full storage or a revoked permission), you stay in the
 // viewfinder and the pill says so (DESIGN-LANGUAGE §6).
 const PHOTO_ERROR_TEXT = 'Das Foto hat nicht geklappt. Versuch es nochmal.';
+
+// The library picker itself failed (not a refusal by our rules): iOS could
+// not present it, or the copy of a selected asset broke off.
+const IMPORT_PICKER_ERROR_TEXT = 'Deine Fotos liessen sich nicht öffnen. Probier es nochmal.';
+// Same wording as the preview's WITHOUT_SESSION_MESSAGE: the job carries
+// the author id, and without a session there is none to carry.
+const IMPORT_WITHOUT_SESSION_TEXT = 'Du bist nicht angemeldet. Melde dich an und probier es nochmal.';
 
 // How often the start of a video capture is retried, and how long is waited in
 // between.
@@ -534,6 +565,27 @@ export default function CaptureScreen() {
   // The text of the message, or null: since the instant photo there are two
   // sources (photo and video), and the pill shows whatever went wrong last.
   const [captureError, setCaptureError] = useState<string | null>(null);
+  // The running library import, or null: how many of the accepted elements
+  // have been enqueued so far. While it runs, shutter and header are removed
+  // (like during a capture) and the progress pill stands in for them.
+  const [importing, setImporting] = useState<{ done: number; total: number } | null>(null);
+  // A finished import waiting for its success animation: the batch size and
+  // the counter value from before the batch, which the animation rolls up
+  // from. Back to null once the animation has played.
+  const [importDone, setImportDone] = useState<{
+    added: number;
+    counterBefore: number | null;
+  } | null>(null);
+  // The refusal summary of the last import, held back until the success
+  // animation has played so the two do not stack on top of each other.
+  const heldSummary = useRef<string | null>(null);
+  // Re-entry guard for importFromLibrary (same pattern as photoRunning
+  // above): `importing` stays null for the whole picker round trip
+  // (requestReadAccess awaits a permission check before the picker even
+  // presents), so the button is still tappable then. A ref, because the
+  // value has to be read synchronously within the same tick, before any
+  // state update from the first press has landed.
+  const importRunning = useRef(false);
   // The DISPLAYED factor (0.5 / 1 / 4 ...), not the device's. Between the two
   // lies the base, see zoom.ts.
   const [factor, setFactor] = useState(1);
@@ -1057,12 +1109,15 @@ export default function CaptureScreen() {
   // and a new identity on every render would restart the run.
   const focusRingDone = useCallback(() => setFocusPoint(null), []);
 
-  // Clears the message away after ERROR_MS. The timer hangs off the state
-  // itself, not off the trigger: that way a second failure sets it anew
-  // instead of the first clock wiping the second message away.
+  // Clears the message away after a hold time that scales with its length
+  // (Final-Review, Important 5): ERROR_MS covers one short sentence, a long
+  // refusalSummary earns extra time up to ERROR_MAX_MS. The timer hangs off
+  // the state itself, not off the trigger: that way a second failure sets it
+  // anew instead of the first clock wiping the second message away.
   useEffect(() => {
     if (!captureError) return;
-    const timer = setTimeout(() => setCaptureError(null), ERROR_MS);
+    const hold = Math.min(ERROR_MAX_MS, Math.max(ERROR_MS, captureError.length * ERROR_MS_PER_CHARACTER));
+    const timer = setTimeout(() => setCaptureError(null), hold);
     return () => clearTimeout(timer);
   }, [captureError]);
 
@@ -1150,6 +1205,130 @@ export default function CaptureScreen() {
     // preview differently from a tab switch (see inPreview above).
     setInPreview(true);
     router.push({ pathname: '/preview', params } as unknown as Href);
+  };
+
+  // The library import (spec 2026-08-27): pick, assess against the trip
+  // period and the video limit, submit the accepted ones one after the
+  // other, then celebrate and explain. `trip` is a const narrowed above, so
+  // the closure keeps it non-null across the awaits.
+  const importFromLibrary = async () => {
+    if (importing || capturing) return;
+    // Re-entry guard (same pattern as photoRunning above): pickFromLibrary
+    // awaits a permission check (requestReadAccess in libraryPicker.ts)
+    // before it even presents, so the screen stays fully interactive for
+    // that whole native round trip; `importing` alone does not cover it.
+    if (importRunning.current) return;
+    importRunning.current = true;
+    try {
+      setCaptureError(null);
+      let picked: PickResult;
+      try {
+        picked = await pickFromLibrary();
+      } catch (error) {
+        console.error('[capture] library picker failed', error);
+        if (active.current) setCaptureError(IMPORT_PICKER_ERROR_TEXT);
+        return;
+      }
+      if (picked.canceled || picked.media.length === 0) return;
+      if (!active.current) {
+        // A blur while the picker was open (deep link, back navigation): the
+        // picked copies still sit in tmp and have to leave, same as any
+        // other refusal path.
+        discardRefused(picked.media);
+        return;
+      }
+      if (!userId) {
+        discardRefused(picked.media);
+        setCaptureError(IMPORT_WITHOUT_SESSION_TEXT);
+        return;
+      }
+
+      const deviceTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      const assessed = picked.media.map((item) => assess(item, trip, MAX_VIDEO_SECONDS, deviceTz));
+      const accepted = assessed.filter((item): item is AcceptedMedia => item.accepted);
+      const reasons: RefusalReason[] = [];
+      const refused: PickedMedia[] = [];
+      for (const item of assessed) {
+        if (!item.accepted) {
+          reasons.push(item.reason);
+          refused.push(item.media);
+        }
+      }
+      // Refused copies leave tmp right away; the accepted ones are released by
+      // submitImports once they are safely in the queue.
+      discardRefused(refused);
+      const total = picked.media.length;
+      if (accepted.length === 0) {
+        setCaptureError(refusalSummary(reasons, total, trip, MAX_VIDEO_SECONDS));
+        return;
+      }
+
+      // No tab switch in the middle of the batch (captureLock.ts), for the
+      // same reason as during a capture: the focus cleanup must not interrupt
+      // it.
+      captureLock.lock(true);
+      const counterBefore = counter;
+      setImporting({ done: 0, total: accepted.length });
+      let outcome: ImportOutcome;
+      try {
+        outcome = await submitImports(
+          accepted,
+          { tripId: trip.id, authorId: userId },
+          (done, count) => {
+            if (active.current) setImporting({ done, total: count });
+          }
+        );
+      } catch (error) {
+        // submitImports catches per element; this is the queue itself failing
+        // to initialize. Every accepted element then counts as failed.
+        console.error('[capture] library import failed', error);
+        outcome = { submitted: 0, failed: accepted.length };
+      }
+      // Cleared unconditionally: a blur during the batch (deep link, router
+      // push) sets active.current false but never re-enters this handler,
+      // and `importing` is the only thing keeping shutter and header gone.
+      // Left set, the viewfinder would stay dead for the rest of the session.
+      setImporting(null);
+      if (!active.current) {
+        // Nobody is left to watch the cover, so nothing holds the lock open
+        // for it either (Final-Review, Important 4).
+        captureLock.lock(false);
+        return;
+      }
+      for (let i = 0; i < outcome.failed; i += 1) reasons.push('failed');
+      const summary = refusalSummary(reasons, total, trip, MAX_VIDEO_SECONDS);
+      if (outcome.submitted === 0) {
+        // Nothing was submitted, so there is no cover to hold the lock for
+        // either: the summary is the whole story, right away.
+        captureLock.lock(false);
+        setCaptureError(summary);
+        return;
+      }
+      // The lock stays SET here (Final-Review, Important 4): the cinema tab
+      // bar sits over this screen, and a tab tap during the 3.6 s cover must
+      // not slip past a lock that was already released. finishImport below
+      // releases it once the cover is gone.
+      heldSummary.current = summary;
+      setImportDone({ added: outcome.submitted, counterBefore });
+    } finally {
+      importRunning.current = false;
+    }
+  };
+
+  // The success animation has played: the counter effect above re-runs on
+  // the focus tick and picks up the fresh queue jobs, and a held summary of
+  // the refusals gets its turn in the pill.
+  const finishImport = () => {
+    // Only now, with the cover gone, can a tab tap safely act again
+    // (Final-Review, Important 4): importFromLibrary above deliberately kept
+    // the lock through the whole celebration.
+    captureLock.lock(false);
+    setImportDone(null);
+    setFocusState((n) => n + 1);
+    if (heldSummary.current) {
+      setCaptureError(heldSummary.current);
+      heldSummary.current = null;
+    }
   };
 
   // During a HELD capture the finger lies on the shutter. React Native knows
@@ -1756,7 +1935,7 @@ export default function CaptureScreen() {
           of recordAsync can abort the running recording. Removed rather than
           just hidden, so that VoiceOver offers nothing that cannot be operated
           right now. */}
-      {!capturing && (
+      {!capturing && !importing && (
         <View testID="viewfinder-header" style={[styles.headerRow, { top: viewfinderTopInset }]}>
           {/* The trip switcher (product concept): the trip name IS the button,
               no extra control on the image. The chevron makes that visible
@@ -1796,6 +1975,9 @@ export default function CaptureScreen() {
                 <ZapOff size={22} color={cinema['text-2']} strokeWidth={1.75} />
             )}
           </PillButton>
+            <PillButton label="Momente aus Fotos einsenden" onPress={() => void importFromLibrary()}>
+              <Images size={22} color={cinema['text-1']} strokeWidth={1.75} />
+            </PillButton>
             {multiCam && (
               <PillButton
                 label={
@@ -1822,6 +2004,17 @@ export default function CaptureScreen() {
           <Text style={[type.secondary, styles.errorText]}>{captureError}</Text>
         </Pill>
       )}
+      {importing && (
+        <Pill
+          testID="import-progress"
+          style={[styles.errorPill, styles.importPill, { bottom: errorBottom(zoomVisible) + barHeight }]}
+        >
+          <ActivityIndicator color={cinema['text-1']} />
+          <Text style={[type.secondary, styles.errorText]}>
+            {`${importing.done} von ${importing.total} Momenten eingesendet`}
+          </Text>
+        </Pill>
+      )}
       {zoomVisible && zoom && (
         <View
           style={[
@@ -1836,19 +2029,27 @@ export default function CaptureScreen() {
           />
         </View>
       )}
-      <View
-        testID="shutter-stage"
-        style={[styles.shutterWrap, { bottom: SHUTTER_BOTTOM + barHeight }]}
-      >
-        <ShutterButton
-          onPhoto={() => void handlePhoto()}
-          onVideoStart={handleVideoStart}
-          onVideoStop={() => void handleVideoStop()}
-          onZoomDrag={zoomDrag}
-          maxSeconds={MAX_VIDEO_SECONDS}
-          onLockChange={setCaptureLocked}
-        />
-      </View>
+      {!importing && (
+        <View
+          testID="shutter-stage"
+          style={[styles.shutterWrap, { bottom: SHUTTER_BOTTOM + barHeight }]}
+        >
+          <ShutterButton
+            onPhoto={() => void handlePhoto()}
+            onVideoStart={handleVideoStart}
+            onVideoStop={() => void handleVideoStop()}
+            onZoomDrag={zoomDrag}
+            maxSeconds={MAX_VIDEO_SECONDS}
+            onLockChange={setCaptureLocked}
+          />
+        </View>
+      )}
+      <MomentSubmissionAnimation
+        visible={importDone !== null}
+        onFinished={finishImport}
+        counter={importDone?.counterBefore ?? null}
+        added={importDone?.added ?? 1}
+      />
     </View>
   );
 }
@@ -1970,6 +2171,9 @@ const styles = StyleSheet.create({
   // Centered, because a single short sentence in a pill is not the wall of
   // text §7 is about but a label.
   errorText: { color: cinema['text-1'], textAlign: 'center' },
+  // The progress pill during a library import: spinner and text side by
+  // side in the error pill's frame.
+  importPill: { flexDirection: 'row', justifyContent: 'center', gap: spacing.s },
   // The focus ring: a fine light line on the camera image, radius 999 (§4).
   // `left`/`top` are deliberately missing, they come from the tap point.
   focusRing: {

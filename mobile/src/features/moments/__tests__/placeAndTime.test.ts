@@ -4,7 +4,7 @@ jest.mock('expo-location', () => ({
   reverseGeocodeAsync: jest.fn(async () => [{ city: 'Luzern' }]),
 }));
 
-import { now, determinePlace } from '../placeAndTime';
+import { now, determinePlace, describePlace } from '../placeAndTime';
 import * as Location from 'expo-location';
 
 afterEach(() => {
@@ -50,4 +50,22 @@ test('a hanging position determination returns three nulls after the timeout ins
 test('an error in the position determination itself returns three nulls, without throwing', async () => {
   (Location.getCurrentPositionAsync as jest.Mock).mockRejectedValueOnce(new Error('GPS kaputt'));
   await expect(determinePlace()).resolves.toEqual({ lat: null, lng: null, place_name: null });
+});
+
+test('describePlace turns coordinates into a city name', async () => {
+  await expect(describePlace(47.05, 8.31)).resolves.toBe('Luzern');
+  expect(Location.reverseGeocodeAsync).toHaveBeenCalledWith({ latitude: 47.05, longitude: 8.31 });
+});
+
+test('describePlace answers null when geocoding fails, without throwing', async () => {
+  (Location.reverseGeocodeAsync as jest.Mock).mockRejectedValueOnce(new Error('kaputt'));
+  await expect(describePlace(47.05, 8.31)).resolves.toBeNull();
+});
+
+test('describePlace answers null when geocoding hangs past the timeout', async () => {
+  jest.useFakeTimers();
+  (Location.reverseGeocodeAsync as jest.Mock).mockImplementationOnce(() => new Promise(() => {}));
+  const pending = describePlace(47.05, 8.31);
+  await jest.advanceTimersByTimeAsync(8_000);
+  await expect(pending).resolves.toBeNull();
 });

@@ -143,9 +143,13 @@ export type MomentSubmissionAnimationProps = {
   visible: boolean;
   onFinished: () => void;
   // Counter value of the trip BEFORE this moment; the animation rolls up
-  // to +1. null/undefined: the value just isn't available right now, the
+  // to +added. null/undefined: the value just isn't available right now, the
   // number is omitted, everything else runs unchanged.
   counter?: number | null;
+  // How many moments this run stands for: the counter rolls up by exactly
+  // this much and the copy switches to the plural. Default 1, the live
+  // capture; the library import passes its batch size.
+  added?: number;
 };
 
 // Success interstitial screen after submitting: a white full-screen cover,
@@ -163,6 +167,7 @@ export function MomentSubmissionAnimation({
   visible,
   onFinished,
   counter,
+  added = 1,
 }: MomentSubmissionAnimationProps) {
   const reducedMotion = useReducedMotion();
   const insets = useSafeAreaInsets();
@@ -409,6 +414,8 @@ export function MomentSubmissionAnimation({
   const polaroidWidth = Math.min(180, Math.max(140, Math.round(windowSize.width * 0.44)));
   const polaroidHeight = Math.round(polaroidWidth * 1.2);
 
+  const plural = added > 1;
+
   return (
     // pointerEvents stays at the default "auto": the cover swallows every
     // touch on the screen underneath during the animation, including a
@@ -416,7 +423,7 @@ export function MomentSubmissionAnimation({
     <View
       testID="moment-animation"
       accessible
-      accessibilityLabel="Moment erfolgreich eingesendet"
+      accessibilityLabel={plural ? 'Momente erfolgreich eingesendet' : 'Moment erfolgreich eingesendet'}
       style={[
         StyleSheet.absoluteFill,
         styles.cover,
@@ -456,11 +463,11 @@ export function MomentSubmissionAnimation({
         {counter != null && (
           <Animated.View testID="moment-counter" style={[styles.counterLayer, counterStyle]}>
             {reducedMotion ? (
-              <Text style={styles.staticNumber}>{String(counter + 1)}</Text>
+              <Text style={styles.staticNumber}>{String(counter + added)}</Text>
             ) : (
               <CounterRoll
                 from={counter}
-                to={counter + 1}
+                to={counter + added}
                 progress={rollProgress}
                 progressWindow={COUNTER_WINDOW}
               />
@@ -469,9 +476,13 @@ export function MomentSubmissionAnimation({
         )}
       </View>
       <View style={styles.textContainer}>
-        <Animated.Text style={[styles.title, titleStyle]}>Moment eingesendet</Animated.Text>
+        <Animated.Text style={[styles.title, titleStyle]}>
+          {plural ? 'Momente eingesendet' : 'Moment eingesendet'}
+        </Animated.Text>
         <Animated.Text style={[styles.subtitle, subtitleStyle]}>
-          Dein Moment ist unterwegs und bleibt bis zum Recap versiegelt.
+          {plural
+            ? 'Deine Momente sind unterwegs und bleiben bis zum Recap versiegelt.'
+            : 'Dein Moment ist unterwegs und bleibt bis zum Recap versiegelt.'}
         </Animated.Text>
       </View>
       <View style={styles.bottomSpace} />

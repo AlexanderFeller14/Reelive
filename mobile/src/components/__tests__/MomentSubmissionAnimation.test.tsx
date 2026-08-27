@@ -226,6 +226,47 @@ test("rolls the counter up one digit when the trip's count is available", async 
   await unmount();
 });
 
+test('rolls the counter up by the batch size and speaks in the plural', async () => {
+  const { getByTestId, getByText, getByLabelText, unmount } = await render(
+    <MomentSubmissionAnimation visible={true} onFinished={jest.fn()} counter={11} added={3} />
+  );
+  // 11 → 14: the tens digit stays fixed, the ones digit rolls 1 → 4.
+  expect(getByTestId('counter-digit-fixed-0').props.children).toBe('1');
+  expect(getByTestId('counter-digit-old-1').props.children).toBe('1');
+  expect(getByTestId('counter-digit-new-1').props.children).toBe('4');
+  expect(getByText('Momente eingesendet')).toBeTruthy();
+  expect(getByText('Deine Momente sind unterwegs und bleiben bis zum Recap versiegelt.')).toBeTruthy();
+  expect(getByLabelText('Momente erfolgreich eingesendet')).toBeTruthy();
+  await act(async () => {
+    jest.advanceTimersByTime(TOTAL);
+  });
+  await unmount();
+});
+
+test('with reduced motion the batch total stands still', async () => {
+  mockUseReducedMotion.mockReturnValue(true);
+  const { getByText, unmount } = await render(
+    <MomentSubmissionAnimation visible={true} onFinished={jest.fn()} counter={11} added={3} />
+  );
+  expect(getByText('14')).toBeTruthy();
+  await act(async () => {
+    jest.advanceTimersByTime(TOTAL);
+  });
+  await unmount();
+});
+
+test('an added of one keeps the singular copy', async () => {
+  const { getByText, getByLabelText, unmount } = await render(
+    <MomentSubmissionAnimation visible={true} onFinished={jest.fn()} counter={11} added={1} />
+  );
+  expect(getByText('Moment eingesendet')).toBeTruthy();
+  expect(getByLabelText('Moment erfolgreich eingesendet')).toBeTruthy();
+  await act(async () => {
+    jest.advanceTimersByTime(TOTAL);
+  });
+  await unmount();
+});
+
 test('without a counter value, the animation runs without a number', async () => {
   const { queryByTestId, unmount } = await render(
     <MomentSubmissionAnimation visible={true} onFinished={jest.fn()} counter={null} />
