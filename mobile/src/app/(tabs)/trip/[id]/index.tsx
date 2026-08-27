@@ -762,9 +762,10 @@ const styles = StyleSheet.create({
   // so the overlay pushes its children down (justifyContent: 'flex-end'
   // there). This pill belongs into the corner opposite the seal and has to
   // stay there no matter how that flow is set. Yoga positions an absolute
-  // child against the parent's padding box, so `0/0` lands exactly on the
-  // overlay's 12 px inset.
-  manageAnchor: { position: 'absolute', top: 0, right: 0 },
+  // child against the parent's padding box; the extra xs on top of the
+  // overlay's 12 px inset makes 16, so the round badge clears the cover's
+  // 24 px corner curve instead of hanging in it.
+  manageAnchor: { position: 'absolute', top: spacing.xs, right: spacing.xs },
   // Fixed round 44 box instead of the badge's text padding; look and
   // relief stay ReliefBadge's business.
   managePill: {

@@ -1,7 +1,7 @@
 import { Alert, StyleSheet } from 'react-native';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react-native';
 import { ThemeProvider } from '@/theme/ThemeProvider';
-import { palette } from '@/theme/tokens';
+import { palette, spacing } from '@/theme/tokens';
 
 const mockPush = jest.fn();
 const mockReplace = jest.fn();
@@ -1032,8 +1032,11 @@ test('the management pill hangs in the top corner, independent of the cover over
     (await screen.findByTestId('manage-open')).props.style
   ) as { position?: string; top?: number; right?: number };
   expect(anchor.position).toBe('absolute');
-  expect(anchor.top).toBe(0);
-  expect(anchor.right).toBe(0);
+  // xs on top of the overlay's 12 px inset makes 16: the round relief
+  // badge has to clear the cover's 24 px corner curve instead of hanging
+  // in it (user feedback 2026-08-27).
+  expect(anchor.top).toBe(spacing.xs);
+  expect(anchor.right).toBe(spacing.xs);
 });
 
 test('the owner of a finished trip invites from the management', async () => {

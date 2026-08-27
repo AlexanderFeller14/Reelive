@@ -78,7 +78,16 @@ export default function Invite() {
         loading={!loaded}
         disabled={loaded && !url}
       />
-      <Button variant="text" label="Später" onPress={() => router.replace(`/trip/${id}`)} />
+      <Button
+        variant="text"
+        label="Später"
+        // Back, not forward: both ways onto this screen (detail push,
+        // create flow) leave the trip detail beneath it, so leaving
+        // animates as a return instead of a next window sliding in from
+        // the right. The guard covers a cold start straight onto this
+        // route, where there is nothing beneath to return to.
+        onPress={() => (router.canGoBack() ? router.back() : router.replace(`/trip/${id}`))}
+      />
     </View>
   );
 }

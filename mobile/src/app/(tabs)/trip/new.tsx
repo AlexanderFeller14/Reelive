@@ -42,7 +42,11 @@ export default function NewTrip() {
     });
     setLoading(false);
     if (error || !id) return setNameError(error ?? undefined);
-    router.replace(`/trip/${id}/invite`);
+    // The detail slides UNDER the invite screen on purpose: "Später" up
+    // there is then a plain back() with a return animation, and a back
+    // from the detail lands on the list, never on this form again.
+    router.replace(`/trip/${id}`);
+    router.push(`/trip/${id}/invite`);
   };
 
   return (

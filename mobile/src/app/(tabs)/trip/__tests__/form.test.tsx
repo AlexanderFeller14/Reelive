@@ -2,8 +2,9 @@ import { render, screen, fireEvent, waitFor, within } from '@testing-library/rea
 import { ThemeProvider } from '@/theme/ThemeProvider';
 
 const mockReplace = jest.fn();
+const mockPush = jest.fn();
 jest.mock('expo-router', () => ({
-  useRouter: () => ({ push: jest.fn(), replace: mockReplace, back: jest.fn() }),
+  useRouter: () => ({ push: mockPush, replace: mockReplace, back: jest.fn() }),
   useLocalSearchParams: () => ({ id: 't1' }),
 }));
 jest.mock('@/features/auth/AuthProvider', () => ({ useAuth: () => ({ userId: 'u1' }) }));
@@ -76,7 +77,10 @@ test('valid input creates the trip and moves straight on to inviting', async () 
       name: 'Norwegen', startDate: '2026-08-01', endDate: '2026-08-14', ownerId: 'u1',
     })
   );
-  expect(mockReplace).toHaveBeenCalledWith('/trip/new-1/invite');
+  // Detail first, invite on top: "Später" on the invite screen is a plain
+  // back() and must land on the detail, not on this form.
+  expect(mockReplace).toHaveBeenCalledWith('/trip/new-1');
+  expect(mockPush).toHaveBeenCalledWith('/trip/new-1/invite');
 });
 
 test('editing arrives with the stored values filled in and saves them', async () => {

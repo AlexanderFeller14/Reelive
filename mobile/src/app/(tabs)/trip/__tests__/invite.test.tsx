@@ -5,8 +5,15 @@ import { ThemeProvider } from '@/theme/ThemeProvider';
 // Jest hoisting: the factory runs before this assignment, but `focus` is only
 // read while rendering, and by then the variable stands.
 let focus: (() => void) | null = null;
+const mockBack = jest.fn();
+const mockReplace = jest.fn();
+// Flipped by the one test that simulates a cold start straight onto this
+// route; every other test runs with a stack beneath the screen.
+let mockCanGoBack = true;
 jest.mock('expo-router', () => ({
-  useRouter: () => ({ push: jest.fn(), replace: jest.fn(), back: jest.fn() }),
+  useRouter: () => ({
+    push: jest.fn(), replace: mockReplace, back: mockBack, canGoBack: () => mockCanGoBack,
+  }),
   useLocalSearchParams: () => ({ id: 't1' }),
   useFocusEffect: (cb: () => void) => {
     focus = cb;
@@ -84,4 +91,26 @@ test('focusing again fetches a fresh code, an old one would share a dead QR code
   await waitFor(() =>
     expect(share).toHaveBeenCalledWith({ message: expect.stringContaining('reelive://join/new999') })
   );
+});
+
+// "Später" is a return, not a next window: both ways onto this screen
+// leave the trip detail beneath it (the detail pushes, the create flow
+// replaces itself with the detail first), so leaving must pop the stack
+// with a back animation instead of sliding a new screen in from the right.
+test('Später goes back instead of pushing the detail in from the right', async () => {
+  mockCanGoBack = true;
+  (fetchInviteCode as jest.Mock).mockResolvedValue({ data: 'code-1', error: null });
+  await wrap();
+  await fireEvent.press(await screen.findByText('Später'));
+  expect(mockBack).toHaveBeenCalled();
+  expect(mockReplace).not.toHaveBeenCalled();
+});
+
+test('on a cold start without a stack, Später still lands on the detail', async () => {
+  mockCanGoBack = false;
+  (fetchInviteCode as jest.Mock).mockResolvedValue({ data: 'code-1', error: null });
+  await wrap();
+  await fireEvent.press(await screen.findByText('Später'));
+  expect(mockBack).not.toHaveBeenCalled();
+  expect(mockReplace).toHaveBeenCalledWith('/trip/t1');
 });
