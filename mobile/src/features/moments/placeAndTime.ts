@@ -49,13 +49,24 @@ export async function determinePlace(): Promise<Place> {
     return NO_PLACE;
   }
 
-  let place_name: string | null = null;
-  try {
-    const [geocoded] = await withTimeout(Location.reverseGeocodeAsync({ latitude, longitude }), TIMEOUT_MS);
-    place_name = geocoded?.city ?? null;
-  } catch (error) {
-    console.error('[placeAndTime] geocoding failed', error);
-  }
+  const place_name = await describePlace(latitude, longitude);
 
   return { lat: latitude, lng: longitude, place_name };
+}
+
+// Reverse-geocodes coordinates to a city name; null when the lookup fails or
+// times out. Shared by the live capture (determinePlace) and the library
+// import (libraryImportSubmit), which brings its own coordinates from the
+// asset instead of the current position.
+export async function describePlace(latitude: number, longitude: number): Promise<string | null> {
+  try {
+    const [geocoded] = await withTimeout(
+      Location.reverseGeocodeAsync({ latitude, longitude }),
+      TIMEOUT_MS
+    );
+    return geocoded?.city ?? null;
+  } catch (error) {
+    console.error('[placeAndTime] geocoding failed', error);
+    return null;
+  }
 }
