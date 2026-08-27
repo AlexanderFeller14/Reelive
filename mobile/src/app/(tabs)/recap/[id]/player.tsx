@@ -1310,11 +1310,18 @@ export default function RecapPlayer() {
   // renders LAST and carries the higher zIndex), so a touch during the card
   // physically reaches only these two handlers, never the story navigation
   // underneath. Same reading direction as the story: right on, left back.
+  // Every exit of the card also takes MOMENT_CHANGE_REASONS back: a tap
+  // that reached the card THROUGH a story zone (see endTouch) has set
+  // 'halten' on its press, and a reason nobody removes stops the reel for
+  // good, the hang while tapping quickly through the recap.
+  const releaseCard = (paused: ReadonlySet<PauseReason>) =>
+    withoutReason(withoutReasons(paused, MOMENT_CHANGE_REASONS), 'zwischenkarte');
+
   const dayCardForward = () => {
     // A tap faster than the cover timer must not strand the player on the
     // old moment: the postponed change commits right here first.
     commitPending();
-    setState((s) => ({ ...s, paused: withoutReason(s.paused, 'zwischenkarte') }));
+    setState((s) => ({ ...s, paused: releaseCard(s.paused) }));
   };
 
   const dayCardBack = () => {
@@ -1324,7 +1331,7 @@ export default function RecapPlayer() {
       // still stands untouched behind the card.
       pendingIndexRef.current = null;
       setPendingIndex(null);
-      setState((s) => ({ ...s, paused: withoutReason(s.paused, 'zwischenkarte') }));
+      setState((s) => ({ ...s, paused: releaseCard(s.paused) }));
       return;
     }
     // Committed already (a longer-standing card, or the one before the very
@@ -1380,6 +1387,16 @@ export default function RecapPlayer() {
     if (swipeTakenOverRef.current) return;
     const held = Date.now() - touchStartRef.current;
     if (held < TAP_THRESHOLD_MS) {
+      // While the card stands, its own zones cover the story zones; but a
+      // FAST tap can start its press before the card is interactive, and
+      // its release then still belongs to the story zone underneath.
+      // Swallowing that tap read as a hang while tapping quickly through
+      // the reel, so the story zones double as the card's here.
+      if (pausedRef.current.has('zwischenkarte')) {
+        if (side === 'right') dayCardForward();
+        else dayCardBack();
+        return;
+      }
       if (side === 'right') {
         void checkAndRefreshPoolInBackground();
         const result = advance(state, playlist.length);
@@ -1396,7 +1413,14 @@ export default function RecapPlayer() {
       // day. Only the card's own left half then steps further back. The
       // moment restarts fresh under the returning card.
       if (dayChanges(playlist, startDate, state.index)) {
-        setState((s) => ({ ...s, progress: 0, paused: withReason(s.paused, 'zwischenkarte') }));
+        // The tap that brings the card back has itself set 'halten' on its
+        // press: it travels out here like on every actual move, or the reel
+        // stands still under the returning card for good.
+        setState((s) => ({
+          ...s,
+          progress: 0,
+          paused: withReason(withoutReasons(s.paused, MOMENT_CHANGE_REASONS), 'zwischenkarte'),
+        }));
         return;
       }
       void checkAndRefreshPoolInBackground();

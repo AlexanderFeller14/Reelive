@@ -837,6 +837,72 @@ describe('day interstitial', () => {
     expect(screen.queryByTestId('player-interstitial')).toBeNull();
   });
 
+  // The hang while tapping quickly backwards: the tap that brings the card
+  // back sets 'halten' on its press, and a reason nobody removed stopped
+  // the reel for good once the card was sent off again.
+  test('returning to the card and moving on leaves no stuck pause behind', async () => {
+    mockParams = { id: 't1', start: '2' }; // p3, the last moment of day 1
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
+    await wrap();
+    // Into day 2 and onto p4.
+    await fireEvent(screen.getByTestId('player-right'), 'pressIn');
+    await fireEvent(screen.getByTestId('player-right'), 'pressOut');
+    await act(async () => {
+      jest.advanceTimersByTime(300); // DAY_CARD_COVER_MS
+    });
+    await fireEvent.press(screen.getByTestId('player-interstitial-right'));
+    await act(async () => {
+      jest.advanceTimersByTime(600); // exit fade
+    });
+    // Back onto the card (the press sets 'halten'), then off again.
+    await fireEvent(screen.getByTestId('player-left'), 'pressIn');
+    await fireEvent(screen.getByTestId('player-left'), 'pressOut');
+    expect(screen.getByTestId('player-interstitial')).toBeTruthy();
+    await fireEvent.press(screen.getByTestId('player-interstitial-right'));
+    await act(async () => {
+      jest.advanceTimersByTime(600); // exit fade
+    });
+    // The reel runs on by itself: p4 is the last moment, so one photo
+    // duration later the end screen proves no pause reason was left behind.
+    await act(async () => {
+      jest.advanceTimersByTime(5000); // PHOTO_DURATION_MS
+    });
+    expect(screen.getByTestId('player-end')).toBeTruthy();
+  });
+
+  // A fast tap can start its press BEFORE the card is interactive; its
+  // release then still belongs to the story zone underneath. It must act
+  // as the card's own zone instead of being swallowed.
+  test('a story-zone tap racing the standing card still works the card, left and right', async () => {
+    mockParams = { id: 't1', start: '2' };
+    (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
+    (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
+    await wrap();
+    // The day 2 card stands (announcement pending); a racing LEFT story tap
+    // abandons it like the card's own left half would.
+    await fireEvent(screen.getByTestId('player-right'), 'pressIn');
+    await fireEvent(screen.getByTestId('player-right'), 'pressOut');
+    await fireEvent(screen.getByTestId('player-left'), 'pressIn');
+    await fireEvent(screen.getByTestId('player-left'), 'pressOut');
+    await act(async () => {
+      jest.advanceTimersByTime(600); // exit fade
+    });
+    expect(screen.queryByTestId('player-interstitial')).toBeNull();
+    expect(screen.getByTestId('player-photo').props.source).toEqual({ uri: image('p3').medium_url });
+    // And the RIGHT story tap moves on into the announced day.
+    await fireEvent(screen.getByTestId('player-right'), 'pressIn');
+    await fireEvent(screen.getByTestId('player-right'), 'pressOut');
+    expect(screen.getByTestId('player-interstitial')).toBeTruthy();
+    await fireEvent(screen.getByTestId('player-right'), 'pressIn');
+    await fireEvent(screen.getByTestId('player-right'), 'pressOut');
+    expect(screen.getByTestId('player-photo').props.source).toEqual({ uri: image('p4').medium_url });
+    await act(async () => {
+      jest.advanceTimersByTime(600); // exit fade
+    });
+    expect(screen.queryByTestId('player-interstitial')).toBeNull();
+  });
+
   // The card used to run a 1.5 s clock whose orphaned timer once unpaused an
   // open comment sheet, a whole class of bugs. The clock is gone: the card
   // waits for the person. This guard keeps anyone from quietly giving it a
@@ -963,6 +1029,8 @@ describe('video moments', () => {
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
     (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
+    // The day 1 card stands over p1 first, exactly as on the device.
+    await fireEvent.press(screen.getByTestId('player-interstitial-right'));
 
     // First failure: a SILENT retry, no hint text yet.
     await act(async () => {
@@ -2031,6 +2099,8 @@ describe('saving a moment to the photo library', () => {
     let resolveSave!: (value: { ok: true }) => void;
     (saveMomentToGallery as jest.Mock).mockReturnValue(new Promise((resolve) => { resolveSave = resolve; }));
     await wrap();
+    // The day 1 card stands over p1 first, exactly as on the device.
+    await fireEvent.press(screen.getByTestId('player-interstitial-right'));
     await fireEvent.press(screen.getByTestId('player-save'));
     await act(async () => {});
 
@@ -2187,6 +2257,8 @@ describe('reporting a moment (Task 8)', () => {
     (fetchRecapMoments as jest.Mock).mockResolvedValue({ data: MOMENTS, error: null });
     (getPool as jest.Mock).mockResolvedValue({ pool: POOL_OK, error: null, reason: null });
     await wrap();
+    // The day 1 card stands over p1 first, exactly as on the device.
+    await fireEvent.press(screen.getByTestId('player-interstitial-right'));
 
     // Opens for p1, sends, hangs.
     await fireEvent(screen.getByTestId('player-right'), 'longPress');
