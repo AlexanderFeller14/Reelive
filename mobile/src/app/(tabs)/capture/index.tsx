@@ -58,7 +58,7 @@ import {
   type PickedMedia,
   type RefusalReason,
 } from '@/features/moments/libraryImport';
-import { pickFromLibrary } from '@/features/moments/libraryPicker';
+import { pickFromLibrary, type PickResult } from '@/features/moments/libraryPicker';
 import {
   discardRefused,
   submitImports,
@@ -132,6 +132,15 @@ function playerReady(player: VideoPlayer): Promise<void> {
 // motion scale (§5), because that one measures transitions, not reading
 // times.
 const ERROR_MS = 4000;
+
+// A single capture error is one short sentence; ERROR_MS alone covers that.
+// A library-import refusalSummary of a large batch can reach roughly two
+// hundred characters (Final-Review, Important 5), and 4 s is not enough to
+// read that much. 50 ms per character is a comfortable reading pace; the
+// ceiling keeps even the largest batch (20 elements) from parking the pill
+// over the viewfinder indefinitely.
+const ERROR_MS_PER_CHARACTER = 50;
+const ERROR_MAX_MS = 12_000;
 
 // On the simulator every video capture fails (there is no camera there), on
 // device a call can come in or the storage can be full. Without this message
@@ -1100,12 +1109,15 @@ export default function CaptureScreen() {
   // and a new identity on every render would restart the run.
   const focusRingDone = useCallback(() => setFocusPoint(null), []);
 
-  // Clears the message away after ERROR_MS. The timer hangs off the state
-  // itself, not off the trigger: that way a second failure sets it anew
-  // instead of the first clock wiping the second message away.
+  // Clears the message away after a hold time that scales with its length
+  // (Final-Review, Important 5): ERROR_MS covers one short sentence, a long
+  // refusalSummary earns extra time up to ERROR_MAX_MS. The timer hangs off
+  // the state itself, not off the trigger: that way a second failure sets it
+  // anew instead of the first clock wiping the second message away.
   useEffect(() => {
     if (!captureError) return;
-    const timer = setTimeout(() => setCaptureError(null), ERROR_MS);
+    const hold = Math.min(ERROR_MAX_MS, Math.max(ERROR_MS, captureError.length * ERROR_MS_PER_CHARACTER));
+    const timer = setTimeout(() => setCaptureError(null), hold);
     return () => clearTimeout(timer);
   }, [captureError]);
 
@@ -1209,7 +1221,7 @@ export default function CaptureScreen() {
     importRunning.current = true;
     try {
       setCaptureError(null);
-      let picked: Awaited<ReturnType<typeof pickFromLibrary>>;
+      let picked: PickResult;
       try {
         picked = await pickFromLibrary();
       } catch (error) {
@@ -1271,21 +1283,31 @@ export default function CaptureScreen() {
         // to initialize. Every accepted element then counts as failed.
         console.error('[capture] library import failed', error);
         outcome = { submitted: 0, failed: accepted.length };
-      } finally {
-        captureLock.lock(false);
       }
       // Cleared unconditionally: a blur during the batch (deep link, router
       // push) sets active.current false but never re-enters this handler,
       // and `importing` is the only thing keeping shutter and header gone.
       // Left set, the viewfinder would stay dead for the rest of the session.
       setImporting(null);
-      if (!active.current) return;
+      if (!active.current) {
+        // Nobody is left to watch the cover, so nothing holds the lock open
+        // for it either (Final-Review, Important 4).
+        captureLock.lock(false);
+        return;
+      }
       for (let i = 0; i < outcome.failed; i += 1) reasons.push('failed');
       const summary = refusalSummary(reasons, total, trip, MAX_VIDEO_SECONDS);
       if (outcome.submitted === 0) {
+        // Nothing was submitted, so there is no cover to hold the lock for
+        // either: the summary is the whole story, right away.
+        captureLock.lock(false);
         setCaptureError(summary);
         return;
       }
+      // The lock stays SET here (Final-Review, Important 4): the cinema tab
+      // bar sits over this screen, and a tab tap during the 3.6 s cover must
+      // not slip past a lock that was already released. finishImport below
+      // releases it once the cover is gone.
       heldSummary.current = summary;
       setImportDone({ added: outcome.submitted, counterBefore });
     } finally {
@@ -1297,6 +1319,10 @@ export default function CaptureScreen() {
   // the focus tick and picks up the fresh queue jobs, and a held summary of
   // the refusals gets its turn in the pill.
   const finishImport = () => {
+    // Only now, with the cover gone, can a tab tap safely act again
+    // (Final-Review, Important 4): importFromLibrary above deliberately kept
+    // the lock through the whole celebration.
+    captureLock.lock(false);
     setImportDone(null);
     setFocusState((n) => n + 1);
     if (heldSummary.current) {

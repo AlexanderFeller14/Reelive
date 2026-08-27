@@ -185,6 +185,19 @@ test('a failing element is cleaned up and counted, the others still go through',
   expect(mockEnqueueJob.mock.calls[0][0]).toMatchObject({ id: 'm2' });
 });
 
+test('a failing prepare is cleaned up without intermediates', async () => {
+  mockPreparePhoto.mockRejectedValueOnce(new Error('broken'));
+
+  const outcome = await submitImports([acceptedPhoto('file:///a.jpg')], TARGET, jest.fn());
+
+  expect(outcome).toEqual({ submitted: 0, failed: 1 });
+  expect(mockRemoveMomentFiles).toHaveBeenCalledWith('m1');
+  expect(mockDiscardFile).toHaveBeenCalledWith('file:///a.jpg');
+  // A rejecting prepare never produces intermediates to discard.
+  expect(mockDiscardIntermediates).not.toHaveBeenCalled();
+  expect(mockEnqueueJob).not.toHaveBeenCalled();
+});
+
 test('a failing place lookup does not cost the element', async () => {
   mockDescribePlace.mockResolvedValue(null);
   const outcome = await submitImports([acceptedPhoto('file:///a.jpg', { lat: 1, lng: 2 })], TARGET, jest.fn());

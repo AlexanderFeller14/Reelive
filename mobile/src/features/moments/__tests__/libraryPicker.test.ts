@@ -1,9 +1,11 @@
 const mockLaunch = jest.fn();
-// The representation mode is a string enum at runtime; the module reads it
-// from the package, so the mock has to carry it.
+// The representation mode is a string enum at runtime, VideoExportPreset a
+// numeric one (src/ImagePicker.types.ts: H264_1920x1080 = 7); the module
+// reads both from the package, so the mock has to carry them.
 jest.mock('expo-image-picker', () => ({
   launchImageLibraryAsync: (options: unknown) => mockLaunch(options),
   UIImagePickerPreferredAssetRepresentationMode: { Compatible: 'compatible' },
+  VideoExportPreset: { H264_1920x1080: 7 },
 }));
 
 const mockGetPermissions = jest.fn();
@@ -35,6 +37,7 @@ test('opens a multi-select picker for photos and videos with EXIF and compatible
       exif: true,
       quality: 1,
       preferredAssetRepresentationMode: 'compatible',
+      videoExportPreset: 7,
     })
   );
   // The avatar bug of 2026-08-13: allowsEditing swaps in the legacy picker.

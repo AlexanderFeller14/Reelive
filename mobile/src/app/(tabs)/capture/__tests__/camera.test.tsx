@@ -3141,7 +3141,8 @@ test('accepted elements go through submitImports for the trip; meanwhile the shu
     finishSubmit({ submitted: 2, failed: 0 });
   });
 
-  expect(captureLock.isLocked()).toBe(false);
+  // The lock stays until the cover is gone (Final-Review, Important 4).
+  expect(captureLock.isLocked()).toBe(true);
   expect(screen.queryByTestId('import-progress')).toBeNull();
   // The animation rolls from the count BEFORE the batch by the batch size.
   expect(mockAnimationProps).toHaveBeenLastCalledWith(
@@ -3153,6 +3154,7 @@ test('accepted elements go through submitImports for the trip; meanwhile the shu
     mockFinishAnimation?.();
   });
 
+  expect(captureLock.isLocked()).toBe(false);
   expect(mockAnimationProps).toHaveBeenLastCalledWith(expect.objectContaining({ visible: false }));
   expect(screen.getByLabelText('Auslöser')).toBeTruthy();
   expect(screen.getByLabelText('Momente aus Fotos einsenden')).toBeTruthy();
@@ -3191,11 +3193,14 @@ test('a partial batch plays the animation first and explains the refusals afterw
   expect(mockAnimationProps).toHaveBeenLastCalledWith(expect.objectContaining({ visible: true, added: 1 }));
   // The summary waits until the cover is gone.
   expect(screen.queryByText(/nicht eingesendet/)).toBeNull();
+  // The lock stays until the cover is gone (Final-Review, Important 4).
+  expect(captureLock.isLocked()).toBe(true);
 
   await act(async () => {
     mockFinishAnimation?.();
   });
 
+  expect(captureLock.isLocked()).toBe(false);
   expect(
     screen.getByText(
       '2 von 3 Momenten wurden nicht eingesendet: 1 Video länger als 90 Sekunden, 1 beim Sichern gescheitert.'
@@ -3367,6 +3372,9 @@ test('a blur during the batch clears the import state so the viewfinder comes ba
   // No animation for a batch nobody is there to watch: active.current was
   // already false when the outcome came back.
   expect(mockAnimationProps).not.toHaveBeenCalledWith(expect.objectContaining({ visible: true }));
+  // Nobody was there to watch the cover either, so the lock was released
+  // right away instead of waiting for a cover that never plays.
+  expect(captureLock.isLocked()).toBe(false);
 });
 
 test('a blur while the picker is open releases the picked copies', async () => {
@@ -3396,4 +3404,58 @@ test('a blur while the picker is open releases the picked copies', async () => {
 
   expect(mockDiscardRefused).toHaveBeenCalledWith([expect.objectContaining({ uri: 'file:///a.jpg' })]);
   expect(mockSubmitImports).not.toHaveBeenCalled();
+});
+
+test('a long refusal summary stays longer than a short error', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(loaded([trip()]));
+  mockPickFromLibrary.mockResolvedValue({
+    canceled: false,
+    media: [
+      pickedPhoto('file:///old.jpg', Date.UTC(2026, 6, 20, 12)),
+      {
+        uri: 'file:///long.mov',
+        kind: 'video' as const,
+        durationMs: 120_000,
+        exif: null,
+        creationTime: Date.UTC(2026, 7, 5, 12),
+        location: null,
+      },
+      {
+        uri: 'file:///nodate.jpg',
+        kind: 'photo' as const,
+        durationMs: null,
+        exif: null,
+        creationTime: null,
+        location: null,
+      },
+    ],
+  });
+  await render(<CaptureScreen />);
+  await screen.findByLabelText('Auslöser');
+
+  // The clock stays the same over the whole run, same reasoning as in 'the
+  // error message disappears by itself' above.
+  jest.useFakeTimers();
+  await act(async () => {
+    fireEvent.press(screen.getByLabelText('Momente aus Fotos einsenden'));
+  });
+
+  const summary = screen.getByText(/^Keiner der 3 Momente wurde eingesendet/);
+  const text = summary.props.children as string;
+
+  // Past the 4 s floor that would clear a short error, the long summary
+  // still stands.
+  await act(async () => {
+    jest.advanceTimersByTime(4_100);
+  });
+  expect(screen.getByText(text)).toBeTruthy();
+
+  // 50 ms per character (ERROR_MS_PER_CHARACTER) beyond the text's own
+  // length clears even this long a summary.
+  await act(async () => {
+    jest.advanceTimersByTime(text.length * 50);
+  });
+  expect(screen.queryByText(text)).toBeNull();
+
+  jest.useRealTimers();
 });

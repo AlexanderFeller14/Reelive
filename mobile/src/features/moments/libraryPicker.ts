@@ -22,10 +22,24 @@ const OPTIONS: ImagePicker.ImagePickerOptions = {
   orderedSelection: true,
   exif: true,
   quality: 1,
-  // HEIC becomes JPEG and HEVC becomes H.264 on the way out of the picker,
-  // so the web player can play what the camera roll delivered.
+  // HEIC becomes JPEG on the way out of the picker, so the web player can
+  // display what the camera roll delivered.
   preferredAssetRepresentationMode:
     ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Compatible,
+  // `preferredAssetRepresentationMode: Compatible` alone does NOT turn HEVC
+  // into H.264 (Final-Review, Important 1): the native default is
+  // `videoExportPreset: .passthrough` (ImagePickerOptions.swift:32), and
+  // MediaHandler.swift's handleVideo (line 404) then takes a passthrough
+  // fast path (lines 412-441) that copies the ORIGINAL library bytes via
+  // PHAssetResourceManager whenever PHAsset.fetchAssets(withLocalIdentifiers:)
+  // finds the asset, i.e. exactly when library read access was granted (see
+  // requestReadAccess below). Setting H264_1920x1080 here fails that
+  // `== .passthrough` check and forces a real transcode. The TypeScript type
+  // marks `videoExportPreset` `@deprecated` (ImagePicker.types.d.ts:437), but
+  // the native module still reads and honours it; the deprecation is only a
+  // documentation note. The exported file then comes out as .mp4, which
+  // mediaExtension already maps.
+  videoExportPreset: ImagePicker.VideoExportPreset.H264_1920x1080,
 };
 
 // Read access to the library is what makes the picker hand over asset ids;

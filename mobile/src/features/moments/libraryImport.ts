@@ -19,7 +19,12 @@ export type PickedMedia = {
 
 export type ImportPeriod = { start_date: string; end_date: string };
 
-export type RefusalReason = 'outside_period' | 'too_long' | 'unknown_date' | 'failed';
+export type RefusalReason =
+  | 'outside_period'
+  | 'too_long'
+  | 'unknown_length'
+  | 'unknown_date'
+  | 'failed';
 
 export type AcceptedMedia = {
   accepted: true;
@@ -95,8 +100,13 @@ export function resolveLocation(
 }
 
 // The import rules, in the order the refusal is reported: no date, then
-// outside the trip period, then too long. The calendar day is formed in the
-// device zone, like everything else about captured_at on this device.
+// outside the trip period, then video length (unknown, then too long). The
+// posts table requires duration_s for type = 'video'
+// (20260803090600_role_hardening.sql:56-58); a video whose length the
+// picker could not determine must be refused here, or the queue job it
+// would become retries forever without ever satisfying that constraint. The
+// calendar day is formed in the device zone, like everything else about
+// captured_at on this device.
 export function assess(
   media: PickedMedia,
   period: ImportPeriod,
@@ -109,8 +119,9 @@ export function assess(
   if (day < period.start_date || day > period.end_date) {
     return { accepted: false, media, reason: 'outside_period' };
   }
-  if (media.kind === 'video' && media.durationMs != null && media.durationMs > maxVideoSeconds * 1000) {
-    return { accepted: false, media, reason: 'too_long' };
+  if (media.kind === 'video') {
+    if (media.durationMs == null) return { accepted: false, media, reason: 'unknown_length' };
+    if (media.durationMs > maxVideoSeconds * 1000) return { accepted: false, media, reason: 'too_long' };
   }
   const location = resolveLocation(media);
   return {
@@ -125,7 +136,13 @@ export function assess(
   };
 }
 
-const REASON_ORDER: RefusalReason[] = ['outside_period', 'too_long', 'unknown_date', 'failed'];
+const REASON_ORDER: RefusalReason[] = [
+  'outside_period',
+  'too_long',
+  'unknown_length',
+  'unknown_date',
+  'failed',
+];
 const DATE_HINT = 'Mit Zugriff auf deine Fotos kommt das Aufnahmedatum meist mit.';
 
 function reasonText(
@@ -141,6 +158,8 @@ function reasonText(
       return count === 1
         ? `Video länger als ${maxVideoSeconds} Sekunden`
         : `Videos länger als ${maxVideoSeconds} Sekunden`;
+    case 'unknown_length':
+      return 'Videolänge unbekannt';
     case 'unknown_date':
       return 'Aufnahmedatum unbekannt';
     case 'failed':

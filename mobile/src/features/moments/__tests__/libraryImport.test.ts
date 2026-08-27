@@ -177,9 +177,12 @@ describe('assess', () => {
     expect(assess(short, PERIOD, MAX_SECONDS, TZ)).toMatchObject({ accepted: true, duration_s: 12 });
   });
 
-  test('a video without a known length is accepted without duration', () => {
+  test('refuses a video without a known length', () => {
     const unknown = media({ kind: 'video', uri: 'file:///x.mov', creationTime: Date.UTC(2026, 7, 5, 12) });
-    expect(assess(unknown, PERIOD, MAX_SECONDS, TZ)).toMatchObject({ accepted: true, duration_s: null });
+    expect(assess(unknown, PERIOD, MAX_SECONDS, TZ)).toMatchObject({
+      accepted: false,
+      reason: 'unknown_length',
+    });
   });
 
   test('refuses media without any capture date', () => {
@@ -232,6 +235,15 @@ describe('refusalSummary', () => {
     );
     expect(refusalSummary(['too_long', 'failed'], 3, PERIOD, MAX_SECONDS)).toBe(
       '2 von 3 Momenten wurden nicht eingesendet: 1 Video länger als 90 Sekunden, 1 beim Sichern gescheitert.'
+    );
+  });
+
+  test('an unknown video length reads as "Videolänge unbekannt"', () => {
+    expect(refusalSummary(['unknown_length'], 1, PERIOD, MAX_SECONDS)).toBe(
+      'Der Moment wurde nicht eingesendet: Videolänge unbekannt.'
+    );
+    expect(refusalSummary(['too_long', 'unknown_length'], 2, PERIOD, MAX_SECONDS)).toBe(
+      'Keiner der 2 Momente wurde eingesendet: 1 Video länger als 90 Sekunden, 1 Videolänge unbekannt.'
     );
   });
 });
