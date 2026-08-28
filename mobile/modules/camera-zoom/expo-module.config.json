@@ -4,7 +4,8 @@
     "modules": [
       "CameraZoomModule",
       "CameraCaptureModule",
-      "MultiCameraModule"
+      "MultiCameraModule",
+      "VideoExportModule"
     ],
     "podspecPath": ["ios/CameraZoom.podspec"]
   }
