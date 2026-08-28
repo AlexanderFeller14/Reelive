@@ -1,4 +1,5 @@
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { X } from 'lucide-react-native';
 import { FadeIn } from '@/components/FadeIn';
 import { PressScale } from '@/components/PressScale';
@@ -7,6 +8,7 @@ import { AddTripRow, TripRow } from '@/components/TripRow';
 import { useTheme } from '@/theme/ThemeProvider';
 import { radius, spacing, type } from '@/theme/tokens';
 import { useTopInset } from '@/theme/useTopInset';
+import * as cinemaStage from '@/features/camera/cinemaStage';
 import type { CachedTrip } from '@/features/trips/tripsCache';
 
 // "Für welche Reise?" (spec 2026-08-27 "Reisewahl"): the light list the
@@ -35,11 +37,22 @@ export function TripPickerScreen({
   // Read top to bottom, and therefore in need of the spared top edge (the
   // viewfinder lays its pill on the camera image instead).
   const topInset = useTopInset(spacing.xl);
+  // The capture scene owns the full height (_layout.tsx), so the opaque tab
+  // bar lies OVER this screen's bottom strip. The list scrolls its last row
+  // and the indicator clear of it by the bar's own formula.
+  const clearance = cinemaStage.barHeight(useSafeAreaInsets().bottom);
   const divided = [styles.divided, { borderTopColor: colors.line }];
 
   return (
     <View style={[styles.screen, { backgroundColor: colors['bg-0'] }]}>
-      <ScrollView contentContainerStyle={[styles.content, { paddingTop: topInset }]}>
+      <ScrollView
+        testID="trip-picker-list"
+        contentContainerStyle={[
+          styles.content,
+          { paddingTop: topInset, paddingBottom: spacing.screen + clearance },
+        ]}
+        scrollIndicatorInsets={{ bottom: clearance }}
+      >
         <View style={styles.head}>
           <Text style={[type.h1, styles.title, { color: colors['text-1'] }]}>Für welche Reise?</Text>
           {onClose && (

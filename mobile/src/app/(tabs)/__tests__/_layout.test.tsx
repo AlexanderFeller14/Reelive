@@ -23,8 +23,14 @@ jest.mock('expo-router/js-top-tabs', () => {
 jest.mock('expo-router', () => ({ useSegments: () => mockUseSegments() }));
 
 import TabsLayout from '../_layout';
+import * as cinemaStage from '@/features/camera/cinemaStage';
+import { palette } from '@/theme/tokens';
 
-type Options = { swipeEnabled?: boolean; lazy?: boolean; sceneStyle?: { backgroundColor?: string } };
+type Options = {
+  swipeEnabled?: boolean;
+  lazy?: boolean;
+  sceneStyle?: { backgroundColor?: string; paddingBottom?: number };
+};
 
 // The options are resolved for both shapes, object and function: the
 // navigator accepts either, and the tests stay independent of which one is
@@ -98,4 +104,40 @@ test('during a running capture swiping is off', async () => {
 test('the screens stay mounted, so the neighbour is there while dragging', async () => {
   await render(<TabsLayout />);
   expect(optionsFor('trip').lazy).not.toBe(true);
+});
+
+// The bar lies over the pager in every shape (TabBar.tsx), so the pager's
+// height never changes with the chosen tab and nothing jumps when a swipe
+// settles (device finding 2026-08-28, "der Sucher ist beim Swipen höher").
+// The scenes keep their distance from the bar through this padding instead.
+// The jest mock reports insets of 0, hence barHeight(0).
+test('every scene except the camera keeps its distance from the bar', async () => {
+  mockUseSegments.mockReturnValue(['(tabs)', 'trip']);
+  await render(<TabsLayout />);
+  for (const tab of ['trip', 'recap', 'profile']) {
+    expect(optionsFor(tab).sceneStyle?.paddingBottom).toBe(cinemaStage.barHeight(0));
+  }
+});
+
+// The capture scene leans its picture on the bar's top edge and pads its
+// light states itself (capture/index.tsx): padded from outside, the whole
+// device-measured viewfinder geometry would shift by a bar height.
+test('the capture scene owns the full height', async () => {
+  await render(<TabsLayout />);
+  expect(optionsFor('capture').sceneStyle?.paddingBottom).toBe(0);
+});
+
+// Spec 8.2: the player is full screen, and its bar is hidden. A padded scene
+// would leave a light strip where the bar used to stand.
+test('on the player route the recap scene reaches the bottom edge', async () => {
+  mockUseSegments.mockReturnValue(['(tabs)', 'recap', '[id]', 'player']);
+  await render(<TabsLayout />);
+  expect(optionsFor('recap').sceneStyle?.paddingBottom).toBe(0);
+});
+
+// The ground the scenes stand on survived the move of `sceneStyle` from the
+// shared options into the per-route answer.
+test('the scenes keep their light ground', async () => {
+  await render(<TabsLayout />);
+  expect(optionsFor('trip').sceneStyle?.backgroundColor).toBe(palette['bg-0']);
 });

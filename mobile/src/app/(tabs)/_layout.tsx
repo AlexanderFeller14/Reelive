@@ -1,10 +1,12 @@
 import { useSyncExternalStore } from 'react';
 import { useSegments } from 'expo-router';
 import { TopTabs, type MaterialTopTabBarProps } from 'expo-router/js-top-tabs';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@/theme/ThemeProvider';
 import { TabBar } from '@/features/navigation/TabBar';
-import { swipeAllowed } from '@/features/navigation/barShape';
+import { paddedScene, swipeAllowed } from '@/features/navigation/barShape';
 import * as captureLock from '@/features/camera/captureLock';
+import * as cinemaStage from '@/features/camera/cinemaStage';
 
 // The tabs can be swiped: a horizontal drag carries the content along and
 // can be taken back mid-gesture. TopTabs is the navigator expo-router ships
@@ -29,11 +31,21 @@ export default function TabsLayout() {
   // fire the focus cleanup into the live session and navigate away from a
   // capture on its way to the preview.
   const locked = useSyncExternalStore(captureLock.subscribe, captureLock.isLocked);
+  // The bar lies over the pager in every shape (TabBar.tsx), so the pager's
+  // height never changes with the chosen tab and nothing jumps when a swipe
+  // settles. The scenes keep their distance from the bar through this padding
+  // instead; which scene goes without it (capture, the player) is barShape's
+  // answer, next to the bar's other shape questions.
+  const insets = useSafeAreaInsets();
+  const clearance = cinemaStage.barHeight(insets.bottom);
   return (
     <TopTabs
       tabBarPosition="bottom"
       tabBar={(props: MaterialTopTabBarProps) => <TabBar {...props} segments={segments} />}
-      screenOptions={{
+      // The param is typed by hand: the navigator's callback type exists only
+      // as an anonymous inline type in TopTabsClient.d.ts, and the function
+      // reads nothing but the route's name (contravariance keeps this sound).
+      screenOptions={({ route }: { route: { name: string } }) => ({
         // Every screen stays mounted, so the neighbour is already there while
         // the finger drags instead of arriving empty. What that costs stays
         // small: the screens hang their loading on useFocusEffect, which
@@ -41,8 +53,11 @@ export default function TabsLayout() {
         // starts with the gesture instead (features/camera/warmup.ts).
         lazy: false,
         swipeEnabled: swipeAllowed(segments) && !locked,
-        sceneStyle: { backgroundColor: colors['bg-0'] },
-      }}
+        sceneStyle: {
+          backgroundColor: colors['bg-0'],
+          paddingBottom: paddedScene(segments, route.name) ? clearance : 0,
+        },
+      })}
     >
       <TopTabs.Screen name="capture" />
       <TopTabs.Screen name="trip" />

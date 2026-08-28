@@ -1,5 +1,5 @@
 import { render, screen, fireEvent } from '@testing-library/react-native';
-import { Animated } from 'react-native';
+import { Animated, StyleSheet } from 'react-native';
 import * as React from 'react';
 import { TabBar } from '../TabBar';
 import { ThemeProvider } from '@/theme/ThemeProvider';
@@ -101,6 +101,28 @@ test('over the viewfinder the bar becomes the translucent cinema one', async () 
 test('without the viewfinder there is no translucent surface', async () => {
   await wrap(<TabBar {...barProps()} />);
   expect(screen.queryByTestId('tab-bar-cinema')).toBeNull();
+});
+
+// The bar lies over the pager in EVERY shape, not only over the viewfinder:
+// its shape follows the COMMITTED tab, and a plain bar that took layout
+// height made every scene a bar height shorter until a swipe settled. The
+// dragged-in camera scene then stood visibly too high and dropped into place
+// at the end of the gesture (device finding 2026-08-28, "der Sucher ist beim
+// Swipen höher"). The scenes keep their distance through scene padding
+// instead (barShape.paddedScene).
+test('the plain bar lies over the scenes instead of taking their height', async () => {
+  await wrap(<TabBar {...barProps({ state: { index: 1, routes: routes() }, segments: ['(tabs)', 'trip'] })} />);
+  const style = StyleSheet.flatten(screen.getByTestId('tab-bar').props.style);
+  expect(style.position).toBe('absolute');
+  expect(style.bottom).toBe(0);
+});
+
+test('the cinema bar stays the overlay it always was', async () => {
+  cinemaStage.set(true);
+  await wrap(<TabBar {...barProps()} />);
+  const style = StyleSheet.flatten(screen.getByTestId('tab-bar').props.style);
+  expect(style.position).toBe('absolute');
+  expect(style.bottom).toBe(0);
 });
 
 test('on another chosen tab the viewfinder flag changes nothing', async () => {

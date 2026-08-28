@@ -1162,6 +1162,57 @@ test('the trip picker lies light as well', async () => {
   expect(inCinema()).toBe(false);
 });
 
+// The capture scene owns the full height (the viewfinder leans its picture on
+// the bar, _layout.tsx), so the bar lies over the LIGHT states as an opaque
+// overlay as well. Unlike the other tabs, whose scenes are padded from
+// outside, these screens pad themselves; without it their content would
+// centre across the strip the bar covers. One test each, same reason as the
+// light-surface run above. barHeight(34): a device with a home indicator.
+const lightStageClearance = () =>
+  (StyleSheet.flatten(screen.getByTestId('light-stage').props.style) as ViewStyle).paddingBottom;
+
+test('the no running trip screen keeps its distance from the overlaid bar', async () => {
+  mockInsets = { top: 59, left: 0, right: 0, bottom: 34 };
+  (fetchTrips as jest.Mock).mockResolvedValue(loaded([]));
+  await render(<CaptureScreen />);
+  await screen.findByText('Keine laufende Reise');
+
+  expect(lightStageClearance()).toBe(cinemaStage.barHeight(34));
+});
+
+test('the permission hint keeps its distance as well', async () => {
+  mockInsets = { top: 59, left: 0, right: 0, bottom: 34 };
+  mockCameraPermission = { status: 'denied', granted: false, canAskAgain: false, expires: 'never' };
+  (fetchTrips as jest.Mock).mockResolvedValue(loaded([trip()]));
+  await render(<CaptureScreen />);
+  await screen.findByText('Kamera-Zugriff fehlt');
+
+  expect(lightStageClearance()).toBe(cinemaStage.barHeight(34));
+});
+
+test('the load error keeps its distance as well', async () => {
+  mockInsets = { top: 59, left: 0, right: 0, bottom: 34 };
+  (fetchTrips as jest.Mock).mockResolvedValue({ data: [], error: 'Offline, ohne Netz keine aktuellen Daten.', countsError: 'Offline' });
+  await render(<CaptureScreen />);
+  await screen.findByText('Das hat nicht geklappt');
+
+  expect(lightStageClearance()).toBe(cinemaStage.barHeight(34));
+});
+
+test('the trip picker scrolls its rows clear of the bar', async () => {
+  mockInsets = { top: 59, left: 0, right: 0, bottom: 34 };
+  (fetchTrips as jest.Mock).mockResolvedValue(
+    loaded([trip({ id: 'a', name: 'Norwegen' }), trip({ id: 'b', name: 'Lissabon' })])
+  );
+  await render(<CaptureScreen />);
+  await screen.findByText('Für welche Reise?');
+
+  const content = StyleSheet.flatten(
+    screen.getByTestId('trip-picker-list').props.contentContainerStyle
+  ) as ViewStyle;
+  expect(content.paddingBottom).toBe(spacing.screen + cinemaStage.barHeight(34));
+});
+
 // The picker is the one scrolling list in this otherwise cinema-shaped file,
 // so it needs the same opaque strip as the other light screens. The global
 // mock reports insets of 0, hence the spy for a device measurement.

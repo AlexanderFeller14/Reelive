@@ -1,4 +1,4 @@
-import { barShape, swipeAllowed } from '../barShape';
+import { barShape, paddedScene, swipeAllowed } from '../barShape';
 
 // These assertions used to live in app/(tabs)/__tests__/_layout.test.tsx and
 // had to render the navigator to reach a nested ternary inside
@@ -52,6 +52,38 @@ describe('barShape', () => {
 
   test('the player beats the cinema bar', () => {
     expect(barShape(['(tabs)', 'recap', '[id]', 'player'], 'recap', true)).toBe('hidden');
+  });
+});
+
+// The bar lies over the pager as an overlay in EVERY shape, so the pager's
+// height never changes with the chosen tab. During a swipe the bar still
+// wears the shape of the tab the navigation state has COMMITTED to, and if
+// the plain shape took layout height, the dragged-in camera scene would
+// stand a full bar height too high until the gesture settles (device finding
+// 2026-08-28, "der Sucher ist beim Swipen höher"). The scenes keep their
+// distance from the bar through padding instead, and this function says
+// which scene gets it.
+describe('paddedScene', () => {
+  test('the ordinary tabs end above the bar', () => {
+    expect(paddedScene(['(tabs)', 'trip'], 'trip')).toBe(true);
+    expect(paddedScene(['(tabs)', 'recap'], 'recap')).toBe(true);
+    expect(paddedScene(['(tabs)', 'profile'], 'profile')).toBe(true);
+  });
+
+  test('the capture scene owns the full height, its picture leans on the bar', () => {
+    expect(paddedScene(['(tabs)', 'capture'], 'capture')).toBe(false);
+  });
+
+  test('on the player route the recap scene reaches the bottom edge', () => {
+    expect(paddedScene(['(tabs)', 'recap', '[id]', 'player'], 'recap')).toBe(false);
+  });
+
+  test('the player route frees only the recap scene, not its neighbours', () => {
+    expect(paddedScene(['(tabs)', 'recap', '[id]', 'player'], 'trip')).toBe(true);
+  });
+
+  test('other routes inside recap keep their distance from the bar', () => {
+    expect(paddedScene(['(tabs)', 'recap', '[id]', 'overview'], 'recap')).toBe(true);
   });
 });
 

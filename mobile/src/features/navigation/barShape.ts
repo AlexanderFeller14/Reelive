@@ -27,6 +27,23 @@ export function barShape(segments: string[], selectedTab: string, viewfinderVisi
   return 'plain';
 }
 
+// The bar lies over the pager as an overlay in EVERY shape (TabBar.tsx), so
+// the pager's height never changes with the chosen tab: the shape follows the
+// COMMITTED navigation state, and a bar that took layout height in its plain
+// shape made every scene a full bar height shorter until a swipe settled. The
+// dragged-in camera scene then stood visibly too high and dropped into place
+// at the end of the gesture (device finding 2026-08-28, "der Sucher ist beim
+// Swipen höher"). The scenes keep their distance from the bar through scene
+// padding instead (app/(tabs)/_layout.tsx), and this function says which
+// scene gets it: the capture scene leans its picture on the bar's top edge
+// and pads its light states itself, and the player is full screen (spec 8.2),
+// so its scene reaches the bottom edge while the bar is hidden.
+export function paddedScene(segments: string[], tab: string): boolean {
+  if (tab === 'capture') return false;
+  if (tab === 'recap' && isPlayerRoute(segments)) return false;
+  return true;
+}
+
 // Swiping belongs to the four root screens only. One level deeper the iOS
 // back swipe owns the same movement, and two gestures fighting over one
 // finger is what makes navigation feel broken. `['(tabs)', <tab>]` is exactly

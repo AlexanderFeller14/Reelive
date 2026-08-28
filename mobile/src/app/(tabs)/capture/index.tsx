@@ -270,6 +270,16 @@ function EmptyScreen() {
   return <View style={styles.light} />;
 }
 
+// The capture scene owns the full height (the picture leans on the bar's top
+// edge, _layout.tsx), so the tab bar lies over the LIGHT states as an opaque
+// overlay too. Unlike the other tabs, whose scenes are padded from outside,
+// the light screens pad themselves by the same formula; without it their
+// content would centre across the strip the bar covers. EmptyScreen stays
+// bare: an empty surface has nothing the bar could push around.
+function useBarClearance(): number {
+  return cinemaStage.barHeight(useSafeAreaInsets().bottom);
+}
+
 // Spec §4 demands both verbatim: "switch camera and flash as translucent
 // pills". §10 excludes only the trip switcher, and "flash" appeared nowhere in
 // the plan (final review, important 7). For a shared travel diary, no front
@@ -297,8 +307,9 @@ function PillButton({
 }
 
 function ErrorScreen({ error, onRetry }: { error: string; onRetry: () => void }) {
+  const clearance = useBarClearance();
   return (
-    <View style={[styles.light, styles.center]}>
+    <View testID="light-stage" style={[styles.light, styles.center, { paddingBottom: clearance }]}>
       <Text style={[type.h2, styles.title]}>Das hat nicht geklappt</Text>
       <Text style={[type.body, styles.text, { marginTop: spacing.s }]}>{error}</Text>
       <View style={{ marginTop: spacing.xl }}>
@@ -472,8 +483,9 @@ function FloatingFlightTicket() {
 // but not running (groupTrips), so the camera stays shut; the text then
 // names the day it opens instead of asking for a first trip.
 function NoTripScreen({ nextTrip, onCreate }: { nextTrip: CachedTrip | null; onCreate: () => void }) {
+  const clearance = useBarClearance();
   return (
-    <View style={[styles.light, styles.center]}>
+    <View testID="light-stage" style={[styles.light, styles.center, { paddingBottom: clearance }]}>
       {/* The third empty state with an image of its own, after the camper
           (trip tab) and the film reel (recap tab): the image only stands where
           nothing else does. */}
@@ -492,8 +504,9 @@ function NoTripScreen({ nextTrip, onCreate }: { nextTrip: CachedTrip | null; onC
 }
 
 function PermissionScreen() {
+  const clearance = useBarClearance();
   return (
-    <View style={[styles.light, styles.center]}>
+    <View testID="light-stage" style={[styles.light, styles.center, { paddingBottom: clearance }]}>
       <Text style={[type.h2, styles.title]}>Kamera-Zugriff fehlt</Text>
       <Text style={[type.body, styles.text, { marginTop: spacing.s }]}>
         Reelive braucht Zugriff auf Kamera und Mikrofon, um Momente aufzunehmen. Erlaube das in

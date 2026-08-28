@@ -77,12 +77,14 @@ export function TabBar({ state, navigation, position, jumpTo, segments }: Props)
   const cinemaMode = shape === 'cinema';
   return (
     <View
+      testID="tab-bar"
       style={[
         styles.bar,
         // The height comes from cinemaStage.barHeight and nowhere else: the
-        // camera screen lifts its lower controls by exactly this amount while
-        // the bar lies over the viewfinder, one shared formula instead of two
-        // numbers that can drift apart.
+        // camera screen lifts its lower controls by exactly this amount, and
+        // the scene padding in _layout.tsx keeps the other screens clear of
+        // the bar, one shared formula instead of numbers that can drift
+        // apart.
         { height: cinemaStage.barHeight(bottom) },
         cinemaMode
           ? styles.cinemaBar
@@ -136,10 +138,25 @@ export function TabBar({ state, navigation, position, jumpTo, segments }: Props)
 }
 
 const styles = StyleSheet.create({
-  bar: { flexDirection: 'row', paddingTop: cinemaStage.BAR_TOP_PADDING },
-  // Over the viewfinder the bar lies ON the image instead of taking height
-  // away from it, so viewfinder and preview show the same area.
-  cinemaBar: { position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: 'transparent' },
+  // The bar lies over the pager in EVERY shape: its shape follows the
+  // COMMITTED tab, and a plain bar that took layout height made every scene
+  // a bar height shorter until a swipe settled, so the dragged-in camera
+  // scene stood visibly too high and dropped into place at the end of the
+  // gesture (device finding 2026-08-28, "der Sucher ist beim Swipen höher").
+  // The scenes keep their distance through scene padding instead
+  // (barShape.paddedScene, applied in _layout.tsx).
+  bar: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    flexDirection: 'row',
+    paddingTop: cinemaStage.BAR_TOP_PADDING,
+  },
+  // Over the viewfinder the bar's own surface disappears: the translucent
+  // pill below carries the cinema look, so viewfinder and preview show the
+  // same area.
+  cinemaBar: { backgroundColor: 'transparent' },
   item: { flex: 1, alignItems: 'center', gap: spacing.xs },
   label: { textAlign: 'center' },
 });
