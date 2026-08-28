@@ -315,7 +315,11 @@ Die Reise existiert dann bereits. Der Screen:
   ausführt;
 - sperrt Name und Zeitraum (`editable={false}`), weil die Reise mit diesen
   Werten schon angelegt ist. Wer sie ändern will, tut das im
-  Bearbeiten-Screen.
+  Bearbeiten-Screen;
+- entfernt die Person in diesem Zustand das Cover («Ändern» → «Cover
+  entfernen»), verschwinden Fehlertext und Textlink, und der Primär-Button
+  heisst «Ohne Cover weiter» und führt Schritt 4 aus. Ein neu gewähltes
+  Cover bringt «Nochmal versuchen» zurück.
 
 Die Kosten des Sonderfalls sind bewusst klein gehalten: kein Löschen der
 angelegten Reise, kein zweiter Screen.
