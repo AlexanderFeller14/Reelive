@@ -31,6 +31,10 @@ type Item = {
   kind: 'photo' | 'video';
   durationS: number | null;
   thumb: string | null;
+  // True only for a video still frame this screen asked expo-video-thumbnails
+  // to write into tmp. A photo's thumb is the picker copy itself (released
+  // as the item's own uri), never a second file this screen must clean up.
+  ownsThumb: boolean;
   status: TileStatus;
   progress: number;
 };
@@ -65,6 +69,7 @@ export default function ImportReviewScreen() {
             kind: entry.media.kind,
             durationS: entry.duration_s,
             thumb: entry.media.kind === 'photo' ? entry.media.uri : null,
+            ownsThumb: false,
             status: 'ready',
             progress: 0,
           })),
@@ -76,6 +81,7 @@ export default function ImportReviewScreen() {
             kind: entry.media.kind,
             durationS: entry.media.durationMs != null ? Math.round(entry.media.durationMs / 1000) : null,
             thumb: entry.media.kind === 'photo' ? entry.media.uri : null,
+            ownsThumb: false,
             status: 'ready',
             progress: 0,
           })),
@@ -95,6 +101,36 @@ export default function ImportReviewScreen() {
     };
   }, []);
 
+  // A snapshot of `items` the async work below can read without becoming a
+  // dependency itself: the still-frame effect runs once (on mount), and the
+  // batch's cleanup runs after `items` has moved on through many progress
+  // updates, so both need the current list, not the one they closed over.
+  const itemsRef = useRef(items);
+  useEffect(() => {
+    itemsRef.current = items;
+  }, [items]);
+
+  // Every copy still on this screen leaves tmp exactly once: Abbrechen and a
+  // pop of the route (the back gesture) both land here, whichever comes
+  // first. The batch has its own release (below, after submitImports), and
+  // marks this done too so a pop afterwards releases nothing twice.
+  const released = useRef(false);
+
+  // A still frame is its own tmp file (Fix 1, review finding): tracking
+  // which ones already left keeps every release path below (the x,
+  // releaseAll, the batch's own cleanup, and a frame arriving too late)
+  // from discarding the same uri twice.
+  const releasedFrameUris = useRef<Set<string>>(new Set());
+  const releaseFrame = useCallback((uri: string | null, ownsThumb: boolean) => {
+    if (!ownsThumb || uri === null) return;
+    if (releasedFrameUris.current.has(uri)) return;
+    releasedFrameUris.current.add(uri);
+    media.discardFile(uri);
+  }, []);
+  const releaseOwnedFrames = useCallback(() => {
+    for (const item of itemsRef.current) releaseFrame(item.thumb, item.ownsThumb);
+  }, [releaseFrame]);
+
   // Cinema look while this screen stands, like the preview.
   useEffect(() => {
     setStatusBarStyle('light');
@@ -108,18 +144,32 @@ export default function ImportReviewScreen() {
   }, [handoff, router]);
 
   // Video still frames load one after the other; each tile shows its
-  // placeholder until its own frame is in.
+  // placeholder until its own frame is in. Every frame stored here is a tmp
+  // copy this screen alone owns (ownsThumb: true), so this screen alone is
+  // responsible for discarding it again.
   useEffect(() => {
     let cancelled = false;
     const videos = items.filter((item) => item.kind === 'video' && item.thumb === null);
     void (async () => {
       for (const video of videos) {
         try {
-          const frame = await getThumbnailAsync(video.uri, { time: 0 });
+          const frame = await getThumbnailAsync(video.uri, { time: 0, quality: 0.6 });
           if (cancelled || !active.current) return;
-          setItems((current) =>
-            current.map((item) => (item.key === video.key ? { ...item, thumb: frame.uri } : item))
-          );
+          // A frame that arrives after its tile was dropped, or after
+          // Abbrechen/the back gesture/the batch already released
+          // everything, has nowhere left to be stored: discard it right
+          // away instead of keeping it on the item.
+          let stillWanted = false;
+          if (!released.current) {
+            setItems((current) => {
+              if (!current.some((entry) => entry.key === video.key)) return current;
+              stillWanted = true;
+              return current.map((entry) =>
+                entry.key === video.key ? { ...entry, thumb: frame.uri, ownsThumb: true } : entry
+              );
+            });
+          }
+          if (!stillWanted) media.discardFile(frame.uri);
         } catch (error) {
           console.error('[import-review] still frame failed', video.uri, error);
         }
@@ -129,7 +179,8 @@ export default function ImportReviewScreen() {
       cancelled = true;
     };
     // Only on mount: dropped tiles need no frame, and a frame that arrives
-    // for a dropped tile is filtered by key anyway.
+    // late is handled above by checking whether the tile, and the screen's
+    // release state, still want it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -145,23 +196,21 @@ export default function ImportReviewScreen() {
     const item = items.find((entry) => entry.key === key);
     if (!item || phase !== 'review') return;
     media.discardFile(item.uri);
+    releaseFrame(item.thumb, item.ownsThumb);
     setItems((current) => current.filter((entry) => entry.key !== key));
   };
 
-  // Every copy still on this screen leaves tmp exactly once: Abbrechen and a
-  // pop of the route (the back gesture) both land here, whichever comes
-  // first. The batch has its own release (below, after submitImports), and
-  // marks this done too so a pop afterwards releases nothing twice.
-  const released = useRef(false);
   const releaseAll = useCallback(() => {
     if (released.current) return;
     released.current = true;
     for (const item of acceptedItems) media.discardFile(item.uri);
     discardRefused(refusedEntries.map((entry) => entry.media));
-  }, [acceptedItems, refusedEntries]);
+    releaseOwnedFrames();
+  }, [acceptedItems, refusedEntries, releaseOwnedFrames]);
 
   // Abbrechen: nothing entered the queue, so every remaining copy (accepted
-  // and refused alike) leaves tmp, then the screen goes back.
+  // and refused alike, plus any still frame already loaded) leaves tmp,
+  // then the screen goes back.
   const cancel = () => {
     if (phase !== 'review') return;
     releaseAll();
@@ -209,16 +258,25 @@ export default function ImportReviewScreen() {
         }
       );
     } catch (error) {
-      // submitImports catches per element; this is the queue itself failing
-      // to initialize. Every element then counts as failed.
+      // submitImports catches per element itself (submitOne); landing here
+      // means the queue never got to run at all, so none of the accepted
+      // copies were consumed on the way in. Release them here, same as the
+      // still frames, so the queue failing to initialise does not leak the
+      // originals into tmp.
       console.error('[import-review] batch failed', error);
+      for (const item of batch) media.discardFile(item.media.uri);
+      releaseOwnedFrames();
       outcome = { submitted: 0, failed: batch.length };
     }
     // The refused copies were only kept for their tiles. The accepted ones
-    // were consumed by submitImports itself; either way nothing here needs
-    // releaseAll's work anymore, so a later pop (via the listener above,
-    // already off once phase leaves 'review') must not release again.
+    // were consumed by submitImports itself (or released above on the
+    // queue-failure path); either way nothing here needs releaseAll's work
+    // anymore, so a later pop (via the listener above, already off once
+    // phase leaves 'review') must not release again. The still frames are
+    // a separate kind of tmp copy submitImports never touches, so they are
+    // released here on every path, success or failure alike.
     discardRefused(refusedEntries.map((entry) => entry.media));
+    releaseOwnedFrames();
     released.current = true;
     if (!active.current) return;
     setSubmitted(outcome.submitted);

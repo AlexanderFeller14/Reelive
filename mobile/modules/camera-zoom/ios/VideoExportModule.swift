@@ -35,6 +35,7 @@ public class VideoExportModule: Module {
           }
           promise.resolve(Self.fourCharacterCode(CMFormatDescriptionGetMediaSubType(description)))
         } catch {
+          NSLog("[VideoExport] codec lookup failed for %@: %@", uri, String(describing: error))
           promise.resolve(nil)
         }
       }
@@ -75,6 +76,9 @@ public class VideoExportModule: Module {
         case .completed:
           promise.resolve(["uri": output.absoluteString])
         default:
+          // A failed or cancelled session leaves a partial file behind that
+          // the JS side never learns the uri of, so nothing else can remove it.
+          try? FileManager.default.removeItem(at: output)
           promise.reject(
             "E_VIDEO_EXPORT_FAILED",
             session.error?.localizedDescription ?? "export ended with status \(session.status.rawValue)"

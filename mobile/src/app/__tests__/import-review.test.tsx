@@ -129,7 +129,7 @@ test('shows every element, loads the video still frame, dims the refused one wit
     screen.getByText('1 von 4 Momenten kommt nicht mit: ausserhalb des Reisezeitraums (1.–14. Aug 2026).')
   ).toBeTruthy();
   await act(async () => {});
-  expect(mockGetThumbnail).toHaveBeenCalledWith('file:///b.mov', { time: 0 });
+  expect(mockGetThumbnail).toHaveBeenCalledWith('file:///b.mov', { time: 0, quality: 0.6 });
   expect(screen.getByTestId('import-tile-1-image')).toBeTruthy();
 });
 
@@ -145,6 +145,19 @@ test('the x drops an element, releases its copy, and the count follows', async (
   expect(screen.getAllByLabelText('Aus der Auswahl entfernen')).toHaveLength(2);
   expect(screen.getByText('2 Momente passen in den Reisezeitraum')).toBeTruthy();
   expect(screen.getByLabelText('2 Momente einsenden')).toBeTruthy();
+});
+
+test('the x on a video releases its still frame too', async () => {
+  handoff();
+  await render(<ImportReviewScreen />);
+  await act(async () => {});
+
+  await act(async () => {
+    fireEvent.press(screen.getAllByLabelText('Aus der Auswahl entfernen')[1]);
+  });
+
+  expect(mockDiscardFile).toHaveBeenCalledWith('file:///b.mov');
+  expect(mockDiscardFile).toHaveBeenCalledWith('file:///b.thumb.jpg');
 });
 
 test('with everything dropped the button is disabled and the text says so', async () => {
@@ -166,13 +179,14 @@ test('with everything dropped the button is disabled and the text says so', asyn
 test('Abbrechen releases every remaining copy and goes back', async () => {
   handoff();
   await render(<ImportReviewScreen />);
+  await act(async () => {});
 
   await act(async () => {
     fireEvent.press(screen.getByLabelText('Abbrechen'));
   });
 
   expect(mockDiscardFile.mock.calls.map(([uri]) => uri).sort()).toEqual(
-    ['file:///a.jpg', 'file:///b.mov', 'file:///c.jpg'].sort()
+    ['file:///a.jpg', 'file:///b.mov', 'file:///b.thumb.jpg', 'file:///c.jpg'].sort()
   );
   expect(mockDiscardRefused).toHaveBeenCalledWith([expect.objectContaining({ uri: 'file:///old.jpg' })]);
   expect(mockSubmitImports).not.toHaveBeenCalled();
@@ -189,8 +203,11 @@ test('a back gesture while reviewing releases every remaining copy, once', async
     mockBeforeRemove?.();
   });
 
+  // By this point the still frame promise (resolved back in beforeEach) has
+  // already settled: an async act flushes pending microtasks regardless of
+  // what its own callback does, so the video's tile already owns its frame.
   expect(mockDiscardFile.mock.calls.map(([uri]) => uri).sort()).toEqual(
-    ['file:///a.jpg', 'file:///b.mov', 'file:///c.jpg'].sort()
+    ['file:///a.jpg', 'file:///b.mov', 'file:///b.thumb.jpg', 'file:///c.jpg'].sort()
   );
   expect(mockDiscardRefused).toHaveBeenCalledWith([expect.objectContaining({ uri: 'file:///old.jpg' })]);
 
@@ -201,7 +218,29 @@ test('a back gesture while reviewing releases every remaining copy, once', async
     fireEvent.press(screen.getByLabelText('Abbrechen'));
   });
 
-  expect(mockDiscardFile).toHaveBeenCalledTimes(3);
+  expect(mockDiscardFile).toHaveBeenCalledTimes(4);
+  expect(mockDiscardRefused).toHaveBeenCalledTimes(1);
+});
+
+test('a still frame that arrives after Abbrechen is discarded, not kept', async () => {
+  handoff();
+  let resolveFrame: (value: { uri: string; width: number; height: number }) => void = () => {};
+  mockGetThumbnail.mockReturnValue(
+    new Promise((resolve) => {
+      resolveFrame = resolve;
+    })
+  );
+  await render(<ImportReviewScreen />);
+
+  await act(async () => {
+    fireEvent.press(screen.getByLabelText('Abbrechen'));
+  });
+
+  await act(async () => {
+    resolveFrame({ uri: 'file:///b.thumb.jpg', width: 100, height: 100 });
+  });
+
+  expect(mockDiscardFile).toHaveBeenCalledWith('file:///b.thumb.jpg');
 });
 
 test('Einsenden runs the batch with progress per tile, locks the way back, then celebrates and returns', async () => {
@@ -257,6 +296,7 @@ test('Einsenden runs the batch with progress per tile, locks the way back, then 
 
   expect(screen.getByText('Nicht gesichert')).toBeTruthy();
   expect(mockDiscardRefused).toHaveBeenCalledWith([expect.objectContaining({ uri: 'file:///old.jpg' })]);
+  expect(mockDiscardFile).toHaveBeenCalledWith('file:///b.thumb.jpg');
   expect(mockAnimationProps).toHaveBeenLastCalledWith(
     expect.objectContaining({ visible: true, counter: 4, added: 2 })
   );
@@ -282,6 +322,22 @@ test('when nothing was submitted the screen stays with an explanation and a way 
     fireEvent.press(screen.getByLabelText('Zurück'));
   });
   expect(mockBack).toHaveBeenCalledTimes(1);
+});
+
+test('a queue that fails to initialise releases the accepted copies and shows the failure', async () => {
+  handoff();
+  mockSubmitImports.mockRejectedValue(new Error('queue broke'));
+  await render(<ImportReviewScreen />);
+
+  await act(async () => {
+    fireEvent.press(screen.getByLabelText('3 Momente einsenden'));
+  });
+
+  expect(mockDiscardFile.mock.calls.map(([uri]) => uri)).toEqual(
+    expect.arrayContaining(['file:///a.jpg', 'file:///b.mov', 'file:///c.jpg'])
+  );
+  expect(mockAnimationProps).not.toHaveBeenCalledWith(expect.objectContaining({ visible: true }));
+  expect(screen.getByText('Keiner der Momente liess sich sichern.')).toBeTruthy();
 });
 
 test('without a way back the screen replaces itself with the camera', async () => {

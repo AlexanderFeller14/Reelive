@@ -54,7 +54,7 @@ export async function ensureH264(
   try {
     codec = await m.videoCodec(uri);
   } catch (error) {
-    console.error('[videoExport] codec lookup failed', uri, error);
+    console.warn('[videoExport] codec lookup failed', uri, error);
     return { uri, converted: false };
   }
   if (codec === null || codec === H264) return { uri, converted: false };

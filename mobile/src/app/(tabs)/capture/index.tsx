@@ -127,14 +127,11 @@ function playerReady(player: VideoPlayer): Promise<void> {
 // times.
 const ERROR_MS = 4000;
 
-// A single capture error is one short sentence; ERROR_MS alone covers that.
-// The pill also carries the library import's batch-failure summary: the
-// pre-submission refusals are already explained in the confirmation sheet,
-// so what lands here only lists what failed while sending, one reason
-// repeated, hence short in practice. 50 ms per character is a comfortable
-// reading pace regardless, and the ceiling keeps even a long text from
-// parking the pill over the viewfinder indefinitely, should either text
-// ever grow past a single short sentence.
+// The pill carries short capture and picker errors, each one short
+// sentence in practice; ERROR_MS alone covers that today. 50 ms per
+// character stays as headroom for a longer text should one ever land
+// here, and the ceiling keeps even that from parking the pill over the
+// viewfinder indefinitely; neither bites yet.
 const ERROR_MS_PER_CHARACTER = 50;
 const ERROR_MAX_MS = 12_000;
 
@@ -1091,12 +1088,11 @@ export default function CaptureScreen() {
   const focusRingDone = useCallback(() => setFocusPoint(null), []);
 
   // Clears the message away after a hold time that scales with its length
-  // (Final-Review, Important 5): ERROR_MS covers one short sentence, the
-  // library import's batch-failure summary or a longer capture error earns
-  // extra time up to ERROR_MAX_MS if it ever runs past that. The timer
-  // hangs off the state itself, not off the trigger: that way a second
-  // failure sets it anew instead of the first clock wiping the second
-  // message away.
+  // (Final-Review, Important 5): ERROR_MS covers today's short capture and
+  // picker errors, and a longer text would earn extra time up to
+  // ERROR_MAX_MS should one ever land here. The timer hangs off the state
+  // itself, not off the trigger: that way a second failure sets it anew
+  // instead of the first clock wiping the second message away.
   useEffect(() => {
     if (!captureError) return;
     const hold = Math.min(ERROR_MAX_MS, Math.max(ERROR_MS, captureError.length * ERROR_MS_PER_CHARACTER));
