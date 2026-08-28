@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FlatList, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
-import { Stack, useRouter } from 'expo-router';
+import { Stack, useNavigation, useRouter } from 'expo-router';
 import { setStatusBarStyle } from 'expo-status-bar';
 import { getThumbnailAsync } from 'expo-video-thumbnails';
 import { CinemaButton, CinemaTextLink } from '@/components/CinemaButton';
@@ -49,6 +49,7 @@ function momentsText(count: number): string {
 // after the picker now lives here.
 export default function ImportReviewScreen() {
   const router = useRouter();
+  const navigation = useNavigation();
   const { width } = useWindowDimensions();
   const topInset = useTopInset(spacing.xl);
   const bottomInset = useBottomInset(spacing.xl);
@@ -147,14 +148,36 @@ export default function ImportReviewScreen() {
     setItems((current) => current.filter((entry) => entry.key !== key));
   };
 
-  // Abbrechen, or the back gesture while reviewing: nothing entered the
-  // queue, so every remaining copy (accepted and refused alike) leaves tmp.
-  const cancel = () => {
-    if (phase !== 'review') return;
+  // Every copy still on this screen leaves tmp exactly once: Abbrechen and a
+  // pop of the route (the back gesture) both land here, whichever comes
+  // first. The batch has its own release (below, after submitImports), and
+  // marks this done too so a pop afterwards releases nothing twice.
+  const released = useRef(false);
+  const releaseAll = useCallback(() => {
+    if (released.current) return;
+    released.current = true;
     for (const item of acceptedItems) media.discardFile(item.uri);
     discardRefused(refusedEntries.map((entry) => entry.media));
+  }, [acceptedItems, refusedEntries]);
+
+  // Abbrechen: nothing entered the queue, so every remaining copy (accepted
+  // and refused alike) leaves tmp, then the screen goes back.
+  const cancel = () => {
+    if (phase !== 'review') return;
+    releaseAll();
     backToCamera();
   };
+
+  // The back gesture pops the route without asking; while reviewing that is
+  // the same as Abbrechen (spec step 3), so the copies leave with it. During
+  // and after the batch the gesture is off (gestureEnabled follows
+  // `reviewing`), and the batch releases what it consumed itself.
+  useEffect(() => {
+    if (phase !== 'review') return;
+    return navigation.addListener('beforeRemove', () => {
+      releaseAll();
+    });
+  }, [navigation, phase, releaseAll]);
 
   const submit = async () => {
     if (!handoff || phase !== 'review' || acceptedItems.length === 0) return;
@@ -191,8 +214,12 @@ export default function ImportReviewScreen() {
       console.error('[import-review] batch failed', error);
       outcome = { submitted: 0, failed: batch.length };
     }
-    // The refused copies were only kept for their tiles.
+    // The refused copies were only kept for their tiles. The accepted ones
+    // were consumed by submitImports itself; either way nothing here needs
+    // releaseAll's work anymore, so a later pop (via the listener above,
+    // already off once phase leaves 'review') must not release again.
     discardRefused(refusedEntries.map((entry) => entry.media));
+    released.current = true;
     if (!active.current) return;
     setSubmitted(outcome.submitted);
     setPhase(outcome.submitted > 0 ? 'celebrating' : 'nothing');

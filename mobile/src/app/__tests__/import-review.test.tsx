@@ -7,8 +7,14 @@ const mockReplace = jest.fn();
 const mockBack = jest.fn();
 let mockCanGoBack = true;
 const mockStackScreenOptions = jest.fn();
+let mockBeforeRemove: (() => void) | null = null;
+const mockAddListener = jest.fn((event: string, listener: () => void) => {
+  if (event === 'beforeRemove') mockBeforeRemove = listener;
+  return jest.fn();
+});
 jest.mock('expo-router', () => ({
   useRouter: () => ({ replace: mockReplace, back: mockBack, push: jest.fn(), canGoBack: () => mockCanGoBack }),
+  useNavigation: () => ({ addListener: mockAddListener }),
   Stack: {
     Screen: (props: { options?: object }) => {
       mockStackScreenOptions(props.options);
@@ -98,6 +104,7 @@ beforeEach(() => {
   takeImport();
   mockCanGoBack = true;
   mockFinishAnimation = null;
+  mockBeforeRemove = null;
   mockGetThumbnail.mockResolvedValue({ uri: 'file:///b.thumb.jpg', width: 100, height: 100 });
   mockSubmitImports.mockResolvedValue({ submitted: 0, failed: 0 });
 });
@@ -170,6 +177,31 @@ test('Abbrechen releases every remaining copy and goes back', async () => {
   expect(mockDiscardRefused).toHaveBeenCalledWith([expect.objectContaining({ uri: 'file:///old.jpg' })]);
   expect(mockSubmitImports).not.toHaveBeenCalled();
   expect(mockBack).toHaveBeenCalledTimes(1);
+});
+
+test('a back gesture while reviewing releases every remaining copy, once', async () => {
+  handoff();
+  await render(<ImportReviewScreen />);
+
+  expect(mockAddListener).toHaveBeenCalledWith('beforeRemove', expect.any(Function));
+
+  await act(async () => {
+    mockBeforeRemove?.();
+  });
+
+  expect(mockDiscardFile.mock.calls.map(([uri]) => uri).sort()).toEqual(
+    ['file:///a.jpg', 'file:///b.mov', 'file:///c.jpg'].sort()
+  );
+  expect(mockDiscardRefused).toHaveBeenCalledWith([expect.objectContaining({ uri: 'file:///old.jpg' })]);
+
+  // The route itself never actually pops in this test (the mock's back()
+  // is a no-op), so Abbrechen can still fire afterwards; nothing releases
+  // twice.
+  await act(async () => {
+    fireEvent.press(screen.getByLabelText('Abbrechen'));
+  });
+
+  expect(mockDiscardFile).toHaveBeenCalledTimes(3);
 });
 
 test('Einsenden runs the batch with progress per tile, locks the way back, then celebrates and returns', async () => {
