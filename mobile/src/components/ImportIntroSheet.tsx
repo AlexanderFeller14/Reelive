@@ -12,6 +12,10 @@ type Props = {
   selectionLimit: number;
   onPick: () => void;
   onClose: () => void;
+  // Forwarded to Sheet, see the prop's comment there: the capture screen
+  // hands in the cinema tab bar's height so "Fotos auswählen" and
+  // "Abbrechen" clear the bar.
+  bottomInset?: number;
 };
 
 // The sheet before the photo picker (decision 2026-08-27: shown on every
@@ -25,6 +29,7 @@ export function ImportIntroSheet({
   selectionLimit,
   onPick,
   onClose,
+  bottomInset,
 }: Props) {
   const rules = [
     `Nur Momente aus dem Reisezeitraum (${formatRange(period.start_date, period.end_date)})`,
@@ -32,7 +37,7 @@ export function ImportIntroSheet({
     `Ohne Caption, bis zum Recap versiegelt, höchstens ${selectionLimit} auf einmal`,
   ];
   return (
-    <Sheet visible={visible} title="Momente aus Fotos" onClose={onClose} cinemaMode>
+    <Sheet visible={visible} title="Momente aus Fotos" onClose={onClose} cinemaMode bottomInset={bottomInset}>
       <Text style={[type.body, { color: cinema['text-1'] }]}>
         Reelive holt Fotos und Videos aus deiner Fotomediathek in die Reise. Es gelten dieselben
         Regeln wie beim Aufnehmen:

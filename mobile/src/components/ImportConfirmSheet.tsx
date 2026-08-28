@@ -14,6 +14,10 @@ type Props = {
   summary: string | null;
   onConfirm: () => void;
   onClose: () => void;
+  // Forwarded to Sheet, see the prop's comment there: the capture screen
+  // hands in the cinema tab bar's height so the submit button and
+  // "Abbrechen"/"Verstanden" clear the bar.
+  bottomInset?: number;
 };
 
 const THUMB = 64;
@@ -26,18 +30,24 @@ function momentsText(count: number): string {
 // in, as thumbnails and a count, what stays out and why, then the choice
 // to submit or to cancel. A cancel releases every picked copy (the caller
 // does that in onClose); nothing has entered the queue at this point.
-export function ImportConfirmSheet({ visible, accepted, summary, onConfirm, onClose }: Props) {
+export function ImportConfirmSheet({ visible, accepted, summary, onConfirm, onClose, bottomInset }: Props) {
   const count = accepted.length;
   if (count === 0) {
     return (
-      <Sheet visible={visible} title="Nichts zum Einsenden" onClose={onClose} cinemaMode>
+      <Sheet
+        visible={visible}
+        title="Nichts zum Einsenden"
+        onClose={onClose}
+        cinemaMode
+        bottomInset={bottomInset}
+      >
         {summary ? <Text style={[type.body, { color: cinema['text-1'] }]}>{summary}</Text> : null}
         <CinemaButton label="Verstanden" onPress={onClose} />
       </Sheet>
     );
   }
   return (
-    <Sheet visible={visible} title="Einsenden?" onClose={onClose} cinemaMode>
+    <Sheet visible={visible} title="Einsenden?" onClose={onClose} cinemaMode bottomInset={bottomInset}>
       {/* A video's frame is not on hand yet (prepareVideo renders it only
           when submitting), so a video shows as a dark film tile; photos
           come straight from the picker copy. */}

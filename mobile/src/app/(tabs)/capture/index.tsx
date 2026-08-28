@@ -136,11 +136,13 @@ function playerReady(player: VideoPlayer): Promise<void> {
 const ERROR_MS = 4000;
 
 // A single capture error is one short sentence; ERROR_MS alone covers that.
-// A library-import refusalSummary of a large batch can reach roughly two
-// hundred characters (Final-Review, Important 5), and 4 s is not enough to
-// read that much. 50 ms per character is a comfortable reading pace; the
-// ceiling keeps even the largest batch (20 elements) from parking the pill
-// over the viewfinder indefinitely.
+// The pill also carries the library import's batch-failure summary: the
+// pre-submission refusals are already explained in the confirmation sheet,
+// so what lands here only lists what failed while sending, one reason
+// repeated, hence short in practice. 50 ms per character is a comfortable
+// reading pace regardless, and the ceiling keeps even a long text from
+// parking the pill over the viewfinder indefinitely, should either text
+// ever grow past a single short sentence.
 const ERROR_MS_PER_CHARACTER = 50;
 const ERROR_MAX_MS = 12_000;
 
@@ -587,15 +589,16 @@ export default function CaptureScreen() {
   // live in importRunning/importing, not here.
   const [importStage, setImportStage] = useState<
     | { kind: 'intro' }
-    | { kind: 'confirm'; total: number; accepted: AcceptedMedia[]; reasons: RefusalReason[] }
+    | { kind: 'confirm'; tripId: string; total: number; accepted: AcceptedMedia[]; reasons: RefusalReason[] }
     | null
   >(null);
-  // Re-entry guard for importFromLibrary (same pattern as photoRunning
-  // above): `importing` stays null for the whole picker round trip
-  // (requestReadAccess awaits a permission check before the picker even
-  // presents), so the button is still tappable then. A ref, because the
-  // value has to be read synchronously within the same tick, before any
-  // state update from the first press has landed.
+  // Re-entry guard for pickAndAssess and confirmImport (same pattern as
+  // photoRunning above): the ref fences the two native round trips (the
+  // picker, the batch) so they can't overlap with themselves or each
+  // other, while the sheets themselves (importStage) stay plain state and
+  // remain tappable in between. A ref, because the value has to be read
+  // synchronously within the same tick, before any state update from the
+  // first press has landed.
   const importRunning = useRef(false);
   // The DISPLAYED factor (0.5 / 1 / 4 ...), not the device's. Between the two
   // lies the base, see zoom.ts.
@@ -1121,10 +1124,12 @@ export default function CaptureScreen() {
   const focusRingDone = useCallback(() => setFocusPoint(null), []);
 
   // Clears the message away after a hold time that scales with its length
-  // (Final-Review, Important 5): ERROR_MS covers one short sentence, a long
-  // refusalSummary earns extra time up to ERROR_MAX_MS. The timer hangs off
-  // the state itself, not off the trigger: that way a second failure sets it
-  // anew instead of the first clock wiping the second message away.
+  // (Final-Review, Important 5): ERROR_MS covers one short sentence, the
+  // library import's batch-failure summary or a longer capture error earns
+  // extra time up to ERROR_MAX_MS if it ever runs past that. The timer
+  // hangs off the state itself, not off the trigger: that way a second
+  // failure sets it anew instead of the first clock wiping the second
+  // message away.
   useEffect(() => {
     if (!captureError) return;
     const hold = Math.min(ERROR_MAX_MS, Math.max(ERROR_MS, captureError.length * ERROR_MS_PER_CHARACTER));
@@ -1167,6 +1172,23 @@ export default function CaptureScreen() {
       })
       .catch(() => {});
   }, [trip?.id, focusState]);
+
+  // A confirmation sheet belongs to the trip its elements were assessed
+  // against. If the trip changes underneath it (the tab stays swipeable
+  // while a sheet is open: the trip can end or be revealed meanwhile and
+  // another one takes its place), the sheet must not survive: its copies
+  // leave tmp and the stage clears, instead of submitting into a trip the
+  // person never confirmed.
+  useEffect(() => {
+    if (importStage?.kind !== 'confirm' || importStage.tripId === trip?.id) return;
+    discardRefused(importStage.accepted.map((item) => item.media));
+    // Deliberately synchronous, not deferred to a callback: the trip has
+    // already changed by the time this effect runs, so the stale sheet
+    // must not survive even one extra frame over the wrong trip (same
+    // precedent as the load effect in recap/[id]/map.tsx).
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setImportStage(null);
+  }, [trip?.id, importStage]);
 
   if (trips === null) return <EmptyScreen />;
   if (error) {
@@ -1285,7 +1307,7 @@ export default function CaptureScreen() {
       // Refused copies leave tmp right away; the accepted ones wait for the
       // confirmation (submitImports releases them, or cancelImport does).
       discardRefused(refused);
-      setImportStage({ kind: 'confirm', total: picked.media.length, accepted, reasons });
+      setImportStage({ kind: 'confirm', tripId: trip.id, total: picked.media.length, accepted, reasons });
     } finally {
       importRunning.current = false;
     }
@@ -1294,6 +1316,13 @@ export default function CaptureScreen() {
   const confirmImport = async () => {
     if (importStage?.kind !== 'confirm' || importRunning.current) return;
     const { accepted } = importStage;
+    // Defensive twin of the trip-change effect above, for the render that
+    // can land between the trip actually swapping and that effect running.
+    if (importStage.tripId !== trip.id) {
+      discardRefused(accepted.map((item) => item.media));
+      setImportStage(null);
+      return;
+    }
     if (!userId) {
       discardRefused(accepted.map((item) => item.media));
       setImportStage(null);
@@ -1364,7 +1393,7 @@ export default function CaptureScreen() {
   // the refusals gets its turn in the pill.
   const finishImport = () => {
     // Only now, with the cover gone, can a tab tap safely act again
-    // (Final-Review, Important 4): importFromLibrary above deliberately kept
+    // (Final-Review, Important 4): confirmImport above deliberately kept
     // the lock through the whole celebration.
     captureLock.lock(false);
     setImportDone(null);
@@ -2095,6 +2124,7 @@ export default function CaptureScreen() {
         selectionLimit={SELECTION_LIMIT}
         onPick={() => void pickAndAssess()}
         onClose={cancelImport}
+        bottomInset={barHeight}
       />
       <ImportConfirmSheet
         visible={importStage?.kind === 'confirm'}
@@ -2106,6 +2136,7 @@ export default function CaptureScreen() {
         }
         onConfirm={() => void confirmImport()}
         onClose={cancelImport}
+        bottomInset={barHeight}
       />
       <MomentSubmissionAnimation
         visible={importDone !== null}

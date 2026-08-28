@@ -3083,6 +3083,13 @@ test('the import button opens the intro sheet; Abbrechen closes it without touch
   expect(screen.getByText('Ohne Caption, bis zum Recap versiegelt, höchstens 20 auf einmal')).toBeTruthy();
   expect(mockPickFromLibrary).not.toHaveBeenCalled();
 
+  // Final-Review Critical 1: the sheet's panel clears the cinema tab bar
+  // (barHeight(0) here, insets are 0 in this test) so its actions never sit
+  // underneath the bar.
+  const panel = screen.getByTestId('sheet-panel');
+  const flattenedPanel = Object.assign({}, ...[panel.props.style].flat(Infinity).filter(Boolean));
+  expect(flattenedPanel.paddingBottom).toBe(spacing.xl + cinemaStage.barHeight(0));
+
   await act(async () => {
     fireEvent.press(screen.getByLabelText('Abbrechen'));
   });
@@ -3350,6 +3357,64 @@ test('without a session the picked elements are released and the pill says so', 
 
   expect(mockDiscardRefused).toHaveBeenCalledWith([expect.objectContaining({ uri: 'file:///a.jpg' })]);
   expect(mockSubmitImports).not.toHaveBeenCalled();
+  expect(screen.queryByText('Einsenden?')).toBeNull();
+  expect(screen.getByText('Du bist nicht angemeldet. Melde dich an und probier es nochmal.')).toBeTruthy();
+});
+
+// Final-Review Important 2: the confirmation sheet is bound to the trip its
+// elements were assessed against. Tabs stay swipeable while a sheet is
+// open, so the trip underneath it can swap (here: the trip that was open
+// ends or is revealed, and the only other active trip is auto-selected).
+test('a trip change under the open confirmation discards the batch instead of submitting it elsewhere', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(loaded([trip()]));
+  mockPickFromLibrary.mockResolvedValue({
+    canceled: false,
+    media: [pickedPhoto('file:///a.jpg', Date.UTC(2026, 7, 5, 12))],
+  });
+  await render(<CaptureScreen />);
+  await screen.findByLabelText('Auslöser');
+
+  await openLibrary();
+  expect(screen.getByText('Einsenden?')).toBeTruthy();
+
+  (fetchTrips as jest.Mock).mockResolvedValue(loaded([trip({ id: 't2', name: 'Andere Reise' })]));
+  await refocusScreen();
+  // The header pill shows the new trip, its visible text is the trip name.
+  await screen.findByText('Andere Reise');
+
+  expect(screen.queryByText('Einsenden?')).toBeNull();
+  expect(mockDiscardRefused).toHaveBeenLastCalledWith([expect.objectContaining({ uri: 'file:///a.jpg' })]);
+  expect(mockSubmitImports).not.toHaveBeenCalled();
+});
+
+// Final-Review Minor 4: the same guard lives a second time inside
+// confirmImport, for the render that can land between the trip effect
+// above firing and the actual button press, here exercised via the session
+// going away instead (the trip stays the same, so the sheet survives the
+// refocus and the person can still press the button).
+test('a session lost between the sheets releases the copies and says so', async () => {
+  (fetchTrips as jest.Mock).mockResolvedValue(loaded([trip()]));
+  mockPickFromLibrary.mockResolvedValue({
+    canceled: false,
+    media: [pickedPhoto('file:///a.jpg', Date.UTC(2026, 7, 5, 12))],
+  });
+  await render(<CaptureScreen />);
+  await screen.findByLabelText('Auslöser');
+
+  await openLibrary();
+  expect(screen.getByText('Einsenden?')).toBeTruthy();
+
+  mockAuth.userId = null;
+  await refocusScreen();
+  // The sheet is still there after the refocus since the trip did not change.
+  await screen.findByLabelText('1 Moment einsenden');
+
+  await act(async () => {
+    fireEvent.press(screen.getByLabelText('1 Moment einsenden'));
+  });
+
+  expect(mockSubmitImports).not.toHaveBeenCalled();
+  expect(mockDiscardRefused).toHaveBeenLastCalledWith([expect.objectContaining({ uri: 'file:///a.jpg' })]);
   expect(screen.queryByText('Einsenden?')).toBeNull();
   expect(screen.getByText('Du bist nicht angemeldet. Melde dich an und probier es nochmal.')).toBeTruthy();
 });

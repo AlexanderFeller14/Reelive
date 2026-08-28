@@ -29,7 +29,16 @@ export function CinemaButton({
 // of Button's `text` variant (which is bound to the light palette).
 export function CinemaTextLink({ label, onPress }: { label: string; onPress: () => void }) {
   return (
-    <PressScale accessibilityRole="button" accessibilityLabel={label} onPress={onPress}>
+    <PressScale
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      onPress={onPress}
+      // The label text itself is shorter than the 44 pt minimum touch
+      // target (design-language-v2 §8 Accessibility), so the hit area
+      // grows past its visible bounds instead of leaving the actual tap
+      // target too small.
+      hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+    >
       <Text style={[type.bodyMedium, styles.link]}>{label}</Text>
     </PressScale>
   );

@@ -2,7 +2,7 @@ import { render, screen, fireEvent } from '@testing-library/react-native';
 import { Animated, Dimensions, Easing, StyleSheet, Text } from 'react-native';
 import * as React from 'react';
 import { ThemeProvider } from '@/theme/ThemeProvider';
-import { cinema, motion, palette, radius, shadow } from '@/theme/tokens';
+import { cinema, motion, palette, radius, shadow, spacing } from '@/theme/tokens';
 import { MAX_HEIGHT_RATIO, Sheet, swipeExceedsThreshold } from '../Sheet';
 
 const mockUseReducedMotion = jest.fn(() => false);
@@ -262,6 +262,33 @@ describe('Review Important 2, maximum height and cinema variant', () => {
     const shadowNode = screen.getByTestId('sheet-shadow');
     expect(StyleSheet.flatten(shadowNode.props.style).backgroundColor).toBe(cinema['bg-1']);
     expect(StyleSheet.flatten(screen.getByText('Titel').props.style).color).toBe(cinema['text-1']);
+  });
+
+  // Final-Review Critical 1: on the capture tab the cinema tab bar sits as
+  // an absolute overlay on top of the scene, and without an inset the
+  // sheet's own actions (button, text link) end up underneath it, where
+  // taps hit the tabs instead. `bottomInset` lets a caller lift the panel's
+  // padding by the bar's height.
+  test("an explicit bottom inset lifts the panel's actions above an overlay bar", async () => {
+    await wrap(
+      <Sheet visible onClose={jest.fn()} bottomInset={91}>
+        <Text>Inhalt</Text>
+      </Sheet>
+    );
+    const panel = screen.getByTestId('sheet-panel');
+    const flattened = Object.assign({}, ...[panel.props.style].flat(Infinity).filter(Boolean));
+    expect(flattened.paddingBottom).toBe(spacing.xl + 91);
+  });
+
+  test('without a bottom inset the panel keeps the plain spacing.xl padding', async () => {
+    await wrap(
+      <Sheet visible onClose={jest.fn()}>
+        <Text>Inhalt</Text>
+      </Sheet>
+    );
+    const panel = screen.getByTestId('sheet-panel');
+    const flattened = Object.assign({}, ...[panel.props.style].flat(Infinity).filter(Boolean));
+    expect(flattened.paddingBottom).toBe(spacing.xl);
   });
 });
 
