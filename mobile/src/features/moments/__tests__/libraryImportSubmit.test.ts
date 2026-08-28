@@ -30,6 +30,11 @@ jest.mock('../placeAndTime', () => ({
   describePlace: (lat: number, lng: number) => mockDescribePlace(lat, lng),
 }));
 
+const mockEnsureH264 = jest.fn();
+jest.mock('../videoExport', () => ({
+  ensureH264: (uri: string, onProgress: (p: number) => void) => mockEnsureH264(uri, onProgress),
+}));
+
 import { discardRefused, submitImports } from '../libraryImportSubmit';
 import type { AcceptedMedia } from '../libraryImport';
 
@@ -76,6 +81,7 @@ beforeEach(() => {
   );
   mockEnqueueJob.mockResolvedValue(undefined);
   mockDescribePlace.mockResolvedValue('Luzern');
+  mockEnsureH264.mockImplementation(async (uri: string) => ({ uri, converted: false }));
 });
 
 test('enqueues one job per element with the assessed time, no caption, and reports progress', async () => {
@@ -215,4 +221,77 @@ test('an empty list submits nothing and reports no progress', async () => {
 test('discardRefused releases every refused picker copy', () => {
   discardRefused([acceptedPhoto('file:///x.jpg').media, acceptedPhoto('file:///y.jpg').media]);
   expect(mockDiscardFile.mock.calls.map(([uri]) => uri)).toEqual(['file:///x.jpg', 'file:///y.jpg']);
+});
+
+test('reports each element: photos prepare then land, videos convert with progress first', async () => {
+  mockEnsureH264.mockImplementation(async (_uri: string, onProgress: (p: number) => void) => {
+    onProgress(0.4);
+    onProgress(1);
+    return { uri: 'file:///tmp/reelive-export-1.mp4', converted: true };
+  });
+  const onItem = jest.fn();
+
+  const outcome = await submitImports(
+    [acceptedPhoto('file:///a.jpg'), acceptedVideo('file:///b.mov')],
+    TARGET,
+    jest.fn(),
+    onItem
+  );
+
+  expect(outcome).toEqual({ submitted: 2, failed: 0 });
+  expect(onItem.mock.calls).toEqual([
+    [0, { stage: 'preparing' }],
+    [0, { stage: 'done' }],
+    [1, { stage: 'converting', progress: 0.4 }],
+    [1, { stage: 'converting', progress: 1 }],
+    [1, { stage: 'preparing' }],
+    [1, { stage: 'done' }],
+  ]);
+  // The converted file is what gets prepared and shipped; the original is
+  // released like every picker copy.
+  expect(mockPrepareVideo).toHaveBeenCalledWith('file:///tmp/reelive-export-1.mp4');
+  expect(mockEnqueueJob.mock.calls[1][0]).toMatchObject({ storage_key: 'trips/t1/m2.mp4' });
+  expect(mockDiscardFile).toHaveBeenCalledWith('file:///b.mov');
+  expect(mockDiscardIntermediates).toHaveBeenCalledWith('file:///b.mov', {
+    medium: 'file:///tmp/reelive-export-1.mp4',
+    thumb: 'file:///tmp/reelive-export-1.mp4.thumb.jpg',
+  });
+});
+
+test('a video that already is H.264 skips the conversion events', async () => {
+  const onItem = jest.fn();
+  await submitImports([acceptedVideo('file:///b.mov')], TARGET, jest.fn(), onItem);
+  expect(onItem.mock.calls).toEqual([
+    [0, { stage: 'preparing' }],
+    [0, { stage: 'done' }],
+  ]);
+  expect(mockPrepareVideo).toHaveBeenCalledWith('file:///b.mov');
+});
+
+test('a failing conversion marks the element failed and releases the original', async () => {
+  mockEnsureH264.mockRejectedValueOnce(new Error('export failed'));
+  const onItem = jest.fn();
+  const outcome = await submitImports([acceptedVideo('file:///b.mov')], TARGET, jest.fn(), onItem);
+  expect(outcome).toEqual({ submitted: 0, failed: 1 });
+  expect(onItem).toHaveBeenLastCalledWith(0, { stage: 'failed' });
+  expect(mockDiscardFile).toHaveBeenCalledWith('file:///b.mov');
+  expect(mockEnqueueJob).not.toHaveBeenCalled();
+});
+
+test('a conversion that succeeded before a later failure is released too', async () => {
+  mockEnsureH264.mockImplementation(async () => ({
+    uri: 'file:///tmp/reelive-export-1.mp4',
+    converted: true,
+  }));
+  mockPrepareVideo.mockRejectedValueOnce(new Error('no frame'));
+  await submitImports([acceptedVideo('file:///b.mov')], TARGET, jest.fn(), jest.fn());
+  expect(mockDiscardFile).toHaveBeenCalledWith('file:///tmp/reelive-export-1.mp4');
+  expect(mockDiscardFile).toHaveBeenCalledWith('file:///b.mov');
+});
+
+test('the item listener is optional', async () => {
+  await expect(submitImports([acceptedPhoto('file:///a.jpg')], TARGET, jest.fn())).resolves.toEqual({
+    submitted: 1,
+    failed: 0,
+  });
 });
