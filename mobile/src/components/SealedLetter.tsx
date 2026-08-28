@@ -6,6 +6,7 @@ import { SealPeel } from '@/components/SealPeel';
 import { DISSOLVE_MS } from '@/features/recap/sealPeel';
 import { motion, palette, spacing, type } from '@/theme/tokens';
 import { useReducedMotion } from '@/theme/useReducedMotion';
+import { TICKET_ASPECT, TICKET_MAIN_END, TICKET_PERFORATION_Y, TICKET_WAX_SHARE } from './ticketGeometry';
 
 // How long the card takes to withdraw. It starts the MOMENT the seal comes
 // off (SealPeel.onLiftOff) and lasts exactly as long as the seal spends
@@ -24,24 +25,15 @@ export const CONTENT_OUT_MS = motion.duration.base;
 // No hold either, the pause only earns its keep alongside the movement.
 export const REDUCED_HANDOVER_MS = 200;
 
-// Share of the letter's width the wax takes up. The seal spans 500 of the
-// 720 stage units (sealPeel.SEAL), so the Skia stage around it has to be
-// correspondingly larger, otherwise the peel would roll out of its own canvas
-// and be clipped at the edge.
-const WAX_SHARE = 0.42;
+// The seal spans 500 of the 720 stage units (sealPeel.SEAL), so the Skia
+// stage around it has to be correspondingly larger than the wax itself,
+// otherwise the peel would roll out of its own canvas and be clipped at the
+// edge. The wax share and the ticket's geometry live in ticketGeometry.ts,
+// shared with the closing interstitial (TripClosedAnimation.tsx) that turns
+// a trip into this letter; the two names below stay exported for the
+// callers that already read them from here.
 const SEAL_IN_STAGE = 500 / 720;
-
-// The ticket asset's geometry, measured from the PNG (assets/images/
-// reelive-kino-ticket.png, cropped to its own bounding box). Everything the
-// layout needs to know about the picture lives here as fractions of its
-// size, so a re-export of the asset only has to update these three numbers.
-export const TICKET_ASPECT = 758 / 1098;
-// Centre of the dotted tear line between ticket and stub: the wax sits ON
-// it, sealing the tear. Peeling the wax off is tearing the ticket.
-export const TICKET_PERFORATION_Y = 852 / 1098;
-// Where the main compartment's lower keyline runs: the lines stay above it,
-// the stub below keeps the asset's punched holes and camera emboss.
-const TICKET_MAIN_END = 820 / 1098;
+export { TICKET_ASPECT, TICKET_PERFORATION_Y } from './ticketGeometry';
 
 // The stage the letter is sealed with: a vintage cinema ticket (Alex's
 // asset, 27.08.) carrying what the trip IS (title, span, facts, the faces of
@@ -101,7 +93,7 @@ export function SealedLetter({
     onOpeningRef.current = onOpening;
   }, [onOpening]);
 
-  const stage = (width * WAX_SHARE) / SEAL_IN_STAGE;
+  const stage = (width * TICKET_WAX_SHARE) / SEAL_IN_STAGE;
   const cardHeight = width / TICKET_ASPECT;
   const hasContent = title !== null;
 

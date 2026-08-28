@@ -101,8 +101,9 @@ Maximal 2–3 Komponentenarten pro Screen. Bestand:
   Zeitraum Sekundär, Personenzeile mit Momente-Zähler. Laufende Reisen tragen
   Relief-Badges («Aktiv», «Noch X Tage») und den Stapel verdeckter Momente auf dem
   Cover; geplante Reisen stehen im Zwei-Spalten-Raster. Das Wachssiegel-Bild gehört
-  dem Recap (Peel und Recap-Tab-Karte); Reiseliste und Reise-Detail tragen
-  stattdessen Relief-Badges (im Detail: «Versiegelt»).
+  dem Recap (Peel, Recap-Tab-Karte und der Zwischenschirm «Reise abgeschlossen», §5);
+  Reiseliste und Reise-Detail tragen stattdessen Relief-Badges (im Detail:
+  «Versiegelt»).
 - **Relief-Badge (`ReliefBadge`):** DIE Badge-Sprache des hellen UI für Status und
   Einladungen auf Covern («Aktiv», «Noch 5 Tage», «Recap ansehen», das
   Verwaltungs-Rondell und «Versiegelt» im Reise-Detail). Fast weisse Fläche mit hauchzartem Verlauf,
@@ -138,7 +139,7 @@ Digit-Roll · Listen = Stagger 40 ms · Tab-Icon-Pop 1 → 1.15 → 1.
 Übergänge: Stack = Parallax-Slide 400 ms · Sheets = Spring · hell → Kino =
 Fade durch Dunkel 350 ms («Licht geht aus») · Reise-Karte → Trip = Shared-Element 450 ms.
 
-**Zwei inszenierte Ausnahmen** (`seal-glow` erlaubt):
+**Drei inszenierte Ausnahmen** (`seal-glow` erlaubt):
 1. **Einsenden-Erfolg:** weisser Vollbild-Zwischenschirm, ~3,5 s (eigene,
    dokumentierte Dauer-Ausnahme): drei Polaroids fliegen nacheinander zu einem
    lockeren Stapel ein und ziehen sich zur Mitte zusammen; erst danach
@@ -147,9 +148,15 @@ Fade durch Dunkel 350 ms («Licht geht aus») · Reise-Karte → Trip = Shared-E
    «Moment eingesendet». Haptik: success. Läuft im HELLEN App-Look, nicht im Kino.
 2. **Reveal:** Siegel bricht auf, Gold-Funken ✦ steigen (kein Konfetti).
    700–900 ms.
+3. **Reise abgeschlossen** (nur für die Owner-Person, die selbst abschliesst; ersetzt
+   für sie den Reveal): weisser Vollbild-Zwischenschirm, ~3 s (eigene, dokumentierte
+   Dauer-Ausnahme): drei Polaroids fliegen zum Stapel, das Kinoticket steigt davor auf
+   und sammelt sie ein, das Wachssiegel setzt auf die Perforation, drei Gold-Funken ✦
+   in `seal` steigen; dann Titel «Reise abgeschlossen». Haptik: success beim
+   Aufsetzen. Läuft im HELLEN App-Look, nicht im Kino.
 
 Haptik: selection (Tabs, Zoom) · light (Auslöser, Zähler) · success
-(Einsenden-Erfolg, Reveal) · warning (destruktiver Dialog). Sparsam — nie beim Scrollen.
+(Einsenden-Erfolg, Reveal, Reise abgeschlossen) · warning (destruktiver Dialog). Sparsam — nie beim Scrollen.
 `prefers-reduced-motion`: alles wird zu 200-ms-Fades.
 
 ## 6. Sprache (Copy)

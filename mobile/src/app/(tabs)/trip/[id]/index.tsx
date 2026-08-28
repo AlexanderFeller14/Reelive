@@ -11,6 +11,7 @@ import { SealedStack } from '@/components/SealedStack';
 import { Button } from '@/components/Button';
 import { TripCover } from '@/components/TripCover';
 import { RevealSequence } from '@/components/RevealSequence';
+import { TripClosedAnimation } from '@/components/TripClosedAnimation';
 import { Sheet, SHEET_SCROLL_RATIO } from '@/components/Sheet';
 import { StatusBarCover } from '@/components/StatusBarCover';
 import { useTheme } from '@/theme/ThemeProvider';
@@ -173,6 +174,10 @@ export default function TripDetail() {
   const [revealError, setRevealError] = useState<string | null>(null);
   const [sequenceVisible, setSequenceVisible] = useState(false);
   const [revealReady, setRevealReady] = useState(false);
+  // The closing interstitial the owner gets after finishing the trip here
+  // (the wax lands on the ticket); it stands in for the reveal sequence on
+  // this one path, see finishTrip().
+  const [closedVisible, setClosedVisible] = useState(false);
   // Two separate guards instead of one. `revealCheckRunningRef` only covers
   // the window while `hasSeenReveal()` is still outstanding;
   // `revealDecidedRef` is set only AFTER a decision was actually applied.
@@ -251,6 +256,12 @@ export default function TripDetail() {
     void markRevealSeen(id);
   }, [id]);
 
+  const closedFinished = useCallback(() => {
+    setClosedVisible(false);
+    setRevealReady(true);
+    void markRevealSeen(id);
+  }, [id]);
+
   // No `start` param, exactly like the recap card (recap/index.tsx): that
   // absence is what puts the seal in front of the show instead of landing
   // straight in the overview, unceremoniously, on a button whose own label
@@ -308,6 +319,16 @@ export default function TripDetail() {
     }
     setRevealLoading(false);
     setConfirmVisible(false);
+    // The owner gets the closing interstitial instead of the reveal
+    // sequence: the wax going ON the ticket and the lock breaking open right
+    // after would tell two opposite stories. Decided BEFORE the reload, so
+    // load() sees the reveal as handled and doesn't start the sequence
+    // underneath the cover; «Recap starten» follows once the interstitial is
+    // through (closedFinished). Leaving the screen mid-cover loses nothing:
+    // the reveal isn't marked seen until then, so the next visit plays the
+    // sequence as for any member.
+    revealDecidedRef.current = true;
+    setClosedVisible(true);
     void load();
   };
 
@@ -756,6 +777,12 @@ export default function TripDetail() {
     </Sheet>
 
     <RevealSequence visible={sequenceVisible} onFinished={sequenceFinished} />
+    <TripClosedAnimation
+      visible={closedVisible}
+      onFinished={closedFinished}
+      title={trip.name}
+      range={formatRange(trip.start_date, trip.end_date)}
+    />
     </>
   );
 }

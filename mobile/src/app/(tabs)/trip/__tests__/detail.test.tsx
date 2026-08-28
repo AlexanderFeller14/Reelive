@@ -118,6 +118,31 @@ jest.mock('@/components/RevealSequence', () => {
         : null,
   };
 });
+// Same idea for the closing interstitial (timing, haptics, reduced motion
+// are covered by TripClosedAnimation.test.tsx): a pressable placeholder
+// that shows the name it would print on the ticket, a press finishes it.
+jest.mock('@/components/TripClosedAnimation', () => {
+  const React = require('react');
+  const { Pressable, Text } = require('react-native');
+  return {
+    TripClosedAnimation: ({
+      visible,
+      onFinished,
+      title,
+    }: {
+      visible: boolean;
+      onFinished: () => void;
+      title: string;
+    }) =>
+      visible
+        ? React.createElement(
+            Pressable,
+            { testID: 'trip-closed-fake', onPress: onFinished },
+            React.createElement(Text, null, `Ticket: ${title}`)
+          )
+        : null,
+  };
+});
 
 import TripDetail from '../[id]/index';
 import * as Haptics from 'expo-haptics';
@@ -760,6 +785,34 @@ test('finishing calls revealTrip and, on success, closes the sheet and reloads t
   // every render, so this really fails when `void load()` is deleted from the
   // success path of `finishTrip()`.
   await waitFor(() => expect((fetchTrip as jest.Mock).mock.calls.length).toBe(loadCallsBeforeFinish + 1));
+});
+
+test('finishing plays the closing interstitial instead of the reveal sequence and lands on «Recap starten»', async () => {
+  let revealed = false;
+  (fetchTrip as jest.Mock).mockImplementation(async () => (revealed ? tripRevealedOk : tripOk));
+  (revealTrip as jest.Mock).mockImplementation(async () => {
+    revealed = true;
+    return { revealed_at: '2026-08-08T00:00:00Z', error: null };
+  });
+  await wrap();
+  await fireEvent.press(await screen.findByText('Reise abschliessen'));
+  await screen.findByText('Reise abschliessen?');
+  await fireEvent.press(screen.getByText('Abschliessen'));
+
+  // The cover carries the trip's name onto the ticket.
+  const cover = await screen.findByTestId('trip-closed-fake');
+  expect(screen.getByText('Ticket: Norwegen mit dem Camper')).toBeTruthy();
+  await waitFor(() => expect(screen.queryByText('Reise abschliessen')).toBeNull());
+  // The reveal sequence never starts underneath: the wax going on and the
+  // lock breaking open would tell two opposite stories.
+  expect(screen.queryByTestId('reveal-sequence-fake')).toBeNull();
+  expect(screen.queryByText('Recap starten')).toBeNull();
+
+  await fireEvent.press(cover);
+  expect(await screen.findByText('Recap starten')).toBeTruthy();
+  expect(screen.queryByTestId('trip-closed-fake')).toBeNull();
+  expect(screen.queryByTestId('reveal-sequence-fake')).toBeNull();
+  await waitFor(() => expect(markRevealSeen).toHaveBeenCalledWith('t1'));
 });
 
 test('a failed reveal names the cause and leaves the button usable, because the function is idempotent', async () => {
