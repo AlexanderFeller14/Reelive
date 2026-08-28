@@ -15,7 +15,7 @@
 ## Global Constraints
 
 - Quellcode englisch (Bezeichner, Kommentare, Testtitel, Swift-Kommentare); sichtbare Texte deutsch in Du-Form, Schweizer «ss»; Vokabular «Moment», «einsenden», «Reise»; nie «Snap», «Galerie», «hochladen».
-- Keine Em-Dashes («—») in Code, Kommentaren, Tests, Commit-Nachrichten, Spec.
+- Keine Em-Dashes (Gedankenstriche) in Code, Kommentaren, Tests, Commit-Nachrichten, Spec.
 - Native Methoden- und Event-Namen (`VideoExport`, `videoCodec`, `exportH264`, `exportProgress`) werden per Name dispatcht und müssen in Swift und TypeScript exakt gleich lauten.
 - Medien-Screens in Kino-Palette (`cinema`-Tokens), UI auf Bildern nur als translucente `Pill`, Lucide Outline `strokeWidth 1.75`, Radius nur 12/24/999, Abstände aus `spacing`, keine Hex-Werte.
 - Elemente werden strikt nacheinander verarbeitet; ein scheiterndes kostet nur sich selbst; jede Kopie in tmp wird auf jedem Pfad genau einmal freigegeben (`discardFile` ist gegen Doppelaufruf gesichert).

@@ -54,7 +54,7 @@ abzuwählen, und das Sheet deckt den Sucher nur halb.
    Pickers bleiben wie bisher (Pille in der Kamera, Kopien freigegeben).
 2. Route, Phase «Prüfen»: Kopf mit «Einsenden?» und Reisename, rechts
    «Abbrechen». Raster mit drei Spalten, Kacheln Radius 12: Fotos direkt aus
-   der Picker-Kopie, Videos mit nachgeladenem Standbild (Spinner solange),
+   der Picker-Kopie, Videos mit nachgeladenem Standbild (Film-Symbol solange),
    Film-Symbol und Länge. Zulässige Kacheln tragen oben rechts das x
    («Aus der Auswahl entfernen»). Abgelehnte Kacheln sind abgedunkelt mit
    Grund («Ausserhalb der Reise», «Zu lang», «Ohne Länge», «Ohne Datum»),
@@ -64,7 +64,9 @@ abzuwählen, und das Sheet deckt den Sucher nur halb.
    `CinemaButton` «6 Momente einsenden»; die Zahl folgt der Auswahl. Ist
    nichts (mehr) übrig: «Nichts zum Einsenden», Knopf deaktiviert.
 3. «Abbrechen» oder die Zurück-Geste: alle verbliebenen Kopien (zulässige
-   und abgelehnte) werden gelöscht, zurück zur Kamera.
+   und abgelehnte) werden gelöscht, zurück zur Kamera. Auch die
+   nachgeladenen Video-Standbilder sind Kopien in tmp und werden mit
+   freigegeben (bei Abwahl, Abbrechen und nach dem Batch).
 4. Phase «Einsenden»: Kopf zählt «3 von 6», «Abbrechen» verschwindet, die
    Geste ist gesperrt. Die Elemente laufen strikt nacheinander: Video →
    Codec prüfen → falls nicht H.264: Export mit Prozent auf der Kachel →
