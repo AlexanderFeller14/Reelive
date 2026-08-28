@@ -73,6 +73,8 @@ richtig. Am Gerät zu prüfen.
 
 ## Ablauf in der Kamera
 
+Seit dem 28. August ersetzt `2026-08-28-fotos-import-pruefung-design.md` die Punkte 4 bis 8: der Picker gibt Originale zurück, die Bestätigung ist eine Vollbild-Route mit Abwahl und Fortschritt je Element, die Umwandlung der Videos passiert im Batch.
+
 1. Neuer Pill-Knopf in der rechten Steuerspalte (nach Kamera wechseln und
    Blitz, vor der Stabilisierung), Lucide-Icon `Images`, Label «Momente aus
    Fotos einsenden». Wie die anderen Knöpfe nur sichtbar, wenn keine

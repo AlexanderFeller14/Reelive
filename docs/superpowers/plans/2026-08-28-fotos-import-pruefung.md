@@ -1370,7 +1370,9 @@ test('with everything dropped the button is disabled and the text says so', asyn
   });
 
   expect(screen.getByText('Nichts zum Einsenden')).toBeTruthy();
-  const button = screen.getByLabelText('Nichts zum Einsenden');
+  // The inert button carries a plain label so the footer text stays the
+  // only "Nichts zum Einsenden" on screen.
+  const button = screen.getByLabelText('Einsenden');
   expect(button.props.accessibilityState).toEqual(expect.objectContaining({ disabled: true }));
   fireEvent.press(button);
   expect(mockSubmitImports).not.toHaveBeenCalled();
@@ -1762,7 +1764,7 @@ export default function ImportReviewScreen() {
                   : `${acceptedItems.length} Momente passen in den Reisezeitraum`}
             </Text>
             <CinemaButton
-              label={acceptedItems.length === 0 ? 'Nichts zum Einsenden' : `${momentsText(acceptedItems.length)} einsenden`}
+              label={acceptedItems.length === 0 ? 'Einsenden' : `${momentsText(acceptedItems.length)} einsenden`}
               onPress={() => void submit()}
               disabled={!reviewing || acceptedItems.length === 0}
             />
