@@ -67,7 +67,7 @@ function Guarded() {
   const segments = useSegments() as string[];
   const router = useRouter();
   const { colors } = useTheme();
-  const area = segments[0]; // '(auth)' | '(tabs)' | 'preview' | 'join' | 'share' | undefined
+  const area = segments[0]; // '(auth)' | '(tabs)' | 'preview' | 'import-review' | 'join' | 'share' | undefined
   const webLocked = isWebLocked(Platform.OS, area);
 
   useEffect(() => {
