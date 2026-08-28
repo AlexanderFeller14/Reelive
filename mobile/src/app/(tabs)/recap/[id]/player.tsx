@@ -26,6 +26,7 @@ import { Pill } from '@/components/Pill';
 import { Sheet } from '@/components/Sheet';
 import { Input } from '@/components/Input';
 import { SealedLetter } from '@/components/SealedLetter';
+import { CinemaButton, CinemaTextLink } from '@/components/CinemaButton';
 import { cinema, motion, palette, radius, spacing, type } from '@/theme/tokens';
 import { useTopInset, useBottomInset } from '@/theme/useTopInset';
 import { useReducedMotion } from '@/theme/useReducedMotion';
@@ -185,26 +186,6 @@ function parseStartIndex(raw: string | undefined, length: number): number {
 }
 
 type LoadPhase = 'loading' | 'error' | 'empty' | 'ready' | 'ended';
-
-// Media screen (DESIGN-LANGUAGE v2 §1): fixed cinema palette, no useTheme(),
-// same pattern as capture/index.tsx and preview.tsx.
-function CinemaButton({ label, onPress }: { label: string; onPress: () => void }) {
-  return (
-    <PressScale accessibilityRole="button" onPress={onPress}>
-      <View style={styles.cinemaButton}>
-        <Text style={[type.bodyMedium, { color: cinema['bg-0'] }]}>{label}</Text>
-      </View>
-    </PressScale>
-  );
-}
-
-function TextLink({ label, onPress }: { label: string; onPress: () => void }) {
-  return (
-    <PressScale accessibilityRole="button" onPress={onPress}>
-      <Text style={[type.bodyMedium, styles.textLink]}>{label}</Text>
-    </PressScale>
-  );
-}
 
 // One emoji of the fixed bar. Active (own reaction) fills SOLIDLY with
 // `cinema['text-1']`, the same tone CinemaButton already uses for "solid
@@ -1974,7 +1955,7 @@ export default function RecapPlayer() {
           {error?.canRetry && (
             <CinemaButton label="Nochmal versuchen" onPress={() => void load()} />
           )}
-          <TextLink label={wayBackLabel} onPress={close} />
+          <CinemaTextLink label={wayBackLabel} onPress={close} />
         </View>
       </View>
     );
@@ -1985,7 +1966,7 @@ export default function RecapPlayer() {
       <View testID="player-empty" style={[styles.screen, styles.center]}>
         <Text style={[type.h2, styles.centeredText]}>Diese Reise ist leer geblieben.</Text>
         <View style={{ marginTop: spacing.xl }}>
-          <TextLink label={wayBackLabel} onPress={close} />
+          <CinemaTextLink label={wayBackLabel} onPress={close} />
         </View>
       </View>
     );
@@ -2051,15 +2032,6 @@ const styles = StyleSheet.create({
   centeredText: { color: cinema['text-1'], textAlign: 'center' },
   centeredTextSecondary: { color: cinema['text-2'], textAlign: 'center' },
   cinemaFade: { backgroundColor: cinema['bg-0'] },
-  cinemaButton: {
-    height: 52,
-    borderRadius: radius.control,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: spacing.l,
-    backgroundColor: cinema['text-1'],
-  },
-  textLink: { color: cinema['text-1'], textDecorationLine: 'underline' },
   headerArea: {
     position: 'absolute',
     top: spacing.xl,

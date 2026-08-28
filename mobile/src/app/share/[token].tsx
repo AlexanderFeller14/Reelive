@@ -17,6 +17,7 @@ import { PressScale } from '@/components/PressScale';
 import { ProgressBar } from '@/components/ProgressBar';
 import { Pill } from '@/components/Pill';
 import { Sheet } from '@/components/Sheet';
+import { CinemaButton } from '@/components/CinemaButton';
 import { useTheme } from '@/theme/ThemeProvider';
 import { cinema, motion, radius, spacing, type } from '@/theme/tokens';
 import { useTopInset } from '@/theme/useTopInset';
@@ -177,16 +178,6 @@ function dayHeading(day: RecapDay): string {
   if (day.place) parts.push(day.place);
   parts.push(formatDayDate(day.date));
   return parts.join(' · ');
-}
-
-function CinemaButton({ label, onPress }: { label: string; onPress: () => void }) {
-  return (
-    <PressScale accessibilityRole="button" onPress={onPress}>
-      <View style={styles.cinemaButton}>
-        <Text style={[type.bodyMedium, { color: cinema['bg-0'] }]}>{label}</Text>
-      </View>
-    </PressScale>
-  );
 }
 
 function LoadingHintPill({ text }: { text: string }) {
@@ -1010,14 +1001,6 @@ const styles = StyleSheet.create({
   center: { alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.screen },
   centeredText: { color: cinema['text-1'], textAlign: 'center' },
   centeredHint: { color: cinema['text-2'], textAlign: 'center', marginTop: spacing.m },
-  cinemaButton: {
-    height: 52,
-    borderRadius: radius.control,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: spacing.l,
-    backgroundColor: cinema['text-1'],
-  },
   // `top` comes from the JSX: the player's header slides underneath the
   // segment row as soon as this trip has a map.
   headerArea: {

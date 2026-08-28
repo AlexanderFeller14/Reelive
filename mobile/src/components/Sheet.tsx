@@ -82,6 +82,11 @@ type Props = {
   // title) after the fact. Hence an explicit switch here, not derivable
   // from the theme.
   cinemaMode?: boolean;
+  // Screens whose navigator paints an absolute bar over the scene, like the
+  // capture tab's cinema bar (mobile/src/features/navigation/TabBar.tsx),
+  // hand the bar's height here so the panel's actions clear it instead of
+  // sitting underneath the bar where taps hit the tabs instead.
+  bottomInset?: number;
 };
 
 // The project's first sheet component (DESIGN-LANGUAGE §4): from the
@@ -98,7 +103,7 @@ type Props = {
 //
 // prefers-reduced-motion (§5): no translation, just a 200 ms opacity fade,
 // shared by panel and background over the same Animated.Value.
-export function Sheet({ visible, title, onClose, children, cinemaMode }: Props) {
+export function Sheet({ visible, title, onClose, children, cinemaMode, bottomInset = 0 }: Props) {
   const { colors } = useTheme();
   const reducedMotion = useReducedMotion();
   // useWindowDimensions instead of a percent string in the stylesheet, see
@@ -214,7 +219,10 @@ export function Sheet({ visible, title, onClose, children, cinemaMode }: Props) 
         testID="sheet-shadow"
         style={[styles.shadowLayer, { backgroundColor: surface, opacity, transform: [{ translateY }] }]}
       >
-        <View testID="sheet-panel" style={[styles.panelClip, { maxHeight }]}>
+        <View
+          testID="sheet-panel"
+          style={[styles.panelClip, { maxHeight }, { paddingBottom: spacing.xl + bottomInset }]}
+        >
           {/* Only the handle area is swipeable, the rest stays free for
               content like lists or input fields (Task 12) that need their
               own touch gestures (scroll). */}

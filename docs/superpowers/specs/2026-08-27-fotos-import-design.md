@@ -77,16 +77,31 @@ richtig. Am Gerät zu prüfen.
    Blitz, vor der Stabilisierung), Lucide-Icon `Images`, Label «Momente aus
    Fotos einsenden». Wie die anderen Knöpfe nur sichtbar, wenn keine
    Aufnahme läuft.
-2. Tipp → Leseberechtigung anfragen (eine Ablehnung stoppt nichts) → iOS-Picker
-   mit `mediaTypes: ['images', 'videos']`, `allowsMultipleSelection`,
-   `selectionLimit: 20`, `orderedSelection`, `exif: true`, `quality: 1`,
-   `preferredAssetRepresentationMode: Compatible` (HEIC → JPEG),
-   `videoExportPreset: H264_1920x1080` (erzwingt HEVC → H.264, siehe
-   Entscheide), **kein `allowsEditing`** (der Avatar-Bug vom 2026-08-13).
-3. Abbruch im Picker: nichts passiert.
+2. Tipp → **Hinweis-Sheet** «Momente aus Fotos» (Kino-Modus, jedes Mal,
+   Entscheid 2026-08-27): ein Satz und drei Regeln mit den Werten der
+   Reise (Reisezeitraum aus `formatRange`, Videolänge, «Ohne Caption, bis
+   zum Recap versiegelt, höchstens 20 auf einmal»), Knopf «Fotos auswählen»,
+   Textlink «Abbrechen». Wischen oder Tipp daneben gilt als Abbrechen. Beide
+   Sheets bekommen die Höhe der Kino-Tableiste als unteren Abstand
+   (`bottomInset`), damit Knopf und Textlink über der Leiste stehen.
+3. «Fotos auswählen» → Leseberechtigung anfragen (eine Ablehnung stoppt
+   nichts) → iOS-Picker mit `mediaTypes: ['images', 'videos']`,
+   `allowsMultipleSelection`, `selectionLimit: 20`, `orderedSelection`,
+   `exif: true`, `quality: 1`, `preferredAssetRepresentationMode: Compatible`
+   (HEIC → JPEG), `videoExportPreset: H264_1920x1080` (erzwingt HEVC →
+   H.264, siehe Entscheide), **kein `allowsEditing`** (der Avatar-Bug vom
+   2026-08-13). Abbruch im Picker: nichts passiert.
 4. Jedes Element wird bewertet (Datum, Zeitraum, Videolänge). Abgelehnte
    Picker-Kopien werden sofort gelöscht.
-5. Sind alle abgelehnt: Zusammenfassung in der Fehler-Pille, fertig.
+5. **Bestätigungs-Sheet** «Einsenden?»: Vorschau-Streifen der zulässigen
+   Elemente (Fotos aus der Picker-Kopie, Videos als dunkle Film-Kachel),
+   «N Momente passen in den Reisezeitraum.», darunter in Zweitfarbe die
+   Zusammenfassung der Ablehnungen in der Gegenwartsform, Knopf «N Momente
+   einsenden», Textlink «Abbrechen». Abbrechen löscht alle Kopien, nichts
+   wird eingesendet. Sind alle abgelehnt: Titel «Nichts zum Einsenden», die
+   Erklärung, ein Knopf «Verstanden». Das Sheet ist an die Reise gebunden,
+   gegen die bewertet wurde: wechselt die Reise darunter (Tab-Wechsel, Reise
+   endet oder wird aufgedeckt), schliesst es sich und gibt die Kopien frei.
 6. Sonst Batch: Kopfzeile (Reise-Wechsler, Steuerspalte) und Auslöser sind
    entfernt wie während einer Aufnahme, `captureLock` gesetzt (kein
    Tab-Wechsel mitten im Batch). Unten steht eine translucente Pille mit
@@ -100,14 +115,28 @@ richtig. Am Gerät zu prüfen.
    Animation gesetzt (Final-Review, Important 4): die Kino-Tableiste liegt
    über dem Screen, ein Tab-Tipp während der 3,6 s würde sonst mitten in die
    Feier blenden. Nach der Animation wird der Zähler frisch geladen
-   (Focus-Tick), und eine zurückgehaltene Zusammenfassung der Ablehnungen
-   bekommt die Pille.
+   (Focus-Tick), und eine zurückgehaltene Zusammenfassung der Elemente, die
+   beim Sichern gescheitert sind, bekommt die Pille (die Ablehnungen hat das
+   Bestätigungs-Sheet schon erklärt).
 8. Wurde nichts eingesendet (alle gescheitert), entfällt die Animation, die
    Zusammenfassung steht sofort.
 
 ## Copy (sichtbar, Deutsch, Du-Form, keine Gedankenstriche)
 
 - Knopf: «Momente aus Fotos einsenden»
+- Hinweis-Sheet: Titel «Momente aus Fotos», «Reelive holt Fotos und Videos
+  aus deiner Fotomediathek in die Reise. Es gelten dieselben Regeln wie beim
+  Aufnehmen:», «Nur Momente aus dem Reisezeitraum (1.–14. Aug 2026)», «Videos
+  bis 90 Sekunden», «Ohne Caption, bis zum Recap versiegelt, höchstens 20 auf
+  einmal», «Fotos auswählen», «Abbrechen»
+- Bestätigungs-Sheet: Titel «Einsenden?» bzw. «Nichts zum Einsenden», «N
+  Momente passen in den Reisezeitraum.» / «1 Moment passt in den
+  Reisezeitraum.», «N Momente einsenden» / «1 Moment einsenden», «Abbrechen»,
+  «Verstanden»
+- Zusammenfassung in der Gegenwartsform (Bestätigungs-Sheet): «Der Moment
+  kommt nicht mit: …», «1 von {total} Momenten kommt nicht mit: …»,
+  «{refused} von {total} Momenten kommen nicht mit: …», «Keiner der {total}
+  Momente kommt mit: …»; dieselben Gründe wie unten.
 - Fortschritt: «{done} von {total} Momenten eingesendet»
 - Picker-Fehler: «Deine Fotos liessen sich nicht öffnen. Probier es nochmal.»
 - Ohne Session: «Du bist nicht angemeldet. Melde dich an und probier es nochmal.»
@@ -142,16 +171,22 @@ richtig. Am Gerät zu prüfen.
 - `features/moments/placeAndTime.ts`: `describePlace(lat, lng)` herausgelöst,
   `determinePlace` nutzt es.
 - `components/MomentSubmissionAnimation.tsx`: Prop `added` (Default 1).
-- `app/(tabs)/capture/index.tsx`: Knopf, `importing`/`importDone`-Zustand,
-  Fortschritts-Pille, Overlay, Zusammenfassung, Zähler-Refresh.
+- `components/CinemaButton.tsx` (aus Player und Share herausgelöst).
+- `components/ImportIntroSheet.tsx`.
+- `components/ImportConfirmSheet.tsx`.
+- `app/(tabs)/capture/index.tsx`: Knopf, `importStage`-Zustand, vier Handler
+  (intro anzeigen, confirm anzeigen, abbrechen, eingesendet), Fortschritts-Pille,
+  Overlay, Zusammenfassung, Zähler-Refresh.
 - `app.json`: Berechtigungstexte.
 
 ## Tests
 
 Jest deckt die Regeln (Datum, Zeitraum, Länge, Zusammenfassung), den Picker
 (Optionen, Normalisierung, Fallbacks), das Batch-Einsenden (Jobs, Fortschritt,
-Aufräumen, Teilfehler), die Animation (`added`) und den Kamera-Screen (Knopf,
-Ablehnung, Batch mit Fortschritt und Animation, Teilbatch, Picker-Fehler).
+Aufräumen, Teilfehler), die Animation (`added`), die zwei Sheets
+(ImportIntroSheet, ImportConfirmSheet), CinemaButton und den Kamera-Screen
+(Knopf, Hinweis-Sheet, Auswahl, Bestätigung, Abbrechen löscht Kopien, Batch
+mit Fortschritt und Animation, Teilbatch, Picker-Fehler).
 
 ## Am Gerät zu prüfen (kann Jest nicht)
 

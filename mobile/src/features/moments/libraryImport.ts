@@ -167,14 +167,33 @@ function reasonText(
   }
 }
 
-// One sentence for the error pill: how many of the batch stayed out and why.
-// With mixed reasons each one carries its count; a single reason stands
-// alone. null when nothing was refused.
+export type SummaryMode = 'result' | 'preview';
+
+// The lead of the sentence: past tense for the pill after the batch
+// ("wurde nicht eingesendet"), present tense for the confirmation sheet
+// before anything is submitted ("kommt nicht mit").
+function lead(mode: SummaryMode, refused: number, total: number): string {
+  if (mode === 'preview') {
+    if (total === 1) return 'Der Moment kommt nicht mit';
+    if (refused === total) return `Keiner der ${total} Momente kommt mit`;
+    return refused === 1
+      ? `1 von ${total} Momenten kommt nicht mit`
+      : `${refused} von ${total} Momenten kommen nicht mit`;
+  }
+  if (total === 1) return 'Der Moment wurde nicht eingesendet';
+  if (refused === total) return `Keiner der ${total} Momente wurde eingesendet`;
+  return `${refused} von ${total} Momenten wurden nicht eingesendet`;
+}
+
+// One sentence: how many of the batch stay out and why. With mixed reasons
+// each one carries its count; a single reason stands alone. null when
+// nothing was refused.
 export function refusalSummary(
   reasons: RefusalReason[],
   total: number,
   period: ImportPeriod,
-  maxVideoSeconds: number
+  maxVideoSeconds: number,
+  mode: SummaryMode = 'result'
 ): string | null {
   const refused = reasons.length;
   if (refused === 0) return null;
@@ -186,12 +205,6 @@ export function refusalSummary(
     const text = reasonText(reason, count, period, maxVideoSeconds);
     return mixed ? `${count} ${text}` : text;
   });
-  const lead =
-    total === 1
-      ? 'Der Moment wurde nicht eingesendet'
-      : refused === total
-        ? `Keiner der ${total} Momente wurde eingesendet`
-        : `${refused} von ${total} Momenten wurden nicht eingesendet`;
   const hint = counts.has('unknown_date') ? ` ${DATE_HINT}` : '';
-  return `${lead}: ${parts.join(', ')}.${hint}`;
+  return `${lead(mode, refused, total)}: ${parts.join(', ')}.${hint}`;
 }
