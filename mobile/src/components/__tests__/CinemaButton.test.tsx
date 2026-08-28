@@ -30,3 +30,15 @@ test('the text link is underlined in the cinema text color and reports the press
     right: 12,
   });
 });
+
+test('a disabled button reports its state, dims, and swallows the press', async () => {
+  const onPress = jest.fn();
+  await render(<CinemaButton label="Nichts zum Einsenden" onPress={onPress} disabled />);
+  const button = screen.getByLabelText('Nichts zum Einsenden');
+  expect(button.props.accessibilityState).toEqual(expect.objectContaining({ disabled: true }));
+  fireEvent.press(button);
+  expect(onPress).not.toHaveBeenCalled();
+  const text = screen.getByText('Nichts zum Einsenden');
+  const flat = Object.assign({}, ...[text.props.style].flat(Infinity).filter(Boolean));
+  expect(flat.color).toBe(cinema['text-2']);
+});
