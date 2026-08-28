@@ -13,6 +13,15 @@ import UIKit
 // itself (MultiCam doesn't form automatic connections).
 final class MultiCameraViewfinderView: ExpoView {
   private var layers: [String: AVCaptureVideoPreviewLayer] = [:]
+  // Which camera's layer WOULD be visible; the curtain can still override it.
+  private var activeName: String?
+  // A preview layer keeps its last frame across stopRunning, and the screens
+  // stay mounted while the tabs are swiped: without the curtain, swiping back
+  // into the camera showed that stale frame standing for the 300-400ms the
+  // restart takes (user finding 2026-08-28, "Standbild vom letzten Frame").
+  // The module drops the curtain on stop and lifts it with the first FRESH
+  // frame of the restarted session; in between the view is its black stage.
+  private var curtainDown = false
 
   required init(appContext: AppContext? = nil) {
     super.init(appContext: appContext)
@@ -66,14 +75,25 @@ final class MultiCameraViewfinderView: ExpoView {
     layers
   }
 
-  // Exactly one layer visible. Without implicit actions, otherwise
-  // CoreAnimation would lay a cross-fade over every camera switch, and
-  // that's exactly what this rebuild is meant to get rid of.
+  // Exactly one layer visible, and none while the curtain is down.
   func setVisible(_ active: String) {
+    activeName = active
+    apply()
+  }
+
+  func setCurtain(_ down: Bool) {
+    curtainDown = down
+    apply()
+  }
+
+  // Without implicit actions, otherwise CoreAnimation would lay a cross-fade
+  // over every camera switch, and that's exactly what this rebuild is meant
+  // to get rid of.
+  private func apply() {
     CATransaction.begin()
     CATransaction.setDisableActions(true)
     for (name, previewLayer) in layers {
-      previewLayer.isHidden = name != active
+      previewLayer.isHidden = curtainDown || name != activeName
     }
     CATransaction.commit()
   }

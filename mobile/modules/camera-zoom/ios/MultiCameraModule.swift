@@ -124,6 +124,24 @@ public class MultiCameraModule: Module {
   // connections change on the session queue (attach), so the module holds
   // the wish and re-applies it on every session build.
   private static var _stabilizationWanted = true
+  // Whether the session is delivering frames RIGHT NOW: set after
+  // startRunning, cleared before stopRunning. Under the stateLock because
+  // the distributor reads it per frame on the video queue while stop/start
+  // write it on the session queue. Distinct from `shouldRun` (the wish,
+  // session queue only) and from `ready` (the session is BUILT, which
+  // survives a stop).
+  private static var _sessionRunning = false
+  // Whether the viewfinder is covered. A preview layer keeps its last frame
+  // across stopRunning, and the screens stay mounted while the tabs are
+  // swiped: without the curtain, swiping back into the camera showed that
+  // stale frame standing for the 300-400ms the restart takes (user finding
+  // 2026-08-28). Stop drops the curtain, the first FRESH frame of the
+  // restarted session lifts it (liftCurtainOnFrame). The straggler guard is
+  // `_sessionRunning`: a frame still in flight after stop must not lift the
+  // curtain onto its own stale image. The flag deliberately survives
+  // teardown, like the stabilization wish: it describes the VIEW, and the
+  // view outlives the session.
+  private static var _curtainDown = false
   // The open photo request (spec §6). It's placed by the JS call and
   // fulfilled by the distributor on the video queue, so it sits between two
   // threads: hence under the same stateLock as the other small shared
@@ -262,6 +280,7 @@ public class MultiCameraModule: Module {
           if !session.isRunning {
             session.startRunning()
           }
+          Self.markRunning()
           promise.resolve()
         } catch {
           // The JS side decides on the fallback (two misses in a row means
@@ -276,6 +295,15 @@ public class MultiCameraModule: Module {
     AsyncFunction("stop") { (promise: Promise) in
       Self.sessionQueue.async {
         Self.shouldRun = false
+        // Curtain BEFORE the halt, `_sessionRunning` in the same locked
+        // step: a frame still in flight on the video queue then reads
+        // "not running" and leaves the curtain down instead of lifting it
+        // onto its own stale image (see _curtainDown).
+        Self.stateLock.lock()
+        Self._sessionRunning = false
+        Self._curtainDown = true
+        Self.stateLock.unlock()
+        Self.onMain { Self.viewfinder?.setCurtain(true) }
         Self.session?.stopRunning()
         promise.resolve()
       }
@@ -1159,6 +1187,28 @@ public class MultiCameraModule: Module {
     _photoRequest = nil
   }
 
+  // Every startRunning site marks the run under the lock: the distributor
+  // reads it per frame as the straggler guard for the curtain.
+  private static func markRunning() {
+    stateLock.lock()
+    _sessionRunning = true
+    stateLock.unlock()
+  }
+
+  // Called by the distributor per frame of the ACTIVE camera: the first
+  // fresh frame after a restart lifts the curtain (see _curtainDown). With
+  // the curtain up, this is a lock and two bool reads, nothing more.
+  static func liftCurtainOnFrame() {
+    stateLock.lock()
+    guard _curtainDown, _sessionRunning else {
+      stateLock.unlock()
+      return
+    }
+    _curtainDown = false
+    stateLock.unlock()
+    onMain { viewfinder?.setCurtain(false) }
+  }
+
   // Called by the distributor per frame of the ACTIVE camera: if a request
   // is parked, it gets exactly this frame and is thereby fulfilled. Called
   // outside the lock, the lock only carries the assignment.
@@ -1199,6 +1249,7 @@ public class MultiCameraModule: Module {
         // tab switch into the background the camera should stay off.
         guard shouldRun, let session = session, !session.isRunning else { return }
         session.startRunning()
+        markRunning()
       }
     }
   }
@@ -1273,8 +1324,12 @@ public class MultiCameraModule: Module {
 
       // Flag first: from here on device(for:)/runningSession() answer with
       // nil, no new look from Main or JS lands inside the teardown anymore.
+      // `_sessionRunning` goes along so a straggler frame can't lift the
+      // curtain during the drain; `_curtainDown` itself survives, it
+      // describes the view, and the view outlives the session.
       stateLock.lock()
       _ready = false
+      _sessionRunning = false
       let old = session
       session = nil
       stateLock.unlock()
@@ -1393,6 +1448,9 @@ final class MultiCameraDistributor: NSObject,
     {
       return
     }
+    // A legitimate frame of the active camera: the first one after a restart
+    // lifts the curtain off the preview layers (see _curtainDown).
+    MultiCameraModule.liftCurtainOnFrame()
     // The photo grab (spec §6) gets the frame FIRST and is thereby done;
     // the running recording gets the same frame right after. Photo and
     // video therefore don't exclude each other: a photo mid-recording
