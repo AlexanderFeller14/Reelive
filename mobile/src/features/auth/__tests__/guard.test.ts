@@ -49,6 +49,7 @@ import { isAreaForSignedIn } from '../guard';
 test.each([
   ['(tabs)', true],
   ['preview', true],
+  ['import-review', true],
   ['(auth)', false],
   ['join', false],
   ['share', false],

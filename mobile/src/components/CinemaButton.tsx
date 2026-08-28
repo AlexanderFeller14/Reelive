@@ -11,15 +11,30 @@ export function CinemaButton({
   label,
   onPress,
   testID,
+  disabled = false,
 }: {
   label: string;
   onPress: () => void;
   testID?: string;
+  // Keeps the button in place but inert (the review screen with nothing
+  // left to submit): dimmed surface, no press, told to VoiceOver.
+  disabled?: boolean;
 }) {
   return (
-    <PressScale accessibilityRole="button" accessibilityLabel={label} testID={testID} onPress={onPress}>
-      <View style={styles.button}>
-        <Text style={[type.bodyMedium, { color: cinema['bg-0'] }]}>{label}</Text>
+    <PressScale
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled }}
+      disabled={disabled}
+      testID={testID}
+      onPress={() => {
+        if (!disabled) onPress();
+      }}
+    >
+      <View style={[styles.button, disabled && styles.buttonDisabled]}>
+        <Text style={[type.bodyMedium, { color: disabled ? cinema['text-2'] : cinema['bg-0'] }]}>
+          {label}
+        </Text>
       </View>
     </PressScale>
   );
@@ -53,5 +68,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.l,
     backgroundColor: cinema['text-1'],
   },
+  buttonDisabled: { backgroundColor: cinema['bg-1'] },
   link: { color: cinema['text-1'], textDecorationLine: 'underline', textAlign: 'center' },
 });

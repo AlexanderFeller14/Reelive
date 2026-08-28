@@ -4,9 +4,9 @@ import * as ImagePicker from 'expo-image-picker';
 import * as MediaLibrary from 'expo-media-library/legacy';
 import type { PickedMedia } from './libraryImport';
 
-// Upper bound per round: the picker copies (and in 'compatible' mode
-// transcodes) every selected asset before it hands the list over, without
-// any progress of its own. Twenty keeps that wait in the seconds.
+// Upper bound per round: the picker copies every selected asset before it
+// hands the list over. With the originals that is a file copy each; twenty
+// keeps it in the seconds.
 export const SELECTION_LIMIT = 20;
 
 export type PickResult = { canceled: true } | { canceled: false; media: PickedMedia[] };
@@ -15,6 +15,16 @@ export type PickResult = { canceled: true } | { canceled: false; media: PickedMe
 // NO `allowsEditing`: that swaps in the legacy UIImagePickerController,
 // which loads the source fully into memory and dies silently on large
 // images (bug of 2026-08-13).
+//
+// The originals, untouched (spec 2026-08-28-fotos-import-pruefung): with
+// `Compatible` the picker decoded every HEIC into a UIImage and re-encoded
+// it as JPEG, and with an H.264 preset it exported every video, all BEFORE
+// launchImageLibraryAsync resolved, without any progress. Twenty large
+// elements took minutes of nothing. `Current` copies the file as it is
+// (EXIF is still read on that path, MediaHandler.swift handleImage), and
+// `Passthrough` copies the video bytes. HEIC becomes JPEG in preparePhoto,
+// HEVC becomes H.264 in the batch (videoExport.ts), both with progress on
+// screen.
 const OPTIONS: ImagePicker.ImagePickerOptions = {
   mediaTypes: ['images', 'videos'],
   allowsMultipleSelection: true,
@@ -22,24 +32,8 @@ const OPTIONS: ImagePicker.ImagePickerOptions = {
   orderedSelection: true,
   exif: true,
   quality: 1,
-  // HEIC becomes JPEG on the way out of the picker, so the web player can
-  // display what the camera roll delivered.
-  preferredAssetRepresentationMode:
-    ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Compatible,
-  // `preferredAssetRepresentationMode: Compatible` alone does NOT turn HEVC
-  // into H.264 (Final-Review, Important 1): the native default is
-  // `videoExportPreset: .passthrough` (ImagePickerOptions.swift:32), and
-  // MediaHandler.swift's handleVideo (line 404) then takes a passthrough
-  // fast path (lines 412-441) that copies the ORIGINAL library bytes via
-  // PHAssetResourceManager whenever PHAsset.fetchAssets(withLocalIdentifiers:)
-  // finds the asset, i.e. exactly when library read access was granted (see
-  // requestReadAccess below). Setting H264_1920x1080 here fails that
-  // `== .passthrough` check and forces a real transcode. The TypeScript type
-  // marks `videoExportPreset` `@deprecated` (ImagePicker.types.d.ts:437), but
-  // the native module still reads and honours it; the deprecation is only a
-  // documentation note. The exported file then comes out as .mp4, which
-  // mediaExtension already maps.
-  videoExportPreset: ImagePicker.VideoExportPreset.H264_1920x1080,
+  preferredAssetRepresentationMode: ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Current,
+  videoExportPreset: ImagePicker.VideoExportPreset.Passthrough,
 };
 
 // Read access to the library is what makes the picker hand over asset ids;
@@ -73,17 +67,16 @@ export async function pickFromLibrary(): Promise<PickResult> {
   await requestReadAccess();
   const result = await ImagePicker.launchImageLibraryAsync(OPTIONS);
   if (result.canceled) return { canceled: true };
-  const media: PickedMedia[] = [];
-  for (const asset of result.assets) {
-    const info = await libraryInfo(asset.assetId);
-    media.push({
-      uri: asset.uri,
-      kind: asset.type === 'video' ? 'video' : 'photo',
-      durationMs: asset.duration ?? null,
-      exif: asset.exif ?? null,
-      creationTime: info.creationTime,
-      location: info.location,
-    });
-  }
+  // The lookups are local PhotoKit reads; in parallel they cost one round
+  // trip for the whole selection instead of one per element.
+  const infos = await Promise.all(result.assets.map((asset) => libraryInfo(asset.assetId)));
+  const media: PickedMedia[] = result.assets.map((asset, index) => ({
+    uri: asset.uri,
+    kind: asset.type === 'video' ? 'video' : 'photo',
+    durationMs: asset.duration ?? null,
+    exif: asset.exif ?? null,
+    creationTime: infos[index].creationTime,
+    location: infos[index].location,
+  }));
   return { canceled: false, media };
 }

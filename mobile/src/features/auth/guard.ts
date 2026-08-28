@@ -39,7 +39,7 @@ export function isPublicArea(area: string | undefined): boolean {
 // The web hard lock stays unaffected by this: isWebLocked() still only lets
 // 'share' through, so the preview never even gets mounted on web.
 export function isAreaForSignedIn(area: string | undefined): boolean {
-  return area === '(tabs)' || area === 'preview';
+  return area === '(tabs)' || area === 'preview' || area === 'import-review';
 }
 
 // Web hard lock (coordinator decision, Task 5, from a finding in Task 4):
