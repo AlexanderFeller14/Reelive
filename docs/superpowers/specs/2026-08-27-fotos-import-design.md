@@ -81,7 +81,9 @@ richtig. Am Gerät zu prüfen.
    Entscheid 2026-08-27): ein Satz und drei Regeln mit den Werten der
    Reise (Reisezeitraum aus `formatRange`, Videolänge, «Ohne Caption, bis
    zum Recap versiegelt, höchstens 20 auf einmal»), Knopf «Fotos auswählen»,
-   Textlink «Abbrechen». Wischen oder Tipp daneben gilt als Abbrechen.
+   Textlink «Abbrechen». Wischen oder Tipp daneben gilt als Abbrechen. Beide
+   Sheets bekommen die Höhe der Kino-Tableiste als unteren Abstand
+   (`bottomInset`), damit Knopf und Textlink über der Leiste stehen.
 3. «Fotos auswählen» → Leseberechtigung anfragen (eine Ablehnung stoppt
    nichts) → iOS-Picker mit `mediaTypes: ['images', 'videos']`,
    `allowsMultipleSelection`, `selectionLimit: 20`, `orderedSelection`,
@@ -97,7 +99,9 @@ richtig. Am Gerät zu prüfen.
    Zusammenfassung der Ablehnungen in der Gegenwartsform, Knopf «N Momente
    einsenden», Textlink «Abbrechen». Abbrechen löscht alle Kopien, nichts
    wird eingesendet. Sind alle abgelehnt: Titel «Nichts zum Einsenden», die
-   Erklärung, ein Knopf «Verstanden».
+   Erklärung, ein Knopf «Verstanden». Das Sheet ist an die Reise gebunden,
+   gegen die bewertet wurde: wechselt die Reise darunter (Tab-Wechsel, Reise
+   endet oder wird aufgedeckt), schliesst es sich und gibt die Kopien frei.
 6. Sonst Batch: Kopfzeile (Reise-Wechsler, Steuerspalte) und Auslöser sind
    entfernt wie während einer Aufnahme, `captureLock` gesetzt (kein
    Tab-Wechsel mitten im Batch). Unten steht eine translucente Pille mit
