@@ -4,8 +4,8 @@ const mockLaunch = jest.fn();
 // reads both from the package, so the mock has to carry them.
 jest.mock('expo-image-picker', () => ({
   launchImageLibraryAsync: (options: unknown) => mockLaunch(options),
-  UIImagePickerPreferredAssetRepresentationMode: { Compatible: 'compatible' },
-  VideoExportPreset: { H264_1920x1080: 7 },
+  UIImagePickerPreferredAssetRepresentationMode: { Compatible: 'compatible', Current: 'current' },
+  VideoExportPreset: { H264_1920x1080: 7, Passthrough: 0 },
 }));
 
 const mockGetPermissions = jest.fn();
@@ -26,7 +26,7 @@ beforeEach(() => {
   mockLaunch.mockResolvedValue({ canceled: true, assets: null });
 });
 
-test('opens a multi-select picker for photos and videos with EXIF and compatible representations', async () => {
+test('opens a multi-select picker for photos and videos with EXIF that hands over the originals', async () => {
   await pickFromLibrary();
   expect(mockLaunch).toHaveBeenCalledWith(
     expect.objectContaining({
@@ -36,8 +36,8 @@ test('opens a multi-select picker for photos and videos with EXIF and compatible
       orderedSelection: true,
       exif: true,
       quality: 1,
-      preferredAssetRepresentationMode: 'compatible',
-      videoExportPreset: 7,
+      preferredAssetRepresentationMode: 'current',
+      videoExportPreset: 0,
     })
   );
   // The avatar bug of 2026-08-13: allowsEditing swaps in the legacy picker.
@@ -149,4 +149,31 @@ test('a failing permission check still opens the picker', async () => {
 test('a picker failure propagates to the caller', async () => {
   mockLaunch.mockRejectedValue(new Error('picker broke'));
   await expect(pickFromLibrary()).rejects.toThrow('picker broke');
+});
+
+test('library lookups run in parallel, not one after the other', async () => {
+  mockLaunch.mockResolvedValue({
+    canceled: false,
+    assets: [
+      { uri: 'file:///a.jpg', type: 'image', assetId: 'A' },
+      { uri: 'file:///b.jpg', type: 'image', assetId: 'B' },
+    ],
+  });
+  const started: string[] = [];
+  let release: () => void = () => {};
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  mockAssetInfo.mockImplementation(async (id: string) => {
+    started.push(id);
+    await gate;
+    return { creationTime: 1, location: undefined };
+  });
+  const pending = pickFromLibrary();
+  // A macrotask lets the permission check and the picker resolve; both
+  // lookups are then in flight before either has answered.
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(started).toEqual(['A', 'B']);
+  release();
+  await expect(pending).resolves.toMatchObject({ canceled: false });
 });
